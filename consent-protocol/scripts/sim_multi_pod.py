@@ -51,6 +51,33 @@ from typing import Any, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+# The DRIVER acts as the control plane: it issues and validates consent, so it needs
+# a signing key of its own, and the app rightly refuses to import without one. This
+# key is the hub's, and it is deliberately DIFFERENT from every pod's (each pod gets
+# its own in `start_pod_process`) -- with symmetric HMAC the power to verify is the
+# power to forge, so a hub key shared into the fleet would make any pod a universal
+# forger. `setdefault` so a real environment always wins over this throwaway.
+os.environ.setdefault(
+    "APP_SIGNING_KEY",
+    hashlib.sha256(b"hussh-sim-control-plane-signing-key").hexdigest(),
+)
+# The hub also refuses to boot without a vault key -- and that asymmetry is the
+# point of the pod-mode work: a POD tolerates its absence because it performs no
+# vault crypto, while the hub, which does, must have one. The driver is the hub.
+os.environ.setdefault(
+    "VAULT_DATA_KEY",
+    hashlib.sha256(b"hussh-sim-control-plane-vault-key").hexdigest(),
+)
+
+from sim_consent import (  # noqa: E402
+    ConsentLedger,
+    domains_for,
+    group_for_ui,
+    log_carries_no_content,
+    log_is_owner_partitioned,
+    run_consent_round,
+)
+
 from hushh_mcp.services.pkm_sqlite_engine import (  # noqa: E402
     ERR_COMMIT_BINDING,
     SqlitePkmWriteEngine,
@@ -61,7 +88,12 @@ from hushh_mcp.services.pod_commit_log import (  # noqa: E402
 )
 from hushh_mcp.services.pod_pkm_store import PodPkmStore  # noqa: E402
 
-DOMAIN = "financial"
+# The engine-invariant probes below drive their own reserved domain, NOT one from
+# the PKM catalogue. They keep a single `pod.revision` counter, while the dynamic
+# PKM load keeps one counter per loaded domain -- point both at the same domain and
+# the two counters race, which is exactly what happened when this was "financial"
+# and pod 0's catalogue slice also started at financial.
+DOMAIN = "simprobe"
 FINGERPRINT_A = "2" * 64
 FINGERPRINT_B = "9" * 64
 
@@ -115,10 +147,11 @@ def _commit_params(
     next_revision: int,
     commit_id: str,
     fingerprint: str = FINGERPRINT_A,
+    domain: str = DOMAIN,
 ) -> dict:
     return {
         "p_user_id": user_id,
-        "p_domain": DOMAIN,
+        "p_domain": domain,
         "p_expected_content_revision": expected,
         "p_next_content_revision": next_revision,
         "p_segment_rows": _segments(next_revision),
@@ -220,6 +253,12 @@ class Pod:
     log: PodCommitLog
     revision: int = 0
     process: Optional[subprocess.Popen] = None
+    # The PKM this pod loads is a per-pod SLICE of the catalogue, so the fleet is
+    # heterogeneous rather than 50 copies of one fixture -- and each domain keeps
+    # its own content revision, because they are independent optimistic-concurrency
+    # streams.
+    domains: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
+    domain_revisions: dict[str, int] = field(default_factory=dict)
 
     @property
     def url(self) -> str:
@@ -249,6 +288,7 @@ def build_pod(index: int, root: Path, base_port: int) -> Pod:
         seal_key=seal_key,
         store=PodPkmStore(engine, log),
         log=log,
+        domains=domains_for(index),
     )
 
 
@@ -331,6 +371,45 @@ async def probe_write_and_read_back(pod: Pod) -> tuple[bool, str]:
     if got != nxt:
         return False, f"read-back revision {got} != {nxt}"
     return True, f"rev={nxt}"
+
+
+async def probe_dynamic_pkm_load(pod: Pod) -> tuple[bool, str]:
+    """Load this pod's PKM dynamically: every domain in its slice, each on its own
+    revision stream.
+
+    Domains are independent optimistic-concurrency streams, so advancing one must
+    never disturb another. A shared revision counter would pass a single-domain
+    test and corrupt a multi-domain pod, which is why each domain tracks its own.
+    """
+    loaded = []
+    for domain, _paths in pod.domains:
+        current = pod.domain_revisions.get(domain, 0)
+        nxt = current + 1
+        result = _unwrap(
+            await pod.store.commit_domain_mutation(
+                _commit_params(
+                    pod.user_id,
+                    expected=current,
+                    next_revision=nxt,
+                    commit_id=f"{pod.hushh_id}-{domain}-{nxt}",
+                    domain=domain,
+                )
+            ),
+            "commit_pkm_domain_mutation_v4",
+        )
+        if not isinstance(result, dict) or not result.get("success"):
+            return False, f"{domain} load rejected: {result}"
+        pod.domain_revisions[domain] = nxt
+        snap = _unwrap(
+            await pod.store.get_domain_snapshot(
+                {"p_user_id": pod.user_id, "p_domain": domain, "p_segment_ids": None}
+            ),
+            "get_pkm_domain_snapshot_v1",
+        )
+        if (snap or {}).get("content_revision") != nxt:
+            return False, f"{domain} read back at {(snap or {}).get('content_revision')} != {nxt}"
+        loaded.append(f"{domain}@{nxt}")
+    return True, ",".join(loaded)
 
 
 async def probe_no_foreign_user(pod: Pod, other: Pod) -> tuple[bool, str]:
@@ -564,7 +643,7 @@ def probe_pod_identity(pod: Pod, session: Any) -> tuple[bool, str]:
 # --------------------------------------------------------------------------------------
 
 
-async def run_cycle(pods: list[Pod], cp: ControlPlane, session: Any) -> dict:
+async def run_cycle(pods: list[Pod], cp: ControlPlane, session: Any, ledger: ConsentLedger) -> dict:
     results: dict[str, dict[str, int]] = {}
     failures: list[str] = []
 
@@ -577,6 +656,7 @@ async def run_cycle(pods: list[Pod], cp: ControlPlane, session: Any) -> dict:
     for i, pod in enumerate(pods):
         other = pods[(i + 1) % len(pods)]
         for name, coro in (
+            ("dynamic_pkm_load", probe_dynamic_pkm_load(pod)),
             ("write_and_read_back", probe_write_and_read_back(pod)),
             ("no_foreign_user", probe_no_foreign_user(pod, other)),
             ("chain_integrity", probe_chain_integrity(pod)),
@@ -608,8 +688,29 @@ async def run_cycle(pods: list[Pod], cp: ControlPlane, session: Any) -> dict:
             ok, detail = probe_pod_identity(pod, session)
             record("pod_identity", ok, detail, pod.hushh_id)
 
+        # --- consent + scoped sharing, through the REAL protocol ---------------
+        # The owner's PKM is loaded first (above), so a grant always refers to a
+        # domain that actually exists on this pod -- consent over an empty PKM
+        # would prove nothing.
+        domain, paths = pod.domains[0]
+        other_domain = pod.domains[1][0] if len(pod.domains) > 1 else "travel"
+        for check, ok, detail in run_consent_round(
+            owner_hushh_id=pod.hushh_id,
+            owner_user_id=pod.user_id,
+            recipient_user_id=other.user_id,
+            domain=domain,
+            path=paths[0],
+            other_domain=other_domain,
+            ledger=ledger,
+        ):
+            record(check, ok, detail, pod.hushh_id)
+
     ok, detail = probe_share_is_metadata_only(cp)
     record("share_metadata_only", ok, detail, "control-plane")
+    ok, detail = log_carries_no_content(ledger)
+    record("consent_log_metadata_only", ok, detail, "ledger")
+    ok, detail = log_is_owner_partitioned(ledger, [p.hushh_id for p in pods])
+    record("consent_log_owner_partitioned", ok, detail, "ledger")
 
     return {"probes": results, "failures": failures}
 
@@ -632,6 +733,8 @@ async def main() -> int:
 
     pods = [build_pod(i, root, args.base_port) for i in range(args.pods)]
     cp = ControlPlane()
+    ledger = ConsentLedger()
+    consent_log_file = root / "consent-log.json"
 
     session = None
     if args.http:
@@ -640,8 +743,10 @@ async def main() -> int:
         session = requests
         for pod in pods:
             pod.process = start_pod_process(pod, repo)
-        # Pods import the full app; give them room to come up before probing.
-        deadline = time.time() + 240
+        # Pods import the full app (~25 s of CPU each) and the host has far fewer
+        # cores than pods, so boot is wave-scheduled: the window must grow with the
+        # fleet or a 50-pod run "fails to start" for want of patience.
+        deadline = time.time() + 180 + 12 * len(pods)
         ready = 0
         while time.time() < deadline and ready < len(pods):
             ready = 0
@@ -672,7 +777,7 @@ async def main() -> int:
     try:
         while not stopping["now"]:
             cycle += 1
-            outcome = await run_cycle(pods, cp, session)
+            outcome = await run_cycle(pods, cp, session, ledger)
             for name, counts in outcome["probes"].items():
                 bucket = totals.setdefault(name, {"pass": 0, "fail": 0})
                 bucket["pass"] += counts["pass"]
@@ -685,7 +790,10 @@ async def main() -> int:
                 "cycle": cycle,
                 "uptimeSeconds": round(time.time() - started, 1),
                 "http": bool(args.http),
-                "revisionsWritten": sum(p.revision for p in pods),
+                "revisionsWritten": sum(p.revision for p in pods)
+                + sum(sum(p.domain_revisions.values()) for p in pods),
+                "domainsLoaded": sum(len(p.domain_revisions) for p in pods),
+                "consentLog": ledger.counts(),
                 "totals": totals,
                 "lastCycle": outcome["probes"],
                 "failures": outcome["failures"][:20],
@@ -693,6 +801,30 @@ async def main() -> int:
                 "updatedAt": time.time(),
             }
             status_file.write_text(json.dumps(status, indent=2))
+            # The consent log as the OWNER would read it: partitioned per user,
+            # newest last, metadata only. This is the artifact the app renders.
+            consent_log_file.write_text(
+                json.dumps(
+                    {
+                        "generatedAt": time.time(),
+                        "totals": ledger.counts(),
+                        # Two shapes on purpose. `byOwner` is the raw ledger as
+                        # `consent_audit` stores it; `historyByOwner` is the same
+                        # events grouped the way `/api/consent/center/list` returns
+                        # them and the History tab renders them. Emitting only the
+                        # flat shape would produce a fixture the real UI cannot
+                        # consume -- the consent centre has no flat feed.
+                        "byOwner": {
+                            p.hushh_id: [e.to_row() for e in ledger.for_owner(p.hushh_id)]
+                            for p in pods
+                        },
+                        "historyByOwner": {
+                            p.hushh_id: group_for_ui(ledger, p.hushh_id) for p in pods
+                        },
+                    },
+                    indent=2,
+                )
+            )
             flag = "OK" if not outcome["failures"] else f"FAIL({len(outcome['failures'])})"
             print(
                 f"cycle={cycle} pods={len(pods)} alive={alive} "
