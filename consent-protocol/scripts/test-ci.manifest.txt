@@ -87,3 +87,4 @@ tests/test_personal_agent_autoprovision.py
 tests/test_one_location_db_error_detail_cwe209.py
 tests/test_cloudbuild_step_arg_limit.py
 tests/test_pod_no_trace_reset.py
+tests/test_compute_backend_parity.py

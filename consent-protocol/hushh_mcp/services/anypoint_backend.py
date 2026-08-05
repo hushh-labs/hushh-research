@@ -102,6 +102,49 @@ class AnypointBackend:
         # Pin to a Private Space for per-user network isolation when configured.
         if self._private_space_id:
             deployment_settings["privateSpaceId"] = self._private_space_id
+
+        # The SAME image runs here as on Cloud Run, so it reads the SAME names. These
+        # are the capability slots `test_compute_backend_parity.py` holds every
+        # platform to; a slot that is absent is not "unconfigured", it is a pod that
+        # cannot do its job on this platform.
+        properties: dict[str, str] = {
+            "HUSSH_ID": spec.hushh_id,
+            "HUSSH_SPACE_ID": spec.space_id or "",
+            "HUSSH_REGION": spec.region or "",
+            "HUSSH_RUNTIME_VERSION": spec.runtime_version or "",
+            "HUSSH_PROMPT_VERSION": spec.prompt_version or "",
+            # The pod's ONE data-plane door. It holds no database credential, so
+            # everything it needs travels pod -> hub -> Postgres through this URL.
+            "HUSSH_HUB_BASE_URL": _env("HUSSH_HUB_BASE_URL") or "",
+            # A pod exists only because the feature was enabled to provision it, and
+            # the route it mounts 404s without this.
+            "PERSONAL_AGENT_ENABLED": "1",
+            # The consent-token VERIFYING keys (Ed25519, public half only). This is
+            # what lets a pod check a token at its own door while holding nothing
+            # that could forge one.
+            "CONSENT_ED25519_PUBLIC_KEYS": _env("CONSENT_ED25519_PUBLIC_KEYS") or "",
+        }
+        # Model access. The divergence from Cloud Run is real and is not papered
+        # over: on CloudHub there is no ambient Google identity to borrow, so the
+        # pod can only reach Vertex when a compute project is explicitly configured
+        # for it. The slot is always present (the platform is configurable); the
+        # toggle turns on only when that project exists, which keeps a dark-shipped
+        # pod inert rather than claiming an identity it does not have.
+        vertex_project = _env("HUSSH_POD_VERTEX_PROJECT") or ""
+        properties["GOOGLE_GENAI_USE_VERTEXAI"] = "true" if vertex_project else "false"
+        properties["GOOGLE_CLOUD_PROJECT"] = vertex_project
+        properties["GOOGLE_CLOUD_LOCATION"] = _env("HUSSH_POD_VERTEX_LOCATION") or spec.region or ""
+
+        # APP_SIGNING_KEY arrives BY REFERENCE, never as a value -- with HMAC the
+        # power to verify is the power to forge, so a rendered key would put a
+        # universal forger in the deploy artifact. Mule resolves `${secure::...}`
+        # from the environment's secure properties; the placeholder is the
+        # reference, and it is only emitted when a secret is actually configured
+        # (mirroring the Cloud Run secretKeyRef mount).
+        secure_properties: dict[str, str] = {}
+        if _env("HUSSH_POD_SIGNING_KEY_SECRET"):
+            secure_properties["APP_SIGNING_KEY"] = "${secure::hussh.pod.signing.key}"
+
         return {
             "name": name,
             "target": {
@@ -113,14 +156,10 @@ class AnypointBackend:
                 "desiredState": "STARTED",
                 "configuration": {
                     "mule.agent.application.properties.service": {
-                        # Identity + pins only; no secrets in the artifact.
-                        "properties": {
-                            "HUSSH_ID": spec.hushh_id,
-                            "HUSSH_SPACE_ID": spec.space_id or "",
-                            "HUSSH_REGION": spec.region or "",
-                            "HUSSH_PROMPT_VERSION": spec.prompt_version or "",
-                        },
-                        "secureProperties": {},
+                        # Identity, pins + capability slots; no secret VALUE in the
+                        # artifact -- signing material is a reference only.
+                        "properties": properties,
+                        "secureProperties": secure_properties,
                     }
                 },
                 "vCores": self._vcores,
