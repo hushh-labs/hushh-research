@@ -1751,8 +1751,15 @@ export class ApiService {
    * resolves against the Python backend — targets the web origin explicitly.
    */
   static async notifyAuthMail(
-    event: "signed_in" | "phone_conflict",
-    options?: { phoneNumber?: string; idToken?: string },
+    event: "signed_in" | "signed_out" | "phone_conflict" | "capabilities_linked",
+    options?: {
+      phoneNumber?: string;
+      /** Currently connected capability ids; the server diffs these. */
+      capabilities?: string[];
+      /** Ids whose state was resolvable this pass. Absent ids are unknown, not absent. */
+      observed?: string[];
+      idToken?: string;
+    },
   ): Promise<boolean> {
     try {
       const idToken = options?.idToken || (await this.getFirebaseToken());
@@ -1765,6 +1772,8 @@ export class ApiService {
         body: JSON.stringify({
           event,
           ...(options?.phoneNumber ? { phoneNumber: options.phoneNumber } : {}),
+          ...(options?.capabilities ? { capabilities: options.capabilities } : {}),
+          ...(options?.observed ? { observed: options.observed } : {}),
         }),
       });
       return response.ok;

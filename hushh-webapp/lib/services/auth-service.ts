@@ -12,6 +12,7 @@
  */
 
 import { Capacitor } from "@capacitor/core";
+import { PHONE_CONFLICT_COPY } from "@/lib/mail/account-activity-copy";
 import { getApps, initializeApp } from "firebase/app";
 import {
   type ApplicationVerifier,
@@ -1320,10 +1321,10 @@ export class AuthService {
       code === "credential-already-in-use" ||
       code === "phone-number-already-exists"
     ) {
-      return this.createPhoneVerificationError(
-        code,
-        "This phone number is already associated with another active account. If the account was just deleted, wait a moment and try again.",
-      );
+      // Same words as the mail this triggers, from one shared source. Reading
+      // one thing on screen and a different one in the inbox reads like two
+      // separate problems.
+      return this.createPhoneVerificationError(code, PHONE_CONFLICT_COPY.inApp);
     }
 
     if (code === "provider-already-linked") {
