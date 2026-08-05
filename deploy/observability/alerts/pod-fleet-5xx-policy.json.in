@@ -1,0 +1,38 @@
+{
+  "displayName": "[Managed] Pod Fleet 5xx Rate High",
+  "documentation": {
+    "content": "A per-user pod is serving 5xx.\n\nWhy this policy exists separately: every other policy here filters `resource.label.\"service_name\"=\"consent-protocol\"`, and a per-user pod's service is named `one-pod-<hushh-id>`. No pod in the fleet has ever matched an alert. This one selects on the `app=hussh-one-pod` service label instead, so it covers the whole fleet with one policy however many pods exist -- one policy per user is not a shape that scales.\n\nWhat it does NOT cover: liveness. An `instance_count=0` condition would look like the obvious way to detect a dead pod, and it would be wrong -- the economy tier runs at `minScale=0`, so zero instances is that tier's correct resting state, not a fault. Distinguishing 'asleep' from 'dead' needs the pod's own heartbeat and is not something Cloud Run metrics can answer from outside. This policy covers a pod that is UP and FAILING, which is unambiguous.\n\nFirst response: identify the pod from `resource.label.service_name`, read its `request.summary` lines (pods emit them under their own service name), and check the revision's conditions before restarting -- a restart that discards the evidence makes a bad deploy configuration unattributable.",
+    "mimeType": "text/markdown"
+  },
+  "combiner": "OR",
+  "enabled": true,
+  "notificationChannels": [],
+  "userLabels": {
+    "managed_by": "repo_observability",
+    "scope": "ops"
+  },
+  "conditions": [
+    {
+      "displayName": "hussh-one-pod fleet 5xx rate > 0.02 req/s (5m)",
+      "conditionThreshold": {
+        "filter": "resource.type=\"cloud_run_revision\" AND metadata.user_labels.\"app\"=\"hussh-one-pod\" AND metric.type=\"run.googleapis.com/request_count\" AND metric.label.\"response_code_class\"=\"5xx\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "groupByFields": [
+              "resource.label.\"service_name\""
+            ]
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0.02,
+        "duration": "300s",
+        "trigger": {
+          "count": 1
+        }
+      }
+    }
+  ]
+}
