@@ -81,6 +81,22 @@ describe("sign-in mail", () => {
     expect(markWelcomeSent).not.toHaveBeenCalled();
   });
 
+  it("still reports the send when the marker fails to persist", async () => {
+    const { sendSignInMail } = await loadService();
+    const markWelcomeSent = vi.fn().mockRejectedValue(new Error("claims unavailable"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const outcome = await sendSignInMail(asRecord(makeUser()), { appUrl: APP_URL }, {
+      markWelcomeSent,
+    });
+
+    // The mail was delivered; calling that a failure would be the opposite of
+    // what happened.
+    expect(outcome).toMatchObject({ status: "sent", kind: "welcome" });
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it("never sends a second welcome, even if the account looks new again", async () => {
     const { sendSignInMail, WELCOME_MAIL_CLAIM } = await loadService();
     const user = makeUser({ customClaims: { [WELCOME_MAIL_CLAIM]: 1_754_000_000 } });

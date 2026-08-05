@@ -128,7 +128,16 @@ export async function sendSignInMail(
       `one-welcome:${user.uid}`,
     );
     if (outcome.status === "sent") {
-      await deps.markWelcomeSent(user.uid, Math.floor(Date.now() / 1000));
+      // The mail is already delivered at this point. A claim-write failure must
+      // not be reported as a failed send — the caller would read that as "no
+      // mail went out", which is the opposite of what happened. `isFirstSignIn`
+      // stops being true once the next real sign-in advances lastSignInTime, so
+      // a lost marker risks at most one repeat, not an unbounded loop.
+      try {
+        await deps.markWelcomeSent(user.uid, Math.floor(Date.now() / 1000));
+      } catch (error) {
+        console.warn("[AuthMail] Welcome mail sent but its marker did not persist:", error);
+      }
     }
     return outcome;
   }
