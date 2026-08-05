@@ -110,7 +110,8 @@
     "129_ria_pick_legacy_retirement.sql",
     "130_one_runtime_setup_choice.sql",
     "131_one_location_nearby_point_contract.sql",
-    "132_one_wallet_card.sql"
+    "132_one_wallet_card.sql",
+    "133_hussh_crm_response_contracts.sql"
   ],
   "groups": {
     "iam": [
@@ -175,7 +176,8 @@
       "129_ria_pick_legacy_retirement.sql",
       "130_one_runtime_setup_choice.sql",
       "131_one_location_nearby_point_contract.sql",
-      "132_one_wallet_card.sql"
+      "132_one_wallet_card.sql",
+      "133_hussh_crm_response_contracts.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
