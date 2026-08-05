@@ -590,6 +590,38 @@ describe("top shell breadcrumbs", () => {
     expect(resolveTopShellBreadcrumb("/one/location")?.backHref).toBe("/one");
   });
 
+  it("returns a focused flow to the hub TAB it was opened from (Links/People/Settings)", () => {
+    // Regression: opening "Create a new link" from Links, "Invite trusted
+    // person" from People, or "SMS contacts" from Settings must return Back to
+    // that ORIGINATING tab — not the default "Now" tab. `openFlow` keeps the
+    // current `?view=` tab in the URL alongside `?action=`, so the breadcrumb
+    // resolver retraces to it.
+
+    // Links → Create a new link (temp-link) → back to Links.
+    const fromLinks = new URLSearchParams();
+    fromLinks.set("view", "links");
+    fromLinks.set("action", "temp-link");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromLinks)?.backHref,
+    ).toBe("/one/location?view=links");
+
+    // People → Invite trusted person (invite) → back to People.
+    const fromPeople = new URLSearchParams();
+    fromPeople.set("view", "people");
+    fromPeople.set("action", "invite");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromPeople)?.backHref,
+    ).toBe("/one/location?view=people");
+
+    // Settings → SMS contacts → back to the Settings flow (not "Now").
+    const fromSettings = new URLSearchParams();
+    fromSettings.set("action", "sms-contacts");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromSettings)?.backHref,
+    ).toBe("/one/location?action=settings");
+  });
+
+
   it("retraces setup-hub-opened capabilities through their terminal acknowledgement", () => {
     // From the Set up One hub, capability handoffs carry ?from=/one/setup so the
     // top-bar back returns to the hub (not Profile/dashboard) — "jaise aaya waise

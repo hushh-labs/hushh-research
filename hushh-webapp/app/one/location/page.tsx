@@ -117,7 +117,9 @@ function BodyPortal({ children }: { children: ReactNode }) {
 
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import { isWeb } from "@/lib/capacitor/platform";
+import { apiErrorCode } from "@/lib/services/api-client";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+
 
 import {
   RECIPIENT_KEY_UNAVAILABLE_MESSAGE,
@@ -3538,6 +3540,21 @@ export function OneLocationAgentPageContent({
         const keyUnavailable =
           error instanceof Error &&
           error.message === RECIPIENT_KEY_UNAVAILABLE_MESSAGE;
+        // The grant is active ("Live") but the owner has not published any
+        // encrypted point yet — e.g. they JUST started sharing, or haven't
+        // moved / re-opened One since. The backend returns a 404
+        // LOCATION_ENVELOPE_MISSING for this. It's a normal "not ready yet"
+        // state on the happy path, NOT a failure, so we must never surface the
+        // raw backend string ("The owner has not published an encrypted
+        // location envelope yet.") as a scary red error toast the moment the
+        // recipient lands on the page.
+        const envelopeMissing =
+          !keyUnavailable &&
+          (apiErrorCode(error) === "LOCATION_ENVELOPE_MISSING" ||
+            (error instanceof Error &&
+              /has not published an encrypted location envelope/i.test(
+                error.message,
+              )));
         if (keyUnavailable) {
           // The recipient's device key rotated / was lost, so this envelope was
           // encrypted for a key we no longer hold. Self-heal: re-register our
@@ -3560,6 +3577,23 @@ export function OneLocationAgentPageContent({
               grant,
             )}'s live location — the secure key changed. Ask them to share again.`,
           }));
+        } else if (envelopeMissing) {
+          // Calm, reassuring "waiting for their first update" state. The share
+          // is genuinely active; the point simply hasn't arrived yet and will
+          // appear automatically on the next poll once the owner publishes.
+          const waitingMessage = `${receivedGrantOwnerLabel(
+            grant,
+          )} is sharing, but hasn't sent a live location update yet. It will appear here automatically as soon as they move or open One.`;
+          setGrantViewErrors((current) =>
+            current[grant.id] === waitingMessage
+              ? current
+              : { ...current, [grant.id]: waitingMessage },
+          );
+          // Only nudge with a gentle (non-error) toast on an explicit tap, and
+          // never on the background poll, so the page stays quiet while waiting.
+          if (!silent) {
+            toast.message(waitingMessage);
+          }
         } else if (!silent) {
           toast.error(
             error instanceof Error
@@ -3573,6 +3607,7 @@ export function OneLocationAgentPageContent({
           );
         }
       } finally {
+
         if (!silent) setBusy(null);
       }
     },

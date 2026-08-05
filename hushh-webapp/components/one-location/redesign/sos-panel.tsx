@@ -10,6 +10,7 @@ import {
   type PointerEvent,
 } from "react";
 import { ChevronLeft, Loader2, Phone } from "lucide-react";
+import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
@@ -33,7 +34,9 @@ export function isWindowsDesktopEmCallUnsupported(
 ) {
   const userAgent = (options?.userAgent ?? navigator.userAgent).toLowerCase();
   const platform = (options?.platform ?? navigator.platform).toLowerCase();
-  const isWindows = /windows/.test(platform) || /windows/i.test(userAgent);
+  const isWindows =
+    /windows|win32|win64|wow64|win16/.test(platform) ||
+    /windows nt|win64|wow64|win32/.test(userAgent);
   const isMobileOrTablet =
     /mobile|mobi|iphone|ipad|ipod|android/.test(userAgent) ||
     /phone|tablet|touch/.test(userAgent);
@@ -115,8 +118,17 @@ export function SosPanel({
   const customMessageInvalid =
     messageSelection === "custom" &&
     (!selectedMessage || customMessageLimitExceeded);
-  const disabled =
-    busy || active || readyRecipients.length === 0 || customMessageInvalid;
+  // True when the owner has not added any share-ready SMS contact yet. In this
+  // case we keep the button PRESSABLE (see `hardDisabled` below) so the hold
+  // handler can surface an actionable toast instead of silently doing nothing.
+  const noReadyRecipients = readyRecipients.length === 0;
+  // Blockers that must keep the button truly inert (sending in progress, already
+  // live, or an invalid custom message). Missing contacts is intentionally NOT
+  // here so the press can explain what to do.
+  const hardDisabled = busy || active || customMessageInvalid;
+  // Full guard used by the hold-completion path so a hold can never actually
+  // send an SMS while there are no ready recipients.
+  const disabled = hardDisabled || noReadyRecipients;
   const shouldFallbackWindowsEmergencyCall = isWindowsDesktopEmCallUnsupported();
   // Radar pulse is active the moment the user starts pressing, and keeps
   // emanating continuously while the SMS is sending and after it goes live.
@@ -150,12 +162,18 @@ export function SosPanel({
   }, []);
 
   const startHold = useCallback(() => {
-    if (disabled || holdStartedAtRef.current || firedRef.current) return;
+    if (hardDisabled || holdStartedAtRef.current || firedRef.current) return;
+    if (noReadyRecipients) {
+      toast.error(
+        "Please add at least one contact in your SMS emergency contact list.",
+      );
+      return;
+    }
     holdStartedAtRef.current = performance.now();
     setProgress(0);
     frameRef.current = requestAnimationFrame(updateProgress);
     timeoutRef.current = setTimeout(completeHold, HOLD_DURATION_MS);
-  }, [completeHold, disabled, updateProgress]);
+  }, [completeHold, hardDisabled, noReadyRecipients, updateProgress]);
 
   const cancelHold = useCallback(() => clearHold(true), [clearHold]);
 
@@ -278,7 +296,11 @@ export function SosPanel({
 
             <button
               type="button"
-              disabled={disabled}
+              // Only HARD blockers (sending, already live, invalid message)
+              // disable the control. When the sole blocker is "no SMS contacts
+              // added", the button stays pressable so the hold handler can show
+              // an actionable toast instead of the press doing nothing.
+              disabled={hardDisabled}
               aria-label={
                 active
                   ? "SMS sharing is active"
