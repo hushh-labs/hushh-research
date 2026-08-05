@@ -452,6 +452,21 @@ def pod_warm_stale_seconds() -> int:
     return value if value > 0 else _POD_WARM_STALE_SECONDS_DEFAULT
 
 
+def pod_native_grounding_enabled() -> bool:
+    """Let a pod ground its agent from its OWN records instead of a client blob.
+
+    Default **OFF**. Grounding is client-mediated today: the browser holds the vault
+    key, decrypts holdings locally and posts them back per turn, so the hub never
+    holds the key. That is a real zero-knowledge property, and switching sources
+    changes what the agent is told -- which is not a change to make implicitly.
+
+    The reason to turn it on is that the current path requires a browser with an
+    unlocked vault, so a pod-hosted agent, the iOS shell, an A2A call and any
+    proactive turn all reach the model knowing nothing about the person they serve.
+    See ``pkm_grounding_service`` for the ephemeral-key refusal this switch implies."""
+    return _bool_from_value(_clean_env("HUSSH_POD_NATIVE_GROUNDING_ENABLED"), default=False)
+
+
 def pod_autoheal_enabled() -> bool:
     """Kill-switch for auto-healing an unreachable pod by replacing its service.
 

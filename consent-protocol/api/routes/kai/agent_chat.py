@@ -31,6 +31,7 @@ from hushh_mcp.services.agent_chat_service import (
     PreparedAgentChatTurn,
     get_agent_chat_service,
 )
+from hushh_mcp.services.pkm_grounding_service import resolve_grounding
 
 logger = logging.getLogger(__name__)
 
@@ -674,11 +675,23 @@ async def stream_agent_chat(
         saved = False
         first_meaningful_logged = False
         try:
+            # Resolve the grounding source server-side rather than taking the
+            # request body as the answer. With the pod-native flag off this returns
+            # the client blob unchanged, so today's behaviour is byte-identical; the
+            # difference is that the SOURCE is now a decided, reported fact instead
+            # of an assumption, which is what lets a pod ground its own agent when
+            # no browser is open. See pkm_grounding_service.
+            grounding = await resolve_grounding(
+                user_id=body.user_id, client_context=body.pkm_context
+            )
             logger.info(
-                "agent_chat.telemetry event=sse_open latency_ms=%.1f runtime_mode=%s pkm_context=%s",
+                "agent_chat.telemetry event=sse_open latency_ms=%.1f runtime_mode=%s "
+                "pkm_context=%s grounding_source=%s grounding_reason=%s",
                 (time.perf_counter() - request_started) * 1000,
                 runtime.mode,
-                "provided" if bool((body.pkm_context or "").strip()) else "absent",
+                "provided" if grounding.is_grounded else "absent",
+                grounding.source,
+                grounding.reason,
             )
             yield _event(
                 "start",
@@ -695,7 +708,7 @@ async def stream_agent_chat(
                 history=turn.history,
                 timezone=body.timezone,
                 screen_context=sanitized_screen_context,
-                pkm_context=body.pkm_context,
+                pkm_context=grounding.text or None,
                 runtime=runtime,
                 runtime_credential=body.runtime_credential,
                 runtime_credential_transport=runtime.gemini_byok_transport,
