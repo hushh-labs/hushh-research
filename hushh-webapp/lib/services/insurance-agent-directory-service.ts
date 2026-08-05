@@ -166,13 +166,34 @@ export function formatAgentDistance(
  * "Auto · Home · Commercial" — what this agency can actually insure, which is
  * the one thing that distinguishes two agencies on the same street.
  *
- * Capped at three because the row is one line: a Standard Independent agency
- * routinely carries six or more products, and the full list pushes the distance
- * off the row on a phone.
+ * Capped at three because the row is one line: most agencies carry six or eight
+ * products, and the full list pushes the distance off the row on a phone.
  */
 export function formatAgentSubtitle(card: InsuranceAgentCard): string | null {
   const products = card.products.slice(0, 3);
   if (products.length) return products.join(" · ");
   // No products listed: fall back to where it is, so the row is never bare.
   return card.city ?? null;
+}
+
+/** The one `agencyType` that is a standing default rather than a distinction. */
+const DEFAULT_AGENCY_TYPE = "standard independent";
+
+/**
+ * The agency's status, but only when it actually distinguishes one.
+ *
+ * Sampling a full page returned "Standard Independent" for 49 of 50 agencies
+ * and "Elite" for one. A label carried by almost every row tells a reader
+ * nothing and costs a line on every card, so it is dropped; the rare one is
+ * kept, because that is the whole point of it.
+ *
+ * `tier` came back null throughout, so it is only read as a fallback rather
+ * than relied on.
+ */
+export function agencyStatusLabel(
+  card: InsuranceAgentCard,
+): string | null {
+  const status = card.agencyType?.trim() || card.tier?.trim() || null;
+  if (!status) return null;
+  return status.toLowerCase() === DEFAULT_AGENCY_TYPE ? null : status;
 }

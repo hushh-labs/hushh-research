@@ -18,6 +18,7 @@ import {
   INSURANCE_AGENT_PAGE_SIZE,
   INSURANCE_AGENT_RADIUS_OPTIONS_MI,
   InsuranceAgentDirectoryService,
+  agencyStatusLabel,
   formatAgentDistance,
   formatAgentSubtitle,
   type InsuranceAgentAttribution,
@@ -216,12 +217,21 @@ export function InsuranceAgentsNearby({
           ) : (
             cards.map((card) => {
               const distance = formatAgentDistance(card.distanceMiles);
+              // Roughly one agency in fifty carries a standing status; the rest
+              // share one default that is dropped rather than repeated on every
+              // row. Same weight as the advisers' disclosure marker beside it.
+              const status = agencyStatusLabel(card);
               return (
                 <SettingsRow
                   key={card.id}
                   title={
                     <span className="flex min-w-0 items-center gap-2">
                       <span className="truncate">{card.name ?? "Agency"}</span>
+                      {status ? (
+                        <span className="type-caption shrink-0 rounded-full bg-[color:var(--app-accent)]/10 px-1.5 py-0.5 text-[color:var(--app-accent)]">
+                          {status}
+                        </span>
+                      ) : null}
                     </span>
                   }
                   description={formatAgentSubtitle(card) ?? undefined}

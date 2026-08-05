@@ -2,7 +2,10 @@
 
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { Button } from "@/lib/morphy-ux/button";
-import type { InsuranceAgentCard } from "@/lib/services/insurance-agent-directory-service";
+import {
+  agencyStatusLabel,
+  type InsuranceAgentCard,
+} from "@/lib/services/insurance-agent-directory-service";
 
 /**
  * One agency, opened from the nearby list.
@@ -38,7 +41,7 @@ export function InsuranceAgentDetailSurface({
     <AdaptiveDetailSurface
       open={open}
       onOpenChange={onOpenChange}
-      eyebrow={card.agencyType ?? undefined}
+      eyebrow={agencyStatusLabel(card) ?? undefined}
       title={card.name ?? "Agency"}
       mobilePresentation="sheet"
       footer={

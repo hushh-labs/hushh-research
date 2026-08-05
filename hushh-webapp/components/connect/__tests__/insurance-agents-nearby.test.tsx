@@ -147,6 +147,35 @@ describe("InsuranceAgentsNearby", () => {
     expect(screen.getByText("~0.2 mi")).toBeTruthy();
   });
 
+  it("drops the status almost every agency shares, keeps the rare one", async () => {
+    // Sampling a full page returned "Standard Independent" for 49 of 50 rows.
+    // A label on almost every row is noise; the outlier is the whole signal.
+    mocks.searchNearby.mockResolvedValue(
+      result({
+        items: [
+          { ...AGENCY, id: "1", name: "Ordinary Agency" },
+          {
+            ...AGENCY,
+            id: "2",
+            name: "Standout Agency",
+            agencyType: "Elite",
+          },
+        ],
+      }),
+    );
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 47.6769, longitude: -122.206 },
+      error: null,
+    };
+    render(<InsuranceAgentsNearby getIdToken={getIdToken} />);
+
+    await waitFor(() => expect(screen.getByText("Ordinary Agency")).toBeTruthy());
+    expect(screen.queryByText("Standard Independent")).toBeNull();
+    expect(screen.getByText("Elite")).toBeTruthy();
+  });
+
   it("offers a ZIP search when the device says no", async () => {
     mocks.locationState = {
       status: "denied",
