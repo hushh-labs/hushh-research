@@ -150,6 +150,35 @@ The same question applies to generated files — `.claude/agents/*.md` are gener
 `agents/*.toml`, so editing the generated copy is a change that silently disappears
 on the next sync.
 
+## 2c-i. A module-level import is a graph, not a line
+
+Adding `from x.contract import Thing` at the top of a module looks like importing one name.
+It is not: Python runs `x`'s package `__init__` first, and whatever *that* eagerly imports,
+and whatever *those* import. A registration `__init__` that eagerly pulls its handlers can
+reach back into the very module that triggered it while that module is still initializing —
+a circular import whose error names a symbol (`cannot import name 'ONE_APP_NAME'`) that is
+perfectly fine and has nothing to do with the real cause (§2b: read the failure, not its
+label). It surfaces only at **collection** time, so the unit test you ran in isolation
+passes while the full suite fails to import.
+
+Two habits close it. Register **lazy thunks** — import the heavy dependency inside the
+handler, on first use, never at package import — so a registration seam is name→thunk and
+cannot cycle. And after any change to a module-level import or a package `__init__`, run a
+**collection-only** pass (`pytest --co -q`) before believing anything: it is seconds, and it
+is the only thing that exercises the whole import graph the way the gate will.
+
+## 2c-ii. The tool's working directory is part of the command
+
+A gate invoked from the wrong directory does not fail honestly — it fails *misleadingly*.
+`ruff` from the repo root against a package-relative path returns `E902 No such file`, and a
+governance script run from a subdir exits `127`. Both read as "the check failed" when the
+truth is "the check never ran." This session burned several cycles reading a cwd artifact as
+a real regression. The shell's cwd persists across calls and a prior `cd` can leave you
+somewhere unexpected; a compound `cd sub && cmd` changes it for that call only. When a gate
+result contradicts a green run you just saw, **suspect the cwd before the code** — re-run
+with an absolute path or an explicit `cd`, and confirm the failure reproduces from the
+canonical location before you touch anything.
+
 ## 2d. What actually runs is a list someone maintains, not everything you wrote
 
 Adding a file does not add it to CI. `consent-protocol/scripts/test-ci.manifest.txt` is a
