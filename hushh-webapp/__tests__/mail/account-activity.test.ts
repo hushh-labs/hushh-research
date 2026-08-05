@@ -75,34 +75,71 @@ describe("sign-out mail", () => {
 });
 
 describe("capability link mail", () => {
+  const ALL = ["gmail", "finance", "location", "pkm", "consent"];
+
   it("seeds silently on the first report, so existing users are not spammed", async () => {
     const { sendCapabilityLinkedMail } = await loadService();
-    const markCapabilitiesMailed = vi.fn().mockResolvedValue(undefined);
+    const markCapabilities = vi.fn().mockResolvedValue(undefined);
 
     const result = await sendCapabilityLinkedMail(
       asRecord(makeUser()),
-      ["gmail", "finance", "location"],
-      { markCapabilitiesMailed },
+      { observed: ALL, connected: ["gmail", "finance", "location"] },
+      { markCapabilities },
     );
 
     expect(result).toEqual({ status: "seeded", mailed: [] });
     expect(sendMail).not.toHaveBeenCalled();
-    expect(markCapabilitiesMailed).toHaveBeenCalledWith("uid-1", [
+    expect(markCapabilities.mock.calls[0][1].mailed).toEqual([
       "finance",
       "gmail",
       "location",
     ]);
   });
 
-  it("mails only what is newly connected", async () => {
-    const { sendCapabilityLinkedMail, LINKED_MAIL_CLAIM } = await loadService();
-    const markCapabilitiesMailed = vi.fn().mockResolvedValue(undefined);
-    const user = makeUser({ customClaims: { [LINKED_MAIL_CLAIM]: ["gmail"] } });
+  it("does not mail a capability the first time its state is resolvable", async () => {
+    // The regression: /one resolves without OAuth enrichment, so Gmail reads
+    // `unknown` there. Seeding from that view then treating the first
+    // /one/setup visit as a fresh connection would mail somebody about a link
+    // they made months ago.
+    const { sendCapabilityLinkedMail, LINKED_MAIL_CLAIM, LINKED_SEEN_CLAIM } =
+      await loadService();
+    const markCapabilities = vi.fn().mockResolvedValue(undefined);
+    const user = makeUser({
+      customClaims: {
+        // A dashboard pass: finance was seen, gmail was never resolvable.
+        [LINKED_SEEN_CLAIM]: ["finance"],
+        [LINKED_MAIL_CLAIM]: ["finance"],
+      },
+    });
 
     const result = await sendCapabilityLinkedMail(
       asRecord(user),
-      ["gmail", "finance"],
-      { markCapabilitiesMailed },
+      { observed: ["finance", "gmail"], connected: ["finance", "gmail"] },
+      { markCapabilities },
+    );
+
+    expect(sendMail).not.toHaveBeenCalled();
+    expect(result.status).toBe("seeded");
+    // Recorded so a later disconnect/reconnect is still detectable.
+    expect(markCapabilities.mock.calls[0][1].seen).toEqual(["finance", "gmail"]);
+    expect(markCapabilities.mock.calls[0][1].mailed).toEqual(["finance", "gmail"]);
+  });
+
+  it("mails a capability that was seen unconnected and is now connected", async () => {
+    const { sendCapabilityLinkedMail, LINKED_MAIL_CLAIM, LINKED_SEEN_CLAIM } =
+      await loadService();
+    const markCapabilities = vi.fn().mockResolvedValue(undefined);
+    const user = makeUser({
+      customClaims: {
+        [LINKED_SEEN_CLAIM]: ["finance", "gmail"],
+        [LINKED_MAIL_CLAIM]: ["gmail"],
+      },
+    });
+
+    const result = await sendCapabilityLinkedMail(
+      asRecord(user),
+      { observed: ["finance", "gmail"], connected: ["finance", "gmail"] },
+      { markCapabilities },
     );
 
     expect(result).toEqual({ status: "sent", mailed: ["finance"] });
@@ -111,78 +148,122 @@ describe("capability link mail", () => {
       subject: "Finance is connected to One",
       idempotencyKey: "one-linked:uid-1:finance",
     });
-    expect(markCapabilitiesMailed).toHaveBeenCalledWith("uid-1", ["finance", "gmail"]);
+  });
+
+  it("ignores a connected id that this pass could not actually resolve", async () => {
+    const { sendCapabilityLinkedMail, LINKED_SEEN_CLAIM, LINKED_MAIL_CLAIM } =
+      await loadService();
+    const user = makeUser({
+      customClaims: { [LINKED_SEEN_CLAIM]: ["gmail"], [LINKED_MAIL_CLAIM]: [] },
+    });
+
+    const result = await sendCapabilityLinkedMail(
+      asRecord(user),
+      { observed: [], connected: ["gmail"] },
+      { markCapabilities: vi.fn() },
+    );
+
+    expect(result.mailed).toEqual([]);
+    expect(sendMail).not.toHaveBeenCalled();
   });
 
   it("says nothing when the reported set is unchanged", async () => {
-    const { sendCapabilityLinkedMail, LINKED_MAIL_CLAIM } = await loadService();
-    const user = makeUser({ customClaims: { [LINKED_MAIL_CLAIM]: ["gmail", "finance"] } });
-
-    const result = await sendCapabilityLinkedMail(asRecord(user), ["finance", "gmail"], {
-      markCapabilitiesMailed: vi.fn(),
+    const { sendCapabilityLinkedMail, LINKED_MAIL_CLAIM, LINKED_SEEN_CLAIM } =
+      await loadService();
+    const user = makeUser({
+      customClaims: {
+        [LINKED_SEEN_CLAIM]: ["gmail", "finance"],
+        [LINKED_MAIL_CLAIM]: ["gmail", "finance"],
+      },
     });
+
+    const result = await sendCapabilityLinkedMail(
+      asRecord(user),
+      { observed: ["finance", "gmail"], connected: ["finance", "gmail"] },
+      { markCapabilities: vi.fn() },
+    );
 
     expect(result).toEqual({ status: "skipped", mailed: [], reason: "nothing_new" });
     expect(sendMail).not.toHaveBeenCalled();
   });
 
   it("never mails the same capability twice, even after disconnect and reconnect", async () => {
-    const { sendCapabilityLinkedMail, LINKED_MAIL_CLAIM } = await loadService();
-    const user = makeUser({ customClaims: { [LINKED_MAIL_CLAIM]: ["gmail"] } });
-
-    // Disconnected, then reconnected: the reported set is the same as before.
-    const result = await sendCapabilityLinkedMail(asRecord(user), ["gmail"], {
-      markCapabilitiesMailed: vi.fn(),
+    const { sendCapabilityLinkedMail, LINKED_MAIL_CLAIM, LINKED_SEEN_CLAIM } =
+      await loadService();
+    const user = makeUser({
+      customClaims: {
+        [LINKED_SEEN_CLAIM]: ["gmail"],
+        [LINKED_MAIL_CLAIM]: ["gmail"],
+      },
     });
+
+    const result = await sendCapabilityLinkedMail(
+      asRecord(user),
+      { observed: ["gmail"], connected: ["gmail"] },
+      { markCapabilities: vi.fn() },
+    );
 
     expect(result.mailed).toEqual([]);
     expect(sendMail).not.toHaveBeenCalled();
   });
 
   it("caps a burst and leaves the remainder for the next report", async () => {
-    const { sendCapabilityLinkedMail, LINKED_MAIL_CLAIM } = await loadService();
-    const markCapabilitiesMailed = vi.fn().mockResolvedValue(undefined);
-    const user = makeUser({ customClaims: { [LINKED_MAIL_CLAIM]: [] } });
+    const { sendCapabilityLinkedMail, LINKED_MAIL_CLAIM, LINKED_SEEN_CLAIM } =
+      await loadService();
+    const markCapabilities = vi.fn().mockResolvedValue(undefined);
+    const user = makeUser({
+      customClaims: { [LINKED_SEEN_CLAIM]: ALL, [LINKED_MAIL_CLAIM]: [] },
+    });
 
     const result = await sendCapabilityLinkedMail(
       asRecord(user),
-      ["gmail", "finance", "location", "pkm", "consent"],
-      { markCapabilitiesMailed },
+      { observed: ALL, connected: ALL },
+      { markCapabilities },
     );
 
     expect(sendMail).toHaveBeenCalledTimes(3);
     expect(result.mailed).toHaveLength(3);
-    // The two that did not go out are not marked, so they are retried.
-    expect(markCapabilitiesMailed.mock.calls[0][1]).toHaveLength(3);
+    expect(markCapabilities.mock.calls[0][1].mailed).toHaveLength(3);
   });
 
   it("ignores an id that is not in the catalog rather than mailing its slug", async () => {
-    const { sendCapabilityLinkedMail, LINKED_MAIL_CLAIM } = await loadService();
-    const user = makeUser({ customClaims: { [LINKED_MAIL_CLAIM]: [] } });
+    const { sendCapabilityLinkedMail, LINKED_MAIL_CLAIM, LINKED_SEEN_CLAIM } =
+      await loadService();
+    const user = makeUser({
+      customClaims: { [LINKED_SEEN_CLAIM]: [], [LINKED_MAIL_CLAIM]: [] },
+    });
 
     const result = await sendCapabilityLinkedMail(
       asRecord(user),
-      ["definitely-not-a-capability", "<script>alert(1)</script>"],
-      { markCapabilitiesMailed: vi.fn() },
+      {
+        observed: ["definitely-not-a-capability", "<script>alert(1)</script>"],
+        connected: ["definitely-not-a-capability"],
+      },
+      { markCapabilities: vi.fn() },
     );
 
-    expect(result).toEqual({ status: "skipped", mailed: [], reason: "nothing_new" });
+    expect(result.mailed).toEqual([]);
     expect(sendMail).not.toHaveBeenCalled();
   });
 
   it("does not mark a capability as mailed when its send failed", async () => {
     sendMail.mockResolvedValue({ status: "failed", reason: "http_503" });
-    const { sendCapabilityLinkedMail, LINKED_MAIL_CLAIM } = await loadService();
-    const markCapabilitiesMailed = vi.fn();
-    const user = makeUser({ customClaims: { [LINKED_MAIL_CLAIM]: [] } });
-
-    const result = await sendCapabilityLinkedMail(asRecord(user), ["gmail"], {
-      markCapabilitiesMailed,
+    const { sendCapabilityLinkedMail, LINKED_MAIL_CLAIM, LINKED_SEEN_CLAIM } =
+      await loadService();
+    const markCapabilities = vi.fn().mockResolvedValue(undefined);
+    const user = makeUser({
+      customClaims: { [LINKED_SEEN_CLAIM]: ["gmail"], [LINKED_MAIL_CLAIM]: [] },
     });
+
+    const result = await sendCapabilityLinkedMail(
+      asRecord(user),
+      { observed: ["gmail"], connected: ["gmail"] },
+      { markCapabilities },
+    );
 
     expect(result.status).toBe("failed");
     // Marking it would mean this connection is never mailed about at all.
-    expect(markCapabilitiesMailed).not.toHaveBeenCalled();
+    expect(markCapabilities.mock.calls[0][1].mailed).not.toContain("gmail");
   });
 });
 

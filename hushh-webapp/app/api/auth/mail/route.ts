@@ -20,6 +20,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { validateFirebaseToken } from "@/lib/auth/validate";
 import {
   LINKED_MAIL_CLAIM,
+  LINKED_SEEN_CLAIM,
   sendCapabilityLinkedMail,
   sendPhoneConflictMail,
   sendSignedOutMail,
@@ -102,6 +103,7 @@ export async function POST(request: NextRequest) {
     event?: string;
     phoneNumber?: string;
     capabilities?: unknown[];
+    observed?: unknown[];
   };
   const event = String(body.event ?? "").trim();
   if (!SUPPORTED_EVENTS.has(event)) {
@@ -140,31 +142,43 @@ export async function POST(request: NextRequest) {
     }
 
     if (event === "capabilities_linked") {
-      const reported = Array.isArray(body.capabilities) ? body.capabilities : null;
-      if (!reported || reported.length > MAX_REPORTED_CAPABILITIES) {
+      const connected = Array.isArray(body.capabilities) ? body.capabilities : null;
+      const observed = Array.isArray(body.observed) ? body.observed : null;
+      if (
+        !connected ||
+        !observed ||
+        connected.length > MAX_REPORTED_CAPABILITIES ||
+        observed.length > MAX_REPORTED_CAPABILITIES
+      ) {
         return NextResponse.json({ error: "Invalid capabilities" }, { status: 400 });
       }
 
-      const result = await sendCapabilityLinkedMail(user, reported.map(String), {
-        markCapabilitiesMailed: async (uid, capabilityIds) => {
-          // Re-read: this request may have raced another that also added ids,
-          // and writing a stale set would resend what the other already mailed.
-          const current = await auth.getUser(uid).catch(() => user);
-          const existing = (current.customClaims ?? {}) as Record<string, unknown>;
-          const merged = [
-            ...new Set([
-              ...(Array.isArray(existing[LINKED_MAIL_CLAIM])
-                ? (existing[LINKED_MAIL_CLAIM] as unknown[]).map(String)
-                : []),
-              ...capabilityIds,
-            ]),
-          ].sort();
-          await auth.setCustomUserClaims(uid, {
-            ...existing,
-            [LINKED_MAIL_CLAIM]: merged,
-          });
+      const result = await sendCapabilityLinkedMail(
+        user,
+        { observed: observed.map(String), connected: connected.map(String) },
+        {
+          markCapabilities: async (uid, next) => {
+            // Re-read: this request may have raced another that also advanced
+            // these sets, and writing a stale one would resend what the other
+            // already mailed.
+            const current = await auth.getUser(uid).catch(() => user);
+            const existing = (current.customClaims ?? {}) as Record<string, unknown>;
+            const union = (claim: string, incoming: string[]) => [
+              ...new Set([
+                ...(Array.isArray(existing[claim])
+                  ? (existing[claim] as unknown[]).map(String)
+                  : []),
+                ...incoming,
+              ]),
+            ].sort();
+            await auth.setCustomUserClaims(uid, {
+              ...existing,
+              [LINKED_MAIL_CLAIM]: union(LINKED_MAIL_CLAIM, next.mailed),
+              [LINKED_SEEN_CLAIM]: union(LINKED_SEEN_CLAIM, next.seen),
+            });
+          },
         },
-      });
+      );
       return NextResponse.json(result);
     }
 

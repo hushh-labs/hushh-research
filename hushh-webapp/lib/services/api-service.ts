@@ -1754,8 +1754,10 @@ export class ApiService {
     event: "signed_in" | "signed_out" | "phone_conflict" | "capabilities_linked",
     options?: {
       phoneNumber?: string;
-      /** Full set of currently connected capability ids; the server diffs it. */
+      /** Currently connected capability ids; the server diffs these. */
       capabilities?: string[];
+      /** Ids whose state was resolvable this pass. Absent ids are unknown, not absent. */
+      observed?: string[];
       idToken?: string;
     },
   ): Promise<boolean> {
@@ -1771,6 +1773,7 @@ export class ApiService {
           event,
           ...(options?.phoneNumber ? { phoneNumber: options.phoneNumber } : {}),
           ...(options?.capabilities ? { capabilities: options.capabilities } : {}),
+          ...(options?.observed ? { observed: options.observed } : {}),
         }),
       });
       return response.ok;

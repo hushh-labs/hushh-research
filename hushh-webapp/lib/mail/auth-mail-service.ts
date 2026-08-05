@@ -128,6 +128,18 @@ export async function sendSignedOutMail(user: UserRecord): Promise<AuthMailOutco
 export const LINKED_MAIL_CLAIM = "hushhLinkedMailed";
 
 /**
+ * Capabilities whose state has ever been *resolved* for this account.
+ *
+ * Separate from LINKED_MAIL_CLAIM because "not connected" and "not resolvable"
+ * are different facts, and conflating them mails the wrong thing. The `/one`
+ * dashboard resolves without OAuth enrichment, so Gmail reads `unknown` there
+ * rather than connected. Seeding from that view alone would omit Gmail, and the
+ * first `/one/setup` visit — which does enrich — would then look like a fresh
+ * connection and mail somebody about a link they made months ago.
+ */
+export const LINKED_SEEN_CLAIM = "hushhLinkedSeen";
+
+/**
  * Cap per request so a first report, or a burst of linking, cannot turn into a
  * wall of mail. Anything over the cap is left unmarked and picked up by the
  * next report rather than dropped.
@@ -135,8 +147,11 @@ export const LINKED_MAIL_CLAIM = "hushhLinkedMailed";
 const LINKED_MAIL_MAX_PER_REQUEST = 3;
 
 export interface CapabilityLinkMailDeps {
-  /** Persists the full mailed-capability set, durably. */
-  markCapabilitiesMailed: (uid: string, capabilityIds: string[]) => Promise<void>;
+  /** Persists both durable sets in one write. */
+  markCapabilities: (
+    uid: string,
+    next: { mailed: string[]; seen: string[] },
+  ) => Promise<void>;
 }
 
 export interface CapabilityLinkResult {
@@ -145,12 +160,17 @@ export interface CapabilityLinkResult {
   reason?: string;
 }
 
-function readMailedCapabilities(user: UserRecord): string[] | null {
-  const raw = (user.customClaims as Record<string, unknown> | undefined)?.[
-    LINKED_MAIL_CLAIM
-  ];
-  if (!Array.isArray(raw)) return null;
+function readClaimList(user: UserRecord, claim: string): string[] {
+  const raw = (user.customClaims as Record<string, unknown> | undefined)?.[claim];
+  if (!Array.isArray(raw)) return [];
   return raw.map((entry) => String(entry)).filter(Boolean);
+}
+
+export interface CapabilityReport {
+  /** Ids whose state was determinable in this pass. */
+  observed: string[];
+  /** The subset of `observed` that is connected. */
+  connected: string[];
 }
 
 /**
@@ -168,31 +188,54 @@ function readMailedCapabilities(user: UserRecord): string[] | null {
  */
 export async function sendCapabilityLinkedMail(
   user: UserRecord,
-  connectedCapabilityIds: string[],
+  report: CapabilityReport,
   deps: CapabilityLinkMailDeps,
 ): Promise<CapabilityLinkResult> {
   const to = String(user.email ?? "").trim();
   if (!to) return { status: "skipped", mailed: [], reason: "no_email" };
 
-  const connected = [
+  const clean = (ids: string[]) => [
     ...new Set(
-      connectedCapabilityIds
+      ids
         .map((id) => String(id ?? "").trim())
         .filter((id) => MAILABLE_CAPABILITY_IDS.includes(id)),
     ),
   ].sort();
 
-  const alreadyMailed = readMailedCapabilities(user);
+  const observed = clean(report.observed);
+  // Connected is meaningless for something this pass could not resolve.
+  const connected = clean(report.connected).filter((id) => observed.includes(id));
 
-  // No record yet: this account predates the feature (or is reporting for the
-  // first time). Record what is already connected and stay quiet.
-  if (alreadyMailed === null) {
-    await deps.markCapabilitiesMailed(user.uid, connected);
-    return { status: "seeded", mailed: [] };
+  const alreadyMailed = readClaimList(user, LINKED_MAIL_CLAIM);
+  const alreadySeen = readClaimList(user, LINKED_SEEN_CLAIM);
+
+  // First sighting of a capability tells us nothing about when it was
+  // connected, so it is recorded and left alone. Only a capability we have
+  // previously seen — and seen as not connected — can be called new.
+  const firstSighting = observed.filter((id) => !alreadySeen.includes(id));
+  const seedFromFirstSighting = firstSighting.filter((id) => connected.includes(id));
+
+  const fresh = connected.filter(
+    (id) => alreadySeen.includes(id) && !alreadyMailed.includes(id),
+  );
+
+  const nextSeen = [...new Set([...alreadySeen, ...observed])].sort();
+
+  if (fresh.length === 0) {
+    // Nothing to announce, but the sighting itself is worth remembering.
+    if (seedFromFirstSighting.length > 0 || nextSeen.length !== alreadySeen.length) {
+      await deps.markCapabilities(user.uid, {
+        mailed: [...new Set([...alreadyMailed, ...seedFromFirstSighting])].sort(),
+        seen: nextSeen,
+      });
+      return {
+        status: seedFromFirstSighting.length > 0 ? "seeded" : "skipped",
+        mailed: [],
+        reason: seedFromFirstSighting.length > 0 ? undefined : "nothing_new",
+      };
+    }
+    return { status: "skipped", mailed: [], reason: "nothing_new" };
   }
-
-  const fresh = connected.filter((id) => !alreadyMailed.includes(id));
-  if (fresh.length === 0) return { status: "skipped", mailed: [], reason: "nothing_new" };
 
   const batch = fresh.slice(0, LINKED_MAIL_MAX_PER_REQUEST);
   const linkedAt = new Date();
@@ -227,10 +270,12 @@ export async function sendCapabilityLinkedMail(
   }
 
   // Record only what actually went out, so a failure retries instead of being
-  // silently swallowed.
-  if (mailed.length > 0) {
-    await deps.markCapabilitiesMailed(user.uid, [...alreadyMailed, ...mailed].sort());
-  }
+  // silently swallowed. The sighting set advances regardless: we did resolve
+  // those states, whether or not the mail for them succeeded.
+  await deps.markCapabilities(user.uid, {
+    mailed: [...new Set([...alreadyMailed, ...seedFromFirstSighting, ...mailed])].sort(),
+    seen: nextSeen,
+  });
 
   if (mailed.length === 0) {
     return { status: "failed", mailed: [], reason: lastFailure || "send_failed" };

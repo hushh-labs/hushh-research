@@ -419,14 +419,30 @@ export function useCapabilitySetupStates(
     return map;
   }, [statuses]);
 
-  const connectedSignature = useMemo(
+  // "unknown" means this pass could not resolve the capability — the dashboard
+  // does not enrich OAuth, so Gmail reads unknown there. Reporting it as
+  // not-connected would later make a months-old link look brand new.
+  const observedIds = useMemo(
+    () =>
+      statuses
+        .filter((status) => status.state !== "unknown")
+        .map((status) => status.id)
+        .sort(),
+    [statuses]
+  );
+
+  const connectedIds = useMemo(
     () =>
       statuses
         .filter((status) => status.state === "completed")
         .map((status) => status.id)
-        .sort()
-        .join(","),
+        .sort(),
     [statuses]
+  );
+
+  const connectedSignature = useMemo(
+    () => `${observedIds.join(",")}|${connectedIds.join(",")}`,
+    [observedIds, connectedIds]
   );
 
   const isSettled =
@@ -457,9 +473,10 @@ export function useCapabilitySetupStates(
     if (reportedConnectedRef.current === key) return;
     reportedConnectedRef.current = key;
     void ApiService.notifyAuthMail("capabilities_linked", {
-      capabilities: connectedSignature ? connectedSignature.split(",") : [],
+      observed: observedIds,
+      capabilities: connectedIds,
     });
-  }, [connectedSignature, isSettled, userId]);
+  }, [connectedIds, connectedSignature, isSettled, observedIds, userId]);
 
   return {
     statuses,
