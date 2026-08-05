@@ -49,10 +49,6 @@ function routeValuesFromAppPages() {
     .sort();
 }
 
-function toPosixPath(filePath) {
-  return filePath.split(path.sep).join("/");
-}
-
 /**
  * Route constants can deliberately include a query-backed workspace view.
  * They still resolve to the physical pathname and inherit that route's shell
