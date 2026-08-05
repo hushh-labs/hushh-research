@@ -123,16 +123,27 @@ async def collect_pod_key_if_pending(
     *,
     service: Any = None,
     session: Any = None,
+    allow_rotation: bool = False,
 ) -> Optional[str]:
     """Try to finish provisioning for ``row``. Returns the new status, or None.
 
     None means "nothing changed", which covers every uninteresting case: no row,
     a row not waiting on a key, a pod that is not up yet, a refused key. Callers
     treat None as "carry on with what you already had".
+
+    ``allow_rotation`` widens what is collectable: a ``provisioned`` row is also
+    re-fetched, and a DIFFERENT key rotates the record instead of being refused.
+    This is safe precisely because of the pull direction -- the fetch goes to the
+    URL the hub recorded at service creation, so a new key at that address means
+    the pod restarted, not that someone is impersonating it. The cheap poll path
+    (``/status``) keeps the default; the reconcile sweep passes True so restarted
+    pods converge instead of drifting from the registry forever.
     """
     if not isinstance(row, dict):
         return None
-    if str(row.get("status") or "").strip() != _COLLECTABLE_STATUS:
+    status_now = str(row.get("status") or "").strip()
+    collectable = {_COLLECTABLE_STATUS, "provisioned"} if allow_rotation else {_COLLECTABLE_STATUS}
+    if status_now not in collectable:
         return None
     user_id = str(row.get("user_id") or "").strip()
     if not user_id:
@@ -155,6 +166,7 @@ async def collect_pod_key_if_pending(
             user_id=user_id,
             pod_public_key_b64=payload["podPublicKey"],
             pod_key_id=payload["podKeyId"],
+            allow_rotation=allow_rotation,
             **(
                 {"pod_key_wrapping_alg": payload["podKeyWrappingAlg"]}
                 if "podKeyWrappingAlg" in payload
@@ -162,12 +174,30 @@ async def collect_pod_key_if_pending(
             ),
         )
     except Exception:
-        # Includes the deliberate refusal to rebind an already-recorded key, which
-        # is a restarted pod presenting a new one. Logged, not raised: the row stays
-        # where it is and the caller's own answer is unaffected.
+        # On the default path this includes the deliberate refusal to rebind an
+        # already-recorded key. Logged, not raised: the row stays where it is and
+        # the caller's own answer is unaffected.
         logger.exception("pod_key_collector.attach_failed")
         return None
 
     status = str(result.get("status") or "").strip() or None
-    logger.info("pod_key_collector.attached status=%s", status)
+    logger.info(
+        "pod_key_collector.attached status=%s rotated=%s", status, bool(result.get("rotated"))
+    )
     return status
+
+
+async def refresh_pod_key(
+    row: Optional[dict],
+    *,
+    service: Any = None,
+    session: Any = None,
+) -> Optional[str]:
+    """Reconcile-sweep entry: re-pull a pod's key and rotate the record if it moved.
+
+    Exists so the sweep never has to remember the rotation flag -- the intent is in
+    the name. Same return contract as :func:`collect_pod_key_if_pending`.
+    """
+    return await collect_pod_key_if_pending(
+        row, service=service, session=session, allow_rotation=True
+    )

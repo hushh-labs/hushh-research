@@ -46,6 +46,7 @@ from db.db_client import DatabaseExecutionError  # noqa: E402
 from hushh_mcp.runtime_settings import pod_mode  # noqa: E402
 from hushh_mcp.services.pod_hub_client import PodHubUnavailable  # noqa: E402
 from hushh_mcp.services.pod_self_registration import (  # noqa: E402
+    pod_key_is_durable,
     pod_keypair,
     pod_public_key_payload,
 )
@@ -118,7 +119,14 @@ def pod_public_key() -> dict:
     Serving the key is the pod's whole part in provisioning -- the hub decides
     whether to adopt it (see ``pod_key_collector``).
     """
-    return {"hushhId": os.getenv("HUSSH_ID") or None, **pod_public_key_payload()}
+    return {
+        "hushhId": os.getenv("HUSSH_ID") or None,
+        # Honesty marker for the hub and for storage layers: only a durable key
+        # (mounted from a restart-surviving source the hub cannot read) may have
+        # durable material wrapped to it. Ephemeral keys rotate on restart.
+        "podKeyDurable": pod_key_is_durable(),
+        **pod_public_key_payload(),
+    }
 
 
 @app.on_event("startup")

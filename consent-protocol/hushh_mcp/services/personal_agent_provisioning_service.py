@@ -478,6 +478,7 @@ class PersonalAgentProvisioningService:
         pod_key_id: str,
         pod_key_wrapping_alg: str = WRAPPING_ALG,
         ledger: Any = None,
+        allow_rotation: bool = False,
     ) -> dict[str, Any]:
         """Second half of a deferred-key provision: the pod hands over its public key.
 
@@ -488,15 +489,33 @@ class PersonalAgentProvisioningService:
 
         Authorization is the caller's job, and it is the whole security question
         here: this mints read authority, so the route above it must establish that
-        the pod presenting the key is the pod belonging to ``user_id``. See
-        ``api/routes/one/pod_registration.py``.
+        the pod presenting the key is the pod belonging to ``user_id``.
 
         Idempotent in the way that matters. Re-registering the SAME key is a no-op
         that returns the current state -- a pod that restarts and re-registers must
-        not mint a second grant. A DIFFERENT key is refused rather than accepted:
-        silently rebinding a user's agent to a new key would let anyone who reached
-        this path take over the agent's identity, and a legitimate key change is a
-        re-provision, not an update.
+        not mint a second grant.
+
+        A DIFFERENT key depends on who is asking, which is what ``allow_rotation``
+        encodes:
+
+        * **Default (False)** -- refused. This is the posture for any path where the
+          key arrives as a claim: silently rebinding a user's agent would let
+          whatever reached this path take over the agent's identity.
+        * **allow_rotation=True** -- accepted as a ROTATION. Reserved for the hub's
+          own pull (``pod_key_collector``), where the key was fetched from the URL
+          the hub itself recorded at service creation. Under that direction there is
+          no asserted identity to distrust: whatever answers that address IS the
+          user's pod, so a new key there means the pod restarted and re-generated --
+          the expected behaviour of a process-local keypair -- not an impostor. The
+          original refuse-rebind rule was designed against the *push* threat model
+          and is over-strict under *pull*.
+
+        Rotation never double-mints: a row already ``provisioned`` keeps its
+        standing grant (latest-wins supersession is for re-provision, not for a key
+        refresh), so rotation only updates the recorded key material. The invariant
+        that survives either way: nothing durable may be wrapped to a key that can
+        rotate underneath it -- ``pod_storage`` enforces that with a durability
+        check, not this method.
         """
         if not personal_agent_enabled():
             raise PersonalAgentDisabledError(
@@ -513,13 +532,35 @@ class PersonalAgentProvisioningService:
 
         recorded_key = str(existing.get("pod_pubkey") or "").strip()
         if recorded_key:
-            if not compare_digest(recorded_key, pod_key.public_key_b64):
-                # Constant-time, and refused: see the idempotency note above.
+            if compare_digest(recorded_key, pod_key.public_key_b64):
+                return {
+                    "hushhId": existing.get("hushh_id"),
+                    "status": existing.get("status"),
+                }
+            if not allow_rotation:
+                # Constant-time compared above, and refused: see the docstring.
                 raise ValueError("a different pod public key is already registered")
-            return {
-                "hushhId": existing.get("hushh_id"),
-                "status": existing.get("status"),
-            }
+            if str(existing.get("status") or "").strip() == "provisioned":
+                # Rotation of a completed row: record the new key, change nothing
+                # else. The grant already exists and must not be re-minted.
+                hushh_id = str(existing.get("hushh_id") or "").strip()
+                phone_hash = str(existing.get("phone_e164_hash") or "").strip()
+                if not hushh_id or not phone_hash:
+                    raise ValueError("personal-agent row is missing its identity fields")
+                await self._registry.upsert(
+                    user_id=user_id,
+                    hushh_id=hushh_id,
+                    phone_e164_hash=phone_hash,
+                    pod_pubkey=pod_key.public_key_b64,
+                    pod_key_id=pod_key.key_id,
+                    pod_key_wrapping_alg=pod_key.wrapping_alg,
+                    status="provisioned",
+                )
+                logger.info("personal_agent.pod_key_rotated hushh_id_present=%s", bool(hushh_id))
+                return {"hushhId": hushh_id, "status": "provisioned", "rotated": True}
+            # A row still mid-provision rotates by falling through to the full
+            # attach path below -- the mint has not happened yet, so this is just
+            # the first registration with fresher material.
 
         hushh_id = str(existing.get("hushh_id") or "").strip()
         phone_hash = str(existing.get("phone_e164_hash") or "").strip()
