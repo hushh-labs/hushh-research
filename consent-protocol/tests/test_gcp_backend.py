@@ -73,9 +73,9 @@ def test_startup_probe_is_http_not_the_tcp_default():
     worker all read that same condition, so provision() returned status="live" for a
     dead pod. An explicit HTTP probe is what makes the condition mean what it says.
     """
-    container = _backend().render_deploy_config(_spec())["spec"]["template"]["spec"][
-        "containers"
-    ][0]
+    container = _backend().render_deploy_config(_spec())["spec"]["template"]["spec"]["containers"][
+        0
+    ]
     probe = container["startupProbe"]
     assert probe["httpGet"]["path"] == "/health"
     assert probe["httpGet"]["port"] == 8080
@@ -114,22 +114,31 @@ def test_no_signing_keys_are_mounted_by_default(monkeypatch):
     assert "VAULT_DATA_KEY" not in names
 
 
-def test_signing_keys_are_mounted_by_reference_never_by_value(monkeypatch):
-    """The pod cannot import without these two keys, so it must be able to get them --
+def test_signing_key_is_mounted_by_reference_never_by_value(monkeypatch):
+    """The pod cannot import without APP_SIGNING_KEY, so it must be able to get it --
     but only as a Secret Manager REFERENCE. Key material must never be rendered into
     the deploy artifact, which is readable by anyone who can read the service."""
     monkeypatch.setenv("HUSSH_POD_SIGNING_KEY_SECRET", "POD_DEV_SIGNING_KEY")
-    monkeypatch.setenv("HUSSH_POD_VAULT_KEY_SECRET", "POD_DEV_VAULT_KEY")
     cfg = _backend().render_deploy_config(_spec())
     env = {e["name"]: e for e in cfg["spec"]["template"]["spec"]["containers"][0]["env"]}
 
-    for name, secret in (
-        ("APP_SIGNING_KEY", "POD_DEV_SIGNING_KEY"),
-        ("VAULT_DATA_KEY", "POD_DEV_VAULT_KEY"),
-    ):
-        assert env[name]["valueFrom"]["secretKeyRef"]["name"] == secret
-        # A literal value alongside valueFrom would be the material leaking in.
-        assert "value" not in env[name]
+    entry = env["APP_SIGNING_KEY"]
+    assert entry["valueFrom"]["secretKeyRef"]["name"] == "POD_DEV_SIGNING_KEY"
+    # A literal value alongside valueFrom would be the material leaking in.
+    assert "value" not in entry
+
+
+def test_the_vault_key_is_never_mounted_even_when_configured(monkeypatch):
+    """A pod performs no vault crypto -- every consumer of VAULT_DATA_KEY is hub-only
+    -- and get_core_security_settings() permits its absence in pod mode. Mounting it
+    anyway would hand each pod a key it never uses, which is one more secret whose
+    only function is widening the blast radius of a pod compromise. The renderer must
+    not emit it even when the legacy env var is still set."""
+    monkeypatch.setenv("HUSSH_POD_SIGNING_KEY_SECRET", "POD_DEV_SIGNING_KEY")
+    monkeypatch.setenv("HUSSH_POD_VAULT_KEY_SECRET", "POD_DEV_VAULT_KEY")
+    cfg = _backend().render_deploy_config(_spec())
+    names = {e["name"] for e in cfg["spec"]["template"]["spec"]["containers"][0]["env"]}
+    assert "VAULT_DATA_KEY" not in names
 
 
 def test_pod_keys_are_never_the_hubs_keys(monkeypatch):
@@ -177,9 +186,9 @@ def test_default_min_instances_is_one_warm_floor(monkeypatch):
 
 def test_min_instances_configurable_via_param():
     # The mass tier can opt into scale-to-zero (min=0 + fast wake) to bound cost.
-    cfg = GcpBackend(project="p", image="i:1", min_instances=0, max_instances=3).render_deploy_config(
-        _spec()
-    )
+    cfg = GcpBackend(
+        project="p", image="i:1", min_instances=0, max_instances=3
+    ).render_deploy_config(_spec())
     assert _scale(cfg) == ("0", "3")
 
 
@@ -191,9 +200,9 @@ def test_min_instances_from_env(monkeypatch):
 
 def test_max_is_clamped_up_to_min():
     # max must never be below min; a warm floor of 2 forces max>=2.
-    cfg = GcpBackend(project="p", image="i:1", min_instances=2, max_instances=1).render_deploy_config(
-        _spec()
-    )
+    cfg = GcpBackend(
+        project="p", image="i:1", min_instances=2, max_instances=1
+    ).render_deploy_config(_spec())
     assert _scale(cfg) == ("2", "2")
 
 

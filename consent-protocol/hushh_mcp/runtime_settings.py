@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -688,9 +689,25 @@ def get_core_security_settings() -> CoreSecuritySettings:
         strict=_kms_strict,
     )
     if not vault_data_key or len(vault_data_key) != 64:
-        raise ValueError(
-            f"❌ {VAULT_DATA_KEY_ENV} must be a 64-character hex string (256-bit AES key)"
-        )
+        if pod_mode():
+            # A pod mounts a bounded router allowlist and performs NO vault crypto:
+            # every consumer of this key (agent chat, CRM connector secrets, the
+            # nearby-presence HKDF) is hub-only. Requiring the key here anyway forced
+            # every pod to be handed a vault key it never uses -- one more secret per
+            # pod whose only function was satisfying an eager validator. In pod mode
+            # the key is therefore allowed to be absent. It resolves to "" so any
+            # accidental use fails LOUDLY at the call site (bytes.fromhex("") yields
+            # an empty key every AEAD/HKDF constructor rejects), never silently with
+            # a weak key. The hub path below is unchanged and still refuses to boot.
+            logging.getLogger(__name__).info(
+                "core_security.vault_data_key_absent pod_mode=1 -- vault crypto is "
+                "unavailable in this process by design"
+            )
+            vault_data_key = ""
+        else:
+            raise ValueError(
+                f"❌ {VAULT_DATA_KEY_ENV} must be a 64-character hex string (256-bit AES key)"
+            )
 
     return CoreSecuritySettings(
         app_signing_key=app_signing_key,

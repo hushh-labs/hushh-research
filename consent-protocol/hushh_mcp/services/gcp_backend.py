@@ -251,15 +251,14 @@ class GcpBackend:
         # proves the surface. Verifying hub-issued consent tokens inside a pod is a
         # different problem that needs asymmetric signing (pod holds a public key only)
         # or hub-side validation; it is NOT unblocked by mounting a key here.
-        # NOTE the smell this exposes: the pod mounts four routers and does no vault
-        # crypto, yet it cannot IMPORT without the vault data key, because
-        # get_core_security_settings() validates the full app's keyset eagerly. Scoping
-        # that validation to what a surface actually uses would let a pod hold strictly
-        # less; until then it must be handed both.
-        for env_name, secret_env in (
-            ("APP_SIGNING_KEY", "HUSSH_POD_SIGNING_KEY_SECRET"),
-            ("VAULT_DATA_KEY", "HUSSH_POD_VAULT_KEY_SECRET"),
-        ):
+        # VAULT_DATA_KEY is deliberately NOT mounted. A pod performs no vault crypto
+        # -- every consumer of that key (agent chat, CRM connector secrets, nearby
+        # presence) is hub-only -- and get_core_security_settings() now permits its
+        # absence in pod mode, failing loudly at any accidental use. A pod holds
+        # strictly what its surface uses. (HUSSH_POD_VAULT_KEY_SECRET remains
+        # readable for one release so an older image on a newer renderer still
+        # boots; the renderer itself no longer emits it.)
+        for env_name, secret_env in (("APP_SIGNING_KEY", "HUSSH_POD_SIGNING_KEY_SECRET"),):
             secret_name = _env(secret_env)
             if secret_name:
                 container["env"].append(
