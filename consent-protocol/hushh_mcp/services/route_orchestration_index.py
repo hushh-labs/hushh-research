@@ -12,20 +12,25 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-_INDEX_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "contracts"
-    / "kai"
-    / "one-route-orchestration-index.v1.json"
-)
+from hushh_mcp.contracts_root import contracts_path, require_contracts_root
+
+
+def _index_path() -> Path | None:
+    # Per call, not a module constant: see hushh_mcp/contracts_root.py for why a
+    # repo-root-anchored constant resolved to the wrong place inside the image.
+    return contracts_path("kai", "one-route-orchestration-index.v1.json")
 
 
 @lru_cache(maxsize=1)
 def load_route_orchestration_index() -> dict[str, dict[str, Any]]:
-    if not _INDEX_PATH.exists():
+    index_path = _index_path()
+    if index_path is None or not index_path.exists():
+        # An empty index silently admits nothing, so delegate-admission decisions
+        # would be made against no data at all. Say so.
+        require_contracts_root("route_orchestration_index")
         return {}
     try:
-        payload = json.loads(_INDEX_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     routes = payload.get("routes") if isinstance(payload, dict) else []

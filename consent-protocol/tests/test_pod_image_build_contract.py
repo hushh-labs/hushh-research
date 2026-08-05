@@ -17,6 +17,7 @@ merely *present* is not a guard that *holds*.
 from __future__ import annotations
 
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -48,12 +49,13 @@ def pod_step(config: dict) -> dict:
     return _step(config, "build-pod-image")
 
 
-def _bash(script: str) -> str:
+def _bash(script: str, cwd: str | None = None) -> str:
     return subprocess.run(  # noqa: S603 - fixed argv, no shell=True, test-local input
         ["bash", "-c", script],  # noqa: S607 - bash is resolved from PATH by design
         text=True,
         capture_output=True,
         check=False,
+        cwd=cwd,
     ).stdout
 
 
@@ -63,12 +65,26 @@ def _run_guard(script: str, deploy_env: str, build_flag: str) -> str:
     Cloud Build expands ``${_FOO}`` textually before bash ever sees it, so that is what
     we reproduce here. Everything after the guard is replaced with a marker, so the test
     exercises the branch decision without invoking docker.
+
+    Runs in a throwaway copy of the WORKSPACE SHAPE -- a `contracts/` tree beside a
+    `consent-protocol/` directory -- because that is what Cloud Build gives the step,
+    and the step now stages contracts into the build context before building. Running
+    it from `consent-protocol/` (pytest's cwd) instead would make the staging fail
+    under `set -e` and report it as a guard failure, which is a fixture defect, not a
+    finding. The step is deliberately allowed to fail hard when contracts are absent:
+    an image with no contracts tree runs with an empty action gateway and no persona
+    grounding, and shipping that silently is the bug this staging exists to fix.
     """
     expanded = script.replace("${_DEPLOY_ENV}", deploy_env).replace(
         "${_BUILD_POD_IMAGE}", build_flag
     )
     body, _, _ = expanded.partition("gcloud auth configure-docker")
-    return _bash(body + '\necho "REACHED_BUILD"')
+    with tempfile.TemporaryDirectory() as workspace:
+        root = Path(workspace)
+        (root / "contracts" / "agents").mkdir(parents=True)
+        (root / "contracts" / "agents" / "product-agent-registry.v2.json").write_text("{}")
+        (root / "consent-protocol").mkdir()
+        return _bash(body + '\necho "REACHED_BUILD"', cwd=str(root))
 
 
 # --- the load-bearing constraint: uat and production never build a pod ---------------
