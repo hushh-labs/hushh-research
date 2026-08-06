@@ -46,6 +46,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -92,38 +93,107 @@ def _digest(pod_key: bytes, token: str) -> str:
     return hmac.new(pod_key, token.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
 
 
-def _seal(pod_key: bytes, plaintext: str) -> str:
-    """Seal a record under the pod key.
+# Sealing format version. Present in every blob so a reader can tell what it is
+# holding instead of guessing -- and so the previous format is REFUSED rather than
+# misread. See `_seal` for why the old one had to go.
+_SEAL_V2 = "v2"
+_AES_GCM_NONCE_BYTES = 12  # 96 bits, the size AES-GCM is specified for
+_SEAL_KEY_INFO = b"hushh/pod-memory/aes256gcm/v2"
 
-    NOTE — deliberately simple: this XORs against an HMAC keystream derived from the pod
-    key plus a per-record nonce, which binds the record to the key and keeps plaintext out
-    of storage and logs. It is NOT a substitute for the real envelope. When
-    ``pod_storage`` grows a live backend (M-series), sealing moves there and uses
-    X25519-AES256-GCM, matching ``pod_connector_keypair_service.WRAPPING_ALG``. Keeping the
-    seam here means that swap changes one function, not the service.
+
+def _seal_key(pod_key: bytes) -> bytes:
+    """Derive a dedicated 32-byte AES-256 key from the pod key material.
+
+    Derived rather than used directly for two reasons. AES-256 needs exactly 32
+    bytes and ``HUSSH_POD_MEMORY_KEY`` is operator-supplied, so its length is not
+    guaranteed. And the pod key is used elsewhere -- ``_digest`` builds the search
+    index from it -- so giving the cipher its own key via a distinct ``info`` label
+    means the two uses can never interact.
     """
-    raw = plaintext.encode("utf-8")
-    nonce = hashlib.sha256(raw + str(time.time_ns()).encode()).digest()[:16]
-    stream = b""
-    counter = 0
-    while len(stream) < len(raw):
-        stream += hmac.new(pod_key, nonce + counter.to_bytes(4, "big"), hashlib.sha256).digest()
-        counter += 1
-    # strict=False: the keystream is whole HMAC blocks and may exceed the payload;
-    # truncating to the payload length is the intent.
-    sealed = bytes(a ^ b for a, b in zip(raw, stream, strict=False))
-    return base64.b64encode(nonce + sealed).decode("ascii")
+    from cryptography.hazmat.primitives import hashes  # noqa: PLC0415
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF  # noqa: PLC0415
+
+    return HKDF(
+        algorithm=hashes.SHA256(), length=32, salt=None, info=_SEAL_KEY_INFO
+    ).derive(pod_key)
 
 
-def _unseal(pod_key: bytes, blob: str) -> str:
-    data = base64.b64decode(blob.encode("ascii"))
-    nonce, sealed = data[:16], data[16:]
-    stream = b""
-    counter = 0
-    while len(stream) < len(sealed):
-        stream += hmac.new(pod_key, nonce + counter.to_bytes(4, "big"), hashlib.sha256).digest()
-        counter += 1
-    return bytes(a ^ b for a, b in zip(sealed, stream, strict=False)).decode("utf-8")
+def _seal(pod_key: bytes, plaintext: str, *, owner: str = "") -> str:
+    """Seal a record under the pod key with authenticated AES-256-GCM.
+
+    What this replaced, and why it had to be replaced
+    ------------------------------------------------
+    The previous implementation XORed the plaintext against an HMAC keystream. It
+    was honestly labelled a placeholder, and it had two defects that a placeholder
+    cannot be excused for once real holdings pass through it:
+
+    1. **Unauthenticated.** A keystream cipher with no MAC is malleable: flipping a
+       bit of ciphertext flips exactly that bit of plaintext, undetectably. Anyone
+       who could write to storage could edit a person's memories -- not read them,
+       but *change* them -- and the pod would serve the result as though the owner
+       had said it. For an agent whose whole job is to remember you accurately,
+       silent tampering is a worse failure than disclosure.
+    2. **The nonce was derived from the plaintext** (``sha256(raw + time_ns())``).
+       Two identical records written in the same nanosecond produced the same
+       nonce, and a repeated nonce on a keystream cipher leaks the XOR of the two
+       plaintexts. The nonce also became a fingerprint: equal nonces proved equal
+       content without any need to decrypt.
+
+    AES-256-GCM fixes both. The nonce is 96 random bits from the OS, never derived
+    from the message, and the tag makes any modification a decryption failure
+    rather than a silently altered memory.
+
+    ``owner`` is bound as additional authenticated data, so a sealed record cannot
+    be lifted out of one person's pod and replayed into another's -- it would fail
+    to open there even under an identical key. The record is bound to whose it is,
+    not merely to the key that happened to seal it.
+
+    **No migration is required**, and that is a fact rather than a hope:
+    ``PodMemoryStore._records`` is an in-process list that nothing persists, and
+    ``pod_storage``'s default backend is Null, so no sealed record has ever
+    survived a restart anywhere. There is nothing written in the old format to
+    read. ``_unseal`` refuses unversioned blobs outright rather than attempting a
+    fallback, because a silent fallback would quietly reinstate the malleability.
+    """
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: PLC0415
+
+    nonce = os.urandom(_AES_GCM_NONCE_BYTES)
+    ciphertext = AESGCM(_seal_key(pod_key)).encrypt(
+        nonce, plaintext.encode("utf-8"), _aad(owner)
+    )
+    return f"{_SEAL_V2}.{base64.b64encode(nonce + ciphertext).decode('ascii')}"
+
+
+def _unseal(pod_key: bytes, blob: str, *, owner: str = "") -> str:
+    """Open a sealed record, or raise. Tampering and mis-binding both raise.
+
+    A failure here is never recoverable by trying something else: a blob that does
+    not authenticate is either corrupt, modified, or not this owner's. Any of those
+    must surface, because the alternative is an agent confidently reciting a memory
+    that is not what its owner actually said.
+    """
+    from cryptography.exceptions import InvalidTag  # noqa: PLC0415
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: PLC0415
+
+    text = str(blob or "")
+    if not text.startswith(f"{_SEAL_V2}."):
+        # Deliberately no fallback to the old XOR reader. Accepting the legacy
+        # format would reinstate exactly the malleability this change removed, and
+        # nothing durable was ever written in it.
+        raise PodMemoryError("sealed record is not in a format this pod will open")
+
+    data = base64.b64decode(text[len(_SEAL_V2) + 1 :].encode("ascii"))
+    nonce, ciphertext = data[:_AES_GCM_NONCE_BYTES], data[_AES_GCM_NONCE_BYTES:]
+    try:
+        opened = AESGCM(_seal_key(pod_key)).decrypt(nonce, ciphertext, _aad(owner))
+    except InvalidTag as exc:
+        raise PodMemoryError("sealed record failed authentication") from exc
+    return opened.decode("utf-8")
+
+
+def _aad(owner: str) -> bytes:
+    """Additional authenticated data binding a record to its owner."""
+    return f"hushh/pod-memory/owner/{owner}".encode("utf-8")
 
 
 def _content_text(content: Any) -> str:
@@ -174,7 +244,8 @@ class PodMemoryStore:
             ).hexdigest()[:24],
             hushh_id=self._hushh_id,
             created_at_ms=int(time.time() * 1000),
-            ciphertext=_seal(self._pod_key, text),
+            # Owner-bound: a record sealed in this pod cannot be opened in another.
+            ciphertext=_seal(self._pod_key, text, owner=self._hushh_id),
             token_digests=tuple(sorted(_digest(self._pod_key, t) for t in _tokens(text))),
             author=author,
             custom_metadata=dict(custom_metadata or {}),
@@ -203,7 +274,10 @@ class PodMemoryStore:
             if overlap:
                 scored.append((overlap, rec))
         scored.sort(key=lambda pair: (pair[0], pair[1].created_at_ms), reverse=True)
-        return [(rec, _unseal(self._pod_key, rec.ciphertext)) for _, rec in scored[:limit]]
+        return [
+            (rec, _unseal(self._pod_key, rec.ciphertext, owner=self._hushh_id))
+            for _, rec in scored[:limit]
+        ]
 
     def export(self) -> str:
         """Owner-facing export. Ciphertext only — proves the store holds no plaintext."""
