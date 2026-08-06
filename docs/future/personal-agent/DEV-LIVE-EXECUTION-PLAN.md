@@ -21,14 +21,21 @@ Canonical visual owner: [personal-agent Visual Map](./README.md).
 
 ```mermaid
 flowchart LR
-  A[Sign-in + phone verify] --> B[schedule_provision_personal_agent]
-  B -->|PENDING row| C[Background: GcpBackend.provision]
-  C -->|feed_events| D[Activity feed: reserved -> provisioning -> connecting -> ready]
-  A --> E[IndexedDB local buffer<br/>non-extractable AES-GCM key]
-  D -->|ready| F[Guided connection screen]
-  F --> G[Migrate local buffer -> PKM<br/>idempotent, resumable]
-  G --> H[Vault setup — final step<br/>plain-language explainer]
+  A["Sign-in + phone verify"] --> AI["AI access chosen<br/>managed or BYOK"]
+  AI -->|"server proves it with a real generation"| B["schedule_provision_personal_agent"]
+  B -->|"PENDING row"| C["Background: GcpBackend.provision"]
+  C -->|"feed_events"| D["Activity feed<br/>reserved → provisioning → connecting → ready"]
+  A --> E["IndexedDB local buffer<br/>non-extractable AES-GCM key"]
+  D -->|"ready"| F["Guided connection screen"]
+  F --> G["Migrate local buffer → PKM<br/>idempotent, resumable"]
+  G --> H["Vault setup — final step<br/>plain-language explainer"]
 ```
+
+**The `AI access` node is a correction, not a decoration.** This diagram used to
+run `phone verify → schedule_provision`, and that is what shipped: provisioning
+fired on an event which says nothing about whether the agent could ever think.
+The gate is now the **verified** AI connection, so no pod is built for an account
+that has no working model access. Everything downstream of `B` is unchanged.
 
 ---
 
