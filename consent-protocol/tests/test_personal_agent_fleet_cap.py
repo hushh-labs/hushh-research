@@ -482,31 +482,39 @@ async def test_count_active_pods_on_an_empty_fleet_is_zero():
     assert await repo.count_active_pods() == 0
 
 
-# -- the ceiling above our own ------------------------------------------------------
+# -- the number above our own -------------------------------------------------------
 #
-# PERSONAL_AGENT_MAX_PODS is a row count in our registry. The real limit on "every
-# account gets a pod" is a Cloud Run services-per-project-per-region quota, read
-# from the Service Usage API on 2026-08-06 against hushh-pda-dev:
+# PERSONAL_AGENT_MAX_PODS is a row count in our registry. Underneath it sits a Cloud
+# Run services-per-project-per-region quota, read from the Service Usage API on
+# 2026-08-06 against hushh-pda-dev:
 #
 #     Cloud Run "Services", unit 1/{project}/{region}
 #     effectiveLimit = 1000, defaultLimit = 1000   (no increase ever granted)
+#
+# It is a SHARDING TRIGGER, not a wall: the operator identity measures consumption
+# and provisions the next GCP project before a region fills. What it constrains is
+# THIS setting -- our own cap must stay at or below the per-project number the
+# provisioner is currently filling, or a provision passes our check and then fails
+# at Cloud Run, after the person has been told their agent is being built.
 
 
 CLOUD_RUN_SERVICES_PER_PROJECT_PER_REGION = 1000
 
 
-def test_our_own_cap_stays_below_the_platform_ceiling():
-    """A default above 1000 would pass our check and then fail at Cloud Run -- the
-    least useful place for a limit to surface, because by then the registry row
-    exists and the person has already been told their agent is being built."""
+def test_our_own_cap_stays_within_one_projects_capacity():
+    """Our cap governs one project's worth of pods. A default above the per-project
+    number would pass our check and then fail at Cloud Run -- the least useful place
+    for a limit to surface, because by then the registry row exists and the person
+    has already been told their agent is being built. Growing past it is the
+    provisioner's job (stand up the next project), not this setting's."""
     from hushh_mcp.runtime_settings import _PERSONAL_AGENT_MAX_PODS_DEFAULT
 
     assert _PERSONAL_AGENT_MAX_PODS_DEFAULT <= CLOUD_RUN_SERVICES_PER_PROJECT_PER_REGION
 
 
-def test_the_platform_ceiling_is_recorded_where_an_operator_will_look():
+def test_the_shard_threshold_is_recorded_where_an_operator_will_look():
     """A number that lives only in a commit message is a number nobody finds. The
-    runbook is where someone asks "can we onboard 5000 users into one project?"."""
+    runbook is where someone asks "when does the provisioner need a new project?"."""
     from pathlib import Path
 
     doc = (

@@ -146,13 +146,11 @@ nothing able to produce it, so the UI could never show a failure. `provision()` 
 records it on the error path — best-effort and swallowed, so a failed status write
 can never replace the original exception with a less informative one.
 
-## The real fleet ceiling (verified 2026-08-06)
+## Fleet capacity: a sharding trigger, not a ceiling (verified 2026-08-06)
 
-`PERSONAL_AGENT_MAX_PODS` is a row count in our own registry. It is not the outer
-limit, and until now nobody had checked what was.
-
-One Cloud Run **service per user** runs into a platform quota. Read from the
-Service Usage API against `hushh-pda-dev`, not from documentation:
+`PERSONAL_AGENT_MAX_PODS` is a row count in our own registry. The platform number
+underneath it was never checked until now. Read from the Service Usage API against
+`hushh-pda-dev` rather than quoted from documentation:
 
 | Metric | Unit | Effective | Default |
 |---|---|---|---|
@@ -161,18 +159,27 @@ Service Usage API against `hushh-pda-dev`, not from documentation:
 `effectiveLimit == defaultLimit`, so no increase has ever been granted on this
 project.
 
-**What that means for "every account gets a pod":**
+**This is a trigger, not a wall** (founder direction, 2026-08-06). The operator
+service account can measure consumption and **provision additional GCP projects on
+the fly**, so hussh-managed capacity grows by standing up the next project before a
+region fills. Growth is an operational event with a known threshold, which is a very
+different thing from a limit that stops the product.
 
-- A single hussh-managed project holds at most **1000 pods per region**.
-- Beyond that, one of three things has to be true: a quota increase is granted,
-  provisioning shards across projects, or the pod lives in the **user's own GCP
-  project** (the BYO-GCP option), where the ceiling is theirs and not ours.
-- Raising `PERSONAL_AGENT_MAX_PODS` past 1000 in one project does **not** lift it.
-  Provisioning would pass our own cap check and then fail at Cloud Run — the least
-  useful place for a limit to be discovered, because the failure arrives after the
-  registry row exists and after the user has been told their agent is being built.
+What the number is actually for:
 
-Re-read it with a scoped call to
+- **A threshold to shard at.** 1000 pods per project per region is when the
+  provisioner needs somewhere else to put the next pod. Measure against it; do not
+  wait to be refused by the API.
+- **A reason not to raise our own cap blindly.** Setting `PERSONAL_AGENT_MAX_PODS`
+  above 1000 for a single project would pass our check and then fail at Cloud Run —
+  after the registry row exists and after the person has been told their agent is
+  being built. Our cap should stay at or below the per-project number that the
+  provisioner is currently filling.
+- **Not a concern on Bring-Your-Own-Compute.** There the service lives in the
+  user's own project, so the ceiling is theirs and one pod never competes with
+  another for it.
+
+Re-read it per project with a scoped call to
 `serviceusage.googleapis.com/v1beta1/projects/{project}/services/run.googleapis.com/consumerQuotaMetrics`,
 using `load_operator_credentials()` from `hushh_mcp/services/gcp_run_client.py`.
-It is per-project, so each new pod-hosting project needs its own check.
+Each new pod-hosting project needs its own check, because the quota is per project.
