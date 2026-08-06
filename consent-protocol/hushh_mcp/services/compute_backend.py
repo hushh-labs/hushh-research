@@ -50,6 +50,50 @@ BACKEND_GCP = "gcp"
 BACKEND_ANYPOINT = "anypoint"
 BACKEND_USER_GCP = "user_gcp"  # BYOC: the pod runs in the USER's own GCP project.
 
+# --- the pod's resource profile, in ONE place -------------------------------------
+#
+# Both renderers derive from these. They used to be independent literals -- GCP at
+# "500m" CPU and Anypoint at "0.1" vCores -- which sized the same pod FIVE TIMES
+# differently depending on which backend provisioned it. The parity test did not
+# catch it because it only asserted each backend stated *a* size, never that the
+# two stated the *same* one. A shared constant makes the disagreement impossible
+# rather than merely unlikely.
+#
+# The numbers are measured, not guessed (MULTI-POD-DEV-SIMULATION.md): 211.9 MB
+# idle, 212.7 MB after 150 requests, 3.94 s cold start of which 58% is `google.adk`
+# importing. So the pod is memory-flat and CPU-bound only at boot -- which is what
+# makes a small steady-state CPU honest, paired with startup-cpu-boost.
+#
+# 1Gi against a 212 MB footprint is deliberate headroom, not waste: the JVM-less
+# Python runtime has no ballast to trim, and OOM in a per-user pod is a person's
+# agent dying rather than a request retrying.
+POD_CPU_MILLIS = 500
+POD_MEMORY = "1Gi"
+POD_CPU = f"{POD_CPU_MILLIS}m"
+
+
+def pod_vcores(cpu_millis: int | None = None) -> str:
+    """The same size expressed the way CloudHub asks for it.
+
+    CloudHub 2.0 sizes a replica in vCores where 1 vCore is one vCPU, so the
+    conversion is a unit change and not a policy decision -- which is exactly why
+    it belongs in a function next to the constant rather than as a second literal
+    in the Anypoint renderer.
+
+    Rendered to 2dp because CloudHub's replica sizes are discrete; a value that
+    does not land on one is a deploy-time rejection, and rounding here at least
+    makes the intended size legible in the descriptor.
+
+    ``None`` reads ``POD_CPU_MILLIS`` *at call time*, deliberately. Writing the
+    constant as a default argument would bind it when this module is imported, so
+    changing the profile would move the GCP renderer and silently leave this one
+    behind -- reintroducing the exact divergence the shared constant exists to
+    remove. A test that reloads the modules catches this; a test that only reads
+    today's values does not.
+    """
+    millis = POD_CPU_MILLIS if cpu_millis is None else cpu_millis
+    return f"{millis / 1000:.2f}".rstrip("0").rstrip(".")
+
 
 @dataclass(frozen=True)
 class PodSpec:

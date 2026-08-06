@@ -40,6 +40,7 @@ from hushh_mcp.services.compute_backend import (
     BackendHandle,
     BackendStatus,
     PodSpec,
+    pod_vcores,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,7 @@ class AnypointBackend:
         env_id: Optional[str] = None,
         private_space_id: Optional[str] = None,
         replicas: int = 1,
-        vcores: str = "0.1",
+        vcores: str = "",
         live: Optional[bool] = None,
     ) -> None:
         self._base_url = base_url if base_url is not None else _env("ANYPOINT_PROVISION_BASE_URL")
@@ -82,7 +83,11 @@ class AnypointBackend:
             private_space_id if private_space_id is not None else _env("ANYPOINT_PRIVATE_SPACE_ID")
         )
         self._replicas = replicas
-        self._vcores = vcores
+        # The SAME size the GCP renderer uses, expressed in CloudHub's unit. This was
+        # an independent "0.1" literal, which sized the same pod five times smaller
+        # here than on Cloud Run -- invisible to a parity test that only checked that
+        # each backend stated something.
+        self._vcores = vcores or pod_vcores()
         # Live is OFF unless explicitly enabled AND credentials + MuleSoft API
         # confirmation exist (verbal capacity claim is not a contract).
         self._live = bool(live) if live is not None else _flag("HUSSH_ANYPOINT_BACKEND_LIVE")
