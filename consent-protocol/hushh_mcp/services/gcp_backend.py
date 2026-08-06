@@ -209,6 +209,23 @@ class GcpBackend:
             # request come down without making the pod feel slower.
             "run.googleapis.com/startup-cpu-boost": "true",
         }
+        if self._min_instances >= 1:
+            # CPU allocated between requests, on the WARM tier only.
+            #
+            # Cloud Run throttles an instance's CPU to near zero the moment no
+            # request is in flight. A pod's heartbeat is a background asyncio loop,
+            # so under the default it stalls between beats -- and the hub's liveness
+            # evaluator reads silence from a warm pod as a FAULT. The pod would be
+            # answering its owner perfectly while auto-heal restarted it for being
+            # quiet, which is precisely the outcome _heartbeat_loop's own docstring
+            # says the design exists to avoid. The push model needs a process that
+            # can actually run between requests.
+            #
+            # Scoped to minScale>=1 deliberately. On the economy tier there is
+            # usually no instance at all, and silence there is the HEALTHY state by
+            # construction -- so buying always-on CPU would spend money to make a
+            # tier report liveness it is designed not to have.
+            template_annotations["run.googleapis.com/cpu-throttling"] = "false"
         if dedicated:
             # Confidential/attested tier markers (Apple-PCC parity: attested,
             # non-targetable). Validated against GCP at live-enablement.

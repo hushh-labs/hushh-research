@@ -97,3 +97,45 @@ def test_a_hub_outage_is_a_clean_503_not_a_raw_500():
     assert resp.json() == {"detail": "hub unavailable"}
     # The failure reason must not leak upstream internals to the caller.
     assert "401" not in resp.text
+
+
+# -- /pod/info reports what is MOUNTED, not what someone typed --------------------
+#
+# The literal it replaced is the same pattern that produced a false proof of life
+# two files away: /health advertised a hardcoded ["one","kai","nav","kyc"] roster, a
+# live-validation document quoted that string as evidence the fleet ran inside pods,
+# and no Python anywhere loaded kyc's YAML. A capability list that CANNOT be wrong is
+# worth less than no list at all, because people believe it.
+
+
+def test_the_mount_list_is_derived_from_the_app():
+    import pod_server
+
+    reported = pod_server.pod_info()["mounts"]
+    actual = {str(getattr(r, "path", "")) for r in pod_server.app.routes}
+
+    assert reported, "a pod that reports no surface is reporting a bug"
+    assert set(reported) <= actual
+
+
+def test_a_router_that_fails_to_mount_disappears_from_the_answer(monkeypatch):
+    """The property the literal could not have. If the turn router stops mounting,
+    /pod/info must stop claiming it -- otherwise the next false proof of life reads
+    exactly like the last one."""
+    import pod_server
+
+    # app.routes is a read-only property over app.router.routes, so the swap goes
+    # one level down.
+    kept = [r for r in pod_server.app.routes if "/turn" not in str(getattr(r, "path", ""))]
+    monkeypatch.setattr(pod_server.app.router, "routes", kept)
+
+    assert not any(path.endswith("/turn") for path in pod_server.pod_info()["mounts"])
+
+
+def test_the_health_route_is_always_reported():
+    """Cloud Run's startup probe is pinned to /health. A pod that does not serve it
+    cannot pass a deploy at all, so its absence here would mean the derivation is
+    broken rather than that the pod is minimal."""
+    import pod_server
+
+    assert "/health" in pod_server.pod_info()["mounts"]

@@ -128,17 +128,23 @@ class PersonalAgentRegistryRepo:
 
     # -- liveness (migration 905) ---------------------------------------------
 
-    async def record_heartbeat(self, *, hushh_id: str) -> bool:
-        """A pod said it is alive. Returns whether a row was actually matched.
+    async def record_heartbeat(self, *, hushh_id: str) -> Optional[dict]:
+        """A pod said it is alive. Returns the matched row, or None.
 
         Keyed by ``hushh_id`` because that is the only identity a pod knows about
         itself -- it holds no user id, by design, so the heartbeat cannot be written
         by user. ``hushh_id`` is UNIQUE (migration 900), so this touches one row.
 
-        The boolean return is load-bearing rather than decorative: a heartbeat for a
+        The empty return is load-bearing rather than decorative: a heartbeat for a
         HusshID with no row means a pod is running that the registry does not know
         about -- an orphan, which is a real and billable condition. Swallowing that
         as success would hide it, so the caller gets the fact and logs it.
+
+        The ROW rather than a bool because the update already returns it. A pod's
+        first beat is what tells the hub the pod is up and warm, which is the moment
+        to finish provisioning -- and deciding that needs the row's status. Fetching
+        it separately would be a second query on every beat of every pod in the
+        fleet, forever, to serve a case that arises once per pod's lifetime.
 
         Writes ``health_state='healthy'`` alongside the timestamp. A pod that
         successfully authenticated to the hub and reported in IS healthy by the only
@@ -152,7 +158,7 @@ class PersonalAgentRegistryRepo:
         """
         normalized = str(hushh_id or "").strip()
         if not normalized:
-            return False
+            return None
         now = datetime.now(timezone.utc).isoformat()
         response = (
             self._db()
@@ -172,7 +178,8 @@ class PersonalAgentRegistryRepo:
             .eq("hushh_id", normalized)
             .execute()
         )
-        return bool(response.data)
+        rows = list(response.data or [])
+        return rows[0] if rows else None
 
     async def set_health_state(
         self,

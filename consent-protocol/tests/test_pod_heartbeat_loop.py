@@ -140,3 +140,43 @@ def test_a_configured_hub_does_schedule_the_task(monkeypatch):
     pod_server._start_heartbeat_loop()
 
     assert len(scheduled) == 1
+
+
+# -- the heartbeat needs CPU to actually run ---------------------------------------
+#
+# The push model rests on a background asyncio loop inside the pod. Cloud Run
+# throttles an instance's CPU to near zero between requests, so under the default
+# that loop stalls -- and the hub's evaluator reads silence from a WARM pod as a
+# fault. The pod would be answering its owner perfectly while auto-heal restarted it
+# for being quiet, which is the exact outcome _heartbeat_loop's docstring says the
+# design exists to avoid.
+
+
+def _render(min_instances):
+    from hushh_mcp.services.compute_backend import PodSpec
+    from hushh_mcp.services.gcp_backend import GcpBackend
+
+    backend = GcpBackend(
+        project="proj", region="us-central1", min_instances=min_instances, live=False
+    )
+    config = backend.render_deploy_config(PodSpec(hushh_id="hushh-abc", phone_e164_hash="h", pod_pubkey=""))
+    return config["spec"]["template"]["metadata"]["annotations"]
+
+
+def test_a_warm_pod_gets_cpu_between_requests():
+    assert _render(1)["run.googleapis.com/cpu-throttling"] == "false"
+
+
+def test_an_economy_pod_does_not_buy_always_on_cpu():
+    """Silence from a scale-to-zero pod is the HEALTHY state by construction, so
+    paying for always-on CPU there would spend money to make a tier report a liveness
+    it is designed not to have."""
+    assert "run.googleapis.com/cpu-throttling" not in _render(0)
+
+
+def test_the_two_levers_stay_consistent():
+    """minScale and CPU allocation must agree: a warm pod that cannot run its loop is
+    a pod the fleet will restart for being healthy."""
+    warm = _render(2)
+    assert warm["autoscaling.knative.dev/minScale"] == "2"
+    assert warm["run.googleapis.com/cpu-throttling"] == "false"
