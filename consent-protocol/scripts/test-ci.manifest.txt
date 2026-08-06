@@ -82,6 +82,7 @@ tests/test_pod_image_build_contract.py
 tests/test_pod_key_collection.py
 tests/test_pod_key_custody.py
 tests/test_pod_liveness_adapters.py
+tests/test_pod_liveness_attach.py
 tests/test_pod_liveness_service.py
 tests/test_pod_liveness_worker.py
 tests/test_pod_memory_service.py
