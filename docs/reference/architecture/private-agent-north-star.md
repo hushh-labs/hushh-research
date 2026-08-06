@@ -63,6 +63,33 @@ this document, however elegant its other properties.
 > coherent architecture — and it is the one that closes the identity gap without giving up
 > persistence.
 
+## The deployment matrix (founder directive, 2026-08-06)
+
+Deployment target and model credential are **two independent axes**, and the platform must
+support the cells below. Provisioning the person's agent after their AI key is connected is
+a **required implementation** on the hussh-managed pod *and* on Anypoint — not a hussh-GCP-
+only path with the others deferred.
+
+| Deployment target | Model credential |
+|---|---|
+| The person's **own GCP project** | their own Vertex ADC, **or** hussh Vertex ADC |
+| **hussh-managed pod** | hussh Vertex ADC, **or** the person's own AI key |
+| **Anypoint** | the person's own AI key, **or** hussh Vertex ADC |
+
+The seam already exists and is the right one: `runtime_providers/factory.py` documents
+credential mode as **orthogonal to provider** — `VERTEX_ADC_AUTH_MODE` versus a
+turn-bounded BYOK key. The matrix is that orthogonality made real across all three targets,
+not a new abstraction.
+
+**This supersedes standing decision D1** ("pods are BYOK-only for now", bound to
+`pod_managed_model_enabled`). Managed-model pods are in scope. D1's reasoning — that BYOK
+keeps the pod service account zero-role — does not disappear, and it is now a *constraint
+on how* a managed cell is built rather than a reason not to build it.
+
+Every cell must preserve the Private Agent properties: the person's holdings stay isolated
+and sealed, consent is still required and revocable, and the choice of cell is visible to
+the person rather than an invisible operator setting.
+
 ## Deployment-agnostic is a first-class requirement
 
 The hussh-managed GCP environment exists **purely to validate this architecture**. It is a
@@ -129,16 +156,29 @@ Raised by the lanes that inherit it, on the first cycle after it was written. Re
 here rather than resolved silently, because seven lanes each guessing differently is the
 drift this file exists to prevent.
 
-**Q1 — Can a hussh-managed pod hold a durable key at all?** `pod_self_registration.py`
-defines *durable* as storage only that pod's runtime can read, naming the **user's**
-project or attested sealed storage. On hussh-managed GCP neither exists. Read strictly,
-no hussh-hosted pod can ever be persistent — which would make persistence unvalidatable
-on the exact environment this document designates as the simulator.
+**Q1 — RESOLVED (founder, 2026-08-06). Can a hussh-managed pod hold a durable key at all?**
+`pod_self_registration.py` defines *durable* as storage only that pod's runtime can read,
+naming the **user's** project or attested sealed storage — neither of which exists on
+hussh-managed GCP. Read strictly, that made persistence unvalidatable on the exact
+environment designated as the simulator.
 
-*Working answer, proceeding under it until overruled:* the validation tier gets a
-**labelled-transitional** carve-out. A hussh-managed pod may hold a durable key in hussh
-Secret Manager **solely to prove the mechanism**, and that is explicitly not the customer
-posture. Anything relying on it must say so where it appears.
+**The resolution is to simulate the full hussh-managed pod lifecycle: keep the pod alive,
+chain intelligence across turns and restarts, and validate how the agent evolves over
+time.** The simulator's job is to prove *evolution*, not merely that a key survives. So a
+hussh-managed pod holds a durable key to make that simulation real, and the thing being
+validated is the compounding — continuity across restart, knowledge from an early turn used
+much later, and quality that does not decay over a long horizon.
+
+Two consequences worth stating, because they are what make this honest rather than a
+loophole:
+
+- The claim the simulator earns is **"the lifecycle works"**, not "hussh cannot read this
+  pod." On hussh-managed compute, hussh operates the environment. Sovereignty is the
+  customer-owned targets; the hussh tier proves the machinery.
+- **"The agent evolved" must be an assertion, not a vibe.** A long-horizon run that nobody
+  measures is a soak test with good intentions. It needs a metric, negative controls, and
+  an observed recall *tool call* — a model can produce a plausible answer by guessing, and
+  only the tool call proves it remembered.
 
 **Q2 — Economy-tier-by-default and background-services-between-turns are in tension.** A
 pod at `minScale=0` has no process to run background work in. Asserting both without

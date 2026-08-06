@@ -8,6 +8,31 @@ Dev is a governed dispatch-only proving lane, never a promotion lane. Any decisi
 that lands a PR, promotes `main`, or deploys UAT/production follows the canonical
 [Admin release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
 
+**The dev dispatch itself now follows that SOP's proof discipline too** (founder directive,
+2026-08-06). Dev remains dispatch-only and still never promotes — what changes is that a
+dev deploy is no longer an informal action. It carries the same evidence burden as any
+other authority transition:
+
+1. **Record the starting state** — current branch, `git status --short --branch` — and
+   return to it afterwards. Do not create a convenience branch.
+2. **Prove the exact SHA before dispatching.** It must be reachable from the requested ref
+   *and* carry a terminal, successful `CI Status Gate`. Re-read the SHA immediately before
+   the dispatch, not from a note taken earlier.
+3. **Confirm the governed actor** (`scripts/ci/assert-governed-actor.py --surface dev`).
+4. **Dispatch from `main` with `ref` set to the branch.** The workflow definition runs from
+   `main`; the content deployed is `inputs.ref`. A dispatch made *from* the branch is
+   refused in about a second, before a runner is assigned — and reads in the run list as an
+   ordinary failure.
+5. **Confirm the run actually started from live state.** A successful CLI response is not
+   proof, exactly as §3A says of queue entry.
+6. **Follow it to terminal state**, then verify the deployed revision genuinely carries the
+   SHA — and, when the deploy is expected to apply migrations, that `schema_migrations`
+   contains the rows it should. A green deploy is not evidence a migration ran.
+
+The reason this tightened: a dev dispatch is where the parked migration lane applies, so
+"it deployed" and "the schema moved" are different claims, and only one of them was ever
+being checked.
+
 ## Visual Context
 
 Canonical visual owner: [Operations Index](./README.md). Companion contracts:
