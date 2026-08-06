@@ -480,3 +480,39 @@ async def test_count_active_pods_can_exclude_one_user():
 async def test_count_active_pods_on_an_empty_fleet_is_zero():
     repo = PersonalAgentRegistryRepo(client=FakeDB())
     assert await repo.count_active_pods() == 0
+
+
+# -- the ceiling above our own ------------------------------------------------------
+#
+# PERSONAL_AGENT_MAX_PODS is a row count in our registry. The real limit on "every
+# account gets a pod" is a Cloud Run services-per-project-per-region quota, read
+# from the Service Usage API on 2026-08-06 against hushh-pda-dev:
+#
+#     Cloud Run "Services", unit 1/{project}/{region}
+#     effectiveLimit = 1000, defaultLimit = 1000   (no increase ever granted)
+
+
+CLOUD_RUN_SERVICES_PER_PROJECT_PER_REGION = 1000
+
+
+def test_our_own_cap_stays_below_the_platform_ceiling():
+    """A default above 1000 would pass our check and then fail at Cloud Run -- the
+    least useful place for a limit to surface, because by then the registry row
+    exists and the person has already been told their agent is being built."""
+    from hushh_mcp.runtime_settings import _PERSONAL_AGENT_MAX_PODS_DEFAULT
+
+    assert _PERSONAL_AGENT_MAX_PODS_DEFAULT <= CLOUD_RUN_SERVICES_PER_PROJECT_PER_REGION
+
+
+def test_the_platform_ceiling_is_recorded_where_an_operator_will_look():
+    """A number that lives only in a commit message is a number nobody finds. The
+    runbook is where someone asks "can we onboard 5000 users into one project?"."""
+    from pathlib import Path
+
+    doc = (
+        Path(__file__).resolve().parents[2]
+        / "docs" / "future" / "personal-agent" / "POD-AUTOPROVISION.md"
+    ).read_text(encoding="utf-8")
+
+    assert str(CLOUD_RUN_SERVICES_PER_PROJECT_PER_REGION) in doc
+    assert "consumerQuotaMetrics" in doc, "how to re-read it, not just what it said once"
