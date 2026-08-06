@@ -32,7 +32,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Body, Depends, HTTPException, Path
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_firebase_auth
@@ -51,6 +52,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/one/u", tags=["personal-agent"])
 
 _INFO_TIMEOUT_SECONDS = 5.0
+# A turn waits on a model, not a status read. Real questions routinely take tens of
+# seconds, and a 5s bound would turn every genuine answer into "your agent is not
+# answering right now" -- a false fault report, in the person's own language.
+_TURN_TIMEOUT_SECONDS = 120.0
 
 
 def _require_enabled() -> None:
@@ -100,6 +105,47 @@ async def _proxy_get(url: str, path: str, *, session: Any = None) -> tuple[int, 
     except Exception:  # noqa: BLE001
         body = {"detail": "pod returned a non-JSON body"}
     return getattr(response, "status_code", 502), body
+
+
+async def _proxy_post(
+    url: str,
+    path: str,
+    *,
+    body: dict,
+    consent_token: str,
+    session: Any = None,
+) -> tuple[int, Any]:
+    """POST to a pod as the hub, carrying the owner's standing read grant.
+
+    Longer timeout than the info proxy: this waits on a model, not a status read.
+    A person's question routinely takes tens of seconds to answer, and a 5s bound
+    would turn every real turn into a spurious "your agent is not answering".
+    """
+    client: Any = session
+    if client is None:
+        import requests  # type: ignore[import-untyped]  # noqa: PLC0415 - deferred so tests can inject
+
+        client = requests
+    token = await run_in_threadpool(_identity_token, url)
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if consent_token:
+        headers["X-Consent-Token"] = consent_token
+    try:
+        response = await run_in_threadpool(
+            lambda: client.post(
+                f"{url}{path}", json=body, headers=headers, timeout=_TURN_TIMEOUT_SECONDS
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - a pod that is not up is a 503, not a 500
+        logger.info("pod_relay.turn_unreachable %s", type(exc).__name__)
+        return 503, {"detail": "pod unreachable"}
+    try:
+        answer = response.json()
+    except Exception:  # noqa: BLE001
+        answer = {"detail": "pod returned a non-JSON body"}
+    return getattr(response, "status_code", 502), answer
 
 
 async def relay_pod_info(
@@ -156,3 +202,149 @@ async def relay_pod_info_route(
 ) -> dict:
     """The private relay: owner-authorized proxy to a pod's /pod/info."""
     return await relay_pod_info(hushh_id=hushh_id, user_id=user_id)
+
+
+# -- the turn -----------------------------------------------------------------
+#
+# The last link in the chain. Everything before this made a pod EXIST and be
+# reachable; this is what lets a person's message reach the agent running on it.
+#
+# Non-streaming, matching `api/routes/one/pod_turn.py` on purpose. That route
+# collects its events into one response precisely so a First Light failure is
+# attributable to the agent running in a pod rather than to transport. Streaming
+# through the relay is its own set of failure modes and changing two contracts at
+# once would make the first real failure ambiguous, which is the whole thing this
+# ordering exists to avoid.
+
+
+class PodTurnRelayRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=8000)
+    conversation_id: str = Field(default="pod-first-light", alias="conversationId", max_length=128)
+    timezone: Optional[str] = Field(default=None, max_length=64)
+    # The OWNER'S model key, carried through from the browser. The hub does not
+    # hold it -- it lives in the person's own vault, decrypted client-side -- and
+    # `exclude=True` keeps it out of every serialisation of this model, so it
+    # cannot reach a log line by being part of a request dump.
+    runtime_credential: Optional[str] = Field(
+        default=None, alias="runtimeCredential", max_length=12000, exclude=True
+    )
+    runtime_credential_transport: str = Field(
+        default="developer_api", alias="runtimeCredentialTransport", max_length=32
+    )
+    vertex_project: Optional[str] = Field(default=None, alias="vertexProject", max_length=30)
+    vertex_location: Optional[str] = Field(default=None, alias="vertexLocation", max_length=64)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+def _not_ready(status: str) -> HTTPException:
+    """A typed refusal that says WHICH not-ready this is.
+
+    The relay used to answer a bare 409 "pod is not reachable yet", and the primary
+    surface rendered that as an opaque error frame -- during the exact window
+    between a person connecting their AI key and their agent being finished, which
+    is when they are most likely to think the product is broken.
+
+    The code is stable for the client to branch on; the status is the real registry
+    state, so the UI can say "starting up" rather than "something went wrong".
+    """
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "AGENT_NOT_READY",
+            "status": status or "unknown",
+        },
+    )
+
+
+async def relay_pod_turn(
+    *,
+    hushh_id: str,
+    user_id: str,
+    payload: PodTurnRelayRequest,
+    registry: Optional[PersonalAgentRegistryRepo] = None,
+    audit: Optional[PodAccessAuditService] = None,
+    grants: Any = None,
+    session: Any = None,
+) -> dict:
+    """Owner-authorized turn against a person's own pod."""
+    _require_enabled()
+    repo = registry or PersonalAgentRegistryRepo()
+    auditor = audit or PodAccessAuditService(registry=repo)
+
+    try:
+        await auditor.authorize_owner_read(
+            user_id=user_id,
+            agent_id=PERSONAL_AGENT_ID,
+            scope=ConsentScope.PKM_READ.value,
+            hushh_id=hushh_id,
+            request_id=f"relay-turn:{hushh_id}",
+        )
+    except PodAccessDenied as exc:
+        # Same single shape as the info relay: never an oracle for which HusshIDs
+        # exist, and never a hint about whose pod this is.
+        logger.info("pod_relay.turn_denied reason=%s", str(exc))
+        raise HTTPException(status_code=403, detail="not authorized for this pod") from exc
+    except PersonalAgentDisabledError as exc:
+        raise HTTPException(status_code=404, detail="personal agent is not available") from exc
+
+    row = await repo.get(user_id) or {}
+    url = _pod_url(row)
+    if url is None:
+        raise _not_ready(str(row.get("status") or ""))
+
+    # The consent token is minted HERE, server-side, and is a `pkm.read` grant
+    # bound to the personal-agent identity. It is never accepted from the caller:
+    # a client-supplied token is a client-chosen authority, and the one token a
+    # browser actually holds is `vault.owner` -- the master grant, which would give
+    # the pod everything.
+    issuer = grants
+    if issuer is None:
+        from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
+            PersonalAgentGrantService,
+        )
+
+        issuer = PersonalAgentGrantService().issue_or_reuse_standing_pkm_read
+    try:
+        grant = await issuer(user_id)
+    except PersonalAgentDisabledError as exc:
+        raise HTTPException(status_code=404, detail="personal agent is not available") from exc
+    except Exception as exc:  # noqa: BLE001 - no grant means no turn, and say so plainly
+        logger.warning("pod_relay.grant_failed %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=503, detail="could not authorize your agent to read for you"
+        ) from exc
+
+    body: dict[str, Any] = {
+        "message": payload.message,
+        "conversationId": payload.conversation_id,
+        "timezone": payload.timezone,
+        "runtimeCredential": payload.runtime_credential,
+        "runtimeCredentialTransport": payload.runtime_credential_transport,
+        "vertexProject": payload.vertex_project,
+        "vertexLocation": payload.vertex_location,
+    }
+    status, answer = await _proxy_post(
+        url,
+        "/api/one/pod/turn",
+        body=body,
+        consent_token=str(grant.get("token") or ""),
+        session=session,
+    )
+    if status == 503:
+        raise HTTPException(status_code=503, detail="your agent is not answering right now")
+    if status >= 400:
+        # The pod's own refusal, forwarded with its shape intact. A pod that says
+        # "connect an AI key first" (400) must not reach the person as a 500.
+        raise HTTPException(status_code=status, detail=answer)
+    return {"hushhId": hushh_id, **(answer if isinstance(answer, dict) else {"pod": answer})}
+
+
+@router.post("/{hushh_id}/turn")
+async def relay_pod_turn_route(
+    payload: PodTurnRelayRequest = Body(...),
+    hushh_id: str = Path(..., min_length=1, max_length=128),
+    user_id: str = Depends(require_firebase_auth),
+) -> dict:
+    """Run one turn on this person's own pod."""
+    return await relay_pod_turn(hushh_id=hushh_id, user_id=user_id, payload=payload)
