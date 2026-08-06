@@ -197,6 +197,24 @@ Professional verification providers:
 - `IAPD_VERIFY_BASE_URL`
 - `IAPD_VERIFY_API_KEY`
 - `IAPD_VERIFY_TIMEOUT_SECONDS`
+
+RIA claim-by-phone (RIA Identity API):
+
+- `RIA_IDENTITY_BASE_URL`
+  - Cloud Run origin of the RIA Identity API (phone → SEC firm + adviser claim targets)
+- `RIA_IDENTITY_API_KEY`
+  - bearer key for `/v1/*`; stays server-side, never shipped to a browser
+- `RIA_IDENTITY_TIMEOUT_SECONDS`
+  - default `30`
+- `RIA_CLAIM_TEST_NUMBERS`
+  - comma-separated demo numbers whose claim OTP is a fixed code (no SMS sent);
+    honored only outside production — the regulated runtime guard refuses boot
+    if set in production
+- `RIA_CLAIM_TEST_CODE`
+  - the fixed passcode for allowlisted claim numbers (UAT demo uses `00000`)
+- `RIA_CLAIM_TEST_CHALLENGE_SECRET`
+  - optional HMAC key for the stateless claim challenge; falls back to
+    `APP_SIGNING_KEY`
 - `BROKER_CAPABILITY_ENABLED`
 - `BROKER_VERIFY_BASE_URL`
 - `BROKER_VERIFY_API_KEY`

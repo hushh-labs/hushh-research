@@ -64,6 +64,14 @@ def validate_regulated_runtime_configuration() -> None:
     if str(os.getenv("RIA_DEV_ALLOWLIST", "")).strip():
         raise RuntimeError("RIA_DEV_ALLOWLIST must not be set in production.")
 
+    if (
+        str(os.getenv("RIA_CLAIM_TEST_NUMBERS", "")).strip()
+        or str(os.getenv("RIA_CLAIM_TEST_CODE", "")).strip()
+    ):
+        raise RuntimeError(
+            "RIA_CLAIM_TEST_NUMBERS / RIA_CLAIM_TEST_CODE must not be set in production."
+        )
+
     if _env_truthy("BROKER_VERIFICATION_BYPASS_ENABLED"):
         raise RuntimeError("BROKER_VERIFICATION_BYPASS_ENABLED must remain false in production.")
 

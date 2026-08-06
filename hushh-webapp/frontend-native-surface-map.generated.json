@@ -7237,6 +7237,72 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/ria/claim",
+      "page_file": "app/ria/claim/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "flow",
+        "exemption_reason": "Claim-by-phone is a fullscreen setup flow (phone, match, passcode, pick, done) that owns its own compact content rhythm.",
+        "shell_verification_file": "app/ria/claim/page.tsx",
+        "shell_verification_includes": [
+          "FullscreenFlowShell"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.ria.claim",
+          "purpose": "Help the person claim their SEC advisor or firm profile with their office number.",
+          "screen": "ria_claim",
+          "entry_cue": "You can say “Claim RIA Profile” to use the primary control on this screen.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.ria_claim",
+          "happy_path_action_ids": [
+            "route.ria_claim"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": "/ria/claim",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/ria/claim",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fclaim",
+        "expectedMarker": "native-route-ria-claim",
+        "expectedRoute": "/ria/claim",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": true,
+        "shared_loader": false,
+        "back_button_pattern": "route-local-check-required"
+      },
+      "voice_action_contract_file": "app/ria/claim/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.ria_claim"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/ria/clients",
       "page_file": "app/ria/clients/page.tsx",
       "physical_page_exists": true,
@@ -7940,5 +8006,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "f9ce08c33eeea46cd638055f70b91759798f45e49afb6d46c30ae33419c7cb94"
+  "content_sha256": "a3e8d8d59fd9082029f159d8f5225575ac595f02972eb33d9b2648ae8569a7ef"
 }

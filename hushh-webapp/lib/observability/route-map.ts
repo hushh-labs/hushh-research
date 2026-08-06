@@ -64,6 +64,7 @@ export const ROUTE_ID_VALUES = [
   "portfolio_shared",
   "ria_home",
   "ria_onboarding",
+  "ria_claim",
   "ria_clients",
   "ria_requests",
   "ria_picks",
@@ -208,6 +209,7 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === "/portfolio/shared") return "portfolio_shared";
   if (pathname === ROUTES.RIA_HOME) return "ria_home";
   if (pathname === ROUTES.RIA_ONBOARDING) return "ria_onboarding";
+  if (pathname === ROUTES.RIA_CLAIM) return "ria_claim";
   if (pathname === ROUTES.RIA_CLIENTS) return "ria_clients";
   if (pathname === ROUTES.RIA_REQUESTS) return "ria_requests";
   if (pathname === ROUTES.RIA_PICKS) return "ria_picks";
