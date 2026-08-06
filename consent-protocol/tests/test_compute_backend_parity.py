@@ -247,3 +247,68 @@ def test_a_pod_never_scales_past_one_writer():
         "spec"
     ]["template"]["metadata"]["annotations"]
     assert annotations["autoscaling.knative.dev/maxScale"] == "1"
+
+
+# --- the two backends must state the SAME size, not merely a size ------------------
+#
+# `test_the_pod_size_is_declared_not_inherited` above asserts each backend states
+# something. It passed for months while GCP rendered 500m CPU and Anypoint rendered
+# "0.1" vCores from an independent literal -- the SAME pod, sized FIVE TIMES
+# differently depending on which backend happened to provision it.
+#
+# That is the structural limit of a presence check, and it is the same shape as the
+# HUSSH_POD_TURN_ENABLED omission: a comparison cannot see what both sides get
+# wrong, and a per-side check cannot see that the sides disagree. Both backends now
+# derive from one profile, so the disagreement is unrepresentable rather than
+# merely absent today.
+
+
+def test_both_backends_size_the_pod_from_one_profile():
+    from hushh_mcp.services.compute_backend import POD_CPU, POD_MEMORY, pod_vcores
+
+    gcp = GcpBackend(project="p", image="i", live=False).render_deploy_config(_spec())
+    limits = gcp["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]
+    anypoint = AnypointBackend(live=False).render_deploy_config(_spec())
+
+    assert limits["cpu"] == POD_CPU
+    assert limits["memory"] == POD_MEMORY
+    assert anypoint["application"]["vCores"] == pod_vcores()
+
+
+def test_the_vcore_conversion_is_a_unit_change_not_a_policy():
+    """1 vCore is one vCPU on CloudHub 2.0, so this is arithmetic. Keeping it a
+    function next to the constant is what stops it becoming a second literal that
+    drifts -- which is exactly how the 5x gap appeared."""
+    from hushh_mcp.services.compute_backend import pod_vcores
+
+    assert pod_vcores(1000) == "1"
+    assert pod_vcores(500) == "0.5"
+    assert pod_vcores(250) == "0.25"
+
+
+def test_changing_the_profile_moves_BOTH_backends(monkeypatch):
+    """The property that makes this a single source of truth rather than two
+    literals that happen to agree today."""
+    from hushh_mcp.services import compute_backend
+
+    monkeypatch.setattr(compute_backend, "POD_CPU", "250m")
+    monkeypatch.setattr(compute_backend, "POD_CPU_MILLIS", 250)
+
+    import importlib
+
+    from hushh_mcp.services import anypoint_backend, gcp_backend
+
+    importlib.reload(gcp_backend)
+    importlib.reload(anypoint_backend)
+    try:
+        limits = gcp_backend.GcpBackend(project="p", image="i", live=False).render_deploy_config(
+            _spec()
+        )["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]
+        vcores = anypoint_backend.AnypointBackend(live=False).render_deploy_config(_spec())[
+            "application"
+        ]["vCores"]
+        assert limits["cpu"] == "250m"
+        assert vcores == "0.25"
+    finally:
+        importlib.reload(gcp_backend)
+        importlib.reload(anypoint_backend)

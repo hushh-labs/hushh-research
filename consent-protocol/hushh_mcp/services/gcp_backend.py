@@ -40,6 +40,8 @@ from typing import Any, Optional
 from hushh_mcp.runtime_settings import pod_turn_enabled
 from hushh_mcp.services.compute_backend import (
     BACKEND_GCP,
+    POD_CPU,
+    POD_MEMORY,
     TIER_DEDICATED,
     TIER_LOGICAL,
     BackendHandle,
@@ -154,8 +156,10 @@ class GcpBackend:
         # tier so the economy tier can go smaller and the attested tier larger, without
         # either of them silently falling back to whatever Cloud Run happens to default
         # to that quarter.
-        self._cpu = cpu if cpu is not None else (_env("HUSSH_POD_CPU") or "500m")
-        self._memory = memory if memory is not None else (_env("HUSSH_POD_MEMORY") or "1Gi")
+        # Defaults come from the ONE profile in compute_backend, so this backend and
+        # Anypoint cannot size the same pod differently. Env still overrides per lane.
+        self._cpu = cpu if cpu is not None else (_env("HUSSH_POD_CPU") or POD_CPU)
+        self._memory = memory if memory is not None else (_env("HUSSH_POD_MEMORY") or POD_MEMORY)
         # The ONE principal allowed to invoke a pod -- the hub's runtime service
         # account. A pod is created with `internal` ingress and no `allUsers`
         # binding, so this binding is the only thing that can reach it. Unset means
