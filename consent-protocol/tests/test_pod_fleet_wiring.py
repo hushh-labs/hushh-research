@@ -147,3 +147,44 @@ def test_a_task_with_no_authority_context_still_fails_closed():
     task = A2ATask(user_id="user-1", consent_token="HCT:x", conversation_id="c1", authority=None)  # noqa: S106
     with pytest.raises(A2AAuthorityRequired):
         require_attenuated_authority(task, information=True)
+
+
+# -- the turn flag has to reach the POD ---------------------------------------------
+#
+# `pod_turn._require_enabled` reads HUSSH_POD_TURN_ENABLED inside the pod's own
+# process, and `pod_turn_enabled()` defaults OFF. The hub having it set does
+# nothing for the pod: without it in the rendered env, every provisioned pod
+# answers 404 on POST /api/one/pod/turn -- the flag set exactly where it does not
+# matter and absent where it does.
+
+
+def _pod_env(monkeypatch, hub_value: bool):
+    from hushh_mcp.services import gcp_backend as mod
+    from hushh_mcp.services.compute_backend import PodSpec
+
+    monkeypatch.setattr(mod, "pod_turn_enabled", lambda: hub_value)
+    backend = mod.GcpBackend(project="proj", region="us-central1", live=False)
+    config = backend.render_deploy_config(
+        PodSpec(hushh_id="hushh-abc", phone_e164_hash="h", pod_pubkey="")
+    )
+    container = config["spec"]["template"]["spec"]["containers"][0]
+    return {e["name"]: e.get("value") for e in container["env"]}
+
+
+def test_a_pod_is_told_whether_it_may_serve_turns(monkeypatch):
+    assert _pod_env(monkeypatch, True)["HUSSH_POD_TURN_ENABLED"] == "true"
+
+
+def test_the_switch_is_propagated_not_hardcoded(monkeypatch):
+    """One kill-switch, one meaning. Turning it off on the hub must stop new pods
+    from serving turns; two independent settings could disagree, and the
+    disagreement would surface as a 404 that reads like a routing bug rather than
+    a policy decision."""
+    assert _pod_env(monkeypatch, False)["HUSSH_POD_TURN_ENABLED"] == "false"
+
+
+def test_the_pod_still_gets_the_feature_flag_it_needs_to_mount_anything(monkeypatch):
+    """PERSONAL_AGENT_ENABLED gates the whole surface; the turn flag gates one
+    route on it. Losing either leaves a pod whose only real endpoint is dead."""
+    env = _pod_env(monkeypatch, True)
+    assert env["PERSONAL_AGENT_ENABLED"] == "1"

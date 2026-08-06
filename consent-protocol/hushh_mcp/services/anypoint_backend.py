@@ -33,6 +33,7 @@ import os
 import re
 from typing import Any, Optional
 
+from hushh_mcp.runtime_settings import pod_turn_enabled
 from hushh_mcp.services.compute_backend import (
     BACKEND_ANYPOINT,
     TIER_LOGICAL,
@@ -119,6 +120,15 @@ class AnypointBackend:
             # A pod exists only because the feature was enabled to provision it, and
             # the route it mounts 404s without this.
             "PERSONAL_AGENT_ENABLED": "1",
+            # Whether this pod may run a turn. Read INSIDE the pod and default OFF,
+            # so its absence means every provisioned pod answers 404 on the one
+            # route it exists to serve. Propagated from the hub's value, never
+            # hardcoded, so the kill-switch means the same thing on both backends.
+            #
+            # The parity test compares the two renderers against each other, which
+            # is exactly why this was missing from BOTH and still passed: a shared
+            # omission is invisible to a comparison.
+            "HUSSH_POD_TURN_ENABLED": "true" if pod_turn_enabled() else "false",
             # The consent-token VERIFYING keys (Ed25519, public half only). This is
             # what lets a pod check a token at its own door while holding nothing
             # that could forge one.
