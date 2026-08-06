@@ -35,7 +35,7 @@ disagreed, which is how several of these were found.
 | Requirement | State | Evidence |
 |---|---|---|
 | **Isolation** — one person cannot reach another | met | Separate service, no database credential, no shared data key, zero-permission runtime identity. |
-| **Authority** — consented, scoped, revocable, audited | primitive met, body empty | Signed/expiring/revocable grants with a chained tamper-evident ledger. But `_first_party_authority` carries `invocation_capabilities` only, so `require_attenuated_authority(information=True)` refuses. |
+| **Authority** — consented, scoped, revocable, audited | partial | Signed, scoped, expiring, revocable with immediate fail-closed revocation — genuinely good. But `_first_party_authority` carries `invocation_capabilities` only, so `require_attenuated_authority(information=True)` refuses; signing defaults to **HMAC**, not Ed25519; and the chain over the **primary** consent ledger is parked and flag-off. See the commerce section. |
 | **Identity** — which agent is acting | **absent** | Every pod runs as the same service account. A verified call proves *a* pod is calling, never which. |
 | **Capability** — it does useful things | **absent** | 2 of 12 tools succeed. 3 specialists refuse before doing work — on the hub, today. |
 | **Portability** — runs on hardware the person owns | **absent** | Configuration baked into the image; agent memory in-process, erased on restart. |
@@ -124,22 +124,109 @@ partly work is not ninety percent of a product; it is zero, because a person who
 refusal on the one thing they came for does not care that eight other refusals were
 available. **The product is not blocked on engineering. It is blocked on choosing.**
 
-## Commerce — the prerequisite that is not negotiable
+## Commerce — money already moves, and this is now item one
 
-A payment authorisation and a consent receipt are the same object. Agent-payment
-standards model authorisation as a signed, verifiable mandate — what the human agreed to,
-bound to a specific transaction, presentable later as proof. That is what PCHP grants
-already are. The work is to **project the primitive we have** into the format the rails
-expect, not to bolt a second authorisation system alongside it.
+**Correction to an earlier draft of this file, and to the published narrative.** Commerce
+was treated as Phase 4. It is not a future phase. A live rail moves real ACH funds between
+a person's bank and their brokerage account (`api/routes/kai/plaid.py` →
+`broker_funding_service.py`, Plaid Transfer + Alpaca). It has been there throughout.
 
-**Hard prerequisite.** The gate that authorises an agent to *act* rather than read
-currently accepts any non-empty string as its confirmation of human intent
-(`require_attenuated_authority`, truthiness-only on `confirmation_receipt`). Not
-exploitable today — nothing in production can reach it — but a payment is exactly an act,
-and commerce is the feature that lights that gate up. A proper receipt already exists in
-this codebase (`PkmConfirmationReceiptV2`: subject binding, plan/domain/scope match,
-single-use `consume()`). **Rebuild the action gate to that standard before one cent moves
-through it.** Before, not alongside.
+### The gap, precisely
+
+`POST /plaid/transfers/create` is gated by exactly one control:
+`require_consent_scope("brokerage.transfer.write")` (`api/middleware.py`), which validates
+signature, expiry, revocation and scope — **and nothing else**. Amount, direction and
+destination account arrive in the request body, unbound to the token. Consequences:
+
+- One `brokerage.transfer.write` token authorises **any amount, to any linked account, for
+  up to 7 days** (`DEFAULT_CONSENT_TOKEN_EXPIRY_MS`).
+- `vault.owner` satisfies it as a super-scope (`consent/scope_helpers.py` — "master key
+  grants everything").
+- `ActionDirectiveStore` is not involved: zero references to it in
+  `broker_funding_service.py`.
+
+**Authorisation must be bound to the transaction, not to a category of transaction. A
+permission that does not name the amount is a standing permission, whatever its expiry
+says.**
+
+### We already built the fix and did not connect it
+
+`hushh_mcp/services/action_directive_ledger.py` — **shipped** (migration `114` is in
+`db/release_migration_manifest.json`). A four-state machine:
+`issued → confirmed → consumed → settled`, each transition an atomic conditional UPDATE.
+`issue()` HMACs the action contract and slots *before* the human sees it; TTL clamped
+30–300 s. `confirm()` mints a receipt and stores only its hash. `consume()` requires the
+receipt hash **and** `state='confirmed'` — a second call finds no row and raises. That is
+genuine single-use replay protection. `settle()` records the terminal status.
+
+Propose → authorise → capture → settle. **That is a payment mandate lifecycle, complete,
+in production, and unused by the one route that moves money.**
+
+Note this corrects an earlier recommendation in this file: `PkmConfirmationReceiptV2` has
+excellent *binding* (subject, plan, domain, scope, timestamp window) but **no `consume()`
+and no persistence**, so within its 7-day window it replays indefinitely.
+`ActionDirectiveStore` is the right primitive; `PkmConfirmationReceiptV2` is the right
+*shape* for its payload.
+
+### Ordered fix
+
+1. **Bind `create_transfer` to a directive.** Add `directive_id` + `receipt` to the
+   request, call `consume()` before `create_transfer`, and put
+   `{amount, currency, direction, funding_account_id}` in the HMAC'd `slots`. Amount
+   binding, single-use and a 300-second window, from code that already ships.
+2. **Call `settle()` on the terminal transfer states** — `broker_funding_service.py`
+   already computes them. The directive ledger then *is* the mandate-to-settlement trail,
+   with no new table.
+3. **Then** the A2A action gate: `require_attenuated_authority` is truthiness-only on
+   `confirmation_receipt` (`adk_bridge/contract.py`). Unreachable today because
+   `_first_party_authority` never populates it — but it is the gate an agent would spend
+   through. Make it carry `(directive_id, receipt)` and call `consume()`.
+4. **Turn on asymmetric signing** (`token_signing.py` is complete; issuance defaults to
+   HMAC). Under HMAC the issuer can forge any past authorisation — fatal for
+   non-repudiation on a payment.
+5. **Un-park `904_consent_audit_receipts.sql` and default `CONSENT_AUDIT_CHAIN_ENABLED`
+   on.** See the correction below.
+
+### Correction: the primary consent ledger is not chained in production
+
+An earlier claim in this workstream — that the consent audit ledger is chained and
+tamper-evident — is **half true and the wrong half ships**.
+
+- `fabric_receipts_service.py` — real, chained, in the **release** manifest (migration
+  `119`). Covers **fabric grants only**.
+- `consent_audit_chain_service.py` — the chain over the **primary** `consent_audit`
+  ledger. Migration is **parked** (`parked/904`), which
+  `db/dev_migration_manifest.json` states is "never applied in UAT or production", and
+  `CONSENT_AUDIT_CHAIN_ENABLED` defaults **False**.
+
+The service's own docstring is candid: `consent_audit` "is mutable and unchained: a silent
+edit or delete of an audit row is not detectable." **AU-9/AU-10 non-repudiation is not met
+for consent events.** A payment mandate written to a mutable ledger is not a mandate.
+
+### Absent, and blocking for third-party funds (not for fixing the above)
+
+No identity verification of our own user (the "KYC" surfaces are the agent *responding to*
+a third party's request, not verifying us) · no AML or sanctions screening · no
+double-entry accounting. Operational hygiene on the existing rail is good — DB-enforced
+idempotency keys, a status machine, reconciliation, encrypted access tokens — and the
+regulated-entity boundary is correctly delegated to the broker-dealer.
+
+### Candor — copy that outruns code, fix today
+
+1. `hushh-search-console/src/app/commerce/page.tsx` states payments are consent-gated,
+   purpose-bound, "no standing access." `src/app/api/commerce/checkout/route.ts` contains
+   **zero** consent or token references. Either make it true or remove the claim.
+2. `hushh-search-console/public/.well-known/agent.json` lists **AP2** and **UCP** under
+   protocols spoken, with no status qualifier. Neither repo contains an implementation of
+   either. The human-facing page correctly labels them `roadmap`; the **machine-readable**
+   manifest does not, and other agents parse that file.
+3. "Ships now" on service payments and subscriptions — both return **501** without keys.
+   Say "built, not activated."
+
+Worth preserving as the model: the backend's own comments are markedly more honest than
+the marketing surface (`marketplace_information_service.py`: "there is NO payment rail
+yet… `accrued_cents` is always 0"; `agent_tree.py`: "that emptiness is the honest
+boundary"). The standard already exists internally; it has not reached the front door.
 
 ## Standing decisions
 
@@ -170,10 +257,14 @@ requiring a cohort larger than the team, which is blocked on Phase 2.
    every cohort beyond the team as blocked on it.
 6. **Make the economy tier the default**, warm a choice, so the cost curve is not a
    surprise at the moment it matters.
-7. **Rebuild the action gate** to the receipt standard already in the codebase, before
-   any commerce work begins.
-8. **Keep this ledger current.** It is the only document that would have prevented any
-   of the six.
+7. **Bind the live money route to `ActionDirectiveStore`** so an authorisation names the
+   amount and destination and can be used exactly once. This is item one on the
+   engineering list; it was not on the list at all when this file was first drafted.
+8. **Correct the commerce copy and the agent manifest** to match the code. An hour of
+   work, and the only item here with a compliance consequence.
+9. **Turn on Ed25519 issuance and the primary audit chain.** Both are built. Both are off.
+10. **Keep this ledger current.** It is the only document that would have prevented any
+   of the six — or this correction.
 
 ## Sources
 
