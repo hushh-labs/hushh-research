@@ -62,6 +62,16 @@ class PodTurnRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=8000)
     conversation_id: str = Field(default="pod-first-light", alias="conversationId", max_length=128)
     timezone: Optional[str] = Field(default=None, max_length=64)
+    # The OWNER'S model credential, supplied per turn. See _resolve_runtime for why
+    # a pod uses the person's own key rather than a fleet identity.
+    runtime_credential: Optional[str] = Field(
+        default=None, alias="runtimeCredential", max_length=4096
+    )
+    runtime_credential_transport: str = Field(
+        default="developer_api", alias="runtimeCredentialTransport", max_length=32
+    )
+    vertex_project: Optional[str] = Field(default=None, alias="vertexProject", max_length=64)
+    vertex_location: Optional[str] = Field(default=None, alias="vertexLocation", max_length=64)
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -133,6 +143,7 @@ async def run_pod_turn(
         runner = stream_one_text_turn
 
     provider, model = _resolve_model()
+    runtime_mode = _resolve_runtime_mode(payload)
 
     chunks: list[str] = []
     directives: list[Any] = []
@@ -149,8 +160,11 @@ async def run_pod_turn(
             pkm_context=None,
             runtime_provider=provider,
             runtime_model=model,
-            runtime_mode="hushh_managed_vertex",
-            runtime_credential=None,
+            runtime_mode=runtime_mode,
+            runtime_credential=payload.runtime_credential,
+            runtime_credential_transport=payload.runtime_credential_transport,  # type: ignore[arg-type]
+            runtime_vertex_project=payload.vertex_project,
+            runtime_vertex_location=payload.vertex_location,
         ):
             kind = getattr(event, "kind", "")
             if kind == "token":
@@ -172,7 +186,47 @@ async def run_pod_turn(
         # from an agent that knows nothing about its owner yet.
         "grounded": False,
         "directiveCount": len(directives),
+        # Whose model answered. Stated, because "your AI" is a product promise and a
+        # cost boundary, not an implementation detail.
+        "runtimeMode": runtime_mode,
     }
+
+
+def _resolve_runtime_mode(payload: PodTurnRequest) -> str:
+    """Whose model serves this turn -- and the answer should be the OWNER'S.
+
+    A pod runs on the person's own AI key, supplied per turn, for three reasons
+    that all point the same way:
+
+    * **It is the product.** "Own your AI. Own your data. Own your compute." An
+      agent that quietly bills its thinking to a fleet account owns none of those.
+    * **Cost and quota land where they belong** -- on the person whose agent is
+      working, not on a shared pool that one heavy user can exhaust for everyone.
+    * **Least privilege.** The pod service account holds ZERO project roles, which
+      is the whole basis of the isolation story. Serving turns from a fleet Vertex
+      identity would mean granting ``aiplatform.user`` to every pod in the fleet --
+      spending the one property that makes a compromised pod uninteresting.
+
+    The key never rests in the pod: it arrives with the turn and leaves with it.
+    Nothing here writes it anywhere, and it is never logged.
+
+    A managed fallback exists because the product supports it, but it is chosen
+    explicitly, never by silent default -- a pod with no credential that quietly
+    reached for a fleet identity would be spending money nobody authorised.
+    """
+    if str(payload.runtime_credential or "").strip():
+        return "gemini_byok"
+    from hushh_mcp.runtime_settings import pod_managed_model_enabled  # noqa: PLC0415
+
+    if pod_managed_model_enabled():
+        return "hushh_managed_vertex"
+    # Refusing beats guessing. This is the honest state for a person whose AI
+    # connection has not been established -- and by the provisioning gate, they
+    # should not have a pod at all yet.
+    raise HTTPException(
+        status_code=400,
+        detail="this pod has no model access; connect an AI key first",
+    )
 
 
 def _resolve_model() -> tuple[str, str]:
