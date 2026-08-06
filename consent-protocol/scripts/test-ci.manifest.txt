@@ -103,3 +103,4 @@ tests/test_pod_consent_authority.py
 tests/test_personal_agent_deploy_lane.py
 tests/test_managed_runtime_selection.py
 tests/test_personal_agent_reconcile_attach.py
+tests/test_standing_read_reissue.py

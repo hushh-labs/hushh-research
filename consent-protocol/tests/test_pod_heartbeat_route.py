@@ -27,13 +27,18 @@ class _FakeRequest:
 class _FakeRegistry:
     """Records what the route asked it to write."""
 
-    def __init__(self, *, matched: bool = True) -> None:
+    def __init__(self, *, matched: bool = True, status: str = "provisioned") -> None:
         self._matched = matched
+        self._status = status
         self.heartbeats: list[str] = []
 
-    async def record_heartbeat(self, *, hushh_id: str) -> bool:
+    async def record_heartbeat(self, *, hushh_id: str):
+        # The ROW, not a bool: the update already returns it, and a pod's first beat
+        # is when the hub finishes provisioning -- which needs the status.
         self.heartbeats.append(hushh_id)
-        return self._matched
+        if not self._matched:
+            return None
+        return {"hushh_id": hushh_id, "user_id": "u1", "status": self._status}
 
 
 @pytest.fixture
@@ -56,7 +61,7 @@ async def test_a_verified_pod_records_a_heartbeat(monkeypatch, enabled):
         _FakeRequest(), "Bearer token", registry=registry
     )
 
-    assert result == {"recorded": True}
+    assert result == {"recorded": True, "status": "provisioned"}
     assert registry.heartbeats == ["hushh-abc"]
 
 
@@ -119,3 +124,127 @@ def test_the_route_is_registered_under_the_one_router():
 
     paths = {getattr(r, "path", "") for r in one_router.routes}
     assert "/api/one/pod/heartbeat" in paths
+
+
+# -- a beat finishes provisioning -------------------------------------------------
+#
+# Nothing drove key collection before this. `collect_pod_key_if_pending` had ONE
+# caller -- a status read whose only client fires once on mount with no polling, on
+# a screen the AI-setup flow does not route to. Its comment claimed "onboarding
+# polls this endpoint"; that poller does not exist. So a created pod sat at
+# `connecting` forever and the person's agent was never finished.
+
+
+async def test_a_connecting_row_gets_its_key_collected_on_the_first_beat(
+    monkeypatch, enabled
+):
+    _verifies_as(monkeypatch, "hushh-abc")
+    collected: list = []
+
+    async def _collect(row):
+        collected.append(row)
+        return "provisioned"
+
+    result = await pod_heartbeat.record_pod_heartbeat(
+        _FakeRequest(), "Bearer t",
+        registry=_FakeRegistry(status="connecting"), collector=_collect,
+    )
+
+    assert result["status"] == "provisioned"
+    assert collected and collected[0]["status"] == "connecting"
+
+
+async def test_a_provisioned_pod_does_no_extra_work_on_every_beat(monkeypatch, enabled):
+    """A beat arrives every 60s for the life of every pod in the fleet. Fetching a
+    key each time would be a per-pod round trip forever to serve a case that arises
+    once per pod's lifetime."""
+    _verifies_as(monkeypatch, "hushh-abc")
+    called = {"yes": False}
+
+    async def _collect(_row):
+        called["yes"] = True
+        return "provisioned"
+
+    await pod_heartbeat.record_pod_heartbeat(
+        _FakeRequest(), "Bearer t",
+        registry=_FakeRegistry(status="provisioned"), collector=_collect,
+    )
+
+    assert called["yes"] is False
+
+
+async def test_a_provisioning_row_is_not_collected_either(monkeypatch, enabled):
+    """`provisioning` has not been handed a host yet, so there is no pod to ask."""
+    _verifies_as(monkeypatch, "hushh-abc")
+    called = {"yes": False}
+
+    async def _collect(_row):
+        called["yes"] = True
+        return None
+
+    await pod_heartbeat.record_pod_heartbeat(
+        _FakeRequest(), "Bearer t",
+        registry=_FakeRegistry(status="provisioning"), collector=_collect,
+    )
+
+    assert called["yes"] is False
+
+
+async def test_a_failed_collection_never_fails_the_beat(monkeypatch, enabled):
+    """Liveness and provisioning are different concerns. A pod that cannot be
+    adopted on this beat is still ALIVE, and recording that is the route's job."""
+    _verifies_as(monkeypatch, "hushh-abc")
+
+    async def _collect(_row):
+        raise RuntimeError("pod refused the fetch")
+
+    result = await pod_heartbeat.record_pod_heartbeat(
+        _FakeRequest(), "Bearer t",
+        registry=_FakeRegistry(status="connecting"), collector=_collect,
+    )
+
+    assert result["recorded"] is True
+    # And it reports the state it is ACTUALLY in, not the one it hoped for.
+    assert result["status"] == "connecting"
+
+
+async def test_an_unadoptable_pod_stays_connecting(monkeypatch, enabled):
+    """None from the collector means "nothing changed" -- a pod still booting, or one
+    whose key was refused. `connecting` is the honest state for that."""
+    _verifies_as(monkeypatch, "hushh-abc")
+
+    async def _collect(_row):
+        return None
+
+    result = await pod_heartbeat.record_pod_heartbeat(
+        _FakeRequest(), "Bearer t",
+        registry=_FakeRegistry(status="connecting"), collector=_collect,
+    )
+
+    assert result["status"] == "connecting"
+
+
+async def test_the_beat_never_carries_key_material(monkeypatch, enabled):
+    """THE security property. Every pod shares one service account, so a pod's ID
+    token proves "a hussh pod", never WHICH pod -- the HusshID is self-asserted. A
+    beat that carried a key would let a compromised pod claim another user's HusshID
+    and register ITS key against that row.
+
+    The beat SELECTS a row; the key still comes from the URL the hub recorded at
+    service creation. So the collector must receive the registry row and nothing
+    derived from the request."""
+    _verifies_as(monkeypatch, "hushh-abc")
+    seen: list = []
+
+    async def _collect(row):
+        seen.append(row)
+        return "provisioned"
+
+    request = _FakeRequest()
+    request.headers = {"X-Hushh-Pod-Id": "hushh-abc"}
+    await pod_heartbeat.record_pod_heartbeat(
+        request, "Bearer t",
+        registry=_FakeRegistry(status="connecting"), collector=_collect,
+    )
+
+    assert set(seen[0]) <= {"hushh_id", "user_id", "status"}

@@ -106,6 +106,23 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         description: "Your private agent is being set up in the background.",
         href: null,
       };
+    // The longest wait in the whole journey, and until now the only one with no
+    // renderer at all — so the backend wrote `personal_agent_connecting` and the
+    // feed answered "Something happened in your account." The minutes a person
+    // spends most anxious about whether this worked had the worst copy in the app.
+    //
+    // What is actually true at this point: the person's own compute exists and is
+    // starting up, and it is handing over its key so nothing but their agent can
+    // read their records. Said plainly, because that IS the product.
+    case "personal_agent_connecting":
+      return {
+        icon: Sparkles,
+        domainLabel: "Private agent",
+        label: "Your private agent is starting up",
+        description:
+          "Your own private compute is running. It is handing over its key so only your agent can read your records.",
+        href: null,
+      };
     case "personal_agent_ready":
       return {
         icon: Sparkles,
@@ -131,16 +148,28 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       };
     }
     case "personal_agent_provisioning_capped":
-      // The fleet cap is our constraint, not a mistake the person made, and it is
-      // temporary — the registry row stays pending and the reconcile sweep picks it
-      // up. So this reads as a queue, not a failure, and does not offer an action
-      // the person cannot take.
+      // The fleet cap is our constraint, not a mistake the person made, so this
+      // reads as a queue rather than a failure.
+      //
+      // It used to end "starts automatically", and that was not true. A capped row
+      // is left at `pending` on purpose (the cap is checked before the first
+      // registry write), and the reconcile sweep retries only `provisioning` and
+      // `failed`. Adding `pending` to that sweep would be worse than the wrong
+      // sentence: `pending` is ALSO the state of someone who verified a phone and
+      // never connected an AI key, so the sweep would start building agents for
+      // people with no model to run them — the exact behaviour the AI-connection
+      // gate exists to remove.
+      //
+      // So the copy says what is actually true and gives the person the one action
+      // that genuinely restarts it. A capped-row retry is worth building; promising
+      // it before it exists is not.
       return {
         icon: Sparkles,
         domainLabel: "Private agent",
         label: "Your private agent is in the queue",
-        description: "We are at capacity right now. Yours is saved and starts automatically.",
-        href: null,
+        description:
+          "We are at capacity right now. Your place is saved — check your AI connection again shortly to start it.",
+        href: ROUTES.PROFILE_PREFERENCES_GEMINI,
       };
     case "personal_agent_reaped":
       // Only the compute is torn down; the registry row and identity survive, and

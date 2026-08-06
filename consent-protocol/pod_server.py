@@ -133,6 +133,26 @@ for _router in _POD_ROUTERS:
 configure_opentelemetry(app)
 
 
+def _mounted_paths() -> list[str]:
+    """The routes this process actually serves, read off the app itself.
+
+    NOT a hand-maintained literal, and the reason is two files away: ``/health``
+    advertised a hardcoded ``["one","kai","nav","kyc"]`` roster, a live-validation
+    document quoted that string as proof the fleet was running inside pods, and no
+    Python anywhere loaded kyc's YAML. A capability list that cannot be wrong is
+    worth less than no list at all, because people believe it.
+
+    This one is derived, so a router that fails to mount disappears from the answer
+    and a router added without touching this file appears in it.
+    """
+    seen: set[str] = set()
+    for route in app.routes:
+        path = str(getattr(route, "path", "") or "")
+        if path and not path.startswith("/openapi"):
+            seen.add(path)
+    return sorted(seen)
+
+
 @app.get("/pod/info", tags=["pod"])
 def pod_info() -> dict:
     """Identify this process as a slim pod and report its mounted surface."""
@@ -142,7 +162,7 @@ def pod_info() -> dict:
         "hushhId": os.getenv("HUSSH_ID") or None,
         "spaceId": os.getenv("HUSSH_SPACE_ID") or None,
         "controlPlane": "central@hushh (consent issuance + audit not hosted here)",
-        "mounts": ["health", "a2a", "a2a-well-known", "agent-prompt", "public-key", "turn"],
+        "mounts": _mounted_paths(),
     }
 
 
