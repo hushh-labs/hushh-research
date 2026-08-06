@@ -652,6 +652,22 @@ def pod_hub_allowed_service_account() -> str:
     return _clean_env("POD_HUB_ALLOWED_SERVICE_ACCOUNT")
 
 
+def pod_hub_expected_audience() -> str:
+    """The audience a pod's ID token MUST carry for the hub to accept it.
+
+    A pod mints its token audience-bound to the hub's base URL
+    (``pod_hub_client._identity_token``), which is what stops that token being
+    replayed against any other service. The hub has to check the other half: an
+    unverified ``aud`` means a token the pod SA minted for a completely different
+    audience is accepted here, and the whole decision collapses onto the email
+    claim alone.
+
+    Falls back to ``APP_FRONTEND_ORIGIN``-style hub self-knowledge only if
+    explicitly configured; unset means REFUSE, because guessing an audience is the
+    same as not checking one."""
+    return _clean_env("POD_HUB_EXPECTED_AUDIENCE")
+
+
 def pod_mode() -> bool:
     """Whether this process is a per-user personal-agent **pod** (not the fleet hub).
 
