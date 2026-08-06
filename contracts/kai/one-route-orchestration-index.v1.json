@@ -4799,6 +4799,53 @@
       "native_surface_id": "native-route-ria-home"
     },
     {
+      "route_pattern": "/ria/claim",
+      "page_file": "app/ria/claim/page.tsx",
+      "route_mode": "flow",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.ria.claim",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.ria.claim",
+        "purpose": "Help the person claim their SEC advisor or firm profile with their office number.",
+        "screen": "ria_claim",
+        "entry_cue": "You can say “Claim RIA Profile” to use the primary control on this screen.",
+        "proactivity": "on_entry",
+        "primary_action_id": "route.ria_claim",
+        "happy_path_action_ids": [
+          "route.ria_claim"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": "/ria/claim",
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "ria_claim",
+      "voice_contract_file": "app/ria/claim/page.voice-action-contract.json",
+      "action_ids": [
+        "route.ria_claim"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-ria-claim"
+    },
+    {
       "route_pattern": "/ria/clients",
       "page_file": "app/ria/clients/page.tsx",
       "route_mode": "standard",
