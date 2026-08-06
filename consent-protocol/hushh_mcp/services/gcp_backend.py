@@ -37,6 +37,7 @@ import os
 import re
 from typing import Any, Optional
 
+from hushh_mcp.runtime_settings import pod_turn_enabled
 from hushh_mcp.services.compute_backend import (
     BACKEND_GCP,
     TIER_DEDICATED,
@@ -291,6 +292,22 @@ class GcpBackend:
                 # whose only real surface is dead. It gates this pod alone -- the hub's
                 # own copy of the flag is set by its deploy config, not by this.
                 {"name": "PERSONAL_AGENT_ENABLED", "value": "1"},
+                # Whether this pod may run a turn. Read INSIDE the pod by
+                # `pod_turn._require_enabled`, and it defaults OFF -- so without
+                # this line the hub can have HUSSH_POD_TURN_ENABLED=true and every
+                # pod still answers 404 on POST /api/one/pod/turn. The flag would
+                # be set exactly where it does not matter and absent where it does.
+                #
+                # Propagated from the hub's own value rather than hardcoded, so the
+                # kill-switch means one thing across the fleet: turning it off on
+                # the hub stops NEW pods from serving turns, and existing pods stop
+                # at their next replace. Two independent settings could disagree,
+                # and the disagreement would show up as a 404 that looks like a
+                # routing bug rather than a policy decision.
+                {
+                    "name": "HUSSH_POD_TURN_ENABLED",
+                    "value": "true" if pod_turn_enabled() else "false",
+                },
                 # The consent-token VERIFYING keys (Ed25519, public half only --
                 # public material is safe in plain config). This is what lets a
                 # pod check a token's authenticity at its own door without ever
