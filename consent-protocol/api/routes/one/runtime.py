@@ -94,12 +94,18 @@ def _safe_failure_code(exc: Exception) -> str:
     return "temporary_unavailable"
 
 
-@router.get("/managed/readiness", response_model=ManagedGeminiReadinessResponse)
-@limiter.limit(RateLimits.AGENT_CHAT)
-async def managed_gemini_readiness(
-    request: Request,
-    _firebase_uid: str = Depends(require_firebase_auth),
-) -> ManagedGeminiReadinessResponse:
+class ManagedGeminiSelectionResponse(BaseModel):
+    status: Literal["ready"]
+    model: str
+    location: str
+    # Whether this selection started the person's private agent. Stated rather than
+    # implied: "we are building your agent" and "you are on the shared runtime" are
+    # different promises and the UI must be able to tell them apart.
+    agentScheduled: bool
+    agentReason: str
+
+
+async def _managed_readiness() -> ManagedGeminiReadinessResponse:
     """Cached, output-suppressed proof that the attached identity can generate."""
     global _managed_readiness_cache
     now = time.monotonic()
@@ -108,6 +114,72 @@ async def managed_gemini_readiness(
         and now - _managed_readiness_cache[0] <= _MANAGED_READINESS_TTL_SECONDS
     ):
         return _managed_readiness_cache[1]
+    return await _probe_managed_gemini()
+
+
+@router.post("/managed/select", response_model=ManagedGeminiSelectionResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def select_managed_gemini(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> ManagedGeminiSelectionResponse:
+    """A person chose the hussh-managed runtime. Verify it, then start their agent.
+
+    THE GAP THIS CLOSES
+    -------------------
+    Managed is the DEFAULT connection mode, and choosing it used to be an entirely
+    client-side act: the webapp wrote the mode into the user's own PKM vault and
+    contacted no server route at all. ``GET /managed/readiness`` existed but had zero
+    callers anywhere in the webapp. So for the majority of users the server never
+    learned an AI connection had been established -- the provisioning gate had
+    exactly one caller, the BYOK validate route, and the default onboarding path
+    completed with no pod, no error, and nothing anywhere saying so.
+
+    WHY IT PROBES RATHER THAN TAKING THE CLIENT'S WORD
+    -------------------------------------------------
+    The founder's rule is validate-then-provision, and it has to mean the same thing
+    in both modes or it is not a rule. A BYOK key earns a pod by answering a real
+    generation request; managed earns one the same way. Accepting "I picked managed"
+    as proof would reintroduce exactly the failure the gate exists to prevent -- a
+    billable host behind an event that says nothing about whether the agent can think.
+
+    The probe is the same one ``/managed/readiness`` serves, cache included, because
+    the managed binding is process-wide: it is the fleet's own identity, so one
+    verification genuinely answers for every caller. The gate runs on a cache hit too
+    -- it is idempotent by registry status, so the pod decision belongs to the user
+    and the probe result belongs to the process.
+
+    A failed probe is a 503 and NO provisioning. That is the honest ordering: a
+    person whose runtime cannot generate does not get a host that cannot serve.
+    """
+    readiness = await _managed_readiness()
+    verdict = await on_ai_connection_verified(
+        user_id=firebase_uid,
+        provider="hushh_managed_vertex",
+        transport="managed_vertex",
+    )
+    return ManagedGeminiSelectionResponse(
+        status=readiness.status,
+        model=readiness.model,
+        location=readiness.location,
+        agentScheduled=bool(verdict.get("scheduled")),
+        agentReason=str(verdict.get("reason") or ""),
+    )
+
+
+@router.get("/managed/readiness", response_model=ManagedGeminiReadinessResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def managed_gemini_readiness(
+    request: Request,
+    _firebase_uid: str = Depends(require_firebase_auth),
+) -> ManagedGeminiReadinessResponse:
+    """Cached, output-suppressed proof that the attached identity can generate."""
+    return await _managed_readiness()
+
+
+async def _probe_managed_gemini() -> ManagedGeminiReadinessResponse:
+    global _managed_readiness_cache
+    now = time.monotonic()
     try:
         binding = ManagedGeminiRuntimeBinding.from_environment()
         client = binding.build_direct_client(model=_ONE_RUNTIME_MODEL)

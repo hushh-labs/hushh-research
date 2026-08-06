@@ -76,6 +76,17 @@ async def on_ai_connection_verified(
             return {"scheduled": False, "reason": "personal agent is off"}
         if not provision_on_ai_connection():
             return {"scheduled": False, "reason": "ai-connection trigger is off"}
+        if not _pod_can_serve(provider):
+            # NOT a new flag, deliberately. `pod_managed_model_enabled` already
+            # decides whether a pod may serve a turn on the fleet's model
+            # (`pod_turn._resolve_runtime_mode`). Reading that same setting here is
+            # what makes "a pod exists but 400s every turn" unrepresentable: the one
+            # switch governs both halves, so they cannot drift apart.
+            #
+            # A managed user is not stranded by this -- they keep the hub-served
+            # experience. What they do not get is a billable host that refuses every
+            # request, which is strictly worse than no host at all.
+            return {"scheduled": False, "reason": "pod cannot serve this connection mode"}
 
         repo = registry
         if repo is None:
@@ -128,6 +139,30 @@ async def on_ai_connection_verified(
     except Exception as exc:  # noqa: BLE001 - never fail a credential validation
         logger.warning("ai_connection_gate.failed %s", type(exc).__name__)
         return {"scheduled": False, "reason": f"error: {type(exc).__name__}"}
+
+
+# The provider values the two connection modes report. BYOK arrives as "gemini"
+# (api/routes/one/runtime.py validate); managed as "hushh_managed_vertex" (select).
+_MANAGED_PROVIDER = "hushh_managed_vertex"
+
+
+def _pod_can_serve(provider: str) -> bool:
+    """Could a pod actually run a turn on this connection mode?
+
+    BYOK always: the key arrives with each turn, so the pod needs no standing model
+    access and the pod service account keeps its zero project roles -- which is the
+    whole basis of the isolation story.
+
+    Managed only when a pod is permitted to reach the fleet's model. Until then a
+    managed pod would boot, warm, heartbeat, and refuse every turn with "this pod
+    has no model access", at full price. Provisioning one would be the same mistake
+    as provisioning on login, one step later in the journey.
+    """
+    if str(provider or "").strip().lower() != _MANAGED_PROVIDER:
+        return True
+    from hushh_mcp.runtime_settings import pod_managed_model_enabled  # noqa: PLC0415
+
+    return pod_managed_model_enabled()
 
 
 async def _verified_phone(actor: Any, user_id: str) -> str:

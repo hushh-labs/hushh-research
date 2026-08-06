@@ -160,3 +160,81 @@ def test_iam_uses_the_admin_surface_not_the_knative_one(client, monkeypatch):
     url = fake.posted[0][0]
     assert "/apis/serving.knative.dev" not in url
     assert url.startswith("https://us-central1-run.googleapis.com/v1/projects/proj/locations/")
+
+
+# -- where the hub's Cloud Run credentials come from ---------------------------
+#
+# The live dev hub has no GCP_DEPLOY_SA_KEY_B64 among its 60 env entries, so this
+# function used to raise and pod creation was impossible. Mounting the operator key
+# would have "fixed" it by putting ORG-ADMIN credentials in a shared,
+# internet-reachable, multi-tenant service. The hub already runs as
+# consent-protocol-runtime, which holds roles/run.admin.
+
+
+def test_an_explicit_key_is_used_when_supplied(monkeypatch):
+    """Operator tooling and CI run outside GCP, where there is no attached identity."""
+    import base64
+    import json
+
+    from hushh_mcp.services import gcp_run_client
+
+    seen = {}
+
+    class _SA:
+        # Production calls service_account.Credentials.from_service_account_info,
+        # so the fake has to carry the same nesting or it tests nothing real.
+        class Credentials:
+            @staticmethod
+            def from_service_account_info(info, scopes=None):
+                seen["email"] = info.get("client_email")
+                seen["scopes"] = scopes
+                return "explicit-creds"
+
+    import google.oauth2
+
+    monkeypatch.setattr(google.oauth2, "service_account", _SA, raising=False)
+    key = base64.b64encode(json.dumps({"client_email": "op@example"}).encode()).decode()
+
+    assert gcp_run_client.load_operator_credentials(key) == "explicit-creds"
+    assert seen["email"] == "op@example"
+
+
+def test_the_attached_identity_is_used_when_no_key_is_set(monkeypatch):
+    """No key material anywhere: nothing to leak, rotate, or commit."""
+    from hushh_mcp.services import gcp_run_client
+
+    monkeypatch.delenv("GCP_DEPLOY_SA_KEY_B64", raising=False)
+    seen = {}
+
+    def _default(scopes=None):
+        seen["scopes"] = scopes
+        return ("attached-creds", "hushh-pda-dev")
+
+    import google.auth
+
+    monkeypatch.setattr(google.auth, "default", _default)
+
+    assert gcp_run_client.load_operator_credentials() == "attached-creds"
+    # Same scopes either way, so a caller cannot tell the paths apart.
+    assert seen["scopes"] == gcp_run_client._SCOPES
+
+
+def test_no_credentials_at_all_names_both_paths(monkeypatch):
+    """"No credentials" with no hint of where they should come from is how this
+    stayed broken."""
+    from hushh_mcp.services import gcp_run_client
+
+    monkeypatch.delenv("GCP_DEPLOY_SA_KEY_B64", raising=False)
+
+    def _boom(scopes=None):
+        raise RuntimeError("could not determine default credentials")
+
+    import google.auth
+
+    monkeypatch.setattr(google.auth, "default", _boom)
+
+    with pytest.raises(RuntimeError) as exc:
+        gcp_run_client.load_operator_credentials()
+    message = str(exc.value)
+    assert "GCP_DEPLOY_SA_KEY_B64" in message
+    assert "attached service account" in message

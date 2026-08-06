@@ -212,6 +212,15 @@ export function GeminiRuntimeSettingsCard({
     const previousMode = mode;
     const previousSelection = hasExplicitSelection;
     try {
+      // Verify BEFORE persisting, exactly as the BYOK path does. Two reasons this
+      // ordering matters and is not merely tidy:
+      //
+      //   1. Honesty. Persisting first and probing second means a person can be
+      //      told "selected" about a runtime that cannot generate.
+      //   2. This is the only moment the server learns an AI connection exists for
+      //      a managed user. Provisioning their private agent hangs off this call;
+      //      before it, choosing managed contacted no server route at all.
+      const selection = await ApiService.selectManagedGeminiRuntime();
       if (requiresExplicitSelection) {
         await onSelectionReadyChange?.("hushh_managed_vertex");
         onPreVaultDraftCleared?.();
@@ -221,16 +230,26 @@ export function GeminiRuntimeSettingsCard({
       setMode("hushh_managed_vertex");
       setHasExplicitSelection(true);
       notifyGeminiRuntimeConfigurationChanged();
-      toast.success("Hushh managed Gemini is selected.");
+      // Say which of the two things actually happened. "We are building your
+      // private agent" and "you are on the shared runtime" are different promises,
+      // and a single cheerful string for both is how a product starts lying.
+      toast.success(
+        selection.agentScheduled
+          ? "Hushh managed Gemini is selected. Your private agent is being built."
+          : "Hushh managed Gemini is selected.",
+      );
     } catch (error) {
       setMode(previousMode);
       setHasExplicitSelection(previousSelection);
       toast.error(
         error instanceof Error && error.message === "PKM_CONFLICT"
           ? "This setting changed on another device. Refresh and try again."
-          : requiresExplicitSelection
-            ? "We couldn’t save this setup choice. Try again."
-            : "Open your private vault again, then try this setting.",
+          : error instanceof Error &&
+              error.message === "MANAGED_RUNTIME_NOT_READY"
+            ? "The hushh runtime isn’t responding right now. Try again in a moment."
+            : requiresExplicitSelection
+              ? "We couldn’t save this setup choice. Try again."
+              : "Open your private vault again, then try this setting.",
       );
     } finally {
       selectionPendingRef.current = false;

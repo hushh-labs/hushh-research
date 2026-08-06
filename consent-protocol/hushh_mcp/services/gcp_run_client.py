@@ -27,14 +27,50 @@ _INVOKER_ROLE = "roles/run.invoker"
 
 
 def load_operator_credentials(sa_key_b64: Optional[str] = None) -> Any:
-    """Load scoped SA credentials from the base64 SA-key env (or an override)."""
-    from google.oauth2 import service_account
+    """Credentials for the Cloud Run Admin API: an explicit key, else the ATTACHED identity.
 
+    Prefer the attached identity, and understand why before reaching for a key.
+
+    **The hub holds no key, and it should not.** Reading the live dev service
+    confirmed ``GCP_DEPLOY_SA_KEY_B64`` is absent from its 60 environment entries,
+    so this function used to raise and ``GcpBackend`` live mode could not create a
+    pod at all. The obvious repair -- mount the operator key -- is the wrong one:
+    that key is ORG ADMIN, and putting org-admin credentials in a shared,
+    internet-reachable, multi-tenant service means one RCE or SSRF yields org-wide
+    GCP control. It is also the kind of finding a FedRAMP assessor opens with.
+
+    **The hub already has the permission it needs.** It runs as
+    ``consent-protocol-runtime@…``, which holds ``roles/run.admin`` -- verified
+    against the live IAM policy. Application Default Credentials pick that identity
+    up from the metadata server with no key material anywhere: nothing to leak,
+    nothing to rotate, nothing to accidentally commit. That is the standard GCP
+    posture and the one this deployment was already provisioned for.
+
+    An explicit key still wins when supplied, because operator tooling and CI run
+    outside GCP where there is no attached identity to fall back to. Both paths ask
+    for the same scopes, so a caller cannot tell them apart except by which one is
+    available -- and the failure message names both, since "no credentials" with no
+    hint of where they should come from is how this stayed broken.
+    """
     raw = sa_key_b64 if sa_key_b64 is not None else os.getenv(_SA_KEY_ENV, "")
-    if not raw:
-        raise RuntimeError(f"{_SA_KEY_ENV} is not set; GcpBackend live mode needs credentials")
-    info = json.loads(base64.b64decode(raw))
-    return service_account.Credentials.from_service_account_info(info, scopes=_SCOPES)
+    if raw:
+        from google.oauth2 import service_account  # noqa: PLC0415
+
+        info = json.loads(base64.b64decode(raw))
+        return service_account.Credentials.from_service_account_info(info, scopes=_SCOPES)
+
+    try:
+        import google.auth  # noqa: PLC0415
+
+        credentials, _ = google.auth.default(scopes=_SCOPES)
+    except Exception as exc:  # noqa: BLE001 - report both paths, never just one
+        raise RuntimeError(
+            f"no Cloud Run credentials: {_SA_KEY_ENV} is unset and no attached "
+            f"service account is available ({type(exc).__name__}). In GCP the hub "
+            "should use its own runtime identity; outside GCP supply the key."
+        ) from exc
+    logger.info("gcp_run.credentials source=attached_service_account")
+    return credentials
 
 
 class GcpRunClient:

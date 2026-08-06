@@ -100,3 +100,6 @@ tests/test_gcp_run_invoker_binding.py
 tests/test_pod_turn_route.py
 tests/test_ai_connection_gate.py
 tests/test_pod_consent_authority.py
+tests/test_personal_agent_deploy_lane.py
+tests/test_managed_runtime_selection.py
+tests/test_personal_agent_reconcile_attach.py
