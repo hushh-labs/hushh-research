@@ -62,7 +62,9 @@ function resolveProxyTimeoutMs(path: string, method: "GET" | "POST"): number {
     (path.startsWith("onboarding/submit") ||
       path.startsWith("onboarding/verify-name") ||
       path.startsWith("onboarding/verify-license") ||
-      path.startsWith("profile/refresh-license"))
+      path.startsWith("profile/refresh-license") ||
+      // Claim lookups can absorb a scale-to-zero cold start upstream.
+      path.startsWith("claim/"))
   ) {
     return ONBOARDING_PROXY_TIMEOUT_MS;
   }

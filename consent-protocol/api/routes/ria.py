@@ -10,7 +10,14 @@ from pydantic import BaseModel, Field, field_validator
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import limiter
+from api.routes.account import _verify_phone_claim_id_token
 from hushh_mcp.services.consent_center_service import ConsentCenterService
+from hushh_mcp.services.ria_claim_service import (
+    RIAClaimService,
+    normalize_nanp_phone,
+    validate_claim_ticket,
+    verify_test_possession,
+)
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
     RIAIAMPolicyError,
@@ -703,6 +710,160 @@ async def ria_workspace(
     service = RIAIAMService()
     try:
         return await service.get_ria_workspace(firebase_uid, investor_user_id)
+    except IAMSchemaNotReadyError:
+        return _iam_schema_not_ready_response()
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Claim-by-phone: resolve an office number to SEC claim targets and claim one.
+# Possession of the filed number is proven by this backend (test passcode on
+# allowlisted numbers outside production, or a Firebase phone-auth token) and
+# only then asserted upstream as `phone_otp` evidence.
+# ---------------------------------------------------------------------------
+
+
+class RIAClaimLookupRequest(BaseModel):
+    phone: str = Field(min_length=3, max_length=32)
+
+
+class RIAClaimOtpStartRequest(BaseModel):
+    phone: str = Field(min_length=3, max_length=32)
+
+
+class RIAClaimVerifyRequest(BaseModel):
+    phone: str = Field(min_length=3, max_length=32)
+    claim_type: Literal["individual", "firm"]
+    firm_crd: int = Field(ge=1, le=99_999_999)
+    individual_crd: int | None = Field(None, ge=1, le=999_999_999)
+    verification_id: str | None = Field(None, max_length=256)
+    verification_code: str | None = Field(None, max_length=16)
+    phone_id_token: str | None = Field(None, max_length=20_000)
+
+
+class RIAClaimCompleteRequest(BaseModel):
+    phone: str = Field(min_length=3, max_length=32)
+    claim_ticket: str = Field(min_length=1, max_length=512)
+    claim_type: Literal["individual", "firm"]
+    firm_crd: int = Field(ge=1, le=99_999_999)
+    individual_crd: int | None = Field(None, ge=1, le=999_999_999)
+
+
+@router.post("/claim/lookup")
+@limiter.limit("20/minute")
+async def ria_claim_lookup(
+    payload: RIAClaimLookupRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    _ = firebase_uid
+    service = RIAClaimService()
+    try:
+        return await service.lookup(payload.phone)
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/claim/otp/start")
+@limiter.limit("20/minute")
+async def ria_claim_otp_start(
+    payload: RIAClaimOtpStartRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = RIAClaimService()
+    try:
+        return service.start_otp(firebase_uid, payload.phone)
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+async def _prove_claim_possession(payload: RIAClaimVerifyRequest, phone_digits: str) -> str:
+    """Return the proof channel after verifying possession, or raise 401."""
+    if payload.phone_id_token:
+        token_phone, _session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
+        if normalize_nanp_phone(token_phone) != phone_digits:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "CLAIM_PHONE_MISMATCH",
+                    "message": "The verified number does not match this claim.",
+                },
+            )
+        return "firebase_phone_auth"
+    if payload.verification_id and payload.verification_code:
+        if verify_test_possession(phone_digits, payload.verification_id, payload.verification_code):
+            return "test_code"
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "CLAIM_INVALID_CODE",
+                "message": "That code didn't work. Check it and try again.",
+            },
+        )
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "code": "CLAIM_PROOF_REQUIRED",
+            "message": "A verification code or phone token is required.",
+        },
+    )
+
+
+@router.post("/claim/verify")
+@limiter.limit("20/minute")
+async def ria_claim_verify(
+    payload: RIAClaimVerifyRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    phone_digits = normalize_nanp_phone(payload.phone)
+    if not phone_digits:
+        raise HTTPException(status_code=400, detail="Enter a valid US phone number.")
+    proof_channel = await _prove_claim_possession(payload, phone_digits)
+    service = RIAClaimService()
+    try:
+        result = await service.evaluate_with_possession(
+            user_id=firebase_uid,
+            phone_digits=phone_digits,
+            claim_type=payload.claim_type,
+            firm_crd=payload.firm_crd,
+            individual_crd=payload.individual_crd,
+        )
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    result["proof_channel"] = proof_channel
+    return result
+
+
+@router.post("/claim/complete")
+@limiter.limit("20/minute")
+async def ria_claim_complete(
+    payload: RIAClaimCompleteRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    phone_digits = normalize_nanp_phone(payload.phone)
+    if not phone_digits:
+        raise HTTPException(status_code=400, detail="Enter a valid US phone number.")
+    if not validate_claim_ticket(payload.claim_ticket, firebase_uid, phone_digits):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "CLAIM_TICKET_INVALID",
+                "message": "This claim session expired. Verify the number again.",
+            },
+        )
+    service = RIAClaimService()
+    try:
+        return await service.complete(
+            user_id=firebase_uid,
+            phone_digits=phone_digits,
+            claim_type=payload.claim_type,
+            firm_crd=payload.firm_crd,
+            individual_crd=payload.individual_crd,
+        )
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
