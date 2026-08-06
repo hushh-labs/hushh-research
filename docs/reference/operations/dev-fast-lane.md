@@ -116,6 +116,45 @@ tables ship as parked, dev-only migrations
 Everything below is therefore a dev procedure; none of it applies to UAT or production,
 where the tables do not exist at all.
 
+### The registry table has never been created (verified 2026-08-06)
+
+`personal_agent_registry` does not exist in the dev database, and every pod procedure
+below is inert until it does. This is a deploy-history fact, not a code defect — the
+mechanism is sound and simply has never been exercised:
+
+- `db/migrate.py` runs from the **deployed SHA**, not from `main`. The dev-extra lane and
+  the parked `900` / `905` migrations live only on the feature branch that introduced
+  them, so a dispatch that deploys `main` or the `integration/pr-train` default runs a
+  `migrate.py` with no dev-extra lane at all.
+- The one dispatch that named the feature branch was made **from** that branch, and
+  `Assert manual dispatch originates from main` refused it in one second, before a runner
+  was even assigned. No step ran.
+
+So the two halves have to be combined, and they are easy to conflate: **dispatch from
+`main` (the workflow definition), with `ref` set to the feature branch (the content).**
+Dispatching *from* the branch is refused; dispatching from `main` without a `ref` deploys
+the train head and silently skips the migrations.
+
+Two consequences worth knowing before debugging anything downstream:
+
+- `_fleet_cap_reached` fails **open** when the count query raises (deliberately — a DB
+  blip must not break agent setup for everyone), so a missing table does not surface as a
+  cap error. It warns and continues.
+- `/health/ready` reports `pod_fleet: "unknown"` rather than failing, by design. A green
+  dev deploy and a healthy service therefore prove nothing about this table.
+
+Partial application is the state most likely to mislead: `905` (which adds
+`health_state`, `last_heartbeat_at`, `liveness_mode`) landed after `900`, so a deploy
+carrying only the earlier commit would create the table **without** the columns the
+liveness sweep reads. The sweep tolerates it — each pass is wrapped, so it logs
+`pod_liveness.pass_failed` and continues rather than dying — but it will do so every 120
+seconds indefinitely. Check `schema_migrations` for the `90x` rows, not just for the
+table:
+
+```sql
+SELECT migration_id, status FROM schema_migrations WHERE migration_id LIKE '90%';
+```
+
 **Two sources of truth, and only one is authoritative.** The `personal_agent_registry` row
 is the authority for provisioning state; a Cloud Run service is the compute that row points
 at. They can legitimately disagree — most often because the backend is in plan mode. A pod
