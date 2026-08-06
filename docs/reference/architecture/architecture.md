@@ -70,6 +70,96 @@ This is the literal platform meaning behind Human Secure Socket Host: infrastruc
 - Next build path:
   - formalize environment classes, service topology, and reliability objectives
 
+## 1a. Per-User Compute — the Private Agent One pod
+
+**Purpose:** give each person their own agent runtime, on compute that is theirs,
+reachable only through the hub.
+
+The pod is the physical answer to "Own your AI. Own your data. Own your compute."
+Every property below is a constraint that makes a compromised pod uninteresting
+rather than catastrophic, and each one is enforced in the rendered artifact — not
+in a runbook.
+
+| Property | Value | Why it is that value |
+|---|---|---|
+| Identity | a service account holding **no project roles** | a stolen pod identity grants nothing to steal with |
+| Ingress | `internal`, no `allUsers` binding | non-targetability; the hub is the only door |
+| Invoker | exactly one member — the hub's runtime SA | IAM controls *who*, which is stronger than ingress's *where* |
+| Database | **none** — no Postgres credential, no vault key | the data plane travels pod → hub → Postgres |
+| Model access | the **owner's** key, supplied per turn | cost and quota land on the person whose agent is working |
+| CPU / memory | 500m / 1Gi, declared not inherited | measured at 211.9 MB idle; an unstated size is the platform choosing for us |
+| maxScale | **1**, for correctness | the storage engine assumes a single writer per pod |
+| CPU allocation | held between requests on the warm tier | the pod's own heartbeat is a background loop; throttled, it cannot run |
+
+### The journey, and why its order is the architecture
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor P as Person
+    participant W as One webapp
+    participant H as Hub (consent-protocol)
+    participant R as Cloud Run Admin
+    participant D as Pod (one-pod-&lt;HusshID&gt;)
+
+    P->>W: Choose an AI — managed, or my own key
+    W->>H: POST /api/one/runtime/managed/select<br/>or /gemini/validate
+    H->>H: Prove it with a REAL generation
+    Note over H: No working connection, no pod.<br/>Provisioning on sign-in stands up billable<br/>compute behind an event that says nothing<br/>about whether the agent could ever think.
+    H->>R: Create service · zero-role SA · internal ingress
+    R-->>H: URL recorded in backend_metadata
+    H->>H: Row → connecting
+    D->>D: Boot · generate keypair
+    D->>H: POST /api/one/pod/heartbeat (first beat)
+    Note over H,D: The beat SELECTS a row; it never carries the key.<br/>Every pod shares one SA, so a pod's token proves<br/>"a hussh pod", never WHICH pod.
+    H->>D: GET /pod/public-key at the URL the hub itself recorded
+    D-->>H: public key
+    H->>H: Row → provisioned · mint standing pkm.read
+    P->>W: Ask the agent something
+    W->>H: POST /api/one/u/&lt;HusshID&gt;/turn
+    H->>H: Owner check, audited · mint/reuse pkm.read
+    H->>D: POST /api/one/pod/turn + X-Consent-Token
+    D->>D: Verify owner binding · ask hub if consent is live
+    D-->>H: answer
+    H-->>P: answer
+```
+
+Three orderings in that diagram carry the design, and each was a defect before it
+was a decision:
+
+1. **The AI connection is verified before any compute exists.** Provisioning used
+   to fire on phone verification, which put a billable, warm, heartbeating service
+   behind an event that says nothing about whether the agent could ever answer.
+2. **The hub pulls the key; the pod never pushes it.** A pod's ID token proves it
+   is *a* hussh pod, never *which* one, because the fleet shares a service account.
+   A pushed key could therefore be registered against someone else's row. Because
+   the beat only selects a row and the key still comes from the URL the hub wrote
+   at creation, a lying pod gains nothing.
+3. **The turn runs on a renewed `pkm.read` grant.** The only token a browser holds
+   is `vault.owner` — the master grant. Forwarding that would hand every pod
+   everything its person has, so the relay mints least privilege server-side and
+   the request model has no field for a caller-supplied token.
+
+### Fleet capacity
+
+Cloud Run allows **1000 services per project per region** (read from the Service
+Usage API, not documentation; no increase granted on `hushh-pda-dev`). That is a
+**sharding trigger, not a wall**: the operator identity measures consumption and
+provisions the next GCP project before a region fills. On Bring-Your-Own-Compute
+the pod lives in the user's own project and the ceiling is theirs.
+
+`PERSONAL_AGENT_MAX_PODS` is a registry row count and must stay at or below the
+per-project number the provisioner is currently filling — set above it, a provision
+passes our own check and then fails at Cloud Run, after the person has been told
+their agent is being built.
+
+### What is not true yet
+
+The hub serving dev can create a pod and a pod can run a turn; every flag is live
+on the serving revision. **No pod has yet served a turn for a real person**, which
+needs an account with a verified phone and a validated AI key. Until that happens
+this section describes a capability, not a track record.
+
 ## 2. Core Platform Services Layer
 
 **Purpose:** host the backend systems that enforce platform behavior instead of letting clients improvise it.
