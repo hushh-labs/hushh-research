@@ -76,10 +76,23 @@ only path with the others deferred.
 | **hussh-managed pod** | hussh Vertex ADC, **or** the person's own AI key |
 | **Anypoint** | the person's own AI key, **or** hussh Vertex ADC |
 
-The seam already exists and is the right one: `runtime_providers/factory.py` documents
-credential mode as **orthogonal to provider** — `VERTEX_ADC_AUTH_MODE` versus a
-turn-bounded BYOK key. The matrix is that orthogonality made real across all three targets,
-not a new abstraction.
+**Correction, same day.** An earlier revision of this section claimed "the seam already
+exists and is the right one," citing `runtime_providers/factory.py`. That is **one axis
+off** and the error is worth keeping visible, because it would send an implementer to the
+one file that does not need changing.
+
+`factory.py`'s orthogonality is **provider × credential** — Gemini / Anthropic / OpenAI
+against ADC / BYOK — and it is genuine. The seam this matrix needs is **target ×
+credential**, and it does not exist. Credential mode is currently *coupled* to deployment
+target: `_managed_genai_auth_mode` gates on `HUSHH_DEPLOY_ENV`, and `_vertex_project` falls
+back to `google.auth.default()`, which bakes in an ambient-Google-identity assumption.
+
+**The real gap is that neither axis is expressible per person.** Both are process-wide
+environment variables. `PodSpec` — the one per-user object that crosses the backend seam —
+carries neither, and `resolve_compute_backend()` is called with no argument at all three
+production call sites. The registry column records what happened; it never decides
+anything. So the first change is not credentials or IAM: it is putting both axes on
+`PodSpec` and on a per-user column, after which the rest becomes possible.
 
 **This supersedes standing decision D1** ("pods are BYOK-only for now", bound to
 `pod_managed_model_enabled`). Managed-model pods are in scope. D1's reasoning — that BYOK
@@ -89,6 +102,31 @@ on how* a managed cell is built rather than a reason not to build it.
 Every cell must preserve the Private Agent properties: the person's holdings stay isolated
 and sealed, consent is still required and revocable, and the choice of cell is visible to
 the person rather than an invisible operator setting.
+
+### Two constraints on how a managed cell is built
+
+Both come from measured facts, not caution.
+
+**Do not grant `roles/aiplatform.user` to the pod service account.** Verified live in
+`hushh-pda-dev`: that account appears in **zero** project IAM bindings — the zero-role
+property is real, not aspirational. It is also **fleet-shared**, so a project-level grant
+hands every pod the same Vertex access at once and spends the isolation property
+permanently. Per-pod service accounts do not rescue it either: the measured
+service-account ceiling is **100 per project**, ten times tighter than the 1000-service
+Cloud Run ceiling already named as a sharding trigger, with a 10/minute creation limit that
+would make burst provisioning fail somewhere nobody tests.
+
+The shape that works instead is a **turn-bounded credential**: the hub mints a short-lived
+Vertex access token and passes it through the relay exactly as a BYOK key travels today.
+The pod holds no refreshable credential, the pod service account stays at zero roles, and
+the same mechanism serves Anypoint — where ambient ADC is impossible — with no additional
+design.
+
+**Never render a hussh service-account key into a runtime hussh does not operate.** For
+Anypoint that would be a standing credential in someone else's cloud, and it is the one
+construction in this matrix that is a security problem rather than an engineering gap. The
+existing parity guard blocks the literal forms; a base64 blob under a neutral key name
+would slip past it, so this is stated here as doctrine rather than left to the test.
 
 ## Deployment-agnostic is a first-class requirement
 

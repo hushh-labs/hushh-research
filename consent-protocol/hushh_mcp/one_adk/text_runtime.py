@@ -137,6 +137,16 @@ def _runtime_model(
             vertex_project=runtime_vertex_project,
             vertex_location=runtime_vertex_location,
         )
+    if runtime_mode != "hushh_managed_vertex":
+        # Closed set, and closed is the point. hussh's own Vertex identity used to
+        # be the DEFAULT branch: any mode string that was not exactly "byok" landed
+        # here. That is how a vocabulary drift between two files turned into "route
+        # this person's prompts and their grounded holdings through hussh's
+        # identity, billed to hussh" rather than into an error.
+        #
+        # A credential mode nobody recognises must refuse, never fall back to the
+        # most privileged option available.
+        raise ValueError(f"One text runtime mode is not recognised: {runtime_mode!r}")
     if credential:
         # Mirror the existing managed Agent Chat transport: Vertex mode with
         # the platform-managed key, held only by this turn-local model object.

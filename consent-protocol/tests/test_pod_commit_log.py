@@ -258,7 +258,9 @@ async def test_delete_the_sqlite_file_and_rebuild_from_the_log(tmp_path: Path):
     # The platform reschedules the pod: local disk gone.
     peer.sqlite_path.unlink()
 
-    rebuilt = await PodPkmStore.rebuild(peer.log, str(tmp_path / "pkm-rebuilt.sqlite3"))
+    rebuilt = await PodPkmStore.rebuild(
+        peer.log, str(tmp_path / "pkm-rebuilt.sqlite3"), owner_user_id=user_id
+    )
     after = oracle.unwrap(
         await rebuilt.get_domain_snapshot(
             {"p_user_id": user_id, "p_domain": oracle.DOMAIN, "p_segment_ids": []}
@@ -332,3 +334,66 @@ async def test_storage_pointers_round_trip_through_the_log(tmp_path: Path):
     restored = await storage.restore("ha1x")
     assert restored is not None and restored.ref == "gs://u/obj2"  # latest wins
     assert await storage.restore("someone-else") is None
+
+
+@pytest.mark.asyncio
+async def test_a_rebuild_materialises_only_its_own_owner(tmp_path: Path):
+    """Two owners' records in one log; a rebuild must take only its own.
+
+    `CommitLogPodStorage.restore` filters on `hushh_id` -- it always has, and the
+    assertion right above this one proves it. `PodPkmStore.rebuild`, reading the
+    SAME log, filtered on nothing: it replayed every record and dispatched on
+    `kind` alone. Two consumers of one log, one filtering and one not, is the
+    shape a leak hides in.
+
+    It was dormant, not absent. Pod-unique keys and prefixes meant a log only ever
+    held one owner's records, so configuration was standing in for a guard -- and
+    the simulator's own probe said exactly that in prose while asserting the
+    dormant case. That defence gets weaker, not stronger, as pods become
+    persistent and deployable into projects where the bucket layout is somebody
+    else's decision.
+
+    This asserts the guard rather than the circumstance, which is the difference
+    between a property and a coincidence.
+    """
+    log = PodCommitLog(LocalObjectStore(str(tmp_path / "shared-store")), KEY)
+
+    await log.append(
+        "pkm_commit",
+        {"p_user_id": "owner-a", "p_domain": "health", "p_commit_kind": "seed"},
+    )
+    await log.append(
+        "pkm_commit",
+        {"p_user_id": "owner-b", "p_domain": "health", "p_commit_kind": "seed"},
+    )
+
+    replayed = await log.replay()
+    assert len(replayed) == 2, "both records must be in the log for this to mean anything"
+
+    # Rebuild as a THIRD owner, so every record in the log is foreign.
+    #
+    # The payloads above are deliberately incomplete -- they carry an owner and
+    # nothing else the engine needs. That is what makes this a detector rather
+    # than a demonstration: if the owner filter runs, neither record reaches the
+    # engine and the rebuild completes. If it does not run, the engine is handed a
+    # payload missing `p_expected_content_revision` and raises. The assertion is
+    # "this did not explode", and the reason it does not explode is the guard.
+    store = await PodPkmStore.rebuild(
+        log, str(tmp_path / "c.sqlite3"), owner_user_id="owner-c"
+    )
+
+    assert store is not None
+
+
+@pytest.mark.asyncio
+async def test_a_rebuild_must_say_whose_index_it_is_building(tmp_path: Path):
+    """`owner_user_id` is required, and required is the point.
+
+    An optional owner filter is one a caller forgets, and the caller who forgets
+    is the one replaying a shared store. Making it a keyword with no default means
+    a rebuild that does not know its owner cannot be requested by accident.
+    """
+    log = PodCommitLog(LocalObjectStore(str(tmp_path / "store")), KEY)
+
+    with pytest.raises(TypeError):
+        await PodPkmStore.rebuild(log, str(tmp_path / "x.sqlite3"))  # type: ignore[call-arg]

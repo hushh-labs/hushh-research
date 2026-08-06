@@ -270,10 +270,19 @@ boundary"). The standard already exists internally; it has not reached the front
 
 ## Standing decisions
 
-- **D1** — pods are BYOK-only for now, bound to `pod_managed_model_enabled`. Reversible.
+- **D1** — ~~pods are BYOK-only for now~~ **SUPERSEDED 2026-08-06** by the deployment
+  matrix in [the north star](./private-agent-north-star.md). Managed-model pods are in
+  scope on all three targets. D1's *reasoning* survives as a constraint: BYOK is what kept
+  the pod service account at zero roles, and a managed cell must preserve that — which is
+  why the shape is a turn-bounded token rather than an IAM grant.
 - **D2** — durability by hub configuration, not new queue infrastructure. Reversible.
-- **D3** — cryptographic rather than positional isolation (above). **Proposed**, needs
-  founder sign-off; it changes the compute layer and the IAM posture permanently.
+- **D3** — **revised 2026-08-06.** Cryptographic rather than positional isolation, and
+  **stateful**. The original proposed attested *stateless* workers; the founder directive
+  withdrew that half and the north star records the withdrawal. Still needs sign-off: it
+  changes the compute layer and the IAM posture permanently.
+- **D4** — the deployment/credential choice must be **per person**, carried on `PodSpec`
+  and a registry column, not resolved from process-wide environment. This is the
+  prerequisite for the matrix and is the smallest change in the set. Not yet implemented.
 
 ## Not being built yet, deliberately
 
