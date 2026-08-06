@@ -188,10 +188,9 @@ export function EmailOnboardingSetupClient() {
   const handleToggle = useCallback(
     (checked: boolean) => {
       if (!user?.uid || loadState !== "ready" || saving) return;
-      if (checked && (!vaultKey || !vaultOwnerToken)) return;
       void persistPreference(checked);
     },
-    [loadState, persistPreference, saving, user?.uid, vaultKey, vaultOwnerToken],
+    [loadState, persistPreference, saving, user?.uid],
   );
 
   if (!user || checkingIdentity) {
@@ -230,21 +229,15 @@ export function EmailOnboardingSetupClient() {
                 ? "Preference unavailable. Retry before finishing."
                 : enabled
                   ? "Enabled for one@hushh.ai"
-                  : !vaultKey || !vaultOwnerToken
-                    ? "Available after you set up your private vault"
-                    : isApplePrivateRelayEmail(user?.email)
-                      ? "Private Relay needs a verified non-relay sending address"
-                      : "No email requests will trigger One"
+                  : isApplePrivateRelayEmail(user?.email)
+                    ? "Private Relay needs a verified non-relay sending address"
+                    : "No email requests will trigger One"
             }
             trailing={
               <Switch
                 checked={enabled}
                 onCheckedChange={handleToggle}
-                disabled={
-                  saving ||
-                  loadState !== "ready" ||
-                  (!enabled && (!vaultKey || !vaultOwnerToken))
-                }
+                disabled={saving || loadState !== "ready"}
                 aria-label="Prepare KYC responses automatically"
                 data-voice-control-id="one-setup-email-drafting-toggle"
               />

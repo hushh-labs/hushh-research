@@ -362,7 +362,7 @@ textarea {
   --blur-light: 4px;
   --blur-standard: 8px;
   --blur-heavy: 16px;
-  --app-shared-chrome-mask-blur: 1.25px;
+  --app-shared-chrome-mask-blur: 12px;
   /* Frosted chrome baseline (sub-nav / sticky-bar grade backdrop filter). */
   --app-blur-frosted: saturate(180%) blur(20px);
 
@@ -441,7 +441,7 @@ textarea {
   --top-tabs-total: 0px;
   --top-subnav-h: 30px;
   --top-subnav-gap: 12px;
-  --top-fade-active: 12px;
+  --top-fade-active: 8px;
   --top-content-safe-gap: 14px;
   --page-top-body-gap: 18px;
   /* Single visual clearance between the fixed top shell and the first page block.
@@ -2769,7 +2769,7 @@ md-ripple.morphy-md-ripple {
   --ambient-chrome-material-bg: var(--app-layout-surface, var(--background));
   --ambient-chrome-material-fg: var(--foreground);
   --ambient-chrome-mask-blur: var(--app-shared-chrome-mask-blur);
-  --ambient-chrome-backdrop-filter: blur(var(--ambient-chrome-mask-blur));
+  --ambient-chrome-backdrop-filter: blur(var(--ambient-chrome-mask-blur)) saturate(1.3);
   --ambient-chrome-wash: 58%;
   /* One feather profile drives both chrome edges. Edge classes may choose
      geometry, never their own opacity curve. */
