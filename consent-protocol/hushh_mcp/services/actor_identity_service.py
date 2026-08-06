@@ -86,7 +86,9 @@ class ActorIdentityService:
         task.add_done_callback(_cleanup)
         return True
 
-    def schedule_provision_personal_agent(self, user_id: str, phone_number: str) -> bool:
+    def schedule_provision_personal_agent(
+        self, user_id: str, phone_number: str, *, via_ai_connection: bool = False
+    ) -> bool:
         """Fire-and-forget: register the user's PENDING personal agent on phone-verify.
 
         Flag-gated and strictly best-effort -- it never blocks or fails phone
@@ -95,6 +97,20 @@ class ActorIdentityService:
         registry row) is idempotent and non-destructive.
         """
         if not personal_agent_enabled():
+            return False
+        # The AI-connection gate owns this trigger now. Provisioning on phone-verify
+        # stood a billable pod behind an event that said nothing about whether the
+        # agent could think -- a user who never connected a model got a warm pod
+        # that answered nothing, forever.
+        #
+        # `via_ai_connection` is an explicit argument rather than an inspection of
+        # the call stack: the caller states which trigger it is, so the two can
+        # never both fire for one user and no future caller can be misclassified by
+        # where it happens to live.
+        from hushh_mcp.runtime_settings import provision_on_ai_connection  # noqa: PLC0415
+
+        if provision_on_ai_connection() and not via_ai_connection:
+            logger.info("personal_agent.provision_deferred reason=awaiting_ai_connection")
             return False
 
         normalized_user_id = str(user_id or "").strip()

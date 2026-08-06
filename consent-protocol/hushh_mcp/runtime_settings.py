@@ -467,6 +467,23 @@ def pod_native_grounding_enabled() -> bool:
     return _bool_from_value(_clean_env("HUSSH_POD_NATIVE_GROUNDING_ENABLED"), default=False)
 
 
+def provision_on_ai_connection() -> bool:
+    """Provision a user's agent when their AI connection verifies, not when they log in.
+
+    Default **ON**, because it is the correct trigger and the old one was actively
+    wasteful: firing off phone-verify put a billable, warm, heartbeating Cloud Run
+    service behind an event that says nothing about whether the agent could ever
+    think. A user who verified a phone and never connected a model got a pod that
+    answered nothing, forever, at full price.
+
+    It is still inert until ``PERSONAL_AGENT_ENABLED`` is on, so flipping this alone
+    provisions nothing. Set it to false only to fall back to the legacy phone-verify
+    trigger -- the two are mutually exclusive by construction (see
+    ``actor_identity_service.schedule_provision_personal_agent``), because running
+    both would race two provisions for one user."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_PROVISION_ON_AI_CONNECTION"), default=True)
+
+
 def pod_turn_enabled() -> bool:
     """Let a POD serve an Agent One turn from its own process.
 
