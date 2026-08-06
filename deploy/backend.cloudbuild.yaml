@@ -154,6 +154,7 @@ steps:
         add_secret "${_OPENAI_API_KEY_SECRET}" "OPENAI_API_KEY"
         add_secret "${_GOOGLE_MAPS_API_KEY_SECRET}" "GOOGLE_MAPS_API_KEY"
         add_secret ADVISORS_API_KEY ADVISORS_API_KEY
+        add_secret INSURANCE_AGENTS_API_KEY INSURANCE_AGENTS_API_KEY
         add_secret "${_VOICE_RUNTIME_CONFIG_JSON_SECRET}" "VOICE_RUNTIME_CONFIG_JSON"
         add_secret "${_OMNIGATEWAY_CLIENT_ID_SECRET}" "OMNIGATEWAY_CLIENT_ID"
         add_secret "${_OMNIGATEWAY_CLIENT_SECRET_SECRET}" "OMNIGATEWAY_CLIENT_SECRET"
@@ -171,6 +172,7 @@ steps:
         add_secret "${_WALLET_PASS_CERT_PEM_SECRET}" "WALLET_PASS_CERT_PEM"
         add_secret "${_WALLET_PASS_KEY_PEM_SECRET}" "WALLET_PASS_KEY_PEM"
         add_secret "${_WALLET_PASS_WWDR_PEM_SECRET}" "WALLET_PASS_WWDR_PEM"
+        add_secret "${_WALLET_API_KEY_SECRET}" "WALLET_API_KEY"
 
         runtime_environment="${_RUNTIME_ENVIRONMENT}"
         if [[ -z "${runtime_environment}" ]]; then
@@ -245,6 +247,7 @@ steps:
         add_env "ONE_EMAIL_KYC_DEFAULT_SCOPE" "${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
         add_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
         add_env "ONE_WALLET_CARD_ENABLED" "${_ONE_WALLET_CARD_ENABLED}"
+        add_env "WALLET_PASS_PROVIDER" "${_WALLET_PASS_PROVIDER}"
         add_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
         add_env "HUSHH_PROD_PHONE_TEST_ENABLED" "${_HUSHH_PROD_PHONE_TEST_ENABLED}"
         add_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
@@ -365,6 +368,11 @@ substitutions:
   _WALLET_PASS_CERT_PEM_SECRET: WALLET_PASS_CERT_PEM
   _WALLET_PASS_KEY_PEM_SECRET: WALLET_PASS_KEY_PEM
   _WALLET_PASS_WWDR_PEM_SECRET: WALLET_PASS_WWDR_PEM
+  # Caller key for the org-owned hushh-wallet-api. Empty => the optional
+  # secret is skipped and the provider falls back to local signing.
+  _WALLET_API_KEY_SECRET: ""
+  # local | service. Empty/local keeps in-process signing.
+  _WALLET_PASS_PROVIDER: ""
   _ONE_EMAIL_ADDRESS: ""
   _ONE_EMAIL_DELEGATED_USER: ""
   _ONE_EMAIL_PUBSUB_TOPIC: ""

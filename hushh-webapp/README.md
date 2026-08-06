@@ -47,7 +47,7 @@ flowchart TB
   resources --> api
 ```
 
-Next.js + React + Capacitor client for Kai and consent-first personal data flows.
+Next.js + React + Capacitor client for Kai and consent-first private information flows.
 
 ## Scope
 

@@ -18,13 +18,16 @@ import json
 import logging
 import os
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_TIMEOUT_SECONDS = 20.0
+# A cold query fetches the whole radius — up to ~20 FINRA pages in parallel —
+# so the previous 20s ceiling sat close to a real cold metro request.
+_DEFAULT_TIMEOUT_SECONDS = 35.0
 _DEFAULT_RADIUS_MI = 10.0
 _MIN_RADIUS_MI = 0.1
 _MAX_RADIUS_MI = 100.0
@@ -43,8 +46,15 @@ _ADVISOR_TYPES = frozenset({"ia", "broker", "both"})
 class AdvisorDirectoryError(RuntimeError):
     """Raised for a missing config (503), bad input (400) or upstream failure (502)."""
 
-    def __init__(self, message: str, *, status_code: int) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int,
+        retry_after_seconds: int | None = None,
+    ) -> None:
         self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
         super().__init__(message)
 
 
@@ -79,8 +89,13 @@ def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
-def _unique(values: Iterable[str | None], limit: int = 12) -> list[str]:
-    """Order-preserving dedupe, dropping blanks and capping the list."""
+def _unique(values: Iterable[str | None], limit: int | None = None) -> list[str]:
+    """Order-preserving dedupe, dropping blanks.
+
+    ``limit`` is opt-in because the caller decides whether the list is being
+    shown or counted. Truncating a list the UI reports as a count turns it into
+    a wrong number: an adviser registered in 51 states rendered as "12".
+    """
     seen: set[str] = set()
     out: list[str] = []
     for value in values:
@@ -88,7 +103,7 @@ def _unique(values: Iterable[str | None], limit: int = 12) -> list[str]:
             continue
         seen.add(value)
         out.append(value)
-        if len(out) >= limit:
+        if limit is not None and len(out) >= limit:
             break
     return out
 
@@ -120,7 +135,7 @@ class AdvisorDirectoryService:
         )
 
     @staticmethod
-    def _raise_for_status(status_code: int) -> None:
+    def _raise_for_status(status_code: int, headers: Any = None) -> None:
         """Map an upstream status onto a client-safe error.
 
         Auth failures are deliberately reported as an upstream failure: a 401
@@ -132,8 +147,19 @@ class AdvisorDirectoryService:
         if status_code == 400:
             raise AdvisorDirectoryError("That search could not be completed.", status_code=400)
         if status_code == 429:
+            # The upstream limit is per-IP, and every one of our users shares
+            # this backend's egress address — so its Retry-After is the whole
+            # surface's, and it is carried through rather than guessed at.
+            retry_after = None
+            if headers is not None:
+                try:
+                    retry_after = _coerce_int(headers.get("retry-after"))
+                except (AttributeError, TypeError):
+                    retry_after = None
             raise AdvisorDirectoryError(
-                "The advisor directory is busy. Try again shortly.", status_code=429
+                "The advisor directory is busy. Try again shortly.",
+                status_code=429,
+                retry_after_seconds=retry_after,
             )
         if status_code in (401, 403):
             logger.error(
@@ -214,7 +240,7 @@ class AdvisorDirectoryService:
         try:
             async with self._client() as client:
                 async with client.stream("GET", "/v1/advisors", params=params) as response:
-                    self._raise_for_status(response.status_code)
+                    self._raise_for_status(response.status_code, response.headers)
 
                     read_bytes = 0
                     read_lines = 0
@@ -259,7 +285,7 @@ class AdvisorDirectoryService:
         return {
             "items": [_normalize_row(row, grouped=grouped) for row in rows],
             "meta": _normalize_meta(meta, grouped=grouped, requested_limit=int(params["limit"])),
-            "attribution": _ATTRIBUTION,
+            "attribution": _normalize_attribution(meta.get("attribution")),
         }
 
     # ------------------------------------------------------------------ profile
@@ -272,7 +298,7 @@ class AdvisorDirectoryService:
         try:
             async with self._client() as client:
                 response = await client.get(f"/v1/advisors/{normalized}")
-                self._raise_for_status(response.status_code)
+                self._raise_for_status(response.status_code, response.headers)
                 payload = response.json()
         except AdvisorDirectoryError:
             raise
@@ -296,14 +322,45 @@ class AdvisorDirectoryService:
         firm = payload.get("firm") if isinstance(payload.get("firm"), dict) else None
         return {
             "profile": _normalize_profile(record, firm=firm),
-            "attribution": _ATTRIBUTION,
+            "attribution": _normalize_attribution(payload.get("attribution")),
         }
 
 
-_ATTRIBUTION = {
+# Used only when the upstream omits its own block. BrokerCheck's Terms of Use
+# permit this data's reuse under §5, and those conditions include naming the
+# source, linking to BrokerCheck *and* to the Terms, and offering a way to
+# report an error. A bare "FINRA BrokerCheck" string satisfies one of four, so
+# the real block is passed through and these are only a floor.
+_ATTRIBUTION_FALLBACK = {
     "source": "FINRA BrokerCheck",
-    "url": "https://brokercheck.finra.org",
+    "sourceUrl": "https://brokercheck.finra.org",
+    "termsUrl": "https://brokercheck.finra.org/terms-and-conditions",
+    "notice": (
+        "Data retrieved from FINRA BrokerCheck. Use of BrokerCheck data is "
+        "subject to the BrokerCheck Terms of Use."
+    ),
+    "errorReporting": (
+        "https://www.finra.org/investors/investing/"
+        "working-with-investment-professional/about-brokercheck"
+    ),
 }
+
+
+def _normalize_attribution(attribution: Any) -> dict[str, Any]:
+    """Carry the upstream's own credit through, field for field.
+
+    ``retrievedAt`` is stamped here because §5 also requires disclosing the
+    retrieval date. It is when *this* response was produced; a warm upstream
+    cache can be older, which is why ``meta.cache`` travels alongside it.
+    """
+    block = dict(_ATTRIBUTION_FALLBACK)
+    if isinstance(attribution, dict):
+        for key in ("source", "sourceUrl", "termsUrl", "notice", "errorReporting"):
+            value = _text(attribution.get(key))
+            if value:
+                block[key] = value
+    block["retrievedAt"] = datetime.now(UTC).isoformat()
+    return block
 
 
 def _normalize_meta(meta: dict[str, Any], *, grouped: bool, requested_limit: int) -> dict[str, Any]:
@@ -315,8 +372,15 @@ def _normalize_meta(meta: dict[str, Any], *, grouped: bool, requested_limit: int
         "hasMore": bool(meta.get("hasMore")),
         "nextOffset": next_offset if next_offset is not None else None,
         "returned": _coerce_int(meta.get("returned")) or 0,
+        # `available` is what the upstream actually ranked and can page through.
+        # `estimatedTotal` is FINRA's count for the whole radius and is larger
+        # whenever `truncatedBy` is set — showing it would promise rows this API
+        # cannot deliver, so it is deliberately not carried forward.
         "available": _coerce_int(meta.get("available")),
         "limit": _coerce_int(meta.get("limit")) or requested_limit,
+        # "cold" | "warm". A warm result can trail FINRA by up to the upstream's
+        # profile cache, which is why it is disclosed rather than hidden.
+        "cache": _text(meta.get("cache")),
         "radiusMi": radius,
         "radiusRequested": radius_requested,
         "radiusAdjusted": bool(meta.get("radiusAdjusted")),
@@ -426,8 +490,8 @@ def _normalize_profile(
         "hasDisclosures": bool(profile.get("hasDisclosures")),
         "disclosureCount": len(disclosures) if isinstance(disclosures, list) else 0,
         # One state appears once per registration scope (BC and IA), so the raw
-        # list double-counts. The UI shows a count, and "51 states" would be a
-        # lie — dedupe while preserving order.
+        # list double-counts. The UI reports the length of this list, so it is
+        # deduped but never truncated — a cap here would render as a wrong count.
         "states": _unique(
             _text(entry.get("state")) if isinstance(entry, dict) else None
             for entry in (

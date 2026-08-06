@@ -1,6 +1,6 @@
 # Hussh Vision
 
-> Build personal AI on consent, scoped access, BYOK, and zero-knowledge boundaries.
+> Build private AI on consent, scoped access, BYOK, and zero-knowledge boundaries.
 
 ## Visual Map
 
@@ -119,11 +119,11 @@ What changes is the clarity of the story:
 
 ## Scaling Model
 
-The public product north star is that Hussh should scale as personal AI infrastructure, not as a pile of disconnected agents, dashboards, or standalone feature roots.
+The public product north star is that Hussh should scale as private AI infrastructure, not as a pile of disconnected agents, dashboards, or standalone feature roots.
 
 The scaling model is:
 
-- **Personal Operating Layer:** One is the relationship layer the user owns. Specialists such as Kai, Nav, and KYC remain below One and do domain work only inside their boundaries.
+- **Private Operating Layer:** One is the relationship layer the user owns. Specialists such as Kai, Nav, and KYC remain below One and do domain work only inside their boundaries.
 - **Trust Handshake:** PCHP is the consent and scoped-access handshake for humans, agents, apps, developers, and future brand-side endpoints. It does not replace the current Consent Protocol implementation; it explains the public trust model around it.
 - **User-Owned Memory:** PKM and World Model work must preserve encrypted user-side authority. LLM Wiki and OpenClaw-style ideas are useful only when they behave as portable, consented memory projections rather than platform-owned knowledge stores.
 - **BYOA And On-Device Direction:** BYOK, BYOA, MLX/on-device execution, and App Intents are architecture constraints. They should move more capability toward user-held keys, user-chosen compute, and local/private execution where the platform can support it safely.

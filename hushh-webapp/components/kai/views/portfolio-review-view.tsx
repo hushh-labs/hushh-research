@@ -383,6 +383,9 @@ function inferAnalyzeEligibility(
   holding: Holding,
   isInvestable: boolean,
 ): boolean {
+  if (typeof holding.analyze_eligible === "boolean") {
+    return holding.analyze_eligible;
+  }
   if (!isInvestable) return false;
 
   const listingStatus = String(holding.security_listing_status || "")
@@ -400,7 +403,7 @@ function inferAnalyzeEligibility(
   if (listingStatus === "sec_common_equity") return true;
   if (symbolKind === "us_common_equity_ticker") return true;
 
-  return false;
+  return isInvestable;
 }
 
 function extractSaveErrorMessage(error: unknown, fallback: string): string {

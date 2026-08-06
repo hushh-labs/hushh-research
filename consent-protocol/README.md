@@ -1,6 +1,6 @@
 # Hussh Consent Protocol
 
-> Consent-first backend for Hussh Personal Data Agents. Python 3.13 / FastAPI / Google ADK / Cloud SQL.
+> Consent-first backend for Hussh Private Information Agents. Python 3.13 / FastAPI / Google ADK / Cloud SQL.
 
 
 ## Visual Map
@@ -57,12 +57,12 @@ flowchart TB
 
 The Consent Protocol is the single source of truth for the Hussh backend. It powers:
 
-- **Consent token issuance, validation, and revocation** -- cryptographically signed, stateless, auditable.
-- **Personal Data Agents (PDAs)** -- built on Google ADK with consent enforcement at every layer.
-- **Personal Knowledge Model (PKM)** -- segmented encrypted data architecture (BYOK). Server stores ciphertext only.
-- **MCP Server** -- exposes user data to external AI agents (Claude, etc.) with explicit consent.
-- **Agent Kai** -- multi-agent financial analysis system (Fundamental, Sentiment, Valuation) with debate engine.
-- **FCM Push Notifications** -- pure-push consent request delivery (web, iOS, Android).
+- **Consent token issuance, validation, and revocation**: cryptographically signed, stateless, auditable.
+- **Private Information Agents (PIAs)**: built on Google ADK with consent enforcement at every layer.
+- **Personal Knowledge Model (PKM)**: segmented encrypted data architecture (BYOK). Server stores ciphertext only.
+- **MCP Server**: exposes user information to external AI agents (Claude, etc.) with explicit consent.
+- **Agent Kai**: multi-agent financial analysis system (Fundamental, Sentiment, Valuation) with debate engine.
+- **FCM Push Notifications**: pure-push consent request delivery (web, iOS, Android).
 
 ---
 

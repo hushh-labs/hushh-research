@@ -52,6 +52,14 @@ WALLET_PASS_WWDR_PEM_ENV = "WALLET_PASS_WWDR_PEM"  # noqa: S105
 WALLET_PASS_TEAM_IDENTIFIER_ENV = "WALLET_PASS_TEAM_IDENTIFIER"  # noqa: S105
 WALLET_PASS_TYPE_IDENTIFIER_ENV = "WALLET_PASS_TYPE_IDENTIFIER"  # noqa: S105
 _WALLET_PASS_TYPE_IDENTIFIER_DEFAULT = "pass.com.hushh.app.one"  # noqa: S105
+# Signing provider. ``local`` signs in-process with the PEMs above;
+# ``service`` delegates to the org-owned hushh-wallet-api, which holds its own
+# certificate. Defaults to ``local`` so an unconfigured deployment keeps the
+# behaviour it already had.
+WALLET_PASS_PROVIDER_ENV = "WALLET_PASS_PROVIDER"  # noqa: S105
+WALLET_API_BASE_URL_ENV = "WALLET_API_BASE_URL"  # noqa: S105
+WALLET_API_KEY_ENV = "WALLET_API_KEY"  # noqa: S105
+_WALLET_API_BASE_URL_DEFAULT = "https://hushh-wallet-api-fro3hygenq-uc.a.run.app"
 
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 VOICE_RUNTIME_CONFIG_JSON_ENV = "VOICE_RUNTIME_CONFIG_JSON"
@@ -97,6 +105,10 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # ceiling, and every line added there is borrowed against it. The bearer
     # key is a real secret and stays in --set-secrets.
     "advisors_api_base_url": "ADVISORS_API_BASE_URL",
+    # Insurance agent directory base URL. Non-secret, same reasoning as
+    # the advisor base URL directly above; the bearer key is a real
+    # secret and is mounted through --set-secrets instead.
+    "insurance_agents_api_base_url": "INSURANCE_AGENTS_API_BASE_URL",
 }
 
 
@@ -209,6 +221,18 @@ class WalletPassSettings:
     cert_pem: str = field(repr=False, default="")
     key_pem: str = field(repr=False, default="")
     wwdr_pem: str = field(repr=False, default="")
+    provider: str = "local"
+    api_base_url: str = ""
+    api_key: str = field(repr=False, default="")
+
+    @property
+    def uses_service_provider(self) -> bool:
+        return self.provider == "service"
+
+    @property
+    def service_is_complete(self) -> bool:
+        """The service provider needs a reachable base URL and a caller key."""
+        return bool(self.api_base_url.strip() and self.api_key.strip())
 
     @property
     def is_complete(self) -> bool:
@@ -366,6 +390,9 @@ def get_wallet_pass_settings() -> WalletPassSettings:
         cert_pem=_clean_env(WALLET_PASS_CERT_PEM_ENV) or "",
         key_pem=_clean_env(WALLET_PASS_KEY_PEM_ENV) or "",
         wwdr_pem=_clean_env(WALLET_PASS_WWDR_PEM_ENV) or "",
+        provider=(_clean_env(WALLET_PASS_PROVIDER_ENV) or "local").lower(),
+        api_base_url=_clean_env(WALLET_API_BASE_URL_ENV) or _WALLET_API_BASE_URL_DEFAULT,
+        api_key=_clean_env(WALLET_API_KEY_ENV) or "",
     )
 
 

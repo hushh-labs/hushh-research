@@ -11,6 +11,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 ALLOWED_LEGACY_PATHS = {
+    # The safe-changes ledger documents legacy keys as named traps (R4, R11).
+    ".claude/skills/safe-changes/SKILL.md",
     "scripts/ci/verify-runtime-config-contract.py",
     "scripts/env/bootstrap_profiles.sh",
     "scripts/ops/verify-env-secrets-parity.py",

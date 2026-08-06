@@ -20,27 +20,38 @@ from __future__ import annotations
 
 from typing import Any
 
-# scope label -> ordered list of dot-paths into the PWM document.
-# Seeded from the live PWM shape: the connect-the-dots section stores
-# `connect = { want, zip, updatedAt }` (see hushh-search-console pwm-local /
-# /api/pwm). A subscriber granted the "advisor want" receives the want + ZIP so
-# it can make the local match -- and nothing else.
+from hushh_mcp.services.fabric_catalogue import KNOWN_ROOTS, scope_meta
+
+# A scope binds to the PWM dot-path of the SAME NAME. That is already true for
+# every privacy.* scope and for the whole prefs/wants/favorites taxonomy, so the
+# convention removes the hand-edited map that caused the drift: the server used
+# to implement 8 of the 47 published scopes, and the other 39 resolved to zero
+# fields, silently.
 #
-# The privacy.* scopes mirror the shipped public scope registry
-# (/pchp/scopes.json v0.2.0) one-to-one: each scope authorizes exactly its own
-# boolean preference in the PWM privacy section -- the wedge stream that
-# replaces the cookie banner (see fabric_privacy for the brand-side
-# Consent Mode v2 / GPC projection).
-_SCOPE_FIELD_MAP: dict[str, list[str]] = {
+# Only the two legacy bindings that predate the convention need stating. They
+# map onto the connect-the-dots section the PWM has shipped since day one.
+_LEGACY_BINDINGS: dict[str, list[str]] = {
     "wants.money.advisor": ["connect.want", "connect.zip"],
     "wants.financial-services": ["connect.want", "connect.zip"],
-    "privacy.marketing-email": ["privacy.marketing-email"],
-    "privacy.marketing-sms": ["privacy.marketing-sms"],
-    "privacy.analytics": ["privacy.analytics"],
-    "privacy.personalization": ["privacy.personalization"],
-    "privacy.ads": ["privacy.ads"],
-    "privacy.data-sale": ["privacy.data-sale"],
 }
+
+
+def _binding(scope: str) -> list[str] | None:
+    """The PWM dot-paths a granted scope authorizes, or None if unbindable.
+
+    Fail-closed in two ways: a scope absent from the published catalogue binds to
+    nothing, and a scope whose root we do not resolve binds to nothing. An
+    un-modelled scope can therefore never leak an unintended field.
+    """
+    legacy = _LEGACY_BINDINGS.get(scope)
+    if legacy:
+        return legacy
+    if scope_meta(scope) is None:
+        return None
+    root = scope.split(".", 1)[0]
+    if root not in KNOWN_ROOTS:
+        return None
+    return [scope]
 
 
 def resolve_fields(scopes: list[str]) -> tuple[list[str], list[str]]:
@@ -53,7 +64,7 @@ def resolve_fields(scopes: list[str]) -> tuple[list[str], list[str]]:
     fields: list[str] = []
     unmapped: list[str] = []
     for scope in scopes:
-        bound = _SCOPE_FIELD_MAP.get(scope)
+        bound = _binding(scope)
         if not bound:
             unmapped.append(scope)
             continue
@@ -63,12 +74,18 @@ def resolve_fields(scopes: list[str]) -> tuple[list[str], list[str]]:
     return fields, unmapped
 
 
+# Distinct from None, which is a legitimate stored value meaning "explicitly
+# cleared". Conflating the two would silently drop a preference the person set
+# on purpose.
+_MISSING = object()
+
+
 def _get_path(doc: dict[str, Any], path: str) -> Any:
-    """Traverse a dot-path in a nested dict; return None if any hop is absent."""
+    """Traverse a dot-path in a nested dict; return _MISSING if any hop is absent."""
     current: Any = doc
     for key in path.split("."):
         if not isinstance(current, dict) or key not in current:
-            return None
+            return _MISSING
         current = current[key]
     return current
 
@@ -78,11 +95,12 @@ def project_fields(doc: dict[str, Any], fields: list[str]) -> dict[str, Any]:
 
     Returns ``{dot_path: value}`` for every path that is present; paths absent
     from the current document are simply omitted (the subscriber receives only
-    what exists now, at its current value).
+    what exists now, at its current value). A path present with a null value IS
+    returned - "I cleared this" is information, and different from "never set".
     """
     out: dict[str, Any] = {}
     for path in fields:
         value = _get_path(doc, path)
-        if value is not None:
+        if value is not _MISSING:
             out[path] = value
     return out

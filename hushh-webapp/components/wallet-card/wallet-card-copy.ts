@@ -79,6 +79,7 @@ export const WALLET_CARD_OWNER_COPY = {
   visitorPreviewError:
     "We couldn't load the visitor view right now. Please try again in a moment.",
   addToWallet: "Add to Apple Wallet",
+  addOnIphoneHint: "Open this page on your iPhone to add the pass.",
   shareLink: "Share your link",
   copyLink: "Copy link",
   editInformation: "Edit shared information",

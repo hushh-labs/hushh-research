@@ -38,9 +38,24 @@ export type AdvisorSearchMeta = {
   radiusRequested: number | null;
   radiusAdjusted: boolean;
   truncated: boolean;
+  /** "cold" | "warm" — a warm result can trail the regulator's own feed. */
+  cache: string | null;
 };
 
-export type AdvisorAttribution = { source: string; url: string };
+/**
+ * BrokerCheck's Terms of Use permit this data's reuse under §5, and those
+ * conditions include naming the source, linking to BrokerCheck *and* to the
+ * Terms, offering a way to report an error, and disclosing the retrieval date.
+ * All five travel with every response so the UI can satisfy them.
+ */
+export type AdvisorAttribution = {
+  source: string;
+  sourceUrl: string;
+  termsUrl: string;
+  notice: string;
+  errorReporting: string;
+  retrievedAt: string;
+};
 
 export type AdvisorSearchResult = {
   items: AdvisorCard[];
@@ -81,6 +96,11 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
     unknown
   >;
   if (!response.ok) {
+    // A 503 means this deployment has no directory wired up. That is our
+    // plumbing, not the reader's problem — "not configured on this backend" is
+    // a sentence no user should ever be shown.
+    if (response.status === 503) throw new Error("Not available yet.");
+
     const detail = payload?.detail as { message?: string } | string | undefined;
     const message =
       (typeof detail === "object" ? detail?.message : detail) ||
@@ -101,23 +121,33 @@ export class AdvisorDirectoryService {
     offset?: number;
     signal?: AbortSignal;
   }): Promise<AdvisorSearchResult> {
-    const params = new URLSearchParams();
-    if (typeof opts.latitude === "number" && typeof opts.longitude === "number") {
-      params.set("lat", opts.latitude.toFixed(6));
-      params.set("lng", opts.longitude.toFixed(6));
+    // POST, not GET: a query string puts the user's exact position in the
+    // request line, which the server access log records verbatim and which also
+    // lands in browser history and any Referer header.
+    const body: Record<string, unknown> = {
+      limit: opts.limit ?? ADVISOR_PAGE_SIZE,
+      offset: opts.offset ?? 0,
+    };
+    if (
+      typeof opts.latitude === "number" &&
+      typeof opts.longitude === "number"
+    ) {
+      body.lat = Number(opts.latitude.toFixed(6));
+      body.lng = Number(opts.longitude.toFixed(6));
     } else if (opts.postalCode) {
-      params.set("postalCode", opts.postalCode);
+      body.postalCode = opts.postalCode;
     }
-    if (typeof opts.radiusMi === "number") {
-      params.set("radiusMi", String(opts.radiusMi));
-    }
-    params.set("limit", String(opts.limit ?? ADVISOR_PAGE_SIZE));
-    params.set("offset", String(opts.offset ?? 0));
+    if (typeof opts.radiusMi === "number") body.radiusMi = opts.radiusMi;
 
-    const response = await ApiService.apiFetch(
-      `/api/one/advisors/nearby?${params.toString()}`,
-      { method: "GET", headers: authHeaders(opts.idToken), signal: opts.signal },
-    );
+    const response = await ApiService.apiFetch("/api/one/advisors/search", {
+      method: "POST",
+      headers: {
+        ...authHeaders(opts.idToken),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: opts.signal,
+    });
     return jsonOrThrow<AdvisorSearchResult>(response);
   }
 
@@ -128,7 +158,11 @@ export class AdvisorDirectoryService {
   }): Promise<AdvisorProfile> {
     const response = await ApiService.apiFetch(
       `/api/one/advisors/${encodeURIComponent(opts.crd)}`,
-      { method: "GET", headers: authHeaders(opts.idToken), signal: opts.signal },
+      {
+        method: "GET",
+        headers: authHeaders(opts.idToken),
+        signal: opts.signal,
+      },
     );
     const payload = await jsonOrThrow<{ profile: AdvisorProfile }>(response);
     return payload.profile;
@@ -139,10 +173,17 @@ export class AdvisorDirectoryService {
  * FINRA geocodes offices to ZIP centroids, so an exact figure would be a
  * fiction — every adviser in a ZIP shares one coordinate. Always approximate.
  */
-export function formatDistance(miles: number | null | undefined): string | null {
+export function formatDistance(
+  miles: number | null | undefined,
+): string | null {
   if (typeof miles !== "number" || !Number.isFinite(miles) || miles < 0) {
     return null;
   }
+  // A postal-code search measures from the ZIP centroid, which *is* the query
+  // point, so every row comes back at exactly 0. Showing "~0.1 mi" there would
+  // invent a number. A coordinate search never yields 0 — the upstream floors
+  // those at 500 m — so treating 0 as "no usable distance" is safe.
+  if (miles === 0) return null;
   if (miles >= 10) return `~${Math.round(miles)} mi`;
   return `~${Math.max(0.1, Math.round(miles * 10) / 10).toFixed(1)} mi`;
 }

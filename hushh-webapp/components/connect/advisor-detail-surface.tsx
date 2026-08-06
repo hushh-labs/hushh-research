@@ -10,6 +10,7 @@ import {
   type AdvisorCard,
   type AdvisorProfile,
 } from "@/lib/services/advisor-directory-service";
+import { usTelHref } from "@/lib/services/us-tel-href";
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -101,7 +102,7 @@ export function AdvisorDetailSurface({
             fullWidth
             asChild
           >
-            <a href={`tel:${card.phone.replace(/[^\d+]/g, "")}`}>Call</a>
+            <a href={usTelHref(card.phone)}>Call</a>
           </Button>
         ) : undefined
       }

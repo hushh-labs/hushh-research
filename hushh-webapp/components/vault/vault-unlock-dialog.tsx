@@ -68,7 +68,7 @@ export function VaultUnlockDialog({
   onSuccess,
   title,
   description,
-  enableGeneratedDefault = false,
+  enableGeneratedDefault = true,
   allowVaultCreation = true,
   dismissible = true,
   surfaceVariant = "standard",

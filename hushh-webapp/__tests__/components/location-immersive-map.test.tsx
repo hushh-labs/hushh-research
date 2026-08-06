@@ -348,8 +348,8 @@ describe("LocationImmersiveMap demo experience", () => {
       "text-[var(--app-accent-fg)]",
     );
     expect(screen.getByTestId("one-location-map-close")).toHaveClass(
-      "bg-[var(--app-accent)]",
-      "text-[var(--app-accent-fg)]",
+      "!bg-[var(--app-accent-surface)]",
+      "!text-[var(--app-accent-deep)]",
     );
     await waitFor(() => {
       expect(serviceHarness.captureCurrentPosition).toHaveBeenCalledTimes(1);
@@ -369,6 +369,7 @@ describe("LocationImmersiveMap demo experience", () => {
     const jordanButton = screen.getByRole("button", {
       name: "Show Jordan Lee on the map",
     });
+    expect(screen.getAllByRole("button", { name: /everyone/i })).toHaveLength(1);
     fireEvent.click(jordanButton);
     expect(jordanButton).toHaveClass(
       "bg-[var(--app-accent)]",

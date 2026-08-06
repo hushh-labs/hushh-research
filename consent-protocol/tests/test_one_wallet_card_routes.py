@@ -525,7 +525,7 @@ def test_pass_route_returns_the_apple_content_type(
 ) -> None:
     monkeypatch.setattr(one_wallet_card, "wallet_pass_signing_available", lambda: True)
     monkeypatch.setattr(
-        one_wallet_card, "build_pkpass", lambda content, **kwargs: b"PK\x03\x04pkpass"
+        one_wallet_card, "build_wallet_pass", lambda content, **kwargs: b"PK\x03\x04pkpass"
     )
 
     response = _client(authenticated_as=None).get(f"/api/one/wallet-card/pass/{SHARE_TOKEN}.pkpass")
@@ -541,7 +541,7 @@ def test_pass_route_needs_no_authentication(
     service: FakeCardService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(one_wallet_card, "wallet_pass_signing_available", lambda: True)
-    monkeypatch.setattr(one_wallet_card, "build_pkpass", lambda content, **kwargs: b"pass")
+    monkeypatch.setattr(one_wallet_card, "build_wallet_pass", lambda content, **kwargs: b"pass")
 
     response = _client(authenticated_as=None).get(f"/api/one/wallet-card/pass/{SHARE_TOKEN}.pkpass")
 
@@ -570,7 +570,7 @@ def test_pass_route_hides_a_signing_failure_behind_the_same_503(
         raise one_wallet_card.WalletPassError("private key /secrets/pass.key is malformed")
 
     monkeypatch.setattr(one_wallet_card, "wallet_pass_signing_available", lambda: True)
-    monkeypatch.setattr(one_wallet_card, "build_pkpass", _explode)
+    monkeypatch.setattr(one_wallet_card, "build_wallet_pass", _explode)
 
     response = _client(authenticated_as=None).get(f"/api/one/wallet-card/pass/{SHARE_TOKEN}.pkpass")
 
@@ -583,7 +583,7 @@ def test_pass_route_applies_the_same_status_rules_as_resolve(
     service: FakeCardService, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(one_wallet_card, "wallet_pass_signing_available", lambda: True)
-    monkeypatch.setattr(one_wallet_card, "build_pkpass", lambda content, **kwargs: b"pass")
+    monkeypatch.setattr(one_wallet_card, "build_wallet_pass", lambda content, **kwargs: b"pass")
     client = _client(authenticated_as=None)
 
     service.pass_result = {"status": "paused", "material": dict(PASS_MATERIAL)}

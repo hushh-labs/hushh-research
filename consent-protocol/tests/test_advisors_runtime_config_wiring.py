@@ -33,7 +33,9 @@ _CONFIG_ARGS = (
     "plaid_redirect_uri plaid_tx_history_days one_location_read_only_state_enabled "
     "consent_center_summary_v2_enabled db_bulk_batching_enabled "
     "hushh_trusted_device_enabled hushh_trusted_device_uat_allowlist "
-    "advisors_api_base_url"
+    "advisors_api_base_url advisors_api_key_source_project "
+    "advisors_api_key_source_secret insurance_agents_api_base_url "
+    "insurance_agents_api_key_source_project insurance_agents_api_key_source_secret"
 ).split()
 
 
@@ -84,6 +86,81 @@ def test_the_service_reports_unavailable_without_a_key(monkeypatch):
     monkeypatch.delenv("ADVISORS_API_KEY", raising=False)
 
     assert ads.is_configured() is False
+
+
+def test_the_directory_key_is_mirrored_from_its_home_project(monkeypatch):
+    """A hand-copied key does not follow a rotation; a mirrored one does.
+
+    The source rotated and disabled the old version while UAT still held the
+    copy, so the surface answered 502 with a revoked credential.
+    """
+    module = _load_sync_module()
+    reads: list[tuple[str, str]] = []
+    writes: list[tuple[str, str, str]] = []
+
+    def fake_read(project: str, secret: str) -> str:
+        reads.append((project, secret))
+        if (project, secret) == ("hushh-tech-prod", "brokercheck-api-key"):
+            return "rotated-key"
+        return "stale-key"
+
+    monkeypatch.setattr(module, "_read_secret", fake_read)
+    monkeypatch.setattr(module, "_upsert_secret", lambda p, s, v: writes.append((p, s, v)))
+
+    status = module._mirror_directory_key(
+        target_project="hushh-pda-uat",
+        target_secret="ADVISORS_API_KEY",  # noqa: S106
+        source_project="hushh-tech-prod",
+        # noqa comment: this is a secret *name*, not a credential value.
+        source_secret="brokercheck-api-key",  # noqa: S106
+    )
+
+    assert ("hushh-tech-prod", "brokercheck-api-key") in reads
+    assert writes == [("hushh-pda-uat", "ADVISORS_API_KEY", "rotated-key")]
+    assert status and "rotated" in status
+
+
+def test_an_unchanged_key_does_not_mint_a_secret_version(monkeypatch):
+    """The shared upsert helper adds a version unconditionally."""
+    module = _load_sync_module()
+    writes: list = []
+
+    monkeypatch.setattr(module, "_read_secret", lambda project, secret: "same-key")
+    monkeypatch.setattr(module, "_upsert_secret", lambda p, s, v: writes.append(s))
+
+    status = module._mirror_directory_key(
+        target_project="hushh-pda-uat",
+        target_secret="ADVISORS_API_KEY",  # noqa: S106
+        source_project="hushh-tech-prod",
+        # noqa comment: this is a secret *name*, not a credential value.
+        source_secret="brokercheck-api-key",  # noqa: S106
+    )
+
+    assert writes == []
+    assert status and "unchanged" in status
+
+
+def test_a_lane_without_access_to_the_source_is_left_inert(monkeypatch):
+    """A dev lane with no cross-project read must not fail its deploy."""
+    module = _load_sync_module()
+
+    monkeypatch.setattr(module, "_read_secret", lambda project, secret: "")
+    monkeypatch.setattr(
+        module,
+        "_upsert_secret",
+        lambda *a: pytest.fail("must not write without a source value"),
+    )
+
+    assert (
+        module._mirror_directory_key(
+            target_project="hushh-pda-uat",
+            target_secret="ADVISORS_API_KEY",  # noqa: S106
+            source_project="hushh-tech-prod",
+            # noqa comment: this is a secret *name*, not a credential value.
+            source_secret="brokercheck-api-key",  # noqa: S106
+        )
+        is None
+    )
 
 
 def test_the_deploy_workflows_pass_the_flag_they_configure():

@@ -369,11 +369,12 @@ class ConnectionsService:
         available = {item["handle"]: item for item in self._scope_catalog_for_owner(owner_user_id)}
         invalid = requested.difference(available)
         if invalid:
-            raise ConnectionsError(
-                "CONNECTION_SCOPE_UNAVAILABLE",
-                "One or more selected scopes are no longer available.",
-                status_code=409,
+            logger.warning(
+                "connections.resolve_scope_handles_warning owner_user_id=%s invalid_handles=%s",
+                owner_user_id,
+                invalid,
             )
+            requested = requested.intersection(available)
         return [available[handle] for handle in sorted(requested)]
 
     def _record_scope_event(
@@ -1568,8 +1569,30 @@ class ConnectionsService:
 
     def cancel_request(self, user_id: str, request_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
+        request_id = (request_id or "").strip()
         with self._transaction():
-            req = self._load_request(request_id, for_update=True)
+            req = None
+            try:
+                req = self._load_request(request_id, for_update=True)
+            except ConnectionsError as err:
+                if err.code == "CONNECTION_REQUEST_NOT_FOUND":
+                    # Fallback lookup: find pending request sent by user_id to counterpart request_id
+                    req = self._execute_one(
+                        """
+                        SELECT id, requester_user_id, addressee_user_id, status
+                        FROM connection_requests
+                        WHERE status = 'pending'
+                          AND requester_user_id = :requester
+                          AND addressee_user_id = :addressee
+                        LIMIT 1
+                        FOR UPDATE
+                        """,
+                        {"requester": user_id, "addressee": request_id},
+                    )
+            if not req:
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_NOT_FOUND", "Request not found.", status_code=404
+                )
             if str(req.get("requester_user_id")) != user_id:
                 raise ConnectionsError(
                     "CONNECTION_NOT_REQUESTER", "Only the requester can cancel.", status_code=403
