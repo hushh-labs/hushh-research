@@ -285,3 +285,52 @@ def test_the_relay_path_matches_the_route_the_pod_actually_serves():
 
     assert "/api/one/pod/turn" in pod_paths
     assert '"/api/one/pod/turn"' in relay_source
+
+
+# -- the client half exists ----------------------------------------------------------
+#
+# The lesson of `/managed/readiness`: a mounted route with no caller is not a
+# feature. That surface sat mounted for months with zero callers anywhere in the
+# webapp, and it is why the default onboarding path silently never provisioned.
+
+
+def test_the_webapp_can_actually_call_this():
+    from pathlib import Path
+
+    api_service = (
+        Path(__file__).resolve().parents[2]
+        / "hushh-webapp" / "lib" / "services" / "api-service.ts"
+    ).read_text(encoding="utf-8")
+
+    assert "/api/one/u/" in api_service
+    assert "runPodTurn" in api_service
+
+
+def test_the_client_never_sends_a_consent_token():
+    """The browser holds the vault-owner MASTER grant. If the client attached a
+    token, that is the one it would have to attach -- handing the pod everything
+    its person has, in the one request where least privilege matters most."""
+    import re
+    from pathlib import Path
+
+    api_service = (
+        Path(__file__).resolve().parents[2]
+        / "hushh-webapp" / "lib" / "services" / "api-service.ts"
+    ).read_text(encoding="utf-8")
+    body = re.search(r"static async runPodTurn\(.*?\n  \}\n", api_service, re.S)
+    assert body, "runPodTurn not found"
+    assert "X-Consent-Token" not in body.group(0)
+    assert "vaultOwnerToken" not in body.group(0)
+
+
+def test_the_client_surfaces_the_typed_not_ready_state():
+    """So the UI can say "starting up" rather than "something went wrong" during
+    the window when a person is most likely to assume the product is broken."""
+    from pathlib import Path
+
+    api_service = (
+        Path(__file__).resolve().parents[2]
+        / "hushh-webapp" / "lib" / "services" / "api-service.ts"
+    ).read_text(encoding="utf-8")
+
+    assert "AGENT_NOT_READY" in api_service

@@ -3269,6 +3269,77 @@ export class ApiService {
   }
 
   /**
+   * Run one turn on this person's own pod, through the private relay.
+   *
+   * The pod is `internal` ingress with no public binding, so the hub is the only
+   * door to it. This does NOT send a consent token: the relay mints a `pkm.read`
+   * grant server-side. The only token a browser holds is the vault-owner master
+   * grant, and sending that would hand the pod everything its person has.
+   *
+   * `AGENT_NOT_READY` is a typed refusal, not a fault — it carries the agent's
+   * real state so the caller can say "starting up" instead of "something went
+   * wrong" during the window when a person is most likely to assume the latter.
+   */
+  static async runPodTurn(input: {
+    hushhId: string;
+    message: string;
+    conversationId?: string;
+    timezone?: string | null;
+    runtimeCredential?: string | null;
+    runtimeCredentialTransport?: "developer_api" | "vertex_api_key";
+    vertexProject?: string | null;
+    vertexLocation?: string | null;
+    signal?: AbortSignal;
+  }): Promise<{
+    hushhId: string;
+    text: string;
+    model: string;
+    provider: string;
+    grounded: boolean;
+    runtimeMode: string;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      `/api/one/u/${encodeURIComponent(input.hushhId)}/turn`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          message: input.message,
+          conversationId: input.conversationId || undefined,
+          timezone: input.timezone || undefined,
+          runtimeCredential: input.runtimeCredential || undefined,
+          runtimeCredentialTransport:
+            input.runtimeCredentialTransport || undefined,
+          vertexProject: input.vertexProject || undefined,
+          vertexLocation: input.vertexLocation || undefined,
+        }),
+        signal: input.signal,
+      },
+    );
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        detail?: { code?: string; status?: string } | string;
+      } | null;
+      const detail = payload?.detail;
+      if (typeof detail === "object" && detail?.code === "AGENT_NOT_READY") {
+        // Preserve the state so the UI can name it rather than guess.
+        throw new Error(`AGENT_NOT_READY:${detail.status || "unknown"}`);
+      }
+      if (response.status === 403) {
+        throw new Error("AGENT_NOT_YOURS");
+      }
+      throw new Error("AGENT_UNREACHABLE");
+    }
+    return response.json();
+  }
+
+  /**
    * Build the WebSocket URL for the server-side One ADK live relay.
    *
    * The relay runs One's agent tree through ADK's Runner over Vertex AI via
