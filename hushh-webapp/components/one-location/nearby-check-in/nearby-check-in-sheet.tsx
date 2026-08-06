@@ -34,7 +34,10 @@ import { relationshipCta } from "@/lib/connections/relationship-label";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { OneLocationService } from "@/lib/one-location/service";
-import { ONE_LOCATION_NEARBY_MAX_ACCURACY_METERS } from "@/lib/one-location/nearby-check-in-availability";
+import {
+  ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
+  ONE_LOCATION_NEARBY_MAX_ACCURACY_METERS,
+} from "@/lib/one-location/nearby-check-in-availability";
 import type {
   OneLocationNearbyAttendee,
   OneLocationNearbyPlaceCategory,
@@ -121,6 +124,27 @@ function hasCheckInAccuracy(point: PlainLocationPoint): boolean {
     point.accuracyM >= 0 &&
     point.accuracyM <= ONE_LOCATION_NEARBY_MAX_ACCURACY_METERS
   );
+}
+
+/**
+ * A usable-but-broad fix. Worth surfacing so a rejected place choice is not a
+ * surprise, but never a reason to withhold the place list: browser geolocation
+ * lands here routinely and the owner can still pick the venue they are standing
+ * in.
+ */
+function isCoarseAccuracy(point: PlainLocationPoint): boolean {
+  return (
+    typeof point.accuracyM === "number" &&
+    Number.isFinite(point.accuracyM) &&
+    point.accuracyM > ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS
+  );
+}
+
+function coarseAccuracyNotice(point: PlainLocationPoint): string {
+  const reading = Math.round(Number(point.accuracyM));
+  const distance =
+    reading >= 1_000 ? `${(reading / 1_000).toFixed(1)} km` : `${reading} m`;
+  return `Your location is accurate to about ${distance}. Pick the place you're actually at — if it's rejected, move to an open area or turn on precise location.`;
 }
 
 function timeLeftLabel(expiresAt: string): string {
@@ -264,6 +288,7 @@ export function NearbyCheckInSheet({
     null,
   );
   const [placesError, setPlacesError] = useState<string | null>(null);
+  const [accuracyNotice, setAccuracyNotice] = useState<string | null>(null);
 
   const publishState = useCallback(
     (next: OneLocationNearbyPresenceState) => {
@@ -390,6 +415,7 @@ export function NearbyCheckInSheet({
       setLocationRecovery(null);
       setPresenceLoadError(null);
       setPlacesError(null);
+      setAccuracyNotice(null);
       try {
         let permission: Awaited<
           ReturnType<typeof OneLocationService.getPermissionState>
@@ -476,10 +502,18 @@ export function NearbyCheckInSheet({
           setPoint(null);
           setLocationRecovery(isNative() ? "app-settings" : null);
           setLocationError(
-            "This location is too approximate. Move to an open area or turn on precise location, then try again.",
+            "This location is too approximate to place you. Move to an open area or turn on precise location, then try again.",
           );
           return;
         }
+        // A broad-but-usable fix must never withhold the place list. Blocking
+        // here was why a browser (wifi/IP trilateration, routinely >100 m) saw
+        // an error and zero places instead of the venues it is standing in --
+        // the owner still needs to pick where they are, and the backend does the
+        // authoritative plausibility check at check-in.
+        setAccuracyNotice(
+          isCoarseAccuracy(nextPoint) ? coarseAccuracyNotice(nextPoint) : null,
+        );
         setPoint(nextPoint);
         await loadPlaces(
           nextPoint,
@@ -561,6 +595,7 @@ export function NearbyCheckInSheet({
     setLocationRecovery(null);
     setPresenceLoadError(null);
     setPlacesError(null);
+    setAccuracyNotice(null);
     publishState(EMPTY_NEARBY_STATE);
     return () => {
       requestGenerationRef.current += 1;
@@ -811,11 +846,14 @@ export function NearbyCheckInSheet({
         setPoint(null);
         setLocationRecovery(isNative() ? "app-settings" : null);
         setLocationError(
-          "This location is too approximate. Move to an open area or turn on precise location, then try again.",
+          "This location is too approximate to place you. Move to an open area or turn on precise location, then try again.",
         );
         toast.error("A more precise location is needed before check-in.");
         return;
       }
+      setAccuracyNotice(
+        isCoarseAccuracy(freshPoint) ? coarseAccuracyNotice(freshPoint) : null,
+      );
       setPoint(freshPoint);
       const next = await OneLocationService.checkInNearby({
         vaultOwnerToken: ownerToken,
@@ -837,6 +875,7 @@ export function NearbyCheckInSheet({
       setPlaces([]);
       setSelectedPlaceId("");
       setSearch("");
+      setAccuracyNotice(null);
       toast.success("You're checked in nearby.");
     } catch (error) {
       if (
@@ -1216,6 +1255,14 @@ export function NearbyCheckInSheet({
                   </div>
                 ) : (
                   <>
+                    {accuracyNotice ? (
+                      <p
+                        className="mt-3 rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground"
+                        role="status"
+                      >
+                        {accuracyNotice}
+                      </p>
+                    ) : null}
                     <label className="relative mt-3 block">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <span className="sr-only">Search for another place</span>

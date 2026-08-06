@@ -180,7 +180,7 @@ vi.mock(
                 audience: "all_opted_in",
                 radiusMeters: 500,
                 allowConnectionRequests: true,
-                consentVersion: "one-location-nearby-presence-v2",
+                consentVersion: "one-location-nearby-presence-v3",
                 checkedInAt: "2026-07-31T00:00:00.000Z",
                 expiresAt: "2026-07-31T01:00:00.000Z",
                 placeLabel: "Event venue",

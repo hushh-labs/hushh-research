@@ -90,7 +90,7 @@ describe("OneLocationService maps methods", () => {
         status: "active",
         audience: "all_opted_in",
         allowConnectionRequests: true,
-        consentVersion: "one-location-nearby-presence-v2",
+        consentVersion: "one-location-nearby-presence-v3",
         checkedInAt: "2026-07-30T10:00:00Z",
         expiresAt: "2026-07-30T12:00:00Z",
         placeLabel: "Demo Hall",

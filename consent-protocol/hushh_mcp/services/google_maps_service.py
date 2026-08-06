@@ -53,6 +53,17 @@ _NEARBY_PLACE_CATEGORY_TYPES: dict[str, tuple[str, ...]] = {
         "hair_salon",
         "barber_shop",
         "laundry",
+        # Vehicle service stops are somewhere a person genuinely waits, so they
+        # belong in the picker. They already surfaced under "All" (which sends no
+        # includedTypes filter) but were unreachable from every category chip.
+        "car_repair",
+        "car_wash",
+        "car_dealer",
+        # Everyday errands people wait at, same reasoning.
+        "bank",
+        "atm",
+        "post_office",
+        "gym",
     ),
     "hotels_stays": (
         "hotel",
