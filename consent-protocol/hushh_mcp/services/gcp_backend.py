@@ -129,7 +129,9 @@ class GcpBackend:
         credentials: Any = None,
     ) -> None:
         # All optional; plan mode tolerates missing config (renders placeholders).
-        self._project = project if project is not None else _env("GOOGLE_CLOUD_PROJECT")
+        self._project, self._project_source = (
+            (project, "explicit") if project is not None else _resolve_pod_project()
+        )
         self._region = (
             region if region is not None else (_env("AGENT_ONE_ADK_LOCATION") or "us-central1")
         )
@@ -412,6 +414,7 @@ class GcpBackend:
         route = f"{A2A_ADDRESS_BASE}/{spec.hushh_id}"
         metadata = {
             "project": self._project,
+            "projectSource": self._project_source,
             "region": spec.region or self._region,
             "service": name,
             "image": self._image,
@@ -468,7 +471,11 @@ class GcpBackend:
         from hushh_mcp.services.gcp_run_client import GcpRunClient
 
         if not self._project:
-            raise RuntimeError("GcpBackend live mode requires a project (GOOGLE_CLOUD_PROJECT)")
+            raise RuntimeError(
+                "GcpBackend live mode requires a project. Set HUSSH_POD_PROJECT to the "
+                "project whose Cloud Run the hub may administer -- NOT the Vertex "
+                "project, which is what GOOGLE_CLOUD_PROJECT holds on the dev lane."
+            )
         return GcpRunClient(
             project=self._project, region=self._region, credentials=self._credentials
         )
@@ -512,6 +519,7 @@ class GcpBackend:
             backend=self.backend_id,
             backend_metadata={
                 "project": self._project,
+                "projectSource": self._project_source,
                 "region": spec.region or self._region,
                 "service": name,
                 "url": url,
@@ -535,6 +543,58 @@ def _liveness_mode(min_instances: int) -> str:
     ``pod_liveness_service`` and migration 905.
     """
     return "warm" if int(min_instances) >= 1 else "economy"
+
+
+def _resolve_pod_project() -> tuple[Optional[str], str]:
+    """Which project do pods get created in, and how was that decided?
+
+    This used to be one line -- ``_env("GOOGLE_CLOUD_PROJECT")`` -- and that line
+    is why the dev fleet was empty. The dev lane deliberately sets
+    ``GOOGLE_CLOUD_PROJECT`` to UAT's *Vertex* project so dev can borrow it for
+    model access, so one variable was answering two unrelated questions: "where do
+    I call Gemini" and "where do I create billable Cloud Run services". The hub
+    aimed every provision at ``hushh-pda-uat``, where its runtime identity holds no
+    ``run.admin``, and every create 403'd at the caller. Nothing surfaced it,
+    because a flag audit sees seven present flags and a misrouted project is not a
+    flag.
+
+    Resolution order, most trustworthy first:
+
+    1. ``HUSSH_POD_PROJECT`` -- an operator said so explicitly.
+    2. The credentials' own project. For an attached identity that is the project
+       the hub RUNS in, which is by definition where it can administer Cloud Run;
+       for an operator key it is the key's project. This is the answer to the
+       question actually being asked.
+    3. ``GOOGLE_CLOUD_PROJECT`` -- last, and only because outside dev the deploy
+       script forces it to equal the deploy project (backend-deploy.sh guards
+       ``genai_project_id != PROJECT_ID`` for every non-dev lane). It is correct
+       in uat and production and wrong in exactly one place: dev.
+
+    The source is returned alongside the value so an ops surface can show WHICH
+    rule won. A resolution that cannot explain itself is how the original bug hid.
+    """
+    explicit = _env("HUSSH_POD_PROJECT")
+    if explicit:
+        return explicit, "HUSSH_POD_PROJECT"
+
+    try:
+        from hushh_mcp.services.gcp_run_client import resolve_admin_project  # noqa: PLC0415
+
+        credentialed = resolve_admin_project()
+    except Exception:  # noqa: BLE001 - resolution must never break construction
+        credentialed = None
+    if credentialed:
+        return credentialed, "credentials"
+
+    fallback = _env("GOOGLE_CLOUD_PROJECT")
+    if fallback:
+        logger.warning(
+            "gcp_backend.pod_project source=GOOGLE_CLOUD_PROJECT project=%s "
+            "(this is the Vertex project on the dev lane; set HUSSH_POD_PROJECT)",
+            fallback,
+        )
+        return fallback, "GOOGLE_CLOUD_PROJECT"
+    return None, "unresolved"
 
 
 def _env(name: str) -> Optional[str]:
