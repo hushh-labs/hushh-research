@@ -4,8 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { AdvisorDetailSurface } from "@/components/connect/advisor-detail-surface";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DirectoryAttributionFooter,
+  DirectoryLoadingRows,
+  LocationPrompt,
+  PostalCodeForm,
+  QuietBlock,
+} from "@/components/connect/nearby-directory-ui";
 import { Button } from "@/lib/morphy-ux/button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { useCurrentLocation } from "@/lib/one-location/use-current-location";
@@ -28,226 +33,6 @@ const RADIUS_OPTIONS = ADVISOR_RADIUS_OPTIONS_MI.map((miles) => ({
   value: String(miles),
   label: `${miles} mi`,
 }));
-
-function LoadingRows() {
-  return (
-    <div className="space-y-3 px-1 py-2" data-testid="advisors-loading">
-      {[0, 1, 2, 3].map((row) => (
-        <Skeleton key={row} className="h-11 w-full rounded-xl" />
-      ))}
-    </div>
-  );
-}
-
-/**
- * The one way in when coordinates cannot answer the question — location was
- * refused, or the coordinates are real but the directory covers nobody there.
- * FINRA is a US register, so anyone outside the US has working GPS and an
- * empty list; a ZIP is the only thing that helps them.
- */
-function PostalCodeForm({
-  busy,
-  initialValue = "",
-  onSearch,
-}: {
-  busy: boolean;
-  initialValue?: string;
-  onSearch: (postalCode: string) => void;
-}) {
-  const [postalCode, setPostalCode] = useState(initialValue);
-
-  return (
-    <form
-      className="flex w-full gap-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const trimmed = postalCode.trim();
-        if (trimmed) onSearch(trimmed);
-      }}
-    >
-      <Input
-        value={postalCode}
-        onChange={(event) => setPostalCode(event.target.value)}
-        placeholder="ZIP"
-        inputMode="numeric"
-        aria-label="ZIP code"
-        className="h-11"
-        data-testid="advisors-postal-input"
-      />
-      <Button
-        type="submit"
-        variant="none"
-        effect="fill"
-        size="lg"
-        disabled={busy || !postalCode.trim()}
-      >
-        Search
-      </Button>
-    </form>
-  );
-}
-
-/**
- * The source credit BrokerCheck's Terms require wherever this data is shown:
- * the source named, BrokerCheck and its Terms linked, a way to report an error,
- * and the retrieval date. Four obligations, one quiet line — a bare "FINRA
- * BrokerCheck" string met only the first of them.
- */
-function Attribution({
-  attribution,
-  stale,
-}: {
-  attribution: AdvisorAttribution | null;
-  stale: boolean;
-}) {
-  if (!attribution) return null;
-
-  const retrieved = attribution.retrievedAt
-    ? new Date(attribution.retrievedAt)
-    : null;
-  const retrievedLabel =
-    retrieved && !Number.isNaN(retrieved.getTime())
-      ? retrieved.toLocaleDateString(undefined, {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-        })
-      : null;
-
-  return (
-    <footer
-      className="mx-auto max-w-[30rem] text-center"
-      data-testid="advisors-attribution"
-    >
-      <p className="type-caption text-muted-foreground">
-        <a
-          href={attribution.sourceUrl}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="underline-offset-4 hover:underline"
-        >
-          {attribution.source}
-        </a>
-        {" · "}
-        <a
-          href={attribution.termsUrl}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="underline-offset-4 hover:underline"
-        >
-          Terms
-        </a>
-        {" · "}
-        <a
-          href={attribution.errorReporting}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="underline-offset-4 hover:underline"
-        >
-          Report an error
-        </a>
-      </p>
-      {retrievedLabel ? (
-        <p className="type-caption mt-1 text-muted-foreground/70">
-          Retrieved {retrievedLabel}
-          {stale ? " · cached" : ""}
-        </p>
-      ) : null}
-    </footer>
-  );
-}
-
-/** A centred non-result: one line, and the single thing worth doing next. */
-function QuietBlock({
-  title,
-  subtitle,
-  testId,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  testId: string;
-  children?: React.ReactNode;
-}) {
-  return (
-    <section
-      className="mx-auto flex w-full max-w-[26rem] flex-col items-center py-12 text-center"
-      data-testid={testId}
-    >
-      <h2 className="type-title3 text-foreground">{title}</h2>
-      {subtitle ? (
-        <p className="mt-2 type-callout text-muted-foreground">{subtitle}</p>
-      ) : null}
-      {children ? <div className="mt-6 w-full">{children}</div> : null}
-    </section>
-  );
-}
-
-/** One calm block: why we need location, and the single tap that grants it. */
-function LocationPrompt({
-  denied,
-  busy,
-  onUseLocation,
-  onSearchPostalCode,
-}: {
-  denied: boolean;
-  busy: boolean;
-  onUseLocation: () => void;
-  onSearchPostalCode: (postalCode: string) => void;
-}) {
-  const [showPostal, setShowPostal] = useState(denied);
-
-  useEffect(() => {
-    if (denied) setShowPostal(true);
-  }, [denied]);
-
-  return (
-    <section
-      className="mx-auto flex w-full max-w-[26rem] flex-col items-center py-14 text-center"
-      data-testid="advisors-location-prompt"
-    >
-      <h2 className="type-title2 text-foreground">
-        {denied ? "Location is off" : "Advisors near you"}
-      </h2>
-      <p className="mt-2 type-callout text-muted-foreground">
-        {denied ? "Search by ZIP instead." : "See who's close by."}
-      </p>
-
-      {denied ? null : (
-        <Button
-          type="button"
-          variant="blue-gradient"
-          effect="fill"
-          size="lg"
-          fullWidth
-          className="mt-8"
-          disabled={busy}
-          onClick={onUseLocation}
-          data-testid="advisors-use-location"
-        >
-          {busy ? "Locating…" : "Use location"}
-        </Button>
-      )}
-
-      {showPostal ? (
-        <div className="mt-6 w-full">
-          <PostalCodeForm busy={busy} onSearch={onSearchPostalCode} />
-        </div>
-      ) : (
-        <Button
-          type="button"
-          variant="none"
-          effect="fade"
-          size="sm"
-          className="mt-3 text-muted-foreground"
-          onClick={() => setShowPostal(true)}
-        >
-          Use a ZIP
-        </Button>
-      )}
-    </section>
-  );
-}
 
 /**
  * "Around you" — advisers near the account's current position.
@@ -368,8 +153,12 @@ export function AdvisorsNearby({
           location.status === "denied" || location.status === "unavailable"
         }
         busy={location.status === "locating"}
+        heading="Advisors near you"
         onUseLocation={handleUseLocation}
         onSearchPostalCode={handlePostalCode}
+        testId="advisors-location-prompt"
+        useLocationTestId="advisors-use-location"
+        postalInputTestId="advisors-postal-input"
       />
     );
   }
@@ -419,6 +208,7 @@ export function AdvisorsNearby({
             busy={loading}
             initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
             onSearch={handlePostalCode}
+            testId="advisors-postal-input"
           />
         </QuietBlock>
       ) : null}
@@ -429,7 +219,7 @@ export function AdvisorsNearby({
           separatorInset
         >
           {loading ? (
-            <LoadingRows />
+            <DirectoryLoadingRows testId="advisors-loading" />
           ) : (
             cards.map((card) => {
               const distance = formatDistance(card.distanceMiles);
@@ -495,7 +285,11 @@ export function AdvisorsNearby({
       ) : null}
 
       {cards.length > 0 ? (
-        <Attribution attribution={attribution} stale={meta?.cache === "warm"} />
+        <DirectoryAttributionFooter
+          attribution={attribution}
+          stale={meta?.cache === "warm"}
+          testId="advisors-attribution"
+        />
       ) : null}
 
       <AdvisorDetailSurface

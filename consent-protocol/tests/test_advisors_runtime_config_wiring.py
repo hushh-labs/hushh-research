@@ -34,7 +34,8 @@ _CONFIG_ARGS = (
     "consent_center_summary_v2_enabled db_bulk_batching_enabled "
     "hushh_trusted_device_enabled hushh_trusted_device_uat_allowlist "
     "advisors_api_base_url advisors_api_key_source_project "
-    "advisors_api_key_source_secret"
+    "advisors_api_key_source_secret insurance_agents_api_base_url "
+    "insurance_agents_api_key_source_project insurance_agents_api_key_source_secret"
 ).split()
 
 
@@ -106,12 +107,12 @@ def test_the_directory_key_is_mirrored_from_its_home_project(monkeypatch):
     monkeypatch.setattr(module, "_read_secret", fake_read)
     monkeypatch.setattr(module, "_upsert_secret", lambda p, s, v: writes.append((p, s, v)))
 
-    status = module._sync_advisors_api_key(
-        _namespace(
-            advisors_api_key_source_project="hushh-tech-prod",
-            # noqa comment: this is a secret *name*, not a credential value.
-            advisors_api_key_source_secret="brokercheck-api-key",  # noqa: S106
-        )
+    status = module._mirror_directory_key(
+        target_project="hushh-pda-uat",
+        target_secret="ADVISORS_API_KEY",  # noqa: S106
+        source_project="hushh-tech-prod",
+        # noqa comment: this is a secret *name*, not a credential value.
+        source_secret="brokercheck-api-key",  # noqa: S106
     )
 
     assert ("hushh-tech-prod", "brokercheck-api-key") in reads
@@ -127,12 +128,12 @@ def test_an_unchanged_key_does_not_mint_a_secret_version(monkeypatch):
     monkeypatch.setattr(module, "_read_secret", lambda project, secret: "same-key")
     monkeypatch.setattr(module, "_upsert_secret", lambda p, s, v: writes.append(s))
 
-    status = module._sync_advisors_api_key(
-        _namespace(
-            advisors_api_key_source_project="hushh-tech-prod",
-            # noqa comment: this is a secret *name*, not a credential value.
-            advisors_api_key_source_secret="brokercheck-api-key",  # noqa: S106
-        )
+    status = module._mirror_directory_key(
+        target_project="hushh-pda-uat",
+        target_secret="ADVISORS_API_KEY",  # noqa: S106
+        source_project="hushh-tech-prod",
+        # noqa comment: this is a secret *name*, not a credential value.
+        source_secret="brokercheck-api-key",  # noqa: S106
     )
 
     assert writes == []
@@ -151,12 +152,12 @@ def test_a_lane_without_access_to_the_source_is_left_inert(monkeypatch):
     )
 
     assert (
-        module._sync_advisors_api_key(
-            _namespace(
-                advisors_api_key_source_project="hushh-tech-prod",
-                # noqa comment: this is a secret *name*, not a credential value.
-                advisors_api_key_source_secret="brokercheck-api-key",  # noqa: S106
-            )
+        module._mirror_directory_key(
+            target_project="hushh-pda-uat",
+            target_secret="ADVISORS_API_KEY",  # noqa: S106
+            source_project="hushh-tech-prod",
+            # noqa comment: this is a secret *name*, not a credential value.
+            source_secret="brokercheck-api-key",  # noqa: S106
         )
         is None
     )

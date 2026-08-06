@@ -416,7 +416,7 @@ function WelcomeScreen({
   leaving: boolean;
 }) {
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] text-white dark:bg-[#073d78]">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] text-white dark:bg-[#073d78]">
       <span className="pointer-events-none absolute -right-24 -top-32 h-72 w-72 rounded-full bg-white/[0.05]" />
       <span className="pointer-events-none absolute -bottom-28 -left-32 h-72 w-72 rounded-full bg-[#006bd9]/55" />
       <OnboardingNavigation
@@ -897,7 +897,7 @@ function FeaturesScreen({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(env(safe-area-inset-top,0px),12px)] dark:bg-[#0c1017]"
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] dark:bg-[#0c1017]"
       data-one-feature-screen
     >
       <OnboardingNavigation
@@ -999,7 +999,7 @@ function FeaturesScreen({
         }
         @media (max-height: 780px) {
           [data-one-feature-screen] {
-            padding-top: max(env(safe-area-inset-top, 0px), 8px);
+            padding-top: max(var(--app-safe-area-top-effective, 0px), 8px);
             padding-bottom: max(env(safe-area-inset-bottom, 0px), 10px);
           }
           [data-one-onboarding-navigation] { height: 52px; }
@@ -1013,7 +1013,7 @@ function FeaturesScreen({
         }
         @media (max-height: 680px) {
           [data-one-feature-screen] {
-            padding-top: max(env(safe-area-inset-top, 0px), 6px);
+            padding-top: max(var(--app-safe-area-top-effective, 0px), 6px);
             padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
           }
           [data-one-onboarding-navigation] { height: 44px; }
@@ -1263,7 +1263,7 @@ function FeaturesScreen({
         }
         @media (max-width: 431px) and (max-height: 560px) {
           [data-one-feature-screen] {
-            padding-top: max(env(safe-area-inset-top, 0px), 4px);
+            padding-top: max(var(--app-safe-area-top-effective, 0px), 4px);
             padding-bottom: max(env(safe-area-inset-bottom, 0px), 6px);
           }
           [data-one-onboarding-navigation] { height: 38px; }
@@ -1598,7 +1598,7 @@ function PeopleScreen({
   const canContinue = !loading;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
+    <div className="flex min-h-0 flex-1 flex-col bg-white pt-[max(var(--app-safe-area-top-effective,0px),12px)] dark:bg-[#14171d]">
       <OnboardingNavigation
         onBack={onBack}
         onSkip={onSkip}
@@ -1766,7 +1766,7 @@ function CircleScreen({
             : "I've invited your people - I'll tell you when they join.";
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(env(safe-area-inset-top,0px),12px)] dark:bg-[#0c1017]">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] dark:bg-[#0c1017]">
       <OnboardingNavigation
         floating
         onBack={onBack}
