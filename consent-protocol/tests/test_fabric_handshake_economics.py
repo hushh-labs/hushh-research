@@ -20,9 +20,7 @@ from hushh_mcp.services.fabric_handshake_economics import (
 
 def test_first_handshake_is_free_even_if_the_owner_quoted_a_price():
     """Discovery is never gated by money. The owner's own price cannot override it."""
-    q = quote_handshake(
-        prior_grant_count=0, owner_price_millicents=5_000_000, owner_currency="USD"
-    )
+    q = quote_handshake(prior_grant_count=0, owner_price_millicents=5_000_000, owner_currency="USD")
     assert q.price_millicents == 0
     assert q.is_first is True
     assert q.reason == "first_handshake_always_free"
@@ -49,9 +47,7 @@ def test_the_free_bundle_is_coarsened_never_the_identifying_triple():
 def test_the_network_minimum_applies_to_every_later_handshake():
     """0.001 cent is not revenue - it is the price signal that makes it an auction."""
     for price in (None, 0, -5):
-        q = quote_handshake(
-            prior_grant_count=1, owner_price_millicents=price, owner_currency="USD"
-        )
+        q = quote_handshake(prior_grant_count=1, owner_price_millicents=price, owner_currency="USD")
         assert q.price_millicents == MINIMUM_HANDSHAKE_MILLICENTS
         assert q.reason == "network_minimum_applied"
     # The floor IS the founder's 0.001 cent, exactly, with no rounding.
@@ -94,9 +90,7 @@ def test_revoking_does_not_reset_the_meter():
 
 def test_a_priced_handshake_must_name_a_currency():
     with pytest.raises(ValueError):
-        quote_handshake(
-            prior_grant_count=1, owner_price_millicents=5_000_000, owner_currency=None
-        )
+        quote_handshake(prior_grant_count=1, owner_price_millicents=5_000_000, owner_currency=None)
 
 
 def test_sub_cent_handshakes_cannot_settle_on_card_rails():

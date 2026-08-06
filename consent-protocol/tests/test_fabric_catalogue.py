@@ -86,7 +86,7 @@ def test_health_and_legal_wants_are_sensitive():
 
 
 def test_explicit_null_is_returned_but_absent_is_omitted():
-    """"I cleared this" is information; "never set" is not."""
+    """ "I cleared this" is information; "never set" is not."""
     assert project_fields({"privacy": {"ads": None}}, ["privacy.ads"]) == {"privacy.ads": None}
     assert project_fields({}, ["privacy.ads"]) == {}
     assert project_fields({"privacy": {"ads": False}}, ["privacy.ads"]) == {"privacy.ads": False}
