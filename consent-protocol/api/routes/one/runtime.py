@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from pathlib import Path
@@ -20,6 +21,9 @@ from hushh_mcp.runtime_providers.factory import (
     ManagedGeminiRuntimeBinding,
     build_runtime_client,
 )
+from hushh_mcp.services.ai_connection_gate import on_ai_connection_verified
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/one/runtime", tags=["One runtime configuration"])
 
@@ -218,4 +222,16 @@ async def validate_gemini_credential(
         credential = ""
         project = ""
         location = ""
+    # The AI connection just proved itself with a real generation call. THIS is the
+    # event that earns a person a pod -- not their login. Provisioning before a key
+    # works stands up a billable agent that cannot think; see ai_connection_gate.
+    #
+    # Fire-and-forget and swallowed by the gate itself: a person testing their API
+    # key must never be shown a provisioning error, and the two concerns are
+    # unrelated. Idempotent, because this endpoint is a pre-save probe the UI is
+    # free to call repeatedly.
+    verdict = await on_ai_connection_verified(
+        user_id=_firebase_uid, provider="gemini", transport=body.transport
+    )
+    logger.info("runtime.ai_connection_verified provision=%s", verdict.get("reason"))
     return GeminiCredentialValidationResponse(status="ready")

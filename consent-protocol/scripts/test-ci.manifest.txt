@@ -98,3 +98,4 @@ tests/test_personal_agent_health_presence.py
 tests/test_pkm_grounding_service.py
 tests/test_gcp_run_invoker_binding.py
 tests/test_pod_turn_route.py
+tests/test_ai_connection_gate.py
