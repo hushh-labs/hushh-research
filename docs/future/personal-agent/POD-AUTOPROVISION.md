@@ -145,3 +145,34 @@ once, on first activation.
 nothing able to produce it, so the UI could never show a failure. `provision()` now
 records it on the error path — best-effort and swallowed, so a failed status write
 can never replace the original exception with a less informative one.
+
+## The real fleet ceiling (verified 2026-08-06)
+
+`PERSONAL_AGENT_MAX_PODS` is a row count in our own registry. It is not the outer
+limit, and until now nobody had checked what was.
+
+One Cloud Run **service per user** runs into a platform quota. Read from the
+Service Usage API against `hushh-pda-dev`, not from documentation:
+
+| Metric | Unit | Effective | Default |
+|---|---|---|---|
+| Cloud Run `Services` | `1/{project}/{region}` | **1000** | 1000 |
+
+`effectiveLimit == defaultLimit`, so no increase has ever been granted on this
+project.
+
+**What that means for "every account gets a pod":**
+
+- A single hussh-managed project holds at most **1000 pods per region**.
+- Beyond that, one of three things has to be true: a quota increase is granted,
+  provisioning shards across projects, or the pod lives in the **user's own GCP
+  project** (the BYO-GCP option), where the ceiling is theirs and not ours.
+- Raising `PERSONAL_AGENT_MAX_PODS` past 1000 in one project does **not** lift it.
+  Provisioning would pass our own cap check and then fail at Cloud Run — the least
+  useful place for a limit to be discovered, because the failure arrives after the
+  registry row exists and after the user has been told their agent is being built.
+
+Re-read it with a scoped call to
+`serviceusage.googleapis.com/v1beta1/projects/{project}/services/run.googleapis.com/consumerQuotaMetrics`,
+using `load_operator_credentials()` from `hushh_mcp/services/gcp_run_client.py`.
+It is per-project, so each new pod-hosting project needs its own check.
