@@ -155,6 +155,12 @@ class GcpBackend:
         # to that quarter.
         self._cpu = cpu if cpu is not None else (_env("HUSSH_POD_CPU") or "500m")
         self._memory = memory if memory is not None else (_env("HUSSH_POD_MEMORY") or "1Gi")
+        # The ONE principal allowed to invoke a pod -- the hub's runtime service
+        # account. A pod is created with `internal` ingress and no `allUsers`
+        # binding, so this binding is the only thing that can reach it. Unset means
+        # no binding is written and `_execute` warns loudly, rather than silently
+        # creating a pod that nobody -- including the hub -- is permitted to call.
+        self._invoker_member = _env("HUSSH_POD_INVOKER_MEMBER") or ""
         # Ingress. The DEFAULT is "internal": the pod is not reachable from the public
         # internet at all, and only the Hushh A2A gateway (Layer A) routes to it. That
         # non-targetability is a load-bearing PCC property, so it is the default and
@@ -438,12 +444,28 @@ class GcpBackend:
         client = self._client or self._build_client()
         name = str(config["metadata"]["name"])
 
-        def _run() -> tuple[bool, Optional[str]]:
+        def _run() -> tuple[bool, Optional[str], bool]:
             client.create_service(config)
+            # Bind run.invoker BEFORE waiting for Ready. The hub's key pull happens
+            # as soon as the pod answers, and until this binding exists the hub is
+            # not allowed to call the pod at all -- which is how a created pod used
+            # to park in `connecting` forever with nothing reporting a fault.
+            invoker_bound = False
+            if self._invoker_member:
+                client.set_invoker_binding(name, self._invoker_member)
+                invoker_bound = True
             ready, svc = client.wait_ready(name)
-            return ready, GcpRunClient.service_url(svc)
+            return ready, GcpRunClient.service_url(svc), invoker_bound
 
-        ready, url = await asyncio.to_thread(_run)
+        ready, url, invoker_bound = await asyncio.to_thread(_run)
+        if not invoker_bound:
+            # Say so loudly. A pod nobody may invoke is not a working pod, and the
+            # symptom (a row stuck in `connecting`) points nowhere near the cause.
+            logger.warning(
+                "gcp_backend.no_invoker_member service=%s -- HUSSH_POD_INVOKER_MEMBER is "
+                "unset, so the hub cannot call this pod and key collection will fail",
+                name,
+            )
         logger.info("gcp_backend.live_provisioned service=%s ready=%s", name, ready)
         return BackendHandle(
             external_agent_id=name,

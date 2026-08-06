@@ -47,6 +47,7 @@ from api.routes import health  # noqa: E402
 from api.routes.one.a2a import router as a2a_router  # noqa: E402
 from api.routes.one.a2a import well_known_router as a2a_well_known_router  # noqa: E402
 from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E402
+from api.routes.one.pod_turn import router as pod_turn_router  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
 from hushh_mcp.runtime_settings import (  # noqa: E402
@@ -69,7 +70,15 @@ logger = logging.getLogger(__name__)
 # The pod's ALLOWLISTED surface — the ONLY routers a pod mounts. Anything not in
 # this tuple (consent issuance, developer/admin, RIA, email, marketplace, account,
 # IAM, PKM admin, login/WebAuthn) is central-plane and intentionally absent.
-_POD_ROUTERS = (health.router, a2a_well_known_router, a2a_router, agent_prompt_router)
+_POD_ROUTERS = (
+    health.router,
+    a2a_well_known_router,
+    a2a_router,
+    agent_prompt_router,
+    # The turn route: this is what makes a pod run Agent One rather than merely
+    # host its prompt. Flag-gated off and pod-mode-only; see api/routes/one/pod_turn.py.
+    pod_turn_router,
+)
 
 app = FastAPI(
     title="hussh One — sovereign pod",
@@ -133,7 +142,7 @@ def pod_info() -> dict:
         "hushhId": os.getenv("HUSSH_ID") or None,
         "spaceId": os.getenv("HUSSH_SPACE_ID") or None,
         "controlPlane": "central@hushh (consent issuance + audit not hosted here)",
-        "mounts": ["health", "a2a", "a2a-well-known", "agent-prompt", "public-key"],
+        "mounts": ["health", "a2a", "a2a-well-known", "agent-prompt", "public-key", "turn"],
     }
 
 
