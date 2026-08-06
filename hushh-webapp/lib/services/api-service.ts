@@ -3229,6 +3229,46 @@ export class ApiService {
   }
 
   /**
+   * Tell the server a person chose the hussh-managed runtime, and let it verify.
+   *
+   * Choosing managed used to be an entirely client-side act: the mode went into
+   * the user's own PKM vault and no server route was called at all. Managed is the
+   * DEFAULT mode, so for most people the server never learned an AI connection
+   * existed — and provisioning a private agent is gated on exactly that event. The
+   * default onboarding path therefore finished with no agent, no error, and nothing
+   * anywhere saying so.
+   *
+   * The server probes the managed runtime before answering, so a "ready" here means
+   * the same thing it means for a BYOK key: something actually generated.
+   */
+  static async selectManagedGeminiRuntime(): Promise<{
+    status: "ready";
+    model: string;
+    location: string;
+    agentScheduled: boolean;
+    agentReason: string;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/managed/select",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    if (!response.ok) {
+      throw new Error("MANAGED_RUNTIME_NOT_READY");
+    }
+    return response.json();
+  }
+
+  /**
    * Build the WebSocket URL for the server-side One ADK live relay.
    *
    * The relay runs One's agent tree through ADK's Runner over Vertex AI via

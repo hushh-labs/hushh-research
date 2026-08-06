@@ -32,6 +32,10 @@ _TOMBSTONES = "personal_agent_deletion_tombstones"
 # fleet grow past PERSONAL_AGENT_MAX_PODS without the cap ever noticing.
 # Over-counting is the safe direction for a cost ceiling; under-counting spends money.
 _ACTIVE_POD_STATUSES = ("provisioning", "connecting", "provisioned")
+# States a row should have LEFT. `provisioning` is the fire-and-forget task that
+# died mid-flight; `failed` recorded its own defeat. `connecting` is excluded on
+# purpose -- see fetch_stalled_agents.
+_STALLED_POD_STATUSES = ("provisioning", "failed")
 
 
 class PersonalAgentRegistryRepo:
@@ -228,6 +232,37 @@ class PersonalAgentRegistryRepo:
             .table(_REGISTRY)
             .select("*")
             .in_("status", list(_ACTIVE_POD_STATUSES))
+            .limit(limit)
+            .execute()
+        )
+        return list(response.data or [])
+
+    async def fetch_stalled_agents(self, *, stalled_before: str, limit: int = 100) -> list[dict]:
+        """Rows whose provisioning never finished, for the reconcile sweep to retry.
+
+        WHY ROW AGE IS THE RIGHT SIGNAL *HERE*
+        --------------------------------------
+        ``updated_at`` has no ``ON UPDATE`` trigger and this repo never writes it, so
+        it equals ``created_at`` -- the row's birth. The reconcile worker's docstring
+        warns that reaping on that measures AGE rather than inactivity, and reaping a
+        healthy pod because its row is old would be a serious bug.
+
+        The retry sweep is the opposite case, and the distinction is the whole point:
+        a row *born* ten minutes ago and *still* in ``provisioning`` has, by
+        definition, not progressed in ten minutes. Age IS the staleness measure when
+        the state being measured is one the row should have left.
+
+        ``connecting`` is deliberately NOT included. That row has a live host and is
+        mid-handshake waiting for the pod's key; re-running provision against it
+        would replace a running service. Its stall is owned by the pod's startup key
+        push, not by this sweep.
+        """
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .select("user_id", "hushh_id", "status")
+            .in_("status", list(_STALLED_POD_STATUSES))
+            .lt("created_at", stalled_before)
             .limit(limit)
             .execute()
         )

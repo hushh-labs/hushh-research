@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 
 const {
+  selectManagedGeminiRuntimeMock,
   validateGeminiRuntimeCredentialMock,
   loadRuntimeSecretMock,
   removeRuntimeSecretMock,
@@ -11,6 +12,7 @@ const {
   toastErrorMock,
   toastSuccessMock,
 } = vi.hoisted(() => ({
+  selectManagedGeminiRuntimeMock: vi.fn(),
   validateGeminiRuntimeCredentialMock: vi.fn(),
   loadRuntimeSecretMock: vi.fn(),
   removeRuntimeSecretMock: vi.fn(),
@@ -27,6 +29,8 @@ vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     validateGeminiRuntimeCredential: (...args: unknown[]) =>
       validateGeminiRuntimeCredentialMock(...args),
+    selectManagedGeminiRuntime: (...args: unknown[]) =>
+      selectManagedGeminiRuntimeMock(...args),
   },
 }));
 
@@ -50,6 +54,13 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     storeRuntimeSecretMock.mockResolvedValue({ success: true });
     removeRuntimeSecretMock.mockResolvedValue({ success: true });
     validateGeminiRuntimeCredentialMock.mockResolvedValue({ status: "ready" });
+    selectManagedGeminiRuntimeMock.mockResolvedValue({
+      status: "ready",
+      model: "gemini-3-pro",
+      location: "global",
+      agentScheduled: false,
+      agentReason: "",
+    });
   });
 
   it("does not manufacture a selected choice before the fresh user confirms one", () => {
@@ -127,6 +138,109 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
 
     await waitFor(() => expect(onSelectionReadyChange).toHaveBeenCalledTimes(1));
     expect(onSelectionReadyChange).toHaveBeenCalledWith("hushh_managed_vertex");
+  });
+
+  // -- the managed path finally reaches the server -------------------------------
+  //
+  // Choosing managed used to be entirely client-side: the mode went into the user's
+  // own PKM vault and no server route was called at all. Managed is the DEFAULT, so
+  // for most people the server never learned an AI connection existed -- and
+  // provisioning a private agent hangs off exactly that event.
+
+  const renderSetupCard = (onSelectionReadyChange = vi.fn().mockResolvedValue(undefined)) => {
+    render(
+      <GeminiRuntimeSettingsCard
+        userId="fresh-user"
+        vaultKey={null}
+        vaultOwnerToken={null}
+        needsVaultCreation
+        needsUnlock={false}
+        onRequestVaultUnlock={vi.fn()}
+        onRequestVaultCreation={vi.fn()}
+        requiresExplicitSelection
+        initiallyConfigured={false}
+        onSelectionReadyChange={onSelectionReadyChange}
+      />,
+    );
+    return onSelectionReadyChange;
+  };
+
+  const clickManaged = () =>
+    fireEvent.click(screen.getByRole("button", { name: /Hushh managed Gemini/i }));
+
+  it("tells the server about the managed choice", async () => {
+    renderSetupCard();
+    clickManaged();
+    await waitFor(() =>
+      expect(selectManagedGeminiRuntimeMock).toHaveBeenCalledTimes(1),
+    );
+  });
+
+  it("verifies the managed runtime BEFORE committing the choice", async () => {
+    // Ordering, not merely both-happened. Persisting first and probing second means
+    // a person can be told "selected" about a runtime that cannot generate -- and
+    // the BYOK path already validates first, so this is parity, not preference.
+    const order: string[] = [];
+    selectManagedGeminiRuntimeMock.mockImplementation(async () => {
+      order.push("verify");
+      return {
+        status: "ready",
+        model: "gemini-3-pro",
+        location: "global",
+        agentScheduled: true,
+        agentReason: "ai connection verified",
+      };
+    });
+    const onSelectionReadyChange = vi.fn().mockImplementation(async () => {
+      order.push("commit");
+    });
+
+    renderSetupCard(onSelectionReadyChange);
+    clickManaged();
+
+    await waitFor(() => expect(onSelectionReadyChange).toHaveBeenCalledTimes(1));
+    expect(order).toEqual(["verify", "commit"]);
+  });
+
+  it("does not commit the choice when the managed runtime cannot answer", async () => {
+    selectManagedGeminiRuntimeMock.mockRejectedValue(
+      new Error("MANAGED_RUNTIME_NOT_READY"),
+    );
+    const onSelectionReadyChange = vi.fn().mockResolvedValue(undefined);
+
+    renderSetupCard(onSelectionReadyChange);
+    clickManaged();
+
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledTimes(1));
+    expect(onSelectionReadyChange).not.toHaveBeenCalled();
+    expect(String(toastErrorMock.mock.calls[0][0])).toContain("isn\u2019t responding");
+  });
+
+  it("says the agent is being built only when one actually was", async () => {
+    // "We are building your private agent" and "you are on the shared runtime" are
+    // different promises. One cheerful string for both is how a product starts lying.
+    selectManagedGeminiRuntimeMock.mockResolvedValue({
+      status: "ready",
+      model: "gemini-3-pro",
+      location: "global",
+      agentScheduled: true,
+      agentReason: "ai connection verified",
+    });
+    renderSetupCard();
+    clickManaged();
+
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledTimes(1));
+    expect(String(toastSuccessMock.mock.calls[0][0])).toContain(
+      "private agent is being built",
+    );
+  });
+
+  it("does not promise an agent when none was scheduled", async () => {
+    renderSetupCard();
+    clickManaged();
+
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledTimes(1));
+    expect(String(toastSuccessMock.mock.calls[0][0])).not.toContain("private agent");
   });
 
   it("keeps BYOK unselected until a key is validated and staged in memory during setup", async () => {

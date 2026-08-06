@@ -843,6 +843,114 @@ async def startup_consent_revocation_worker() -> None:
         )
 
 
+@app.on_event("startup")
+async def startup_personal_agent_reconcile_worker() -> None:
+    """Retry personal-agent provisions that stalled. Nothing did this before.
+
+    WHY A ROW STRANDS IN THE FIRST PLACE
+    ------------------------------------
+    Provisioning is ``loop.create_task`` around a ``wait_ready`` poll that can run
+    150s after the HTTP response was returned. On a CPU-throttled Cloud Run instance
+    that task barely progresses and may be evicted outright, leaving the row at
+    ``provisioning`` with no host, no error surfaced, and no retry -- because
+    ``start_personal_agent_reconcile_loop`` had ZERO callers anywhere in the repo.
+    Two customer-facing strings already promised that recovery. This is what makes
+    them true.
+
+    THE REAP HALF IS DELIBERATELY INERT
+    -----------------------------------
+    The worker also reaps idle pods, and that half must not run. Per its own module
+    docstring, ``personal_agent_registry`` has no last-activity column and
+    ``updated_at`` is never written -- so any idle query would reap on row AGE, and
+    tear down a perfectly healthy pod belonging to someone using it daily. So
+    ``fetch_idle`` returns nothing and ``reap`` raises if it is ever somehow reached.
+    Deleting someone's private agent on a signal we know to be wrong is not a
+    trade-off worth making for a sweep whose only benefit is cost.
+
+    Off by default behind ``PERSONAL_AGENT_RECONCILE_ENABLED``, which the worker
+    re-reads every pass, so it can be stopped without a redeploy.
+    """
+    if pod_mode():
+        # A control-plane singleton. A fleet of pods each retrying provisions would
+        # race one another over shared rows.
+        logger.info("startup.personal_agent_reconcile_skipped reason=pod_mode")
+        return
+    try:
+        from datetime import datetime, timezone
+
+        from hushh_mcp.services.personal_agent_reconcile_worker import (
+            StalledAgent,
+            start_personal_agent_reconcile_loop,
+        )
+        from hushh_mcp.services.personal_agent_registry_repo import (
+            PersonalAgentRegistryRepo,
+        )
+
+        registry = PersonalAgentRegistryRepo()
+        # Long enough that a healthy provision (wait_ready caps at 150s) is never
+        # mistaken for a dead one and retried underneath itself.
+        _stalled_after_seconds = 600
+
+        async def fetch_stalled() -> list:
+            cutoff = datetime.now(timezone.utc).timestamp() - _stalled_after_seconds
+            before = datetime.fromtimestamp(cutoff, tz=timezone.utc).isoformat()
+            rows = await registry.fetch_stalled_agents(stalled_before=before)
+            return [
+                StalledAgent(
+                    user_id=str(row.get("user_id") or ""),
+                    hushh_id=str(row.get("hushh_id") or ""),
+                    status=str(row.get("status") or ""),
+                )
+                for row in rows
+                if str(row.get("user_id") or "").strip()
+            ]
+
+        async def retry(user_id: str) -> None:
+            from hushh_mcp.services.actor_identity_service import ActorIdentityService
+
+            identity = ActorIdentityService()
+            record = (await identity.get_many([user_id])).get(user_id) or {}
+            # Same server-side read the AI-connection gate performs. A retry must
+            # never mint an agent against a number nobody proved they hold, and an
+            # unverified row is not a retryable state -- it is a different problem.
+            if record.get("phone_verified") is not True:
+                logger.info("personal_agent_reconcile.skip reason=phone_unverified")
+                return
+            phone = str(record.get("phone_number") or "").strip()
+            if not phone:
+                return
+            from hushh_mcp.services.personal_agent_provisioning_service import (
+                PersonalAgentProvisioningService,
+            )
+
+            await PersonalAgentProvisioningService().provision(user_id, phone)
+
+        async def fetch_idle(_idle_since) -> list:
+            # See the docstring: no truthful idleness source exists in the schema.
+            return []
+
+        async def reap(external_agent_id: str) -> None:
+            raise AssertionError(
+                "idle reap is not wired: personal_agent_registry has no activity "
+                f"column, so any candidate is age-based ({external_agent_id[:8]}…)"
+            )
+
+        task = start_personal_agent_reconcile_loop(
+            fetch_stalled=fetch_stalled,
+            retry=retry,
+            fetch_idle=fetch_idle,
+            reap=reap,
+            interval_seconds=300,
+        )
+        if task is None:
+            logger.info("startup.personal_agent_reconcile_off flag=disabled")
+            return
+        _track_startup_background_task(task)
+        logger.info("startup.personal_agent_reconcile_registered interval_s=300")
+    except Exception as exc:  # noqa: BLE001 - a missing sweep must not stop the server
+        logger.warning("startup.personal_agent_reconcile_failed reason=%s", type(exc).__name__)
+
+
 if __name__ == "__main__":
     import uvicorn
 

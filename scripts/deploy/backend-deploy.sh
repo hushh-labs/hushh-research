@@ -266,6 +266,64 @@ fi
 append_optional_env "HUSSH_HUB_BASE_URL" "${hub_url}"
 append_optional_env "POD_HUB_IDENTITY_AUTH_ENABLED" "${pod_identity_auth}"
 append_optional_env "POD_HUB_ALLOWED_SERVICE_ACCOUNT" "${pod_allowed_sa}"
+# POD_HUB_EXPECTED_AUDIENCE is deliberately NOT set here. runtime_settings falls
+# back to HUSSH_HUB_BASE_URL above -- the same variable, normalised the same way,
+# that a pod uses to mint its audience. A second copy of one address is a silent
+# divergence: change the hub URL, forget the audience, and every pod->hub call
+# 401s with nothing in either log saying why.
+
+# The personal-agent (per-user pod) env block. DEV ONLY.
+#
+# Before this, `grep PERSONAL_AGENT deploy/ scripts/deploy/` returned nothing: the
+# flags existed in runtime_settings and defaulted OFF, so the whole provisioning
+# path was unreachable in every environment. A validated AI key left the registry
+# row at `pending` and no code, log line or alert said so.
+#
+# Each flag is separately revocable, and each is off outside dev by construction
+# (empty => append_optional_env skips it => runtime_settings default applies).
+personal_agent_enabled=""
+personal_agent_backend=""
+personal_agent_autoprovision=""
+gcp_backend_live=""
+pod_signing_key_secret=""
+pod_invoker_member=""
+pod_turn_enabled=""
+if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+  personal_agent_enabled="true"
+  personal_agent_backend="gcp"
+  # Creating a pod is a BILLABLE act, which is why this is a separate switch from
+  # the feature flag: turning the surface on and turning on automatic compute
+  # creation are different decisions and stay separately revocable.
+  personal_agent_autoprovision="true"
+  # Without this GcpBackend stays in plan mode -- it returns a rendered config and
+  # never calls Cloud Run, which reads as success at every layer above it.
+  gcp_backend_live="true"
+  # A pod-ONLY signing key. Never the hub's: with HMAC the ability to verify is the
+  # ability to forge, so the hub's key in every pod would make each pod a universal
+  # forger of consent, grants and audit entries. See gcp_backend.py for the full note.
+  pod_signing_key_secret="HUSSH_POD_DEV_SIGNING_KEY"
+  # Who may invoke a pod. `set_invoker_binding` reads this; unset, it logs and skips,
+  # and the pod is invokable by nobody -- the key pull returns None and the registry
+  # row parks in `connecting` forever. The hub's own runtime identity is the only
+  # caller: pods are `internal` ingress with no allUsers binding, and non-
+  # targetability is the property that makes a zero-role pod uninteresting to reach.
+  # Guarded: an empty substitution would render the literal "serviceAccount:",
+  # which is non-empty enough to be SET and malformed enough to make every
+  # setIamPolicy call fail at provision time -- the one path nobody exercises
+  # locally. Unset is the honest state; the client logs and skips.
+  if [[ -n "${_RUNTIME_SERVICE_ACCOUNT}" ]]; then
+    pod_invoker_member="serviceAccount:${_RUNTIME_SERVICE_ACCOUNT}"
+  fi
+  # The pod actually runs Agent One. Off => POST /api/one/pod/turn 404s.
+  pod_turn_enabled="true"
+fi
+append_optional_env "PERSONAL_AGENT_ENABLED" "${personal_agent_enabled}"
+append_optional_env "PERSONAL_AGENT_BACKEND" "${personal_agent_backend}"
+append_optional_env "PERSONAL_AGENT_AUTOPROVISION_ENABLED" "${personal_agent_autoprovision}"
+append_optional_env "HUSSH_GCP_BACKEND_LIVE" "${gcp_backend_live}"
+append_optional_env "HUSSH_POD_SIGNING_KEY_SECRET" "${pod_signing_key_secret}"
+append_optional_env "HUSSH_POD_INVOKER_MEMBER" "${pod_invoker_member}"
+append_optional_env "HUSSH_POD_TURN_ENABLED" "${pod_turn_enabled}"
 
 # Join with '|' (not ',') so env VALUES may themselves contain commas.
 # Paired with gcloud's alternate-delimiter syntax on --set-env-vars below.
@@ -317,6 +375,27 @@ cmd=(
   "--set-env-vars=^|^${env_var_string}"
   "--set-secrets=${secrets}"
 )
+
+# CPU allocated outside requests, DEV ONLY. Correctness, not performance.
+#
+# The hub runs work that outlives the response that started it: personal-agent
+# provisioning is `loop.create_task` around a `wait_ready` poll that can run 150s
+# after the HTTP response has been returned. Cloud Run's default throttles an
+# instance's CPU to near zero the moment no request is in flight, so that task
+# does not merely run slowly -- it makes almost no progress, the registry row
+# strands at `provisioning`, and nothing reports a fault.
+#
+# Scoped to dev because this switches Cloud Run from request-based to
+# instance-based billing, which is a cost decision on the shared uat/prod lanes
+# and needs founder sign-off rather than a silent default.
+#
+# WORTH KNOWING: the same exposure already applies in uat and prod to the consent
+# NOTIFY->FCM listener, the Gmail watch-renewal loop and the revocation sweep --
+# all of them background loops on a throttled instance. This flag is the fix for
+# that class; it is being taken here only where the cost is trivial.
+if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+  cmd+=("--no-cpu-throttling")
+fi
 
 if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then
   cmd+=("--no-traffic")

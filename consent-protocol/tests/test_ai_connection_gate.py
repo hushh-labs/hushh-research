@@ -185,3 +185,85 @@ async def test_the_phone_verify_path_stands_down_while_this_gate_owns_the_trigge
     service = ActorIdentityService()
     # The phone-verify caller passes no `via_ai_connection` flag.
     assert service.schedule_provision_personal_agent("u1", "+15551234567") is False
+
+
+# -- a pod is only worth creating if it can actually serve ------------------------
+#
+# Managed is the DEFAULT connection mode, and choosing it used to contact no server
+# route at all -- the webapp wrote the mode into the user's own PKM vault and
+# `GET /managed/readiness` had zero callers anywhere. So for most users the server
+# never learned an AI connection existed. `POST /managed/select` closes that; these
+# cover what the gate does once it finally hears about it.
+
+
+async def test_managed_does_not_provision_while_a_pod_cannot_serve_it(monkeypatch):
+    """A managed pod would boot, warm, heartbeat and refuse every turn with "this
+    pod has no model access", at full price. That is the same mistake as
+    provisioning on login, one step later in the journey."""
+    import hushh_mcp.runtime_settings as settings
+
+    monkeypatch.setattr(settings, "pod_managed_model_enabled", lambda: False)
+    identity = _Identity()
+    result = await _verify(provider="hushh_managed_vertex", identity=identity)
+
+    assert result["scheduled"] is False
+    assert "cannot serve" in result["reason"]
+    assert identity.scheduled == []
+
+
+async def test_managed_provisions_once_a_pod_can_serve_it(monkeypatch):
+    """One switch governs both halves. Flipping it must move BOTH -- otherwise the
+    setting that lets a pod serve managed turns and the setting that creates managed
+    pods drift apart, which is how you get a fleet that cannot think."""
+    import hushh_mcp.runtime_settings as settings
+
+    monkeypatch.setattr(settings, "pod_managed_model_enabled", lambda: True)
+    identity = _Identity()
+    result = await _verify(provider="hushh_managed_vertex", identity=identity)
+
+    assert result["scheduled"] is True
+    assert identity.scheduled and identity.scheduled[0][2] is True
+
+
+async def test_byok_never_depends_on_the_managed_switch(monkeypatch):
+    """A BYOK key arrives with each turn, so the pod needs no standing model access
+    and the pod service account keeps its zero project roles."""
+    import hushh_mcp.runtime_settings as settings
+
+    monkeypatch.setattr(settings, "pod_managed_model_enabled", lambda: False)
+    identity = _Identity()
+
+    assert (await _verify(provider="gemini", identity=identity))["scheduled"] is True
+
+
+@pytest.mark.parametrize("provider", ["HUSHH_MANAGED_VERTEX", "  hushh_managed_vertex  "])
+async def test_the_managed_provider_is_matched_case_and_space_insensitively(
+    monkeypatch, provider
+):
+    """A near-miss on this string silently reverts to "provision anything", which is
+    the failure mode that costs money rather than the one that shows an error.
+
+    Writing this test is what found the near-miss: `hussh_` for `hushh_` sails
+    through every reader and every linter, and the brand carries BOTH spellings."""
+    import hushh_mcp.runtime_settings as settings
+
+    monkeypatch.setattr(settings, "pod_managed_model_enabled", lambda: False)
+    identity = _Identity()
+
+    assert (await _verify(provider=provider, identity=identity))["scheduled"] is False
+    assert identity.scheduled == []
+
+
+def test_the_managed_provider_string_matches_what_the_route_actually_sends():
+    """Pinned to the CALLER, not to a literal restated here. The gate reads a string
+    the route chooses; if they diverge the gate silently stops recognising managed
+    connections and starts provisioning pods that cannot serve them -- with every
+    test in this file still green, because they would all restate the same wrong
+    constant."""
+    import inspect
+
+    from api.routes.one import runtime as runtime_route
+    from hushh_mcp.services.ai_connection_gate import _MANAGED_PROVIDER
+
+    source = inspect.getsource(runtime_route.select_managed_gemini)
+    assert f'provider="{_MANAGED_PROVIDER}"' in source

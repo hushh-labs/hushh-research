@@ -294,6 +294,51 @@ async def test_no_configured_audience_refuses_rather_than_guessing(monkeypatch):
     assert await pod_identity_auth.verify_pod_identity(req, "Bearer tok") is None
 
 
+def test_the_expected_audience_falls_back_to_the_hub_url(monkeypatch):
+    """One address, one variable. A pod mints its `aud` from HUSSH_HUB_BASE_URL; the
+    hub demands the same string. Configuring those independently is a divergence that
+    fails as an unexplained 401 on every pod->hub call."""
+    from hushh_mcp import runtime_settings
+
+    monkeypatch.delenv("POD_HUB_EXPECTED_AUDIENCE", raising=False)
+    monkeypatch.setenv("HUSSH_HUB_BASE_URL", "https://hub.example")
+    assert runtime_settings.pod_hub_expected_audience() == "https://hub.example"
+
+
+@pytest.mark.parametrize(
+    ("explicit", "hub_url"),
+    [("https://hub.example/", ""), ("", "https://hub.example/")],
+)
+def test_a_trailing_slash_never_decides_the_outcome(monkeypatch, explicit, hub_url):
+    """`pod_hub_client.hub_base_url` rstrips the slash before minting. Normalising on
+    only one side fails every verification while both values LOOK equal in a console
+    listing -- which is the worst possible way for this to break."""
+    from hushh_mcp import runtime_settings
+
+    monkeypatch.setenv("POD_HUB_EXPECTED_AUDIENCE", explicit)
+    monkeypatch.setenv("HUSSH_HUB_BASE_URL", hub_url)
+    assert runtime_settings.pod_hub_expected_audience() == "https://hub.example"
+
+
+def test_neither_configured_still_refuses(monkeypatch):
+    """The override exists for a hub behind a load balancer, where the address a pod
+    dials is not the one this service knows itself by. Absent both, guessing an
+    audience is the same as not checking one."""
+    from hushh_mcp import runtime_settings
+
+    monkeypatch.delenv("POD_HUB_EXPECTED_AUDIENCE", raising=False)
+    monkeypatch.delenv("HUSSH_HUB_BASE_URL", raising=False)
+    assert runtime_settings.pod_hub_expected_audience() == ""
+
+
+def test_an_explicit_override_wins_over_the_hub_url(monkeypatch):
+    from hushh_mcp import runtime_settings
+
+    monkeypatch.setenv("POD_HUB_EXPECTED_AUDIENCE", "https://custom.example")
+    monkeypatch.setenv("HUSSH_HUB_BASE_URL", "https://internal.run.app")
+    assert runtime_settings.pod_hub_expected_audience() == "https://custom.example"
+
+
 async def test_the_hub_returns_the_owner_binding(hub_enabled):
     """The pod cannot resolve user -> HusshID; only the hub can, so only the hub
     can supply the binding the pod enforces."""

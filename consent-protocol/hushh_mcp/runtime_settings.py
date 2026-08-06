@@ -662,10 +662,26 @@ def pod_hub_expected_audience() -> str:
     audience is accepted here, and the whole decision collapses onto the email
     claim alone.
 
-    Falls back to ``APP_FRONTEND_ORIGIN``-style hub self-knowledge only if
-    explicitly configured; unset means REFUSE, because guessing an audience is the
-    same as not checking one."""
-    return _clean_env("POD_HUB_EXPECTED_AUDIENCE")
+    Falls back to ``HUSSH_HUB_BASE_URL`` -- which is not a guess but the SAME
+    value, read from the same variable, that the pod normalises to build its
+    audience. Two independently-configured copies of one address is a silent
+    divergence: set one and forget the other and every pod->hub call 401s with
+    nothing in either log explaining why. Deriving both from one variable makes
+    that failure unrepresentable.
+
+    The override remains for the case the fallback cannot serve: a hub reached
+    through a load balancer or custom domain, where the address a pod dials is
+    not the address this service knows itself by.
+
+    Neither set means REFUSE -- guessing an audience is the same as not checking
+    one."""
+    explicit = _clean_env("POD_HUB_EXPECTED_AUDIENCE")
+    if explicit:
+        return explicit.rstrip("/")
+    # rstrip("/") mirrors pod_hub_client.hub_base_url() exactly. A trailing slash
+    # on one side only would fail every verification while both values LOOK equal
+    # in a console listing.
+    return _clean_env("HUSSH_HUB_BASE_URL").rstrip("/")
 
 
 def pod_mode() -> bool:
