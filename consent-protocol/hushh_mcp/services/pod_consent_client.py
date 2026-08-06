@@ -38,6 +38,7 @@ class ConsentVerdict:
     valid: bool
     available: bool
     user_id: str = ""
+    hushh_id: str = ""
     scope: str = ""
     reason: str = ""
 
@@ -101,6 +102,7 @@ async def verify_consent(
         valid=True,
         available=True,
         user_id=str(data.get("userId") or ""),
+        hushh_id=str(data.get("hushhId") or ""),
         scope=str(data.get("scope") or ""),
         reason="verified by the hub",
     )

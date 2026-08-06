@@ -48,6 +48,9 @@ def enabled(monkeypatch):
 
 
 def _consent_ok(monkeypatch, user_id="u1"):
+    # NOTE: this stubs `_validate_consent` wholesale, so it bypasses the owner
+    # binding by construction. The binding itself is tested below against the real
+    # function with a stubbed verifier.
     # `verifier` is the injectable seam the turn route threads to the consent
     # authority client; a stub without it diverges from the real call site.
     async def _validate(_token, *, verifier=None):
@@ -267,3 +270,86 @@ async def test_the_owners_key_is_never_echoed_back(enabled, monkeypatch):
         stream_fn=_stream([_Event("token", "hi")]),
     )
     assert "super-secret-key" not in str(result)
+
+
+# -- whose turn is this --------------------------------------------------------
+#
+# A valid token proves someone consented. It does NOT prove they own THIS pod.
+# Without the binding, person A's token presented to person B's pod would drive
+# B's pod on A's behalf: B's memory, B's holdings, B's model spend.
+
+
+def _verdict(**kw):
+    from hushh_mcp.services.pod_consent_client import ConsentVerdict
+
+    base = {"valid": True, "available": True, "user_id": "u1", "hushh_id": "hushh-mine"}
+    base.update(kw)
+    return ConsentVerdict(**base)
+
+
+async def test_a_turn_for_this_pods_owner_is_allowed(enabled, monkeypatch):
+    monkeypatch.setenv("HUSSH_ID", "hushh-mine")
+
+    async def _v(_token, expected_scope=""):
+        return _verdict()
+
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(), consent_token="t", verifier=_v,
+        stream_fn=_stream([_Event("token", "hi")]),
+    )
+    assert result["text"] == "hi"
+
+
+async def test_another_owners_valid_token_is_refused(enabled, monkeypatch):
+    """The finding this closes: valid != yours."""
+    monkeypatch.setenv("HUSSH_ID", "hushh-mine")
+    ran = {"yes": False}
+
+    async def _v(_token, expected_scope=""):
+        return _verdict(hushh_id="hushh-someone-else")
+
+    async def _run(**_kwargs):
+        ran["yes"] = True
+        yield _Event("token", "should never happen")
+
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.run_pod_turn(
+            payload=_payload(), consent_token="t", verifier=_v, stream_fn=_run
+        )
+    assert exc.value.status_code == 403
+    assert ran["yes"] is False
+    # Same shape as any denial -- a caller must not learn it was somebody else's.
+    assert "not valid here" in str(exc.value.detail)
+
+
+async def test_an_unresolvable_owner_binding_is_refused(enabled, monkeypatch):
+    """Empty must never read as "any pod will do"."""
+    monkeypatch.setenv("HUSSH_ID", "hushh-mine")
+
+    async def _v(_token, expected_scope=""):
+        return _verdict(hushh_id="")
+
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.run_pod_turn(payload=_payload(), consent_token="t", verifier=_v)
+    assert exc.value.status_code == 403
+
+
+async def test_a_pod_with_no_identity_of_its_own_refuses(enabled, monkeypatch):
+    monkeypatch.delenv("HUSSH_ID", raising=False)
+
+    async def _v(_token, expected_scope=""):
+        return _verdict()
+
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.run_pod_turn(payload=_payload(), consent_token="t", verifier=_v)
+    assert exc.value.status_code == 403
+
+
+def test_the_credential_bound_matches_the_hubs():
+    """A tighter cap here would 422 credentials the hub accepts, surfacing through
+    the relay as an opaque refusal rather than an actionable message."""
+    from api.routes.kai.agent_chat import AgentChatStreamRequest
+
+    pod_max = PodTurnRequest.model_fields["runtime_credential"].metadata
+    hub_max = AgentChatStreamRequest.model_fields["runtime_credential"].metadata
+    assert str(pod_max) == str(hub_max)

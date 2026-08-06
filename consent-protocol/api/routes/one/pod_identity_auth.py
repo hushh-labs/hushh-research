@@ -30,6 +30,7 @@ from starlette.concurrency import run_in_threadpool
 
 from hushh_mcp.runtime_settings import (
     pod_hub_allowed_service_account,
+    pod_hub_expected_audience,
     pod_hub_identity_auth_enabled,
 )
 from hushh_mcp.services.pod_hub_client import POD_IDENTITY_HEADER
@@ -59,8 +60,21 @@ async def verify_pod_identity(request: Request, authorization: Optional[str]) ->
         from google.auth.transport import requests as google_requests  # noqa: PLC0415
         from google.oauth2 import id_token as google_id_token  # noqa: PLC0415
 
+        # AUDIENCE IS VERIFIED. Without it, `verify_oauth2_token` checks only that
+        # Google signed the token -- so an ID token the pod SA minted for ANY other
+        # service would be accepted here. A pod mints its hub token audience-bound
+        # (`pod_hub_client._identity_token` passes `audience=self._base`) precisely
+        # so a token cannot be replayed elsewhere; not checking `aud` on this side
+        # threw that property away and left the whole check resting on the email.
+        audience = pod_hub_expected_audience()
+        if not audience:
+            logger.warning("pod_hub_auth.no_expected_audience configured; refusing")
+            return None
         claims = await run_in_threadpool(
-            google_id_token.verify_oauth2_token, token, google_requests.Request()
+            google_id_token.verify_oauth2_token,
+            token,
+            google_requests.Request(),
+            audience,
         )
     except Exception as exc:  # noqa: BLE001 - an unverifiable token is simply not a pod
         logger.info("pod_hub_auth.verify_failed %s", type(exc).__name__)

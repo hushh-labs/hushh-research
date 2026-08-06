@@ -46,6 +46,7 @@ same contract, free to drift.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Header, HTTPException
@@ -64,8 +65,11 @@ class PodTurnRequest(BaseModel):
     timezone: Optional[str] = Field(default=None, max_length=64)
     # The OWNER'S model credential, supplied per turn. See _resolve_runtime for why
     # a pod uses the person's own key rather than a fleet identity.
+    # 12000 matches the hub's own bound (api/routes/kai/agent_chat.py). A tighter
+    # cap here would 422 credentials the hub accepts, and the relay would surface
+    # that as an opaque refusal rather than "your key is too long".
     runtime_credential: Optional[str] = Field(
-        default=None, alias="runtimeCredential", max_length=4096
+        default=None, alias="runtimeCredential", max_length=12000
     )
     runtime_credential_transport: str = Field(
         default="developer_api", alias="runtimeCredentialTransport", max_length=32
@@ -116,6 +120,27 @@ async def _validate_consent(consent_token: str, *, verifier: Any = None) -> dict
     if not verdict.valid:
         logger.info("pod_turn.consent_refused")
         raise HTTPException(status_code=403, detail="consent token is not valid here")
+
+    # WHOSE turn is this? A valid token proves someone consented -- it does not
+    # prove they are THIS pod's owner. Without this check a token belonging to
+    # person A, presented to person B's pod, would drive B's pod on A's behalf:
+    # B's memory, B's holdings, B's model spend. "Valid" and "yours" are different
+    # questions and only the second one makes a per-user pod per-user.
+    #
+    # An unresolvable binding is refused too. An unknown owner is precisely the
+    # case where serving anyway would be the bug, so empty must never read as
+    # "any pod will do".
+    mine = (os.getenv("HUSSH_ID") or "").strip()
+    if not mine or not verdict.hushh_id or verdict.hushh_id != mine:
+        logger.warning(
+            "pod_turn.owner_mismatch pod_has_identity=%s token_bound=%s",
+            bool(mine),
+            bool(verdict.hushh_id),
+        )
+        # Same 403 shape as a denial: a caller must not learn from this response
+        # whether the token was invalid or merely somebody else's.
+        raise HTTPException(status_code=403, detail="consent token is not valid here")
+
     return {"user_id": verdict.user_id, "scope": verdict.scope}
 
 

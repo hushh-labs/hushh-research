@@ -236,3 +236,93 @@ def test_the_client_path_constant_matches_the_hub_route():
 
     paths = {getattr(r, "path", "") for r in one_router.routes}
     assert pod_consent_client._VERIFY_PATH in paths
+
+
+# -- the audience claim --------------------------------------------------------
+
+
+async def test_the_audience_is_verified_not_merely_the_signature(monkeypatch):
+    """Without an audience, verify_oauth2_token checks only that Google signed it —
+    so a token the pod SA minted for ANY other service would be accepted, and the
+    whole decision would rest on the email claim alone. A pod mints its hub token
+    audience-bound precisely so it cannot be replayed elsewhere."""
+    from api.routes.one import pod_identity_auth
+
+    seen: dict = {}
+
+    class _FakeIdToken:
+        @staticmethod
+        def verify_oauth2_token(token, request, audience=None):
+            seen["audience"] = audience
+            return {"email": "pod@proj.iam.gserviceaccount.com", "email_verified": True}
+
+    monkeypatch.setattr(pod_identity_auth, "pod_hub_identity_auth_enabled", lambda: True)
+    monkeypatch.setattr(
+        pod_identity_auth, "pod_hub_allowed_service_account",
+        lambda: "pod@proj.iam.gserviceaccount.com",
+    )
+    monkeypatch.setattr(
+        pod_identity_auth, "pod_hub_expected_audience", lambda: "https://hub.example"
+    )
+    # `from google.oauth2 import id_token` is an ATTRIBUTE lookup on the package,
+    # so patching sys.modules would not intercept it.
+    import google.oauth2
+
+    monkeypatch.setattr(google.oauth2, "id_token", _FakeIdToken, raising=False)
+
+    req = _Request()
+    req.headers = {"X-Hushh-Pod-Id": "hushh-abc"}
+    result = await pod_identity_auth.verify_pod_identity(req, "Bearer tok")
+
+    assert result == "hushh-abc"
+    assert seen["audience"] == "https://hub.example"
+
+
+async def test_no_configured_audience_refuses_rather_than_guessing(monkeypatch):
+    """Guessing an audience is the same as not checking one."""
+    from api.routes.one import pod_identity_auth
+
+    monkeypatch.setattr(pod_identity_auth, "pod_hub_identity_auth_enabled", lambda: True)
+    monkeypatch.setattr(
+        pod_identity_auth, "pod_hub_allowed_service_account",
+        lambda: "pod@proj.iam.gserviceaccount.com",
+    )
+    monkeypatch.setattr(pod_identity_auth, "pod_hub_expected_audience", lambda: "")
+
+    req = _Request()
+    req.headers = {"X-Hushh-Pod-Id": "hushh-abc"}
+    assert await pod_identity_auth.verify_pod_identity(req, "Bearer tok") is None
+
+
+async def test_the_hub_returns_the_owner_binding(hub_enabled):
+    """The pod cannot resolve user -> HusshID; only the hub can, so only the hub
+    can supply the binding the pod enforces."""
+
+    class _Repo:
+        async def get(self, _user_id):
+            return {"hushh_id": "hushh-owner-1"}
+
+    def _validator(_token, expected_scope=None):
+        return True, "ok", _Parsed()
+
+    result = await verify_consent_for_pod(
+        _Request(), "Bearer t", PodConsentVerifyRequest(token="tok"),
+        validator=_validator, registry=_Repo(),
+    )
+    assert result["hushhId"] == "hushh-owner-1"
+
+
+async def test_an_unresolvable_binding_returns_empty_not_a_guess(hub_enabled):
+    class _Broken:
+        async def get(self, _user_id):
+            raise RuntimeError("registry down")
+
+    def _validator(_token, expected_scope=None):
+        return True, "ok", _Parsed()
+
+    result = await verify_consent_for_pod(
+        _Request(), "Bearer t", PodConsentVerifyRequest(token="tok"),
+        validator=_validator, registry=_Broken(),
+    )
+    # Empty, and the POD refuses on empty. Never a fabricated binding.
+    assert result["hushhId"] == ""
