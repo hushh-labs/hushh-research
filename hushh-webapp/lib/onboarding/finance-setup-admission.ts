@@ -20,14 +20,16 @@ export function shouldShowFinanceSetupWizard(params: {
   );
 }
 
-/** A resolved root gate may start Finance setup, but cannot replace another active setup goal. */
+/** A resolved root gate may start Finance setup, and explicit Finance navigation always activates. */
 export function canActivateFinanceSetup(
   journey: Pick<
     PreVaultUserState,
     "onboardingActiveCapability" | "onboardingPhase"
   >,
+  isExplicitFinanceSetupRoute: boolean = true,
 ): boolean {
   return (
+    isExplicitFinanceSetupRoute ||
     journey.onboardingActiveCapability === null ||
     journey.onboardingActiveCapability === "finance" ||
     journey.onboardingPhase === "root_completion"

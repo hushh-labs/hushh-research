@@ -10,14 +10,12 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
-import { VaultStatusInline } from "@/components/app-ui/vault-status-inline";
 import {
   SetupCapabilityLoading,
   SetupCapabilityTerminalFooter,
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
-import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { buildConnectedSystemRoute, ROUTES } from "@/lib/navigation/routes";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -28,7 +26,6 @@ export function ConnectedSystemsOnboardingSetupClient() {
   const params = useSearchParams();
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
-  const [showUnlock, setShowUnlock] = useState(false);
   const [ready, setReady] = useState(false);
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "connected-systems",
@@ -69,11 +66,12 @@ export function ConnectedSystemsOnboardingSetupClient() {
           />
         </AppPageHeaderRegion>
         <AppPageContentRegion>
-          <VaultStatusInline className="mb-3 px-1" />
           <ConnectedSystemsPanel
             cacheUserId={user?.uid}
             vaultOwnerToken={vaultOwnerToken}
-            onRequestUnlock={() => setShowUnlock(true)}
+            onRequestUnlock={() => {
+              // During setup mode, vault unlocking is deferred until after onboarding.
+            }}
             mode={systemId ? "detail" : "list"}
             systemId={systemId}
             setupRouteBase={ROUTES.ONE_SETUP_CONNECTED_SYSTEMS}
@@ -86,17 +84,6 @@ export function ConnectedSystemsOnboardingSetupClient() {
             capabilityId="connected-systems"
             isOperationallyReady={ready}
             coordinator={coordinator}
-          />
-        ) : null}
-        {user ? (
-          <VaultUnlockDialog
-            user={user}
-            open={showUnlock}
-            onOpenChange={setShowUnlock}
-            title="Set up your private vault"
-            description="Set up or open your private vault to inspect CRM records and approve CRM actions."
-            allowVaultCreation={false}
-            onSuccess={() => setShowUnlock(false)}
           />
         ) : null}
       </AppPageShell>

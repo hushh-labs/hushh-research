@@ -10,6 +10,7 @@
 
 // Core utilities
 export { cn } from "./cn";
+export { MorphyTextarea } from "./textarea";
 
 // Ripple physics
 export { useRipple, Ripple, rippleKeyframes } from "./ripple";
