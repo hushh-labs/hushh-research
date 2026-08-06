@@ -188,6 +188,31 @@ def test_pod_dockerfile_exists(pod_step: dict):
     assert (REPO_ROOT / "consent-protocol" / "Dockerfile.pod").is_file()
 
 
+def test_the_pod_runs_exactly_one_worker():
+    """The single-writer invariant, enforced where it is actually decided.
+
+    `GcpBackend` pins maxScale=1 and calls single-writer a CORRECTNESS constraint,
+    "not a tuning knob" -- then the image ran `-w 2` one process layer below, where
+    nothing checked. gunicorn does not preload by default, so each worker imported
+    the app independently, ran the startup hook independently, and got its own
+    module-level `_STATE` in `pod_self_registration`.
+
+    A pod generates an ephemeral X25519 keypair at boot, so that meant TWO
+    IDENTITIES INSIDE ONE POD, with `/pod/public-key` returning whichever worker
+    answered. Anything the hub sealed to that key had a coin-flip chance of being
+    unreadable by the worker serving the next turn.
+
+    Asserted against the Dockerfile rather than against a constant this file also
+    owns, because a test that restates the value it guards agrees with the bug for
+    exactly as long as both are wrong together.
+    """
+    dockerfile = (REPO_ROOT / "consent-protocol" / "Dockerfile.pod").read_text(encoding="utf-8")
+    command = next(line for line in dockerfile.splitlines() if line.startswith("CMD"))
+
+    assert " -w 1 " in command, f"pod must run exactly one worker; got: {command}"
+    assert " -w 2 " not in command
+
+
 # --- the hub's own readiness must not lie either -------------------------------------
 
 

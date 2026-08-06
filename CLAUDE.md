@@ -188,6 +188,9 @@ cite `AGENTS.md` rather than copying its doctrine into a skill prompt.
 
 ## Where to look
 
+- **Private Agent architecture — the single source of truth, inherited by pointer and
+  never restated** → `docs/reference/architecture/private-agent-north-star.md`. Where an
+  implementation diverges from it, the implementation moves.
 - Operating kernel → `AGENTS.md`
 - Route any task → **codex-bridge** skill (reads `.codex/` live)
 - **The bypass lane** (who may land directly on `main` and edit protected pipeline paths,

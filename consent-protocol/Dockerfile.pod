@@ -39,4 +39,25 @@ RUN mkdir -p /app/.gunicorn && chown 10001:10001 /app/.gunicorn
 USER 10001
 EXPOSE 8080
 # Slim pod entrypoint: agent + storage + enforcement only (no consent control plane).
-CMD ["sh", "-c", "exec gunicorn pod_server:app -w 2 -k uvicorn.workers.UvicornWorker --timeout 120 -b 0.0.0.0:${PORT:-8080}"]
+#
+# ONE worker, for CORRECTNESS, not for cost.
+#
+# `GcpBackend` pins maxScale=1 and says why in its own comment: the pod's storage
+# engine assumes a single writer per pod (SQLite `BEGIN IMMEDIATE` over one file,
+# with the sealed commit log as the system of record). That invariant was enforced
+# at the Cloud Run layer and then violated one process layer down -- this line ran
+# `-w 2`, and gunicorn does not preload by default, so each worker imported the app
+# independently, ran `@app.on_event("startup")` independently, and got its OWN
+# module-level `_STATE` in `pod_self_registration`.
+#
+# The consequence is not a performance nuance. A pod generates an ephemeral X25519
+# keypair at boot, so two workers meant TWO IDENTITIES INSIDE ONE POD, and
+# `/pod/public-key` returned whichever worker happened to answer the hub's
+# collection call. Anything the hub then sealed to that key had a coin-flip chance
+# of being unreadable by the worker that served the next turn. Two heartbeat loops
+# ran for the same reason.
+#
+# `--preload` would share the parent's imports but not fix it: post-fork state
+# still diverges, and the storage engine would still have two writers. One worker
+# is the honest expression of the invariant the rest of the system already assumes.
+CMD ["sh", "-c", "exec gunicorn pod_server:app -w 1 -k uvicorn.workers.UvicornWorker --timeout 120 -b 0.0.0.0:${PORT:-8080}"]
