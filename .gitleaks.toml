@@ -47,4 +47,21 @@ regexes = [
   # file; this exempts one exact string and nothing else, so an actual Ed25519
   # key assigned to that variable still trips the rule.
   '''^CONSENT_ED25519_PRIVATE_KEY$''',
+  # A Pydantic LENGTH BOUND, not a secret. `generic-api-key` treats a field alias
+  # containing "Credential" as a key name and then captures the NEXT token as its
+  # value, so
+  #
+  #     alias="runtimeCredential", max_length=12000
+  #
+  # is read as `runtimeCredential = 12000`. Four findings in api/routes/one/
+  # pod_turn.py and pod_relay.py are all this shape; the captured "secret" is
+  # literally `max_length=12000` at entropy 3.70.
+  #
+  # Anchored, and matched against the SECRET rather than the file, following the
+  # CONSENT_ED25519_PRIVATE_KEY entry above. `max_length=<digits>` cannot express
+  # a credential -- there is no assignment of a key that produces this exact
+  # string -- so a real credential landing on the very next line of those same
+  # files still trips the rule with a different secret. A path allowlist would
+  # blind the scanner to that; this does not.
+  '''^max_length=[0-9]+$''',
 ]
