@@ -43,6 +43,18 @@ const AGENCY = {
   products: ["Auto", "Commercial", "Farm", "Home"],
   agencyType: "Standard Independent",
   tier: null,
+  hours: {
+    days: [
+      { day: "MONDAY", intervals: [{ start: 900, end: 1700 }] },
+      { day: "TUESDAY", intervals: [{ start: 900, end: 1700 }] },
+      { day: "WEDNESDAY", intervals: [{ start: 900, end: 1700 }] },
+      { day: "THURSDAY", intervals: [{ start: 900, end: 1700 }] },
+      { day: "FRIDAY", intervals: [{ start: 900, end: 1730 }] },
+      { day: "SATURDAY", intervals: [] },
+      { day: "SUNDAY", intervals: [] },
+    ],
+    note: null,
+  },
   distanceMiles: 0.22,
   address: {
     line1: "10829 NE 68th St",
@@ -444,6 +456,30 @@ describe("InsuranceAgentsNearby", () => {
     );
     // The old cursor points into a list that no longer exists.
     expect(screen.queryByText("Show more")).toBeNull();
+  });
+
+  it("shows posted hours, collapsed, and never claims 'open now'", async () => {
+    // The payload carries bare HHMM with no timezone and this app is read from
+    // India against US agencies, so an open/closed verdict would be wrong by
+    // half a day — and would send someone to call a closed office.
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 47.6769, longitude: -122.206 },
+      error: null,
+    };
+    render(<InsuranceAgentsNearby getIdToken={getIdToken} />);
+    await waitFor(() =>
+      expect(screen.getByText("B G I Agency Network Inc.")).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText("B G I Agency Network Inc."));
+
+    // Mon-Thu share an interval and collapse; Friday differs and stands alone.
+    await waitFor(() =>
+      expect(screen.getByText("Mon–Thu 9am–5pm · Fri 9am–5:30pm")).toBeTruthy(),
+    );
+    expect(screen.queryByText(/open now/i)).toBeNull();
+    expect(screen.queryByText(/closed now/i)).toBeNull();
   });
 
   it("opens one agency without a second request", async () => {
