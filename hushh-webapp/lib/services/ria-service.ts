@@ -195,6 +195,113 @@ export interface RiaNameVerificationResult {
   provider: string;
 }
 
+export type RiaClaimOutcome =
+  | "single_person"
+  | "few_candidates"
+  | "large_firm"
+  | "ambiguous_firm"
+  | "no_match"
+  | "invalid_phone";
+
+export interface RiaClaimFirm {
+  crd: number | null;
+  name: string | null;
+  dba?: string | null;
+  sec_number?: string | null;
+  registration_status?: string | null;
+  city?: string | null;
+  state?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  advisory_employees?: number | null;
+  aum?: number | null;
+  num_accounts?: number | null;
+  report_url?: string | null;
+}
+
+export interface RiaClaimCandidate {
+  individual_crd: number | null;
+  name: string | null;
+  firm_crd?: number | null;
+  firm_name?: string | null;
+  title?: string | null;
+  branch_city?: string | null;
+  branch_state?: string | null;
+  has_disclosures?: boolean | null;
+  profile_url?: string | null;
+  reasons?: string[];
+  claimable?: boolean;
+}
+
+export interface RiaClaimLookupResult {
+  outcome: RiaClaimOutcome | (string & {}) | null;
+  next_step?: string | null;
+  person_next_step?: string | null;
+  confidence?: string | null;
+  phone?: string | null;
+  phone_masked?: string | null;
+  firm: RiaClaimFirm | null;
+  firms: RiaClaimFirm[];
+  candidates: RiaClaimCandidate[];
+  current_adviser_count?: number | null;
+  roster_error?: string | null;
+}
+
+export interface RiaClaimOtpStart {
+  eligible: boolean;
+  delivery: string;
+  verification_id?: string;
+  code_length?: number;
+  reason?: string;
+  phone_masked?: string;
+}
+
+export interface RiaClaimRosterEntry {
+  individual_crd: number | null;
+  name: string | null;
+  branch_city?: string | null;
+  branch_state?: string | null;
+  has_disclosures?: boolean | null;
+  profile_url?: string | null;
+}
+
+export interface RiaClaimVerifyResult {
+  claim_ticket: string;
+  claim_type?: string | null;
+  provisional: boolean;
+  profile_verified: boolean;
+  verification_level?: string | null;
+  satisfied?: string[];
+  missing?: string[];
+  explanation?: string | null;
+  roster_unlocked: boolean;
+  roster: RiaClaimRosterEntry[] | null;
+  current_adviser_count?: number | null;
+  firm?: RiaClaimFirm | null;
+  proof_channel?: string;
+}
+
+export interface RiaClaimProfileSummary {
+  ria_profile_id: string;
+  user_id: string;
+  display_name: string;
+  legal_name?: string;
+  crd_number?: string;
+  verification_status: string;
+  claim_type?: string;
+  firm_name?: string | null;
+  firm_id?: string | null;
+}
+
+export interface RiaClaimCompleteResult {
+  status: string;
+  claim_type: string;
+  verification_level: string;
+  profile_verified: boolean;
+  provisional: boolean;
+  profile: RiaClaimProfileSummary;
+}
+
 export interface RiaLicenseVerificationResult {
   status: "found" | "not_found" | "pending" | "error";
   advisor_name?: string | null;
@@ -668,7 +775,7 @@ interface CachedReadOptions {
 }
 
 interface ErrorPayload {
-  detail?: string;
+  detail?: string | unknown[] | { code?: string; message?: string };
   error?: string;
   code?: string;
   hint?: string;
@@ -964,13 +1071,30 @@ async function toJsonOrThrow<T>(response: Response): Promise<T> {
           );
         return messages[0] || null;
       }
+      // Object detail {code, message} — how the claim routes report typed
+      // failures (CLAIM_INVALID_CODE, CLAIM_TICKET_INVALID, …).
+      if (payload.detail && typeof payload.detail === "object") {
+        const obj = payload.detail as { message?: unknown };
+        if (typeof obj.message === "string" && obj.message.trim()) {
+          return obj.message;
+        }
+      }
       return null;
     })();
+    const detailObject =
+      payload.detail && typeof payload.detail === "object" && !Array.isArray(payload.detail)
+        ? (payload.detail as { code?: unknown })
+        : null;
     const message =
       detailMessage ||
       (typeof payload.error === "string" && payload.error) ||
       `Request failed: ${response.status}`;
-    const code = typeof payload.code === "string" ? payload.code : undefined;
+    const code =
+      typeof payload.code === "string"
+        ? payload.code
+        : detailObject && typeof detailObject.code === "string"
+          ? detailObject.code
+          : undefined;
     const hint = typeof payload.hint === "string" ? payload.hint : undefined;
     throw new RiaApiError(message, response.status, code, hint);
   }
@@ -1475,6 +1599,70 @@ export class RiaService {
       signal: options?.signal,
     });
     return toJsonOrThrow<RiaNameVerificationResult>(response);
+  }
+
+  static async claimLookup(
+    idToken: string,
+    payload: { phone: string },
+    options?: { signal?: AbortSignal },
+  ): Promise<RiaClaimLookupResult> {
+    const response = await authFetch("/api/ria/claim/lookup", {
+      method: "POST",
+      idToken,
+      body: payload,
+      signal: options?.signal,
+    });
+    return toJsonOrThrow<RiaClaimLookupResult>(response);
+  }
+
+  static async claimOtpStart(
+    idToken: string,
+    payload: { phone: string },
+  ): Promise<RiaClaimOtpStart> {
+    const response = await authFetch("/api/ria/claim/otp/start", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    return toJsonOrThrow<RiaClaimOtpStart>(response);
+  }
+
+  static async claimVerify(
+    idToken: string,
+    payload: {
+      phone: string;
+      claim_type: "individual" | "firm";
+      firm_crd: number;
+      individual_crd?: number | null;
+      verification_id?: string;
+      verification_code?: string;
+      phone_id_token?: string;
+    },
+  ): Promise<RiaClaimVerifyResult> {
+    const response = await authFetch("/api/ria/claim/verify", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    return toJsonOrThrow<RiaClaimVerifyResult>(response);
+  }
+
+  static async claimComplete(
+    idToken: string,
+    payload: {
+      phone: string;
+      claim_ticket: string;
+      claim_type: "individual" | "firm";
+      firm_crd: number;
+      individual_crd?: number | null;
+    },
+  ): Promise<RiaClaimCompleteResult> {
+    const response = await authFetch("/api/ria/claim/complete", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    return toJsonOrThrow<RiaClaimCompleteResult>(response);
   }
 
   static async verifyOnboardingLicense(

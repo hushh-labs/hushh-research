@@ -26,6 +26,7 @@ tests/test_pkm_upgrade_service.py
 tests/test_vault_keys_metadata.py
 tests/test_one_location_routes.py
 tests/test_adk_a2a_compliance_script.py
+tests/test_ria_claim_flow.py
 tests/test_ria_iam_service_architecture.py
 tests/test_kai_optimize_realtime_contract.py
 tests/test_portfolio_stream_quality_rules.py

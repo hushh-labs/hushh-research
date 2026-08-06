@@ -1,0 +1,99 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "ria_claim",
+  "surface_title": "RIA Claim Profile",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "ria"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.ria_claim",
+      "label": "Claim RIA Profile",
+      "meaning": "Navigates to the claim-by-phone flow where an adviser claims their SEC profile with their office number.",
+      "aliases": [
+        "claim my profile",
+        "claim ria profile",
+        "claim advisor profile",
+        "claim my firm"
+      ],
+      "search_keywords": [
+        "claim",
+        "ria",
+        "advisor",
+        "firm",
+        "phone",
+        "sec"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/claim"
+        ],
+        "screens": [
+          "ria_claim"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA workspace must be available or in setup for this account."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": true
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/claim"
+      },
+      "control_ids": [
+        "ria-claim-phone-input",
+        "ria-claim-lookup"
+      ],
+      "state_exposure": [
+        "current claim step",
+        "matched firm and adviser candidates"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/claim/page.tsx"
+      ],
+      "workflow": {
+        "workflow_id": "route.ria_claim.entry",
+        "confirmation_required": true,
+        "blocked_guidance": "Sign in before claiming an advisor profile.",
+        "steps": [
+          {
+            "type": "persona_switch",
+            "target_persona": "ria",
+            "confirmation_required": true,
+            "settlement_target": {
+              "persona": "ria"
+            },
+            "failure_behavior": "stop"
+          },
+          {
+            "type": "route_switch",
+            "href": "/ria/claim",
+            "settlement_target": {
+              "route": "/ria/claim",
+              "screen": "ria_claim"
+            },
+            "failure_behavior": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}
