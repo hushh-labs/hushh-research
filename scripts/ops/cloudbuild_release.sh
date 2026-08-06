@@ -140,8 +140,26 @@ if ! git merge-base --is-ancestor "$DEPLOY_SHA" origin/main; then
 fi
 
 if [[ "$SKIP_CI_CHECK" -eq 1 ]]; then
-  warn "Skipping the green-check requirement. Only correct while GitHub Actions is unavailable."
-  warn "Run deploy/ci.cloudbuild.yaml against this SHA first so the code still gets a verdict."
+  # --skip-ci-check waives the GitHub check, not verification itself. A local
+  # gate report for this exact SHA has to stand in its place, otherwise the flag
+  # would just be a way to deploy unverified code during an outage.
+  GATE_REPORT="${HUSHH_GATE_REPORT_DIR:-${TMPDIR:-/tmp}}/hushh-ci-gate-${DEPLOY_SHA}.json"
+  if [[ ! -f "$GATE_REPORT" ]]; then
+    die "No local gate report for ${DEPLOY_SHA}.
+--skip-ci-check replaces the GitHub check with a local run; it does not remove the
+requirement to verify. Produce one first:
+
+  git checkout ${DEPLOY_SHA} && scripts/ci/local-release-gate.sh
+
+Expected report at: ${GATE_REPORT}"
+  fi
+  GATE_VERDICT="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["verdict"], d["complete"])' "$GATE_REPORT")"
+  if [[ "$GATE_VERDICT" != "passed True" ]]; then
+    die "Local gate report for ${DEPLOY_SHA} is '${GATE_VERDICT}' (need 'passed True').
+A --fast or single-stage run cannot authorize a deploy. Re-run the full gate:
+  scripts/ci/local-release-gate.sh"
+  fi
+  warn "GitHub check waived; standing on the local gate report at ${GATE_REPORT}."
 else
   REQUIRED_BRANCH=main REQUIRE_CI_SUCCESS=1 \
   REQUIRED_CHECK_NAME="Main Post-Merge Smoke Gate" \
@@ -186,8 +204,8 @@ describe_service() {
 }
 PRE_BACKEND_REVISION="$(describe_service "$BACKEND_SERVICE" 'status.traffic[0].revisionName')"
 PRE_FRONTEND_REVISION="$(describe_service "$FRONTEND_SERVICE" 'status.traffic[0].revisionName')"
-BACKEND_URL="$(describe_service "$BACKEND_SERVICE" 'status.url')"
-FRONTEND_URL="$(describe_service "$FRONTEND_SERVICE" 'status.url')"
+BACKEND_SERVICE_URL="$(describe_service "$BACKEND_SERVICE" 'status.url')"
+FRONTEND_SERVICE_URL="$(describe_service "$FRONTEND_SERVICE" 'status.url')"
 
 revision_sha() {
   [[ -z "$1" ]] && return 0
@@ -449,12 +467,12 @@ if ! "$PROTOCOL_PYTHON" scripts/ops/verify-env-secrets-parity.py "${PARITY_ARGS[
 fi
 
 log "Running post-deploy HTTP health gates"
-if [[ "$DEPLOY_BACKEND" == "true" && -n "$BACKEND_URL" ]]; then
-  bash scripts/ci/cloudrun-http-health.sh "$BACKEND_URL" "/health" 5 30 5 200 \
+if [[ "$DEPLOY_BACKEND" == "true" && -n "$BACKEND_SERVICE_URL" ]]; then
+  bash scripts/ci/cloudrun-http-health.sh "$BACKEND_SERVICE_URL" "/health" 5 30 5 200 \
     || { warn "Backend health gate failed"; BACKEND_FAILED=1; RELEASE_FAILED=1; }
 fi
-if [[ "$DEPLOY_FRONTEND" == "true" && -n "$FRONTEND_URL" ]]; then
-  bash scripts/ci/cloudrun-http-health.sh "$FRONTEND_URL" "/" 3 30 5 200 \
+if [[ "$DEPLOY_FRONTEND" == "true" && -n "$FRONTEND_SERVICE_URL" ]]; then
+  bash scripts/ci/cloudrun-http-health.sh "$FRONTEND_SERVICE_URL" "/" 3 30 5 200 \
     || { warn "Frontend health gate failed"; FRONTEND_FAILED=1; RELEASE_FAILED=1; }
 fi
 
