@@ -224,7 +224,31 @@ async def test_a_turn_runs_on_the_owners_key(enabled, monkeypatch):
     )
 
     assert seen["runtime_credential"] == "owner-key"
-    assert result["runtimeMode"] == "gemini_byok"
+    assert result["runtimeMode"] == "byok"
+
+
+def test_the_runtime_mode_is_one_the_model_builder_actually_accepts():
+    """The two ends of this handoff must speak one vocabulary.
+
+    This route returned `"gemini_byok"` while `text_runtime._runtime_model`
+    branches on `"byok"`, so a pod turn carrying a credential matched neither BYOK
+    branch and raised. The BYOK pod path failed on every turn, and no test saw it
+    because the route test above injects a stub `stream_fn` — it asserts the
+    string this function returns, never what the next function does with it.
+
+    So this asserts the AGREEMENT rather than either value: whatever
+    `_resolve_runtime_mode` produces must be a member of the canonical mode set
+    the builder dispatches on. Restating the expected literal here would just be a
+    third copy to drift.
+    """
+    from typing import get_args
+
+    from hushh_mcp.services.agent_chat_service import AgentRuntimeCredentialMode
+
+    accepted = set(get_args(AgentRuntimeCredentialMode))
+
+    byok = pod_turn._resolve_runtime_mode(_payload())
+    assert byok in accepted, f"{byok!r} is not a mode the model builder can dispatch on"
 
 
 async def test_no_key_and_no_managed_fallback_is_a_clear_400(enabled, monkeypatch):

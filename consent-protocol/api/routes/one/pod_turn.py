@@ -240,7 +240,18 @@ def _resolve_runtime_mode(payload: PodTurnRequest) -> str:
     reached for a fleet identity would be spending money nobody authorised.
     """
     if str(payload.runtime_credential or "").strip():
-        return "gemini_byok"
+        # `byok`, matching AgentRuntimeCredentialMode — NOT "gemini_byok".
+        #
+        # This returned "gemini_byok" and `text_runtime._runtime_model` branches on
+        # "byok", so a pod turn carrying a credential matched neither BYOK branch,
+        # fell through to `if credential:` and raised "Managed Vertex cannot be
+        # constructed from an API key". The BYOK pod path failed on every turn.
+        #
+        # It survived because the route test asserts this STRING while injecting a
+        # stub `stream_fn`, so the real runner was never constructed. A test that
+        # pins the value a function returns, rather than what the next function does
+        # with it, passes for exactly as long as both ends are wrong together.
+        return "byok"
     from hushh_mcp.runtime_settings import pod_managed_model_enabled  # noqa: PLC0415
 
     if pod_managed_model_enabled():
