@@ -103,6 +103,22 @@ function FirmCard({ firm, adviserCount }: { firm: RiaClaimFirm; adviserCount?: n
   );
 }
 
+function TargetRadio({ selected }: { selected?: boolean }) {
+  return (
+    <div
+      className="flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors"
+      style={{
+        borderColor: selected ? "var(--app-accent)" : "var(--muted-foreground)",
+        opacity: selected ? 1 : 0.4,
+      }}
+    >
+      {selected ? (
+        <div className="h-2.5 w-2.5 rounded-full bg-[color:var(--app-accent)]" />
+      ) : null}
+    </div>
+  );
+}
+
 function CodeCells({
   length,
   value,
@@ -169,6 +185,13 @@ export default function RiaClaimPage() {
   const [selectedFirm, setSelectedFirm] = useState<RiaClaimFirm | null>(null);
   const [claimType, setClaimType] = useState<ClaimType>("individual");
   const [selectedCandidateCrd, setSelectedCandidateCrd] = useState<number | null>(null);
+  // The one thing the user picks on the found screen: which listed entry is
+  // theirs — an adviser row, the "I'm an adviser here" row (names withheld
+  // until verified), or the firm itself.
+  const [selectedTarget, setSelectedTarget] = useState<{
+    type: ClaimType;
+    individualCrd: number | null;
+  } | null>(null);
 
   const [verificationId, setVerificationId] = useState<string | null>(null);
   const [codeLength, setCodeLength] = useState(5);
@@ -219,6 +242,11 @@ export default function RiaClaimPage() {
       const soleCandidate =
         result.candidates.length === 1 ? result.candidates[0] : undefined;
       setSelectedCandidateCrd(soleCandidate?.individual_crd ?? null);
+      setSelectedTarget(
+        soleCandidate?.individual_crd
+          ? { type: "individual", individualCrd: soleCandidate.individual_crd }
+          : null,
+      );
       setStep("found");
     } catch (err) {
       setError(describeError(err));
@@ -354,6 +382,7 @@ export default function RiaClaimPage() {
     setLookup(null);
     setSelectedFirm(null);
     setSelectedCandidateCrd(null);
+    setSelectedTarget(null);
     setVerifyResult(null);
     setVerificationId(null);
     setOtpUnavailable(false);
@@ -384,7 +413,7 @@ export default function RiaClaimPage() {
         if (outcome === "single_person") {
           return { title: "Is this you?", description: null };
         }
-        return { title: "We found your firm", description: null };
+        return { title: "Listed at this number", description: "Tap what's yours." };
       case "code":
         return {
           title: "Verify the number",
@@ -526,44 +555,62 @@ export default function RiaClaimPage() {
             <div className="space-y-5">
               <FirmCard firm={firm} adviserCount={adviserCount} />
 
-              {candidates.length > 0 ? (
-                <SettingsGroup embedded separatorInset>
-                  {candidates.map((candidate) => {
-                    const selected = selectedCandidateCrd === candidate.individual_crd;
-                    return (
-                      <SettingsRow
-                        key={String(candidate.individual_crd)}
-                        icon={UserRound}
-                        iconTone={selected ? "blue" : "gray"}
-                        title={titleCase(candidate.name)}
-                        description={[titleCase(candidate.branch_city), candidate.branch_state]
-                          .filter(Boolean)
-                          .join(", ")}
-                        onClick={() =>
-                          setSelectedCandidateCrd(candidate.individual_crd ?? null)
-                        }
-                        trailing={
-                          <div
-                            className="flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors"
-                            style={{
-                              borderColor: selected
-                                ? "var(--app-accent)"
-                                : "var(--muted-foreground)",
-                              opacity: selected ? 1 : 0.4,
-                            }}
-                          >
-                            {selected ? (
-                              <div className="h-2.5 w-2.5 rounded-full bg-[color:var(--app-accent)]" />
-                            ) : null}
-                          </div>
-                        }
-                      />
-                    );
-                  })}
-                </SettingsGroup>
-              ) : null}
+              {/* Everything the SEC lists at this number, each row claimable:
+                  the advisers, then the firm itself. The user finds themselves
+                  in the list — no individual-vs-firm buttons to decode. */}
+              <SettingsGroup embedded separatorInset>
+                {candidates.map((candidate) => {
+                  const selected =
+                    selectedTarget?.type === "individual" &&
+                    selectedTarget.individualCrd === candidate.individual_crd;
+                  return (
+                    <SettingsRow
+                      key={String(candidate.individual_crd)}
+                      icon={UserRound}
+                      iconTone={selected ? "blue" : "gray"}
+                      title={titleCase(candidate.name)}
+                      description={[titleCase(candidate.branch_city), candidate.branch_state]
+                        .filter(Boolean)
+                        .join(", ")}
+                      onClick={() =>
+                        setSelectedTarget({
+                          type: "individual",
+                          individualCrd: candidate.individual_crd ?? null,
+                        })
+                      }
+                      trailing={<TargetRadio selected={selected} />}
+                    />
+                  );
+                })}
+                {candidates.length === 0 ? (
+                  <SettingsRow
+                    icon={UserRound}
+                    iconTone={
+                      selectedTarget?.type === "individual" ? "blue" : "gray"
+                    }
+                    title="I'm an adviser here"
+                    description="Names appear after you verify."
+                    onClick={() =>
+                      setSelectedTarget({ type: "individual", individualCrd: null })
+                    }
+                    trailing={
+                      <TargetRadio selected={selectedTarget?.type === "individual"} />
+                    }
+                  />
+                ) : null}
+                <SettingsRow
+                  icon={Building2}
+                  iconTone={selectedTarget?.type === "firm" ? "blue" : "gray"}
+                  title={titleCase(firm.name)}
+                  description="The firm itself"
+                  onClick={() =>
+                    setSelectedTarget({ type: "firm", individualCrd: null })
+                  }
+                  trailing={<TargetRadio selected={selectedTarget?.type === "firm"} />}
+                />
+              </SettingsGroup>
 
-              <div className="mx-auto w-full space-y-3 sm:max-w-[22rem]">
+              <div className="mx-auto w-full sm:max-w-[22rem]">
                 <Button
                   variant="blue-gradient"
                   effect="fill"
@@ -571,23 +618,14 @@ export default function RiaClaimPage() {
                   fullWidth
                   className="h-12 text-base"
                   loading={busy}
-                  disabled={candidates.length > 0 && !selectedCandidateCrd}
-                  onClick={() => void beginClaim("individual", selectedCandidateCrd)}
-                  data-voice-control-id="ria-claim-individual"
+                  disabled={!selectedTarget}
+                  onClick={() =>
+                    selectedTarget &&
+                    void beginClaim(selectedTarget.type, selectedTarget.individualCrd)
+                  }
+                  data-voice-control-id="ria-claim-continue"
                 >
-                  {candidates.length > 0 ? "It's me — continue" : "I work here — continue"}
-                </Button>
-                <Button
-                  variant="none"
-                  effect="fade"
-                  size="lg"
-                  fullWidth
-                  className="h-12 text-base"
-                  disabled={busy}
-                  onClick={() => void beginClaim("firm", null)}
-                  data-voice-control-id="ria-claim-firm"
-                >
-                  Claim the firm
+                  Continue
                 </Button>
               </div>
             </div>
@@ -684,21 +722,7 @@ export default function RiaClaimPage() {
                         .filter(Boolean)
                         .join(", ")}
                       onClick={() => setPickCrd(entry.individual_crd ?? null)}
-                      trailing={
-                        <div
-                          className="flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors"
-                          style={{
-                            borderColor: selected
-                              ? "var(--app-accent)"
-                              : "var(--muted-foreground)",
-                            opacity: selected ? 1 : 0.4,
-                          }}
-                        >
-                          {selected ? (
-                            <div className="h-2.5 w-2.5 rounded-full bg-[color:var(--app-accent)]" />
-                          ) : null}
-                        </div>
-                      }
+                      trailing={<TargetRadio selected={selected} />}
                     />
                   );
                 })}
