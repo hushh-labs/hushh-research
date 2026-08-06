@@ -79,6 +79,11 @@ function ensureProdEnv() {
     NEXT_PUBLIC_PASSKEY_RP_ID: prodValues.NEXT_PUBLIC_PASSKEY_RP_ID || "one.hushh.ai",
     NEXT_PUBLIC_FIREBASE_API_KEY: prodValues.NEXT_PUBLIC_FIREBASE_API_KEY,
     NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY: prodValues.NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY,
+    // The onboarding map picker loads Google Maps JS via the browser key
+    // (getBrowserMapsApiKey). Next inlines NEXT_PUBLIC_* at build time, so this
+    // must be bundled or the picker resolves an empty key and never loads the map.
+    NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY:
+      prodValues.NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY,
     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: prodValues.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
     NEXT_PUBLIC_FIREBASE_PROJECT_ID: prodValues.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
     NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: prodValues.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,

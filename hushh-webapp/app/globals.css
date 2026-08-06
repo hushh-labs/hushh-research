@@ -1086,6 +1086,26 @@ html.native-ios {
   --app-screen-footer-pad: calc(56px + var(--app-bottom-inset));
 }
 
+/* One Location onboarding is a full-bleed overlay whose top nav (back / Skip /
+ * headings) sits at the very top edge. On some iOS Capacitor builds
+ * env(safe-area-inset-top) resolves to 0 in the WebView, and the runtime probe
+ * (#app-safe-area-probe) also reads env(), so it cannot recover the real inset
+ * either — leaving only the global 44px floor, which under-clears the ~59px
+ * Dynamic Island. Give the onboarding subtree a Dynamic-Island-safe floor so it
+ * clears the notch on every iOS device. Scoped to the onboarding overlay only,
+ * so the rest of the app keeps the standard 44px floor; devices that DO report a
+ * larger real inset still win via max(). The onboarding screens consume
+ * --app-safe-area-top-effective directly, so overriding it here reaches all four
+ * screens without per-screen changes. */
+html.native-ios [data-testid="one-location-onboarding"] {
+  --app-safe-area-top-effective: max(
+    59px,
+    var(--app-safe-area-top),
+    env(safe-area-max-inset-top, 0px),
+    var(--app-safe-area-top-probe)
+  );
+}
+
 /* Theme-aware gradient text - follows the app accent family */
 .hushh-gradient-text {
   background-image: linear-gradient(
@@ -2700,6 +2720,29 @@ html.native-ios {
   html.one-location-map-native .one-location-map {
     background: transparent !important;
     background-color: transparent !important;
+  }
+
+  /* Onboarding "pin your entrance" picker reuses the SAME native
+   * @capacitor/google-maps renderer as Your Map (the browser JS SDK is rejected
+   * inside the App:// WebView). That native map view draws BELOW the WebView, so
+   * every layer above the picker's map box — the Radix dialog sheet, its overlay,
+   * and the map surface itself — must be transparent for the map to show through
+   * while the picker is mounted (the picker toggles `one-location-map-native`).
+   * The pin, "Selected spot" card, and buttons keep their own backgrounds and
+   * stay readable on top. Scoped to the save-location modal so no other dialog
+   * is affected. */
+  html.one-location-map-native [data-testid="save-location-modal"],
+  html.one-location-map-native
+    [data-testid="save-location-modal"]
+    .one-location-picker-native-surface,
+  html.one-location-map-native
+    [data-testid="save-location-modal"]
+    capacitor-google-map {
+    background: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
 
   html {

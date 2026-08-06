@@ -2,9 +2,18 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTheme } from "next-themes";
+import { GoogleMap } from "@capacitor/google-maps";
 import { Check, Crosshair, Loader2, MapPin, X } from "lucide-react";
 
-import { useGoogleMaps } from "@/lib/one-location/use-google-maps";
+import {
+  useGoogleMaps,
+  type MapsLoadStatus,
+} from "@/lib/one-location/use-google-maps";
+import {
+  DARK_MAP_STYLES,
+  getNativeMapsApiKey,
+} from "@/lib/one-location/maps-config";
+import { getPlatform, isNative } from "@/lib/capacitor/platform";
 import { cn } from "@/lib/utils";
 
 export type PickedLocation = {
@@ -43,6 +52,9 @@ export interface LocationPickerMapProps {
 }
 
 const PIN_REVERSE_GEOCODE_DEBOUNCE_MS = 350;
+// Distinct id so the onboarding picker never collides with the immersive
+// "Your Map" native map instance.
+const PICKER_NATIVE_MAP_ID = "one-location-onboarding-picker-map";
 
 function isValidCoordinate(lat: number, lng: number): boolean {
   return (
@@ -62,6 +74,15 @@ function isValidCoordinate(lat: number, lng: number): boolean {
  * reverse-geocode the centre so the address preview stays truthful. A "Use my
  * location" control re-centres on the live GPS fix, and Confirm returns the
  * owner-confirmed coordinate and resolved address to the caller.
+ *
+ * Rendering differs by platform, and this matters for iOS/Android:
+ * - Web loads the Google Maps JS SDK (referrer-authorised browser key).
+ * - Native uses the SAME native @capacitor/google-maps SDK that powers "Your
+ *   Map" (bundle-id authorised key). The browser JS SDK is rejected inside the
+ *   App:// WebView (RefererNotAllowedMapError), which is why the picker used to
+ *   show a blank map on the TestFlight build. The native map draws BELOW the
+ *   WebView, so the map surface opts into the shared `one-location-map-native`
+ *   transparency class while the pin + controls stay as regular web UI on top.
  */
 export function LocationPickerMap({
   initialLatitude,
@@ -82,13 +103,19 @@ export function LocationPickerMap({
   // initializes as soon as the picker mounts.
   void rendererDisclosureAccepted;
   void onAcceptRendererDisclosure;
-  const { status } = useGoogleMaps({ enabled: true });
+  const native = isNative();
+  // Only the web renderer needs the browser JS SDK; skip loading it on native.
+  const { status: webStatus } = useGoogleMaps({ enabled: !native });
+  const [nativeStatus, setNativeStatus] = useState<MapsLoadStatus>("loading");
+  const status = native ? nativeStatus : webStatus;
   const { resolvedTheme } = useTheme();
 
   const colorScheme = resolvedTheme === "dark" ? "DARK" : "LIGHT";
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const nativeMapElementRef = useRef<HTMLElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
+  const nativeMapRef = useRef<GoogleMap | null>(null);
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
   const resolveIdRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
@@ -121,6 +148,7 @@ export function LocationPickerMap({
   // showing "Address not found".
   const reverseGeocodeViaNearestPlace = useCallback(
     async (lat: number, lng: number): Promise<string | null> => {
+      if (typeof google === "undefined") return null;
       const places = (
         google.maps as unknown as {
           places?: {
@@ -205,6 +233,9 @@ export function LocationPickerMap({
       setLocationError(null);
       debounceRef.current = window.setTimeout(() => {
         debounceRef.current = null;
+        // On native the browser JS SDK is not loaded, so the server-side
+        // reverseGeocode prop is the only resolver; the browser fallback simply
+        // returns null there and the owner completes the address on the next step.
         const resolve = reverseGeocode ?? reverseGeocodeInBrowser;
         void Promise.resolve(resolve(lat, lng))
           .then((next) => {
@@ -223,10 +254,11 @@ export function LocationPickerMap({
     [reverseGeocode, reverseGeocodeInBrowser],
   );
 
-  // Build the interactive map once the API is ready. Google applies colorScheme
-  // only at construction, so the container is keyed by scheme to force a fresh
-  // node when the theme flips.
+  // WEB: build the interactive JS map once the API is ready. Google applies
+  // colorScheme only at construction, so the container is keyed by scheme to
+  // force a fresh node when the theme flips.
   useEffect(() => {
+    if (native) return;
     if (status !== "ready" || !containerRef.current || mapRef.current) return;
     const start = centerRef.current;
     const map = new google.maps.Map(containerRef.current, {
@@ -283,7 +315,94 @@ export function LocationPickerMap({
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, colorScheme]);
+  }, [native, status, colorScheme]);
+
+  // NATIVE: build the map with the SAME @capacitor/google-maps SDK as "Your
+  // Map". This authenticates by app bundle id (native key), so it renders inside
+  // the App:// WebView where the browser JS SDK is rejected. The native map view
+  // is drawn below the WebView, so the surface + shell opt into the shared
+  // `one-location-map-native` transparency class while it is mounted.
+  useEffect(() => {
+    if (!native) return;
+    const element = nativeMapElementRef.current;
+    if (!element) return;
+    const platform = getPlatform();
+    const apiKey =
+      platform === "ios" || platform === "android"
+        ? getNativeMapsApiKey(platform)
+        : "";
+    if (!apiKey) {
+      setNativeStatus("error");
+      return;
+    }
+
+    let cancelled = false;
+    let createdMap: GoogleMap | null = null;
+    const start = centerRef.current;
+    document.documentElement.classList.add("one-location-map-native");
+    document.body.classList.add("one-location-map-native");
+
+    void GoogleMap.create({
+      id: PICKER_NATIVE_MAP_ID,
+      element,
+      apiKey,
+      forceCreate: true,
+      config: {
+        center: { lat: start.lat, lng: start.lng },
+        zoom: 17,
+        disableDefaultUI: true,
+        styles: colorScheme === "DARK" ? DARK_MAP_STYLES : undefined,
+      },
+    })
+      .then(async (map) => {
+        if (cancelled) {
+          void map.destroy();
+          return;
+        }
+        createdMap = map;
+        nativeMapRef.current = map;
+        // Dragging the native map starts a camera move: invalidate the address
+        // so Confirm never pairs a new centre with stale copy.
+        await map.setOnCameraMoveStartedListener(() => {
+          hasInteractedRef.current = true;
+          setHasInteracted(true);
+          resolveIdRef.current += 1;
+          if (debounceRef.current !== null) {
+            window.clearTimeout(debounceRef.current);
+            debounceRef.current = null;
+          }
+          setAddress(null);
+          setResolving(true);
+          setDragging(true);
+        });
+        // When the camera settles, the centre coordinate is authoritative — the
+        // fixed centre pin marks it. Reverse-geocode the settled centre.
+        await map.setOnCameraIdleListener((data) => {
+          if (!isValidCoordinate(data.latitude, data.longitude)) return;
+          centerRef.current = { lat: data.latitude, lng: data.longitude };
+          setDragging(false);
+          scheduleResolve(data.latitude, data.longitude);
+        });
+        setNativeStatus("ready");
+      })
+      .catch(() => {
+        if (!cancelled) setNativeStatus("error");
+      });
+
+    return () => {
+      cancelled = true;
+      void createdMap?.destroy();
+      nativeMapRef.current = null;
+      document.documentElement.classList.remove("one-location-map-native");
+      document.body.classList.remove("one-location-map-native");
+      if (debounceRef.current !== null) {
+        window.clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      resolveIdRef.current += 1;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [native, colorScheme]);
 
   useEffect(() => {
     if (status !== "error") return;
@@ -313,12 +432,26 @@ export function LocationPickerMap({
         setAddress(null);
         setResolving(true);
         centerRef.current = { lat: fix.latitude, lng: fix.longitude };
-        const map = mapRef.current;
-        if (map) {
-          map.panTo({ lat: fix.latitude, lng: fix.longitude });
-          map.setZoom(17);
+        if (native) {
+          const map = nativeMapRef.current;
+          if (map) {
+            // The camera-idle listener re-resolves the address after the move.
+            await map.setCamera({
+              coordinate: { lat: fix.latitude, lng: fix.longitude },
+              zoom: 17,
+              animate: true,
+            });
+          } else {
+            scheduleResolve(fix.latitude, fix.longitude);
+          }
         } else {
-          scheduleResolve(fix.latitude, fix.longitude);
+          const map = mapRef.current;
+          if (map) {
+            map.panTo({ lat: fix.latitude, lng: fix.longitude });
+            map.setZoom(17);
+          } else {
+            scheduleResolve(fix.latitude, fix.longitude);
+          }
         }
       } else {
         setLocationError(
@@ -332,7 +465,7 @@ export function LocationPickerMap({
     } finally {
       setLocating(false);
     }
-  }, [locating, onLocateMe, scheduleResolve]);
+  }, [locating, native, onLocateMe, scheduleResolve]);
 
   const handleConfirm = useCallback(() => {
     const { lat, lng } = centerRef.current;
@@ -369,7 +502,16 @@ export function LocationPickerMap({
         </button>
       </div>
 
-      <div className="relative h-[min(56vh,420px)] w-full overflow-hidden rounded-2xl border border-black/[0.08] bg-[#eef2f7] shadow-[0_8px_24px_rgba(16,24,40,0.12)] ring-1 ring-black/[0.02] dark:border-white/[0.1] dark:bg-[#10151d] dark:shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
+      <div
+        className={cn(
+          "relative h-[min(56vh,420px)] w-full overflow-hidden rounded-2xl border border-black/[0.08] shadow-[0_8px_24px_rgba(16,24,40,0.12)] ring-1 ring-black/[0.02] dark:border-white/[0.1] dark:shadow-[0_8px_24px_rgba(0,0,0,0.4)]",
+          // The native map draws below the WebView, so the surface must stay
+          // transparent for it to show through. Web keeps the neutral tile bg.
+          native
+            ? "one-location-picker-native-surface bg-transparent"
+            : "bg-[#eef2f7] dark:bg-[#10151d]",
+        )}
+      >
 
         {unavailable ? (
           <div
@@ -398,11 +540,20 @@ export function LocationPickerMap({
           </div>
         ) : (
           <>
-            <div
-              key={colorScheme}
-              ref={containerRef}
-              className="h-full w-full"
-            />
+            {native ? (
+              <capacitor-google-map
+                ref={(element: HTMLElement | null) => {
+                  nativeMapElementRef.current = element;
+                }}
+                className="block h-full w-full bg-transparent"
+              />
+            ) : (
+              <div
+                key={colorScheme}
+                ref={containerRef}
+                className="h-full w-full"
+              />
+            )}
 
             {/* Fixed centre marker — the map moves beneath it, so the pin
                 always marks the chosen coordinate. A polished Google-style
