@@ -53,8 +53,24 @@ describe("private-agent feed rows", () => {
     // something went wrong would be false.
     const p = presentFeedItem(item("personal_agent_provisioning_capped"));
     expect(p.label).toContain("queue");
-    expect(p.description).toContain("starts automatically");
-    expect(p.href).toBeNull();
+  });
+
+  it("does not promise a recovery no code performs", () => {
+    // This assertion used to be `toContain("starts automatically")`, and that
+    // sentence was not true: a capped row is left at `pending` (the cap is
+    // checked before the first registry write) and the reconcile sweep retries
+    // only `provisioning` and `failed`.
+    //
+    // Adding `pending` to that sweep would be worse than the wrong sentence --
+    // `pending` is also the state of someone who verified a phone and never
+    // connected an AI key, so the sweep would start building agents for people
+    // with no model to run them, which is exactly what the AI-connection gate
+    // exists to prevent. So the copy changed, not the sweep.
+    const p = presentFeedItem(item("personal_agent_provisioning_capped"));
+    expect(p.description).not.toContain("automatically");
+    // And it offers the one action that genuinely restarts provisioning, rather
+    // than asking the person to wait for something that will not happen.
+    expect(p.href).toBeTruthy();
   });
 
   it("says a reaped pod is resting, never deleted", () => {

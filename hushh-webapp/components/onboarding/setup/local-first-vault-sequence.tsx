@@ -60,6 +60,12 @@ function SetupStoryScreen(props: {
  * Shown once, after the private agent is ready, before anything moves. It is
  * the one moment where the person sees the handoff instead of it happening
  * behind their back.
+ *
+ * The body copy used to end "into your private agent", which described the
+ * destination as if it were the present. The drain runs through
+ * `PkmWriteCoordinator` into the person's encrypted records, which their agent
+ * then reads. The records move to the pod itself later, and this sentence stays
+ * true when they do.
  */
 export function GuidedConnectionScreen({
   agentReady,
@@ -76,7 +82,7 @@ export function GuidedConnectionScreen({
       titleId="one-setup-guided-connection-title"
       testId="one-setup-guided-connection"
       title={agentReady ? "Your private agent is ready" : "One last connection"}
-      body="What you told us is on this device, encrypted. Next we move it into your private agent."
+      body="What you told us is on this device, encrypted. Next it moves into your private records, which only your agent reads."
     >
       <Button
         type="button"
@@ -95,7 +101,7 @@ export function GuidedConnectionScreen({
   );
 }
 
-/** Shown while the buffered records are moving into the private agent. */
+/** Shown while the buffered records are moving into the person's private records. */
 export function BufferHandoffScreen() {
   return (
     <SetupStoryScreen
@@ -106,7 +112,7 @@ export function BufferHandoffScreen() {
       body="This takes a moment. You can stay on this screen."
     >
       <span className="sr-only" role="status">
-        Moving your details into your private agent.
+        Moving your details into your private records.
       </span>
     </SetupStoryScreen>
   );
@@ -145,7 +151,7 @@ const VAULT_EXPLAINER_SCREENS: [ExplainerScreen, ...ExplainerScreen[]] = [
     id: "skip",
     icon: PauseCircle,
     title: "If you stop here, nothing is saved",
-    body: "Your details stay on this device, encrypted. They move into your private agent once the vault exists. You can finish this any time.",
+    body: "Your details stay on this device, encrypted. They move into your private records once your vault exists. You can finish this any time.",
     action: "Set up my vault",
   },
 ];
