@@ -966,6 +966,55 @@ async def startup_personal_agent_reconcile_worker() -> None:
         logger.warning("startup.personal_agent_reconcile_failed reason=%s", type(exc).__name__)
 
 
+@app.on_event("startup")
+async def startup_pod_liveness_worker() -> None:
+    """Observe whether pods are alive. Nothing did this before either.
+
+    WHY THIS MATTERS MORE THAN IT LOOKS
+    -----------------------------------
+    ``start_liveness_loop`` had ZERO callers anywhere in the repo -- its only
+    occurrence was its own definition -- so the whole observe -> confirm -> heal
+    ladder was unreachable. That is why ``personal_agent_registry.health_state``
+    has exactly one writer in practice: the pod's own heartbeat, which can only
+    ever say ``healthy``. Every other verdict -- ``sleeping``, ``degraded``,
+    ``unreachable`` -- had no producer at all, so a UI showing four states would
+    have been showing three that cannot occur.
+
+    Confirmed against Cloud Logging: zero ``pod_liveness`` entries in
+    ``hushh-pda-dev`` since 2026-07-01.
+
+    HEALING STAYS OFF
+    -----------------
+    This attaches the OBSERVER only. ``HUSSH_POD_AUTOHEAL_ENABLED`` still
+    defaults False, so a confirmed-dead pod is recorded and left alone rather
+    than replaced. Observation is safe and immediately useful -- it makes the
+    health column mean something for the first time -- while healing deletes and
+    recreates a person's agent, and that should not switch itself on in the same
+    change that first makes the sweep run. Ship the eyes before the hands.
+
+    Both flags are re-read every pass, so either half can be stopped without a
+    redeploy.
+    """
+    if pod_mode():
+        # A control-plane singleton, for the same reason the reconcile sweep is:
+        # a fleet of pods each probing the fleet would race over shared rows.
+        logger.info("startup.pod_liveness_skipped reason=pod_mode")
+        return
+    try:
+        from hushh_mcp.services import pod_liveness_adapters  # noqa: PLC0415
+        from hushh_mcp.services.pod_liveness_worker import (  # noqa: PLC0415
+            start_liveness_loop,
+        )
+
+        task = asyncio.create_task(
+            start_liveness_loop(**pod_liveness_adapters.build_liveness_seams())
+        )
+        _track_startup_background_task(task)
+        logger.info("startup.pod_liveness_registered interval_s=120 heal=flag_gated")
+    except Exception as exc:  # noqa: BLE001 - a missing sweep must not stop the server
+        logger.warning("startup.pod_liveness_failed reason=%s", type(exc).__name__)
+
+
 if __name__ == "__main__":
     import uvicorn
 
