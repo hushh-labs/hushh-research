@@ -136,7 +136,7 @@ describe("RiaService claim-by-phone methods", () => {
     expect(result.roster?.[0].individual_crd).toBe(5308823);
   });
 
-  it("throws a RiaApiError with the backend detail on a rejected code", async () => {
+  it("surfaces the backend's object-detail message and code on a rejected code", async () => {
     apiFetchMock.mockResolvedValue(
       jsonResponse(
         {
@@ -150,15 +150,18 @@ describe("RiaService claim-by-phone methods", () => {
     );
 
     const { RiaService, RiaApiError } = await import("@/lib/services/ria-service");
-    await expect(
-      RiaService.claimVerify("id-token", {
-        phone: "8015663510",
-        claim_type: "individual",
-        firm_crd: 283040,
-        verification_id: "ria-claim-test:abc",
-        verification_code: "11111",
-      }),
-    ).rejects.toBeInstanceOf(RiaApiError);
+    const err = await RiaService.claimVerify("id-token", {
+      phone: "8015663510",
+      claim_type: "individual",
+      firm_crd: 283040,
+      verification_id: "ria-claim-test:abc",
+      verification_code: "11111",
+    }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(RiaApiError);
+    // The typed {code, message} detail must reach the UI, not "Request failed: 401".
+    expect(err.message).toBe("That code didn't work. Check it and try again.");
+    expect(err.code).toBe("CLAIM_INVALID_CODE");
   });
 
   it("completes the claim and returns the auto-built profile", async () => {

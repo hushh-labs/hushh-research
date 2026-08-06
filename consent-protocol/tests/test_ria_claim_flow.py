@@ -43,7 +43,10 @@ from hushh_mcp.services.ria_claim_service import (  # noqa: E402
     validate_claim_ticket,
     verify_test_possession,
 )
-from hushh_mcp.services.ria_iam_service import RIAIAMPolicyError  # noqa: E402
+from hushh_mcp.services.ria_iam_service import (  # noqa: E402
+    RIAIAMPolicyError,
+    resolve_claim_profile_status,
+)
 from hushh_mcp.services.ria_identity_client import (  # noqa: E402
     RIAIdentityClient,
     RIAIdentityNotConfiguredError,
@@ -147,6 +150,62 @@ def test_production_guard_rejects_claim_test_vars(monkeypatch):
         validate_regulated_runtime_configuration()
     monkeypatch.delenv("RIA_CLAIM_TEST_NUMBERS")
     validate_regulated_runtime_configuration()
+
+
+def test_resolve_claim_profile_status_new_profile():
+    # No existing profile: verified claim stays verified, provisional stays submitted.
+    assert resolve_claim_profile_status(
+        existing_status=None,
+        existing_provider=None,
+        existing_finra_crd=None,
+        new_crd="5308823",
+        new_verified=True,
+    ) == ("verified", "verified", True)
+    assert resolve_claim_profile_status(
+        existing_status=None,
+        existing_provider=None,
+        existing_finra_crd=None,
+        new_crd="174907",
+        new_verified=False,
+    ) == ("submitted", "evidence_only", False)
+
+
+def test_resolve_claim_profile_status_refuses_overwriting_onboarded_identity():
+    # A genuinely onboarding-verified profile (provider 'finra') cannot be
+    # overwritten with a different identity.
+    with pytest.raises(RIAIAMPolicyError) as excinfo:
+        resolve_claim_profile_status(
+            existing_status="verified",
+            existing_provider="finra",
+            existing_finra_crd="111111",
+            new_crd="5308823",
+            new_verified=True,
+        )
+    assert excinfo.value.status_code == 409
+
+
+def test_resolve_claim_profile_status_allows_reclaim_of_prior_claim():
+    # A profile created by an earlier claim may be replaced by the next claim
+    # (this is what lets one demo account walk multiple numbers).
+    assert resolve_claim_profile_status(
+        existing_status="verified",
+        existing_provider="ria_identity_claim",
+        existing_finra_crd="5308823",
+        new_crd="292458",
+        new_verified=True,
+    ) == ("verified", "verified", True)
+
+
+def test_resolve_claim_profile_status_never_downgrades_same_identity():
+    # Re-claiming the same onboarded identity with a provisional result keeps
+    # the verified status rather than downgrading it.
+    assert resolve_claim_profile_status(
+        existing_status="verified",
+        existing_provider="finra",
+        existing_finra_crd="5308823",
+        new_crd="5308823",
+        new_verified=False,
+    ) == ("verified", "verified", True)
 
 
 # ---------------------------------------------------------------------------

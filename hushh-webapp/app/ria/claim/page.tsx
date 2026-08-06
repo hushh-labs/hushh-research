@@ -26,6 +26,7 @@ import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { useAuth } from "@/hooks/use-auth";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
@@ -213,6 +214,11 @@ export default function RiaClaimPage() {
       }
       setLookup(result);
       setSelectedFirm(null);
+      // Pre-select when the SEC lists exactly one adviser, so "Is this you?"
+      // answers itself and the primary action is live on arrival.
+      const soleCandidate =
+        result.candidates.length === 1 ? result.candidates[0] : undefined;
+      setSelectedCandidateCrd(soleCandidate?.individual_crd ?? null);
       setStep("found");
     } catch (err) {
       setError(describeError(err));
@@ -264,9 +270,15 @@ export default function RiaClaimPage() {
       });
       setCompleteResult(result);
       setStep("done");
-      void refreshPersonaState({ force: true });
+      // Clear the stale pre-claim persona/onboarding-status caches, then force a
+      // fresh read — otherwise "Open your profile" can bounce the just-claimed
+      // adviser back into the onboarding wizard off a 30-min-TTL cache hit.
+      if (user) {
+        CacheSyncService.onPersonaStateChanged(user.uid);
+      }
+      await refreshPersonaState({ force: true });
     },
-    [firmCrd, phoneDigits, getIdToken, refreshPersonaState],
+    [firmCrd, phoneDigits, getIdToken, refreshPersonaState, user],
   );
 
   const handleCodeFilled = useCallback(
@@ -528,9 +540,7 @@ export default function RiaClaimPage() {
                           .filter(Boolean)
                           .join(", ")}
                         onClick={() =>
-                          setSelectedCandidateCrd(
-                            selected ? null : (candidate.individual_crd ?? null),
-                          )
+                          setSelectedCandidateCrd(candidate.individual_crd ?? null)
                         }
                         trailing={
                           <div
@@ -623,7 +633,43 @@ export default function RiaClaimPage() {
             )
           ) : null}
 
-          {step === "pick" ? (
+          {step === "pick" && (verifyResult?.roster ?? []).length === 0 ? (
+            <div className="space-y-5">
+              <p className="text-[15px] leading-relaxed text-muted-foreground">
+                We couldn&apos;t load the advisers for this firm.
+              </p>
+              <div className="mx-auto w-full space-y-3 sm:max-w-[22rem]">
+                <Button
+                  variant="blue-gradient"
+                  effect="fill"
+                  size="lg"
+                  fullWidth
+                  className="h-12 text-base"
+                  loading={busy}
+                  onClick={() =>
+                    verifyResult &&
+                    void completeClaim(verifyResult.claim_ticket, "firm", null)
+                  }
+                  data-voice-control-id="ria-claim-firm-fallback"
+                >
+                  Claim the firm instead
+                </Button>
+                <Button
+                  variant="none"
+                  effect="fade"
+                  size="lg"
+                  fullWidth
+                  className="h-12 text-base"
+                  disabled={busy}
+                  onClick={() => setStep("found")}
+                >
+                  Back
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {step === "pick" && (verifyResult?.roster ?? []).length > 0 ? (
             <div className="space-y-5">
               <SettingsGroup embedded separatorInset>
                 {(verifyResult?.roster ?? []).map((entry) => {

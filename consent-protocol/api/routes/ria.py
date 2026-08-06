@@ -751,7 +751,7 @@ class RIAClaimCompleteRequest(BaseModel):
 
 
 @router.post("/claim/lookup")
-@limiter.limit("10/minute")
+@limiter.limit("20/minute")
 async def ria_claim_lookup(
     payload: RIAClaimLookupRequest,
     request: Request,
@@ -766,7 +766,7 @@ async def ria_claim_lookup(
 
 
 @router.post("/claim/otp/start")
-@limiter.limit("10/minute")
+@limiter.limit("20/minute")
 async def ria_claim_otp_start(
     payload: RIAClaimOtpStartRequest,
     request: Request,
@@ -812,7 +812,7 @@ async def _prove_claim_possession(payload: RIAClaimVerifyRequest, phone_digits: 
 
 
 @router.post("/claim/verify")
-@limiter.limit("10/minute")
+@limiter.limit("20/minute")
 async def ria_claim_verify(
     payload: RIAClaimVerifyRequest,
     request: Request,
@@ -838,7 +838,7 @@ async def ria_claim_verify(
 
 
 @router.post("/claim/complete")
-@limiter.limit("6/minute")
+@limiter.limit("20/minute")
 async def ria_claim_complete(
     payload: RIAClaimCompleteRequest,
     request: Request,

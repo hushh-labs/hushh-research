@@ -803,6 +803,49 @@ class IAMSchemaNotReadyError(Exception):
         self.code = "IAM_SCHEMA_NOT_READY"
 
 
+def resolve_claim_profile_status(
+    *,
+    existing_status: str | None,
+    existing_provider: str | None,
+    existing_finra_crd: str | None,
+    new_crd: str,
+    new_verified: bool,
+) -> tuple[str, str, bool]:
+    """Decide a claim's stored status against a possibly-existing RIA profile.
+
+    Returns ``(verification_status, event_outcome, verified)``. Raises
+    ``RIAIAMPolicyError(409)`` when the claim would overwrite a genuinely
+    onboarding-verified profile with a *different* identity. A profile that was
+    itself created by an earlier claim (provider ``ria_identity_claim``) carries
+    no such weight and may be re-claimed freely; a same-identity re-claim never
+    downgrades a verified profile.
+    """
+    verified = new_verified
+    status_value = "verified" if verified else "submitted"
+    event_outcome = "verified" if verified else "evidence_only"
+    if existing_status is None:
+        return status_value, event_outcome, verified
+
+    existing_is_verified = str(existing_status or "").lower() in {
+        "verified",
+        "active",
+        "finra_verified",
+    }
+    existing_from_claim = str(existing_provider or "") == "ria_identity_claim"
+    existing_crd = str(existing_finra_crd or "").strip()
+    same_identity = bool(existing_crd) and existing_crd == str(new_crd or "").strip()
+
+    if existing_is_verified and not existing_from_claim and not same_identity:
+        raise RIAIAMPolicyError(
+            "You already have a verified advisor profile. Claiming a different "
+            "identity from here isn't supported.",
+            status_code=409,
+        )
+    if existing_is_verified and same_identity and not verified:
+        return "verified", "verified", True
+    return status_value, event_outcome, verified
+
+
 @dataclass(frozen=True)
 class ScopeTemplate:
     template_id: str
@@ -4281,6 +4324,24 @@ class RIAIAMService:
             async with conn.transaction():
                 await self._ensure_vault_user_row(conn, normalized_user_id)
                 await self._ensure_iam_schema_ready(conn)
+
+                # Protect a genuinely onboarding-verified profile from being
+                # silently overwritten with a different identity or downgraded.
+                existing = await conn.fetchrow(
+                    """
+                    SELECT verification_status, verification_provider, finra_crd
+                    FROM ria_profiles
+                    WHERE user_id = $1
+                    """,
+                    normalized_user_id,
+                )
+                status_value, event_outcome, verified = resolve_claim_profile_status(
+                    existing_status=existing["verification_status"] if existing else None,
+                    existing_provider=existing["verification_provider"] if existing else None,
+                    existing_finra_crd=existing["finra_crd"] if existing else None,
+                    new_crd=crd_number,
+                    new_verified=verified,
+                )
 
                 await conn.execute(
                     """

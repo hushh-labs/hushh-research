@@ -775,7 +775,7 @@ interface CachedReadOptions {
 }
 
 interface ErrorPayload {
-  detail?: string;
+  detail?: string | unknown[] | { code?: string; message?: string };
   error?: string;
   code?: string;
   hint?: string;
@@ -1071,13 +1071,30 @@ async function toJsonOrThrow<T>(response: Response): Promise<T> {
           );
         return messages[0] || null;
       }
+      // Object detail {code, message} — how the claim routes report typed
+      // failures (CLAIM_INVALID_CODE, CLAIM_TICKET_INVALID, …).
+      if (payload.detail && typeof payload.detail === "object") {
+        const obj = payload.detail as { message?: unknown };
+        if (typeof obj.message === "string" && obj.message.trim()) {
+          return obj.message;
+        }
+      }
       return null;
     })();
+    const detailObject =
+      payload.detail && typeof payload.detail === "object" && !Array.isArray(payload.detail)
+        ? (payload.detail as { code?: unknown })
+        : null;
     const message =
       detailMessage ||
       (typeof payload.error === "string" && payload.error) ||
       `Request failed: ${response.status}`;
-    const code = typeof payload.code === "string" ? payload.code : undefined;
+    const code =
+      typeof payload.code === "string"
+        ? payload.code
+        : detailObject && typeof detailObject.code === "string"
+          ? detailObject.code
+          : undefined;
     const hint = typeof payload.hint === "string" ? payload.hint : undefined;
     throw new RiaApiError(message, response.status, code, hint);
   }
