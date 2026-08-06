@@ -96,6 +96,7 @@ tests/test_pod_storage.py
 tests/test_pod_turn_relay.py
 tests/test_pod_turn_route.py
 tests/test_portfolio_stream_quality_rules.py
+tests/test_product_agent_registry_v2.py
 tests/test_request_consent_local_keypair.py
 tests/test_ria_iam_service_architecture.py
 tests/test_scoped_export_download.py
