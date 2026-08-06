@@ -8,6 +8,8 @@
 
 import type { CSSProperties } from "react";
 import styles from "./OnboardingHeroBackground.module.css";
+import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
 
 // A few deterministic motes so SSR/CSR match. Sparse, slow, barely-there.
 const MOTES = Array.from({ length: 5 }, (_, i) => {
@@ -25,11 +27,18 @@ const MOTES = Array.from({ length: 5 }, (_, i) => {
 });
 
 export function OnboardingHeroBackground() {
-  return (
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const node = (
     <div
       aria-hidden
       className={styles.root}
     >
+
+
       {/* Base wash. One neutral Foundation surface keeps attention on One,
           rather than introducing coloured edge bands around the composition. */}
       <div className={styles.base} />
@@ -60,4 +69,7 @@ export function OnboardingHeroBackground() {
       <div className={styles.grain} />
     </div>
   );
+
+  if (!mounted) return null;
+  return createPortal(node, document.body);
 }
