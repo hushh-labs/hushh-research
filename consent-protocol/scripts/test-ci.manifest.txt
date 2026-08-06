@@ -21,6 +21,7 @@ tests/test_consent_audit_chain.py
 tests/test_consent_token_asymmetric.py
 tests/test_contracts_root_resolution.py
 tests/test_dev_migration_lane.py
+tests/test_dev_simulation_guard.py
 tests/test_developer_api_routes.py
 tests/test_export_projection.py
 tests/test_firebase_auth_contract.py
