@@ -270,6 +270,17 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN" "login.keychain-db"
           security default-keychain -s "$KEYCHAIN"
 
+          # Import distribution certificate if present in GCP Secret Manager
+          DIST_CERT_B64="$(gcloud secrets versions access latest --secret=APPSTORE_DISTRIBUTION_CERT_P12_B64 --project="${GCP_PROJECT_ID}" 2>/dev/null || true)"
+          if [ -n "$DIST_CERT_B64" ]; then
+            umask 077
+            echo "$DIST_CERT_B64" | openssl base64 -d -A > "${RUNNER_TEMP}/dist_cert.p12"
+            security import "${RUNNER_TEMP}/dist_cert.p12" -k "$KEYCHAIN" -P "" -A
+            rm -f "${RUNNER_TEMP}/dist_cert.p12"
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KEYCHAIN" >/dev/null 2>&1 || true
+            echo "Distribution certificate imported into signing keychain."
+          fi
+
       - name: Prepare iOS project (web build + cap sync, UAT backend)
         shell: bash
         run: |
