@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowRight,
   BadgeCheck,
   BookOpen,
   Briefcase,
@@ -31,7 +30,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
-import { cn } from "@/lib/utils";
 import { ApiService } from "@/lib/services/api-service";
 import {
   PersonalKnowledgeModelService,
@@ -51,7 +49,6 @@ import { HealthRadarCard, type HealthRadarAxis } from "@/components/sage/health-
 import { ROUTES, buildSageAskRoute } from "@/lib/navigation/routes";
 
 const RESEARCH_DOMAIN = "research";
-const NOTE_PREFIX = /^saved from your note:\s*/i;
 
 const DOMAIN_ICON: Record<string, typeof Landmark> = {
   financial: Landmark,
@@ -128,83 +125,6 @@ function computeKnowledgeHealth(domains: DomainSummary[]): { axes: HealthRadarAx
 }
 
 /**
- * A live "agent" tile -- top accent bar, ripple, hover lift, and room for a
- * real derived metric -- for the tools that carry actual state (a running
- * thread, a saved note). `children` renders outside the Link so tiles that
- * need their own nested links (Ask Sage's prompt chips) never end up with
- * an <a> inside an <a>.
- */
-function SageAgentTile({
-  icon: Icon,
-  title,
-  metric,
-  metricLabel,
-  insight,
-  meta,
-  href,
-  loading = false,
-  children,
-}: {
-  icon: typeof Landmark;
-  title: string;
-  metric?: string | null;
-  metricLabel?: string;
-  insight: string;
-  meta?: string | null;
-  href: string;
-  loading?: boolean;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="group relative isolate overflow-hidden rounded-xl border border-border/60 bg-card/85 shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition-[border-color,box-shadow] duration-200 hover:border-foreground/20 hover:shadow-[0_18px_36px_-24px_rgba(15,23,42,0.5)]">
-      <Link href={href} aria-label={`Open ${title}`} className="relative isolate block p-3">
-        <MaterialRipple variant="link" effect="glass" className="rounded-xl" />
-        <span className="flex items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
-              <Icon className="h-3.5 w-3.5" aria-hidden />
-            </span>
-            <span className="truncate text-[13px] font-semibold leading-5 text-foreground">{title}</span>
-          </span>
-          <ArrowRight
-            className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-foreground"
-            aria-hidden
-          />
-        </span>
-
-        {metric ? (
-          <span className="mt-2 flex items-baseline gap-1.5">
-            <span className="text-[1.3rem] font-semibold leading-6 tabular-nums text-foreground">
-              {metric}
-            </span>
-            {metricLabel ? (
-              <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/70">
-                {metricLabel}
-              </span>
-            ) : null}
-          </span>
-        ) : null}
-
-        <p className={cn("line-clamp-2 text-xs leading-4 text-muted-foreground", metric ? "mt-1.5" : "mt-1.5")}>
-          {loading ? "Reading…" : insight}
-        </p>
-      </Link>
-
-      {children ? <div className="px-3 pb-1">{children}</div> : null}
-
-      {meta ? (
-        <div className="flex items-center gap-1.5 px-3 pb-3 pt-1.5 text-xs text-muted-foreground/80">
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50" aria-hidden />
-          <span className="truncate">{meta}</span>
-        </div>
-      ) : (
-        <div className="pb-3" />
-      )}
-    </div>
-  );
-}
-
-/**
  * A real input right on the home tile -- but Sage never researches inline
  * here. Submitting navigates to the dedicated Ask Sage page with the query
  * carried over and auto-asked there (buildSageAskRoute's `autoAsk`), so the
@@ -245,42 +165,6 @@ function QuickAskBox() {
         Ask
       </Button>
     </div>
-  );
-}
-
-/** A quiet, compact launcher for tools with no per-visit state to surface --
- * kept small and low-emphasis on purpose so the three live tiles above (Ask
- * Sage, Research threads, Notes) read as the primary surface. */
-function SageLinkTile({
-  icon: Icon,
-  title,
-  description,
-  href,
-}: {
-  icon: typeof Landmark;
-  title: string;
-  description: string;
-  href: string;
-}) {
-  return (
-    <Link
-      href={href}
-      aria-label={`Open ${title}`}
-      className="group relative isolate flex min-h-[6.75rem] flex-col overflow-hidden rounded-lg border border-border/60 bg-card/85 p-3.5 text-left shadow-sm transition-[border-color,box-shadow] duration-200 hover:border-foreground/20 hover:shadow-[0_14px_32px_-28px_rgba(15,23,42,0.55)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <MaterialRipple variant="link" effect="glass" className="rounded-lg" />
-      <span className="flex items-start justify-between gap-2">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
-          <Icon className="h-4 w-4" aria-hidden />
-        </span>
-        <ChevronRight
-          className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-foreground"
-          aria-hidden
-        />
-      </span>
-      <span className="mt-2 block text-sm font-semibold leading-5 text-foreground">{title}</span>
-      <span className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">{description}</span>
-    </Link>
   );
 }
 
@@ -346,26 +230,6 @@ export function SagePanel() {
       cancelled = true;
     };
   }, [user, vaultKey, vaultOwnerToken]);
-
-  // The Notes tile shows the most recent real note instead of static copy --
-  // derived straight from the domain summaries already loaded, no extra
-  // fetch (same raw-note extraction NotesArchivePanel uses).
-  const latestNote = useMemo(() => {
-    let best: { text: string; domainDisplayName: string; updatedAt: string } | null = null;
-    for (const domain of domains) {
-      const highlights = Array.isArray(domain.readableHighlights) ? domain.readableHighlights : [];
-      const updatedAt = domain.readableUpdatedAt || domain.lastUpdated || "";
-      for (const line of highlights) {
-        if (!NOTE_PREFIX.test(line)) continue;
-        const text = line.replace(NOTE_PREFIX, "").trim();
-        if (!text) continue;
-        if (!best || updatedAt > best.updatedAt) {
-          best = { text, domainDisplayName: domain.displayName, updatedAt };
-        }
-      }
-    }
-    return best;
-  }, [domains]);
 
   async function refreshDomains() {
     if (!user?.uid || !vaultOwnerToken) return;
@@ -725,76 +589,74 @@ export function SagePanel() {
           testId="sage-tools-header"
         />
 
-        <div className="mt-3 overflow-hidden rounded-xl border border-border/60 bg-card/85 shadow-[0_1px_2px_rgba(15,23,42,0.06)] p-4 transition-[border-color,box-shadow] duration-200 hover:border-foreground/20">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Link
-              href={ROUTES.SAGE_ASK}
-              aria-label="Open Ask Sage"
-              className="group relative isolate flex min-w-0 items-center gap-2"
-            >
-              <MaterialRipple variant="link" effect="glass" className="rounded-lg" />
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
-                <Search className="h-4 w-4" aria-hidden />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-[15px] font-semibold leading-5 text-foreground">Ask Sage</span>
-                <span className="block text-xs text-muted-foreground">Research, live and personalized to you.</span>
-              </span>
-            </Link>
-            <div className="sm:w-[22rem] sm:shrink-0">
-              <QuickAskBox />
-            </div>
+        <div className="mt-3 overflow-hidden rounded-2xl border border-border/60 bg-card/85">
+          <Link
+            href={ROUTES.SAGE_ASK}
+            aria-label="Open Ask Sage"
+            className="group relative isolate flex items-center gap-3 px-4 py-3.5"
+          >
+            <MaterialRipple variant="link" effect="glass" />
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-sky-500/12 text-sky-700 dark:bg-sky-400/20 dark:text-sky-200">
+              <Search className="h-4 w-4" aria-hidden />
+            </span>
+            <span className="min-w-0 flex-1 text-[15px] font-medium text-foreground">Ask Sage</span>
+            <ChevronRight
+              className="h-4 w-4 shrink-0 text-muted-foreground/90 transition-transform group-hover:translate-x-0.5"
+              aria-hidden
+            />
+          </Link>
+          <div className="border-t border-border/60 px-4 py-3">
+            <QuickAskBox />
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <SageAgentTile
+        <SettingsGroup embedded className="mt-3" testId="sage-tools-list">
+          <SettingsRow
+            asChild
             icon={FlaskConical}
+            iconTone="blue"
             title="Research threads"
-            metric={latestThread ? String(latestThread.turns.length) : null}
-            metricLabel={latestThread ? `question${latestThread.turns.length === 1 ? "" : "s"} asked` : undefined}
-            insight={
-              latestThread?.synthesis?.summary ||
-              "A real, ongoing investigation Sage keeps working on with you across visits -- not just one answer."
+            trailing={
+              latestThread ? (
+                <span className="text-sm text-muted-foreground">{latestThread.turns.length}</span>
+              ) : null
             }
-            meta={
-              latestThread
-                ? `From "${latestThread.title}" · ${latestThread.tracedPapers.length} paper${
-                    latestThread.tracedPapers.length === 1 ? "" : "s"
-                  } traced`
-                : null
-            }
-            href={ROUTES.SAGE_THREADS}
-          />
-
-          <SageAgentTile
+            chevron
+            testId="sage-tool-threads"
+          >
+            <Link href={ROUTES.SAGE_THREADS} aria-label="Open Research threads" />
+          </SettingsRow>
+          <SettingsRow
+            asChild
             icon={BookOpen}
+            iconTone="blue"
             title="Notes"
-            insight={
-              latestNote
-                ? `"${latestNote.text}"`
-                : "Add a note straight into any domain, or search every raw note you've ever given Kai."
-            }
-            meta={latestNote ? `Latest note · ${latestNote.domainDisplayName}` : null}
-            href={ROUTES.SAGE_NOTES}
-          />
-        </div>
-
-        <div className="mt-3 grid grid-cols-2 gap-2.5">
-          <SageLinkTile
+            chevron
+            testId="sage-tool-notes"
+          >
+            <Link href={ROUTES.SAGE_NOTES} aria-label="Open Notes" />
+          </SettingsRow>
+          <SettingsRow
+            asChild
             icon={GitBranch}
-            title="Trace a paper's citations"
-            description="See what a real paper builds on and what builds on it."
-            href={ROUTES.SAGE_CITATIONS}
-          />
-
-          <SageLinkTile
+            iconTone="blue"
+            title="Citation lineage"
+            chevron
+            testId="sage-tool-citations"
+          >
+            <Link href={ROUTES.SAGE_CITATIONS} aria-label="Open Citation lineage" />
+          </SettingsRow>
+          <SettingsRow
+            asChild
             icon={Sparkles}
+            iconTone="blue"
             title="Everything Hushh knows"
-            description="Every saved detail, across every domain."
-            href={ROUTES.PKM}
-          />
-        </div>
+            chevron
+            testId="sage-tool-pkm"
+          >
+            <Link href={ROUTES.PKM} aria-label="Open Everything Hushh knows" />
+          </SettingsRow>
+        </SettingsGroup>
       </div>
 
       <div>
@@ -826,9 +688,6 @@ export function SagePanel() {
               <span className="flex items-center gap-2">
                 <FileText className="h-4 w-4 text-foreground" aria-hidden />
                 <span className="text-sm font-semibold text-foreground">Self-assessment</span>
-                <span className="text-xs text-muted-foreground">
-                  · A structured draft from your real accumulated history
-                </span>
               </span>
               <ChevronRight
                 className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-foreground"
