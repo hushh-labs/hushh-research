@@ -8,6 +8,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
+import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { useAuth } from "@/hooks/use-auth";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { KaiMarketHomeResourceService } from "@/lib/kai/kai-market-home-resource";
@@ -56,10 +57,56 @@ function dedupePages(pages: Array<KaiMarketNewsPage | null>): KaiHomeNewsItem[] 
   });
 }
 
+const KNOWN_TICKER_ALIASES: Record<string, string[]> = {
+  AAPL: ["apple"],
+  NVDA: ["nvidia"],
+  MSFT: ["microsoft"],
+  AMZN: ["amazon"],
+  GOOGL: ["google", "alphabet"],
+  META: ["meta", "facebook", "instagram"],
+  TSLA: ["tesla"],
+  NFLX: ["netflix"],
+  BA: ["boeing"],
+  AMD: ["amd", "advanced micro devices"],
+  INTC: ["intel"],
+  DIS: ["disney"],
+  JPM: ["jpmorgan", "chase"],
+  BAC: ["bank of america"],
+  WMT: ["walmart"],
+  UNH: ["unitedhealth"],
+};
+
+function extractNewsSymbols(item: KaiHomeNewsItem): string[] {
+  const rawSymbol = String(item.symbol || "").trim().toUpperCase();
+  const rawSymbols = rawSymbol
+    .split(/[,;\s]+/)
+    .map((s) => s.trim().toUpperCase())
+    .filter((s) => s && s !== "MARKET" && s !== "GENERAL" && s !== "MACRO" && s !== "NEWS");
+
+  const titleLower = String(item.title || "").toLowerCase();
+  const matchedFromTitle: string[] = [];
+
+  for (const [ticker, aliases] of Object.entries(KNOWN_TICKER_ALIASES)) {
+    if (rawSymbols.includes(ticker)) continue;
+    const allMatches = [ticker.toLowerCase(), ...aliases];
+    const found = allMatches.some((alias) => {
+      const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, "i").test(titleLower);
+    });
+    if (found) {
+      matchedFromTitle.push(ticker);
+    }
+  }
+
+  return Array.from(new Set([...rawSymbols, ...matchedFromTitle]));
+}
+
 function MarketNewsRow({ item }: { item: KaiHomeNewsItem }) {
   const href = validArticleUrl(item.url);
   const source = String(item.source_name || "Market news").trim() || "Market news";
-  const symbol = String(item.symbol || "Market").trim().toUpperCase() || "Market";
+  const linkedSymbols = extractNewsSymbols(item);
+  const primarySymbol = linkedSymbols[0] || null;
+  const sentiment = String(item.sentiment_hint || "").toLowerCase();
 
   return (
     <article className="border-b border-[color:var(--app-card-border-standard)] last:border-b-0">
@@ -68,20 +115,33 @@ function MarketNewsRow({ item }: { item: KaiHomeNewsItem }) {
         disabled={!href}
         onClick={() => href && openExternalUrl(href)}
         className={cn(
-          "group flex w-full items-start gap-3 px-4 py-4 text-left transition-colors sm:px-5",
+          "group flex w-full items-start gap-3.5 px-4 py-4 text-left transition-colors sm:px-5",
           href
             ? "hover:bg-muted/35 focus-visible:bg-muted/45 disabled:cursor-default"
             : "cursor-default",
         )}
       >
-        <span className="mt-0.5 inline-flex min-w-11 justify-center rounded-full bg-muted px-2 py-1 text-[11px] font-semibold tracking-wide text-muted-foreground">
-          {symbol}
-        </span>
+        {primarySymbol ? (
+          <SymbolAvatar symbol={primarySymbol} size="md" className="mt-0.5 shrink-0" />
+        ) : (
+          <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-muted text-muted-foreground">
+            <Newspaper className="h-5 w-5" aria-hidden="true" />
+          </span>
+        )}
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-            <span>{source}</span>
+            <span className="font-medium text-foreground/80">{source}</span>
             <span aria-hidden="true">•</span>
             <span>{formatPublishedAt(item.published_at)}</span>
+            {sentiment.includes("positive") ? (
+              <span className="ml-1 inline-flex items-center rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                Positive
+              </span>
+            ) : sentiment.includes("negative") ? (
+              <span className="ml-1 inline-flex items-center rounded-md bg-rose-500/10 px-1.5 py-0.5 text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                Risk
+              </span>
+            ) : null}
           </span>
           <span className="mt-1 block text-[15px] font-semibold leading-5 text-foreground sm:text-base">
             {item.title}
@@ -91,6 +151,22 @@ function MarketNewsRow({ item }: { item: KaiHomeNewsItem }) {
               {item.summary}
             </span>
           ) : null}
+          {linkedSymbols.length > 0 ? (
+            <span className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              {linkedSymbols.map((sym) => (
+                <span
+                  key={sym}
+                  className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-mono font-semibold text-foreground/80"
+                >
+                  {sym}
+                </span>
+              ))}
+            </span>
+          ) : (
+            <span className="mt-2.5 inline-flex items-center rounded-md bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              Market
+            </span>
+          )}
         </span>
         {href ? (
           <ExternalLink className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
