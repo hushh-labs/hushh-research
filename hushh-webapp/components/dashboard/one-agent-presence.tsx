@@ -1,8 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
-import { apiJson } from "@/lib/services/api-client";
+import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 
 /**
  * "Your Agent One" — the first place a human SEES their own sovereign agent.
@@ -28,12 +26,6 @@ const AGENT_STATES = [
 ] as const;
 
 type AgentState = (typeof AGENT_STATES)[number];
-
-type StatusResponse = {
-  state?: string;
-  featureEnabled?: boolean;
-  hushhId?: string;
-};
 
 /**
  * One idea per line: the badge names the state, the body says the one thing the
@@ -85,22 +77,12 @@ function toAgentState(value: unknown): AgentState {
 }
 
 export function OneAgentPresence() {
-  const [state, setState] = useState<AgentState>("reserved");
-
-  useEffect(() => {
-    let cancelled = false;
-    apiJson<StatusResponse>("/api/one/personal-agent/status")
-      .then((res) => {
-        if (cancelled) return;
-        setState(toAgentState(res?.state));
-      })
-      .catch(() => {
-        // Fail safe: keep the honest "reserved" state; never break the home.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Follows the deployment while it is in flight and stops once it settles.
+  // This used to be a one-shot fetch on mount, which meant the chip froze for
+  // exactly the minutes it had something to say: a person watching their agent
+  // be built saw "reserved" until they reloaded the page.
+  const { state: followed } = useAgentDeploymentFollow();
+  const state: AgentState = toAgentState(followed);
 
   const copy = COPY[state];
 

@@ -919,11 +919,26 @@ async def startup_personal_agent_reconcile_worker() -> None:
             phone = str(record.get("phone_number") or "").strip()
             if not phone:
                 return
+            # Construct and call the SAME way every other caller does. This line
+            # raised TypeError twice over -- `registry` is a required keyword-only
+            # constructor argument, and `provision` is keyword-only -- so the only
+            # path that recovers a provision evicted mid-flight failed before
+            # doing anything. The worker caught it and counted `retry_failed`,
+            # which is why nothing ever surfaced: a retry that always fails and a
+            # retry that is never needed produce the same clean logs.
+            from hushh_mcp.services.compute_backend import resolve_compute_backend
             from hushh_mcp.services.personal_agent_provisioning_service import (
                 PersonalAgentProvisioningService,
             )
+            from hushh_mcp.services.personal_agent_registry_repo import (
+                PersonalAgentRegistryRepo,
+            )
 
-            await PersonalAgentProvisioningService().provision(user_id, phone)
+            service = PersonalAgentProvisioningService(
+                registry=PersonalAgentRegistryRepo(),
+                backend=resolve_compute_backend(),
+            )
+            await service.provision(user_id=user_id, phone_e164=phone)
 
         async def fetch_idle(_idle_since) -> list:
             # See the docstring: no truthful idleness source exists in the schema.

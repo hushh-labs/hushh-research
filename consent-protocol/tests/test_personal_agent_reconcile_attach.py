@@ -205,8 +205,16 @@ async def test_the_retry_refuses_an_unverified_phone(wired, monkeypatch):
             return {uid: {"phone_verified": False, "phone_number": "+15551234567"} for uid in user_ids}
 
     class _Provisioning:
-        async def provision(self, user_id, phone):
-            provisioned.append((user_id, phone))
+        # The REAL signature: `registry` is a required keyword-only constructor
+        # argument and `provision` is keyword-only. This stub used to take no
+        # constructor arguments and positional `provision` params -- shaped to
+        # the broken production call -- so it passed while the retry it was
+        # testing raised TypeError before doing anything.
+        def __init__(self, **kwargs):
+            assert "registry" in kwargs, "retry must construct with a registry"
+
+        async def provision(self, *, user_id, phone_e164, **_):
+            provisioned.append((user_id, phone_e164))
 
     monkeypatch.setattr(
         "hushh_mcp.services.actor_identity_service.ActorIdentityService", _Identity
@@ -229,8 +237,16 @@ async def test_the_retry_provisions_for_a_verified_owner(wired, monkeypatch):
             return {uid: {"phone_verified": True, "phone_number": "+15551234567"} for uid in user_ids}
 
     class _Provisioning:
-        async def provision(self, user_id, phone):
-            provisioned.append((user_id, phone))
+        # The REAL signature: `registry` is a required keyword-only constructor
+        # argument and `provision` is keyword-only. This stub used to take no
+        # constructor arguments and positional `provision` params -- shaped to
+        # the broken production call -- so it passed while the retry it was
+        # testing raised TypeError before doing anything.
+        def __init__(self, **kwargs):
+            assert "registry" in kwargs, "retry must construct with a registry"
+
+        async def provision(self, *, user_id, phone_e164, **_):
+            provisioned.append((user_id, phone_e164))
 
     monkeypatch.setattr(
         "hushh_mcp.services.actor_identity_service.ActorIdentityService", _Identity

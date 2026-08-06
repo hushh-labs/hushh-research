@@ -18,7 +18,8 @@ import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
-import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import { dispatchFeedStateChanged, FEED_STATE_CHANGED_EVENT } from "@/lib/feed/feed-events";
+import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { FeedRow } from "@/components/feed/feed-row";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { useFeedActionables } from "@/lib/feed/use-feed-actionables";
@@ -71,6 +72,7 @@ export function FeedPage() {
     data,
     loading,
     error: resourceError,
+    refresh,
   } = useStaleResource<FeedListResponse>({
     cacheKey: user?.uid ? CACHE_KEYS.FEED_LIST(user.uid) : "feed_list_signed_out",
     enabled: Boolean(user?.uid),
@@ -80,6 +82,23 @@ export function FeedPage() {
       return FeedService.list({ idToken, userId: user!.uid, limit: 20 });
     },
   });
+
+  // While the person's agent is being built, follow it. The backend writes a
+  // feed row at every transition, and until now the list never went back to
+  // look -- so the one time the Feed had something new to say on its own was
+  // the one time it stayed still. The hook stops on its own once the
+  // deployment settles, so outside that window this costs nothing and the
+  // deliberate no-force-refresh behaviour below is untouched.
+  useAgentDeploymentFollow({ enabled: Boolean(user?.uid) });
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const onFeedStateChanged = () => {
+      void refresh({ force: true });
+    };
+    window.addEventListener(FEED_STATE_CHANGED_EVENT, onFeedStateChanged);
+    return () => window.removeEventListener(FEED_STATE_CHANGED_EVENT, onFeedStateChanged);
+  }, [user?.uid, refresh]);
 
   useEffect(() => {
     if (!data || paginationInitializedRef.current) return;
