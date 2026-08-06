@@ -24,17 +24,19 @@ What it does NOT do, on purpose
 * **No durable history.** ``InMemorySessionService`` — ``DatabaseSessionService``
   needs a database URL a pod will never hold.
 
-Consent, and why this fails closed loudly
+Consent: the pod ASKS, it does not verify
 -----------------------------------------
 A pod's ``APP_SIGNING_KEY`` is deliberately a DIFFERENT key from the hub's, because
-with HMAC the ability to verify is the ability to forge. So a pod fundamentally
-cannot validate an HMAC-signed consent token, and the asymmetric path
-(``consent/token_signing``) is what makes pod-side verification possible at all.
+with HMAC the ability to verify is the ability to forge. So a pod cannot check the
+hub's signatures -- and even if it could, that would not close revocation, whose
+state lives in the hub's process and database (SECURITY-REVIEW **I1**): a revoked
+token would read as live inside a pod indefinitely.
 
-If issuance is still HMAC, this route refuses rather than degrading: an
-unverifiable token must never be treated as absent-but-fine, and a turn that ran
-without a validated grant would be exactly the consent bypass the whole protocol
-exists to prevent.
+So every turn asks the hub, which issued the token and owns the revoked set. See
+``api/routes/one/pod_consent.py`` for why asking beats verifying and what it costs.
+An unreachable authority is a 503, never a silent pass -- an agent that keeps
+acting on holdings when consent cannot be checked is exactly what consent-first
+forbids.
 
 Ship-dark behind ``HUSSH_POD_TURN_ENABLED`` (default off) **and** pod mode. The hub
 already has a turn route; a second one there would be two implementations of the
@@ -71,29 +73,40 @@ def _require_enabled() -> None:
         raise HTTPException(status_code=404, detail="pod turn is not available")
 
 
-async def _validate_consent(consent_token: str) -> dict:
-    """Validate the owner's consent token inside the pod, or refuse.
+async def _validate_consent(consent_token: str, *, verifier: Any = None) -> dict:
+    """Ask the hub whether this consent is live. The hub is the authority.
 
-    Separated so the refusal is one readable block. Every failure mode ends in 403
-    with one shape -- a pod must not become an oracle for which tokens exist, which
-    scopes are held, or how issuance is configured.
+    A pod cannot verify locally: its APP_SIGNING_KEY is deliberately a different key
+    from the hub's, and even a checkable signature would not close revocation, whose
+    state lives in the hub's process and database (SECURITY-REVIEW I1).
+
+    Three outcomes, kept distinct on purpose:
+
+      valid        run the turn
+      invalid      403 -- a clean denial from the authority
+      unavailable  503 -- the authority could not be asked
+
+    The last must never collapse into either neighbour. As a denial it turns a hub
+    blip into "your agent refuses to know you"; as an approval it lets a pod act on
+    someone's holdings with no live consent check.
     """
-    from hushh_mcp.consent.token import validate_token  # noqa: PLC0415
+    check = verifier
+    if check is None:
+        from hushh_mcp.services.pod_consent_client import verify_consent  # noqa: PLC0415
+
+        check = verify_consent
+
     from hushh_mcp.constants import ConsentScope  # noqa: PLC0415
 
-    try:
-        valid, reason, parsed = validate_token(consent_token, expected_scope=ConsentScope.PKM_READ)
-    except Exception as exc:  # noqa: BLE001 - an unverifiable token is simply refused
-        logger.warning("pod_turn.consent_error %s", type(exc).__name__)
-        raise HTTPException(status_code=403, detail="consent token is not valid here") from exc
+    verdict = await check(consent_token, expected_scope=ConsentScope.PKM_READ.value)
 
-    if not valid or parsed is None:
-        # Includes the case this route exists to make visible: issuance is still
-        # HMAC, so a pod holding a different signing key cannot verify anything.
-        # Refusing is correct. Running the turn anyway would be a consent bypass.
-        logger.warning("pod_turn.consent_refused reason=%s", str(reason or "")[:120])
+    if not verdict.available:
+        logger.warning("pod_turn.consent_authority_unavailable reason=%s", verdict.reason)
+        raise HTTPException(status_code=503, detail="consent authority is unavailable")
+    if not verdict.valid:
+        logger.info("pod_turn.consent_refused")
         raise HTTPException(status_code=403, detail="consent token is not valid here")
-    return {"user_id": getattr(parsed, "user_id", "") or "", "scope": str(reason or "")}
+    return {"user_id": verdict.user_id, "scope": verdict.scope}
 
 
 async def run_pod_turn(
@@ -101,13 +114,14 @@ async def run_pod_turn(
     payload: PodTurnRequest,
     consent_token: str,
     stream_fn: Any = None,
+    verifier: Any = None,
 ) -> dict:
     """The testable core: validate, run one turn, collect. Injectable by keyword."""
     _require_enabled()
     if not (consent_token or "").strip():
         raise HTTPException(status_code=401, detail="consent token required")
 
-    claims = await _validate_consent(consent_token)
+    claims = await _validate_consent(consent_token, verifier=verifier)
     user_id = claims["user_id"]
     if not user_id:
         raise HTTPException(status_code=403, detail="consent token carries no owner")
