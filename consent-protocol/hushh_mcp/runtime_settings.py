@@ -389,24 +389,26 @@ def personal_agent_max_pods() -> int:
     never silently remove the ceiling. There is deliberately no unlimited value --
     to raise the ceiling, raise the number.
 
-    THE CEILING ABOVE THIS ONE
-    --------------------------
-    This is a row count in our own registry, and it is NOT the outer limit. One
-    Cloud Run **service per user** runs into a platform quota, and that quota was
+    THE NUMBER ABOVE THIS ONE, AND WHY IT IS A TRIGGER
+    --------------------------------------------------
+    This is a row count in our own registry. The platform number underneath it was
     read from the authority rather than from documentation:
 
         Cloud Run "Services", unit 1/{project}/{region}
         effectiveLimit = 1000, defaultLimit = 1000   (hushh-pda-dev, 2026-08-06)
 
-    ``effectiveLimit == defaultLimit`` means no increase has ever been granted. So
-    a single hussh-managed project holds at most **1000 pods per region**, and
-    "every account gets a pod" needs one of: a quota increase, sharding across
-    projects, or the per-user-GCP model where the service lives in the user's own
-    project and this ceiling does not apply to us at all.
+    ``effectiveLimit == defaultLimit`` means no increase has ever been granted on
+    that project. That is a **sharding trigger, not a wall**: the operator identity
+    can measure consumption and provision additional GCP projects on the fly, so
+    hussh-managed capacity grows by standing up the next project before a region
+    fills. On Bring-Your-Own-Compute the service lives in the user's own project
+    and the number is theirs, not ours.
 
-    Raising ``PERSONAL_AGENT_MAX_PODS`` past 1000 in a single project would not
-    lift that -- provisioning would pass our own check and then fail at Cloud Run,
-    which is the least useful place for the limit to be discovered."""
+    What it means for THIS setting: keep it at or below the per-project number the
+    provisioner is currently filling. Setting it past 1000 for one project would
+    pass our own check and then fail at Cloud Run -- after the registry row exists
+    and after the person has been told their agent is being built, which is the
+    least useful place for a limit to surface."""
     value = _int_from_value(_clean_env("PERSONAL_AGENT_MAX_PODS"), _PERSONAL_AGENT_MAX_PODS_DEFAULT)
     return value if value > 0 else _PERSONAL_AGENT_MAX_PODS_DEFAULT
 
