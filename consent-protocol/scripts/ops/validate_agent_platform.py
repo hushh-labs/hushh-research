@@ -126,7 +126,9 @@ async def main() -> int:
     print(f"  latency p50/p95           {summary['p50_ms']}ms / {summary['p95_ms']}ms")
     print("=" * 66)
     print(f"  consent surface reached   {summary['consent_reached']}")
-    print(f"  a2a delegations           {summary['a2a_delegations']}")
+    print(f"  a2a attempted / succeeded {summary['a2a_delegations_attempted']}"
+          f" / {summary['a2a_delegations_succeeded']}"
+          f"  (refused {summary['a2a_delegations_refused']})")
     print(f"  AgentTool delegations     {summary['agent_tool_delegations']}")
     print(f"  memory state written      {summary['memory_state_written']}")
     print(f"  recovered after error     {summary['recovered_after_error']}")

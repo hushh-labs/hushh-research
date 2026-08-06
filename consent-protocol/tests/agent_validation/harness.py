@@ -146,6 +146,22 @@ async def run_journey(journey: Journey, *, build_agent: Any) -> JourneyResult:
         },
         a2a={
             "delegations": [c for c in ledger.calls if c in _A2A_TOOLS],
+            # Attempted is NOT achieved. Three of One's four ask_* specialists
+            # fail closed today -- `_first_party_authority` forwards the
+            # invocation capability and deliberately no information-grant or
+            # export refs, and nothing anywhere populates them -- so a call that
+            # returns `needs_auth`/`scope_required` is a refusal, not a
+            # delegation. Counting refusals as delegations produced a healthy
+            # number for a capability that cannot currently work, which is the
+            # exact failure this codebase refuses everywhere else.
+            "delegations_succeeded": [
+                name
+                for name, status in ledger.statuses
+                if name in _A2A_TOOLS and status.lower() in {"ok", "success", "completed"}
+            ],
+            "delegations_refused": [
+                f"{name}={status}" for name, status in ledger.declined if name in _A2A_TOOLS
+            ],
             "agent_tool_delegations": [c for c in ledger.calls if c in _DELEGATION_TOOLS],
             # Direct evidence the sub-agent's own model turn ran. A journey that
             # names `finance` but produces no sub-agent call delegated in name
@@ -301,7 +317,13 @@ def summarize(results: list[JourneyResult]) -> dict[str, Any]:
         ),
         # --- dimension coverage --------------------------------------------------
         "consent_reached": sum(1 for r in results if r.consent_log.get("reached")),
-        "a2a_delegations": sum(len(r.a2a.get("delegations") or []) for r in results),
+        "a2a_delegations_attempted": sum(len(r.a2a.get("delegations") or []) for r in results),
+        "a2a_delegations_succeeded": sum(
+            len(r.a2a.get("delegations_succeeded") or []) for r in results
+        ),
+        "a2a_delegations_refused": sum(
+            len(r.a2a.get("delegations_refused") or []) for r in results
+        ),
         "agent_tool_delegations": sum(len(r.a2a.get("agent_tool_delegations") or []) for r in results),
         "memory_state_written": sum(1 for r in results if r.memory.get("state_written")),
         "recovered_after_error": sum(1 for r in results if r.recovery.get("completed_despite_failure")),

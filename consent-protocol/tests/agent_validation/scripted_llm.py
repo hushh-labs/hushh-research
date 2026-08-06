@@ -205,15 +205,35 @@ def declared_schemas(llm_request: Any) -> dict[str, dict[str, Any]]:
             name = getattr(declaration, "name", None)
             if not name:
                 continue
-            params = getattr(declaration, "parameters", None)
-            dumped: dict[str, Any] = {}
-            if params is not None and hasattr(params, "model_dump"):
-                dumped = params.model_dump(exclude_none=True, mode="json") or {}
             schemas[str(name)] = {
                 "description": getattr(declaration, "description", "") or "",
-                "parameters": dumped,
+                "parameters": _parameter_schema(declaration),
             }
     return schemas
+
+
+def _parameter_schema(declaration: Any) -> dict[str, Any]:
+    """The declared parameters, from whichever field ADK actually populated.
+
+    ADK carries BOTH `parameters` (its own Schema type) and
+    `parameters_json_schema`, and populates one or the other depending on
+    whether the JSON-schema function-declaration feature is enabled -- it is
+    here, so `parameters` is empty and the real contract lives in
+    `parameters_json_schema`.
+
+    Reading only `parameters` therefore yielded `{}` for every tool, which did
+    not look like a bug: the generator simply called each tool with no
+    arguments, ADK rejected the mandatory ones, and the run still reported
+    "12/12 tool coverage" -- coverage of DISPATCH while almost no tool body ran.
+    Prefer the populated field, and never assume which one that is.
+    """
+    json_schema = getattr(declaration, "parameters_json_schema", None)
+    if isinstance(json_schema, dict) and json_schema:
+        return json_schema
+    params = getattr(declaration, "parameters", None)
+    if params is not None and hasattr(params, "model_dump"):
+        return params.model_dump(exclude_none=True, mode="json") or {}
+    return {}
 
 
 @dataclass
