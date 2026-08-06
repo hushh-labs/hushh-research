@@ -73,6 +73,45 @@ def load_operator_credentials(sa_key_b64: Optional[str] = None) -> Any:
     return credentials
 
 
+def resolve_admin_project(sa_key_b64: Optional[str] = None) -> Optional[str]:
+    """The project whose Cloud Run we can actually administer.
+
+    Not the same question as "what project is this process configured for", and
+    conflating the two is what kept the pod fleet empty. ``GOOGLE_CLOUD_PROJECT``
+    is set to the *Vertex* project on the dev lane -- deliberately, because dev
+    borrows UAT's Vertex for model access -- so a backend that reads it to decide
+    where to create pods aims every provision at a project its identity holds no
+    ``run.admin`` in, and every create 403s at the caller before the pod service
+    account is ever considered.
+
+    The honest source is whatever the CREDENTIALS say. For an attached identity
+    ``google.auth.default()`` already returns the project alongside them (the
+    second element, historically discarded here); for an explicit operator key it
+    is the key's own ``project_id``. Either way the answer is "the project this
+    caller can act in", which is exactly the question being asked.
+
+    Returns ``None`` off-GCP with no key, so callers fail loudly rather than
+    guessing.
+    """
+    raw = sa_key_b64 if sa_key_b64 is not None else os.getenv(_SA_KEY_ENV, "")
+    if raw:
+        try:
+            info = json.loads(base64.b64decode(raw))
+        except Exception:  # noqa: BLE001 - a malformed key is not a project answer
+            return None
+        project = str(info.get("project_id") or "").strip()
+        return project or None
+
+    try:
+        import google.auth  # noqa: PLC0415
+
+        _credentials, project = google.auth.default(scopes=_SCOPES)
+    except Exception:  # noqa: BLE001 - absence is a real answer here
+        return None
+    project = str(project or "").strip()
+    return project or None
+
+
 class GcpRunClient:
     """Create / get / delete Cloud Run services via the v1 knative regional API."""
 

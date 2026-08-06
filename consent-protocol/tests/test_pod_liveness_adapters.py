@@ -190,3 +190,60 @@ class _FakeRegistry:
 
     async def set_health_state(self, **_kwargs):
         return None
+
+
+# -- the default client path, which no test reached until now -------------------
+
+
+async def test_default_client_path_builds_from_the_row(_no_key_refresh, monkeypatch):
+    """The branch every existing heal test skipped by passing `client=`.
+
+    `heal_pod` used to call `GcpRunClient()` with no arguments -- `project` and
+    `region` are required keyword-only -- and that call sat OUTSIDE the try block,
+    so the TypeError propagated straight out into the caller's generic per-row
+    handler. This function had therefore never healed a pod. Every test passed an
+    explicit client, so the only path production actually uses was the only path
+    with no coverage.
+    """
+    built: dict = {}
+
+    class _Fake:
+        def __init__(self, *, project, region, credentials=None):
+            built["project"] = project
+            built["region"] = region
+
+        def get_service(self, name):
+            return {"spec": {}}
+
+        def replace_service(self, name, body, *, revision_nonce=None):
+            return {"ok": True}
+
+    monkeypatch.setattr("hushh_mcp.services.gcp_run_client.GcpRunClient", _Fake)
+
+    row = _row(
+        backend_metadata={
+            "url": "https://one-pod-h1.run.app",
+            "project": "hushh-pda-dev",
+            "region": "us-central1",
+        }
+    )
+    assert await adapters.heal_pod(row) is True
+    # Bound to the pod's OWN project, not to ambient process config -- which now
+    # matters, because those two are known to differ on the dev lane.
+    assert built == {"project": "hushh-pda-dev", "region": "us-central1"}
+
+
+async def test_default_client_path_refuses_without_a_location(_no_key_refresh, monkeypatch):
+    """A row with no recorded project must decline, not guess.
+
+    Guessing would send a heal at whatever project the process happens to be
+    configured for -- and a PUT against the wrong project either 403s or, far
+    worse, touches a service of the same name somewhere it should not.
+    """
+
+    def _explode(*args, **kwargs):
+        raise AssertionError("must not construct a client without a location")
+
+    monkeypatch.setattr("hushh_mcp.services.gcp_run_client.GcpRunClient", _explode)
+
+    assert await adapters.heal_pod(_row()) is False

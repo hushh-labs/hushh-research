@@ -140,7 +140,32 @@ async def heal_pod(row: dict, *, client: Any = None, registry: Any = None) -> bo
     if run_client is None:
         from hushh_mcp.services.gcp_run_client import GcpRunClient  # noqa: PLC0415
 
-        run_client = GcpRunClient()
+        # `GcpRunClient()` with no arguments raises TypeError -- `project` and
+        # `region` are required keyword-only. Because that call sat OUTSIDE the try
+        # below, the error propagated straight out of heal_pod into the caller's
+        # generic per-row handler, so this function has never once healed a pod. It
+        # looked reachable in every review; it was reachable and immediately fatal.
+        #
+        # The row already knows where its own pod lives: `_execute` writes project
+        # and region into `backend_metadata` at provision time. Reading them here
+        # keeps healing bound to the pod's ACTUAL project rather than to whatever
+        # the process ambient config happens to be -- which matters now that those
+        # two are known to differ on the dev lane.
+        metadata = row.get("backend_metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        project = str(metadata.get("project") or "").strip()
+        region = str(metadata.get("region") or "").strip()
+        if not project or not region:
+            logger.warning(
+                "pod_liveness.heal_skipped service=%s reason=no_backend_location "
+                "project=%r region=%r",
+                name,
+                project,
+                region,
+            )
+            return False
+        run_client = GcpRunClient(project=project, region=region)
 
     try:
         current = await run_in_threadpool(run_client.get_service, name)
