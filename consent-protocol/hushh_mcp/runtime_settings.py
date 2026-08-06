@@ -467,6 +467,19 @@ def pod_native_grounding_enabled() -> bool:
     return _bool_from_value(_clean_env("HUSSH_POD_NATIVE_GROUNDING_ENABLED"), default=False)
 
 
+def pod_turn_enabled() -> bool:
+    """Let a POD serve an Agent One turn from its own process.
+
+    Default **OFF**, and this is the switch that first makes a pod run the agent at
+    all -- until it, no module mounted in a pod imported ``hushh_mcp.one_adk``, so a
+    pod was a well-isolated shell with no agent in it.
+
+    Checked together with ``pod_mode()``: on the hub the route must be absent, not
+    merely disabled, because the hub already has a turn route and a second
+    implementation of the same contract is free to drift from it."""
+    return _bool_from_value(_clean_env("HUSSH_POD_TURN_ENABLED"), default=False)
+
+
 def pod_autoheal_enabled() -> bool:
     """Kill-switch for auto-healing an unreachable pod by replacing its service.
 

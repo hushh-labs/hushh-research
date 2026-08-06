@@ -21,10 +21,6 @@ router = APIRouter(tags=["Health"])
 NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 REVIEWER_UID_KEY = "REVIEWER_UID"
 REVIEWER_VAULT_PASSPHRASE_KEY = "REVIEWER_VAULT_PASSPHRASE"  # noqa: S105
-AGENT_MODEL = {
-    "primary": "one",
-    "specialists": ["kai", "nav", "kyc"],
-}
 DEPRECATED_REVIEWER_UID_KEYS = ("UAT_SMOKE_USER_ID", "KAI_TEST_USER_ID")
 DEPRECATED_REVIEWER_PASSPHRASE_KEYS = (  # noqa: S105
     "UAT_SMOKE_PASSPHRASE",
@@ -174,6 +170,44 @@ def health_check():
     return {"status": "ok", "service": "hushh-consent-protocol"}
 
 
+def _agent_roster() -> list[str]:
+    """The agents this process can actually reach, reported rather than claimed.
+
+    Never imports ``one_adk``. A liveness probe that pulled in the ADK would make
+    the cheapest endpoint the most expensive one, and on a pod it would load a
+    runtime the pod may not even be configured to run. The roster is therefore
+    derived from configuration, which is the honest limit of what can be known
+    without paying that cost -- and it is a limit worth stating rather than
+    papering over with a literal.
+    """
+    from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled  # noqa: PLC0415
+
+    if pod_mode():
+        # A pod mounts no agent runtime unless the turn route is enabled. Empty is
+        # the truthful answer, and it is the answer that would have prevented a
+        # fleet document from citing this field as proof of life.
+        return ["one"] if pod_turn_enabled() else []
+    # The hub's roster, taken from the manifest ids the loader actually accepts.
+    # `kyc` has a YAML file that no Python loads and is not in One's tool roster,
+    # so listing it here was a claim with nothing behind it.
+    return ["one", "kai", "nav"]
+
+
+def _agent_model() -> dict:
+    """Primary + specialists, derived from the SAME roster the response reports.
+
+    Previously a separate hardcoded constant, which meant the two fields could
+    disagree -- and they did: it named `kyc` as a specialist while `kyc` is in no
+    roster any code builds. Deriving both from one source makes an inconsistency
+    impossible rather than merely unlikely.
+    """
+    roster = _agent_roster()
+    return {
+        "primary": "one" if "one" in roster else None,
+        "specialists": [name for name in roster if name != "one"],
+    }
+
+
 @router.get("/health")
 def health():
     """Liveness check: is the process up? (Does NOT check dependencies.)
@@ -183,8 +217,19 @@ def health():
     """
     return {
         "status": "healthy",
-        "agents": ["one", "kai", "nav", "kyc"],
-        "agent_model": AGENT_MODEL,
+        # Derived, never asserted. This was a hardcoded ["one","kai","nav","kyc"]
+        # literal, and it was wrong in two directions at once: `kyc` is not in One's
+        # roster (`_load_product_agent_manifest` accepts only {"one","kai"}), and a
+        # POD -- which mounts no agent runtime at all -- reported the same four
+        # names as the hub. A live-validation document then quoted that string as
+        # proof a pod was running agents. It was a 200 on an empty page, and it is
+        # exactly the class of claim this codebase refuses everywhere else.
+        #
+        # `pod_mode()` is checked WITHOUT importing the runtime: a pod must not pay
+        # the ADK import cost on a liveness probe, and reporting an empty roster is
+        # the truthful answer there until the turn route is enabled.
+        "agents": _agent_roster(),
+        "agent_model": _agent_model(),
         "one_runtime": _one_runtime_dependency_evidence(),
     }
 

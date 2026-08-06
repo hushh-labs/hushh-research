@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 _SA_KEY_ENV = "GCP_DEPLOY_SA_KEY_B64"
 _SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
+_INVOKER_ROLE = "roles/run.invoker"
 
 
 def load_operator_credentials(sa_key_b64: Optional[str] = None) -> Any:
@@ -64,6 +65,93 @@ class GcpRunClient:
 
         r = requests.post(f"{self._base}/services", headers=self._headers(), json=body, timeout=60)
         r.raise_for_status()
+        return dict(r.json())
+
+    # -- IAM ---------------------------------------------------------------------
+    #
+    # A pod is created with ``internal`` ingress and NO ``allUsers`` binding, so
+    # nothing can reach it until something is explicitly allowed to. Two modules
+    # already depend on that something existing -- ``pod_relay`` ("the pod SA grants
+    # run.invoker to the hub runtime") and ``pod_key_collector`` -- and until now it
+    # existed in a runbook and nowhere else. The consequence was silent and total: a
+    # freshly created pod was invokable by nobody, so the hub's key pull returned
+    # None, the registry row parked in ``connecting`` forever, and the standing
+    # pkm.read was never minted. Provisioning never completed and never said why.
+    #
+    # IAM lives on the Cloud Run ADMIN v1 surface, not the knative one, so it needs
+    # its own base URL -- ``self._base`` points at
+    # ``/apis/serving.knative.dev/v1/namespaces/{project}`` and there is no IAM verb
+    # under it.
+
+    def _iam_url(self, name: str, verb: str) -> str:
+        return (
+            f"https://{self._region}-run.googleapis.com/v1/projects/{self._project}"
+            f"/locations/{self._region}/services/{name}:{verb}"
+        )
+
+    def get_iam_policy(self, name: str) -> dict[str, Any]:
+        import requests  # type: ignore[import-untyped]
+
+        r = requests.get(self._iam_url(name, "getIamPolicy"), headers=self._headers(), timeout=30)
+        r.raise_for_status()
+        return dict(r.json())
+
+    def set_invoker_binding(self, name: str, member: str) -> dict[str, Any]:
+        """Allow exactly ``member`` to invoke this pod. Read-modify-write, never blind.
+
+        **Read-modify-write, not overwrite.** ``setIamPolicy`` replaces the whole
+        policy, so posting a freshly-built one-binding document would silently drop
+        every other binding on the service -- including any an operator added by
+        hand during an incident. This reads the live policy, adds the member to the
+        existing ``roles/run.invoker`` binding if there is one, and writes the result
+        back carrying ``etag`` so a concurrent change rejects the call instead of
+        being clobbered.
+
+        **Never ``allUsers`` / ``allAuthenticatedUsers``.** The pod's whole security
+        property is that it is not targetable; a public invoker binding would undo
+        it more completely than widening ingress does, because ingress controls
+        *where* a caller may come from and IAM controls *who* they must be. Refused
+        here rather than trusted to the caller, since this is the one function in
+        the codebase that could make a person's private agent world-reachable.
+        """
+        import requests  # type: ignore[import-untyped]
+
+        principal = str(member or "").strip()
+        if not principal:
+            raise RuntimeError("set_invoker_binding requires a member")
+        if principal in ("allUsers", "allAuthenticatedUsers"):
+            raise RuntimeError(
+                f"refusing to grant run.invoker to {principal}: a pod must never be "
+                "publicly invokable"
+            )
+
+        policy = self.get_iam_policy(name)
+        bindings = [dict(b) for b in (policy.get("bindings") or [])]
+        for binding in bindings:
+            if binding.get("role") == _INVOKER_ROLE:
+                members = list(binding.get("members") or [])
+                if principal in members:
+                    # Already granted. Returning without a write keeps provisioning
+                    # idempotent -- a re-provision or a heal must not churn the policy.
+                    logger.info("gcp_run.invoker_already_bound service=%s", name)
+                    return policy
+                members.append(principal)
+                binding["members"] = members
+                break
+        else:
+            bindings.append({"role": _INVOKER_ROLE, "members": [principal]})
+
+        body: dict[str, Any] = {"policy": {"bindings": bindings}}
+        # Carry the etag so this is an optimistic-concurrency update. Without it a
+        # racing writer's change would be overwritten with no error.
+        if policy.get("etag"):
+            body["policy"]["etag"] = policy["etag"]
+
+        r = requests.post(
+            self._iam_url(name, "setIamPolicy"), headers=self._headers(), json=body, timeout=30
+        )
+        r.raise_for_status()
+        logger.info("gcp_run.invoker_bound service=%s", name)
         return dict(r.json())
 
     @staticmethod
