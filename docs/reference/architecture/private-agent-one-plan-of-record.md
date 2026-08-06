@@ -4,9 +4,12 @@
 narrative version of this analysis is written for a wider audience; this file is the
 operating record: the decisions, the ledger, and what is deliberately not being built.
 
-Supersedes nothing. Sits alongside
-[`interface-to-agent-routing.md`](./interface-to-agent-routing.md) (what reaches an agent
-today) and the dev fast-lane runbook (why the fleet is empty).
+**Inherits [`private-agent-north-star.md`](./private-agent-north-star.md) by pointer.**
+That file is the architecture; this one is the execution record against it. Where the two
+disagree, the north star wins and this file is wrong.
+
+Sits alongside [`interface-to-agent-routing.md`](./interface-to-agent-routing.md) (what
+reaches an agent today) and the dev fast-lane runbook (why the fleet is empty).
 
 ## Visual Map
 
@@ -15,11 +18,11 @@ flowchart LR
   subgraph NOW["Today — positional isolation"]
     A["One Cloud Run service<br/>per person"] --> B["Fleet-shared identity"]
     B --> C["proves 'a pod'<br/>never WHICH pod"]
-    A --> D["$38.11/person/month<br/>1000-service ceiling"]
+    A --> D["warm-by-default cost<br/>1000-service ceiling"]
     A --> E["config baked in<br/>memory in-process"]
   end
-  subgraph NEXT["Proposed — cryptographic isolation"]
-    F["Attested stateless worker"] --> G["identity derived from<br/>the software image"]
+  subgraph NEXT["Proposed — cryptographic isolation, still stateful"]
+    F["Attested per-person pod<br/>memory persists"] --> G["identity derived from<br/>the software image"]
     H["Per-person encrypted state"] --> I["sealed to the owner's key"]
     F --> J["scale to zero<br/>no per-person ceiling"]
     G --> K["portable: same agent on<br/>rented cloud or owned hardware"]
@@ -38,11 +41,27 @@ disagreed, which is how several of these were found.
 | **Authority** — consented, scoped, revocable, audited | partial | Signed, scoped, expiring, revocable with immediate fail-closed revocation — genuinely good. But `_first_party_authority` carries `invocation_capabilities` only, so `require_attenuated_authority(information=True)` refuses; signing defaults to **HMAC**, not Ed25519; and the chain over the **primary** consent ledger is parked and flag-off. See the commerce section. |
 | **Identity** — which agent is acting | **absent** | Every pod runs as the same service account. A verified call proves *a* pod is calling, never which. |
 | **Capability** — it does useful things | **absent** | 2 of 12 tools succeed. 3 specialists refuse before doing work — on the hub, today. |
-| **Portability** — runs on hardware the person owns | **absent** | Configuration baked into the image; agent memory in-process, erased on restart. |
-| **Economics** — cost far below value | at risk | $38.11/person/month warm before inference. The economy tier exists and is not the default. |
+| **Persistence** — memory survives restarts and compounds | **absent** | `PodMemoryStore._records: list[SealedMemory] = []` (`pod_memory_service.py:230`), erased on every restart — proven with a two-process probe, not inferred. `PodPkmStore` / `PodCommitLog` are durable, correct, and called by nothing in the agent runtime. **Five independent breaks:** no write trigger, no recall tool, no durable substrate, no runner in a pod that carries a memory service, and no configuration rendered to reach any of it. |
+| **Portability** — runs on hardware the person owns | **absent** | The pod *image* is clean — `Dockerfile.pod` bakes nothing control-plane-specific. The coupling is in the renderer and the deploy script: registry, hub URL, Vertex coordinates and the runtime identity are read from the hub's own ambient environment, and the pod service account is set on the dev lane only. |
+| **Economics** — cost far below value | at risk | Warm tier is the default and costs real money per person per month before any inference. The economy tier exists and is not the default. **See the cost-figure caveat below.** |
 
 **Measured, 2026-08-04 → 08-06:** cold start 3.94 s · idle 211.9 MB · 58% of boot in
 framework import · 1000 services per project per region · gate 1426 passing.
+
+**Cost-figure caveat (correction, 2026-08-06).** An earlier revision of this file stated
+**$38.11/person/month** alongside those measurements, which implied it was one of them. It
+is not. It was arithmetic over published Cloud Run rates for the chosen 500m/1Gi warm
+shape, done in-session, with no derivation committed anywhere and no billing export to
+check it against. The only cost figure that exists **in the code** is
+`gcp_backend.py` — *"~$65/user/month"* at Cloud Run's own 1 vCPU / 512 MiB defaults, cited
+as the reason sizing is chosen explicitly rather than inherited.
+
+Treat the per-person cost as **unverified**. It belongs in the same category as the
+`PLAID_ENV` question: a live read nobody has taken. The right fix is a committed
+derivation script or a billing-export reading, not a tidier number — and until one exists,
+"warm-by-default costs real money per person" is the honest form of the claim. Mixing an
+estimate into a list of measurements is exactly the proxy-verification failure this
+document is about.
 
 **Never happened:** no pod has served a turn, in any environment, for anyone.
 `personal_agent_registry` has never been created in dev.
@@ -65,7 +84,10 @@ This is architectural, not a longer backlog.
 - **Apple's Private Cloud Compute** does not give each person a server. A shared
   **stateless** fleet, trust from **attestation** of the exact software build, a public
   transparency log the client checks before sending anything, and no privileged runtime
-  access. A stronger guarantee than ours, from a cheaper topology.
+  access. **We adopt the attestation and reject the statelessness** — the two are
+  separable, PCC bundles them, and an agent that forgets cannot compound. See
+  [the north star](./private-agent-north-star.md) § *What the stateless environment was,
+  and was not*.
 - **Google's building blocks** solve the same shape: confidential computing with an
   attestation token bound to the image; **SPIFFE/SPIRE** for per-workload cryptographic
   identity — precisely the fix for our weakest link; workload identity federation to
@@ -73,15 +95,24 @@ This is architectural, not a longer backlog.
 
 ### Why this serves the own-hardware north star rather than fighting it
 
-What makes a workload portable is what makes it attestable: stateless compute, encrypted
-state held outside it, identity derived from the software rather than from where it runs.
-A pod built that way runs on rented cloud today and owned hardware tomorrow, unchanged.
-A pod built as ours is cannot move at all.
+What makes a workload portable is what makes it attestable: **encrypted state held outside
+the container**, and identity derived from the software rather than from where it runs. A
+pod built that way runs on rented cloud today and owned hardware tomorrow, unchanged. A pod
+built as ours is cannot move at all.
 
-**Decision D3 (proposed, reversible):** keep the per-person *boundary* as the product
-promise; stop implementing it as a per-person always-on service. Make the boundary
-cryptographic rather than positional. Honest cost: a real rework of the compute layer, on
-the order of a quarter, and the loss of the simplest mental model.
+Note carefully what survives here and what does not. "Encrypted state held outside the
+container" is **correct and load-bearing** — it is the same claim the north star makes, and
+it is what lets a pod scale to zero without amnesia. "Stateless compute" was the error, and
+deleting the whole sentence would have thrown away the finding along with it.
+
+**Decision D3 (revised 2026-08-06, reversible):** keep the per-person *boundary* as the
+product promise **and keep it stateful**. Make the boundary **cryptographic rather than
+positional** — per-pod attested identity, with persistent state sealed outside the
+container so it survives restarts and moves between projects.
+
+The original D3 proposed replacing per-person services with attested *stateless* workers.
+The founder directive of 2026-08-06 withdrew that half; the north star records the
+withdrawal. What remains is the identity half, which was always the stronger part.
 
 ## The method problem, and the practice that replaces it
 
@@ -251,7 +282,7 @@ loop · dashboard insights · BYO-GCP and Anypoint live paths · prompt-sync cli
 per-capability readiness events · reaping (structurally unreachable today) · anything
 requiring a cohort larger than the team, which is blocked on Phase 2.
 
-## The eight actions
+## The actions
 
 1. **First light this week.** One dispatch, one real account, one answered question,
    observed rather than inferred. Nothing else here is worth starting first.

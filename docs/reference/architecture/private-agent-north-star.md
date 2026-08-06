@@ -123,6 +123,41 @@ was not one when the target was a stateless fleet, which is exactly how it went 
 5. **The hussh GCP environment is measured as a simulator.** Its job is to prove upgrades,
    recovery, backup, sync and scale work — not to be the place the product lives.
 
+## Open questions this document does not yet answer
+
+Raised by the lanes that inherit it, on the first cycle after it was written. Recorded
+here rather than resolved silently, because seven lanes each guessing differently is the
+drift this file exists to prevent.
+
+**Q1 — Can a hussh-managed pod hold a durable key at all?** `pod_self_registration.py`
+defines *durable* as storage only that pod's runtime can read, naming the **user's**
+project or attested sealed storage. On hussh-managed GCP neither exists. Read strictly,
+no hussh-hosted pod can ever be persistent — which would make persistence unvalidatable
+on the exact environment this document designates as the simulator.
+
+*Working answer, proceeding under it until overruled:* the validation tier gets a
+**labelled-transitional** carve-out. A hussh-managed pod may hold a durable key in hussh
+Secret Manager **solely to prove the mechanism**, and that is explicitly not the customer
+posture. Anything relying on it must say so where it appears.
+
+**Q2 — Economy-tier-by-default and background-services-between-turns are in tension.** A
+pod at `minScale=0` has no process to run background work in. Asserting both without
+reconciling them means one lane builds an always-on loop and another builds a scheduler,
+both citing this file.
+
+*Working answer:* between-turn work is **event-woken**, not resident. The BYOC bootstrap
+already designs exactly this shape. An always-on loop is not the intended reading.
+
+**Q3 — Is "one isolated pod per person" a required implementation or a required
+property?** The two readings differ by an order of magnitude in economics, because a
+service per person carries a hard platform ceiling that scale-to-zero does **not** relieve
+— the quota counts services, not instances, so a sleeping pod holds a slot exactly like a
+warm one. The only lever that removes the ceiling is the person's own project, which
+reframes BYO-Compute from a sovereignty tier into **the scale path**.
+
+*Not answered here.* It needs a founder decision, and it should be made against a measured
+cost-per-person rather than an estimate.
+
 ## How to use this file
 
 - **Plans and personas** cite it by pointer, per `AGENTS.md`. Do not copy it into a prompt.
