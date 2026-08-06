@@ -11,6 +11,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { AdvisorsNearby } from "@/components/connect/advisors-nearby";
+import { InsuranceAgentsNearby } from "@/components/connect/insurance-agents-nearby";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
@@ -40,10 +41,17 @@ import {
 import { relationshipCta } from "@/lib/connections/relationship-label";
 
 type ConnectTab = "people" | "nearby";
+/** Which directory "Around you" is showing. Both are location-anchored. */
+type NearbyDirectory = "advisors" | "insurance";
 
 const CONNECT_TABS = [
   { value: "people", label: "People" },
   { value: "nearby", label: "Around you" },
+];
+
+const NEARBY_DIRECTORY_TABS = [
+  { value: "advisors", label: "Advisors" },
+  { value: "insurance", label: "Insurance" },
 ];
 
 export default function ConnectPageClient() {
@@ -51,6 +59,8 @@ export default function ConnectPageClient() {
   const router = useRouter();
 
   const [tab, setTab] = useState<ConnectTab>("people");
+  const [nearbyDirectory, setNearbyDirectory] =
+    useState<NearbyDirectory>("advisors");
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, 300);
 
@@ -447,7 +457,20 @@ export default function ConnectPageClient() {
             />
 
             {tab === "nearby" ? (
-              <AdvisorsNearby getIdToken={getIdToken} />
+              <div className="space-y-4">
+                <SegmentedTabs
+                  value={nearbyDirectory}
+                  onValueChange={(value) =>
+                    setNearbyDirectory(value as NearbyDirectory)
+                  }
+                  options={NEARBY_DIRECTORY_TABS}
+                />
+                {nearbyDirectory === "insurance" ? (
+                  <InsuranceAgentsNearby getIdToken={getIdToken} />
+                ) : (
+                  <AdvisorsNearby getIdToken={getIdToken} />
+                )}
+              </div>
             ) : (
               <div className="space-y-4 sm:space-y-5">
             <SettingsGroup

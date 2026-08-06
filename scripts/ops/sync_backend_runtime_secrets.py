@@ -187,24 +187,33 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "hushh_trusted_device_enabled": args.hushh_trusted_device_enabled,
         "hushh_trusted_device_uat_allowlist": args.hushh_trusted_device_uat_allowlist,
         "advisors_api_base_url": args.advisors_api_base_url,
+        "insurance_agents_api_base_url": args.insurance_agents_api_base_url,
     }
     return _drop_empty(config)
 
 
-def _sync_advisors_api_key(args: argparse.Namespace) -> str | None:
-    """Mirror the advisor-directory key from its home project into this lane.
+def _mirror_directory_key(
+    *,
+    target_project: str,
+    target_secret: str,
+    source_project: str,
+    source_secret: str,
+) -> str | None:
+    """Mirror a directory key from its home project into this lane.
 
-    The key lives in one project and is consumed by several. Copying it by hand
-    is exactly what broke UAT: the source rotated and disabled the old version,
-    the hand-made copy did not follow, and the surface began answering 502 with
-    a revoked credential. Re-mirroring on every deploy bounds that drift to a
-    single release instead of forever.
+    These keys live in one project and are consumed by several. Copying one by
+    hand is exactly what broke UAT: the source rotated and disabled the old
+    version, the hand-made copy did not follow, and the surface began answering
+    502 with a revoked credential. Re-mirroring on every deploy bounds that
+    drift to a single release instead of forever.
 
     A lane without read access to the source simply gets nothing, and the
-    feature stays inert there rather than failing the deploy.
+    feature stays inert there rather than failing the deploy. That is a real
+    state, not a theoretical one — read access is a per-secret grant in the home
+    project and does not come with any lane's own project-level roles.
     """
-    source_project = str(args.advisors_api_key_source_project or "").strip()
-    source_secret = str(args.advisors_api_key_source_secret or "").strip()
+    source_project = str(source_project or "").strip()
+    source_secret = str(source_secret or "").strip()
     if not (source_project and source_secret):
         return None
 
@@ -212,13 +221,13 @@ def _sync_advisors_api_key(args: argparse.Namespace) -> str | None:
     if not value:
         return None
 
-    if _read_secret(args.project, "ADVISORS_API_KEY") == value:
+    if _read_secret(target_project, target_secret) == value:
         # The shared upsert helper adds a version unconditionally; skipping the
         # write keeps a no-op deploy from minting a secret version each time.
-        return "ADVISORS_API_KEY (unchanged)"
+        return f"{target_secret} (unchanged)"
 
-    _upsert_secret(args.project, "ADVISORS_API_KEY", value)
-    return "ADVISORS_API_KEY (rotated)"
+    _upsert_secret(target_project, target_secret, value)
+    return f"{target_secret} (rotated)"
 
 
 def _upsert_secret(project: str, secret: str, value: str) -> None:
@@ -274,13 +283,40 @@ def main() -> int:
     # is mirrored rather than copied by hand — see _sync_advisors_api_key.
     parser.add_argument("--advisors-api-key-source-project", default="hushh-tech-prod")
     parser.add_argument("--advisors-api-key-source-secret", default="brokercheck-api-key")
+    # Insurance agent directory. Same split as the advisor directory directly
+    # above: a non-secret base URL in the generated runtime config, and a bearer
+    # key mirrored from the project that owns it.
+    parser.add_argument("--insurance-agents-api-base-url", default="")
+    parser.add_argument(
+        "--insurance-agents-api-key-source-project", default="hushh-tech-prod"
+    )
+    parser.add_argument(
+        "--insurance-agents-api-key-source-secret", default="insurance-agents-api-key"
+    )
     args = parser.parse_args()
 
     sync_summary: list[str] = []
 
-    advisors_key_status = _sync_advisors_api_key(args)
-    if advisors_key_status:
-        sync_summary.append(advisors_key_status)
+    for target_secret, source_project, source_secret in (
+        (
+            "ADVISORS_API_KEY",
+            args.advisors_api_key_source_project,
+            args.advisors_api_key_source_secret,
+        ),
+        (
+            "INSURANCE_AGENTS_API_KEY",
+            args.insurance_agents_api_key_source_project,
+            args.insurance_agents_api_key_source_secret,
+        ),
+    ):
+        status = _mirror_directory_key(
+            target_project=args.project,
+            target_secret=target_secret,
+            source_project=source_project,
+            source_secret=source_secret,
+        )
+        if status:
+            sync_summary.append(status)
 
     for canonical_name, fallback_names in LEGACY_SECRET_FALLBACKS.items():
         if canonical_name in {

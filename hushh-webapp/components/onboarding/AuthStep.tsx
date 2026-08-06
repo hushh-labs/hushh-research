@@ -693,6 +693,10 @@ export function AuthStep({
               action: provider,
               result: "success",
             });
+            // Welcome on the first sign-in, welcome back afterwards. The server
+            // decides which; this is the one point per sign-in that asks. It is
+            // never awaited — navigation must not wait on a mail.
+            void ApiService.notifyAuthMail("signed_in", { idToken });
             if (growthJourney) {
               trackGrowthFunnelStepCompleted({
                 journey: growthJourney,

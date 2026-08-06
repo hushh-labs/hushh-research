@@ -133,7 +133,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/setup",
       width: "content",
       align: "center",
-      items: [{ label: "Set up", href: "/one/setup" }, { label: "Kai" }],
+      items: [{ label: "Set up", href: "/one/setup" }, { label: "Finance" }],
     });
 
     // No origin → Kai home still falls back to One home (unchanged behavior).
@@ -141,7 +141,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one",
       width: "content",
       align: "center",
-      items: [{ label: "One", href: "/one" }, { label: "Kai" }],
+      items: [{ label: "One", href: "/one" }, { label: "Finance" }],
     });
 
     // Unsafe origins are rejected → One home fallback.

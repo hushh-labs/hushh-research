@@ -611,6 +611,7 @@ export function OneSetupHub() {
           open={vaultDialogOpen}
           onOpenChange={setVaultDialogOpen}
           dismissible={false}
+          enableGeneratedDefault
           title="Set up your private vault"
           description="Create a private place for the details you choose to save."
           onSuccess={() => undefined}

@@ -65,6 +65,27 @@ def _sign_handle_body(raw: str) -> str:
     return hmac.new(APP_SIGNING_KEY.encode(), raw.encode(), hashlib.sha256).hexdigest()
 
 
+def subject_ref(*, subscriber_id: str, user_id: str) -> str:
+    """A stable pseudonym for one owner, scoped to one subscriber.
+
+    A subscriber genuinely needs to recognise the same person across repeat
+    reads - otherwise it cannot apply a preference it was granted. It does not
+    need to know WHICH person, and it must not be able to compare notes with
+    another subscriber.
+
+    So the reference is keyed on the pair. The same human presents a different
+    reference to every brand, and two brands holding grants from the same person
+    cannot join their records on it. Reversing it requires APP_SIGNING_KEY.
+
+    The subscriber id is length-prefixed rather than merely delimited: without
+    that, ("acme", "b:carol") and ("acme:b", "carol") would hash identically, and
+    two different people could end up sharing one reference.
+    """
+    material = f"{len(subscriber_id)}:{subscriber_id}:{user_id}"
+    digest = hmac.new(APP_SIGNING_KEY.encode(), material.encode(), hashlib.sha256)
+    return f"sub_{digest.hexdigest()[:32]}"
+
+
 def mint_handle(
     *,
     grant_id: str,
@@ -409,12 +430,28 @@ class FabricGrantService:
                     purpose=grant["purpose"],
                 )
         result = {
-            "user_id": user_id,
+            # NOT the owner's uid. The pairing handshake exists so a brand never
+            # learns who the person is; returning the raw Firebase uid handed it
+            # over on every read, and gave any two brands holding grants from the
+            # same person a shared key to join on. See subject_ref().
+            "subject_ref": subject_ref(subscriber_id=subscriber_id, user_id=user_id),
             "subscriber_id": subscriber_id,
             "grant_id": grant["grant_id"],
             "scopes": _as_list(grant["scopes"]),
             "fields": projected,
-            "receipt": receipt,
+            # The subscriber's proof that this read was recorded - and no more.
+            # `seq` and `prev_hash` are the OWNER's position in their own single
+            # receipt chain, shared across every grant they hold. Handing those
+            # out lets two subscribers who read the same person moments apart see
+            # adjacent sequence numbers and join on them - the same correlation
+            # subject_ref exists to prevent. The owner sees the full chain on
+            # their own ledger, where it belongs.
+            "receipt": {
+                "event_type": receipt["event_type"],
+                "hash": receipt["hash"],
+                "signature": receipt["signature"],
+                "created_at_ms": receipt["created_at_ms"],
+            },
         }
         if privacy_signals is not None:
             result["privacy_signals"] = privacy_signals

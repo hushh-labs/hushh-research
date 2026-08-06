@@ -1,0 +1,2178 @@
+{
+  "pchp": "RFC-002",
+  "registry": "preference-subscription-fabric",
+  "version": "0.5.0",
+  "updated": "2026-07-28",
+  "note": "The canonical scope registry for the Preference Subscription Fabric. Draft, published in the open. Grants are always field-level and per-subscriber; scopes marked sensitive:true must be requested individually, never bundled. Every scope carries a tier that governs what may EVER happen to it: tier 4 (intimate) is never auctionable at any price and is grantable only to a named counterparty for a named purpose. The human can revoke any grant at any time, fabric-wide.",
+  "tiers": {
+    "0": "open - coarse, disclosed free on a first handshake",
+    "1": "signal - consent state, machine-readable, bundleable",
+    "2": "commercial - segments, intent and affinity; priced, bundleable, auctionable",
+    "3": "sensitive - requested individually, never bundled; priced only to a named counterparty for a named purpose, never open auction",
+    "4": "intimate - never auctionable at any price; granted only to a named human or institution, time-boxed and revocable"
+  },
+  "roots": {
+    "profile": "The coarse qualifying bundle, disclosed free on a first handshake - an age band, sex, and a general area. Never a birthdate, never a street or ZIP.",
+    "privacy": "Consent state every site legally needs - the wedge that replaces the cookie banner, plus the US state privacy rights a person can exercise.",
+    "prefs": "How to serve this person well - sizes, formats, channels, constraints.",
+    "wants": "What this person is in the market for right now - the demand side of the 🤫 Yellow Pages, named to match its professions.",
+    "favorites": "The things this person loves - published by them, subscribable at their terms.",
+    "life": "Substantive facts about this person's life - health, money, work, family, learning. Never bundled; granted to a named counterparty for a named purpose.",
+    "story": "This person's own words, memory and lived experience. Never auctionable at any price."
+  },
+  "purposes": [
+    {
+      "purpose": "hospitality.stay",
+      "label": "Look after me during my stay",
+      "audience": "A hotel, resort or host you are staying with",
+      "ask": "So we can have your room the way you like it before you arrive.",
+      "ttlDays": 14,
+      "scopes": [
+        "profile.region",
+        "prefs.communication.channel",
+        "prefs.communication.language",
+        "prefs.service.name-preference",
+        "prefs.service.pronouns",
+        "prefs.service.tone",
+        "prefs.service.contact-style",
+        "prefs.stay.bed",
+        "prefs.stay.floor",
+        "prefs.stay.room-position",
+        "prefs.stay.temperature",
+        "prefs.stay.pillow",
+        "prefs.stay.early-check-in",
+        "prefs.stay.late-check-out",
+        "prefs.stay.housekeeping-daily",
+        "prefs.stay.wake-up",
+        "prefs.stay.amenities",
+        "prefs.stay.occasion",
+        "prefs.stay.arrival-mode",
+        "prefs.stay.quiet-hours"
+      ],
+      "confirm": [
+        "prefs.food.allergies",
+        "prefs.food.dietary",
+        "prefs.accessibility.needs"
+      ]
+    },
+    {
+      "purpose": "hospitality.dining",
+      "label": "Get my table right",
+      "audience": "A restaurant, bar or room-service team",
+      "ask": "So the kitchen and the floor know what suits you before you sit down.",
+      "ttlDays": 7,
+      "scopes": [
+        "prefs.dining.seating",
+        "prefs.dining.pace",
+        "prefs.dining.avoid-ingredients",
+        "prefs.dining.alcohol-free",
+        "prefs.dining.usual-order",
+        "prefs.food.dislikes",
+        "prefs.food.spice",
+        "prefs.service.name-preference",
+        "prefs.service.tone",
+        "favorites.cuisines"
+      ],
+      "confirm": [
+        "prefs.food.allergies",
+        "prefs.food.dietary"
+      ]
+    },
+    {
+      "purpose": "concierge.assist",
+      "label": "Help me get something done",
+      "audience": "A concierge or assistant acting on your behalf",
+      "ask": "So they can act for you without asking you the same questions twice.",
+      "ttlDays": 30,
+      "scopes": [
+        "profile.region",
+        "prefs.communication.channel",
+        "prefs.communication.language",
+        "prefs.communication.window",
+        "prefs.commerce.price-band",
+        "prefs.commerce.delivery",
+        "prefs.travel.seat",
+        "prefs.travel.cabin",
+        "prefs.travel.loyalty-programs",
+        "prefs.service.name-preference",
+        "prefs.service.tone",
+        "prefs.service.contact-style"
+      ],
+      "confirm": [
+        "prefs.accessibility.needs",
+        "prefs.food.allergies"
+      ]
+    },
+    {
+      "purpose": "retail.fit",
+      "label": "Send me things that fit",
+      "audience": "A shop or brand you buy from",
+      "ask": "So what arrives is your size the first time.",
+      "ttlDays": 180,
+      "scopes": [
+        "prefs.apparel.shoe-size",
+        "prefs.apparel.top-size",
+        "prefs.apparel.bottom-size",
+        "prefs.apparel.fit",
+        "prefs.apparel.avoid-materials",
+        "prefs.commerce.price-band",
+        "prefs.commerce.delivery",
+        "prefs.commerce.secondhand-ok",
+        "favorites.brands"
+      ],
+      "confirm": []
+    },
+    {
+      "purpose": "advertising.consent",
+      "label": "Respect my privacy settings",
+      "audience": "Any site, app or brand",
+      "ask": "So you never have to answer a cookie banner again.",
+      "ttlDays": 365,
+      "scopes": [
+        "privacy.analytics",
+        "privacy.ads",
+        "privacy.ads-user-data",
+        "privacy.ads-personalization",
+        "privacy.personalization",
+        "privacy.email-marketing",
+        "privacy.sale-opt-out",
+        "privacy.share-opt-out",
+        "privacy.sensitive-processing-limit",
+        "privacy.profiling-opt-out",
+        "privacy.health-data-opt-out",
+        "privacy.gpc",
+        "privacy.training-opt-out"
+      ],
+      "confirm": []
+    },
+    {
+      "purpose": "local.connect",
+      "label": "Connect me to someone local who can help",
+      "audience": "A local professional or their agent",
+      "ask": "So the right person nearby can reach you about the thing you asked for.",
+      "ttlDays": 30,
+      "scopes": [
+        "profile.region",
+        "prefs.communication.channel",
+        "prefs.communication.window"
+      ],
+      "confirm": [
+        "wants.zip"
+      ]
+    },
+    {
+      "purpose": "care.coordinate",
+      "label": "Help my care team look after me",
+      "audience": "A clinician or care coordinator you name",
+      "ask": "So the people treating you are working from the same facts.",
+      "ttlDays": 90,
+      "scopes": [
+        "prefs.communication.channel",
+        "prefs.communication.language",
+        "prefs.service.name-preference",
+        "prefs.service.pronouns"
+      ],
+      "confirm": [
+        "life.health.conditions",
+        "life.health.medications",
+        "life.health.allergies",
+        "life.health.care-team",
+        "life.health.devices",
+        "life.health.accessibility",
+        "life.health.emergency-contacts",
+        "life.health.blood-type"
+      ]
+    },
+    {
+      "purpose": "money.advise",
+      "label": "Advise me properly",
+      "audience": "A financial professional you name",
+      "ask": "So advice is based on your actual situation, not a guess.",
+      "ttlDays": 180,
+      "scopes": [
+        "profile.region",
+        "prefs.communication.channel",
+        "prefs.communication.window"
+      ],
+      "confirm": [
+        "life.money.goals",
+        "life.money.risk-tolerance",
+        "life.money.income-band",
+        "life.money.obligations",
+        "life.money.advisors",
+        "life.family.household-size",
+        "life.family.relationship-status",
+        "life.family.has-children"
+      ]
+    }
+  ],
+  "scopes": [
+    {
+      "scope": "profile.age-band",
+      "type": "enum",
+      "values": [
+        "under-18",
+        "18-24",
+        "25-34",
+        "35-44",
+        "45-54",
+        "55-64",
+        "65-plus"
+      ],
+      "label": "Your age range",
+      "tier": 0,
+      "iab": "Demographic > Age"
+    },
+    {
+      "scope": "profile.sex",
+      "type": "enum",
+      "values": [
+        "female",
+        "male",
+        "other",
+        "prefer-not-to-say"
+      ],
+      "label": "Your sex",
+      "tier": 0,
+      "iab": "Demographic > Gender"
+    },
+    {
+      "scope": "profile.region",
+      "type": "string",
+      "label": "Your general area - city or region, never a street or ZIP",
+      "tier": 0
+    },
+    {
+      "scope": "privacy.analytics",
+      "type": "boolean",
+      "label": "Allow analytics measurement",
+      "tier": 1,
+      "consentMode": "analytics_storage"
+    },
+    {
+      "scope": "privacy.ads",
+      "type": "boolean",
+      "label": "Allow advertising storage",
+      "tier": 1,
+      "consentMode": "ad_storage"
+    },
+    {
+      "scope": "privacy.ads-user-data",
+      "type": "boolean",
+      "label": "Allow my data to be sent for advertising",
+      "tier": 1,
+      "consentMode": "ad_user_data"
+    },
+    {
+      "scope": "privacy.ads-personalization",
+      "type": "boolean",
+      "label": "Allow personalized advertising",
+      "tier": 1,
+      "consentMode": "ad_personalization"
+    },
+    {
+      "scope": "privacy.personalization",
+      "type": "boolean",
+      "label": "Allow personalized content and recommendations",
+      "tier": 1,
+      "consentMode": "personalization_storage"
+    },
+    {
+      "scope": "privacy.email-marketing",
+      "type": "boolean",
+      "label": "Allow marketing email",
+      "tier": 1
+    },
+    {
+      "scope": "privacy.sale-opt-out",
+      "type": "boolean",
+      "label": "Do not sell my personal information",
+      "tier": 1,
+      "note": "CCPA/CPRA right; GPP US national"
+    },
+    {
+      "scope": "privacy.share-opt-out",
+      "type": "boolean",
+      "label": "Do not share my personal information for cross-context behavioral advertising",
+      "tier": 1,
+      "note": "CPRA"
+    },
+    {
+      "scope": "privacy.sensitive-processing-limit",
+      "type": "boolean",
+      "label": "Limit use of my sensitive personal information",
+      "tier": 1,
+      "note": "CPRA right to limit"
+    },
+    {
+      "scope": "privacy.profiling-opt-out",
+      "type": "boolean",
+      "label": "Do not profile me for decisions with legal or significant effects",
+      "tier": 1,
+      "note": "CO/CT/VA profiling opt-out"
+    },
+    {
+      "scope": "privacy.health-data-opt-out",
+      "type": "boolean",
+      "label": "Do not collect or share my consumer health data",
+      "tier": 1,
+      "note": "WA My Health My Data, NV SB370"
+    },
+    {
+      "scope": "privacy.gpc",
+      "type": "boolean",
+      "label": "Honour Global Privacy Control",
+      "tier": 1,
+      "note": "read-only browser signal"
+    },
+    {
+      "scope": "privacy.training-opt-out",
+      "type": "boolean",
+      "label": "Do not use my data to train models",
+      "tier": 1
+    },
+    {
+      "scope": "prefs.communication.channel",
+      "type": "enum",
+      "values": [
+        "email",
+        "sms",
+        "phone",
+        "push",
+        "post",
+        "none"
+      ],
+      "label": "How to reach you",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.communication.language",
+      "type": "string",
+      "label": "Preferred language",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.communication.timezone",
+      "type": "string",
+      "label": "Your timezone",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.communication.frequency",
+      "type": "enum",
+      "values": [
+        "daily",
+        "weekly",
+        "monthly",
+        "only-when-important"
+      ],
+      "label": "How often to contact you",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.communication.window",
+      "type": "enum",
+      "values": [
+        "morning",
+        "afternoon",
+        "evening",
+        "weekends",
+        "business-hours"
+      ],
+      "label": "When it is fine to reach you",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.apparel.shoe-size",
+      "type": "string",
+      "label": "Shoe size",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.apparel.top-size",
+      "type": "string",
+      "label": "Top size",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.apparel.bottom-size",
+      "type": "string",
+      "label": "Bottom size",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.apparel.fit",
+      "type": "enum",
+      "values": [
+        "slim",
+        "regular",
+        "relaxed",
+        "oversized"
+      ],
+      "label": "Preferred fit",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.apparel.avoid-materials",
+      "type": "list",
+      "label": "Materials to avoid",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.food.dietary",
+      "type": "list",
+      "label": "Dietary requirements",
+      "tier": 3,
+      "sensitive": true,
+      "note": "can disclose religion or a medical condition"
+    },
+    {
+      "scope": "prefs.food.allergies",
+      "type": "list",
+      "label": "Food allergies",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "prefs.food.dislikes",
+      "type": "list",
+      "label": "Foods you would rather not be offered",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.food.spice",
+      "type": "enum",
+      "values": [
+        "none",
+        "mild",
+        "medium",
+        "hot"
+      ],
+      "label": "Spice tolerance",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.accessibility.needs",
+      "type": "list",
+      "label": "Accessibility needs",
+      "tier": 3,
+      "sensitive": true,
+      "note": "discloses disability"
+    },
+    {
+      "scope": "prefs.accessibility.text-size",
+      "type": "enum",
+      "values": [
+        "default",
+        "large",
+        "largest"
+      ],
+      "label": "Preferred text size",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "prefs.accessibility.reduce-motion",
+      "type": "boolean",
+      "label": "Reduce motion",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "prefs.accessibility.captions",
+      "type": "boolean",
+      "label": "Always show captions",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "prefs.commerce.price-band",
+      "type": "enum",
+      "values": [
+        "value",
+        "mid",
+        "premium",
+        "luxury"
+      ],
+      "label": "Where you like to shop on price",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.commerce.delivery",
+      "type": "enum",
+      "values": [
+        "fastest",
+        "cheapest",
+        "greenest",
+        "pickup"
+      ],
+      "label": "How you like things delivered",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.commerce.secondhand-ok",
+      "type": "boolean",
+      "label": "Open to secondhand or refurbished",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.commerce.payment-methods",
+      "type": "list",
+      "label": "Payment methods you prefer",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.content.reading-level",
+      "type": "enum",
+      "values": [
+        "plain",
+        "standard",
+        "technical"
+      ],
+      "label": "How you like things explained",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.content.long-form-ok",
+      "type": "boolean",
+      "label": "Happy with long-form detail",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.content.avoid-topics",
+      "type": "list",
+      "label": "Topics to keep away from",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "prefs.travel.seat",
+      "type": "enum",
+      "values": [
+        "aisle",
+        "window",
+        "no-preference"
+      ],
+      "label": "Seat preference",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.travel.cabin",
+      "type": "enum",
+      "values": [
+        "economy",
+        "premium-economy",
+        "business",
+        "first"
+      ],
+      "label": "Cabin preference",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.travel.loyalty-programs",
+      "type": "list",
+      "label": "Loyalty programmes you hold",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.home.tenure",
+      "type": "enum",
+      "values": [
+        "own",
+        "rent",
+        "other"
+      ],
+      "label": "Do you own or rent",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.work.arrangement",
+      "type": "enum",
+      "values": [
+        "onsite",
+        "hybrid",
+        "remote"
+      ],
+      "label": "How you work",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.stay.bed",
+      "type": "enum",
+      "values": [
+        "king",
+        "queen",
+        "twin",
+        "no-preference"
+      ],
+      "label": "Bed preference",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.stay.floor",
+      "type": "enum",
+      "values": [
+        "low",
+        "high",
+        "no-preference"
+      ],
+      "label": "Floor preference",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.stay.room-position",
+      "type": "enum",
+      "values": [
+        "quiet",
+        "view",
+        "near-lift",
+        "away-from-lift",
+        "no-preference"
+      ],
+      "label": "Where you like the room",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.stay.temperature",
+      "type": "enum",
+      "values": [
+        "cool",
+        "neutral",
+        "warm"
+      ],
+      "label": "Room temperature",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.stay.pillow",
+      "type": "enum",
+      "values": [
+        "soft",
+        "firm",
+        "hypoallergenic",
+        "no-preference"
+      ],
+      "label": "Pillow preference",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.stay.early-check-in",
+      "type": "boolean",
+      "label": "Prefers early check-in when available",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.stay.late-check-out",
+      "type": "boolean",
+      "label": "Prefers late check-out when available",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.stay.housekeeping-daily",
+      "type": "boolean",
+      "label": "Wants daily housekeeping",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.stay.wake-up",
+      "type": "enum",
+      "values": [
+        "none",
+        "early",
+        "mid",
+        "late"
+      ],
+      "label": "Wake-up call preference",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.stay.amenities",
+      "type": "list",
+      "label": "Amenities that matter to you",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.stay.occasion",
+      "type": "string",
+      "label": "Anything you are celebrating",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.stay.arrival-mode",
+      "type": "enum",
+      "values": [
+        "car",
+        "taxi",
+        "transfer",
+        "walk",
+        "public-transport"
+      ],
+      "label": "How you usually arrive",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.stay.quiet-hours",
+      "type": "boolean",
+      "label": "Please do not disturb outside agreed hours",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.dining.seating",
+      "type": "enum",
+      "values": [
+        "booth",
+        "table",
+        "bar",
+        "outside",
+        "quiet-corner"
+      ],
+      "label": "Where you like to sit",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.dining.pace",
+      "type": "enum",
+      "values": [
+        "quick",
+        "relaxed",
+        "no-preference"
+      ],
+      "label": "How you like a meal paced",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.dining.avoid-ingredients",
+      "type": "list",
+      "label": "Ingredients to keep off the plate",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.dining.alcohol-free",
+      "type": "boolean",
+      "label": "Please do not offer alcohol",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.dining.usual-order",
+      "type": "string",
+      "label": "Your usual",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.service.contact-style",
+      "type": "enum",
+      "values": [
+        "proactive",
+        "on-request",
+        "minimal"
+      ],
+      "label": "How much you like to be checked on",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.service.tone",
+      "type": "enum",
+      "values": [
+        "formal",
+        "warm",
+        "brief"
+      ],
+      "label": "How you like to be spoken to",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.service.name-preference",
+      "type": "string",
+      "label": "What to call you",
+      "tier": 2
+    },
+    {
+      "scope": "prefs.service.pronouns",
+      "type": "list",
+      "label": "Your pronouns",
+      "tier": 2
+    },
+    {
+      "scope": "wants.money.advisor",
+      "type": "boolean",
+      "label": "Looking for a financial adviser",
+      "tier": 2,
+      "iab": "Purchase Intent > Financial Services"
+    },
+    {
+      "scope": "wants.money.tax-help",
+      "type": "boolean",
+      "label": "Looking for tax help",
+      "tier": 2,
+      "iab": "Purchase Intent > Financial Services"
+    },
+    {
+      "scope": "wants.money.accountant",
+      "type": "boolean",
+      "label": "Looking for an accountant",
+      "tier": 2,
+      "iab": "Purchase Intent > Financial Services"
+    },
+    {
+      "scope": "wants.money.mortgage",
+      "type": "boolean",
+      "label": "Looking for a mortgage",
+      "tier": 2,
+      "iab": "Purchase Intent > Financial Services"
+    },
+    {
+      "scope": "wants.money.refinance",
+      "type": "boolean",
+      "label": "Looking for to refinance",
+      "tier": 2,
+      "iab": "Purchase Intent > Financial Services"
+    },
+    {
+      "scope": "wants.money.retirement-planning",
+      "type": "boolean",
+      "label": "Looking for retirement planning",
+      "tier": 2,
+      "iab": "Purchase Intent > Financial Services"
+    },
+    {
+      "scope": "wants.money.estate-planning",
+      "type": "boolean",
+      "label": "Looking for estate planning",
+      "tier": 2,
+      "iab": "Purchase Intent > Financial Services"
+    },
+    {
+      "scope": "wants.money.banking",
+      "type": "boolean",
+      "label": "Looking for a new bank or credit union",
+      "tier": 2,
+      "iab": "Purchase Intent > Financial Services"
+    },
+    {
+      "scope": "wants.money.credit-card",
+      "type": "boolean",
+      "label": "Looking for a credit card",
+      "tier": 2,
+      "iab": "Purchase Intent > Financial Services"
+    },
+    {
+      "scope": "wants.money.student-loans",
+      "type": "boolean",
+      "label": "Looking for help with student loans",
+      "tier": 2,
+      "iab": "Purchase Intent > Financial Services"
+    },
+    {
+      "scope": "wants.money.debt-help",
+      "type": "boolean",
+      "label": "Looking for help with debt",
+      "tier": 2,
+      "iab": "Purchase Intent > Financial Services"
+    },
+    {
+      "scope": "wants.money.bill-assistance",
+      "type": "boolean",
+      "label": "Looking for help paying bills",
+      "tier": 2,
+      "iab": "Purchase Intent > Financial Services"
+    },
+    {
+      "scope": "wants.insurance.auto",
+      "type": "boolean",
+      "label": "Looking for auto insurance",
+      "tier": 2,
+      "iab": "Purchase Intent > Insurance"
+    },
+    {
+      "scope": "wants.insurance.home",
+      "type": "boolean",
+      "label": "Looking for home insurance",
+      "tier": 2,
+      "iab": "Purchase Intent > Insurance"
+    },
+    {
+      "scope": "wants.insurance.renters",
+      "type": "boolean",
+      "label": "Looking for renters insurance",
+      "tier": 2,
+      "iab": "Purchase Intent > Insurance"
+    },
+    {
+      "scope": "wants.insurance.life",
+      "type": "boolean",
+      "label": "Looking for life insurance",
+      "tier": 2,
+      "iab": "Purchase Intent > Insurance"
+    },
+    {
+      "scope": "wants.insurance.health",
+      "type": "boolean",
+      "label": "Looking for health insurance",
+      "tier": 2,
+      "iab": "Purchase Intent > Insurance"
+    },
+    {
+      "scope": "wants.insurance.disability",
+      "type": "boolean",
+      "label": "Looking for disability insurance",
+      "tier": 2,
+      "iab": "Purchase Intent > Insurance"
+    },
+    {
+      "scope": "wants.insurance.long-term-care",
+      "type": "boolean",
+      "label": "Looking for long-term care insurance",
+      "tier": 2,
+      "iab": "Purchase Intent > Insurance"
+    },
+    {
+      "scope": "wants.insurance.pet",
+      "type": "boolean",
+      "label": "Looking for pet insurance",
+      "tier": 2,
+      "iab": "Purchase Intent > Insurance"
+    },
+    {
+      "scope": "wants.insurance.business",
+      "type": "boolean",
+      "label": "Looking for business insurance",
+      "tier": 2,
+      "iab": "Purchase Intent > Insurance"
+    },
+    {
+      "scope": "wants.health.doctor",
+      "type": "boolean",
+      "label": "Looking for a doctor",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Health"
+    },
+    {
+      "scope": "wants.health.dentist",
+      "type": "boolean",
+      "label": "Looking for a dentist",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Health"
+    },
+    {
+      "scope": "wants.health.therapist",
+      "type": "boolean",
+      "label": "Looking for a therapist",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Health"
+    },
+    {
+      "scope": "wants.health.chiropractor",
+      "type": "boolean",
+      "label": "Looking for a chiropractor",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Health"
+    },
+    {
+      "scope": "wants.health.physical-therapist",
+      "type": "boolean",
+      "label": "Looking for a physical therapist",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Health"
+    },
+    {
+      "scope": "wants.health.eye-care",
+      "type": "boolean",
+      "label": "Looking for eye care",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Health"
+    },
+    {
+      "scope": "wants.health.massage",
+      "type": "boolean",
+      "label": "Looking for massage therapy",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Health"
+    },
+    {
+      "scope": "wants.health.acupuncturist",
+      "type": "boolean",
+      "label": "Looking for an acupuncturist",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Health"
+    },
+    {
+      "scope": "wants.health.pediatrician",
+      "type": "boolean",
+      "label": "Looking for a paediatrician",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Health"
+    },
+    {
+      "scope": "wants.health.dermatologist",
+      "type": "boolean",
+      "label": "Looking for a dermatologist",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Health"
+    },
+    {
+      "scope": "wants.health.podiatrist",
+      "type": "boolean",
+      "label": "Looking for a podiatrist",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Health"
+    },
+    {
+      "scope": "wants.health.nutritionist",
+      "type": "boolean",
+      "label": "Looking for a nutritionist",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Health"
+    },
+    {
+      "scope": "wants.health.urgent-care",
+      "type": "boolean",
+      "label": "Looking for urgent care",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Health"
+    },
+    {
+      "scope": "wants.health.second-opinion",
+      "type": "boolean",
+      "label": "Looking for a second opinion",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Health"
+    },
+    {
+      "scope": "wants.legal.attorney",
+      "type": "boolean",
+      "label": "Looking for an attorney",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Legal"
+    },
+    {
+      "scope": "wants.legal.family-law",
+      "type": "boolean",
+      "label": "Looking for family law help",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Legal"
+    },
+    {
+      "scope": "wants.legal.immigration-help",
+      "type": "boolean",
+      "label": "Looking for immigration help",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Legal"
+    },
+    {
+      "scope": "wants.legal.estate-attorney",
+      "type": "boolean",
+      "label": "Looking for an estate attorney",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Legal"
+    },
+    {
+      "scope": "wants.legal.employment-law",
+      "type": "boolean",
+      "label": "Looking for employment law help",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Purchase Intent > Legal"
+    },
+    {
+      "scope": "wants.family.childcare",
+      "type": "boolean",
+      "label": "Looking for childcare",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "wants.family.elder-care",
+      "type": "boolean",
+      "label": "Looking for elder care",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "wants.family.tutor",
+      "type": "boolean",
+      "label": "Looking for a tutor",
+      "tier": 2
+    },
+    {
+      "scope": "wants.family.pet-care",
+      "type": "boolean",
+      "label": "Looking for pet care",
+      "tier": 2
+    },
+    {
+      "scope": "wants.home.contractor",
+      "type": "boolean",
+      "label": "Looking for a contractor",
+      "tier": 2,
+      "iab": "Purchase Intent > Home"
+    },
+    {
+      "scope": "wants.home.plumber",
+      "type": "boolean",
+      "label": "Looking for a plumber",
+      "tier": 2,
+      "iab": "Purchase Intent > Home"
+    },
+    {
+      "scope": "wants.home.electrician",
+      "type": "boolean",
+      "label": "Looking for an electrician",
+      "tier": 2,
+      "iab": "Purchase Intent > Home"
+    },
+    {
+      "scope": "wants.home.hvac",
+      "type": "boolean",
+      "label": "Looking for heating or cooling work",
+      "tier": 2,
+      "iab": "Purchase Intent > Home"
+    },
+    {
+      "scope": "wants.home.roofer",
+      "type": "boolean",
+      "label": "Looking for a roofer",
+      "tier": 2,
+      "iab": "Purchase Intent > Home"
+    },
+    {
+      "scope": "wants.home.landscaper",
+      "type": "boolean",
+      "label": "Looking for a landscaper",
+      "tier": 2,
+      "iab": "Purchase Intent > Home"
+    },
+    {
+      "scope": "wants.home.cleaner",
+      "type": "boolean",
+      "label": "Looking for a cleaner",
+      "tier": 2,
+      "iab": "Purchase Intent > Home"
+    },
+    {
+      "scope": "wants.home.mover",
+      "type": "boolean",
+      "label": "Looking for a mover",
+      "tier": 2,
+      "iab": "Purchase Intent > Home"
+    },
+    {
+      "scope": "wants.home.interior-design",
+      "type": "boolean",
+      "label": "Looking for interior design",
+      "tier": 2,
+      "iab": "Purchase Intent > Home"
+    },
+    {
+      "scope": "wants.home.solar",
+      "type": "boolean",
+      "label": "Looking for solar installation",
+      "tier": 2,
+      "iab": "Purchase Intent > Home"
+    },
+    {
+      "scope": "wants.home.home-security",
+      "type": "boolean",
+      "label": "Looking for home security",
+      "tier": 2,
+      "iab": "Purchase Intent > Home"
+    },
+    {
+      "scope": "wants.auto.new-vehicle",
+      "type": "boolean",
+      "label": "Looking for a new vehicle",
+      "tier": 2,
+      "iab": "Purchase Intent > Automotive"
+    },
+    {
+      "scope": "wants.auto.used-vehicle",
+      "type": "boolean",
+      "label": "Looking for a used vehicle",
+      "tier": 2,
+      "iab": "Purchase Intent > Automotive"
+    },
+    {
+      "scope": "wants.auto.ev",
+      "type": "boolean",
+      "label": "Looking for an electric vehicle",
+      "tier": 2,
+      "iab": "Purchase Intent > Automotive"
+    },
+    {
+      "scope": "wants.auto.repair",
+      "type": "boolean",
+      "label": "Looking for vehicle repair",
+      "tier": 2,
+      "iab": "Purchase Intent > Automotive"
+    },
+    {
+      "scope": "wants.auto.tyres",
+      "type": "boolean",
+      "label": "Looking for tyres",
+      "tier": 2,
+      "iab": "Purchase Intent > Automotive"
+    },
+    {
+      "scope": "wants.auto.detailing",
+      "type": "boolean",
+      "label": "Looking for detailing",
+      "tier": 2,
+      "iab": "Purchase Intent > Automotive"
+    },
+    {
+      "scope": "wants.property.buy-home",
+      "type": "boolean",
+      "label": "Looking for to buy a home",
+      "tier": 2,
+      "iab": "Purchase Intent > Real Estate"
+    },
+    {
+      "scope": "wants.property.sell-home",
+      "type": "boolean",
+      "label": "Looking for to sell a home",
+      "tier": 2,
+      "iab": "Purchase Intent > Real Estate"
+    },
+    {
+      "scope": "wants.property.rent",
+      "type": "boolean",
+      "label": "Looking for to rent",
+      "tier": 2,
+      "iab": "Purchase Intent > Real Estate"
+    },
+    {
+      "scope": "wants.property.realtor",
+      "type": "boolean",
+      "label": "Looking for an estate agent",
+      "tier": 2,
+      "iab": "Purchase Intent > Real Estate"
+    },
+    {
+      "scope": "wants.property.property-manager",
+      "type": "boolean",
+      "label": "Looking for a property manager",
+      "tier": 2,
+      "iab": "Purchase Intent > Real Estate"
+    },
+    {
+      "scope": "wants.work.job",
+      "type": "boolean",
+      "label": "Looking for a new role",
+      "tier": 2,
+      "iab": "Purchase Intent > Careers"
+    },
+    {
+      "scope": "wants.work.career-coach",
+      "type": "boolean",
+      "label": "Looking for a career coach",
+      "tier": 2,
+      "iab": "Purchase Intent > Careers"
+    },
+    {
+      "scope": "wants.work.training",
+      "type": "boolean",
+      "label": "Looking for training or certification",
+      "tier": 2,
+      "iab": "Purchase Intent > Careers"
+    },
+    {
+      "scope": "wants.work.resume-help",
+      "type": "boolean",
+      "label": "Looking for help with a CV",
+      "tier": 2,
+      "iab": "Purchase Intent > Careers"
+    },
+    {
+      "scope": "wants.work.freelance",
+      "type": "boolean",
+      "label": "Looking for freelance work",
+      "tier": 2,
+      "iab": "Purchase Intent > Careers"
+    },
+    {
+      "scope": "wants.learning.course",
+      "type": "boolean",
+      "label": "Looking for a course",
+      "tier": 2,
+      "iab": "Purchase Intent > Education"
+    },
+    {
+      "scope": "wants.learning.degree-program",
+      "type": "boolean",
+      "label": "Looking for a degree programme",
+      "tier": 2,
+      "iab": "Purchase Intent > Education"
+    },
+    {
+      "scope": "wants.learning.language-learning",
+      "type": "boolean",
+      "label": "Looking for to learn a language",
+      "tier": 2,
+      "iab": "Purchase Intent > Education"
+    },
+    {
+      "scope": "wants.learning.music-lessons",
+      "type": "boolean",
+      "label": "Looking for music lessons",
+      "tier": 2,
+      "iab": "Purchase Intent > Education"
+    },
+    {
+      "scope": "wants.learning.test-prep",
+      "type": "boolean",
+      "label": "Looking for test preparation",
+      "tier": 2,
+      "iab": "Purchase Intent > Education"
+    },
+    {
+      "scope": "wants.travel.flight",
+      "type": "boolean",
+      "label": "Looking for a flight",
+      "tier": 2,
+      "iab": "Purchase Intent > Travel"
+    },
+    {
+      "scope": "wants.travel.hotel",
+      "type": "boolean",
+      "label": "Looking for a hotel",
+      "tier": 2,
+      "iab": "Purchase Intent > Travel"
+    },
+    {
+      "scope": "wants.travel.holiday",
+      "type": "boolean",
+      "label": "Looking for a holiday",
+      "tier": 2,
+      "iab": "Purchase Intent > Travel"
+    },
+    {
+      "scope": "wants.travel.car-hire",
+      "type": "boolean",
+      "label": "Looking for car hire",
+      "tier": 2,
+      "iab": "Purchase Intent > Travel"
+    },
+    {
+      "scope": "wants.travel.cruise",
+      "type": "boolean",
+      "label": "Looking for a cruise",
+      "tier": 2,
+      "iab": "Purchase Intent > Travel"
+    },
+    {
+      "scope": "wants.travel.travel-agent",
+      "type": "boolean",
+      "label": "Looking for a travel agent",
+      "tier": 2,
+      "iab": "Purchase Intent > Travel"
+    },
+    {
+      "scope": "wants.business.bookkeeper",
+      "type": "boolean",
+      "label": "Looking for a bookkeeper",
+      "tier": 2,
+      "iab": "Purchase Intent > Business"
+    },
+    {
+      "scope": "wants.business.marketing-help",
+      "type": "boolean",
+      "label": "Looking for marketing help",
+      "tier": 2,
+      "iab": "Purchase Intent > Business"
+    },
+    {
+      "scope": "wants.business.web-development",
+      "type": "boolean",
+      "label": "Looking for web development",
+      "tier": 2,
+      "iab": "Purchase Intent > Business"
+    },
+    {
+      "scope": "wants.business.it-support",
+      "type": "boolean",
+      "label": "Looking for IT support",
+      "tier": 2,
+      "iab": "Purchase Intent > Business"
+    },
+    {
+      "scope": "wants.business.hiring",
+      "type": "boolean",
+      "label": "Looking for to hire someone",
+      "tier": 2,
+      "iab": "Purchase Intent > Business"
+    },
+    {
+      "scope": "wants.business.office-space",
+      "type": "boolean",
+      "label": "Looking for office space",
+      "tier": 2,
+      "iab": "Purchase Intent > Business"
+    },
+    {
+      "scope": "wants.business.business-loan",
+      "type": "boolean",
+      "label": "Looking for a business loan",
+      "tier": 2,
+      "iab": "Purchase Intent > Business"
+    },
+    {
+      "scope": "wants.community.volunteer",
+      "type": "boolean",
+      "label": "Looking for to volunteer",
+      "tier": 2
+    },
+    {
+      "scope": "wants.community.donate",
+      "type": "boolean",
+      "label": "Looking for to donate",
+      "tier": 2
+    },
+    {
+      "scope": "wants.community.food-assistance",
+      "type": "boolean",
+      "label": "Looking for food assistance",
+      "tier": 2
+    },
+    {
+      "scope": "wants.community.housing-assistance",
+      "type": "boolean",
+      "label": "Looking for housing assistance",
+      "tier": 2
+    },
+    {
+      "scope": "wants.community.utility-assistance",
+      "type": "boolean",
+      "label": "Looking for help with utilities",
+      "tier": 2
+    },
+    {
+      "scope": "wants.community.veteran-services",
+      "type": "boolean",
+      "label": "Looking for veteran services",
+      "tier": 2
+    },
+    {
+      "scope": "wants.community.faith-community",
+      "type": "boolean",
+      "label": "Looking for a faith community",
+      "tier": 2
+    },
+    {
+      "scope": "privacy.marketing-email",
+      "type": "boolean",
+      "label": "Email you about offers and news",
+      "tier": 1,
+      "note": "deprecated - prefer privacy.email-marketing, still honoured"
+    },
+    {
+      "scope": "privacy.marketing-sms",
+      "type": "boolean",
+      "label": "Text you about offers",
+      "tier": 1,
+      "note": "deprecated, still honoured"
+    },
+    {
+      "scope": "privacy.data-sale",
+      "type": "boolean",
+      "label": "Sell or share your data (CCPA)",
+      "tier": 1,
+      "note": "deprecated - prefer privacy.sale-opt-out, still honoured"
+    },
+    {
+      "scope": "prefs.apparel.sizes",
+      "type": "string",
+      "label": "Clothing sizes",
+      "tier": 2,
+      "note": "deprecated - prefer prefs.apparel.top-size / bottom-size, still honoured"
+    },
+    {
+      "scope": "prefs.food.cuisines",
+      "type": "list",
+      "label": "Favorite cuisines",
+      "tier": 2,
+      "note": "deprecated - prefer favorites.cuisines, still honoured"
+    },
+    {
+      "scope": "prefs.home.delivery-window",
+      "type": "string",
+      "label": "Best delivery window",
+      "tier": 2,
+      "note": "deprecated, still honoured"
+    },
+    {
+      "scope": "prefs.home.access-notes",
+      "type": "string",
+      "label": "Delivery and access notes",
+      "tier": 3,
+      "sensitive": true,
+      "note": "deprecated, still honoured"
+    },
+    {
+      "scope": "prefs.travel.hotel-floor",
+      "type": "enum",
+      "values": [
+        "low",
+        "high",
+        "no-preference"
+      ],
+      "label": "Hotel floor preference",
+      "tier": 2,
+      "note": "deprecated, still honoured"
+    },
+    {
+      "scope": "prefs.budget.tier",
+      "type": "enum",
+      "label": "Typical spending tier",
+      "tier": 2,
+      "note": "deprecated - prefer prefs.commerce.price-band, still honoured",
+      "values": [
+        "value",
+        "mid",
+        "premium",
+        "luxury"
+      ]
+    },
+    {
+      "scope": "wants.home-services.plumber",
+      "type": "boolean",
+      "label": "Looking for a plumber",
+      "tier": 2,
+      "note": "deprecated - prefer wants.home.plumber, still honoured"
+    },
+    {
+      "scope": "wants.home-services.electrician",
+      "type": "boolean",
+      "label": "Looking for an electrician",
+      "tier": 2,
+      "note": "deprecated - prefer wants.home.electrician, still honoured"
+    },
+    {
+      "scope": "wants.home-services.hvac",
+      "type": "boolean",
+      "label": "Looking for heating/cooling help",
+      "tier": 2,
+      "note": "deprecated - prefer wants.home.hvac, still honoured"
+    },
+    {
+      "scope": "wants.home-services.cleaner",
+      "type": "boolean",
+      "label": "Looking for a housekeeper or cleaner",
+      "tier": 2,
+      "note": "deprecated - prefer wants.home.cleaner, still honoured"
+    },
+    {
+      "scope": "wants.home-services.gardener",
+      "type": "boolean",
+      "label": "Looking for a gardener or lawn care",
+      "tier": 2,
+      "note": "deprecated - prefer wants.home.gardener, still honoured"
+    },
+    {
+      "scope": "wants.home-services.pool",
+      "type": "boolean",
+      "label": "Looking for pool care",
+      "tier": 2,
+      "note": "deprecated - prefer wants.home.pool, still honoured"
+    },
+    {
+      "scope": "wants.home-services.contractor",
+      "type": "boolean",
+      "label": "Looking for a renovation or build",
+      "tier": 2,
+      "note": "deprecated - prefer wants.home.contractor, still honoured"
+    },
+    {
+      "scope": "wants.money.cpa",
+      "type": "boolean",
+      "label": "Looking for a CPA or tax help",
+      "tier": 2,
+      "note": "deprecated - prefer wants.money.accountant, still honoured"
+    },
+    {
+      "scope": "wants.money.insurance",
+      "type": "boolean",
+      "label": "Shopping for insurance",
+      "tier": 2,
+      "note": "deprecated - prefer wants.insurance.*, still honoured"
+    },
+    {
+      "scope": "wants.personal-care.salon",
+      "type": "boolean",
+      "label": "Looking for a salon or barber",
+      "tier": 2,
+      "note": "deprecated, still honoured"
+    },
+    {
+      "scope": "wants.auto.technician",
+      "type": "boolean",
+      "label": "Looking for a car technician",
+      "tier": 2,
+      "note": "deprecated - prefer wants.auto.repair, still honoured"
+    },
+    {
+      "scope": "wants.zip",
+      "type": "string",
+      "label": "The ZIP code where you need it",
+      "tier": 3,
+      "sensitive": true,
+      "note": "deprecated, still honoured"
+    },
+    {
+      "scope": "wants.financial-services",
+      "type": "boolean",
+      "label": "Looking for financial services",
+      "tier": 2,
+      "note": "deprecated - prefer wants.money.advisor, still honoured"
+    },
+    {
+      "scope": "favorites.brands",
+      "type": "list",
+      "label": "Brands you love",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.artists",
+      "type": "list",
+      "label": "Musicians and artists you love",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.teams",
+      "type": "list",
+      "label": "Teams you follow",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.creators",
+      "type": "list",
+      "label": "Creators you follow",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.places",
+      "type": "list",
+      "label": "Places you love",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.things",
+      "type": "list",
+      "label": "Things you love",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.books",
+      "type": "list",
+      "label": "Books you love",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.films",
+      "type": "list",
+      "label": "Films and shows you love",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.games",
+      "type": "list",
+      "label": "Games you love",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.podcasts",
+      "type": "list",
+      "label": "Podcasts you follow",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.cuisines",
+      "type": "list",
+      "label": "Cuisines you love",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.sports",
+      "type": "list",
+      "label": "Sports you follow",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.charities",
+      "type": "list",
+      "label": "Causes and charities you support",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.hobbies",
+      "type": "list",
+      "label": "Hobbies and pastimes",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.publications",
+      "type": "list",
+      "label": "Publications you read",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "favorites.tools",
+      "type": "list",
+      "label": "Tools and software you swear by",
+      "tier": 2,
+      "iab": "Interest"
+    },
+    {
+      "scope": "life.health.conditions",
+      "type": "list",
+      "label": "Conditions you live with",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.health.medications",
+      "type": "list",
+      "label": "Medications you take",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.health.allergies",
+      "type": "list",
+      "label": "Allergies",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.health.care-team",
+      "type": "list",
+      "label": "Your care team",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.health.blood-type",
+      "type": "enum",
+      "values": [
+        "a-pos",
+        "a-neg",
+        "b-pos",
+        "b-neg",
+        "ab-pos",
+        "ab-neg",
+        "o-pos",
+        "o-neg",
+        "unknown"
+      ],
+      "label": "Blood type",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.health.devices",
+      "type": "list",
+      "label": "Medical devices you use",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.health.organ-donor",
+      "type": "boolean",
+      "label": "Registered organ donor",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.health.emergency-contacts",
+      "type": "list",
+      "label": "Emergency contacts",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.health.accessibility",
+      "type": "list",
+      "label": "Long-term accessibility needs",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.health.activity-level",
+      "type": "enum",
+      "values": [
+        "sedentary",
+        "light",
+        "moderate",
+        "active",
+        "athlete"
+      ],
+      "label": "Activity level",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.health.goals",
+      "type": "list",
+      "label": "Health goals you are working towards",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.money.goals",
+      "type": "list",
+      "label": "Financial goals",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.money.risk-tolerance",
+      "type": "enum",
+      "values": [
+        "conservative",
+        "balanced",
+        "growth",
+        "aggressive"
+      ],
+      "label": "Investment risk tolerance",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.money.income-band",
+      "type": "enum",
+      "values": [
+        "under-25k",
+        "25-50k",
+        "50-100k",
+        "100-200k",
+        "200-500k",
+        "500k-plus",
+        "prefer-not-to-say"
+      ],
+      "label": "Household income band",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Demographic > Income"
+    },
+    {
+      "scope": "life.money.obligations",
+      "type": "list",
+      "label": "Regular obligations you are managing",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.money.assistance-eligible",
+      "type": "boolean",
+      "label": "Receiving or eligible for assistance",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.money.advisors",
+      "type": "list",
+      "label": "Your financial professionals",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.work.skills",
+      "type": "list",
+      "label": "Skills you have",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.work.credentials",
+      "type": "list",
+      "label": "Credentials and licences you hold",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.work.role",
+      "type": "string",
+      "label": "What you do",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Demographic > Occupation"
+    },
+    {
+      "scope": "life.work.industry",
+      "type": "string",
+      "label": "Industry you work in",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.work.experience-band",
+      "type": "enum",
+      "values": [
+        "student",
+        "0-2",
+        "3-5",
+        "6-10",
+        "11-20",
+        "20-plus"
+      ],
+      "label": "Years of experience",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.work.veteran",
+      "type": "boolean",
+      "label": "You served in the armed forces",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.work.languages",
+      "type": "list",
+      "label": "Languages you work in",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.family.household-size",
+      "type": "enum",
+      "values": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5-plus"
+      ],
+      "label": "Household size",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Demographic > Household Size"
+    },
+    {
+      "scope": "life.family.has-children",
+      "type": "boolean",
+      "label": "You have children",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Demographic > Parental Status"
+    },
+    {
+      "scope": "life.family.relationship-status",
+      "type": "enum",
+      "values": [
+        "single",
+        "partnered",
+        "married",
+        "separated",
+        "widowed",
+        "prefer-not-to-say"
+      ],
+      "label": "Relationship status",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Demographic > Marital Status"
+    },
+    {
+      "scope": "life.family.caring-for",
+      "type": "list",
+      "label": "People you care for",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.family.pets",
+      "type": "list",
+      "label": "Pets in your household",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.learning.studying",
+      "type": "list",
+      "label": "What you are learning",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "life.learning.education-level",
+      "type": "enum",
+      "values": [
+        "school",
+        "some-college",
+        "bachelors",
+        "masters",
+        "doctorate",
+        "vocational",
+        "prefer-not-to-say"
+      ],
+      "label": "Education level",
+      "tier": 3,
+      "sensitive": true,
+      "iab": "Demographic > Education"
+    },
+    {
+      "scope": "life.learning.interests",
+      "type": "list",
+      "label": "Subjects you are curious about",
+      "tier": 3,
+      "sensitive": true
+    },
+    {
+      "scope": "story.journal.entries",
+      "type": "list",
+      "label": "Your journal",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.journal.reflections",
+      "type": "list",
+      "label": "Reflections you have written",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.journal.gratitude",
+      "type": "list",
+      "label": "What you are grateful for",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.experience.lived",
+      "type": "list",
+      "label": "Experiences that shaped you",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.experience.successes",
+      "type": "list",
+      "label": "What you are proud of",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.experience.hardships",
+      "type": "list",
+      "label": "Hard things you have come through",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.experience.trauma",
+      "type": "list",
+      "label": "Trauma you carry",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.mind.mental-health",
+      "type": "list",
+      "label": "Your mental health",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.mind.therapy-notes",
+      "type": "list",
+      "label": "Notes from your own therapy",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.mind.coping",
+      "type": "list",
+      "label": "What helps you cope",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.mind.triggers",
+      "type": "list",
+      "label": "Things that are hard for you",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.relationships.people",
+      "type": "list",
+      "label": "People who matter to you",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.relationships.treatment",
+      "type": "list",
+      "label": "How you have been treated",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.relationships.boundaries",
+      "type": "list",
+      "label": "Boundaries you hold",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.knowledge.expertise",
+      "type": "list",
+      "label": "What you know deeply",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.knowledge.lessons",
+      "type": "list",
+      "label": "Lessons you have learned",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.values.beliefs",
+      "type": "list",
+      "label": "What you believe",
+      "tier": 4,
+      "sensitive": true
+    },
+    {
+      "scope": "story.values.purpose",
+      "type": "list",
+      "label": "What you are trying to build",
+      "tier": 4,
+      "sensitive": true
+    }
+  ]
+}

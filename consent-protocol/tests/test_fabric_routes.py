@@ -270,12 +270,14 @@ def _subscriber_app(agent_id: str = _SUBSCRIBER) -> FastAPI:
 
 def test_subscriber_read_returns_only_granted_fields():
     result = {
-        "user_id": _UID,
+        # Deliberately not the owner's uid, and the receipt is deliberately
+        # missing seq/prev_hash - see test_fabric_subject_ref.py for why.
+        "subject_ref": "sub_0123456789abcdef0123456789abcdef",
         "subscriber_id": _SUBSCRIBER,
         "grant_id": "g1",
         "scopes": ["wants.money.advisor"],
         "fields": {"connect.want": "wants.money.advisor", "connect.zip": "98033"},
-        "receipt": {"seq": 2, "hash": "h2", "event_type": "READ"},
+        "receipt": {"hash": "h2", "event_type": "READ"},
     }
     with patch.object(fabric, "get_fabric_grant_service") as factory:
         factory.return_value.read_for_subscriber = AsyncMock(return_value=result)

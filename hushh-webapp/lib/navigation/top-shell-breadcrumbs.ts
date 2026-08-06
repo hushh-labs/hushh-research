@@ -127,7 +127,7 @@ function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.CONSENTS]: "Consent Center",
     [ROUTES.ONE_FEED]: "Feed",
     [ROUTES.ONE_KYC]: "KYC",
-    [KAI_MARKET_PATH]: "Kai",
+    [KAI_MARKET_PATH]: "Finance",
     [ROUTES.CONNECT]: "Connect",
   };
   return labels[path] ?? "One";
@@ -312,7 +312,7 @@ function resolveTopShellBreadcrumbInner(
         width: "content",
         align: "center",
         items: [
-          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Finance", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: ticker ? `${ticker} run` : "Saved run" },
         ],
@@ -325,7 +325,7 @@ function resolveTopShellBreadcrumbInner(
         width: "content",
         align: "center",
         items: [
-          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Finance", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: ticker ? `${ticker} live` : "Active run" },
         ],
@@ -338,7 +338,7 @@ function resolveTopShellBreadcrumbInner(
         width: "content",
         align: "center",
         items: [
-          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Finance", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: `${ticker} preview` },
         ],
@@ -351,7 +351,7 @@ function resolveTopShellBreadcrumbInner(
         width: "content",
         align: "center",
         items: [
-          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Finance", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: "Debate" },
         ],
@@ -364,7 +364,7 @@ function resolveTopShellBreadcrumbInner(
       backHref: ROUTES.ONE_HOME,
       width: "content",
       align: "center",
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Kai" }],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Finance" }],
     };
   }
 
@@ -385,7 +385,7 @@ function resolveTopShellBreadcrumbInner(
         fromSetup
           ? { label: "Set up", href: ROUTES.ONE_SETUP }
           : { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Kai" },
+        { label: "Finance" },
       ],
     };
   }
