@@ -48,7 +48,9 @@ def enabled(monkeypatch):
 
 
 def _consent_ok(monkeypatch, user_id="u1"):
-    async def _validate(_token):
+    # `verifier` is the injectable seam the turn route threads to the consent
+    # authority client; a stub without it diverges from the real call site.
+    async def _validate(_token, *, verifier=None):
         return {"user_id": user_id, "scope": "pkm.read"}
 
     monkeypatch.setattr(pod_turn, "_validate_consent", _validate)
@@ -93,7 +95,7 @@ async def test_an_unverifiable_token_refuses_and_never_runs_the_turn(enabled, mo
         ran["yes"] = True
         yield _Event("token", "should never happen")
 
-    async def _reject(_token):
+    async def _reject(_token, *, verifier=None):
         raise HTTPException(status_code=403, detail="consent token is not valid here")
 
     monkeypatch.setattr(pod_turn, "_validate_consent", _reject)
@@ -106,7 +108,7 @@ async def test_an_unverifiable_token_refuses_and_never_runs_the_turn(enabled, mo
 
 
 async def test_a_token_with_no_owner_is_refused(enabled, monkeypatch):
-    async def _validate(_token):
+    async def _validate(_token, *, verifier=None):
         return {"user_id": "", "scope": "pkm.read"}
 
     monkeypatch.setattr(pod_turn, "_validate_consent", _validate)
