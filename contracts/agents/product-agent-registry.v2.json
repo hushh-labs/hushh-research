@@ -657,7 +657,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "aa6ccc1582cbb5bcce347c19513ad06a574ad4a3543259d891ee68f4be993ef6",
+      "system_instruction_sha256": "54ef3a3212a0e7511f7b5524e56de3e1cecafb9a78463f846b1d70482c1f5e71",
       "telemetry_namespace": "agent.kai",
       "tools": [
         {
