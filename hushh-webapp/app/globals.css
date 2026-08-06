@@ -2702,6 +2702,29 @@ html.native-ios {
     background-color: transparent !important;
   }
 
+  /* Onboarding "pin your entrance" picker reuses the SAME native
+   * @capacitor/google-maps renderer as Your Map (the browser JS SDK is rejected
+   * inside the App:// WebView). That native map view draws BELOW the WebView, so
+   * every layer above the picker's map box — the Radix dialog sheet, its overlay,
+   * and the map surface itself — must be transparent for the map to show through
+   * while the picker is mounted (the picker toggles `one-location-map-native`).
+   * The pin, "Selected spot" card, and buttons keep their own backgrounds and
+   * stay readable on top. Scoped to the save-location modal so no other dialog
+   * is affected. */
+  html.one-location-map-native [data-testid="save-location-modal"],
+  html.one-location-map-native
+    [data-testid="save-location-modal"]
+    .one-location-picker-native-surface,
+  html.one-location-map-native
+    [data-testid="save-location-modal"]
+    capacitor-google-map {
+    background: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
   html {
     overflow-x: hidden;
   }
