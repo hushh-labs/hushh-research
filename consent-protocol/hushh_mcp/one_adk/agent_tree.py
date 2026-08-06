@@ -72,16 +72,58 @@ ONE_APP_NAME = "hussh_one"
 _AGENTS_ROOT = Path(__file__).resolve().parents[1] / "agents"
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=1)
+def _product_agent_manifest_index() -> tuple[dict[str, Path], tuple[str, ...]]:
+    """Map each authored manifest's OWN declared id to its path.
+
+    Keyed on the id the manifest DECLARES, not on the directory it happens to sit
+    in. Those two have never matched: every directory is ``email`` / ``kyc`` /
+    ``one`` while every id is ``agent_email`` / ``agent_kyc`` / ``agent_one``.
+
+    The loader this replaces keyed on the DIRECTORY name and hard-coded an
+    allowlist of ``{"one", "kai"}``, so the set of agents this module could see
+    was a literal maintained by hand. That is the same shape as the
+    ``["one","kai","nav","kyc"]`` roster literal in ``/health`` -- which reported
+    four agents from a pod that was running none, and was then quoted back as
+    proof the pod worked. A hand-maintained list of what exists is a claim, not a
+    reading, and this file now takes the reading.
+
+    The scan itself lives on ``ManifestLoader`` -- next to the code that parses
+    these files, rather than here where it would be a second place that knows how
+    a manifest is laid out on disk. Only the top-level ``id`` is read; full
+    validation stays in ``ManifestLoader.load``, on the manifest actually
+    requested, so one malformed file cannot take down the whole tree at import.
+    16 of these 18 manifests are not loaded by One at all, and a typo in one of
+    those must not break the other seventeen.
+
+    A file that cannot be read is NOT silently dropped: it is returned in the
+    second element and named in the error a failed lookup raises, because "that
+    agent does not exist" and "that agent's manifest is broken" are different
+    problems and only one of them is a typo in the caller.
+    """
+    index, unreadable = ManifestLoader.index_ids(str(_AGENTS_ROOT))
+    for directory in unreadable:
+        logger.warning("agent_manifest.unreadable dir=%s", directory)
+    return {agent_id: Path(path) for agent_id, path in index.items()}, unreadable
+
+
 def _load_product_agent_manifest(agent_id: str) -> AgentManifestV2:
-    """Load the authored AgentManifestV2; Python builders are projections only."""
-    if agent_id not in {"one", "kai"}:
-        raise ValueError(f"Unsupported product-agent manifest: {agent_id}")
-    return ManifestLoader.load(str(_AGENTS_ROOT / agent_id / "agent.yaml"))
+    """Load the authored AgentManifestV2 by its declared id.
+
+    Python builders are projections of the manifest, never the other way round.
+    """
+    index, unreadable = _product_agent_manifest_index()
+    path = index.get(agent_id)
+    if path is None:
+        detail = f"known={sorted(index)}"
+        if unreadable:
+            detail += f" unreadable={list(unreadable)}"
+        raise ValueError(f"Unknown product-agent manifest: {agent_id} ({detail})")
+    return ManifestLoader.load(str(path))
 
 
-_ONE_MANIFEST = _load_product_agent_manifest("one")
-_KAI_MANIFEST = _load_product_agent_manifest("kai")
+_ONE_MANIFEST = _load_product_agent_manifest("agent_one")
+_KAI_MANIFEST = _load_product_agent_manifest("agent_kai")
 
 # Session-state keys the relay seeds before the first turn. Tools read them
 # via tool_context.state; the model neither sees nor supplies them.

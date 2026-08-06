@@ -228,3 +228,42 @@ class ManifestLoader:
             return AgentManifestV2.model_validate(data)
         except (ValidationError, TypeError) as exc:
             raise ValueError(f"Invalid manifest data from '{source}': {exc}") from exc
+
+    @staticmethod
+    def index_ids(root: str) -> tuple[dict[str, str], tuple[str, ...]]:
+        """Map every ``<root>/*/agent.yaml``'s DECLARED id to its path.
+
+        Callers used to reach a manifest by the name of the directory it sits in,
+        which has never been the same string as the id inside it: every directory
+        is ``email`` / ``kyc`` / ``one`` while every declared id is
+        ``agent_email`` / ``agent_kyc`` / ``agent_one``. Reading the id from the
+        manifest is what makes "which agents exist" an observation rather than a
+        list someone maintains by hand.
+
+        Deliberately reads ONLY the top-level ``id``, and does not validate.
+        Full validation stays in :meth:`load`, on the manifest a caller actually
+        asks for, so one malformed file cannot take down every consumer of this
+        index -- most callers use two of these manifests and must not inherit the
+        failure modes of the other sixteen.
+
+        Returns ``(index, unreadable)``. A file whose id cannot be read is NOT
+        silently dropped: its directory name is returned in ``unreadable`` so the
+        caller can say "that manifest is broken" instead of "no such agent".
+        """
+        index: dict[str, str] = {}
+        unreadable: list[str] = []
+        for entry in sorted(os.listdir(root)):
+            path = os.path.join(root, entry, "agent.yaml")
+            if not os.path.exists(path):
+                continue
+            try:
+                with open(path, encoding="utf-8") as manifest_file:
+                    data = yaml.safe_load(manifest_file)
+                declared = str((data or {}).get("id") or "").strip()
+            except (OSError, yaml.YAMLError, AttributeError):
+                declared = ""
+            if not declared:
+                unreadable.append(entry)
+                continue
+            index[declared] = path
+        return index, tuple(unreadable)
