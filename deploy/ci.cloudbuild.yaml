@@ -181,11 +181,21 @@ steps:
 
   # Step 4: publish the verdict back to GitHub as a check-run.
   #
-  # This is the step that actually unblocks a release. Every deploy and release
-  # workflow gates on a check named exactly "Main Post-Merge Smoke Gate" via
-  # scripts/ci/require-deploy-sha-on-main.sh, so a green Cloud Build that is
-  # never reported to GitHub does not unblock anything. Runs only when
-  # _PUBLISH_CHECK=true and a token secret is available.
+  # Every deploy and release workflow gates on a check named exactly
+  # "Main Post-Merge Smoke Gate" via scripts/ci/require-deploy-sha-on-main.sh,
+  # which reads /commits/<sha>/check-runs. A green Cloud Build that is never
+  # reported to GitHub therefore unblocks nothing.
+  #
+  # IMPORTANT LIMITATION, PROVEN 2026-08-06: the create-check-run API is
+  # GitHub-App-only. A personal access token returns
+  #   403 "You must authenticate via a GitHub App."
+  # no matter its scopes. The commit-status API does accept a PAT, but the
+  # deploy gate does not read statuses, so a status will not satisfy it.
+  #
+  # So _GITHUB_TOKEN_SECRET must hold an INSTALLATION token for a GitHub App
+  # with checks:write. If you do not have one, do not fight this step -- the
+  # supported recovery is to dispatch main-post-merge-smoke.yml for the SHA,
+  # which publishes the real check under the real name.
   - name: "python:3.13-bookworm"
     id: "publish-github-check"
     entrypoint: "bash"
@@ -232,8 +242,21 @@ steps:
             },
             method="POST",
         )
-        with urllib.request.urlopen(req) as resp:
-            print(f"Published check-run '{name}' for {sha}: HTTP {resp.status}")
+        try:
+            with urllib.request.urlopen(req) as resp:
+                print(f"Published check-run '{name}' for {sha}: HTTP {resp.status}")
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", "replace")
+            print(f"Could not publish the check-run: HTTP {exc.code} {body}", flush=True)
+            if exc.code == 403 and "GitHub App" in body:
+                print(
+                    "The token is not a GitHub App installation token. Check-runs "
+                    "cannot be created with a personal access token at any scope.\n"
+                    "Recover instead by dispatching the smoke workflow for this SHA:\n"
+                    f"  gh workflow run main-post-merge-smoke.yml --ref main -f sha={sha}",
+                    flush=True,
+                )
+            raise SystemExit(1)
         PY
     env:
       - "_CHECK_NAME=${_CHECK_NAME}"
