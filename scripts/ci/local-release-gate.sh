@@ -89,11 +89,30 @@ fi
 # stand behind.
 CI_NODE_MAJOR="$(grep -oE 'NODE_VERSION:[[:space:]]*"?[0-9]+' .github/workflows/ci.yml 2>/dev/null \
   | head -1 | grep -oE '[0-9]+$' || echo 24)"
+node_major_of() { "$1" -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0; }
+
 if command -v node >/dev/null 2>&1; then
-  LOCAL_NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+  LOCAL_NODE_MAJOR="$(node_major_of node)"
 else
   LOCAL_NODE_MAJOR=0
 fi
+
+# Find a matching Node rather than telling the operator to go fix their machine.
+# nvm keeps every installed version in a predictable place, so if CI's major is
+# already installed we can just use it for this run without touching the shell's
+# default or the operator's other projects.
+if [[ "$LOCAL_NODE_MAJOR" != "$CI_NODE_MAJOR" ]]; then
+  for candidate in "${NVM_DIR:-$HOME/.nvm}/versions/node/v${CI_NODE_MAJOR}."*/bin; do
+    if [[ -x "${candidate}/node" ]] && [[ "$(node_major_of "${candidate}/node")" == "$CI_NODE_MAJOR" ]]; then
+      export PATH="${candidate}:${PATH}"
+      LOCAL_NODE_MAJOR="$CI_NODE_MAJOR"
+      printf '\033[0;90m[gate] Using Node %s from %s to match CI.\033[0m\n' \
+        "$(node --version)" "$candidate"
+      break
+    fi
+  done
+fi
+
 if [[ "$LOCAL_NODE_MAJOR" != "$CI_NODE_MAJOR" ]]; then
   # Match the whole value: ${var/0/none} would rewrite the 0 inside "20".
   if [[ "$LOCAL_NODE_MAJOR" == "0" ]]; then NODE_LABEL="not found"; else NODE_LABEL="$LOCAL_NODE_MAJOR"; fi
@@ -101,8 +120,10 @@ if [[ "$LOCAL_NODE_MAJOR" != "$CI_NODE_MAJOR" ]]; then
     "$NODE_LABEL" "$CI_NODE_MAJOR" >&2
   echo "Node 20 truncates captured stdout at 8192 bytes, which makes the MCP" >&2
   echo "package tests fail on a truncated manifest rather than on real defects." >&2
-  echo "A verdict from the wrong runtime is worse than no verdict. Switch first:" >&2
-  echo "  nvm use ${CI_NODE_MAJOR}     # or: fnm use ${CI_NODE_MAJOR}" >&2
+  echo "A verdict from the wrong runtime is worse than no verdict." >&2
+  echo "No Node ${CI_NODE_MAJOR} was found to borrow, so install it once:" >&2
+  echo "  nvm install ${CI_NODE_MAJOR}     # or: fnm install ${CI_NODE_MAJOR}" >&2
+  echo "The gate will then pick it up automatically; your default Node is untouched." >&2
   echo "Set GATE_ALLOW_NODE_SKEW=1 to proceed anyway (report records the skew)." >&2
   if [[ "${GATE_ALLOW_NODE_SKEW:-0}" != "1" ]]; then
     exit 2
