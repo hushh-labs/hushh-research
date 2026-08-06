@@ -7,6 +7,7 @@ tests/services/test_consent_request_lock.py
 tests/services/test_pkm_service_store_domain_data.py
 tests/test_a2a_agent_card_well_known.py
 tests/test_adk_a2a_compliance_script.py
+tests/test_agent_manifest_index.py
 tests/test_agent_prompt_routes.py
 tests/test_agent_prompt_service.py
 tests/test_agent_runtime_tool_resolution_error.py

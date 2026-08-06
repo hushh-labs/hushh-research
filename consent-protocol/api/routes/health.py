@@ -219,11 +219,12 @@ def health():
         "status": "healthy",
         # Derived, never asserted. This was a hardcoded ["one","kai","nav","kyc"]
         # literal, and it was wrong in two directions at once: `kyc` is not in One's
-        # roster (`_load_product_agent_manifest` accepts only {"one","kai"}), and a
-        # POD -- which mounts no agent runtime at all -- reported the same four
-        # names as the hub. A live-validation document then quoted that string as
-        # proof a pod was running agents. It was a 200 on an empty page, and it is
-        # exactly the class of claim this codebase refuses everywhere else.
+        # roster (the tree loads exactly two product manifests, `agent_one` and
+        # `agent_kai`), and a POD -- which mounts no agent runtime at all --
+        # reported the same four names as the hub. A live-validation document then
+        # quoted that string as proof a pod was running agents. It was a 200 on an
+        # empty page, and it is exactly the class of claim this codebase refuses
+        # everywhere else.
         #
         # `pod_mode()` is checked WITHOUT importing the runtime: a pod must not pay
         # the ADK import cost on a liveness probe, and reporting an empty roster is
