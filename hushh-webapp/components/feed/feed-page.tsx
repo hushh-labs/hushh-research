@@ -89,7 +89,7 @@ export function FeedPage() {
   // the one time it stayed still. The hook stops on its own once the
   // deployment settles, so outside that window this costs nothing and the
   // deliberate no-force-refresh behaviour below is untouched.
-  useAgentDeploymentFollow({ enabled: Boolean(user?.uid) });
+  useAgentDeploymentFollow({ enabled: Boolean(user?.uid), userId: user?.uid ?? null });
 
   useEffect(() => {
     if (!user?.uid) return;

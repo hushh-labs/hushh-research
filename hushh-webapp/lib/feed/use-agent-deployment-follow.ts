@@ -4,11 +4,16 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   decideFollow,
+  deploymentTaskId,
+  describeDeployment,
   DEPLOYMENT_POLL_INTERVAL_MS,
+  DEPLOYMENT_TASK_KIND,
+  isDeploymentInFlight,
   type AgentDeploymentState,
 } from "@/lib/feed/deployment-progress-policy";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { apiJson } from "@/lib/services/api-client";
+import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 
 type StatusResponse = { state?: string | null };
 
@@ -38,11 +43,64 @@ const VALID: readonly string[] = [
  * event, so a deployment step now updates the badge immediately instead of on
  * the next 45s tick, and the Feed list can listen to the same thing.
  */
-export function useAgentDeploymentFollow(options?: { enabled?: boolean }): {
+/**
+ * Mirror the deployment into the app's existing background-work rail.
+ *
+ * Called only on a real transition, so the rail sees the same events the Feed
+ * does. Without a `userId` there is nothing to key a task to and this is a
+ * no-op -- the follow itself still works, because showing progress must not
+ * depend on the rail being available.
+ *
+ * Every call is wrapped: this is a progress indicator, and a progress indicator
+ * that can break the thing it reports on is worse than no indicator at all.
+ */
+function reportBackgroundTask(
+  userId: string | null,
+  state: AgentDeploymentState,
+): void {
+  if (!userId) return;
+  const taskId = deploymentTaskId(userId);
+  const copy = describeDeployment(state);
+  try {
+    if (isDeploymentInFlight(state)) {
+      // startTask upserts on a fixed id, so re-entering the page updates the
+      // existing card rather than stacking another one for the same deployment.
+      AppBackgroundTaskService.startTask({
+        userId,
+        taskId,
+        kind: DEPLOYMENT_TASK_KIND,
+        title: copy.title,
+        description: copy.description,
+        routeHref: "/one/feed",
+        visibility: "passive",
+        groupLabel: "Private agent",
+      });
+      AppBackgroundTaskService.updateTask(taskId, {
+        title: copy.title,
+        description: copy.description,
+      });
+      return;
+    }
+    if (state === "active") {
+      AppBackgroundTaskService.completeTask(taskId, copy.description);
+      return;
+    }
+    // `failed` is the backend's verdict, never one this client invents.
+    AppBackgroundTaskService.failTask(taskId, copy.title, copy.description);
+  } catch {
+    // Deliberately swallowed. See the note above.
+  }
+}
+
+export function useAgentDeploymentFollow(options?: {
+  enabled?: boolean;
+  userId?: string | null;
+}): {
   state: AgentDeploymentState | null;
   following: boolean;
 } {
   const enabled = options?.enabled ?? true;
+  const userId = options?.userId ?? null;
   const [state, setState] = useState<AgentDeploymentState | null>(null);
   const [following, setFollowing] = useState(false);
   // Refs, not state: these drive the loop and must not themselves re-trigger it.
@@ -76,8 +134,10 @@ export function useAgentDeploymentFollow(options?: { enabled?: boolean }): {
       });
 
       if (next && next !== previousRef.current) {
-        setState(next as AgentDeploymentState);
+        const deployment = next as AgentDeploymentState;
+        setState(deployment);
         previousRef.current = next;
+        reportBackgroundTask(userId, deployment);
       }
       setFollowing(decision.follow);
 
@@ -96,10 +156,12 @@ export function useAgentDeploymentFollow(options?: { enabled?: boolean }): {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-    // `enabled` only. Re-running on `state` would restart the clock that the
-    // ceiling is measured against, and a follow that can restart its own
-    // deadline has no ceiling at all.
-  }, [enabled]);
+    // `enabled` and `userId` only. Re-running on `state` would restart the clock
+    // that the ceiling is measured against, and a follow that can restart its own
+    // deadline has no ceiling at all. `userId` is different in kind: a change
+    // there means a different person, and that SHOULD start a fresh follow with
+    // a fresh deadline and its own background-task card.
+  }, [enabled, userId]);
 
   return { state, following };
 }

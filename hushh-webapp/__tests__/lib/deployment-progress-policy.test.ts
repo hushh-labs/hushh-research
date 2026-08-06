@@ -4,6 +4,9 @@ import {
   DEPLOYMENT_FOLLOW_CEILING_MS,
   DEPLOYMENT_POLL_INTERVAL_MS,
   decideFollow,
+  deploymentTaskId,
+  describeDeployment,
+  DEPLOYMENT_TASK_KIND,
   isDeploymentInFlight,
   isDeploymentTerminal,
 } from "@/lib/feed/deployment-progress-policy";
@@ -114,5 +117,43 @@ describe("deployment progress follow policy", () => {
     // The unread badge polls at 45s; a deployment can start and finish inside
     // one of those intervals.
     expect(DEPLOYMENT_POLL_INTERVAL_MS).toBeLessThan(45_000 / 4);
+  });
+});
+
+describe("deployment as a background task", () => {
+  it("keys one task per person, so remounting updates rather than stacks", () => {
+    // Two surfaces can mount the follow at once, and a person navigating away
+    // and back remounts it. A random id would leave a trail of identical
+    // "setting up your private agent" cards for one deployment.
+    expect(deploymentTaskId("user-1")).toBe(deploymentTaskId("user-1"));
+    expect(deploymentTaskId("user-1")).not.toBe(deploymentTaskId("user-2"));
+    expect(deploymentTaskId("user-1")).toContain(DEPLOYMENT_TASK_KIND);
+  });
+
+  it("has copy for every state the status endpoint can report", () => {
+    // The states come from the backend's `_STATE_BY_REGISTRY_STATUS`. A missing
+    // one would render an undefined title in the background rail.
+    for (const state of ["reserved", "provisioning", "connecting", "active", "failed"] as const) {
+      const copy = describeDeployment(state);
+      expect(copy.title.length, `${state} title`).toBeGreaterThan(0);
+      expect(copy.description.length, `${state} description`).toBeGreaterThan(0);
+    }
+  });
+
+  it("does not claim the agent is ready before it is", () => {
+    // The in-flight states are the ones a person stares at. Saying "ready"
+    // there would be the same false-success this codebase keeps finding.
+    for (const state of ["reserved", "provisioning", "connecting"] as const) {
+      expect(describeDeployment(state).title.toLowerCase()).not.toContain("ready");
+    }
+    expect(describeDeployment("active").title.toLowerCase()).toContain("ready");
+  });
+
+  it("does not promise recovery on failure", () => {
+    // Nothing automatically retries a failed provision from the client, so the
+    // copy must not imply something is still happening.
+    const failed = describeDeployment("failed");
+    expect(failed.description.toLowerCase()).not.toContain("retry");
+    expect(failed.description.toLowerCase()).not.toContain("trying again");
   });
 });
