@@ -144,3 +144,55 @@ deploy keeps the old revision serving, so users don't see it.)
 image, durable sessions (M2) for quick rehydrate, and/or a **shared warm pool** so an
 idle user's next turn lands on an already-hot instance. This is a **per-tier knob**,
 now configurable rather than hard-coded.
+
+## 2026-08-06 — the hub that serves dev can finally create a pod
+
+Evidence read from the **revision holding traffic**, not the service spec. Reproduce
+with `uv run python scripts/ops/verify_pod_journey.py --sha <deployed-sha>`.
+
+### Before (revision `consent-protocol-00016-lmm`, deploy-sha `502d5f471…`)
+
+| Check | Value |
+|---|---|
+| `PERSONAL_AGENT_ENABLED` … `HUSSH_POD_TURN_ENABLED` | **0 of 7 present** |
+| `run.googleapis.com/cpu-throttling` | unset → throttled |
+| `GET /health` → `agents` | `["one","kai","nav","kyc"]` (the hardcoded literal) |
+
+`HUSSH_GCP_BACKEND_LIVE` unset is the load-bearing one: `GcpBackend` stayed in plan
+mode, rendering a deployable config and calling Cloud Run **zero times**, while every
+layer above it recorded success.
+
+### After (revision `consent-protocol-00017-588`, deploy-sha `253576879…`, 100% traffic)
+
+| Check | Value |
+|---|---|
+| All seven personal-agent flags | present |
+| `HUSSH_GCP_BACKEND_LIVE` | `true` — no longer plan mode |
+| `run.googleapis.com/cpu-throttling` | `false` |
+| `GET /health` → `agents` | `["one","kai","nav"]` |
+| `GET /health/ready` | `200 {"database":"ok","firebase_admin":"ok"}` |
+| Pods labelled `app=hussh-one-pod` | 0 |
+
+### Two verification errors made and corrected while producing this
+
+Recorded because both are cheap to repeat and neither is caught by a test.
+
+1. **Desired state read as fact.** The first check read `spec.template` and reported
+   success while 100% of traffic was still on `00016`. `deploy-sha` is a *service*
+   label and flips when the spec is written — before the new revision is Ready. The
+   contradiction was visible in the same output (`/health` still returned `kyc`) and
+   was read past. Same shape as the `Ready=True` lesson already in this document.
+2. **A git SHA compared against an image digest.** Cloud Run resolves the tag to a
+   digest on the revision, so `EXPECTED_SHA in container.image` can never match; it
+   reported MISMATCH on a correctly deployed revision. The **revision's own**
+   `deploy-sha` label is the provenance marker.
+
+The check worth keeping is the one metadata cannot satisfy: `/health`'s roster is
+derived and the derivation drops `kyc`. Its reappearance means old code is serving,
+whatever any label or workflow conclusion claims.
+
+### Not validated here
+
+No pod has served a turn. That needs a dev account with a **verified phone** and a
+**validated AI key** — provisioning is gated on both by design, and synthesising
+either would defeat the control being validated.
