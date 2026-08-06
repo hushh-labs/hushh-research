@@ -54,6 +54,7 @@ CLOUDBUILD_CONFIGS = [
     "deploy/backend.cloudbuild.yaml",
     "deploy/frontend.cloudbuild.yaml",
     "deploy/dev.autodeploy.backend.cloudbuild.yaml",
+    "deploy/ci.cloudbuild.yaml",
 ]
 
 # Workflows that invoke deploy/backend.cloudbuild.yaml, and the lane each one deploys.
