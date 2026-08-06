@@ -104,3 +104,34 @@ export function isPhoneMandatePath(pathname?: string | null): boolean {
   const normalized = String(pathname ?? "").trim();
   return normalized === ROUTES.PHONE_MANDATE;
 }
+
+/**
+ * maskEmailAddress(email)
+ *
+ * Returns a consent-minimised representation of an email address suitable
+ * for display in the profile page and consent-center UI, following the
+ * same data-minimisation pattern as maskPhoneNumber above.
+ *
+ * Masking rules:
+ *   local part > 2 chars  →  first char + "***" + last char + "@" + domain
+ *                             "abdulgaffar@hushh.ai" → "a***r@hushh.ai"
+ *   local part ≤ 2 chars  →  first char + "***" + "@" + domain
+ *                             "ab@hushh.ai"          → "a***@hushh.ai"
+ *   empty / null / no "@" →  returns the input normalised or ""
+ */
+export function maskEmailAddress(email?: string | null): string {
+  const normalized = String(email ?? "").trim();
+  if (!normalized) return "";
+
+  const atIndex = normalized.indexOf("@");
+  if (atIndex <= 0) return normalized; // no "@" or starts with "@" — not a maskable address
+
+  const local  = normalized.slice(0, atIndex);
+  const domain = normalized.slice(atIndex); // preserves the "@"
+
+  if (local.length <= 2) {
+    return `${local[0]}***${domain}`;
+  }
+
+  return `${local[0]}***${local[local.length - 1]}${domain}`;
+}
