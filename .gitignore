@@ -170,3 +170,6 @@ ehthumbs_vista.db
 # The real tree lives at the repo root; this copy is a build artifact.
 consent-protocol/contracts/
 consent-protocol/.sim/
+
+# Transient validation-harness reports (regenerate with scripts/ops/validate_agent_platform.py)
+consent-protocol/agent-validation-*.json
