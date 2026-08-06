@@ -251,6 +251,8 @@ export function SagePanel() {
           vaultOwnerToken,
         );
         if (!cancelled) setDomains(metadata.domains);
+      } catch {
+        // Best-effort only -- leaves domains at its previous/empty value.
       } finally {
         if (!cancelled) setLoadingDomains(false);
       }
@@ -364,6 +366,13 @@ export function SagePanel() {
     setFixState("fixing");
     setFixError(null);
     try {
+      // Re-fetch live rather than trusting the `domains` snapshot -- readable_highlights
+      // is replaced wholesale on write, not merged server-side, so a stale local
+      // snapshot here could silently drop a newer highlight line added elsewhere.
+      const freshDomains = await PersonalKnowledgeModelService.getMetadata(user.uid, true, vaultOwnerToken)
+        .then((m) => m.domains)
+        .catch(() => domains);
+
       // Check first: if a prior attempt already added this note to the
       // target domain (e.g. re-clicking after a partial success), don't
       // add a second duplicate -- just fall through to the source-side
@@ -377,7 +386,7 @@ export function SagePanel() {
       const alreadyAdded = hasMatchingNote(targetSnapshot?.data || {}, suggestedFix.noteText);
 
       if (!alreadyAdded) {
-        const targetDomain = domains.find((d) => d.key === suggestedFix.targetDomain);
+        const targetDomain = freshDomains.find((d) => d.key === suggestedFix.targetDomain);
         const result = await PkmWriteCoordinator.saveMergedDomain({
           userId: user.uid,
           domain: suggestedFix.targetDomain,
@@ -418,7 +427,7 @@ export function SagePanel() {
         const archivedReason = `Moved to ${suggestedFix.targetDisplayName}`;
         const preview = archiveMatchingNoteEntity(sourceSnapshot?.data || {}, suggestedFix.noteText, archivedReason);
         if (preview.matched) {
-          const sourceDomain = domains.find((d) => d.key === suggestedFix.fromDomain);
+          const sourceDomain = freshDomains.find((d) => d.key === suggestedFix.fromDomain);
           await PkmWriteCoordinator.saveMergedDomain({
             userId: user.uid,
             domain: suggestedFix.fromDomain,

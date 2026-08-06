@@ -4016,7 +4016,9 @@ export class ApiService {
       method: "POST",
       headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
       body: JSON.stringify({
-        domains: data.domains.map((d) => ({
+        // Backend caps this at 12; slice here rather than 422ing accounts
+        // with more PKM domains than that.
+        domains: data.domains.slice(0, 12).map((d) => ({
           domain: d.domain,
           display_name: d.displayName,
           summary: d.summary,
@@ -4049,7 +4051,9 @@ export class ApiService {
         mode: data.mode || "standard",
         depth: data.depth || "quick",
         length: data.length || "standard",
-        domains: data.domains.map((d) => ({
+        // Backend caps this at 12; slice here rather than 422ing accounts
+        // with more PKM domains than that.
+        domains: data.domains.slice(0, 12).map((d) => ({
           domain: d.domain,
           display_name: d.displayName,
           summary: d.summary,
@@ -4076,7 +4080,9 @@ export class ApiService {
       method: "POST",
       headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
       body: JSON.stringify({
-        domains: data.domains.map((d) => ({
+        // Backend caps this at 12; slice here rather than 422ing accounts
+        // with more PKM domains than that.
+        domains: data.domains.slice(0, 12).map((d) => ({
           domain: d.domain,
           display_name: d.displayName,
           previous_summary: d.previousSummary,

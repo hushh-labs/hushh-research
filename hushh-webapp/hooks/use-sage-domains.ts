@@ -28,6 +28,8 @@ export function useSageDomains(): { domains: DomainSummary[]; loading: boolean }
       try {
         const metadata = await PersonalKnowledgeModelService.getMetadata(user.uid, false, vaultOwnerToken);
         if (!cancelled) setDomains(metadata.domains);
+      } catch {
+        // Best-effort only -- leaves domains at its previous/empty value.
       } finally {
         if (!cancelled) setLoading(false);
       }

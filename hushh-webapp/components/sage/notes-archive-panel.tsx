@@ -103,6 +103,8 @@ export function NotesArchivePanel() {
         return bTime - aTime;
       });
       setNotes(all);
+    } catch {
+      // Best-effort only -- leaves domains/notes at their previous value.
     } finally {
       setLoading(false);
     }
@@ -127,7 +129,14 @@ export function NotesArchivePanel() {
     setRemovingId(note.id);
     setRemoveError(null);
     try {
+      // Re-fetch live rather than trusting the `domains` snapshot -- readable_highlights
+      // is replaced wholesale on write, not merged server-side, so a stale local
+      // snapshot here could silently drop a newer highlight line added elsewhere.
       const domain = domains.find((d) => d.key === note.domainKey);
+      const freshDomains = await PersonalKnowledgeModelService.getMetadata(user.uid, true, vaultOwnerToken)
+        .then((m) => m.domains)
+        .catch(() => domains);
+      const freshDomain = freshDomains.find((d) => d.key === note.domainKey) || domain;
       const result = await PkmWriteCoordinator.saveMergedDomain({
         userId: user.uid,
         domain: note.domainKey,
@@ -145,7 +154,7 @@ export function NotesArchivePanel() {
             summary: {
               source: "sage_note_remove",
               ...buildArchivedNoteSummaryPatch({
-                existingHighlights: domain?.readableHighlights || [],
+                existingHighlights: freshDomain?.readableHighlights || [],
                 noteText: note.text,
               }),
             },
