@@ -3,6 +3,7 @@ import {
   BookMarked,
   ContactRound,
   FileCheck2,
+  FlaskConical,
   KeyRound,
   Landmark,
   Mail,
@@ -206,6 +207,21 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Saved knowledge and context you can review.",
     href: ROUTES.PKM,
     icon: lucideCapabilityIcon(BookMarked),
+    tone: "pkm",
+    group: "memory",
+    requiresVault: true,
+  },
+  {
+    id: "sage",
+    // Sage is a direct private-agent surface reading across every other
+    // domain's saved data -- same "no separate delegation lane" reasoning
+    // as Memory above, not yet a registered backend agent.
+    agentId: null,
+    title: "Sage",
+    description: "Your personal researcher and second brain.",
+    previewLabel: "Research & second brain",
+    href: ROUTES.SAGE,
+    icon: lucideCapabilityIcon(FlaskConical),
     tone: "pkm",
     group: "memory",
     requiresVault: true,

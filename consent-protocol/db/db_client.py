@@ -323,11 +323,16 @@ def get_db_engine() -> Engine:
                 "Database credentials not set. Required: DB_USER, DB_PASSWORD, and one of DB_HOST/DB_UNIX_SOCKET. "
                 "Optional: DB_PORT (default 5432), DB_NAME (default postgres)"
             )
+        # DB_USER/DB_PASSWORD may contain URI-reserved characters (e.g. an '@' in
+        # a generated Supabase password), which would otherwise be misparsed as
+        # the user:password/host separator.
+        encoded_user = quote_plus(db_user)
+        encoded_password = quote_plus(db_password)
         if db_unix_socket:
             # Cloud SQL Unix socket path must be passed in query host param.
             encoded_socket = quote_plus(db_unix_socket)
             database_url = (
-                f"postgresql+psycopg2://{db_user}:{db_password}@/{db_name}?host={encoded_socket}"
+                f"postgresql+psycopg2://{encoded_user}:{encoded_password}@/{db_name}?host={encoded_socket}"
             )
             target = db_unix_socket
         else:
@@ -335,7 +340,7 @@ def get_db_engine() -> Engine:
             # Unix socket on Cloud Run; both already provide transport security,
             # so no sslmode override is appended here.
             database_url = (
-                f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+                f"postgresql+psycopg2://{encoded_user}:{encoded_password}@{db_host}:{db_port}/{db_name}"
             )
             target = f"{db_host}:{db_port}/{db_name}"
 

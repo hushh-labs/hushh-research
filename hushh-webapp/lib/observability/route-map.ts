@@ -54,6 +54,12 @@ export const ROUTE_ID_VALUES = [
   "marketplace_connection_portfolio",
   "marketplace_ria_profile",
   "one_kyc",
+  "sage_home",
+  "sage_ask",
+  "sage_notes",
+  "sage_citations",
+  "sage_review",
+  "sage_threads",
   "one_marketplace",
   "one_location",
   "one_location_map",
@@ -191,6 +197,12 @@ export function resolveRouteId(pathname: string): RouteId {
     return "marketplace_ria_profile";
   }
   if (pathname === ROUTES.ONE_KYC) return "one_kyc";
+  if (pathname === ROUTES.SAGE) return "sage_home";
+  if (pathname === ROUTES.SAGE_ASK) return "sage_ask";
+  if (pathname === ROUTES.SAGE_NOTES) return "sage_notes";
+  if (pathname === ROUTES.SAGE_CITATIONS) return "sage_citations";
+  if (pathname === ROUTES.SAGE_REVIEW) return "sage_review";
+  if (pathname === ROUTES.SAGE_THREADS) return "sage_threads";
   if (pathname === ROUTES.ONE_LOCATION_MAP) return "one_location_map";
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
   if (pathname.startsWith("/one/location/request/"))

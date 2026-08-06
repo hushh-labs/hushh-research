@@ -683,6 +683,83 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
+  if (pathname === ROUTES.SAGE) {
+    return {
+      backHref: ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Sage" },
+      ],
+    };
+  }
+
+  if (pathname === ROUTES.SAGE_ASK) {
+    return {
+      backHref: ROUTES.SAGE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Sage", href: ROUTES.SAGE },
+        { label: "Ask Sage" },
+      ],
+    };
+  }
+
+  if (pathname === ROUTES.SAGE_REVIEW) {
+    return {
+      backHref: ROUTES.SAGE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Sage", href: ROUTES.SAGE },
+        { label: "Self-assessment" },
+      ],
+    };
+  }
+
+  if (pathname === ROUTES.SAGE_NOTES) {
+    return {
+      backHref: ROUTES.SAGE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Sage", href: ROUTES.SAGE },
+        { label: "Notes archive" },
+      ],
+    };
+  }
+
+  if (pathname === ROUTES.SAGE_THREADS) {
+    return {
+      backHref: ROUTES.SAGE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Sage", href: ROUTES.SAGE },
+        { label: "Research threads" },
+      ],
+    };
+  }
+
+  if (pathname === ROUTES.SAGE_CITATIONS) {
+    return {
+      backHref: ROUTES.SAGE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Sage", href: ROUTES.SAGE },
+        { label: "Citation lineage" },
+      ],
+    };
+  }
+
   if (pathname === ROUTES.ONE_LOCATION_MAP) {
     return {
       backHref: ROUTES.ONE_LOCATION,

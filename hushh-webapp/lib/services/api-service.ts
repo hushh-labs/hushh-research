@@ -3974,6 +3974,181 @@ export class ApiService {
     });
   }
 
+  // ---------------------------------------------------------------------
+  // Sage: persistent research agent (PKM highlight/briefing/recap/research/
+  // review/thread-synthesis + OpenAlex citation lineage). Every method here
+  // returns the raw Response -- callers do `.ok`/`.json()` themselves, same
+  // convention as every other ApiService method in this file.
+  // ---------------------------------------------------------------------
+
+  static async summarizePkmHighlight(data: {
+    vaultOwnerToken: string;
+    domain: string;
+    displayName: string;
+    rawSummary: Record<string, unknown>;
+    highlights: string[];
+    mode?: "brief" | "rich";
+  }): Promise<Response> {
+    return apiFetch("/api/kai/pkm/highlight-summary", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+      body: JSON.stringify({
+        domain: data.domain,
+        display_name: data.displayName,
+        raw_summary: data.rawSummary,
+        highlights: data.highlights,
+        mode: data.mode || "brief",
+      }),
+    });
+  }
+
+  static async summarizeSageBriefing(data: {
+    vaultOwnerToken: string;
+    domains: Array<{
+      domain: string;
+      displayName: string;
+      summary: Record<string, unknown>;
+      attributeCount: number;
+      lastUpdated?: string | null;
+    }>;
+  }): Promise<Response> {
+    return apiFetch("/api/kai/pkm/sage-briefing", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+      body: JSON.stringify({
+        domains: data.domains.map((d) => ({
+          domain: d.domain,
+          display_name: d.displayName,
+          summary: d.summary,
+          attribute_count: d.attributeCount,
+          last_updated: d.lastUpdated ?? null,
+        })),
+      }),
+    });
+  }
+
+  static async askSage(data: {
+    vaultOwnerToken: string;
+    query: string;
+    mode?: "standard" | "challenge";
+    depth?: "quick" | "deep";
+    length?: "standard" | "thorough" | "exhaustive";
+    domains: Array<{
+      domain: string;
+      displayName: string;
+      summary: Record<string, unknown>;
+      attributeCount: number;
+    }>;
+    conversationHistory?: Array<{ query: string; answer: string }>;
+  }): Promise<Response> {
+    return apiFetch("/api/kai/pkm/sage-research", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+      body: JSON.stringify({
+        query: data.query,
+        mode: data.mode || "standard",
+        depth: data.depth || "quick",
+        length: data.length || "standard",
+        domains: data.domains.map((d) => ({
+          domain: d.domain,
+          display_name: d.displayName,
+          summary: d.summary,
+          attribute_count: d.attributeCount,
+        })),
+        conversation_history: (data.conversationHistory || []).map((t) => ({
+          query: t.query,
+          answer: t.answer,
+        })),
+      }),
+    });
+  }
+
+  static async getSageRecap(data: {
+    vaultOwnerToken: string;
+    domains: Array<{
+      domain: string;
+      displayName: string;
+      previousSummary: Record<string, unknown>;
+      currentSummary: Record<string, unknown>;
+    }>;
+  }): Promise<Response> {
+    return apiFetch("/api/kai/pkm/sage-recap", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+      body: JSON.stringify({
+        domains: data.domains.map((d) => ({
+          domain: d.domain,
+          display_name: d.displayName,
+          previous_summary: d.previousSummary,
+          current_summary: d.currentSummary,
+        })),
+      }),
+    });
+  }
+
+  static async draftSageReview(data: {
+    vaultOwnerToken: string;
+    domain: string;
+    displayName: string;
+    fragments: string[];
+  }): Promise<Response> {
+    return apiFetch("/api/kai/pkm/sage-review", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+      body: JSON.stringify({
+        domain: data.domain,
+        display_name: data.displayName,
+        fragments: data.fragments,
+      }),
+    });
+  }
+
+  static async getSageThreadSynthesis(data: {
+    vaultOwnerToken: string;
+    title: string;
+    turns: Array<{ query: string; answer: string }>;
+    tracedPapers: Array<{ title: string; year: number | null; topic: string | null; citedByCount: number }>;
+  }): Promise<Response> {
+    return apiFetch("/api/kai/pkm/sage-thread-synthesis", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+      body: JSON.stringify({
+        title: data.title,
+        turns: data.turns.map((t) => ({ query: t.query, answer: t.answer })),
+        traced_papers: data.tracedPapers.map((p) => ({
+          title: p.title,
+          year: p.year,
+          topic: p.topic,
+          cited_by_count: p.citedByCount,
+        })),
+      }),
+    });
+  }
+
+  static async searchSagePapers(data: { vaultOwnerToken: string; query: string }): Promise<Response> {
+    return apiFetch("/api/kai/sage/paper-search", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+      body: JSON.stringify({ query: data.query }),
+    });
+  }
+
+  static async getSagePaperLineage(data: { vaultOwnerToken: string; workId: string }): Promise<Response> {
+    return apiFetch("/api/kai/sage/paper-lineage", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+      body: JSON.stringify({ work_id: data.workId }),
+    });
+  }
+
+  static async getSagePaperInsight(data: { vaultOwnerToken: string; workId: string }): Promise<Response> {
+    return apiFetch("/api/kai/sage/paper-insight", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+      body: JSON.stringify({ work_id: data.workId }),
+    });
+  }
+
   /**
    * Fetch baseline market insights for Kai home without requiring vault access.
    */

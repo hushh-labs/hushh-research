@@ -87,7 +87,7 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
     expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
     expect(container.textContent).not.toContain("Finish setup");
-    expect(screen.getByRole("heading", { name: "Agents (7)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Agents (8)" })).toBeTruthy();
 
     // Every dashboard tile enters the same static setup workspace as the hub.
     // A resolved journey is redirected by that workspace to the normal product
@@ -130,7 +130,9 @@ describe("OneDashboardPage", () => {
         .getAllByTestId(`one-agent-icon-${id}`)[0]
         .getAttribute("data-agent-icon-palette-index"),
     );
-    expect(rosterPaletteSlots).toEqual(["0", "1", "2", "3", "4", "5", "6"]);
+    // Sage sits between Memory and Consent in the roster order, so consent
+    // and connected-systems each shift one palette slot later.
+    expect(rosterPaletteSlots).toEqual(["0", "1", "2", "3", "4", "6", "7"]);
     expect(
       new Set(
         rosterPaletteOrder.map((id) =>
@@ -179,12 +181,15 @@ describe("OneDashboardPage", () => {
     expect(screen.queryByText("Explore")).toBeNull();
     // Gmail is intentionally paused in the One surface while its runtime and
     // Profile recovery controls remain available. Five agents are currently
-    // setup capabilities; Memory, Consent/Nav, and Marketplace are direct
-    // workspaces and never inflate setup progress.
-    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(7);
+    // setup capabilities; Memory, Sage, Consent/Nav, and Marketplace are
+    // direct workspaces and never inflate setup progress.
+    expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(8);
     expect(
       screen.getByRole("link", { name: "Open Memory" }).getAttribute("href"),
     ).toBe(ROUTES.PKM);
+    expect(
+      screen.getByRole("link", { name: "Open Sage" }).getAttribute("href"),
+    ).toBe(ROUTES.SAGE);
     expect(
       screen.getByRole("link", { name: "Open Consent" }).getAttribute("href"),
     ).toContain(ROUTES.CONSENTS);
@@ -214,7 +219,7 @@ describe("OneDashboardPage", () => {
     // Completed workspace setup is represented as an operational KPI rather
     // than the generic Ready label.
     expect(countRosterMetrics(document.body, "0", "actions due")).toBe(5);
-    expect(screen.getByRole("heading", { name: "Agents (7)" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Agents (8)" })).toBeTruthy();
     expect(screen.queryByText("Finish setup")).toBeNull();
   });
 

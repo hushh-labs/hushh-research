@@ -142,6 +142,14 @@ CANONICAL_DOMAIN_REGISTRY: tuple[DomainContractEntry, ...] = (
         description="Catch-all fallback for uncategorized preferences",
         status="active_fallback",
     ),
+    DomainContractEntry(
+        domain_key="research",
+        display_name="Research",
+        icon_name="flask-conical",
+        color_hex="#7C3AED",
+        description="Sage's persistent research threads: questions asked, papers traced, and running synthesis",
+        status="active_extension",
+    ),
 )
 
 CANONICAL_DOMAIN_KEYS = tuple(entry.domain_key for entry in CANONICAL_DOMAIN_REGISTRY)
