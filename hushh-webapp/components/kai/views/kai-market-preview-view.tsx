@@ -12,7 +12,6 @@ import {
   Loader2,
   Newspaper,
   Percent,
-  Sparkles,
   TrendingDown,
   TrendingUp,
   type LucideIcon,
@@ -2328,7 +2327,7 @@ export function KaiMarketPreviewView() {
                   className="group flex w-full items-center gap-3.5 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-4 text-left shadow-[var(--app-card-shadow-standard)] transition-transform active:scale-[0.995]"
                 >
                   <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[color:var(--one-indigo-t)] text-[color:var(--one-indigo)]">
-                    <Sparkles className="h-5 w-5" />
+                    <LineChart className="h-5 w-5" />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2">

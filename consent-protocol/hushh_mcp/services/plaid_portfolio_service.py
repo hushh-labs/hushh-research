@@ -1082,12 +1082,15 @@ class PlaidPortfolioService:
     def _is_equity_like(self, security: dict[str, Any]) -> bool:
         sec_type = _clean_text(security.get("type")).lower()
         sec_subtype = _clean_text(security.get("subtype")).lower()
-        return sec_type in {"equity", "etf"} or sec_subtype in {
-            "common stock",
-            "adr",
-            "etf",
-            "index fund",
-        }
+        sec_name = _clean_text(security.get("name")).lower()
+        return (
+            sec_type in {"equity", "etf"}
+            or sec_subtype in {"common stock", "adr", "etf", "index fund", "mutual fund"}
+            or (
+                sec_type == "mutual fund"
+                and ("equity" in sec_name or "stock" in sec_name or "index" in sec_name)
+            )
+        )
 
     def _normalize_holding(
         self,
@@ -1348,6 +1351,30 @@ class PlaidPortfolioService:
             },
         }
 
+        liabilities_rows = [
+            {
+                "account_id": _clean_text(acc.get("account_id")),
+                "name": _clean_text(acc.get("name")),
+                "official_name": _clean_text(acc.get("official_name")),
+                "mask": _clean_text(acc.get("mask")),
+                "type": _clean_text(acc.get("type")),
+                "subtype": _clean_text(acc.get("subtype")),
+                "current_balance": _to_float((acc.get("balances") or {}).get("current")) or 0.0,
+                "limit": _to_float((acc.get("balances") or {}).get("limit")),
+                "iso_currency_code": _clean_text(
+                    (acc.get("balances") or {}).get("iso_currency_code"), default="USD"
+                ),
+                "institution_name": _clean_text(acc.get("institution_name")),
+            }
+            for acc in accounts
+            if _clean_text(acc.get("type")).lower() in {"credit", "loan"}
+            or _clean_text(acc.get("subtype")).lower()
+            in {"credit card", "student", "mortgage", "loan", "line of credit"}
+        ]
+        total_liability_value = round(
+            sum(item.get("current_balance") or 0.0 for item in liabilities_rows), 2
+        )
+
         canonical_portfolio = {
             "schema_version": 2,
             "generated_at": _utcnow_iso(),
@@ -1381,6 +1408,10 @@ class PlaidPortfolioService:
                 "rows": [row for row in holdings if row.get("is_cash_equivalent")],
                 "total_cash_equivalent_value": cash_balance,
                 "cash_balance": cash_balance,
+            },
+            "liabilities": {
+                "rows": liabilities_rows,
+                "total_liability_value": total_liability_value,
             },
             "total_value": ending_value,
             "cash_balance": cash_balance,
