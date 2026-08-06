@@ -19,7 +19,7 @@ import styles from "./IntroStep.module.css";
 
 // One's four motions, shown as a quiet typographic rhythm — never as chips,
 // never labeled "framework". Matches docs/vision/agent-ontology.md.
-const MOTIONS = ["Listens", "Remembers", "Decides", "Acts"];
+const MOTIONS = ["Listens", "Remembers", "Acts"];
 
 export function IntroStep({ onLogin }: { onLogin?: () => void }) {
   const claimOne = useCallback(() => {
@@ -117,7 +117,7 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
           {/* Approved durable product line (docs/vision/agent-ontology.md
               Founder Copy Rules; brand punchline). Not ad-hoc copy. */}
           <p className={styles.tagline}>
-            Your agents. Yours to own.
+          Made just for you.
           </p>
 
           {/* Quiet rhythm line: the four motions, typographic not chip-like. */}
@@ -135,7 +135,7 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
           </div>
 
           <p className={styles.description}>
-            Everything stays encrypted in your vault.
+            All data is encrypted.
             <br />
             Nothing moves without your consent.
           </p>
