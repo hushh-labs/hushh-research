@@ -56,8 +56,11 @@ def _consent_ok(monkeypatch, user_id="u1"):
     monkeypatch.setattr(pod_turn, "_validate_consent", _validate)
 
 
-def _payload(message="hello"):
-    return PodTurnRequest(message=message)
+def _payload(message="hello", **kw):
+    # A pod serves turns on the OWNER'S key. Every normal turn carries one; the
+    # tests that omit it are asserting the refusal, not taking a shortcut.
+    kw.setdefault("runtime_credential", "owner-key")
+    return PodTurnRequest(message=message, **kw)
 
 
 # -- the refusals --------------------------------------------------------------
@@ -198,3 +201,69 @@ def test_the_route_is_mounted_in_the_pod():
 
     paths = {getattr(r, "path", "") for r in pod_server.app.routes}
     assert "/api/one/pod/turn" in paths
+
+
+# -- whose model answers -------------------------------------------------------
+
+
+async def test_a_turn_runs_on_the_owners_key(enabled, monkeypatch):
+    """"Own your AI" is a cost boundary, not a slogan: the person's key, their
+    quota, their spend."""
+    _consent_ok(monkeypatch)
+    seen: dict = {}
+
+    async def _run(**kwargs):
+        seen.update(kwargs)
+        yield _Event("token", "ok")
+
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(), consent_token="t", stream_fn=_run
+    )
+
+    assert seen["runtime_credential"] == "owner-key"
+    assert result["runtimeMode"] == "gemini_byok"
+
+
+async def test_no_key_and_no_managed_fallback_is_a_clear_400(enabled, monkeypatch):
+    """A pod that silently reached for a fleet identity would spend money nobody
+    authorised -- and by the provisioning gate, a keyless user has no pod at all."""
+    _consent_ok(monkeypatch)
+    import hushh_mcp.runtime_settings as settings
+
+    monkeypatch.setattr(settings, "pod_managed_model_enabled", lambda: False)
+
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.run_pod_turn(
+            payload=_payload(runtime_credential=None),
+            consent_token="t",
+            stream_fn=_stream([_Event("token", "hi")]),
+        )
+    assert exc.value.status_code == 400
+    assert "AI key" in str(exc.value.detail)
+
+
+async def test_the_managed_fallback_is_only_reached_when_explicitly_enabled(
+    enabled, monkeypatch
+):
+    _consent_ok(monkeypatch)
+    import hushh_mcp.runtime_settings as settings
+
+    monkeypatch.setattr(settings, "pod_managed_model_enabled", lambda: True)
+
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(runtime_credential=None),
+        consent_token="t",
+        stream_fn=_stream([_Event("token", "hi")]),
+    )
+    assert result["runtimeMode"] == "hushh_managed_vertex"
+
+
+async def test_the_owners_key_is_never_echoed_back(enabled, monkeypatch):
+    """It arrives with the turn and leaves with it. Nothing stores or returns it."""
+    _consent_ok(monkeypatch)
+    result = await pod_turn.run_pod_turn(
+        payload=_payload(runtime_credential="super-secret-key"),
+        consent_token="t",
+        stream_fn=_stream([_Event("token", "hi")]),
+    )
+    assert "super-secret-key" not in str(result)

@@ -484,6 +484,25 @@ def provision_on_ai_connection() -> bool:
     return _bool_from_value(_clean_env("PERSONAL_AGENT_PROVISION_ON_AI_CONNECTION"), default=True)
 
 
+def pod_managed_model_enabled() -> bool:
+    """Allow a pod to serve a turn on the FLEET's model identity instead of the owner's.
+
+    Default **OFF**, and the default is the product position rather than caution.
+    "Own your AI. Own your data. Own your compute." is not marketing here -- an agent
+    that quietly bills its thinking to a shared account owns none of the three, and
+    one heavy user would spend a pool everyone depends on.
+
+    It also costs the isolation story. The pod service account holds ZERO project
+    roles, which is precisely what makes a compromised pod uninteresting. Serving
+    turns from a fleet Vertex identity means granting ``aiplatform.user`` to every
+    pod in the fleet, spending that property permanently.
+
+    So a pod uses the OWNER'S key, supplied per turn and never stored. Turning this
+    on is a deliberate choice for a cohort that has no key of their own, not a
+    fallback a pod reaches for on its own."""
+    return _bool_from_value(_clean_env("HUSSH_POD_MANAGED_MODEL_ENABLED"), default=False)
+
+
 def pod_turn_enabled() -> bool:
     """Let a POD serve an Agent One turn from its own process.
 
