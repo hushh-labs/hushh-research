@@ -32,6 +32,9 @@ import { AccountService } from "@/lib/services/account-service";
 
 type PreferenceLoadState = "loading" | "ready" | "error";
 
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import { KycIdentityProfileDraftService } from "@/lib/services/kyc-identity-profile-pkm-service";
+
 export function EmailOnboardingSetupClient() {
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
@@ -39,6 +42,50 @@ export function EmailOnboardingSetupClient() {
   const [loadState, setLoadState] = useState<PreferenceLoadState>("loading");
   const [saving, setSaving] = useState(false);
   const [identityPrefaceComplete, setIdentityPrefaceComplete] = useState(false);
+  const [checkingIdentity, setCheckingIdentity] = useState(true);
+
+  // Synchronously check local draft or asynchronously load from PKM identity domain
+  useEffect(() => {
+    if (!user?.uid) {
+      setCheckingIdentity(false);
+      return;
+    }
+    if (KycIdentityProfileDraftService.hasPending(user.uid)) {
+      setIdentityPrefaceComplete(true);
+      setCheckingIdentity(false);
+      return;
+    }
+    if (!vaultKey || !vaultOwnerToken) {
+      setCheckingIdentity(false);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const snapshot = await PkmDomainResourceService.getStaleFirst({
+          userId: user.uid,
+          domain: "identity",
+          vaultKey,
+          vaultOwnerToken,
+        });
+        const profile = snapshot?.data?.identity_profile as any;
+        if (!cancelled && profile?.about_me?.trim()) {
+          setIdentityPrefaceComplete(true);
+        }
+      } catch (err) {
+        console.warn("[EmailOnboardingSetupClient] Failed to load existing identity profile:", err);
+      } finally {
+        if (!cancelled) {
+          setCheckingIdentity(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, vaultKey, vaultOwnerToken]);
 
   const loadPreference = useCallback(async () => {
     if (!user?.uid) return;
@@ -147,7 +194,9 @@ export function EmailOnboardingSetupClient() {
     [loadState, persistPreference, saving, user?.uid, vaultKey, vaultOwnerToken],
   );
 
-  if (!user) return <SetupCapabilityLoading label="Preparing KYC setup…" />;
+  if (!user || checkingIdentity) {
+    return <SetupCapabilityLoading label="Preparing KYC setup…" />;
+  }
 
   if (!identityPrefaceComplete) {
     return <KycIdentityPreface onComplete={() => setIdentityPrefaceComplete(true)} />;
