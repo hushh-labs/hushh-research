@@ -138,3 +138,67 @@ export function decideFollow(options: {
     reason: changed ? "advanced" : "in_flight",
   };
 }
+
+/**
+ * Deployment as a background task, in the rail the app already has.
+ *
+ * `AppBackgroundTaskService` is the existing pattern for "something is running
+ * on your behalf" -- portfolio imports, consent export refreshes, PKM upgrades
+ * and the unlock warm-up all register through it, and the Feed already renders
+ * them. Building a person's private agent is the longest-running background
+ * operation in the product and was the one thing not registered, so it was the
+ * one thing invisible outside the Feed list itself.
+ *
+ * Registered as `passive`, deliberately. The rail's other visibility, `primary`,
+ * reads as "this needs you" -- and a deployment does not. Nothing is being asked
+ * of the person; they are being kept informed. `passive` also waits before
+ * showing, so a deployment that settles in under a second never flashes a card.
+ */
+export const DEPLOYMENT_TASK_KIND = "personal_agent_deploy";
+
+/**
+ * One task per person, not one per mount.
+ *
+ * The id is derived rather than random so that navigating away and back, or
+ * having the Feed and the dashboard chip both mounted, updates a single card
+ * instead of stacking duplicates of the same deployment.
+ */
+export function deploymentTaskId(userId: string): string {
+  return `${DEPLOYMENT_TASK_KIND}_${userId}`;
+}
+
+export type DeploymentCopy = { title: string; description: string };
+
+/**
+ * What to say at each step, in the person's language rather than the registry's.
+ *
+ * `connecting` is called out because it is the longest and least legible stretch
+ * -- the host exists and a machine is starting -- and because it is the state
+ * that used to render "Something happened in your account".
+ */
+const DEPLOYMENT_COPY: Record<AgentDeploymentState, DeploymentCopy> = {
+  reserved: {
+    title: "Setting up your private agent",
+    description: "Reserving your private agent's identity.",
+  },
+  provisioning: {
+    title: "Setting up your private agent",
+    description: "Building a private space that only your agent can reach.",
+  },
+  connecting: {
+    title: "Setting up your private agent",
+    description: "Your private agent is starting up and introducing itself.",
+  },
+  active: {
+    title: "Your private agent is ready",
+    description: "It is running in your own private space.",
+  },
+  failed: {
+    title: "Setup did not finish",
+    description: "Your private agent could not be set up. Nothing was lost.",
+  },
+};
+
+export function describeDeployment(state: AgentDeploymentState): DeploymentCopy {
+  return DEPLOYMENT_COPY[state];
+}

@@ -81,6 +81,10 @@ export function OneAgentPresence() {
   // This used to be a one-shot fetch on mount, which meant the chip froze for
   // exactly the minutes it had something to say: a person watching their agent
   // be built saw "reserved" until they reloaded the page.
+  //
+  // No `userId` on purpose: the Feed owns registering the deployment in the
+  // background-work rail, and one owner is better than two components agreeing.
+  // The chip is a reader here, not a second reporter.
   const { state: followed } = useAgentDeploymentFollow();
   const state: AgentState = toAgentState(followed);
 
