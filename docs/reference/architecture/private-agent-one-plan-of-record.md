@@ -127,9 +127,18 @@ available. **The product is not blocked on engineering. It is blocked on choosin
 ## Commerce — money already moves, and this is now item one
 
 **Correction to an earlier draft of this file, and to the published narrative.** Commerce
-was treated as Phase 4. It is not a future phase. A live rail moves real ACH funds between
-a person's bank and their brokerage account (`api/routes/kai/plaid.py` →
-`broker_funding_service.py`, Plaid Transfer + Alpaca). It has been there throughout.
+was treated as Phase 4. It is not a future phase. A funds-transfer rail exists and is
+wired end to end — ACH between a person's bank and their brokerage account
+(`api/routes/kai/plaid.py` → `broker_funding_service.py`, Plaid Transfer + Alpaca). It has
+been there throughout.
+
+**One precision, because overclaiming here would be its own failure.** `PLAID_ENV`
+defaults to `sandbox` (`integrations/plaid/config.py`). Whether the deployed production
+environment sets it to `production` was **not verified** — that is a live-runtime read, not
+a code read. So the honest statement is: *the integration is real and its authorisation is
+not transaction-bound.* Whether real dollars are moving through it today is the first
+thing to check, with `scripts/ops/verify-env-secrets-parity.py` against the live service,
+and it changes the urgency but not the fix.
 
 ### The gap, precisely
 
