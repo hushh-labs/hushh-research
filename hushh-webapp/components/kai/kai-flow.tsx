@@ -721,7 +721,8 @@ export function KaiFlow({
       if (
         newState === "import_required" ||
         newState === "reviewing" ||
-        newState === "importing"
+        newState === "importing" ||
+        newState === "import_complete"
       ) {
         const params = new URLSearchParams(searchParams?.toString());
         params.set("stage", newState);
