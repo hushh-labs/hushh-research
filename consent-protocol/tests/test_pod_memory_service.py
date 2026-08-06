@@ -150,3 +150,84 @@ def test_pod_fully_configured_resolves_a_service(monkeypatch):
     svc = resolve_pod_memory_service()
     assert svc is not None
     assert hasattr(svc, "search_memory") and hasattr(svc, "add_session_to_memory")
+
+
+# -- authenticated sealing (AES-256-GCM) ---------------------------------------
+#
+# The seal was an unauthenticated XOR keystream. These assert the two properties
+# that change, both of which a placeholder cannot be excused for once real
+# holdings pass through it.
+
+
+def _key() -> bytes:
+    return b"pod-key-material-for-tests-32b!!"
+
+
+def test_a_tampered_record_refuses_to_open_rather_than_opening_wrong():
+    """The defect that mattered most: a keystream cipher with no MAC is malleable,
+    so flipping a ciphertext bit flips exactly that plaintext bit, undetectably.
+    An agent whose job is to remember you accurately must fail loudly instead of
+    reciting something its owner never said."""
+    import base64
+
+    from hushh_mcp.services.pod_memory_service import PodMemoryError, _seal, _unseal
+
+    blob = _seal(_key(), "the owner said yes", owner="hushh-1")
+    prefix, b64 = blob.split(".", 1)
+    raw = bytearray(base64.b64decode(b64))
+    raw[-1] ^= 0x01  # one bit, anywhere in the ciphertext
+    tampered = f"{prefix}.{base64.b64encode(bytes(raw)).decode()}"
+
+    with pytest.raises(PodMemoryError):
+        _unseal(_key(), tampered, owner="hushh-1")
+
+
+def test_identical_plaintexts_produce_different_ciphertexts():
+    """The old nonce was sha256(plaintext + time_ns), so equal records could collide
+    on a nonce — catastrophic for a keystream — and equal nonces proved equal
+    content without decrypting anything."""
+    from hushh_mcp.services.pod_memory_service import _seal
+
+    a = _seal(_key(), "same text", owner="hushh-1")
+    b = _seal(_key(), "same text", owner="hushh-1")
+    assert a != b
+
+
+def test_a_record_cannot_be_replayed_into_another_owners_pod():
+    """Owner is bound as AAD, so a sealed record is bound to WHOSE it is, not merely
+    to the key that sealed it."""
+    from hushh_mcp.services.pod_memory_service import PodMemoryError, _seal, _unseal
+
+    blob = _seal(_key(), "private note", owner="hushh-owner-a")
+    assert _unseal(_key(), blob, owner="hushh-owner-a") == "private note"
+
+    with pytest.raises(PodMemoryError):
+        _unseal(_key(), blob, owner="hushh-owner-b")
+
+
+def test_the_legacy_format_is_refused_not_silently_read():
+    """Accepting an unversioned blob would quietly reinstate the malleability this
+    change removed. Nothing durable was ever written in that format."""
+    import base64
+
+    from hushh_mcp.services.pod_memory_service import PodMemoryError, _unseal
+
+    legacy = base64.b64encode(b"x" * 32).decode("ascii")  # no version prefix
+    with pytest.raises(PodMemoryError):
+        _unseal(_key(), legacy, owner="hushh-1")
+
+
+def test_a_wrong_key_refuses_rather_than_returning_garbage():
+    from hushh_mcp.services.pod_memory_service import PodMemoryError, _seal, _unseal
+
+    blob = _seal(_key(), "secret", owner="hushh-1")
+    with pytest.raises(PodMemoryError):
+        _unseal(b"a-completely-different-key-32b!!", blob, owner="hushh-1")
+
+
+def test_plaintext_never_appears_in_the_sealed_blob():
+    from hushh_mcp.services.pod_memory_service import _seal
+
+    blob = _seal(_key(), "my bank balance is 12345", owner="hushh-1")
+    assert "bank" not in blob
+    assert "12345" not in blob
