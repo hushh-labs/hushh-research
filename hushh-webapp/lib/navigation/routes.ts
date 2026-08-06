@@ -152,6 +152,7 @@ export const ROUTES = {
   /** Compatibility redirect only; new RIA entry points use the profile tab. */
   RIA_HOME: "/ria",
   RIA_ONBOARDING: "/ria/onboarding",
+  RIA_CLAIM: "/ria/claim",
   RIA_CLIENTS: "/ria/clients",
   RIA_WORKSPACE: "/ria/workspace",
   RIA_REQUESTS: "/ria/requests",

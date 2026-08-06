@@ -7,6 +7,7 @@ import {
   formatAgentHours,
   type InsuranceAgentCard,
 } from "@/lib/services/insurance-agent-directory-service";
+import { usTelHref } from "@/lib/services/us-tel-href";
 
 /**
  * One agency, opened from the nearby list.
@@ -57,7 +58,7 @@ export function InsuranceAgentDetailSurface({
             fullWidth
             asChild
           >
-            <a href={`tel:${card.phone.replace(/[^\d+]/g, "")}`}>Call</a>
+            <a href={usTelHref(card.phone)}>Call</a>
           </Button>
         ) : undefined
       }

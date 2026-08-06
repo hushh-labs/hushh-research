@@ -21,8 +21,12 @@ Store submission.
 - **Target:** bundle `com.hushh.app`, the repository's current `MARKETING_VERSION`, TestFlight
   internal testers (no Beta App Review), UAT backend + Firebase `hushh-pda-uat`.
 
-This does **not** ship the `mobile`-branch iOS redesign (that never merges to `main`), does not
-touch prod backend/Firebase, and does not submit for App Store review.
+### Version Cadence & Closed Pre-Release Trains
+
+1. **Closed Train Rule:** App Store Connect permanently closes a `MARKETING_VERSION` train (e.g. `1.3.6`) once that version is approved and released on the App Store. Apple's upload API rejects any new build targeting a closed train with `Invalid Pre-Release Train. The train version '1.3.6' is closed for new build submissions`.
+2. **Version Bump Cadence:** When an App Store release closes a train, bump `MARKETING_VERSION` (Patch increment, e.g., `1.3.6` → `1.3.7`) in `hushh-webapp/ios/App/App.xcodeproj/project.pbxproj` (Debug and Release targets) and land on `main`.
+3. **Monotonic Build Numbers:** For an open train (e.g., `1.3.7`), TestFlight iterations increment `CURRENT_PROJECT_VERSION` (`CFBundleVersion`) monotonically (`57`, `58`, `59`...). The build-number resolver (`scripts/ci/resolve-ios-build-number.py`) computes `max(asc_latest, pbxproj_current) + 1`.
+4. **Automated Export Compliance Questionnaire:** `ITSAppUsesNonExemptEncryption = false` in `Info.plist` automatically fulfills App Store Connect's encryption questionnaire upon upload. When processing completes (`processingState = VALID`), the build immediately enters `IN_BETA_TESTING` for internal testers with zero manual forms or clicks.
 
 ## How it works (what the workflow runs)
 
@@ -70,7 +74,19 @@ printf '%s' '00000000-0000-0000-0000-000000000000' \
 (Use `gcloud secrets versions add <name> --data-file=-` instead of `create` if the reserved
 secret already exists.)
 
-### 2. Native iOS Firebase config
+### 2. Apple Distribution Certificate (.p12)
+
+To prevent `xcodebuild -allowProvisioningUpdates` from hitting Apple's 30-development-certificate limit on ephemeral GitHub runners, export the team distribution certificate and private key as a base64 `.p12` into Secret Manager:
+
+```bash
+security export -k login.keychain-db -t identities -f pkcs12 -o /tmp/dist_cert.p12 -P ""
+base64 -i /tmp/dist_cert.p12 | gcloud secrets create APPSTORE_DISTRIBUTION_CERT_P12_B64 --data-file=- --project=hushh-pda-uat
+rm -f /tmp/dist_cert.p12
+```
+
+The workflow decodes and imports `APPSTORE_DISTRIBUTION_CERT_P12_B64` directly into the runner's isolated keychain before `xcodebuild archive`.
+
+### 3. Native iOS Firebase config
 
 The workflow decodes `IOS_GOOGLESERVICE_INFO_PLIST_B64` into `ios/App/App/GoogleService-Info.plist`
 (it does **not** run `sync:native-firebase-configs`, which hard-requires the Android

@@ -270,6 +270,17 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN" "login.keychain-db"
           security default-keychain -s "$KEYCHAIN"
 
+          # Import distribution certificate if present in GCP Secret Manager
+          DIST_CERT_B64="$(gcloud secrets versions access latest --secret=APPSTORE_DISTRIBUTION_CERT_P12_B64 --project="${GCP_PROJECT_ID}" 2>/dev/null || true)"
+          if [ -n "$DIST_CERT_B64" ]; then
+            umask 077
+            echo "$DIST_CERT_B64" | openssl base64 -d -A > "${RUNNER_TEMP}/dist_cert.p12"
+            security import "${RUNNER_TEMP}/dist_cert.p12" -k "$KEYCHAIN" -P "" -A
+            rm -f "${RUNNER_TEMP}/dist_cert.p12"
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$KEYCHAIN" >/dev/null 2>&1 || true
+            echo "Distribution certificate imported into signing keychain."
+          fi
+
       - name: Prepare iOS project (web build + cap sync, UAT backend)
         shell: bash
         run: |
@@ -354,6 +365,68 @@ jobs:
             -authenticationKeyID "${ASC_KEY_ID}" \
             -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
             2>&1 | tee "${RUNNER_TEMP}/xcodebuild-export.log"
+
+      - name: Poll App Store Connect build processing status
+        if: github.event.inputs.dry_run != 'true'
+        id: poll_asc
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${RUNNER_TEMP}/asc-venv/bin/python" - <<'EOF'
+          import urllib.request, json, time, jwt, os, sys
+
+          p8_path = os.environ["RUNNER_TEMP"] + "/asc.p8"
+          key_id = os.environ["ASC_KEY_ID"]
+          issuer_id = os.environ["ASC_ISSUER_ID"]
+          bundle_id = os.environ.get("IOS_BUNDLE_ID", "com.hushh.app")
+          target_version = "${{ steps.build_number.outputs.next_build }}"
+
+          with open(p8_path, "rb") as f:
+              p8_bytes = f.read()
+
+          def mint_token():
+              now = int(time.time())
+              payload = {"iss": issuer_id, "iat": now, "exp": now + 1200, "aud": "appstoreconnect-v1"}
+              headers = {"kid": key_id, "typ": "JWT"}
+              return jwt.encode(payload, p8_bytes, algorithm="ES256", headers=headers)
+
+          token = mint_token()
+          req = urllib.request.Request(f"https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]={bundle_id}", headers={"Authorization": f"Bearer {token}"})
+          with urllib.request.urlopen(req) as r:
+              app_id = json.loads(r.read())["data"][0]["id"]
+
+          print(f"Polling App Store Connect for Build {target_version} processing status...")
+          success = False
+          for attempt in range(1, 31):
+              token = mint_token()
+              url = f"https://api.appstoreconnect.apple.com/v1/builds?filter[app]={app_id}&limit=10&sort=-uploadedDate&include=buildBetaDetail"
+              req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      data = json.loads(r.read())
+                  for b in data.get("data", []):
+                      attr = b.get("attributes") or {}
+                      ver = attr.get("version")
+                      state = attr.get("processingState")
+                      enc = attr.get("usesNonExemptEncryption")
+                      if str(ver) == str(target_version):
+                          print(f"Attempt {attempt}: Build {target_version} found! ProcessingState: {state}, EncryptionExempt: {enc == False}")
+                          if state == "VALID":
+                              print(f"==> Build {target_version} processing is VALID and TestFlight distribution is ready!")
+                              success = True
+                              break
+                          elif state in ("FAILED", "INVALID"):
+                              print(f"==> Build {target_version} processing failed on App Store Connect with state: {state}")
+                              sys.exit(1)
+              except Exception as exc:
+                  print(f"Attempt {attempt}: transient error querying ASC API: {exc}")
+              if success:
+                  break
+              time.sleep(15)
+
+          if not success:
+              print(f"==> Warning: Polling timed out before build {target_version} reached VALID state.")
+          EOF
 
       - name: Upload build artifacts
         if: always()

@@ -377,11 +377,7 @@ export default function ConnectPageClient() {
   const cancelConnectionRequest = useCallback(
     async (person: DirectoryPerson) => {
       if (!user) return;
-      const requestId = outgoingRequestIds[person.userId];
-      if (!requestId) {
-        toast.error("This request is still loading. Try again in a moment.");
-        return;
-      }
+      const requestId = outgoingRequestIds[person.userId] || person.userId;
       try {
         setBusyId(person.userId);
         const idToken = await user.getIdToken();
@@ -617,10 +613,7 @@ export default function ConnectPageClient() {
                               variant="none"
                               effect="fill"
                               size="sm"
-                              disabled={
-                                busyId === person.userId ||
-                                !outgoingRequestIds[person.userId]
-                              }
+                              disabled={busyId === person.userId}
                               onClick={() => void cancelConnectionRequest(person)}
                             >
                               {busyId === person.userId
