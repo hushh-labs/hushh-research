@@ -80,6 +80,38 @@ else
   exit 2
 fi
 
+# Node major must match CI too, and the failure mode when it does not is nasty
+# rather than obvious. CI pins Node 24 (ci.yml NODE_VERSION). On Node 20,
+# child_process.exec caps captured stdout at 8192 bytes, so packages/hushh-mcp's
+# bin-config tests parse a truncated manifest and fail with
+# "Unterminated string in JSON at position 8192" -- which looks like a corrupt
+# manifest and is really a version skew. Refuse to report a verdict we cannot
+# stand behind.
+CI_NODE_MAJOR="$(grep -oE 'NODE_VERSION:[[:space:]]*"?[0-9]+' .github/workflows/ci.yml 2>/dev/null \
+  | head -1 | grep -oE '[0-9]+$' || echo 24)"
+if command -v node >/dev/null 2>&1; then
+  LOCAL_NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+else
+  LOCAL_NODE_MAJOR=0
+fi
+if [[ "$LOCAL_NODE_MAJOR" != "$CI_NODE_MAJOR" ]]; then
+  # Match the whole value: ${var/0/none} would rewrite the 0 inside "20".
+  if [[ "$LOCAL_NODE_MAJOR" == "0" ]]; then NODE_LABEL="not found"; else NODE_LABEL="$LOCAL_NODE_MAJOR"; fi
+  printf '\033[0;31m[fail] Node major %s does not match CI (%s).\033[0m\n' \
+    "$NODE_LABEL" "$CI_NODE_MAJOR" >&2
+  echo "Node 20 truncates captured stdout at 8192 bytes, which makes the MCP" >&2
+  echo "package tests fail on a truncated manifest rather than on real defects." >&2
+  echo "A verdict from the wrong runtime is worse than no verdict. Switch first:" >&2
+  echo "  nvm use ${CI_NODE_MAJOR}     # or: fnm use ${CI_NODE_MAJOR}" >&2
+  echo "Set GATE_ALLOW_NODE_SKEW=1 to proceed anyway (report records the skew)." >&2
+  if [[ "${GATE_ALLOW_NODE_SKEW:-0}" != "1" ]]; then
+    exit 2
+  fi
+  NODE_SKEW="true"
+else
+  NODE_SKEW="false"
+fi
+
 SHA="$(git rev-parse HEAD)"
 BASE_REF="${GATE_BASE_REF:-main}"
 BASE_SHA="$(git merge-base "origin/${BASE_REF}" HEAD 2>/dev/null || echo "")"
@@ -200,8 +232,12 @@ done
 # reads `complete` to decide whether this report can stand in for CI.
 COMPLETE=true
 [[ "$MODE" == "fast" || -n "$ONLY_STAGE" ]] && COMPLETE=false
+# A run on a mismatched Node cannot authorize a deploy either, even if every
+# stage happened to pass -- the toolchain that produced the verdict was not CI's.
+[[ "$NODE_SKEW" == "true" ]] && COMPLETE=false
 
 SHA="$SHA" BASE_SHA="$BASE_SHA" MODE="$MODE" COMPLETE="$COMPLETE" \
+NODE_SKEW="$NODE_SKEW" CI_NODE_MAJOR="$CI_NODE_MAJOR" LOCAL_NODE_MAJOR="$LOCAL_NODE_MAJOR" \
 FAILED="$FAILED" REPORT_PATH="$REPORT_PATH" RESULT_ROWS="$(printf '%s\n' "${RESULTS[@]}")" \
 python3 - <<'PY'
 import json, os, subprocess
@@ -227,6 +263,11 @@ payload = {
     "verdict": "failed" if os.environ["FAILED"] == "1" else "passed",
     "generated_at": generated_at,
     "generated_by": "scripts/ci/local-release-gate.sh",
+    "toolchain": {
+        "ci_node_major": os.environ["CI_NODE_MAJOR"],
+        "local_node_major": os.environ["LOCAL_NODE_MAJOR"],
+        "node_skew": os.environ["NODE_SKEW"] == "true",
+    },
     "stages": rows,
     "not_covered": [
         "GitHub secret-scanning and dependabot alert state beyond what `gh` can read",

@@ -94,6 +94,29 @@ is how people spend an hour debugging a working feature.
 The same instinct applies to a stage that passes *suspiciously* fast: a scan
 whose range resolved to zero commits is an unrun scan, not a passing one.
 
+## The Node trap, which is worse because it looks like a real bug
+
+CI pins Node 24. On **Node 20**, `child_process.exec` caps captured stdout at
+8192 bytes, so `packages/hushh-mcp`'s `bin-config.test.ts` parses a truncated
+36KB manifest and fails with:
+
+```
+SyntaxError: Unterminated string in JSON at position 8192
+```
+
+That reads as a corrupt gateway manifest. It is a version skew. The tell is the
+number: 8192 is exactly 8KB, a buffer boundary, and real data does not end on
+one by coincidence.
+
+The gate refuses to run on a mismatched Node major rather than produce a verdict
+from the wrong toolchain. `GATE_ALLOW_NODE_SKEW=1` proceeds, but records
+`node_skew: true` and forces `complete: false`, so a skewed run can never
+authorize a deploy.
+
+```bash
+nvm use 24    # or: fnm use 24
+```
+
 ## The Python trap this repo will hand you
 
 CI runs Python 3.13. A bare `python3` on macOS is usually the system 3.9, which
@@ -133,9 +156,12 @@ not a control to switch off.
 - The gate reads `origin/<base>` for the freshness and DCO ranges, so
   `git fetch origin` first if the clone is stale.
 - `scripts/ci/verify-runtime-config-contract.py` forbids legacy runtime key
-  names **anywhere in a tracked file**, including as a local shell variable.
-  `FRONTEND_URL` is forbidden; use `APP_FRONTEND_ORIGIN` for the public origin,
-  or a distinct name like `FRONTEND_SERVICE_URL` for a Cloud Run service URL.
+  names **anywhere in a tracked file** — including as a local shell variable,
+  and including prose in a markdown file that merely mentions one. Run
+  `python3 scripts/ci/verify-runtime-config-contract.py` to see the current
+  list. The frontend-origin key is on it: use `APP_FRONTEND_ORIGIN` for the
+  public origin, or a distinct name such as `FRONTEND_SERVICE_URL` when you mean
+  a Cloud Run service URL.
 - Other agents share the primary checkout. Use a git worktree for anything
   non-trivial, and note a fresh worktree has no `consent-protocol/.venv` until
   you create one.
