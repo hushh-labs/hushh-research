@@ -41,7 +41,7 @@ change knows what to revisit.
 | Layer/flow counts on the platform map | `hussh-mega-map.gen.py` (generator prints them) | `wiki/about/hussh-mega-map.md` (public), `wiki/about/hussh-mega-map-internal.md` (private) |
 | What the Infrastructure layer contains | `hussh-mega-map.gen.py` → `LAYERS_ALL` | both mega-map articles |
 | Where setup gates the account, and on what | `docs/reference/quality/one-onboarding-architecture.md` | `wiki/products/one-app-shell.md` (public), `wiki/products/one-app-shell-operational.md` (private) |
-| The per-user pod's properties and journey | `docs/reference/architecture/architecture.md` § 1a | *no article exists yet* |
+| The per-user pod's properties and journey | `docs/reference/architecture/architecture.md` § 1a | the Private Agent One pod concept article (private) |
 | Consent boundary and PCHP phases | `docs/reference/architecture/architecture-view-catalog.md` | `wiki/products/pchp.md` |
 | Which backends can host a pod | `consent-protocol/hushh_mcp/services/compute_backend.py` | `wiki/concepts/byoa.md` |
 
@@ -49,76 +49,51 @@ Read the counts from the generator rather than from either article — it prints
 `layers N flows M` for each of the four renders, and that is the only number that
 cannot be stale.
 
-## Open delta — 2026-08-06
+## 2026-08-06 sync — what landed
 
-The per-user Private Agent One pod landed in the repo's architecture docs and on the
-Mega Map. The wiki has **not** been updated: a wiki search for the pod returns zero
-articles, and two articles now carry counts that the regenerated map contradicts.
+The per-user Private Agent One pod reached the repo's architecture docs and the Mega Map
+while the wiki still had **zero** articles describing it, and two articles carried flow
+counts the regenerated map contradicts. All prose is now reconciled.
 
-Wiki writes could not be performed from the session that found this — the wiki service
-returned `No refresh token is set`, so a patch applied locally and failed to persist.
-The delta is recorded here rather than left in a session transcript.
+| Wiki article | Visibility | What changed |
+|---|---|---|
+| The Hussh Mega Map | public | ten journeys → **eleven**; journey 11 *Your own private agent*; Infrastructure gains one managed container per person; frontmatter, TL;DR and lane count corrected |
+| The Hussh Mega Map — internal | private | twelve flows → **thirteen**; flow ⑬ with its three load-bearing orderings; layer 8 gains the pod and the fleet control plane; the Regenerate section now names the generator's printed counts as authority |
+| One App Shell | public | AI access documented as the **compute gate**, plus a plain-language walkthrough of where a person's agent comes from |
+| One App Shell — operational | private | the trigger table, pod property table, liveness/tier rules, capacity, and the dev-lane-only boundary |
+| Private Agent One pod | private | **new article** — the per-user compute concept, explicitly disambiguated from Puppy One, Grid One and Compute Burst |
 
-### 1. `wiki/about/hussh-mega-map.md` (public)
+The new article is private on purpose: the pod runs in the dev lane only and has not been
+promoted, so a public page would describe something a reader cannot yet have. Promote it
+when it ships. It is linked only from private pages — a public page linking a private one
+is a lint error, not a style preference.
 
-Currently claims **ten** journeys; the public render now has **eleven**. The eleventh
-is *Your own private agent*.
+Public wording stays sanitized. The public render says "managed container" and contains
+zero occurrences of the host service name; prose must not reintroduce it.
 
-- Frontmatter `description` and the body TL;DR both say "ten end-to-end user-story flows".
-- `## The ten journeys — how it connects` needs its heading, an eleventh entry, and the
-  ordering note: nothing is built for an account whose model connection has not been
-  proved to work.
-- Layer 7 (Infrastructure) should gain one managed container per person, plus the control
-  plane that builds it, hears its heartbeat, and repairs it.
-- "all ten lanes share the same step span" → eleven.
-- The embedded light and dark SVGs are the pre-pod render and must be replaced from
-  `hussh-mega-map.light.public.svg` / `hussh-mega-map.dark.public.svg`.
+### Still open: the embedded renders
 
-Public wording only. The public render already sanitizes the host name to "managed
-container" — verified: zero occurrences of the vendor service name in the public SVG.
-Do not reintroduce it in prose.
+Both mega-map articles embed their SVG inline, and those embeds are the **pre-pod render**
+— verified rather than assumed: the currently-embedded public SVG contains zero
+occurrences of "private agent", "one-pod", or "managed container". So the words on those
+two pages are now correct and the pictures are one generation behind.
 
-### 2. `wiki/about/hussh-mega-map-internal.md` (private)
+Each page carries a short note saying exactly that, so a reader who counts lanes is not
+misled. Closing it needs the regenerated files re-uploaded:
 
-Currently `## The twelve flows`; the internal render now has **thirteen**.
+| Article | Files to re-embed |
+|---|---|
+| The Hussh Mega Map (public) | `hussh-mega-map.light.public.svg`, `hussh-mega-map.dark.public.svg` |
+| The Hussh Mega Map — internal | `hussh-mega-map.dark.svg` (and `.light.svg` if a light embed is added) |
 
-- Frontmatter `description` says "12 flows".
-- Add flow ⑬ *Your own private agent*: choose an AI → verify it with a real generation →
-  create the pod with a zero-role identity and internal-only ingress → pod boots and
-  heart-beats → hub pulls its public key and mints a standing `pkm.read` → the turn runs
-  inside the pod on the owner's own key.
-- Layer 8 (Infrastructure) should gain the per-user pod and the fleet control plane.
-- Replace the embedded SVG from `hussh-mega-map.dark.svg` / `hussh-mega-map.light.svg`.
+Regenerate first with `python3 hussh-mega-map.gen.py`; it prints the authoritative counts
+per render (`layers 7 flows 11` public, `layers 8 flows 13` internal).
 
-### 3. `wiki/products/one-app-shell.md` (public) and `-operational.md` (private)
+This was not done in the same pass for a mechanical reason worth recording: the four
+renders total roughly 709 KB, and the wiki edit path takes SVG as inline text rather than
+by file reference. A partially-written SVG on a public page is worse than a stale one, so
+the honest note was preferred over a risky paste. Re-embedding wants a file-upload path.
 
-These describe the onboarding architecture, and its gate changed: **AI access is now the
-compute gate.** Choosing how the agent thinks — Hussh-managed or the person's own key —
-is the only event that provisions a pod, and only after the key is proved with a real
-generation.
-
-Both branches contact the server (`POST /api/one/runtime/managed/select` and
-`.../gemini/validate`) and both return whether an agent was scheduled. Provisioning used
-to fire on phone verification, which stood up warm, billable compute behind an event that
-says nothing about whether the agent could answer anything.
-
-### 4. A new article for the pod
-
-No wiki article describes per-user compute. The nearest neighbours are about physically
-different things and should not be conflated:
-
-- **Puppy One / Grid One / Factory One** — hardware a person or business owns and operates.
-- **Xtreme Compute Burst** — bursting a Mac workload into the user's own cloud project.
-- **The Private Agent One pod** — a per-person managed container that Hussh provisions and
-  operates on the person's behalf, which is none of the above.
-
-Start it **private**: the pod is live in the dev lane only and has not been promoted, so a
-public page would describe something a reader cannot yet have. Promote it when it ships.
-
-Its honest current state, which the article must preserve: the dev hub can create a pod and
-a pod can run a turn, with every flag live on the serving revision — and **no pod has yet
-served a turn for a real person**, because that needs an account with a verified phone and
-a validated AI key. Until that happens the page describes a capability, not a track record.
 
 ## Maintenance rule
 
