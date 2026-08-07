@@ -516,7 +516,10 @@ export default function RiaOnboardingPage({
   const claimProbeRef = useRef(false);
   useEffect(() => {
     if (entryMode !== "wizard" || claimProbeRef.current || !user) return;
-    const phone = toNanpDigits(user.phoneNumber);
+    // The account's verified number lives on the auth context; the Firebase
+    // user object is null here for anyone who signed in with Google and for
+    // native sessions that rehydrate before the phone hydrates.
+    const phone = toNanpDigits(phoneNumber || user.phoneNumber);
     if (!phone) return;
     claimProbeRef.current = true;
     void (async () => {
@@ -536,7 +539,9 @@ export default function RiaOnboardingPage({
         /* stay in the wizard */
       }
     })();
-  }, [entryMode, user, router]);
+    // phoneNumber is in the deps so the probe re-runs once the backend phone
+    // hydrates, which happens after the first render for a Google sign-in.
+  }, [entryMode, user, phoneNumber, router]);
 
   useEffect(() => {
     if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;
