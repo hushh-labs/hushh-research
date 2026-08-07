@@ -70,6 +70,7 @@ class FakeStore:
     def __init__(self) -> None:
         self.profile = {"user_id": "viewer", "phone_verified": True}
         self.presence: dict | None = None
+        self.last_presence: dict | None = None
         self.candidates: list[dict] = []
         self.connection_rows: list[dict] = []
         self.upsert_args: dict | None = None
@@ -105,6 +106,11 @@ class FakeStore:
 
     def get_active_presence(self, user_id):
         return self.presence
+
+    def get_last_presence(self, user_id):
+        # The continuity guard must see a checked-out or expired check-in too,
+        # which is exactly what `get_active_presence` filters away.
+        return self.last_presence if self.last_presence is not None else self.presence
 
     def read_active_candidates(self, **kwargs):
         self.candidate_args = kwargs
@@ -161,6 +167,99 @@ def _check_in(service, **overrides):
     }
     values.update(overrides)
     return service.check_in(**values)
+
+
+def _previous_check_in(*, lat: float, lng: float, minutes_ago: float, status="checked_out"):
+    """A prior check-in row for this owner, as the store would return it."""
+
+    row = _anchor_row(
+        user_id="viewer",
+        alias="viewer-alias",
+        place_id="previous-place",
+        label="Previous place",
+        lat=lat,
+        lng=lng,
+    )
+    row["status"] = status
+    row["checked_in_at"] = NOW - timedelta(minutes=minutes_ago)
+    return row
+
+
+def test_check_in_rejects_a_place_the_owner_could_not_have_reached():
+    """The point is client-supplied, so continuity is what can be checked.
+
+    Nothing else here stops an account claiming a venue anywhere on earth: the
+    coordinates come from the browser and cannot be attested. Consecutive
+    claims, though, must be consistent with each other -- someone checked in
+    near Stanford four minutes ago is not in London now.
+    """
+
+    store = FakeStore()
+    # ~8,600 km away, four minutes earlier: roughly 129,000 km/h.
+    store.last_presence = _previous_check_in(lat=51.5074, lng=-0.1278, minutes_ago=4)
+    service, _ = _service(store)
+
+    with pytest.raises(NearbyPresenceError) as exc:
+        _check_in(service)
+
+    assert exc.value.code == "NEARBY_PRESENCE_IMPLAUSIBLE_TRAVEL"
+    assert exc.value.status_code == 422
+    assert store.upsert_args is None, "an implausible check-in must not be persisted"
+
+
+def test_check_in_allows_a_place_reachable_at_human_speed():
+    store = FakeStore()
+    # Same ~8,600 km, but a day later: well under the ceiling.
+    store.last_presence = _previous_check_in(lat=51.5074, lng=-0.1278, minutes_ago=24 * 60)
+    service, _ = _service(store)
+
+    state = _check_in(service)
+
+    assert state["presence"]["placeLabel"] == "Spot A"
+
+
+def test_check_in_allows_returning_to_the_same_venue_immediately():
+    """Re-checking in where you already are is the most ordinary case there is."""
+
+    store = FakeStore()
+    store.last_presence = _previous_check_in(lat=37.4276, lng=-122.1698, minutes_ago=0.0)
+    service, _ = _service(store)
+
+    state = _check_in(service)
+
+    assert state["presence"]["placeLabel"] == "Spot A"
+
+
+def test_continuity_guard_fails_open_when_the_previous_anchor_is_unreadable():
+    """A decryption problem of ours must not lock an honest owner out.
+
+    The attack this guard closes needs a *readable* previous anchor to be
+    detected at all, so failing open costs nothing an attacker could use.
+    """
+
+    store = FakeStore()
+    row = _previous_check_in(lat=51.5074, lng=-0.1278, minutes_ago=4)
+    row["anchor_ciphertext"] = "not-decryptable"
+    store.last_presence = row
+    service, _ = _service(store)
+
+    state = _check_in(service)
+
+    assert state["presence"]["placeLabel"] == "Spot A"
+
+
+def test_continuity_guard_fails_open_when_the_store_cannot_be_read():
+    store = FakeStore()
+
+    def _boom(user_id):
+        raise RuntimeError("store unavailable")
+
+    store.get_last_presence = _boom  # type: ignore[method-assign]
+    service, _ = _service(store)
+
+    state = _check_in(service)
+
+    assert state["presence"]["placeLabel"] == "Spot A"
 
 
 def test_check_in_encrypts_selected_place_and_never_stores_the_captured_point():

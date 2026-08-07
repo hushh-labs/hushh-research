@@ -25,6 +25,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import math
 import os
 import re
@@ -40,6 +41,8 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from db.db_client import get_db
 from hushh_mcp.config import VAULT_DATA_KEY
 from hushh_mcp.services.connections_service import ConnectionsService
+
+logger = logging.getLogger(__name__)
 
 NEARBY_PRESENCE_CONSENT_VERSION = "one-location-nearby-presence-v3"
 NEARBY_PRESENCE_DURATION_MINUTES = frozenset({30, 60, 120})
@@ -59,6 +62,32 @@ NEARBY_PRESENCE_MAX_POINT_AGE_SECONDS = 300.0
 NEARBY_PRESENCE_FUTURE_TOLERANCE_SECONDS = 60.0
 NEARBY_PRESENCE_ROSTER_LIMIT = 20
 NEARBY_PRESENCE_CANDIDATE_LIMIT = 240
+
+# The reported point is client-supplied and cannot be attested, so nothing above
+# stops an account from claiming a place on the other side of the world. What
+# *can* be checked is continuity: consecutive check-ins have to be reachable
+# from one another at a speed a person could actually travel. This does not make
+# a single check-in honest -- it makes a roaming attack cost real time, which is
+# the difference between "appear anywhere instantly" and "move like a human".
+# Faster than a commercial jet is treated as impossible.
+NEARBY_PRESENCE_MAX_TRAVEL_SPEED_KMH = 900.0
+# Re-checking in at the same venue, or one next door, must never trip the guard:
+# below this the elapsed time is meaningless and the speed term explodes.
+NEARBY_PRESENCE_TELEPORT_GRACE_METERS = 750.0
+#
+# Still missing before this should reach a general production audience:
+#
+#   * Device attestation (Play Integrity / App Attest) on the check-in write.
+#     This is the only control that makes a *single* check-in trustworthy; the
+#     continuity guard above only makes a *sequence* of them expensive. Needs
+#     native plumbing on both platforms, so it is not a server-side change.
+#   * A daily distinct-place cap. The guard forces an attacker to move at
+#     human speed, but says nothing about how many places they visit over a
+#     day. Enforcing that needs check-in history, and the table keeps one row
+#     per owner -- so it needs a migration, deliberately deferred here.
+#   * Report/block, so a blocked pair can never match into the same roster.
+#
+# Until those exist, production admission is cohort-gated in the route layer.
 
 _CELL_EPOCH_SECONDS = 6 * 60 * 60
 _CELL_TILE_ZOOM = 16
@@ -140,6 +169,8 @@ class NearbyPresenceStore(Protocol):
     ) -> dict[str, Any]: ...
 
     def get_active_presence(self, user_id: str) -> dict[str, Any] | None: ...
+
+    def get_last_presence(self, user_id: str) -> dict[str, Any] | None: ...
 
     def read_active_candidates(
         self,
@@ -329,6 +360,26 @@ class PostgresNearbyPresenceStore:
             WHERE p.owner_user_id = :user_id
               AND p.status = 'active'
               AND p.expires_at > NOW()
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+
+    def get_last_presence(self, user_id: str) -> dict[str, Any] | None:
+        """The owner's most recent check-in, whatever state it ended in.
+
+        Deliberately not `get_active_presence`: the continuity guard has to see
+        a check-in the owner has already checked out of or let expire, which
+        that query filters away. The table keeps one row per owner, so this is
+        the previous check-in until it is overwritten or `purge_terminal`
+        removes it.
+        """
+
+        return self._execute_one(
+            """
+            SELECT p.*
+            FROM one_location_nearby_presences p
+            WHERE p.owner_user_id = :user_id
             LIMIT 1
             """,
             {"user_id": user_id},
@@ -528,6 +579,21 @@ def _normalize_captured_at(value: datetime) -> datetime:
         if value.tzinfo is None
         else value.astimezone(timezone.utc)
     )
+
+
+def _normalize_optional_timestamp(value: Any) -> datetime | None:
+    """UTC-normalize a stored timestamp, tolerating a driver that returns text."""
+
+    if isinstance(value, datetime):
+        return _normalize_captured_at(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            return _normalize_captured_at(
+                datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            )
+        except ValueError:
+            return None
+    return None
 
 
 def _distance_meters(
@@ -827,6 +893,83 @@ class OneLocationNearbyPresenceService:
                 status_code=403,
             )
 
+    def _require_reachable_from_last_check_in(
+        self,
+        *,
+        owner_user_id: str,
+        place_lat: float,
+        place_lng: float,
+        now: datetime,
+    ) -> None:
+        """Reject a check-in the owner could not physically have travelled to.
+
+        Everything else in this flow trusts a client-supplied point, so an
+        account can claim any single place. Consecutive claims, though, have to
+        be consistent with each other -- and that is checkable server-side with
+        no attestation. An account that checked in in London ten minutes ago is
+        not in Sydney now.
+
+        Fails open on our own data problems (no previous row, unreadable
+        anchor, unusable timestamp). A decryption bug must not lock people out
+        of a feature they are using honestly; the roaming attack this closes is
+        the deliberate one, and it needs a *readable* previous anchor to be
+        detected at all.
+        """
+
+        try:
+            previous = self._store.get_last_presence(owner_user_id)
+        except Exception:  # noqa: BLE001 - continuity is a guard, not a gate
+            return
+        if not previous:
+            return
+        try:
+            anchor = _decrypt_anchor(previous)
+        except Exception:  # noqa: BLE001 - see docstring
+            return
+
+        previous_lat = anchor.get("latitude")
+        previous_lng = anchor.get("longitude")
+        if not isinstance(previous_lat, (int, float)) or not isinstance(previous_lng, (int, float)):
+            return
+
+        previous_at = _normalize_optional_timestamp(previous.get("checked_in_at"))
+        if previous_at is None:
+            return
+
+        distance_meters = _distance_meters(
+            origin_lat=float(previous_lat),
+            origin_lng=float(previous_lng),
+            destination_lat=place_lat,
+            destination_lng=place_lng,
+        )
+        if (
+            not math.isfinite(distance_meters)
+            or distance_meters <= NEARBY_PRESENCE_TELEPORT_GRACE_METERS
+        ):
+            return
+
+        elapsed_seconds = (now - previous_at).total_seconds()
+        # A non-positive gap with real distance is itself impossible, so clamp
+        # rather than divide by zero -- the speed below then trips the guard.
+        elapsed_hours = max(elapsed_seconds, 1.0) / 3600.0
+        speed_kmh = (distance_meters / 1000.0) / elapsed_hours
+        if speed_kmh <= NEARBY_PRESENCE_MAX_TRAVEL_SPEED_KMH:
+            return
+
+        logger.warning(
+            "nearby_presence.teleport_rejected owner=%s distance_km=%.1f elapsed_s=%.0f speed_kmh=%.0f",
+            owner_user_id,
+            distance_meters / 1000.0,
+            elapsed_seconds,
+            speed_kmh,
+        )
+        raise NearbyPresenceError(
+            "NEARBY_PRESENCE_IMPLAUSIBLE_TRAVEL",
+            "That place is too far from your last check-in to be reachable yet. "
+            "Check in again once you have actually arrived.",
+            status_code=422,
+        )
+
     def check_in(
         self,
         *,
@@ -940,6 +1083,13 @@ class OneLocationNearbyPresenceService:
                 "Choose a place closer to your current location.",
                 status_code=422,
             )
+
+        self._require_reachable_from_last_check_in(
+            owner_user_id=owner_user_id,
+            place_lat=normalized_place_lat,
+            place_lng=normalized_place_lng,
+            now=now,
+        )
 
         # Anchor on the selected place, never the captured point: it makes the
         # roster exact regardless of receiver quality and keeps the owner's real
