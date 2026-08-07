@@ -389,9 +389,13 @@ export default function ConnectPageClient() {
               [person.userId]: request.id,
             }));
             successCount++;
-          } catch (err) {
-            console.error(`Failed to send request to ${person.userId}`, err);
+          } catch (_err) {
+            console.error(`Failed to send request to ${person.userId}`, _err);
           }
+        }
+      }
+      
+      setPeople((prev) =>
         }
       }
       
@@ -409,7 +413,7 @@ export default function ConnectPageClient() {
       } else {
         toast.error("Failed to send requests or they were already sent.");
       }
-    } catch (err) {
+    } catch (_err) {
       toast.error("An error occurred while sending requests.");
     } finally {
       setIsConnectingMultiple(false);

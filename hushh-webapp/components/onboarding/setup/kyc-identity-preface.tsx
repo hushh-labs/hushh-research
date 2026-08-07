@@ -50,7 +50,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
           throw new Error(result.message || "Failed to save profile");
         }
         onComplete();
-      } catch (err) {
+      } catch (_err) {
         toast.error("Failed to save identity profile");
       } finally {
         setSaving(false);
