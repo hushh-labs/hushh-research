@@ -240,3 +240,58 @@ def test_dev_is_the_one_environment_that_gains_them():
     assert emitted["HUSHH_DEV_PHONE_TEST_NUMBERS"].startswith(
         account_routes._SIMULATION_PHONE_PREFIX
     )
+
+
+# --- the OTP is optional in the simulation lane, and nowhere else ---------------------
+#
+# The dev deployment must not block end-to-end testing behind a code somebody has to
+# set by hand after every deploy. So no code configured means no code checked — but
+# only where `simulation_permitted()` already said yes, and only for a number in the
+# reserved fictitious block.
+
+
+def test_the_lane_is_enabled_with_no_code_at_all(clean_env):
+    """The whole point: a dev deploy needs no operator secret to be usable."""
+    clean_env.setenv("HUSHH_DEV_SIMULATION_ENABLED", "1")
+    clean_env.setenv("HUSHH_DEPLOY_ENV", "dev")
+    clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+15550100")
+
+    assert account_routes._dev_phone_code_is_optional() is True
+    assert account_routes._phone_test_enabled() is True
+
+
+def test_configuring_a_code_turns_the_check_back_on(clean_env):
+    """The escape hatch, so dev can still rehearse the real OTP flow."""
+    _configure_simulation(clean_env)
+
+    assert account_routes._dev_phone_code_is_optional() is False
+    assert account_routes._configured_phone_test_code() == "424242"
+
+
+def test_the_optional_path_is_unreachable_outside_a_simulation_lane(clean_env):
+    """No lane, no relaxation — including with the numbers present."""
+    clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+15550100")
+    clean_env.setenv("ENVIRONMENT", "uat")
+
+    assert account_routes._dev_phone_code_is_optional() is False
+    assert account_routes._phone_test_enabled() is False
+
+
+def test_production_cannot_reach_the_optional_path(clean_env):
+    """Fully configured and opted in, production still refuses."""
+    clean_env.setenv("HUSHH_DEV_SIMULATION_ENABLED", "1")
+    clean_env.setenv("HUSHH_DEPLOY_ENV", "production")
+    clean_env.setenv("ENVIRONMENT", "production")
+    clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+15550100")
+
+    assert account_routes._dev_phone_code_is_optional() is False
+    assert account_routes._phone_test_enabled() is False
+
+
+def test_uat_still_requires_its_code(clean_env):
+    """A UAT deployment with numbers but no code stays disabled, as before."""
+    clean_env.setenv("ENVIRONMENT", "uat")
+    clean_env.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
+
+    assert account_routes._dev_phone_code_is_optional() is False
+    assert account_routes._phone_test_enabled() is False
