@@ -467,6 +467,20 @@ export type OneLocationEncryptedEnvelope = {
   metadata?: Record<string, unknown>;
 };
 
+/**
+ * Result of storing one encrypted envelope.
+ *
+ * `recipientAlerted` reports whether the recipient had a device the alert could
+ * be delivered to — not FCM's eventual delivery result, which stays
+ * asynchronous. Only Save My Soul notifies from the envelope-store route, so
+ * every other share kind leaves it `null`. `null` means "not reported" and must
+ * never be rendered as a delivery failure.
+ */
+export type OneLocationStoredEnvelope = {
+  envelope: OneLocationEncryptedEnvelope;
+  recipientAlerted: boolean | null;
+};
+
 export type OneLocationMapPreferences = {
   presenceMode: "ghost" | "foreground_private";
   rendererConsentVersion?: string | null;
