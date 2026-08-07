@@ -31,6 +31,7 @@ import { toNanpDigits } from "@/lib/ria/ria-claim-entry";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
   RiaApiError,
   RiaService,
@@ -322,6 +323,20 @@ export default function RiaClaimPage() {
       // adviser back into the onboarding wizard off a 30-min-TTL cache hit.
       if (user) {
         CacheSyncService.onPersonaStateChanged(user.uid);
+        // Claiming completes RIA setup just as the wizard does, so the Setup
+        // hub must stop listing it as remaining. syncSetupCapabilities REPLACES
+        // the stored set, so pass the union.
+        try {
+          const current = await PreVaultUserStateService.bootstrapState(user.uid);
+          if (!current.setupCapabilityIds.includes("ria")) {
+            await PreVaultUserStateService.syncSetupCapabilities(
+              user.uid,
+              Array.from(new Set([...current.setupCapabilityIds, "ria"])).sort(),
+            );
+          }
+        } catch {
+          // best-effort; the dashboard reconciles the count on next load.
+        }
       }
       await refreshPersonaState({ force: true });
     },
