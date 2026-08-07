@@ -1194,13 +1194,20 @@ def store_location_envelope(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
-        return {
-            "envelope": _service().store_encrypted_envelope(
-                owner_user_id=_user_id(token_data),
-                grant_id=grant_id,
-                envelope=payload.envelope,
-            )
-        }
+        envelope_payload = _service().store_encrypted_envelope(
+            owner_user_id=_user_id(token_data),
+            grant_id=grant_id,
+            envelope=payload.envelope,
+        )
+        # Deliverability is a property of the notification, not of the ciphertext
+        # envelope, so it is lifted out to a sibling rather than left nested
+        # inside the envelope object. Absent for non-SOS shares, which do not
+        # notify from this route.
+        recipient_alerted = envelope_payload.pop("recipientAlerted", None)
+        response: dict[str, Any] = {"envelope": envelope_payload}
+        if recipient_alerted is not None:
+            response["recipientAlerted"] = bool(recipient_alerted)
+        return response
     except Exception as exc:
         raise _handle_error(exc) from exc
 

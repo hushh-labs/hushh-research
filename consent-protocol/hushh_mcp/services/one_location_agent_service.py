@@ -822,11 +822,23 @@ class OneLocationAgentService:
         notification_tag: str,
         request_url: str,
         data: dict[str, str | None],
-    ) -> None:
-        """Best-effort metadata-only FCM delivery for location workflow state."""
+    ) -> bool:
+        """Best-effort metadata-only FCM delivery for location workflow state.
+
+        Returns True when at least one push message was handed to FCM, False when
+        the recipient could not be reached at all -- no registered device token
+        (notifications never enabled, or the token was reaped after an uninstall),
+        Firebase not configured, or a payload the redaction guard rejected.
+
+        The boolean exists because Save My Soul must never report a confident
+        "SENT" for an alert that reached nobody. Actual FCM delivery stays
+        asynchronous and best-effort; this only reports whether there was a
+        device to deliver to, which is the failure the sender could otherwise
+        never see.
+        """
         safe_data = _notification_safe_data(data)
         if not user_id or _contains_plaintext_location_key(safe_data):
-            return
+            return False
         try:
             rows = (
                 get_db()
@@ -838,10 +850,10 @@ class OneLocationAgentService:
                 or []
             )
             if not rows:
-                return
+                return False
             configured, _ = ensure_firebase_admin()
             if not configured:
-                return
+                return False
             from firebase_admin import messaging
 
             message_data = {
@@ -859,7 +871,8 @@ class OneLocationAgentService:
                     notification_type,
                     redact_log_field("user_id", user_id),
                 )
-                return
+                return False
+            submitted = False
             seen: set[str] = set()
             for row in rows:
                 token = str(row.get("token") or "").strip()
@@ -885,6 +898,8 @@ class OneLocationAgentService:
                     notification_type=notification_type,
                     user_id=user_id,
                 )
+                submitted = True
+            return submitted
         except Exception as exc:
             logger.warning(
                 "one.location.notification_skipped type=%s user=%s error=%s",
@@ -892,6 +907,7 @@ class OneLocationAgentService:
                 redact_log_field("user_id", user_id),
                 exc,
             )
+            return False
 
     def _send_push_notification(
         self,
@@ -3476,7 +3492,12 @@ class OneLocationAgentService:
         duration: float,
         reason: str | None,
         resolved_kind: str,
-    ) -> None:
+    ) -> bool:
+        """Notify the recipient. Returns False when they had no reachable device.
+
+        Save My Soul surfaces this per recipient, so a sender is never shown a
+        confident "SENT" for an alert that had nowhere to land.
+        """
         owner_identity = self._identity_row(owner_user_id)
         owner_label = _identity_notification_label(owner_identity)
         share_message = _visible_share_message(reason)
@@ -3510,7 +3531,7 @@ class OneLocationAgentService:
         else:
             notification_title = "Location shared"
             notification_body = f"{owner_label} shared location access with you."
-        self._send_metadata_notification(
+        return self._send_metadata_notification(
             user_id=recipient_user_id,
             notification_type="location_share_created",
             title=notification_title,
@@ -4433,8 +4454,15 @@ class OneLocationAgentService:
                 None,
             )
             if isinstance(post_commit_notification, dict):
-                self._send_location_share_created_notification(
-                    **post_commit_notification,
+                # Save My Soul notifies here rather than at grant creation, so
+                # this is the only place that knows whether the alert reached a
+                # device. Report it back instead of discarding it -- a sender
+                # whose contact has notifications off would otherwise still see
+                # a confident "SENT".
+                envelope_payload["recipientAlerted"] = (
+                    self._send_location_share_created_notification(
+                        **post_commit_notification,
+                    )
                 )
             return envelope_payload
         grant_row = self._execute_one(
@@ -4540,9 +4568,16 @@ class OneLocationAgentService:
                 "resolved_kind": "sos",
             }
             if _key_writer_guarded:
+                # Deferred: the caller sends it after the write commits and
+                # records the outcome there.
                 envelope_payload["_post_commit_notification"] = notification_args
             else:
-                self._send_location_share_created_notification(**notification_args)
+                # Direct route path (POST .../envelopes), which is the one
+                # runSosPanic drives. Record reachability so the sender can be
+                # told which contacts the alert actually reached.
+                envelope_payload["recipientAlerted"] = (
+                    self._send_location_share_created_notification(**notification_args)
+                )
         return envelope_payload
 
     def view_latest_envelope(self, *, recipient_user_id: str, grant_id: str) -> dict[str, Any]:
