@@ -4,9 +4,11 @@ import json
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 
+import hushh_mcp.services.one_location_agent_service as one_location_agent_module
 import hushh_mcp.services.one_location_agent_service as one_location_service_module
 from hushh_mcp.operons.location.policy import normalize_duration_hours
 from hushh_mcp.services.one_location_agent_service import (
@@ -593,13 +595,16 @@ class RecipientDirectoryProbe(OneLocationAgentService):
         return []
 
 
-def test_verified_recipient_directory_sources_from_connections() -> None:
+def test_verified_recipient_directory_sources_from_connections_and_circles() -> None:
     service = RecipientDirectoryProbe()
 
     assert service.list_verified_recipients(owner_user_id="owner") == []
     assert "FROM connections c" in service.sql
     assert "c.status = 'active'" in service.sql
-    assert "c.user_a_id = :owner_user_id OR c.user_b_id = :owner_user_id" in service.sql
+    assert "c.user_a_id = :owner_user_id" in service.sql
+    assert "c.user_b_id = :owner_user_id" in service.sql
+    assert "one_location_circle_memberships mine" in service.sql
+    assert "one_location_circle_memberships theirs" in service.sql
     assert "one_location_recipient_keys" in service.sql
     assert "a.user_id <> :owner_user_id" in service.sql
     assert "ORDER BY COALESCE" in service.sql
@@ -731,6 +736,8 @@ class FourUserMemoryService(OneLocationAgentService):
         self.network_connections: dict[str, dict] = {}
         self.trusted_connections: dict[str, dict] = {}
         self.connections: dict[str, dict] = {}
+        self.connection_origins: dict[str, dict] = {}
+        self.named_circle_memberships: set[tuple[str, str]] = set()
         self.sms_contacts: set[tuple[str, str]] = set()
         self.events: dict[str, dict] = {}
         self.notifications: list[dict] = []
@@ -742,12 +749,163 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _seed_connection(self, owner: str, other: str, *, status: str = "active") -> None:
         a, b = sorted((owner, other))
-        self.connections[f"{a}:{b}"] = {
-            "id": f"conn-{a}-{b}",
-            "user_a_id": a,
-            "user_b_id": b,
+        pair_key = f"{a}:{b}"
+        connection = self.connections.setdefault(
+            pair_key,
+            {
+                "id": f"conn-{a}-{b}",
+                "user_a_id": a,
+                "user_b_id": b,
+                "status": status,
+            },
+        )
+        connection["status"] = status
+        origin_key = f"{connection['id']}:direct_request"
+        self.connection_origins[origin_key] = {
+            "id": f"origin-{a}-{b}-direct",
+            "connection_id": connection["id"],
+            "origin_kind": "direct_request",
+            "origin_key": "direct_request",
+            "source_circle_id": None,
             "status": status,
         }
+
+    def _seed_named_circle(self, circle_id: str, *user_ids: str) -> None:
+        members = sorted(set(user_ids))
+        for user_id in members:
+            self.named_circle_memberships.add((circle_id, user_id))
+        for index, owner in enumerate(members):
+            for other in members[index + 1 :]:
+                a, b = sorted((owner, other))
+                pair_key = f"{a}:{b}"
+                connection = self.connections.setdefault(
+                    pair_key,
+                    {
+                        "id": f"conn-{a}-{b}",
+                        "user_a_id": a,
+                        "user_b_id": b,
+                        "status": "active",
+                    },
+                )
+                connection["status"] = "active"
+                origin_key = f"{connection['id']}:named_circle:{circle_id}"
+                self.connection_origins[origin_key] = {
+                    "id": f"origin-{a}-{b}-{circle_id}",
+                    "connection_id": connection["id"],
+                    "origin_kind": "named_circle",
+                    "origin_key": f"named_circle:{circle_id}",
+                    "source_circle_id": circle_id,
+                    "status": "active",
+                }
+
+    def _revoke_connection_origin(
+        self,
+        owner: str,
+        other: str,
+        *,
+        origin_kind: str,
+        source_circle_id: str | None = None,
+    ) -> None:
+        a, b = sorted((owner, other))
+        connection = self.connections[f"{a}:{b}"]
+        expected_origin_key = (
+            f"named_circle:{source_circle_id}" if origin_kind == "named_circle" else origin_kind
+        )
+        for origin in self.connection_origins.values():
+            if (
+                origin["connection_id"] == connection["id"]
+                and origin["origin_kind"] == origin_kind
+                and origin["origin_key"] == expected_origin_key
+            ):
+                origin["status"] = "revoked"
+        connection["status"] = (
+            "active"
+            if any(
+                origin["connection_id"] == connection["id"] and origin["status"] == "active"
+                for origin in self.connection_origins.values()
+            )
+            else "revoked"
+        )
+
+    def _create_enforced_grant_row(
+        self,
+        *,
+        owner_user_id: str,
+        recipient_user_id: str,
+        requested_circle_id: str | None,
+        grant_params: dict,
+    ) -> dict | None:
+        """In-memory implementation of the production transaction seam."""
+        eligible, relationship_circle_id = self._resolve_location_peer_eligibility(
+            owner_user_id=owner_user_id,
+            other_user_id=recipient_user_id,
+            source_circle_id=requested_circle_id,
+        )
+        if not eligible:
+            raise OneLocationAgentError(
+                "LOCATION_RECIPIENT_NOT_CONNECTED",
+                "You can only share live location with a connection or active Circle member.",
+                status_code=403,
+            )
+        params = {
+            **grant_params,
+            "source_circle_id": (
+                requested_circle_id if requested_circle_id is not None else relationship_circle_id
+            ),
+        }
+        self._execute_many(
+            """
+            UPDATE one_location_share_grants
+            SET status = 'revoked'
+            WHERE owner_user_id = :owner_user_id
+              AND recipient_user_id = :recipient_user_id
+              AND status = 'active'
+            """,
+            params,
+        )
+        row = self._execute_one(
+            "INSERT INTO one_location_share_grants VALUES (...) RETURNING *",
+            params,
+        )
+        if row:
+            self._execute_one(
+                """
+                INSERT INTO one_location_events (
+                  owner_user_id, actor_user_id, recipient_user_id,
+                  grant_id, event_type, metadata, created_at
+                )
+                VALUES (...)
+                """,
+                {
+                    "owner_user_id": owner_user_id,
+                    "actor_user_id": owner_user_id,
+                    "recipient_user_id": recipient_user_id,
+                    "grant_id": row["id"],
+                    "envelope_id": None,
+                    "request_id": None,
+                    "referral_id": None,
+                    "event_type": "location_share_created",
+                    "metadata_json": json.dumps({"duration_hours": grant_params["duration_hours"]}),
+                },
+            )
+        return row
+
+    def _add_sms_contact_with_locked_eligibility(
+        self,
+        *,
+        owner_user_id: str,
+        contact_user_id: str,
+    ) -> None:
+        if not self._is_location_peer_eligible(
+            owner_user_id=owner_user_id,
+            other_user_id=contact_user_id,
+        ):
+            raise OneLocationAgentError(
+                "LOCATION_SMS_CONTACT_NOT_CONNECTED",
+                "Only an active connection or Circle member can be added as an SMS contact.",
+                status_code=403,
+            )
+        self.sms_contacts.add((owner_user_id, contact_user_id))
 
     def _send_metadata_notification(self, **kwargs) -> None:
         assert _contains_plaintext_location_key(kwargs.get("data") or {}) is False
@@ -893,6 +1051,47 @@ class FourUserMemoryService(OneLocationAgentService):
             return rows[:1]
         if "FROM actor_identity_cache a" in sql:
             owner = params["owner_user_id"]
+            if "FROM connections c" in sql and "one_location_circle_memberships mine" in sql:
+                eligible_ids = {
+                    (
+                        connection["user_b_id"]
+                        if connection["user_a_id"] == owner
+                        else connection["user_a_id"]
+                    )
+                    for connection in self.connections.values()
+                    if connection.get("status") == "active"
+                    and owner
+                    in {
+                        connection.get("user_a_id"),
+                        connection.get("user_b_id"),
+                    }
+                }
+                owner_circle_ids = {
+                    circle_id
+                    for circle_id, member_user_id in self.named_circle_memberships
+                    if member_user_id == owner
+                }
+                eligible_ids.update(
+                    member_user_id
+                    for circle_id, member_user_id in self.named_circle_memberships
+                    if circle_id in owner_circle_ids and member_user_id != owner
+                )
+                rows = []
+                for user_id in sorted(eligible_ids):
+                    identity = self.identities.get(user_id)
+                    if not identity:
+                        continue
+                    key = self._active_key(user_id)
+                    rows.append(
+                        {
+                            **identity,
+                            "key_id": key["key_id"] if key else None,
+                            "public_key_jwk": (key["public_key_jwk"] if key else None),
+                            "algorithm": key["algorithm"] if key else None,
+                            "key_created_at": (key["created_at"] if key else None),
+                        }
+                    )
+                return rows[: int(params.get("limit") or 50)]
             rows = []
             connected_ids = {
                 connection["user_b_id"]
@@ -1156,6 +1355,36 @@ class FourUserMemoryService(OneLocationAgentService):
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
         params = params or {}
+        if "AS active_connection" in sql and "AS eligible_circle_id" in sql:
+            owner = str(params.get("owner_user_id") or "")
+            other = str(params.get("other_user_id") or "")
+            source_circle_id = params.get("source_circle_id")
+            active_connection = any(
+                connection.get("status") == "active"
+                and {owner, other}
+                == {
+                    connection.get("user_a_id"),
+                    connection.get("user_b_id"),
+                }
+                and any(
+                    origin.get("connection_id") == connection.get("id")
+                    and origin.get("status") == "active"
+                    and origin.get("origin_kind") != "named_circle"
+                    for origin in self.connection_origins.values()
+                )
+                for connection in self.connections.values()
+            )
+            shared_circle_ids = sorted(
+                circle_id
+                for circle_id, member_user_id in self.named_circle_memberships
+                if member_user_id == owner
+                and (circle_id, other) in self.named_circle_memberships
+                and (source_circle_id is None or circle_id == source_circle_id)
+            )
+            return {
+                "active_connection": active_connection and source_circle_id is None,
+                "eligible_circle_id": (shared_circle_ids[0] if shared_circle_ids else None),
+            }
         if "SELECT 1" in sql and "FROM one_location_sms_contacts" in sql:
             pair = (params["owner_user_id"], params["contact_user_id"])
             return {"exists": 1} if pair in self.sms_contacts else None
@@ -1175,7 +1404,12 @@ class FourUserMemoryService(OneLocationAgentService):
                 if conn.get("status") != "active":
                     continue
                 pair = {conn["user_a_id"], conn["user_b_id"]}
-                if pair == {a, b}:
+                if pair == {a, b} and any(
+                    origin.get("connection_id") == conn.get("id")
+                    and origin.get("status") == "active"
+                    and origin.get("origin_kind") != "named_circle"
+                    for origin in self.connection_origins.values()
+                ):
                     return {"exists": 1}
             return None
         if "WITH stale_grants AS" in sql and "deleted_grants" in sql:
@@ -1438,6 +1672,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
                 "latest_envelope_id": None,
+                "source_circle_id": params.get("source_circle_id"),
                 "metadata": json.loads(params.get("metadata_json") or "{}"),
                 "recipient_display_name": params.get("recipient_display_name"),
                 "recipient_phone_number": params.get("recipient_phone_number"),
@@ -2187,6 +2422,8 @@ def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None
     assert result["deleted_requests"] == 1
     assert result["deleted_referrals"] == 1
     assert result["deleted_public_invites"] == 1
+    assert result["deleted_named_circle_codes"] == 0
+    assert result["deleted_named_circle_member_invites"] == 0
     assert result["deleted_public_submissions"] == 1
     assert result["deleted_events"] == 1
     assert old_grant_id not in service.grants
@@ -2202,6 +2439,33 @@ def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None
     assert current_invite_id in service.public_invites
     assert current_submission_id in service.public_submissions
     assert active_event_id in service.events
+
+
+class _TerminalPurgeSqlProbe(OneLocationAgentService):
+    def __init__(self) -> None:
+        self.sql = ""
+
+    def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+        self.sql = sql
+        return {}
+
+
+def test_targeted_circle_member_invite_expiry_is_ordered_locked_and_bounded() -> None:
+    service = _TerminalPurgeSqlProbe()
+
+    service._purge_terminal_work(user_id="user_a", older_than_hours=12)
+
+    candidate_start = service.sql.index("expired_named_circle_member_invite_candidates AS")
+    update_start = service.sql.index("expired_named_circle_member_invites AS")
+    candidate_sql = service.sql[candidate_start:update_start]
+    assert "SELECT invite.id" in candidate_sql
+    assert "WHERE invite.status = 'pending'" in candidate_sql
+    assert "ORDER BY invite.expires_at, invite.id" in candidate_sql
+    assert "LIMIT 500" in candidate_sql
+    assert "FOR UPDATE SKIP LOCKED" in candidate_sql
+    assert update_start > candidate_start
+    assert "FROM expired_named_circle_member_invite_candidates candidate" in service.sql
+    assert "WHERE invite.id = candidate.id" in service.sql
 
 
 def test_four_user_location_workflow_contract() -> None:
@@ -2475,8 +2739,13 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
     assert "ciphertext" not in serialized
     assert "latitude" not in serialized
     assert "longitude" not in serialized
-    assert "0100002" not in serialized
-    assert "0002" not in serialized
+    user_visible_text = " ".join(
+        str(event.get(field, ""))
+        for event in activity["events"]
+        for field in ("title", "detail", "actorLabel")
+    )
+    assert "0100002" not in user_visible_text
+    assert "0002" not in user_visible_text
 
 
 def test_public_invite_is_request_only_and_token_hash_only() -> None:
@@ -2780,6 +3049,27 @@ def test_active_connection_makes_user_a_location_recipient() -> None:
     }
 
     assert recipient_ids == {"user_b"}
+
+
+def test_shared_named_circle_materializes_circle_only_location_recipient() -> None:
+    service = FourUserMemoryService()
+    service._seed_named_circle(
+        "550e8400-e29b-41d4-a716-446655440000",
+        "user_a",
+        "user_b",
+    )
+
+    recipient_ids = {
+        recipient["userId"]
+        for recipient in service.list_verified_recipients(owner_user_id="user_a")
+    }
+
+    assert recipient_ids == {"user_b"}
+    assert len(service.connections) == 1
+    assert {origin["origin_kind"] for origin in service.connection_origins.values()} == {
+        "named_circle"
+    }
+    assert service.trusted_connections == {}
 
 
 def test_public_invite_submission_limits_bound_duplicate_phone_requests() -> None:
@@ -3097,6 +3387,243 @@ def test_create_grant_enforce_connection_allows_connection() -> None:
         enforce_connection=True,
     )
     assert grant["recipientUserId"] == "user_b"
+    assert grant["sourceCircleId"] is None
+
+
+def test_create_grant_circle_only_connection_derives_revocable_provenance() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    service._seed_named_circle(circle_id, "user_a", "user_b")
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        enforce_connection=True,
+    )
+
+    assert grant["sourceCircleId"] == circle_id
+    assert service.grants[grant["id"]]["source_circle_id"] == circle_id
+    assert {
+        origin["origin_kind"]
+        for origin in service.connection_origins.values()
+        if origin["status"] == "active"
+    } == {"named_circle"}
+
+    service.named_circle_memberships.difference_update(
+        {(circle_id, "user_a"), (circle_id, "user_b")}
+    )
+    service._revoke_connection_origin(
+        "user_a",
+        "user_b",
+        origin_kind="named_circle",
+        source_circle_id=circle_id,
+    )
+
+    assert next(iter(service.connections.values()))["status"] == "revoked"
+    with pytest.raises(OneLocationAgentError) as error:
+        service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id="user_b",
+            recipient_key_id="key-user_b",
+            duration_hours=1,
+            enforce_connection=True,
+        )
+    assert error.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+
+
+def test_create_grant_direct_origin_wins_and_survives_circle_origin_revocation() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    service._seed_connection("user_a", "user_b")
+    service._seed_named_circle(circle_id, "user_a", "user_b")
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        enforce_connection=True,
+    )
+
+    assert grant["sourceCircleId"] is None
+    assert {
+        origin["origin_kind"]
+        for origin in service.connection_origins.values()
+        if origin["status"] == "active"
+    } == {"direct_request", "named_circle"}
+
+    service.named_circle_memberships.difference_update(
+        {(circle_id, "user_a"), (circle_id, "user_b")}
+    )
+    service._revoke_connection_origin(
+        "user_a",
+        "user_b",
+        origin_kind="named_circle",
+        source_circle_id=circle_id,
+    )
+
+    assert next(iter(service.connections.values()))["status"] == "active"
+    assert service.grants[grant["id"]]["status"] == "active"
+    assert service._is_location_peer_eligible(
+        owner_user_id="user_a",
+        other_user_id="user_b",
+    )
+
+
+def test_create_grant_rejects_an_unshared_explicit_circle() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id="user_b",
+            recipient_key_id="key-user_b",
+            duration_hours=1,
+            source_circle_id="550e8400-e29b-41d4-a716-446655440000",
+            enforce_connection=True,
+        )
+
+    assert error.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+
+
+def test_enforced_circle_grant_locks_relationship_before_mutation(monkeypatch) -> None:
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+
+    class Result:
+        def __init__(self, *, first=None, rows=None):
+            self._first = first
+            self._rows = rows or []
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self._first
+
+        def all(self):
+            return self._rows
+
+    class Connection:
+        def __init__(self):
+            self.calls: list[str] = []
+
+        def execute(self, query, _params=None):
+            sql = str(query)
+            self.calls.append(sql)
+            if "FROM connections" in sql:
+                return Result()
+            if "SELECT mine.circle_id::text AS circle_id" in sql:
+                return Result(first={"circle_id": circle_id})
+            if "FROM one_location_circles" in sql and "FOR SHARE" in sql:
+                return Result(first={"id": circle_id})
+            if "FROM one_location_circle_memberships" in sql and "FOR SHARE" in sql:
+                return Result(rows=[{"user_id": "user_a"}, {"user_id": "user_b"}])
+            if "INSERT INTO one_location_share_grants" in sql:
+                return Result(first={"id": "grant-id", "source_circle_id": circle_id})
+            return Result()
+
+    connection = Connection()
+
+    class Engine:
+        @contextmanager
+        def begin(self):
+            yield connection
+
+    monkeypatch.setattr(
+        one_location_agent_module,
+        "get_db",
+        lambda: SimpleNamespace(engine=Engine()),
+    )
+
+    row = OneLocationAgentService()._create_enforced_grant_row(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        requested_circle_id=None,
+        grant_params={
+            "owner_user_id": "user_a",
+            "recipient_user_id": "user_b",
+            "recipient_key_id": "key-user-b",
+            "capability_scopes": "[]",
+            "duration_hours": 1,
+            "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+            "metadata_json": "{}",
+            "recipient_display_name": "User B",
+            "recipient_phone_number": None,
+        },
+    )
+
+    assert row == {"id": "grant-id", "source_circle_id": circle_id}
+    direct_lookup = next(sql for sql in connection.calls if "FROM connections" in sql)
+    assert "JOIN connection_origins origin" in direct_lookup
+    assert "origin.status = 'active'" in direct_lookup
+    assert "origin.origin_kind <> 'named_circle'" in direct_lookup
+    assert "FOR SHARE OF connection, origin" in direct_lookup
+    circle_lock = next(
+        index
+        for index, sql in enumerate(connection.calls)
+        if "FROM one_location_circles" in sql and "FOR SHARE" in sql
+    )
+    membership_lock = next(
+        index
+        for index, sql in enumerate(connection.calls)
+        if "FROM one_location_circle_memberships" in sql and "FOR SHARE" in sql
+    )
+    revoke = next(
+        index
+        for index, sql in enumerate(connection.calls)
+        if "UPDATE one_location_share_grants" in sql
+    )
+    insert = next(
+        index
+        for index, sql in enumerate(connection.calls)
+        if "INSERT INTO one_location_share_grants" in sql
+    )
+    event = next(
+        index
+        for index, sql in enumerate(connection.calls)
+        if "INSERT INTO one_location_events" in sql
+    )
+    assert circle_lock < membership_lock < revoke < insert < event
+
+    connection.calls.clear()
+    OneLocationAgentService()._add_sms_contact_with_locked_eligibility(
+        owner_user_id="user_a",
+        contact_user_id="user_b",
+    )
+    circle_lock = next(
+        index
+        for index, sql in enumerate(connection.calls)
+        if "FROM one_location_circles" in sql and "FOR SHARE" in sql
+    )
+    membership_lock = next(
+        index
+        for index, sql in enumerate(connection.calls)
+        if "FROM one_location_circle_memberships" in sql and "FOR SHARE" in sql
+    )
+    sms_insert = next(
+        index
+        for index, sql in enumerate(connection.calls)
+        if "INSERT INTO one_location_sms_contacts" in sql
+    )
+    assert circle_lock < membership_lock < sms_insert
 
 
 def test_create_grant_without_enforce_allows_non_connection() -> None:

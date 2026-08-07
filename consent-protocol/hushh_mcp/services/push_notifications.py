@@ -130,3 +130,29 @@ def send_connection_request_push(addressee_user_id: str, requester_user_id: str)
         notification_category="ONE_CONNECTIONS",
         data={"requester_user_id": requester_user_id},
     )
+
+
+def send_circle_member_invite_push(
+    *,
+    invitee_user_id: str,
+    inviter_user_id: str,
+    circle_id: str,
+    invite_id: str,
+) -> int:
+    """Nudge one exact invitee about a pending named Circle invitation."""
+
+    deep_link = f"/one/location?tab=people&circleInviteId={invite_id}"
+    return send_user_data_push(
+        invitee_user_id,
+        notification_type="location_circle_member_invite",
+        title="Circle invitation",
+        body="You have a new Circle invitation.",
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-invite:{invite_id}",
+        notification_category="ONE_LOCATION",
+        data={
+            "invite_id": invite_id,
+            "circle_id": circle_id,
+            "inviter_user_id": inviter_user_id,
+        },
+    )

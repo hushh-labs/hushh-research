@@ -37,18 +37,33 @@ if [ -z "${GITHUB_REPOSITORY:-}" ] || [ -z "${GITHUB_TOKEN:-}" ]; then
   exit 1
 fi
 
-PAYLOAD="$(curl -fsSL \
+# The payload goes to a FILE, never to argv. Linux caps a single argument
+# string at MAX_ARG_STRLEN (32 * PAGE_SIZE = 128 KiB), and this response has
+# no bound that respects it: it is every check run on the commit, at up to 100
+# per page, each carrying the full `app` object. A commit with ~30 checks
+# already lands within ~10% of the ceiling, and one that crosses it kills
+# python3 with "Argument list too long" (exit 126) BEFORE any check is read.
+# That is a deploy gate failing for a reason unrelated to the deploy — observed
+# on the dev lane, 2026-08-07, run 31145632745. Every release lane calls this
+# script, so the same commit would have blocked uat, production and both iOS
+# lanes identically.
+PAYLOAD_FILE="$(mktemp)"
+trap 'rm -f "$PAYLOAD_FILE"' EXIT
+
+curl -fsSL \
   -H "Accept: application/vnd.github+json" \
   -H "Authorization: Bearer ${GITHUB_TOKEN}" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
-  "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${TARGET_SHA}/check-runs?per_page=100")"
+  "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${TARGET_SHA}/check-runs?per_page=100" \
+  -o "$PAYLOAD_FILE"
 
-python3 - "$TARGET_SHA" "$REQUIRED_BRANCH" "$REQUIRED_CHECK_NAME" "$PAYLOAD" <<'PY'
+python3 - "$TARGET_SHA" "$REQUIRED_BRANCH" "$REQUIRED_CHECK_NAME" "$PAYLOAD_FILE" <<'PY'
 import json
 import sys
+from pathlib import Path
 
-sha, branch, check_name, payload_json = sys.argv[1:]
-payload = json.loads(payload_json)
+sha, branch, check_name, payload_path = sys.argv[1:]
+payload = json.loads(Path(payload_path).read_text(encoding="utf-8"))
 
 # REQUIRED_CHECK_NAME accepts a comma-separated any-of list because the
 # authoritative full-CI check differs by commit kind: PR heads carry

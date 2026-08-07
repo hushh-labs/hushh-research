@@ -38,6 +38,7 @@ function viewModel(
   ];
   return {
     busy: null,
+    circles: [],
     sosRecipients: recipients,
     myLocationPoint: point,
     myLocationError: null,

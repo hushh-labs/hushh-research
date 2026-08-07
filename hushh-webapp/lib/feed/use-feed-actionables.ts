@@ -35,6 +35,10 @@ import {
 } from "@/lib/consent/consent-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
+import {
+  isLocationConsent,
+  locationConsentSummary,
+} from "@/lib/consent/location-consent";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationAccessRequest } from "@/lib/one-location/types";
 import {
@@ -97,6 +101,9 @@ function toTimestamp(value?: string | number | null): number {
 function consentSummary(entry: ConsentCenterEntry): string {
   if (entry.kind === "connection_request") return "Wants to connect with you.";
   if (entry.kind === "invite") return "Invitation waiting for your approval.";
+  if (isLocationConsent(entry.metadata, entry.scope)) {
+    return locationConsentSummary(entry.metadata);
+  }
   return (
     entry.additional_access_summary ||
     entry.scope_description ||

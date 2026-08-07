@@ -374,6 +374,7 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "one_location_access_requests",
+        "one_location_circle_invite_codes",
         "one_location_circle_invites",
         "one_location_envelopes",
         "one_location_events",
@@ -387,12 +388,29 @@
         "one_location_sms_contacts",
         "one_location_share_grants"
       ],
-      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
+      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
       "retention_policy": "Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
-      "deletion_behavior": "Delete rows where the deleting account is owner, nearby attendee, SMS contact, recipient, requester, referrer, referred user, or key owner; revoke active grants and nearby presence before deletion where possible.",
-      "trust_boundary": "Raw live-share coordinates remain on owner and recipient devices. UAT nearby presence captures a fresh point at confirmation and stores that point only as short-lived AES-256-GCM ciphertext plus a six-hour server-keyed spatial candidate token; accuracy is request-memory-only. Checkout clears point material synchronously. Expiry synchronously blocks roster and Connect access; the next feature operation or required hosted hourly retention job scrubs the due envelope and token. Backend also stores recipient public keys, grant metadata, ciphertext envelopes, rotating nearby participant aliases, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata. It must not persist nearby point plaintext, exact distance, plaintext venue labels or addresses, map previews, movement trails, or raw public tokens. Nearby rosters require mutual active opt-in, expose no stable user id or peer location, and remain disabled in production.",
+      "deletion_behavior": "Delete rows where the deleting account is owner, nearby attendee, SMS contact, recipient, requester, referrer, referred user, join-code creator, or key owner; revoke active grants, nearby presence, and join codes before deletion where possible.",
+      "trust_boundary": "Raw live-share coordinates remain on owner and recipient devices. UAT nearby presence captures a fresh point at confirmation and stores that point only as short-lived AES-256-GCM ciphertext plus a six-hour server-keyed spatial candidate token; accuracy is request-memory-only. Checkout clears point material synchronously. Expiry synchronously blocks roster and Connect access; the next feature operation or required hosted hourly retention job scrubs the due envelope and token. Backend also stores recipient public keys, grant metadata, ciphertext envelopes, keyed join-code digests, rotating nearby participant aliases, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata. It must not persist nearby point plaintext, exact distance, plaintext venue labels or addresses, map previews, movement trails, raw public tokens, or raw Circle codes. Nearby rosters require mutual active opt-in, expose no stable user id or peer location, and remain disabled in production. Circle code resolution reveals only a safe name, owner label, member count, and expiry.",
       "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
       "expected_row_growth": "medium_per_user_share"
+    },
+    {
+      "id": "one_location_named_circle_relationships",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_circles",
+        "one_location_circle_member_invites",
+        "one_location_circle_memberships"
+      ],
+      "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection.",
+      "retention_policy": "Active memberships persist while the Circle exists. Pending targeted invitations are marked expired opportunistically after their bounded invitation window. Accepted, declined, cancelled, and expired targeted invitations are compacted by the scheduled One Location terminal-work retention endpoint after its bounded retention window, and are deleted immediately with the Circle or either account. Left, removed, and deleted membership state otherwise remains for bounded reconciliation before compaction.",
+      "deletion_behavior": "Delete owned Circles and every invitation or membership referencing the deleting account. Before Circle hard deletion or membership exit, revoke only that Circle's active connection origins, recompute the canonical connection, and explicitly delete the revoked Circle origins; the source-Circle foreign key restricts bypassing this lifecycle. Preserve direct, imported, legacy-invite, or other-Circle origins. Reassign Circle-sourced active location grants to a surviving direct or other-Circle relationship and revoke them only when no eligible relationship remains.",
+      "trust_boundary": "Joining a named Circle creates mutual connection metadata but never creates a trusted_connections edge, SMS selection, location grant, capability token, envelope, coordinate, or map projection. Existing direct connections require a targeted Circle invitation and invitee acceptance before membership. Location and Save My Soul authority remain separate explicit user actions.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_user_relationship"
     },
     {
       "id": "one_wallet_card",
@@ -462,12 +480,13 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "connection_requests",
-        "connections"
+        "connections",
+        "connection_origins"
       ],
-      "primary_access_path": "Two-way (mutual) connection graph added in migration 085. connection_requests holds the directional handshake (requester→addressee, status pending/accepted/rejected/cancelled); connections holds the accepted mutual edge canonicalized as user_a_id < user_b_id. Written only via ConnectionsService (create/accept/reject/cancel/remove), exposed under /api/one/connections/* and driven by Agent One's add-connection intent. On accept the service also mirrors two directional trusted_connections edges (source='connection') so existing Location/SOS readers keep working unchanged. People are resolved read-only through the One Location verified-recipient directory.",
-      "retention_policy": "Active connections persist as the users' mutual relationship graph; revoked connections and terminal requests (rejected/cancelled) are retained only for bounded operational review before compaction.",
-      "deletion_behavior": "Delete rows where the deleting account is either party (requester/addressee, or user_a/user_b); revoke active connections and their mirrored trusted_connections edges before deletion where possible.",
-      "trust_boundary": "Backend stores only connection metadata (user references, status, source, optional plaintext message on a request, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
+      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, and one or more named Circles. Migration 126 backfills canonical pairs and named_circle origins for every active co-member pair created under migration 125. ConnectionsService owns direct-request lifecycle and mirrored trusted_connections edges for direct accepts. Named Circle join/accept writes only named_circle origins and never mirrors trusted edges. The canonical pair remains active while any origin is active.",
+      "retention_policy": "Active origins keep their canonical connection active. Revoked origins, revoked canonical connections, and terminal requests are retained only for bounded operational review before compaction.",
+      "deletion_behavior": "Delete rows where the deleting account is either party. Membership leave/removal/Circle deletion revokes only the matching named_circle origins and recomputes each canonical pair; direct and other-Circle origins survive. connection_origins cascade when their canonical connection is deleted.",
+      "trust_boundary": "Backend stores only connection and source-provenance metadata (user references, Circle reference, status, source, optional plaintext message on a direct request, timestamps). A connection or Circle origin grants no location access, SMS selection, capability, envelope, coordinate, PKM value, or trusted_connections authorization on its own.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_per_user_connection"
     },

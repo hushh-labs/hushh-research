@@ -10,7 +10,7 @@ function source(relativePath: string): string {
 describe("One Location native one-shot position resilience", () => {
   it("keeps Android approximate permission away from GPS and races permitted providers", () => {
     const android = source(
-      "android/app/src/main/java/com/hushh/app/plugins/HushhLocation/HushhLocationPlugin.kt",
+      "android/app/src/main/java/com/hussh/app/plugins/HushhLocation/HushhLocationPlugin.kt",
     );
 
     expect(android).toContain("val fineGranted = hasAndroidPermission");

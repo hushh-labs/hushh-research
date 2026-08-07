@@ -4,6 +4,7 @@ import type {
   OneLocationState,
 } from "@/lib/one-location/types";
 import {
+  buildOneLocationWorkflowHref,
   ONE_LOCATION_SMS_EMERGENCY_CATEGORY,
   ONE_LOCATION_SMS_EMERGENCY_PROFILE,
   privacySafeOneLocationNotificationLabel,
@@ -230,6 +231,37 @@ export function buildOneLocationNotificationPayloads(
     addValue(payload, "submission_id", submission.id);
     addValue(payload, "request_id", submission.requestId);
     addValue(payload, "visitor_display_label", submission.visitorDisplayName);
+    payloads.push(payload);
+  }
+
+  for (const invite of state.circleMemberInvites ?? []) {
+    if (
+      invite.inviteeUserId !== normalizedUserId ||
+      invite.status !== "pending"
+    ) {
+      continue;
+    }
+    const payload: OneLocationNotificationPayload = {
+      type: "location_circle_member_invite",
+    };
+    addValue(payload, "invite_id", invite.id);
+    addValue(payload, "circle_id", invite.circleId);
+    addValue(payload, "circle_name", invite.circleName);
+    addValue(payload, "inviter_user_id", invite.inviterUserId);
+    addValue(
+      payload,
+      "inviter_display_label",
+      invite.inviterDisplayName ||
+        recipientLabel(recipients, invite.inviterUserId, "A connection"),
+    );
+    addValue(
+      payload,
+      "deep_link",
+      buildOneLocationWorkflowHref({
+        circleInviteId: invite.id,
+        section: "people",
+      }),
+    );
     payloads.push(payload);
   }
 

@@ -867,6 +867,7 @@
       "data_class": "workflow_state",
       "exact_tables": [
         "one_location_access_requests",
+        "one_location_circle_invite_codes",
         "one_location_circle_invites",
         "one_location_envelopes",
         "one_location_events",
@@ -883,7 +884,19 @@
       "id": "one_location_agent",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
+      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit"
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_location_circles",
+        "one_location_circle_member_invites",
+        "one_location_circle_memberships"
+      ],
+      "id": "one_location_named_circle_relationships",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection."
     },
     {
       "data_class": "personal_projection",
@@ -1059,12 +1072,13 @@
       "data_class": "workflow_state",
       "exact_tables": [
         "connection_requests",
-        "connections"
+        "connections",
+        "connection_origins"
       ],
       "id": "two_way_connection_graph",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Two-way (mutual) connection graph added in migration 085. connection_requests holds the directional handshake (requester\u2192addressee, status pending/accepted/rejected/cancelled); connections holds the accepted mutual edge canonicalized as user_a_id < user_b_id. Written only via ConnectionsService (create/accept/reject/cancel/remove), exposed under /api/one/connections/* and driven by Agent One's add-connection intent. On accept the service also mirrors two directional trusted_connections edges (source='connection') so existing Location/SOS readers keep working unchanged. People are resolved read-only through the One Location verified-recipient directory."
+      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, and one or more named Circles. Migration 126 backfills canonical pairs and named_circle origins for every active co-member pair created under migration 125. ConnectionsService owns direct-request lifecycle and mirrored trusted_connections edges for direct accepts. Named Circle join/accept writes only named_circle origins and never mirrors trusted edges. The canonical pair remains active while any origin is active."
     },
     {
       "data_class": "personal_encrypted",
@@ -2756,7 +2770,37 @@
     },
     {
       "alias": null,
-      "api_dependencies": [],
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/one/location/{circles,circle-codes,circle-member-invites,sms-contacts}/*",
+          "native_transport": "CapacitorHttp direct backend via the shared One Location service",
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "service_file": "lib/one-location/service.ts",
+          "service_methods": [
+            "getState",
+            "listCircles",
+            "getCircle",
+            "createNamedCircle",
+            "updateNamedCircle",
+            "deleteNamedCircle",
+            "createNamedCircleInviteCode",
+            "revokeNamedCircleInviteCode",
+            "resolveNamedCircleCode",
+            "joinNamedCircle",
+            "removeNamedCircleMember",
+            "leaveNamedCircle",
+            "listNamedCircleEligibleConnections",
+            "createNamedCircleMemberInvites",
+            "listNamedCircleMemberInvites",
+            "acceptNamedCircleMemberInvite",
+            "declineNamedCircleMemberInvite",
+            "cancelNamedCircleMemberInvite",
+            "addSmsContact",
+            "removeSmsContact"
+          ]
+        }
+      ],
       "cache": {
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
@@ -4472,12 +4516,12 @@
     "action_gateway": "a1ce3147cc7acd484e0302e62d8324fa617d524263b80d63153999cc6e979c81",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
     "cache_manifest": "5991c2da1921c773a3a557e3650aa3315d6b201f4cdc82037eec42d8caad40da",
-    "data_plane": "bf2f449b4dcf1072a3c7478418822ee37c6fb9230c1351e92f5acb1dd46a9b55",
+    "data_plane": "270affce3a97bcbde752a465927f065005176f0ddc69aeb9419e6605bbc4f94d",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
     "route_index": "e31efa1b6d0291f4864ab2c4ec63f8bffe21360081e2b39872ff2f0c6ce22849",
     "route_layout": "42beba310638c222030373c44fecbe1cef473ea4472952790d6d853d0a1837cc",
-    "surface_map": "fc237ce856f30841f52e8a67de9fe99f9f731bf6a1212043641221c3090d1b7d",
+    "surface_map": "efafb55feb834140203799ab9c8f23c69064a6ae86e0aca32b01814acc6602f3",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -4491,6 +4535,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 119,
     "semantic_routes": 14,
-    "table_families": 42
+    "table_families": 43
   }
 }

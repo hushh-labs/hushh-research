@@ -194,7 +194,104 @@ def _shape_firm(raw: dict[str, Any] | None) -> dict[str, Any] | None:
         "advisory_employees": raw.get("advisoryEmployees"),
         "aum": raw.get("aum"),
         "num_accounts": raw.get("numAccounts"),
+        "total_employees": raw.get("totalEmployees"),
+        "street1": address.get("street1"),
+        "street2": address.get("street2"),
+        "zip": address.get("zip"),
+        "registration_type": raw.get("registrationType"),
         "report_url": raw.get("reportUrl"),
+        "form_adv_pdf_url": raw.get("formAdvPdfUrl"),
+        "form_crs_url": raw.get("formCrsUrl"),
+        # States the firm has notice-filed in: the public "licensed in" list.
+        "notice_filed_states": [
+            str(item.get("jurisdiction"))
+            for item in (raw.get("noticeFilings") or [])
+            if isinstance(item, dict) and item.get("jurisdiction")
+        ],
+        "registrations": [
+            {
+                "jurisdiction": item.get("secJurisdiction"),
+                "status": item.get("status"),
+                "effective_date": item.get("effectiveDate"),
+            }
+            for item in (raw.get("registrations") or [])
+            if isinstance(item, dict)
+        ],
+        "brochures": [
+            {
+                "name": item.get("name"),
+                "date_submitted": item.get("dateSubmitted"),
+                "url": item.get("url"),
+            }
+            for item in (raw.get("brochures") or [])
+            if isinstance(item, dict) and item.get("url")
+        ],
+    }
+
+
+def _shape_advisor_record(raw: dict[str, Any] | None) -> dict[str, Any]:
+    """The public regulatory record we can put on a claimed profile.
+
+    Every field here is published on adviserinfo.sec.gov. Disclosure *events*
+    are deliberately reduced to a flag and a count rather than parsed detail:
+    the element shape is unverified, and a profile should link to the SEC record
+    rather than restate someone's disciplinary history from a guessed schema.
+    """
+    individual: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    employments = individual.get("currentEmployments")
+    current = employments[0] if isinstance(employments, list) and employments else {}
+    if not isinstance(current, dict):
+        current = {}
+    branches = current.get("branches")
+    branch = branches[0] if isinstance(branches, list) and branches else {}
+    if not isinstance(branch, dict):
+        branch = {}
+    disclosures = individual.get("disclosures")
+    return {
+        "crd": individual.get("crd"),
+        "other_names": [str(n) for n in (individual.get("otherNames") or []) if n],
+        "registered_since": current.get("registrationBeginDate"),
+        "exams": [
+            {
+                "code": item.get("code"),
+                "name": item.get("name"),
+                "date": item.get("date"),
+            }
+            for item in (individual.get("exams") or [])
+            if isinstance(item, dict) and item.get("code")
+        ],
+        "registered_states": [
+            {
+                "state": item.get("state"),
+                "scope": item.get("regScope"),
+                "status": item.get("status"),
+                "date": item.get("regDate"),
+            }
+            for item in (individual.get("registeredStates") or [])
+            if isinstance(item, dict) and item.get("state")
+        ],
+        "previous_firms": [
+            {
+                "firm_name": item.get("firmName"),
+                "firm_crd": item.get("firmCrd"),
+                "from": item.get("from"),
+                "to": item.get("to"),
+            }
+            for item in (individual.get("previousEmployments") or [])
+            if isinstance(item, dict) and item.get("firmName")
+        ],
+        "branch": {
+            "city": branch.get("city"),
+            "state": branch.get("state"),
+            "street1": branch.get("street1"),
+            "zip": branch.get("zip"),
+            "private_residence": branch.get("privateResidence"),
+        }
+        if branch
+        else None,
+        "has_disclosures": bool(individual.get("hasDisclosures")),
+        "disclosure_count": len(disclosures) if isinstance(disclosures, list) else 0,
+        "report_url": individual.get("reportUrl"),
     }
 
 
@@ -426,6 +523,20 @@ class RIAClaimService:
                 status_code=502,
             )
 
+        # Pull the adviser's full public record so the profile is built from the
+        # regulator's own data instead of asking the person to type it. Best
+        # effort: a claim must never fail because enrichment did.
+        advisor_record: dict[str, Any] = {}
+        if claim_type == "individual" and individual_crd is not None:
+            try:
+                fetched = await self._client.advisor_record(individual_crd)
+                advisor_record = _shape_advisor_record(fetched.get("individual"))
+            except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
+                # A claim must never fail because the profile could not be
+                # enriched. Any upstream fault, timeout, or shape change leaves
+                # the person claimed with a thinner profile rather than blocked.
+                logger.info("ria.claim_enrichment_skipped error=%s", type(exc).__name__)
+
         reference_metadata = {
             "provider": CLAIM_PROVIDER_LABEL,
             "claim_type": claim_type,
@@ -437,6 +548,9 @@ class RIAClaimService:
             "missing": payload.get("missing") or [],
             "evidence_ledger": payload.get("evidenceLedger") or [],
             "scope_note": payload.get("scopeNote"),
+            # The snapshot the profile was built from, kept for provenance.
+            "firm_record": firm,
+            "advisor_record": advisor_record,
         }
 
         profile = await self._iam_service.claim_ria_profile_from_identity(
@@ -452,6 +566,15 @@ class RIAClaimService:
             firm_website=firm.get("website"),
             firm_sec_number=firm.get("sec_number"),
             reference_metadata=reference_metadata,
+            # Regulator facts, straight from the public record.
+            regulator="SEC" if firm.get("registration_type") == "sec" else "State",
+            regulator_status=firm.get("registration_status"),
+            disclosures_url=(advisor_record.get("report_url") or firm.get("report_url")),
+            certifications=[
+                str(exam.get("code"))
+                for exam in advisor_record.get("exams", [])
+                if exam.get("code")
+            ],
         )
         logger.info(
             json.dumps(
@@ -463,6 +586,27 @@ class RIAClaimService:
                 }
             )
         )
+        branch = advisor_record.get("branch") or {}
+        # What the regulator publishes, so the screen can show the person what
+        # was filled in for them rather than an empty profile.
+        facts = {
+            "crd_number": crd_number,
+            "regulator": "SEC" if firm.get("registration_type") == "sec" else "State",
+            "regulator_status": firm.get("registration_status"),
+            "registered_since": advisor_record.get("registered_since"),
+            "branch_city": branch.get("city"),
+            "branch_state": branch.get("state"),
+            "exams": advisor_record.get("exams", []),
+            "registered_states": advisor_record.get("registered_states", []),
+            "previous_firms": advisor_record.get("previous_firms", []),
+            "notice_filed_states": firm.get("notice_filed_states", []),
+            "aum": firm.get("aum"),
+            "num_accounts": firm.get("num_accounts"),
+            "firm_website": firm.get("website"),
+            "report_url": advisor_record.get("report_url") or firm.get("report_url"),
+            "has_disclosures": advisor_record.get("has_disclosures"),
+        }
+        await self._record_claim_enrichment(user_id, facts)
         return {
             "status": "claimed",
             "claim_type": claim_type,
@@ -470,4 +614,54 @@ class RIAClaimService:
             "profile_verified": profile_verified,
             "provisional": provisional,
             "profile": profile,
+            "facts": facts,
         }
+
+    async def _record_claim_enrichment(self, user_id: str, facts: dict[str, Any]) -> None:
+        """Stage the claim's regulator facts in the user's knowledge planes.
+
+        The encrypted PKM blob is BYOK — only the owner's unlocked vault can
+        write it, so the client does that from the done screen. Here the server
+        writes the planes it legitimately owns: the append-only audit event
+        (the staged facts a vault session can materialize), the sanitized
+        discovery flag, and the durable setup mirror that marks the RIA
+        capability finished. Each block is best-effort in isolation: a claim
+        must never fail, and one plane must never block another.
+        """
+        try:
+            from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
+
+            await get_pkm_service().record_mutation_event(
+                user_id=user_id,
+                domain="ria",
+                operation_type="attribute_inference",
+                path_set=["regulator_profile"],
+                source_agent=CLAIM_PROVIDER_LABEL,
+                confidence=1.0,
+                metadata={"regulator_profile": facts},
+            )
+        except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
+            logger.info("ria.claim_pkm_event_skipped error=%s", type(exc).__name__)
+
+        try:
+            from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
+
+            await get_pkm_service().update_domain_summary(
+                user_id, "ria", {"has_regulator_profile": True}
+            )
+        except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
+            logger.info("ria.claim_pkm_summary_skipped error=%s", type(exc).__name__)
+
+        try:
+            from hushh_mcp.services.vault_keys_service import VaultKeysService
+
+            vault_keys = VaultKeysService()
+            state = await vault_keys.get_pre_vault_state(user_id)
+            capability_ids = [str(v) for v in (state.get("setupCapabilityIds") or [])]
+            if "ria" not in capability_ids:
+                await vault_keys.update_pre_vault_state(
+                    user_id=user_id,
+                    setup_capability_ids=sorted({*capability_ids, "ria"}),
+                )
+        except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
+            logger.info("ria.claim_setup_mirror_skipped error=%s", type(exc).__name__)

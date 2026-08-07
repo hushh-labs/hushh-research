@@ -111,13 +111,27 @@ class RIAIdentityClient:
         *,
         mode: str = "auto",
         limit: int = 10,
+        detail: bool = False,
     ) -> dict[str, Any]:
-        """Resolve a phone number to firm + adviser claim targets (buffered)."""
-        return await self._request(
-            "GET",
-            "/v1/claim/lookup",
-            params={"phone": phone, "mode": mode, "limit": limit, "stream": "off"},
-        )
+        """Resolve a phone number to firm + adviser claim targets (buffered).
+
+        ``detail=True`` hydrates each candidate with its full public record
+        (exams, state registrations, employment history, branch offices), which
+        is what lets a claimed profile be built without asking any questions.
+        """
+        params: dict[str, Any] = {
+            "phone": phone,
+            "mode": mode,
+            "limit": limit,
+            "stream": "off",
+        }
+        if detail:
+            params["detail"] = 1
+        return await self._request("GET", "/v1/claim/lookup", params=params)
+
+    async def advisor_record(self, individual_crd: int) -> dict[str, Any]:
+        """One adviser's full public regulatory record."""
+        return await self._request("GET", f"/v1/advisors/{individual_crd}")
 
     async def claim_evaluate(
         self,
