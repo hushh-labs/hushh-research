@@ -315,6 +315,32 @@ requiring a cohort larger than the team, which is blocked on Phase 2.
 10. **Keep this ledger current.** It is the only document that would have prevented any
    of the six — or this correction.
 
+## Status against the twelve separation KPIs (2026-08-07)
+
+The twelve lines the founder asked for, each with the evidence that decides it. The
+doctrine items land green because they are decisions plus a structural guard; the
+readiness items do not, and the shape of that split is the honest headline.
+
+| # | KPI | State | Deciding evidence |
+|---|---|---|---|
+| 1 | Simulation vs production separation | **green** | One simulation tier plus two production paths, written into the north star and inherited by pointer. `GcpBackend._execute` calls `require_simulation_permitted` before any live create. |
+| 2 | hussh-managed pod role clarity | **green** | Named development-and-validation only, in doctrine and in the refusal. What held before was an accident — `personal_agent_registry` sitting in the parked migration lane — which would have evaporated on a renumber. |
+| 3 | hussh Vertex ADC boundary | **green** | The hussh-Vertex renderer can only produce a pod inside a dev lane; `UserGcpBackend` now pins `GOOGLE_CLOUD_PROJECT`/`_LOCATION` to the person's own project rather than inheriting the hub override. |
+| 4 | Production pathway clarity | **amber** | Both paths are specified and neither runs: `UserGcpBackend.provision` and `AnypointBackend._execute` each raise when live. The paths that must carry production are the two that have never executed. |
+| 5 | Zero Knowledge alignment | **amber** | The separation removes the contradiction — a pod hussh can read is no longer a production path. The primitives underneath it are still dark: the log key is ephemeral on every deployed pod, and the primary consent-audit chain is a parked migration with its flag defaulting off. |
+| 6 | Private Agent / PCC preservation | **amber** | Isolation is real (separate service, no shared database credential, no shared data key, zero-permission identity). Identity is not: one fleet-shared service account proves *a* pod, never *which*. |
+| 7 | Agent harness validation readiness | **red** | No pod has served a turn, in any environment, for anyone. The turn route, relay and runtime exist and have never carried a real request. |
+| 8 | Grounding and intelligence chaining | **red** | Pod memory is proven erased across a restart by a two-process probe, and the memory service cannot attach to a runner a pod runs — the chain ends at `adk_live.py`, outside `_POD_ROUTERS`. Chaining over time has nothing to chain onto. |
+| 9 | Front-end / surface integration | **amber** | The journey surfaces are built and deployed: managed-select, the `connecting` renderer, typed `AGENT_NOT_READY`, deployment progress in the feed. They have never rendered a state produced by a real pod. |
+| 10 | Backup and recovery readiness | **red** | The durability stack has no production caller at all. See [pod backup and recovery](../operations/pod-backup-and-recovery.md). |
+| 11 | Anypoint limitations and mitigation | **red** | No viable durable substrate; all three candidates ruled out by the repo itself. Mitigation is sequenced but blocked on one unanswered question. See [Anypoint vs user-owned GCP](./anypoint-vs-user-gcp.md). |
+| 12 | Admin SOP alignment | **amber** | The procedure is correct and written down — dispatch from `main` with `ref=` the branch, since the workflow definition runs from `main` while the content deployed is the input ref. It has not been exercised for this branch, so `personal_agent_registry` still does not exist in dev. |
+
+Four greens, five ambers, three reds. The three reds are the same subsystem seen from
+three angles: nothing durable is constructed, so nothing accumulates, so nothing can be
+recovered or chained. **Item 7 is the one that must never be reported green under any
+framing until a real person's pod answers a real question.**
+
 ## Sources
 
 - Live reads of `hushh-pda-dev` and the deploy history, 2026-08-04 → 2026-08-06
