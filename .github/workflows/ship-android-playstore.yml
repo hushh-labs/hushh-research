@@ -197,7 +197,7 @@ jobs:
 
       - name: Upload .aab to Google Play Console
         if: ${{ inputs.dry_run != true }}
-        uses: roryabrahams/upload-google-play@v1
+        uses: rstudio/upload-google-play@v1
         with:
           serviceAccountJson: ${{ env.PLAY_SERVICE_ACCOUNT_PATH }}
           packageName: ${{ env.ANDROID_PACKAGE_NAME }}
