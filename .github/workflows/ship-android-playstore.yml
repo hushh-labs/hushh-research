@@ -109,6 +109,56 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
 
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Materialize UAT frontend contract + native Firebase config
+        shell: bash
+        run: |
+          set -euo pipefail
+          get() {
+            gcloud secrets versions access latest --secret="$1" --project="${GCP_PROJECT_ID}" 2>/dev/null || true
+          }
+          require() {
+            local name="$1" val="$2"
+            if [ -z "$val" ]; then
+              echo "Missing required GCP secret: $name (project ${GCP_PROJECT_ID})" >&2
+              exit 1
+            fi
+          }
+
+          BACKEND_URL="$(get BACKEND_URL)"
+          require BACKEND_URL "$BACKEND_URL"
+          APP_URL="$(get APP_FRONTEND_ORIGIN)"
+          [ -n "$APP_URL" ] || APP_URL="https://uat.one.hushh.ai"
+
+          FB_API_KEY="$(get NEXT_PUBLIC_FIREBASE_API_KEY)";           require NEXT_PUBLIC_FIREBASE_API_KEY "$FB_API_KEY"
+          FB_AUTH_DOMAIN="$(get NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN)";    require NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN "$FB_AUTH_DOMAIN"
+          FB_PROJECT_ID="$(get NEXT_PUBLIC_FIREBASE_PROJECT_ID)";      require NEXT_PUBLIC_FIREBASE_PROJECT_ID "$FB_PROJECT_ID"
+          FB_STORAGE="$(get NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET)";     require NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET "$FB_STORAGE"
+          FB_SENDER="$(get NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID)"; require NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID "$FB_SENDER"
+          FB_APP_ID="$(get NEXT_PUBLIC_FIREBASE_APP_ID)";              require NEXT_PUBLIC_FIREBASE_APP_ID "$FB_APP_ID"
+          FB_VAPID="$(get NEXT_PUBLIC_FIREBASE_VAPID_KEY)";            require NEXT_PUBLIC_FIREBASE_VAPID_KEY "$FB_VAPID"
+
+          cat <<EOF > hushh-webapp/.env.uat.local
+APP_RUNTIME_PROFILE=uat
+NEXT_PUBLIC_APP_ENV=uat
+NEXT_PUBLIC_BACKEND_URL=${BACKEND_URL}
+NEXT_PUBLIC_APP_URL=${APP_URL}
+NEXT_PUBLIC_PASSKEY_RP_ID=one.hushh.ai
+NEXT_PUBLIC_FIREBASE_API_KEY=${FB_API_KEY}
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${FB_AUTH_DOMAIN}
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=${FB_PROJECT_ID}
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${FB_STORAGE}
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${FB_SENDER}
+NEXT_PUBLIC_FIREBASE_APP_ID=${FB_APP_ID}
+NEXT_PUBLIC_FIREBASE_VAPID_KEY=${FB_VAPID}
+NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY=$(get NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY)
+NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY=$(get NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY)
+EOF
+          chmod 600 hushh-webapp/.env.uat.local
+          echo "Materialized UAT frontend contract at hushh-webapp/.env.uat.local"
+
       - name: Fetch Android Keystore & Firebase secrets from GCP Secret Manager
         id: gcp-secrets
         continue-on-error: true
