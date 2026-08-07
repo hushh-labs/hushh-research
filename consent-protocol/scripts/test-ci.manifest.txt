@@ -80,6 +80,7 @@ tests/test_pkm_upgrade_routes.py
 tests/test_pkm_upgrade_service.py
 tests/test_pkm_write_engine_seam.py
 tests/test_pod_access_audit.py
+tests/test_pod_cold_resume_state.py
 tests/test_pod_commit_log.py
 tests/test_pod_connector_keypair_service.py
 tests/test_pod_consent_authority.py
@@ -90,6 +91,7 @@ tests/test_pod_hub_data_path.py
 tests/test_pod_image_build_contract.py
 tests/test_pod_key_collection.py
 tests/test_pod_key_custody.py
+tests/test_pod_key_custody_derivation.py
 tests/test_pod_liveness_adapters.py
 tests/test_pod_liveness_attach.py
 tests/test_pod_liveness_service.py

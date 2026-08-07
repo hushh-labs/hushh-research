@@ -178,12 +178,34 @@ def _scale(cfg) -> tuple[str, str]:
     return ann["autoscaling.knative.dev/minScale"], ann["autoscaling.knative.dev/maxScale"]
 
 
-def test_default_min_instances_is_one_warm_floor(monkeypatch):
-    # Real-time default: a warm floor of 1 so the agent endpoint has no cold start.
+def test_default_min_instances_is_zero_economy(monkeypatch):
+    """ECONOMY is the default (founder directive, 2026-08-07). Warm is a paid upgrade.
+
+    This test asserted a warm floor of 1 until the real price of warm was measured.
+    Cloud Run refuses fractional CPU when CPU is always allocated, so a warm pod is a
+    full vCPU always on -- ~$69.64/pod/month against the ~$38.11 the economics were
+    modelled on, for a configuration that cannot even be created. Defaulting every
+    user into that is an 83% overrun nobody chose.
+
+    The cost of economy is latency on wake, and the liveness evaluator already knows
+    the difference: `_liveness_mode` records which rule a pod was built under, so an
+    economy pod's silence reads as healthy sleep rather than a fault.
+    """
     monkeypatch.delenv("HUSSH_POD_MIN_INSTANCES", raising=False)
     monkeypatch.delenv("HUSSH_POD_MAX_INSTANCES", raising=False)
     min_s, _ = _scale(_backend().render_deploy_config(_spec()))
+    assert min_s == "0"
+
+
+def test_warm_is_available_as_an_opt_in(monkeypatch):
+    """The paid tier must still be reachable, and must still buy always-on CPU."""
+    monkeypatch.delenv("HUSSH_POD_MIN_INSTANCES", raising=False)
+    cfg = GcpBackend(project="p", image="i:1", min_instances=1).render_deploy_config(_spec())
+    min_s, _ = _scale(cfg)
+    annotations = cfg["spec"]["template"]["metadata"]["annotations"]
+
     assert min_s == "1"
+    assert annotations.get("run.googleapis.com/cpu-throttling") == "false"
 
 
 def test_min_instances_configurable_via_param():

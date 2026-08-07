@@ -136,18 +136,32 @@ class GcpBackend:
             region if region is not None else (_env("AGENT_ONE_ADK_LOCATION") or "us-central1")
         )
         self._image = image if image is not None else _env("HUSSH_ONE_POD_IMAGE")
+        # Where this pod's durable commit log lives. Empty means no durability --
+        # see `_durable_state_env`, which emits nothing rather than half a config.
+        self._storage_bucket = _env("POD_STORAGE_GCS_BUCKET") or ""
         self._service_account = (
             service_account
             if service_account is not None
             else _env("HUSSH_ONE_POD_SERVICE_ACCOUNT")
         )
-        # Warm floor. A per-user agent must answer in real time, so the DEFAULT
-        # minimum instance count is 1 -- no cold start on the agent endpoint (a
-        # cold start on this ADK image is ~10s; see ROADMAP §min-instances). It is
-        # configurable per tier: the 1B mass tier may set min=0 + fast wake to bound
-        # cost, the dedicated/real-time tier keeps min>=1. max is clamped to >= min.
+        # ECONOMY IS THE DEFAULT (founder directive, 2026-08-07). minScale=0: the pod
+        # sleeps when idle and wakes on demand. Warm (minScale>=1) is a paid upgrade a
+        # user chooses in their profile, not what everyone silently gets.
+        #
+        # This reversed on measured cost, not preference. A warm pod cannot be bought
+        # at the 500m sizing the economics were modelled on -- Cloud Run refuses
+        # fractional CPU when CPU is always allocated (see `_cpu_for_allocation`), so a
+        # warm pod is a full vCPU always on: ~$69.64/pod/month in us-central1, against
+        # ~$38.11 for the configuration that cannot be created. Defaulting every user
+        # to that is an 83% overrun on a number nobody chose.
+        #
+        # What economy costs instead is latency on wake, and that is the honest trade:
+        # a cold pod answers slower, a warm pod answers now. The liveness evaluator
+        # already knows the difference -- `_liveness_mode` records which rule a pod was
+        # built under, so silence from an economy pod reads as healthy sleep and
+        # silence from a warm pod reads as a fault.
         self._min_instances = (
-            min_instances if min_instances is not None else _int_env("HUSSH_POD_MIN_INSTANCES", 1)
+            min_instances if min_instances is not None else _int_env("HUSSH_POD_MIN_INSTANCES", 0)
         )
         self._max_instances = (
             max_instances if max_instances is not None else _int_env("HUSSH_POD_MAX_INSTANCES", 1)
@@ -330,6 +344,22 @@ class GcpBackend:
                     "name": "CONSENT_ED25519_PUBLIC_KEYS",
                     "value": _env("CONSENT_ED25519_PUBLIC_KEYS") or "",
                 },
+                # Durable state. Without this block a pod runs storage=Null, memory
+                # off and no commit log: it forgets everything the moment it stops.
+                # That is merely lossy on the warm tier and fatal on the economy
+                # tier, where going cold and waking again is the DESIGN -- a pod
+                # that wakes empty is not a cheaper agent, it is a new one, and
+                # "continues learning over time" is unimplementable.
+                #
+                # Emitted only when both halves are configured, so a deployment
+                # without them keeps today's ephemeral behaviour rather than
+                # failing to provision. `pod_storage.resolve_pod_storage` fails
+                # LOUD on a partial config, which is why this is all-or-nothing.
+                #
+                # The keys are DERIVED from the owner's hushh_id, not minted, so a
+                # re-provisioned pod computes the same key and can still read what
+                # its predecessor sealed. See `pod_key_custody` for what that costs.
+                *_durable_state_env(spec.hushh_id, self._storage_bucket),
                 # Vertex/Gemini access, so the fleet inside the pod can call a
                 # model. On BYOC these name the USER'S OWN project and the pod SA
                 # carries aiplatform.user there -- the pod reaches Vertex as
@@ -583,6 +613,41 @@ def _liveness_mode(min_instances: int) -> str:
     ``pod_liveness_service`` and migration 905.
     """
     return "warm" if int(min_instances) >= 1 else "economy"
+
+
+def _durable_state_env(hushh_id: str, bucket: str) -> list[dict[str, str]]:
+    """The env that turns a pod from ephemeral into resumable, or nothing at all.
+
+    Returns an empty list unless BOTH a storage bucket and a key master are
+    configured. Half a config is worse than none: ``resolve_pod_storage`` fails
+    loud on a partial one, so a pod would refuse to boot rather than quietly run
+    without durability -- correct, but it would turn a missing setting into an
+    outage. Absent config therefore means today's behaviour, unchanged.
+
+    ``POD_STORAGE_GCS_BUCKET`` rather than a local root, deliberately: Cloud Run's
+    disk is ephemeral and per-instance, so a local commit log would be destroyed by
+    the very event it exists to survive. GCS is reached keylessly with the pod's own
+    identity token, so the pod needs object access on the bucket and no credential
+    of its own.
+    """
+    from hushh_mcp.services.pod_key_custody import (  # noqa: PLC0415
+        custody_configured,
+        pod_log_key_b64,
+        pod_memory_key_b64,
+    )
+
+    target = str(bucket or "").strip()
+    if not target or not custody_configured():
+        return []
+    return [
+        {"name": "POD_STORAGE_BACKEND", "value": "commit_log"},
+        {"name": "POD_STORAGE_GCS_BUCKET", "value": target},
+        # One prefix per owner. The bucket is shared across the managed fleet, so
+        # the prefix is what keeps one pod's log out of another's replay.
+        {"name": "POD_STORAGE_GCS_PREFIX", "value": f"pods/{hushh_id}"},
+        {"name": "HUSSH_POD_LOG_KEY", "value": pod_log_key_b64(hushh_id)},
+        {"name": "HUSSH_POD_MEMORY_KEY", "value": pod_memory_key_b64(hushh_id)},
+    ]
 
 
 def _cpu_millis(cpu: str) -> int:
