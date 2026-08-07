@@ -28,7 +28,8 @@
       "DamriaNeelesh",
       "parthmawai",
       "abdulbeast4-creator",
-      "smirthi-dharma"
+      "smirthi-dharma",
+      "anoushkauoc"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
@@ -44,7 +45,8 @@
       "DamriaNeelesh",
       "parthmawai",
       "abdulbeast4-creator",
-      "smirthi-dharma"
+      "smirthi-dharma",
+      "anoushkauoc"
     ],
     "protected_pipeline_edit_users": [
       "kushaltrivedi5",
@@ -52,7 +54,8 @@
       "ankitkumarsingh1702",
       "azfx",
       "Jhumma-hushh",
-      "DamriaNeelesh"
+      "DamriaNeelesh",
+      "parthmawai"
     ],
     "protected_pipeline_paths": [
       ".github/workflows/",
@@ -77,7 +80,8 @@
       "DamriaNeelesh",
       "parthmawai",
       "abdulbeast4-creator",
-      "smirthi-dharma"
+      "smirthi-dharma",
+      "anoushkauoc"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
@@ -93,7 +97,8 @@
       "DamriaNeelesh",
       "parthmawai",
       "abdulbeast4-creator",
-      "smirthi-dharma"
+      "smirthi-dharma",
+      "anoushkauoc"
     ]
   },
   "dev": {
@@ -124,7 +129,8 @@
       "DamriaNeelesh",
       "parthmawai",
       "abdulbeast4-creator",
-      "smirthi-dharma"
+      "smirthi-dharma",
+      "anoushkauoc"
     ]
   },
   "production": {
