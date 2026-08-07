@@ -101,6 +101,7 @@ tests/test_product_agent_registry_v2.py
 tests/test_request_consent_local_keypair.py
 tests/test_ria_iam_service_architecture.py
 tests/test_scoped_export_download.py
+tests/test_simulation_phone_lane.py
 tests/test_standing_read_reissue.py
 tests/test_stream_agent_thinking_gemini_error_cwe209.py
 tests/test_stream_path_query_bounds_cwe400.py
