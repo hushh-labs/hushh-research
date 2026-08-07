@@ -689,6 +689,33 @@ def _configured_dev_phone_test_code() -> str:
     return _clean_env("HUSHH_DEV_PHONE_TEST_CODE") if simulation_permitted() else ""
 
 
+def _dev_phone_code_is_optional() -> bool:
+    """In the simulation lane with no code configured, the OTP step is skipped.
+
+    The dev deployment is meant to behave like localhost: it must not block
+    end-to-end testing behind a code somebody has to go and set. Requiring one
+    meant a manual `gcloud run services update` after **every** dev deploy, since
+    the deploy uses `--set-env-vars` and replaces the whole environment — a step
+    that would be forgotten, and whose absence looks exactly like a broken lane.
+
+    So no code configured means no code checked. This is a real relaxation and it
+    is bounded on three sides, all of which must hold at once:
+
+      * `simulation_permitted()` — an explicit opt-in AND a deploy lane naming a
+        development environment. `uat`, `staging` and `production` are refused
+        outright, and absence of configuration denies.
+      * the allowlist — only reserved fictitious numbers (+1 555 0100-0199) can be
+        claimed at all, so there is no real person's number to take.
+      * the challenge — `_is_valid_uat_phone_test_verification_id` still has to
+        pass, so the confirm call must follow a start call for the same number.
+
+    Setting `HUSHH_DEV_PHONE_TEST_CODE` turns the code check back on without any
+    other change, which is the escape hatch if dev ever needs to rehearse the
+    real OTP flow.
+    """
+    return bool(_configured_dev_phone_test_numbers()) and not _configured_dev_phone_test_code()
+
+
 def _configured_uat_phone_test_code() -> str:
     return _clean_env("HUSHH_UAT_PHONE_TEST_CODE") or _clean_env("UAT_PHONE_TEST_CODE")
 
@@ -724,6 +751,8 @@ def _phone_test_enabled() -> bool:
             and _configured_prod_phone_test_code()
             and _configured_prod_phone_test_challenge_secret()
         )
+    if _dev_phone_code_is_optional():
+        return True
     return bool(_configured_phone_test_numbers() and _configured_phone_test_code())
 
 
@@ -1110,7 +1139,13 @@ async def confirm_uat_test_phone_verification(
             },
         )
 
-    if not secrets.compare_digest(str(payload.verification_code or "").strip(), configured_code):
+    # The simulation lane may run without a code at all — see
+    # `_dev_phone_code_is_optional`. The allowlist and the challenge above still
+    # had to pass, so this skips ONLY the code comparison, and only in a lane the
+    # simulation guard has already permitted.
+    if not _dev_phone_code_is_optional() and not secrets.compare_digest(
+        str(payload.verification_code or "").strip(), configured_code
+    ):
         raise HTTPException(
             status_code=401,
             detail={

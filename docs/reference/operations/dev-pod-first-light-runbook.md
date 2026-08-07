@@ -1,9 +1,9 @@
 # Dev pod first light — the human actions, in order
 
 **Dated 2026-08-07.** Everything code-side for task #110 is landed and pushed. What remains
-is four human actions, three of which cannot be self-authorized: two governed workflow
-dispatches, one environment write to a shared costed project, and a browser session with a
-real AI key.
+is three human actions: two governed workflow dispatches and a browser session with a real
+AI key. (A fourth — setting a dev OTP — was removed; the code is optional in the simulation
+lane, see step 3.)
 
 Read this top to bottom before starting. Step 1 is the one most likely to be skipped, and
 skipping it makes step 2 fail.
@@ -14,7 +14,7 @@ skipping it makes step 2 fail.
 flowchart TB
   A["1 · Run CI on the branch<br/>Actions → PR Validation → dispatch"] -->|"CI Status Gate green<br/>on the exact SHA"| B
   B["2 · Deploy to Dev<br/>FROM main, ref = the branch"] -->|"creates personal_agent_registry<br/>promotes traffic itself"| C
-  C["3 · Set HUSHH_DEV_PHONE_TEST_CODE<br/>on the dev service"] -->|"must be AFTER the deploy"| D
+  C["3 · Nothing — the OTP is<br/>optional in the dev lane"] --> D
   D["4 · Browser: claim +15550100,<br/>connect a REAL AI key"] --> E{"Pod created?"}
   E -->|"pod_fleet.py"| F["First light"]
 ```
@@ -96,32 +96,40 @@ SELECT migration_id, status FROM schema_migrations WHERE migration_id LIKE '90%'
 
 Both `900` and `905` must be present. `905` adds the columns the liveness sweep reads.
 
-## Step 3 — Set the simulation OTP (after the deploy, not before)
+## Step 3 — Nothing. The OTP is optional in dev.
 
-The phone lane needs both an allowlist and a code. The allowlist is pinned in the deploy
-script; the code is not in the repo, deliberately — it is an auth-bypass credential and the
-existing UAT equivalent is a Secret Manager secret.
+**This step used to exist and no longer does.** It required a `gcloud run services update`
+after *every* dev deploy, because the deploy uses `--set-env-vars` and replaces the whole
+environment — a step that would be forgotten, and whose absence looks exactly like a broken
+lane.
+
+In the simulation lane, no code configured means no code checked. Any code is accepted at
+the confirm step. That relaxation is bounded on three sides, all of which must hold at once:
+
+- `simulation_permitted()` — an explicit opt-in **and** a deploy lane naming a development
+  environment. `uat`, `staging` and `production` are refused outright.
+- the allowlist — only reserved fictitious numbers can be claimed at all.
+- the challenge — the confirm call must still follow a start call for the same number.
+
+**If you ever need to rehearse the real OTP flow in dev**, set `HUSHH_DEV_PHONE_TEST_CODE`
+and the code check turns back on with no other change:
 
 ```bash
 gcloud run services update consent-protocol \
-  --region=us-central1 \
-  --project=hushh-pda-dev \
-  --update-env-vars=HUSHH_DEV_PHONE_TEST_CODE=<choose a 6-digit code>
+  --region=us-central1 --project=hushh-pda-dev \
+  --update-env-vars=HUSHH_DEV_PHONE_TEST_CODE=<a 6-digit code>
 ```
 
-**Order matters.** The deploy uses `--set-env-vars`, which **replaces** the whole
-environment. Setting the code first would have it wiped by step 2.
-
-**Known friction, stated rather than discovered later:** every future dev deploy wipes this
-value and it must be re-set. Making it survive means a Secret Manager entry plus a
-substitution in `deploy/backend.cloudbuild.yaml` — a protected pipeline path, so it needs
-the maintainer cohort. That is a deliberate follow-up, not part of this unblock.
+Separately, the **client-side phone mandate** is bypassed on `dev.one.hushh.ai` exactly as
+it is on `localhost`, so a dev user is never routed to the phone screen. That is a routing
+mandate only — it grants no verified phone, and the AI-connection gate still reads
+`phone_verified is True` server-side before it will provision anything.
 
 ## Step 4 — Drive it from the browser
 
 1. Sign in at `https://dev.one.hushh.ai` with a test account.
 2. Verify a phone using one of the pinned simulation numbers — **`+15550100`** through
-   **`+15550104`** — and the code from step 3.
+   **`+15550104`**. Any code is accepted unless `HUSHH_DEV_PHONE_TEST_CODE` is set.
 3. **Connect an AI key.** This one cannot be faked: the gate validates the key against the
    provider, and provisioning is triggered by the AI connection, not by the phone step.
 
@@ -150,7 +158,7 @@ yet, in any environment, for anyone.
 | Deploy fails at *Validate deployment SHA* | No green `CI Status Gate` on that SHA | Step 1, then re-dispatch with the same SHA |
 | Deploy dies in ~1 second | Dispatched from the branch | Re-dispatch with **Use workflow from: `main`** |
 | Deploy fails at *Assert manual dev dispatch actor policy* | Account not in the `dev` surface | Governed-actor cohort in `config/ci-governance.json` |
-| Phone step says not allowlisted | Code unset, or a number outside the pinned five | Step 3; use `+15550100`–`+15550104` |
+| Phone step says not allowlisted | A number outside the pinned five, or the simulation lane is off | Use `+15550100`–`+15550104`; confirm the revision carries `HUSHH_DEV_SIMULATION_ENABLED` |
 | Provisioning never starts | No AI key connected | The AI connection is the trigger, not the phone |
 | `SimulationNotPermittedError` in the logs | `HUSHH_DEV_SIMULATION_ENABLED` missing | It ships in the dev block of `backend-deploy.sh`; confirm the revision is from this branch |
 | Pod is Ready but 503s | Workers died on import | Read the pod's own logs; Ready means the port is bound, nothing more |
