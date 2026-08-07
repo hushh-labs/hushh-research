@@ -10,7 +10,9 @@ import {
 import {
   Check,
   Clock3,
+  Compass,
   Loader2,
+  LocateFixed,
   MapPin,
   Search,
   ShieldCheck,
@@ -71,12 +73,44 @@ const PLACE_CATEGORIES: Array<{
 
 const NEARBY_RADIUS_METERS = 500;
 
+/**
+ * Past this distance from the anchored place, "you're checked in here" stops
+ * being a fair description of where the owner is, so the card says so plainly
+ * instead of quietly leaving them visible somewhere they have left.
+ */
+const NEARBY_DRIFT_NUDGE_METERS = 250;
+
 const EMPTY_NEARBY_STATE: OneLocationNearbyPresenceState = {
   presence: null,
   attendees: [],
 };
 
 type LocationRecovery = "app-settings" | "location-settings" | null;
+
+/**
+ * How the point driving the place list was obtained. A degraded fix still
+ * produces a usable picker, so this drives an explanatory chip rather than an
+ * error: the owner is the authority on which venue they are standing in, and
+ * the backend still runs the authoritative plausibility check at check-in.
+ */
+type PointOrigin = "fresh" | "last-known";
+
+/**
+ * A fix reused after a failed refresh is only honest for as long as the owner
+ * plausibly has not moved. Past this we stop offering it as "where you are".
+ */
+const LAST_KNOWN_POINT_MAX_AGE_MS = 10 * 60 * 1_000;
+
+export type NearbyCheckInPlaceFocus = {
+  placeId: string;
+  label: string;
+  latitude: number;
+  longitude: number;
+  /** Straight-line metres from the owner's current point, when both are known. */
+  distanceMeters: number | null;
+  /** True once the check-in is live, false while the owner is still choosing. */
+  active: boolean;
+};
 
 function distanceLabel(distanceMeters?: number | null): string {
   if (
@@ -115,6 +149,92 @@ function normalizeAutomaticPlaces(
       if (distance !== 0) return distance;
       return (left.name || left.text).localeCompare(right.name || right.text);
     });
+}
+
+/**
+ * Narrow the merged sweep to one chip locally.
+ *
+ * The backend returns every category in one pass, so filtering here keeps the
+ * full set intact. Re-querying per chip used to re-apply the provider's
+ * 20-result cap, which is how a second hotel behind the first could vanish when
+ * the owner tapped "Hotels".
+ */
+function placesInCategory(
+  places: OneLocationNearbyPlaceSuggestion[],
+  category: OneLocationNearbyPlaceCategory,
+): OneLocationNearbyPlaceSuggestion[] {
+  if (category === "all") return places;
+  return places.filter((place) => place.categories?.includes(category));
+}
+
+function placePoint(
+  place: OneLocationNearbyPlaceSuggestion | null,
+): { latitude: number; longitude: number } | null {
+  if (
+    !place ||
+    typeof place.latitude !== "number" ||
+    typeof place.longitude !== "number" ||
+    !Number.isFinite(place.latitude) ||
+    !Number.isFinite(place.longitude)
+  ) {
+    return null;
+  }
+  return { latitude: place.latitude, longitude: place.longitude };
+}
+
+/** Straight-line metres between two points. */
+function metresBetween(
+  from: { latitude: number; longitude: number },
+  to: { latitude: number; longitude: number },
+): number {
+  const earthRadius = 6_371_000;
+  const fromLat = (from.latitude * Math.PI) / 180;
+  const toLat = (to.latitude * Math.PI) / 180;
+  const deltaLat = ((to.latitude - from.latitude) * Math.PI) / 180;
+  const deltaLng = ((to.longitude - from.longitude) * Math.PI) / 180;
+  const a =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(fromLat) * Math.cos(toLat) * Math.sin(deltaLng / 2) ** 2;
+  const clamped = Math.min(1, Math.max(0, a));
+  return (
+    earthRadius * 2 * Math.atan2(Math.sqrt(clamped), Math.sqrt(1 - clamped))
+  );
+}
+
+/**
+ * Metres from the owner to the place they picked. Prefers the provider's own
+ * measurement and falls back to a local computation for searched places.
+ */
+function offsetFromPoint(
+  place: OneLocationNearbyPlaceSuggestion | null,
+  point: PlainLocationPoint | null,
+): number | null {
+  if (!place) return null;
+  if (
+    typeof place.distanceMeters === "number" &&
+    Number.isFinite(place.distanceMeters) &&
+    place.distanceMeters >= 0
+  ) {
+    return place.distanceMeters;
+  }
+  const target = placePoint(place);
+  if (!target || !point) return null;
+  return metresBetween(point, target);
+}
+
+/**
+ * Under this, the owner is plausibly inside the building: the gap is receiver
+ * noise and a footprint, not a different place, and saying so would be nagging.
+ */
+const OFFSET_WORTH_MENTIONING_METERS = 75;
+
+function offsetNotice(distanceMeters: number | null): string | null {
+  if (distanceMeters === null) return null;
+  if (distanceMeters < OFFSET_WORTH_MENTIONING_METERS) return null;
+  return `You're about ${distanceLabel(distanceMeters).replace(
+    " away",
+    "",
+  )} from here right now.`;
 }
 
 function hasCheckInAccuracy(point: PlainLocationPoint): boolean {
@@ -244,6 +364,7 @@ export function NearbyCheckInSheet({
   onOpenChange,
   onStateChange,
   onSearchAreaChange,
+  onPlaceFocusChange,
 }: {
   open: boolean;
   ownerId: string | null;
@@ -253,6 +374,12 @@ export function NearbyCheckInSheet({
   onStateChange?: (state: OneLocationNearbyPresenceState) => void;
   /** Transient renderer hint; never persisted or published. */
   onSearchAreaChange?: (point: PlainLocationPoint | null) => void;
+  /**
+   * The place the map should pin — the one being chosen, or the live check-in
+   * anchor. Separate from `onSearchAreaChange` because the owner's position and
+   * the venue they check in to are genuinely two different points.
+   */
+  onPlaceFocusChange?: (focus: NearbyCheckInPlaceFocus | null) => void;
 }) {
   const router = useRouter();
   const ownerEpochRef = useRef(0);
@@ -261,11 +388,23 @@ export function NearbyCheckInSheet({
   const presenceMutationGenerationRef = useRef(0);
   const mutationInFlightRef = useRef(false);
   const searchGenerationRef = useRef(0);
+  const placeFocusGenerationRef = useRef(0);
+  /**
+   * Best fix seen this session. Reused when a refresh fails so a transient
+   * geolocation hiccup degrades the drawer instead of emptying it.
+   */
+  const lastKnownPointRef = useRef<PlainLocationPoint | null>(null);
   const [point, setPoint] = useState<PlainLocationPoint | null>(null);
+  const [pointOrigin, setPointOrigin] = useState<PointOrigin>("fresh");
   const [automaticPlaces, setAutomaticPlaces] = useState<
     OneLocationNearbyPlaceSuggestion[]
   >([]);
-  const [places, setPlaces] = useState<OneLocationNearbyPlaceSuggestion[]>([]);
+  const [searchResults, setSearchResults] = useState<
+    OneLocationNearbyPlaceSuggestion[]
+  >([]);
+  const [resolvedPlacePoints, setResolvedPlacePoints] = useState<
+    Record<string, { latitude: number; longitude: number }>
+  >({});
   const [selectedPlaceId, setSelectedPlaceId] = useState("");
   const [search, setSearch] = useState("");
   const [category, setCategory] =
@@ -289,6 +428,32 @@ export function NearbyCheckInSheet({
   );
   const [placesError, setPlacesError] = useState<string | null>(null);
   const [accuracyNotice, setAccuracyNotice] = useState<string | null>(null);
+
+  const typedSearchActive = search.trim().length >= 2;
+
+  /**
+   * The rows on screen. Derived rather than stored: the merged nearby sweep is
+   * the single source of truth and a chip only narrows the view of it, so
+   * switching chips can neither drop places nor cost a provider call.
+   */
+  const places = useMemo(() => {
+    const visible = typedSearchActive
+      ? searchResults
+      : placesInCategory(automaticPlaces, category);
+    // Coordinates resolved on demand for searched places, which arrive without
+    // them, so the map can pin whatever the owner is looking at.
+    return visible.map((place) => {
+      if (placePoint(place)) return place;
+      const resolved = resolvedPlacePoints[place.placeId];
+      return resolved ? { ...place, ...resolved } : place;
+    });
+  }, [
+    automaticPlaces,
+    category,
+    resolvedPlacePoints,
+    searchResults,
+    typedSearchActive,
+  ]);
 
   const publishState = useCallback(
     (next: OneLocationNearbyPresenceState) => {
@@ -349,12 +514,18 @@ export function NearbyCheckInSheet({
     [ownerId, publishState, vaultOwnerToken],
   );
 
+  /**
+   * Load every check-in-able place around a point in one pass.
+   *
+   * Always requests the merged "all" sweep, never the active chip: the backend
+   * sweeps each category with its own result budget, so one fetch is both more
+   * complete than a per-chip query and enough to serve every chip locally.
+   */
   const loadPlaces = useCallback(
     async (
       nextPoint: PlainLocationPoint,
       generation: number,
       expectedOwnerEpoch: number,
-      nextCategory: OneLocationNearbyPlaceCategory,
     ) => {
       if (!ownerId || !vaultOwnerToken) return;
       const ownerToken = vaultOwnerToken;
@@ -364,7 +535,7 @@ export function NearbyCheckInSheet({
           vaultOwnerToken: ownerToken,
           lat: nextPoint.latitude,
           lng: nextPoint.longitude,
-          category: nextCategory,
+          category: "all",
         });
         if (
           ownerEpochRef.current !== expectedOwnerEpoch ||
@@ -374,15 +545,9 @@ export function NearbyCheckInSheet({
         }
         const boundedSuggestions = normalizeAutomaticPlaces(suggestions);
         setAutomaticPlaces(boundedSuggestions);
-        setPlaces(boundedSuggestions);
-        setSelectedPlaceId((current) =>
-          boundedSuggestions.some((place) => place.placeId === current)
-            ? current
-            : (boundedSuggestions[0]?.placeId ?? ""),
-        );
         if (boundedSuggestions.length === 0) {
           setPlacesError(
-            "No matching places were found within 500 m. Try another category or search.",
+            "No check-in-able places were found within 500 m. Search by name to pick one.",
           );
         }
       } catch (error) {
@@ -393,12 +558,39 @@ export function NearbyCheckInSheet({
           return;
         }
         setAutomaticPlaces([]);
-        setPlaces([]);
-        setSelectedPlaceId("");
         setPlacesError(OneLocationService.placesSearchErrorMessage(error));
       }
     },
     [ownerId, vaultOwnerToken],
+  );
+
+  /**
+   * Fall back to the last good fix instead of emptying the drawer.
+   *
+   * Returns true when a usable substitute point was adopted. A stale-but-recent
+   * position still lists the right venues, and the owner -- who can see which
+   * building they are in -- is a better judge of that than a receiver having a
+   * bad second. The backend still verifies plausibility at check-in.
+   */
+  const adoptLastKnownPoint = useCallback(
+    (generation: number, expectedOwnerEpoch: number): boolean => {
+      const fallback = lastKnownPointRef.current;
+      if (!fallback) return false;
+      const capturedAt = Date.parse(fallback.capturedAt ?? "");
+      if (
+        !Number.isFinite(capturedAt) ||
+        Date.now() - capturedAt > LAST_KNOWN_POINT_MAX_AGE_MS
+      ) {
+        return false;
+      }
+      setPoint(fallback);
+      setPointOrigin("last-known");
+      setLocationError(null);
+      setAccuracyNotice(null);
+      void loadPlaces(fallback, generation, expectedOwnerEpoch);
+      return true;
+    },
+    [loadPlaces],
   );
 
   const captureAndLoadPlaces = useCallback(
@@ -410,6 +602,7 @@ export function NearbyCheckInSheet({
       setCapturing(true);
       setCategory(nextCategory);
       setSearch("");
+      setSearchResults([]);
       setSearching(false);
       setLocationError(null);
       setLocationRecovery(null);
@@ -433,37 +626,43 @@ export function NearbyCheckInSheet({
           return;
         }
         if (permission?.state === "granted" && permission.precise === false) {
-          setPoint(null);
           setLocationRecovery(isNative() ? "app-settings" : null);
-          setLocationError(
-            "Precise location is off. Enable it before checking in nearby.",
-          );
+          if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+            setPoint(null);
+            setLocationError(
+              "Precise location is off, so we can't see what's around you yet. Turn it on and we'll pick this up automatically.",
+            );
+          }
           return;
         }
         if (
           permission?.state === "denied" ||
           permission?.state === "restricted"
         ) {
-          setPoint(null);
           setLocationRecovery(isNative() ? "app-settings" : null);
-          setLocationError(
-            isNative()
-              ? "Location access is off. Allow it in app settings and try again."
-              : "Location access is off. Allow it in your browser's site settings and try again.",
-          );
+          if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+            setPoint(null);
+            setLocationError(
+              isNative()
+                ? "Location access is off, so we can't list what's around you. Allow it in app settings."
+                : "Location access is off, so we can't list what's around you. Allow it in your browser's site settings.",
+            );
+          }
           return;
         }
         if (
           permission?.state === "unavailable" &&
           permission.locationServicesEnabled === false
         ) {
-          setPoint(null);
           setLocationRecovery(isNative() ? "location-settings" : null);
-          setLocationError(
-            isNative()
-              ? "Location services are off. Turn them on and try again."
-              : "Location is unavailable in this browser.",
-          );
+          if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+            setPoint(null);
+            setLocationError(
+              isNative()
+                ? "Location services are off, so we can't list what's around you. Turn them on to continue."
+                : "Location isn't available in this browser, so we can't list what's around you.",
+            );
+          }
           return;
         }
 
@@ -487,11 +686,13 @@ export function NearbyCheckInSheet({
             settledPermission.state === "granted" &&
             settledPermission.precise === false
           ) {
-            setPoint(null);
             setLocationRecovery(isNative() ? "app-settings" : null);
-            setLocationError(
-              "Precise location is off. Enable it before checking in nearby.",
-            );
+            if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+              setPoint(null);
+              setLocationError(
+                "Precise location is off, so we can't see what's around you yet. Turn it on and we'll pick this up automatically.",
+              );
+            }
             return;
           }
         } catch {
@@ -499,11 +700,13 @@ export function NearbyCheckInSheet({
           // precision cannot be queried separately.
         }
         if (!hasCheckInAccuracy(nextPoint)) {
-          setPoint(null);
           setLocationRecovery(isNative() ? "app-settings" : null);
-          setLocationError(
-            "This location is too approximate to place you. Move to an open area or turn on precise location, then try again.",
-          );
+          if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+            setPoint(null);
+            setLocationError(
+              "We can't pin down where you are just yet. Stepping outside or near a window usually fixes it.",
+            );
+          }
           return;
         }
         // A broad-but-usable fix must never withhold the place list. Blocking
@@ -514,13 +717,10 @@ export function NearbyCheckInSheet({
         setAccuracyNotice(
           isCoarseAccuracy(nextPoint) ? coarseAccuracyNotice(nextPoint) : null,
         );
+        lastKnownPointRef.current = nextPoint;
+        setPointOrigin("fresh");
         setPoint(nextPoint);
-        await loadPlaces(
-          nextPoint,
-          generation,
-          expectedOwnerEpoch,
-          nextCategory,
-        );
+        await loadPlaces(nextPoint, generation, expectedOwnerEpoch);
       } catch {
         if (
           ownerEpochRef.current !== expectedOwnerEpoch ||
@@ -528,13 +728,14 @@ export function NearbyCheckInSheet({
         ) {
           return;
         }
+        setLocationRecovery(isNative() ? "app-settings" : null);
+        if (adoptLastKnownPoint(generation, expectedOwnerEpoch)) return;
         setPoint(null);
         setAutomaticPlaces([]);
-        setPlaces([]);
+        setSearchResults([]);
         setSelectedPlaceId("");
-        setLocationRecovery(isNative() ? "app-settings" : null);
         setLocationError(
-          "We couldn't get a fresh location. Turn on location access and try again.",
+          "We couldn't get a location reading just now. This is usually momentary — try again in a second.",
         );
       } finally {
         if (
@@ -545,30 +746,29 @@ export function NearbyCheckInSheet({
         }
       }
     },
-    [captureCurrentPosition, loadPlaces, ownerId, vaultOwnerToken],
+    [
+      adoptLastKnownPoint,
+      captureCurrentPosition,
+      loadPlaces,
+      ownerId,
+      vaultOwnerToken,
+    ],
   );
 
+  /**
+   * Chips narrow the already-loaded sweep. No request, no re-truncation, no
+   * spinner -- and nothing the sweep found can disappear behind a chip.
+   */
   const selectCategory = useCallback(
     (nextCategory: OneLocationNearbyPlaceCategory) => {
       setCategory(nextCategory);
       setSearch("");
+      setSearchResults([]);
+      setSearching(false);
+      setPlacesError(null);
       searchGenerationRef.current += 1;
-      if (!point) return;
-      const expectedOwnerEpoch = ownerEpochRef.current;
-      const generation = ++requestGenerationRef.current;
-      setCapturing(true);
-      void loadPlaces(point, generation, expectedOwnerEpoch, nextCategory).finally(
-        () => {
-          if (
-            ownerEpochRef.current === expectedOwnerEpoch &&
-            requestGenerationRef.current === generation
-          ) {
-            setCapturing(false);
-          }
-        },
-      );
     },
-    [loadPlaces, point],
+    [],
   );
 
   useEffect(() => {
@@ -578,9 +778,13 @@ export function NearbyCheckInSheet({
     presenceMutationGenerationRef.current += 1;
     mutationInFlightRef.current = false;
     searchGenerationRef.current += 1;
+    placeFocusGenerationRef.current += 1;
+    lastKnownPointRef.current = null;
     setPoint(null);
+    setPointOrigin("fresh");
     setAutomaticPlaces([]);
-    setPlaces([]);
+    setSearchResults([]);
+    setResolvedPlacePoints({});
     setSelectedPlaceId("");
     setSearch("");
     setCategory("all");
@@ -612,8 +816,10 @@ export function NearbyCheckInSheet({
     requestGenerationRef.current += 1;
     searchGenerationRef.current += 1;
     setPoint(null);
+    setPointOrigin("fresh");
     setAutomaticPlaces([]);
-    setPlaces([]);
+    setSearchResults([]);
+    setResolvedPlacePoints({});
     setSelectedPlaceId("");
     setSearch("");
     setCategory("all");
@@ -735,12 +941,7 @@ export function NearbyCheckInSheet({
     if (query.length < 2) {
       setSearching(false);
       setPlacesError(null);
-      setPlaces(automaticPlaces);
-      setSelectedPlaceId((current) =>
-        automaticPlaces.some((place) => place.placeId === current)
-          ? current
-          : (automaticPlaces[0]?.placeId ?? ""),
-      );
+      setSearchResults([]);
       return;
     }
     const timer = window.setTimeout(() => {
@@ -760,12 +961,7 @@ export function NearbyCheckInSheet({
           ) {
             return;
           }
-          setPlaces(suggestions);
-          setSelectedPlaceId((current) =>
-            suggestions.some((place) => place.placeId === current)
-              ? current
-              : (suggestions[0]?.placeId ?? ""),
-          );
+          setSearchResults(suggestions);
           if (suggestions.length === 0) {
             setPlacesError("No matching places found.");
           }
@@ -777,8 +973,7 @@ export function NearbyCheckInSheet({
           ) {
             return;
           }
-          setPlaces([]);
-          setSelectedPlaceId("");
+          setSearchResults([]);
           setPlacesError(OneLocationService.placesSearchErrorMessage(error));
         })
         .finally(() => {
@@ -791,13 +986,151 @@ export function NearbyCheckInSheet({
         });
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [automaticPlaces, open, ownerId, point, search, vaultOwnerToken]);
+  }, [open, ownerId, point, search, vaultOwnerToken]);
+
+  // Keep the selection inside whatever is on screen. Runs after every list
+  // change (chip switch, search, reload) so the confirm button never points at
+  // a row the owner can no longer see.
+  useEffect(() => {
+    setSelectedPlaceId((current) =>
+      places.some((place) => place.placeId === current)
+        ? current
+        : (places[0]?.placeId ?? ""),
+    );
+  }, [places]);
 
   const selectedPlace = useMemo(
     () => places.find((place) => place.placeId === selectedPlaceId) ?? null,
     [places, selectedPlaceId],
   );
-  const typedSearchActive = search.trim().length >= 2;
+  const selectedPlaceOffsetMeters = useMemo(
+    () => offsetFromPoint(selectedPlace, point),
+    [point, selectedPlace],
+  );
+
+  /** How far the owner has moved from the place they are checked in to. */
+  const activeDriftMeters = useMemo(() => {
+    const presence = state.presence;
+    if (!presence || !point) return null;
+    const latitude = presence.placeLat;
+    const longitude = presence.placeLng;
+    if (
+      typeof latitude !== "number" ||
+      typeof longitude !== "number" ||
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude)
+    ) {
+      return null;
+    }
+    return Math.round(metresBetween(point, { latitude, longitude }));
+  }, [point, state.presence]);
+
+  /**
+   * Resolve a searched place's coordinates on demand.
+   *
+   * Autocomplete returns an id and a label but no point, so a place picked from
+   * search could not be pinned. One details lookup for the row the owner
+   * actually selected is the cheapest way to keep the map honest.
+   */
+  useEffect(() => {
+    if (!open || !vaultOwnerToken || !selectedPlace) return;
+    if (placePoint(selectedPlace)) return;
+    const placeId = selectedPlace.placeId;
+    if (resolvedPlacePoints[placeId]) return;
+    const expectedOwnerEpoch = ownerEpochRef.current;
+    const generation = ++placeFocusGenerationRef.current;
+    // Wrapped so a synchronous throw becomes a rejection: the map pin is an
+    // enhancement, and losing it must never take the picker down with it.
+    void Promise.resolve()
+      .then(() => OneLocationService.placeDetails({ vaultOwnerToken, placeId }))
+      .then((details) => {
+        if (
+          ownerEpochRef.current !== expectedOwnerEpoch ||
+          placeFocusGenerationRef.current !== generation ||
+          typeof details?.latitude !== "number" ||
+          typeof details?.longitude !== "number"
+        ) {
+          return;
+        }
+        setResolvedPlacePoints((current) => ({
+          ...current,
+          [placeId]: {
+            latitude: details.latitude,
+            longitude: details.longitude,
+          },
+        }));
+      })
+      .catch(() => {
+        // The row stays selectable and check-in still works; only the map pin
+        // is unavailable for this place.
+      });
+  }, [open, resolvedPlacePoints, selectedPlace, vaultOwnerToken]);
+
+  /**
+   * Tell the map which place to pin.
+   *
+   * While choosing, that is the highlighted row. Once checked in, it is the
+   * live anchor from the server, so the pin survives a reload and keeps
+   * describing where the owner checked in rather than where they now stand.
+   */
+  useEffect(() => {
+    if (!open) {
+      onPlaceFocusChange?.(null);
+      return;
+    }
+    const presence = state.presence;
+    if (presence) {
+      const latitude = presence.placeLat;
+      const longitude = presence.placeLng;
+      if (
+        typeof latitude !== "number" ||
+        typeof longitude !== "number" ||
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude)
+      ) {
+        onPlaceFocusChange?.(null);
+        return;
+      }
+      onPlaceFocusChange?.({
+        placeId: "",
+        label: presence.placeLabel || "Your check-in place",
+        latitude,
+        longitude,
+        distanceMeters: point
+          ? Math.round(metresBetween(point, { latitude, longitude }))
+          : null,
+        active: true,
+      });
+      return;
+    }
+    const target = placePoint(selectedPlace);
+    if (!selectedPlace || !target) {
+      onPlaceFocusChange?.(null);
+      return;
+    }
+    onPlaceFocusChange?.({
+      placeId: selectedPlace.placeId,
+      label: selectedPlace.name?.trim() || selectedPlace.text,
+      latitude: target.latitude,
+      longitude: target.longitude,
+      distanceMeters:
+        selectedPlaceOffsetMeters === null
+          ? null
+          : Math.round(selectedPlaceOffsetMeters),
+      active: false,
+    });
+  }, [
+    onPlaceFocusChange,
+    open,
+    point,
+    selectedPlace,
+    selectedPlaceOffsetMeters,
+    state.presence,
+  ]);
+
+  useEffect(() => {
+    return () => onPlaceFocusChange?.(null);
+  }, [onPlaceFocusChange]);
 
   const retryPresenceLoad = async () => {
     if (!open || !ownerId || !vaultOwnerToken) return;
@@ -846,7 +1179,7 @@ export function NearbyCheckInSheet({
         setPoint(null);
         setLocationRecovery(isNative() ? "app-settings" : null);
         setLocationError(
-          "This location is too approximate to place you. Move to an open area or turn on precise location, then try again.",
+          "We couldn't confirm where you are at the moment you checked in. Nothing was shared — try again in a second.",
         );
         toast.error("A more precise location is needed before check-in.");
         return;
@@ -870,9 +1203,11 @@ export function NearbyCheckInSheet({
         return;
       }
       publishState(next);
-      setPoint(null);
+      // The confirmation point is kept, not cleared: once checked in it is what
+      // tells the owner how far they have drifted from the place they anchored
+      // to. It is not republished as a search area -- presence suppresses that.
       setAutomaticPlaces([]);
-      setPlaces([]);
+      setSearchResults([]);
       setSelectedPlaceId("");
       setSearch("");
       setAccuracyNotice(null);
@@ -893,7 +1228,7 @@ export function NearbyCheckInSheet({
         );
       } else if (details.retryPlaces) {
         setAutomaticPlaces([]);
-        setPlaces([]);
+        setSearchResults([]);
         setSelectedPlaceId("");
         if (confirmationPoint && hasCheckInAccuracy(confirmationPoint)) {
           const reloadGeneration = ++requestGenerationRef.current;
@@ -906,7 +1241,6 @@ export function NearbyCheckInSheet({
             confirmationPoint,
             reloadGeneration,
             expectedOwnerEpoch,
-            category,
           ).finally(() => {
             if (
               ownerEpochRef.current === expectedOwnerEpoch &&
@@ -1135,6 +1469,29 @@ export function NearbyCheckInSheet({
                       {state.presence.radiusMeters} m radius ·{" "}
                       {timeLeftLabel(state.presence.expiresAt)}
                     </p>
+                    {activeDriftMeters !== null ? (
+                      <p
+                        className="mt-2 flex items-start gap-1.5 text-xs leading-4 text-muted-foreground"
+                        data-testid="nearby-active-drift"
+                      >
+                        <LocateFixed
+                          className="mt-px h-3.5 w-3.5 shrink-0"
+                          aria-hidden="true"
+                        />
+                        <span>
+                          {activeDriftMeters <= NEARBY_DRIFT_NUDGE_METERS
+                            ? `You're about ${distanceLabel(
+                                activeDriftMeters,
+                              ).replace(" away", "")} from it right now.`
+                            : `You've moved about ${distanceLabel(
+                                activeDriftMeters,
+                              ).replace(
+                                " away",
+                                "",
+                              )} away. People here still match against the place, not you — check out if you've left.`}
+                        </span>
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </section>
@@ -1213,7 +1570,7 @@ export function NearbyCheckInSheet({
                     <p className="text-sm text-muted-foreground">
                       {typedSearchActive
                         ? "Search results stay inside the same 500 m area."
-                        : "Up to 20 nearest valid places. The closest is selected."}
+                        : "Every place we can find around you. The closest is selected."}
                     </p>
                   </div>
                   {capturing ? (
@@ -1221,27 +1578,52 @@ export function NearbyCheckInSheet({
                   ) : null}
                 </div>
 
+                {/*
+                  A location problem is a state to work through, not a failure
+                  to alarm about: the owner has done nothing wrong and can
+                  usually resolve it in one tap. It is therefore rendered in the
+                  neutral surface style with the recovery actions attached,
+                  never as a destructive alert.
+                */}
                 {locationError ? (
-                  <div className="mt-3 rounded-2xl border border-destructive/20 bg-destructive/10 p-3">
-                    <p className="text-sm text-destructive">{locationError}</p>
-                    <div className="mt-2 flex flex-wrap gap-2">
+                  <div
+                    className="mt-3 rounded-2xl border border-border/60 bg-muted/50 p-4"
+                    role="status"
+                    data-testid="nearby-location-fallback"
+                  >
+                    <div className="flex items-start gap-3">
+                      <span
+                        className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-background text-muted-foreground"
+                        aria-hidden="true"
+                      >
+                        <Compass className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold">
+                          Still finding you
+                        </p>
+                        <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
+                          {locationError}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
                       <Button
                         type="button"
                         size="sm"
-                        variant="secondary"
                         disabled={capturing || busy === "settings"}
-                        onClick={() => void captureAndLoadPlaces()}
+                        onClick={() => void captureAndLoadPlaces(category)}
                       >
                         {capturing ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : null}
-                        Try location again
+                        Try again
                       </Button>
                       {locationRecovery && isNative() ? (
                         <Button
                           type="button"
                           size="sm"
-                          variant="outline"
+                          variant="secondary"
                           disabled={busy === "settings"}
                           onClick={() => void openRecoverySettings()}
                         >
@@ -1255,6 +1637,32 @@ export function NearbyCheckInSheet({
                   </div>
                 ) : (
                   <>
+                    {pointOrigin === "last-known" && point ? (
+                      <p
+                        className="mt-3 flex items-start gap-2 rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs leading-4 text-muted-foreground"
+                        role="status"
+                        data-testid="nearby-last-known-notice"
+                      >
+                        <LocateFixed
+                          className="mt-px h-3.5 w-3.5 shrink-0"
+                          aria-hidden="true"
+                        />
+                        <span>
+                          Showing places around your last known position — we
+                          couldn’t refresh it just now. Pick where you actually
+                          are, or{" "}
+                          <button
+                            type="button"
+                            className="font-semibold underline underline-offset-2"
+                            disabled={capturing}
+                            onClick={() => void captureAndLoadPlaces(category)}
+                          >
+                            update your location
+                          </button>
+                          .
+                        </span>
+                      </p>
+                    ) : null}
                     {accuracyNotice ? (
                       <p
                         className="mt-3 rounded-2xl border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground"
@@ -1275,8 +1683,7 @@ export function NearbyCheckInSheet({
                           setPlacesError(null);
                           if (nextSearch.trim().length >= 2) {
                             setSearching(true);
-                            setPlaces([]);
-                            setSelectedPlaceId("");
+                            setSearchResults([]);
                           } else {
                             setSearching(false);
                           }
@@ -1371,9 +1778,56 @@ export function NearbyCheckInSheet({
                         );
                       })}
                     </div>
+                    {/*
+                      The owner's point and their venue are two different places
+                      and can be a street apart. Naming the gap is what lets
+                      them tell the hotel they are in from the one behind it.
+                    */}
+                    {selectedPlace && offsetNotice(selectedPlaceOffsetMeters) ? (
+                      <p
+                        className="mt-2 flex items-start gap-1.5 text-xs leading-4 text-muted-foreground"
+                        data-testid="nearby-selected-place-offset"
+                      >
+                        <LocateFixed
+                          className="mt-px h-3.5 w-3.5 shrink-0"
+                          aria-hidden="true"
+                        />
+                        <span>{offsetNotice(selectedPlaceOffsetMeters)}</span>
+                      </p>
+                    ) : null}
+                    {!places.length &&
+                    !capturing &&
+                    !searching &&
+                    !typedSearchActive &&
+                    automaticPlaces.length ? (
+                      <div
+                        className="mt-3 rounded-2xl bg-muted/60 px-4 py-5 text-center"
+                        data-testid="nearby-category-empty"
+                      >
+                        <p className="text-sm font-medium">
+                          Nothing in this category within 500 m
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {automaticPlaces.length} other places are nearby.
+                        </p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="mt-3"
+                          onClick={() => selectCategory("all")}
+                        >
+                          Show all places
+                        </Button>
+                      </div>
+                    ) : null}
                     {places.length ? (
                       <p className="mt-2 text-xs text-muted-foreground">
-                        {typedSearchActive ? null : "Sorted by distance · "}
+                        {typedSearchActive
+                          ? null
+                          : `${places.length} ${
+                              places.length === 1 ? "place" : "places"
+                            } · sorted by distance · `}
                         Place data from{" "}
                         <span translate="no" className="whitespace-nowrap font-normal">
                           Google Maps
