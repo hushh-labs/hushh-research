@@ -349,6 +349,12 @@ export type LocationHubViewModel = {
   ) => ReactNode;
   mapLocationHref: (point: PlainLocationPoint) => string;
   decryptedPoints: Record<string, PlainLocationPoint>;
+  /**
+   * Reverse-geocode a decrypted shared point to a street address. Returns null
+   * when unavailable (no vault token, provider error, or no match). Optional so
+   * a view model without it degrades to the lat/lng fallback.
+   */
+  reverseGeocodePoint?: (point: PlainLocationPoint) => Promise<string | null>;
 };
 
 type FlowKind =
@@ -1146,6 +1152,41 @@ function LocationDetailFlow({
       [grantId]: (current[grantId] ?? 0) + 1,
     }));
   }, []);
+
+  // Reverse-geocode each received share's decrypted point to a street address,
+  // keyed by grant id + coordinates so a moved point re-resolves. The ref
+  // dedupes in-flight/resolved coordinate pairs without re-triggering the effect.
+  const [addressByGrant, setAddressByGrant] = useState<
+    Record<string, { key: string; status: "loading" | "done"; text: string | null }>
+  >({});
+  const resolvedAddressKeyRef = useRef<Record<string, string>>({});
+  const reverseGeocodePoint = vm.reverseGeocodePoint;
+  useEffect(() => {
+    if (kind !== "shared-with-me" || !reverseGeocodePoint) return;
+    let cancelled = false;
+    for (const grant of vm.receivedGrants) {
+      const point = vm.decryptedPoints[grant.id];
+      if (!point) continue;
+      const key = `${point.latitude},${point.longitude}`;
+      if (resolvedAddressKeyRef.current[grant.id] === key) continue;
+      resolvedAddressKeyRef.current[grant.id] = key;
+      setAddressByGrant((current) => ({
+        ...current,
+        [grant.id]: { key, status: "loading", text: null },
+      }));
+      void reverseGeocodePoint(point).then((text) => {
+        if (cancelled) return;
+        setAddressByGrant((current) => {
+          const entry = current[grant.id];
+          if (!entry || entry.key !== key) return current;
+          return { ...current, [grant.id]: { key, status: "done", text } };
+        });
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, reverseGeocodePoint, vm.receivedGrants, vm.decryptedPoints]);
   const copy = {
     "active-shares": {
       title: "Active shares",
@@ -1200,6 +1241,7 @@ function LocationDetailFlow({
           <div className="space-y-3">
             {vm.receivedGrants.map((grant) => {
               const point = vm.decryptedPoints[grant.id];
+              const addressEntry = addressByGrant[grant.id];
               const expanded =
                 Boolean(point) && !collapsedGrantIds.has(grant.id);
               return (
@@ -1219,6 +1261,17 @@ function LocationDetailFlow({
                     point?.checkIn?.message ??
                     grant.shareMessage ??
                     undefined
+                  }
+                  address={
+                    addressEntry?.status === "done" ? addressEntry.text : null
+                  }
+                  addressLoading={
+                    Boolean(point) && addressEntry?.status === "loading"
+                  }
+                  coordinatesFallback={
+                    point
+                      ? `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}`
+                      : undefined
                   }
                 >
                   {expanded && point
