@@ -214,9 +214,6 @@ For changes touching DB migrations, DB contracts, or the release manifest:
 
 ## Live Environment Checks
 
-1. Branch protection, merge queue, release authority, and production deploy
-   governance need live GitHub or runtime verification.
-2. Firebase Auth readiness requires checking shared auth project, API key
-   restrictions, auth domain, authorized domains, phone provider state, and app
-   verification flag separately.
+1. Branch protection, merge queue, release authority, and production deploy governance need live GitHub or runtime verification.
+2. Firebase Auth readiness requires checking shared auth project, API key restrictions, auth domain, authorized domains, phone provider state, and app verification flag separately.
 3. Local real-SMS throttling is not proof that UAT auth is misconfigured.
