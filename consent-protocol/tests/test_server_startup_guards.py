@@ -108,6 +108,13 @@ def test_schema_guard_still_fails_when_required_tables_are_missing(
         asyncio.run(server.startup_required_schema_guard())
 
 
+def test_retired_ria_pick_tables_are_not_required_at_startup():
+    # Migration 129_ria_pick_legacy_retirement.sql drops these tables, so a
+    # guard entry for them crash-loops every deploy against a migrated database.
+    assert "ria_pick_uploads" not in server.REQUIRED_RUNTIME_TABLES
+    assert "ria_pick_upload_rows" not in server.REQUIRED_RUNTIME_TABLES
+
+
 def test_named_circle_tables_are_required_runtime_dependencies():
     assert {
         "one_location_circles",
