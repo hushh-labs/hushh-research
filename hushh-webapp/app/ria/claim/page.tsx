@@ -33,6 +33,7 @@ import { Button } from "@/lib/morphy-ux/button";
 import { normalizeInternalRouteHref, ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { useVault } from "@/lib/vault/vault-context";
 import {
   RiaApiError,
   RiaService,
@@ -251,6 +252,7 @@ export default function RiaClaimPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, phoneNumber: accountPhone, loading: authLoading } = useAuth();
+  const { vaultKey, vaultOwnerToken } = useVault();
   const { refresh: refreshPersonaState } = usePersonaState();
   // Arrives pre-filled when the sign-up phone screen recognised this number.
   // Someone who verified their phone on an earlier visit never sees that
@@ -408,6 +410,26 @@ export default function RiaClaimPage() {
     },
     [firmCrd, phoneDigits, getIdToken, refreshPersonaState, user],
   );
+
+  // The regulator facts shown on the done screen also belong to the person's
+  // own encrypted knowledge store. That write needs the unlocked vault, which
+  // only this session has — fired when they act on the done screen, so the
+  // owner confirmation covers exactly the data they just looked at. Locked
+  // vault or any failure is silently fine: the server keeps a staged copy.
+  const factsPersistedRef = useRef(false);
+  const persistFactsToPkm = useCallback(() => {
+    const facts = completeResult?.facts;
+    if (factsPersistedRef.current || !facts || !user) return;
+    factsPersistedRef.current = true;
+    void RiaService.saveRegulatorProfile({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken,
+      facts,
+    }).catch(() => {
+      // Best-effort by design; the claim itself is already recorded.
+    });
+  }, [completeResult, user, vaultKey, vaultOwnerToken]);
 
   /** Route a verify result onward: complete it, or ask which adviser. */
   const settleVerifyResult = useCallback(
@@ -967,13 +989,14 @@ export default function RiaClaimPage() {
                   size="lg"
                   fullWidth
                   className="h-12 text-base"
-                  onClick={() =>
+                  onClick={() => {
+                    persistFactsToPkm();
                     router.replace(
                       rootSetupUnresolved || returnTo
                         ? returnTo || ROUTES.ONE_SETUP
                         : ROUTES.RIA_PROFILE,
-                    )
-                  }
+                    );
+                  }}
                   data-voice-control-id="ria-claim-open-profile"
                 >
                   {rootSetupUnresolved || returnTo ? "Continue setup" : "Open your profile"}
@@ -985,7 +1008,10 @@ export default function RiaClaimPage() {
                     size="lg"
                     fullWidth
                     className="h-12 text-base"
-                    onClick={() => router.replace(ROUTES.RIA_PROFILE)}
+                    onClick={() => {
+                      persistFactsToPkm();
+                      router.replace(ROUTES.RIA_PROFILE);
+                    }}
                   >
                     View profile
                   </Button>

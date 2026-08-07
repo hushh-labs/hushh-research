@@ -587,6 +587,26 @@ class RIAClaimService:
             )
         )
         branch = advisor_record.get("branch") or {}
+        # What the regulator publishes, so the screen can show the person what
+        # was filled in for them rather than an empty profile.
+        facts = {
+            "crd_number": crd_number,
+            "regulator": "SEC" if firm.get("registration_type") == "sec" else "State",
+            "regulator_status": firm.get("registration_status"),
+            "registered_since": advisor_record.get("registered_since"),
+            "branch_city": branch.get("city"),
+            "branch_state": branch.get("state"),
+            "exams": advisor_record.get("exams", []),
+            "registered_states": advisor_record.get("registered_states", []),
+            "previous_firms": advisor_record.get("previous_firms", []),
+            "notice_filed_states": firm.get("notice_filed_states", []),
+            "aum": firm.get("aum"),
+            "num_accounts": firm.get("num_accounts"),
+            "firm_website": firm.get("website"),
+            "report_url": advisor_record.get("report_url") or firm.get("report_url"),
+            "has_disclosures": advisor_record.get("has_disclosures"),
+        }
+        await self._record_claim_enrichment(user_id, facts)
         return {
             "status": "claimed",
             "claim_type": claim_type,
@@ -594,23 +614,54 @@ class RIAClaimService:
             "profile_verified": profile_verified,
             "provisional": provisional,
             "profile": profile,
-            # What the regulator publishes, so the screen can show the person
-            # what was filled in for them rather than an empty profile.
-            "facts": {
-                "crd_number": crd_number,
-                "regulator": "SEC" if firm.get("registration_type") == "sec" else "State",
-                "regulator_status": firm.get("registration_status"),
-                "registered_since": advisor_record.get("registered_since"),
-                "branch_city": branch.get("city"),
-                "branch_state": branch.get("state"),
-                "exams": advisor_record.get("exams", []),
-                "registered_states": advisor_record.get("registered_states", []),
-                "previous_firms": advisor_record.get("previous_firms", []),
-                "notice_filed_states": firm.get("notice_filed_states", []),
-                "aum": firm.get("aum"),
-                "num_accounts": firm.get("num_accounts"),
-                "firm_website": firm.get("website"),
-                "report_url": advisor_record.get("report_url") or firm.get("report_url"),
-                "has_disclosures": advisor_record.get("has_disclosures"),
-            },
+            "facts": facts,
         }
+
+    async def _record_claim_enrichment(self, user_id: str, facts: dict[str, Any]) -> None:
+        """Stage the claim's regulator facts in the user's knowledge planes.
+
+        The encrypted PKM blob is BYOK — only the owner's unlocked vault can
+        write it, so the client does that from the done screen. Here the server
+        writes the planes it legitimately owns: the append-only audit event
+        (the staged facts a vault session can materialize), the sanitized
+        discovery flag, and the durable setup mirror that marks the RIA
+        capability finished. Each block is best-effort in isolation: a claim
+        must never fail, and one plane must never block another.
+        """
+        try:
+            from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
+
+            await get_pkm_service().record_mutation_event(
+                user_id=user_id,
+                domain="ria",
+                operation_type="attribute_inference",
+                path_set=["regulator_profile"],
+                source_agent=CLAIM_PROVIDER_LABEL,
+                confidence=1.0,
+                metadata={"regulator_profile": facts},
+            )
+        except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
+            logger.info("ria.claim_pkm_event_skipped error=%s", type(exc).__name__)
+
+        try:
+            from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
+
+            await get_pkm_service().update_domain_summary(
+                user_id, "ria", {"has_regulator_profile": True}
+            )
+        except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
+            logger.info("ria.claim_pkm_summary_skipped error=%s", type(exc).__name__)
+
+        try:
+            from hushh_mcp.services.vault_keys_service import VaultKeysService
+
+            vault_keys = VaultKeysService()
+            state = await vault_keys.get_pre_vault_state(user_id)
+            capability_ids = [str(v) for v in (state.get("setupCapabilityIds") or [])]
+            if "ria" not in capability_ids:
+                await vault_keys.update_pre_vault_state(
+                    user_id=user_id,
+                    setup_capability_ids=sorted({*capability_ids, "ria"}),
+                )
+        except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
+            logger.info("ria.claim_setup_mirror_skipped error=%s", type(exc).__name__)

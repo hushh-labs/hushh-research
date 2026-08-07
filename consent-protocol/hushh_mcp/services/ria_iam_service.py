@@ -4487,6 +4487,7 @@ class RIAIAMService:
                           advisory_firm_iapd_number = NULLIF($6, ''),
                           advisory_status = $7,
                           advisory_provider = $8,
+                          brokerage_status = 'draft',
                           updated_at = NOW()
                         WHERE id = $1
                         """,
