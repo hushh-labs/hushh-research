@@ -20,7 +20,7 @@ import {
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
 import { validateFirebaseToken } from "@/lib/auth/validate";
-import { isDevelopment, logSecurityEvent } from "@/lib/config";
+import { devAuthBypassAllowed, logSecurityEvent } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
 
   const authHeader = request.headers.get("Authorization");
 
-  if (!authHeader && !isDevelopment()) {
+  if (!authHeader && !devAuthBypassAllowed()) {
     logSecurityEvent("VAULT_KEY_REJECTED", {
       reason: "No auth header",
       userId,
