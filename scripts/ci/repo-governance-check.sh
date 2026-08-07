@@ -13,6 +13,7 @@ python3 scripts/ci/verify-protected-pipeline-edits.py --self-test
 python3 scripts/ci/verify-pr-base-policy.py --self-test
 python3 scripts/ci/verify-branch-governance-doc-consistency.py
 python3 scripts/ci/verify-branch-governance-doc-consistency.py --self-test
+python3 scripts/ci/test_verify_deployment_environment_governance.py
 python3 scripts/ci/test_resolve_deploy_scope.py
 python3 scripts/ci/test_resolve_uat_verification_plan.py
 python3 scripts/ci/test_change_aware_verification_wiring.py
