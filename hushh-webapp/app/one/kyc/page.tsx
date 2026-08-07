@@ -39,6 +39,9 @@ import {
 import { AsyncActionStatus } from "@/components/system/async-action-status";
 import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
 import { PkmSectionPreview } from "@/components/profile/pkm-section-preview";
+import { KycIdentityPreface } from "@/components/onboarding/setup/kyc-identity-preface";
+import { KycIdentityProfileDraftService } from "@/lib/services/kyc-identity-profile-pkm-service";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -366,6 +369,50 @@ export function OneKycWorkspace({
   const auth = useRequireAuth();
   const isPrivateRelay = isApplePrivateRelayEmail(auth.user?.email);
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const [identityPrefaceComplete, setIdentityPrefaceComplete] = useState(false);
+  const [checkingIdentity, setCheckingIdentity] = useState(true);
+
+  useEffect(() => {
+    if (!auth.user?.uid) {
+      setCheckingIdentity(false);
+      return;
+    }
+    if (KycIdentityProfileDraftService.hasPending(auth.user.uid)) {
+      setIdentityPrefaceComplete(true);
+      setCheckingIdentity(false);
+      return;
+    }
+    if (!vaultKey || !vaultOwnerToken) {
+      setCheckingIdentity(false);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const snapshot = await PkmDomainResourceService.getStaleFirst({
+          userId: auth.user?.uid || "",
+          domain: "identity",
+          vaultKey,
+          vaultOwnerToken,
+        });
+        const profile = snapshot?.data?.identity_profile as any;
+        if (!cancelled && profile?.about_me?.trim()) {
+          setIdentityPrefaceComplete(true);
+        }
+      } catch (err) {
+        console.warn("[OneKycWorkspace] Failed to load existing identity profile:", err);
+      } finally {
+        if (!cancelled) {
+          setCheckingIdentity(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.user, vaultKey, vaultOwnerToken]);
   const { handleApprove, handleApproveBundle, handleDeny, handleDenyBundle } =
     useConsentActions({ userId: auth.userId });
   const [workflows, setWorkflows] = useState<OneKycWorkflow[]>([]);
@@ -1750,6 +1797,30 @@ export function OneKycWorkspace({
     },
     [auth.userId, confirmSelection, updateWorkflow, vaultOwnerToken],
   );
+
+  if (checkingIdentity) {
+    return (
+      <AppPageShell
+        as="main"
+        width="reading"
+        className="flex min-h-0 flex-1 flex-col pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      >
+        <AppPageContentRegion>
+          <div className="flex h-[50vh] flex-col items-center justify-center space-y-4">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        </AppPageContentRegion>
+      </AppPageShell>
+    );
+  }
+
+  if (!identityPrefaceComplete) {
+    return (
+      <div className="flex-1 w-full h-full min-h-[70vh]">
+        <KycIdentityPreface onComplete={() => setIdentityPrefaceComplete(true)} />
+      </div>
+    );
+  }
 
   return (
     <AppPageShell
