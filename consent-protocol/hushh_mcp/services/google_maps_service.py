@@ -6,6 +6,7 @@ calls our own /api/one/location/maps/* endpoints, which call this service.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from typing import Any, Literal
@@ -23,7 +24,13 @@ _PLACES_NEARBY_URL = f"{_PLACES_BASE}/v1/places:searchNearby"
 _ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 _GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 _NEARBY_CHECK_IN_RADIUS_METERS = 500.0
+# Search Nearby (New) hard-caps a single response at 20. That cap is per
+# request, not per area, which is why "All" alone can never be complete in a
+# dense block: 20 cafes within 40 m bury the hotel 120 m away.
 _NEARBY_CHECK_IN_RESULT_LIMIT = 20
+# Ceiling for the merged multi-request sweep. Each category bucket contributes
+# its own 20-result budget, so a hotel is never crowded out by restaurants.
+_NEARBY_CHECK_IN_MERGED_LIMIT = 80
 
 NearbyPlaceCategory = Literal[
     "all",
@@ -36,11 +43,15 @@ NearbyPlaceCategory = Literal[
     "transit",
 ]
 
-# One foreground request is used for the default list. Category filters are
-# explicit follow-up requests so opening the drawer never fans out into several
-# billable provider calls. These are broad Table A types from Places API (New):
-# Google includes matching specialized subtypes (for example an Indian
-# restaurant when `restaurant` is requested).
+# "All" issues one request per bucket here, concurrently, and merges the
+# results. That costs more provider calls per drawer open than the single
+# unfiltered request it replaced, and buys the only thing that makes the picker
+# trustworthy: each category gets its own slice of the provider's 20-result cap,
+# so a hotel cannot be buried by twenty nearer cafes. The client filters chips
+# from that one merged sweep, so browsing categories now costs nothing extra.
+# These are broad Table A types from Places API (New): Google includes matching
+# specialized subtypes (for example an Indian restaurant when `restaurant` is
+# requested).
 _NEARBY_PLACE_CATEGORY_TYPES: dict[str, tuple[str, ...]] = {
     "food_drink": ("restaurant", "cafe", "bakery", "bar", "meal_takeaway"),
     "health": ("hospital", "medical_clinic", "doctor", "dentist", "pharmacy"),
@@ -130,6 +141,60 @@ _NON_CHECK_IN_PRIMARY_TYPE_PREFIXES = (
     "postal_code",
     "sublocality",
 )
+
+# Types that prove a record is a real venue rather than a geocoded address, but
+# are too vague to display as its category.
+_GENERIC_ESTABLISHMENT_TYPES = frozenset({"establishment", "point_of_interest"})
+
+
+def _build_category_index() -> dict[str, tuple[str, ...]]:
+    """Reverse index from a Places type to the drawer's category chips.
+
+    Built from the same table the requests use, so a place surfaced by the
+    unfiltered sweep still lands under the right chip without a second call.
+    """
+
+    index: dict[str, tuple[str, ...]] = {}
+    for category, place_types in _NEARBY_PLACE_CATEGORY_TYPES.items():
+        for place_type in place_types:
+            index[place_type] = (*index.get(place_type, ()), category)
+    return index
+
+
+_CATEGORY_BY_PLACE_TYPE = _build_category_index()
+
+
+def _place_types(place: dict[str, Any]) -> list[str]:
+    """Every type Google reported, primary first, de-duplicated."""
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for raw in (place.get("primaryType"), *(place.get("types") or [])):
+        if not isinstance(raw, str):
+            continue
+        value = raw.strip()[:80]
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
+
+
+def _is_non_check_in_type(place_type: str) -> bool:
+    return place_type in _NON_CHECK_IN_PRIMARY_TYPES or place_type.startswith(
+        _NON_CHECK_IN_PRIMARY_TYPE_PREFIXES
+    )
+
+
+def _place_categories(place_types: list[str]) -> list[str]:
+    """Category chips this place belongs to, in the table's declared order."""
+
+    matched = {
+        category
+        for place_type in place_types
+        for category in _CATEGORY_BY_PLACE_TYPE.get(place_type, ())
+    }
+    return [category for category in _NEARBY_PLACE_CATEGORY_TYPES if category in matched]
 
 
 class GoogleMapsError(RuntimeError):
@@ -246,8 +311,18 @@ def _provider_object(response: httpx.Response, operation: str) -> dict[str, Any]
     return payload
 
 
-def _check_in_place_identity(place: dict[str, Any]) -> tuple[str, str] | None:
-    """Return the display name/type only for a physical, usable check-in place."""
+def _check_in_place_identity(
+    place: dict[str, Any],
+) -> tuple[str, str, list[str]] | None:
+    """Return name, category type and types for a physical, usable check-in place.
+
+    `primaryType` is absent on a large share of real venues -- independent
+    hotels, clinics and shops routinely come back with `types` only. Requiring
+    it silently deleted exactly those places from the picker, which is how a
+    second hotel behind the first went missing. Any non-address type now
+    qualifies, and a bare `establishment` still counts as a venue while a
+    geocoded address (`street_address`, `premise`, ...) still does not.
+    """
 
     business_status = str(place.get("businessStatus") or "").strip().upper()
     if business_status and business_status != "OPERATIONAL":
@@ -255,16 +330,6 @@ def _check_in_place_identity(place: dict[str, Any]) -> tuple[str, str] | None:
     pure_service_area = place.get("pureServiceAreaBusiness")
     if pure_service_area is True or (
         pure_service_area is not None and not isinstance(pure_service_area, bool)
-    ):
-        return None
-    raw_primary_type = place.get("primaryType")
-    if not isinstance(raw_primary_type, str):
-        return None
-    primary_type = raw_primary_type.strip()[:80]
-    if (
-        not primary_type
-        or primary_type in _NON_CHECK_IN_PRIMARY_TYPES
-        or primary_type.startswith(_NON_CHECK_IN_PRIMARY_TYPE_PREFIXES)
     ):
         return None
     display_name = place.get("displayName") or {}
@@ -276,7 +341,22 @@ def _check_in_place_identity(place: dict[str, Any]) -> tuple[str, str] | None:
     display = raw_display.strip()[:160]
     if not display:
         return None
-    return display, primary_type
+
+    place_types = _place_types(place)
+    if not place_types:
+        return None
+    descriptive = [
+        place_type
+        for place_type in place_types
+        if not _is_non_check_in_type(place_type) and place_type not in _GENERIC_ESTABLISHMENT_TYPES
+    ]
+    if descriptive:
+        return display, descriptive[0], place_types
+    # No descriptive type left. Keep it only when Google still calls it a venue,
+    # so a named business survives while an address record does not.
+    if any(place_type in _GENERIC_ESTABLISHMENT_TYPES for place_type in place_types):
+        return display, "establishment", place_types
+    return None
 
 
 class GoogleMapsService:
@@ -433,22 +513,17 @@ class GoogleMapsService:
                 )
         return results
 
-    async def nearby_places(
+    async def _search_nearby_once(
         self,
+        client: httpx.AsyncClient,
         *,
+        key: str,
         lat: float,
         lng: float,
-        category: NearbyPlaceCategory = "all",
+        included_types: tuple[str, ...] | None,
     ) -> list[dict[str, Any]]:
-        """Return a bounded nearest-place picker for explicit check-in.
+        """One Search Nearby call. Returns the raw provider place records."""
 
-        The request point is sent to Google only for this foreground request and
-        is not cached or logged by this service. Exact distance helps the owner
-        choose a place but is never included in nearby-person responses.
-        """
-
-        key = _require_key()
-        category_types = _NEARBY_PLACE_CATEGORY_TYPES.get(category)
         body: dict[str, Any] = {
             "maxResultCount": _NEARBY_CHECK_IN_RESULT_LIMIT,
             "rankPreference": "DISTANCE",
@@ -462,33 +537,31 @@ class GoogleMapsService:
                 }
             },
         }
-        if category_types:
-            body["includedTypes"] = list(category_types)
-        async with _async_client() as client:
-            try:
-                response = await client.post(
-                    _PLACES_NEARBY_URL,
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-Goog-Api-Key": key,
-                        "X-Goog-FieldMask": (
-                            "places.id,places.displayName,places.shortFormattedAddress,"
-                            "places.formattedAddress,places.location,places.primaryType,"
-                            "places.primaryTypeDisplayName,places.businessStatus,"
-                            "places.pureServiceAreaBusiness"
-                        ),
-                    },
-                    json=body,
-                )
-            except httpx.HTTPError as exc:
-                raise GoogleMapsError(
-                    f"Nearby places lookup failed: {exc}",
-                    status_code=502,
-                ) from exc
+        if included_types:
+            body["includedTypes"] = list(included_types)
+        try:
+            response = await client.post(
+                _PLACES_NEARBY_URL,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Goog-Api-Key": key,
+                    "X-Goog-FieldMask": (
+                        "places.id,places.displayName,places.shortFormattedAddress,"
+                        "places.formattedAddress,places.location,places.primaryType,"
+                        "places.types,places.primaryTypeDisplayName,"
+                        "places.businessStatus,places.pureServiceAreaBusiness"
+                    ),
+                },
+                json=body,
+            )
+        except httpx.HTTPError as exc:
+            raise GoogleMapsError(
+                f"Nearby places lookup failed: {exc}",
+                status_code=502,
+            ) from exc
         if response.status_code >= 400:
             logger.warning("maps.nearby_places upstream %s", response.status_code)
             raise GoogleMapsError("Nearby places lookup failed.", status_code=502)
-
         payload = _provider_object(response, "Nearby places lookup")
         provider_places = payload.get("places") or []
         if not isinstance(provider_places, list):
@@ -496,76 +569,172 @@ class GoogleMapsService:
                 "Nearby places lookup returned an invalid response.",
                 status_code=502,
             )
+        return [place for place in provider_places if isinstance(place, dict)]
 
-        results: list[dict[str, Any]] = []
-        seen_place_ids: set[str] = set()
-        for source_index, place in enumerate(provider_places[:_NEARBY_CHECK_IN_RESULT_LIMIT]):
-            if not isinstance(place, dict):
-                continue
-            place_id = str(place.get("id") or "").strip()
-            location = place.get("location") or {}
-            if not isinstance(location, dict):
-                continue
-            try:
-                place_lat = float(location.get("latitude"))
-                place_lng = float(location.get("longitude"))
-            except (TypeError, ValueError):
-                continue
-            if not _valid_coordinates(lat=place_lat, lng=place_lng):
-                continue
-            if not place_id or len(place_id) > 300 or place_id in seen_place_ids:
-                continue
-            identity = _check_in_place_identity(place)
-            if identity is None:
-                continue
-            display, primary_type = identity
-            address = str(
-                place.get("shortFormattedAddress") or place.get("formattedAddress") or ""
-            ).strip()[:300]
-            text = ", ".join(part for part in (display, address) if part)
-            if not text:
-                continue
-            raw_distance_meters = _distance_meters(
-                origin_lat=float(lat),
-                origin_lng=float(lng),
-                destination_lat=place_lat,
-                destination_lng=place_lng,
+    def _normalize_nearby_place(
+        self,
+        place: dict[str, Any],
+        *,
+        lat: float,
+        lng: float,
+    ) -> dict[str, Any] | None:
+        """Shape one provider record, or drop it if it is not check-in-able."""
+
+        place_id = str(place.get("id") or "").strip()
+        if not place_id or len(place_id) > 300:
+            return None
+        location = place.get("location") or {}
+        if not isinstance(location, dict):
+            return None
+        try:
+            place_lat = float(location.get("latitude"))
+            place_lng = float(location.get("longitude"))
+        except (TypeError, ValueError):
+            return None
+        if not _valid_coordinates(lat=place_lat, lng=place_lng):
+            return None
+        identity = _check_in_place_identity(place)
+        if identity is None:
+            return None
+        display, primary_type, place_types = identity
+        address = str(
+            place.get("shortFormattedAddress") or place.get("formattedAddress") or ""
+        ).strip()[:300]
+        text = ", ".join(part for part in (display, address) if part)
+        if not text:
+            return None
+        raw_distance_meters = _distance_meters(
+            origin_lat=float(lat),
+            origin_lng=float(lng),
+            destination_lat=place_lat,
+            destination_lng=place_lng,
+        )
+        if (
+            not math.isfinite(raw_distance_meters)
+            or raw_distance_meters > _NEARBY_CHECK_IN_RADIUS_METERS
+        ):
+            return None
+        primary_type_display = place.get("primaryTypeDisplayName") or {}
+        if not isinstance(primary_type_display, dict):
+            primary_type_display = {}
+        category_label = str(primary_type_display.get("text") or "").strip()[:80]
+        if not category_label and primary_type:
+            category_label = primary_type.replace("_", " ").title()
+        return {
+            "placeId": place_id,
+            "name": display,
+            "address": address or None,
+            "text": text,
+            "distanceMeters": int(round(raw_distance_meters)),
+            # The owner's own chosen venue is public Google data, so its point
+            # may travel to the client -- it is what the map pins and what the
+            # backend anchors co-presence on. A nearby *person* never gets one.
+            "latitude": place_lat,
+            "longitude": place_lng,
+            "primaryType": primary_type or None,
+            "category": category_label or "Place",
+            "categories": _place_categories(place_types),
+        }
+
+    async def nearby_places(
+        self,
+        *,
+        lat: float,
+        lng: float,
+        category: NearbyPlaceCategory = "all",
+    ) -> list[dict[str, Any]]:
+        """Return the nearest check-in-able places, complete rather than merely bounded.
+
+        A single Search Nearby response is capped at 20 records by the provider.
+        On "All" that cap is spent on whatever happens to be closest, so a hotel
+        one street back disappears behind twenty cafes -- and the drawer looked
+        like it had simply skipped it. "All" therefore sweeps every category
+        bucket concurrently and merges: each bucket brings its own 20-result
+        budget, so no category can crowd out another.
+
+        The request point is sent to Google only for this foreground request and
+        is not cached or logged by this service. Exact distance helps the owner
+        choose a place but is never included in nearby-person responses.
+        """
+
+        key = _require_key()
+        # (chip this request stands for, types it filters on). The leading
+        # (None, None) sweep is unfiltered and catches anything the buckets miss.
+        requests: list[tuple[str | None, tuple[str, ...] | None]]
+        if category == "all":
+            requests = [
+                (None, None),
+                *((chip, types) for chip, types in _NEARBY_PLACE_CATEGORY_TYPES.items()),
+            ]
+        else:
+            requests = [(category, _NEARBY_PLACE_CATEGORY_TYPES.get(category))]
+
+        async with _async_client() as client:
+            batches = await asyncio.gather(
+                *(
+                    self._search_nearby_once(
+                        client,
+                        key=key,
+                        lat=lat,
+                        lng=lng,
+                        included_types=included_types,
+                    )
+                    for _chip, included_types in requests
+                ),
+                return_exceptions=True,
             )
-            if (
-                not math.isfinite(raw_distance_meters)
-                or raw_distance_meters > _NEARBY_CHECK_IN_RADIUS_METERS
-            ):
+
+        merged: dict[str, dict[str, Any]] = {}
+        order: dict[str, int] = {}
+        chips: dict[str, set[str]] = {}
+        fallback_chips: dict[str, set[str]] = {}
+        failures = 0
+        for (request_chip, _types), batch in zip(requests, batches, strict=True):
+            if isinstance(batch, BaseException):
+                # One bucket failing must not empty the whole picker; the rest
+                # of the sweep is still a better list than no list.
+                failures += 1
                 continue
-            distance_meters = int(round(raw_distance_meters))
-            primary_type_display = place.get("primaryTypeDisplayName") or {}
-            if not isinstance(primary_type_display, dict):
-                primary_type_display = {}
-            category_label = str(primary_type_display.get("text") or "").strip()[:80]
-            if not category_label and primary_type:
-                category_label = primary_type.replace("_", " ").title()
-            seen_place_ids.add(place_id)
-            results.append(
-                {
-                    "placeId": place_id,
-                    "name": display,
-                    "address": address or None,
-                    "text": text,
-                    "distanceMeters": distance_meters,
-                    "primaryType": primary_type or None,
-                    "category": category_label or "Place",
-                    "_sourceIndex": source_index,
-                }
-            )
-        results.sort(
+            for source_index, place in enumerate(batch):
+                normalized = self._normalize_nearby_place(place, lat=lat, lng=lng)
+                if normalized is None:
+                    continue
+                place_id = str(normalized["placeId"])
+                chips.setdefault(place_id, set()).update(normalized["categories"])
+                if request_chip:
+                    # Remember which filters surfaced this place. Used only as a
+                    # fallback below, so a precisely-typed venue keeps precise
+                    # chips and is never filed under a category it is not in.
+                    fallback_chips.setdefault(place_id, set()).add(request_chip)
+                if place_id not in merged:
+                    merged[place_id] = normalized
+                    order[place_id] = source_index
+                else:
+                    order[place_id] = min(order[place_id], source_index)
+
+        for place_id, place in merged.items():
+            # A venue Google reports with only `establishment` maps to no chip
+            # of its own, yet a category filter still surfaced it -- an
+            # independent hotel is the common case. File it under the filters
+            # that found it so tapping "Hotels" cannot hide it.
+            matched = chips.get(place_id) or fallback_chips.get(place_id, set())
+            place["categories"] = [chip for chip in _NEARBY_PLACE_CATEGORY_TYPES if chip in matched]
+
+        if not merged and failures == len(batches):
+            raise GoogleMapsError("Nearby places lookup failed.", status_code=502)
+
+        results = sorted(
+            merged.values(),
             key=lambda item: (
                 int(item["distanceMeters"]),
-                int(item["_sourceIndex"]),
+                order[str(item["placeId"])],
                 str(item["name"]).casefold(),
-            )
+            ),
         )
-        for item in results:
-            item.pop("_sourceIndex", None)
-        return results[:_NEARBY_CHECK_IN_RESULT_LIMIT]
+        limit = (
+            _NEARBY_CHECK_IN_MERGED_LIMIT if category == "all" else _NEARBY_CHECK_IN_RESULT_LIMIT
+        )
+        return results[:limit]
 
     async def place_details(
         self,
@@ -582,7 +751,10 @@ class GoogleMapsService:
                         "X-Goog-Api-Key": key,
                         "X-Goog-FieldMask": (
                             "id,location,displayName,formattedAddress,primaryType,"
-                            "businessStatus,pureServiceAreaBusiness"
+                            # `types` must stay in step with the picker's field
+                            # mask: a venue with no primaryType is listable, so
+                            # it has to stay confirmable at check-in too.
+                            "types,businessStatus,pureServiceAreaBusiness"
                         ),
                     },
                 )
