@@ -29,6 +29,27 @@ export function isClaimableLookupOutcome(
   return Boolean(result.firm?.crd) || (result.firms?.length ?? 0) > 0;
 }
 
+/**
+ * The account's verified number, in the order the sources are trustworthy.
+ *
+ * `identity.phone_number` is authoritative: it is what the backend recorded.
+ * The auth context's `phoneNumber` is the hydrated copy of it. The Firebase
+ * user object comes LAST because it is null in two common cases — a Google
+ * sign-in (no phone credential is ever linked) and the backend test-code
+ * confirmation path (which returns the unchanged user and only records the
+ * phone server-side). Reading it first skips recognition exactly when an
+ * adviser has just told us their number.
+ */
+export function resolveVerifiedPhone(sources: {
+  identityPhone?: string | null;
+  contextPhone?: string | null;
+  firebasePhone?: string | null;
+}): string {
+  return toNanpDigits(
+    sources.identityPhone || sources.contextPhone || sources.firebasePhone,
+  );
+}
+
 /** Reduce any phone formatting to the 10-digit NANP number, or "". */
 export function toNanpDigits(raw: string | null | undefined): string {
   let digits = String(raw ?? "").replace(/\D/g, "");
