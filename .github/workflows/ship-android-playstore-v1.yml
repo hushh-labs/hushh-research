@@ -272,6 +272,7 @@ jobs:
           packageName: ${{ env.ANDROID_PACKAGE_NAME }}
           releaseFiles: hushh-webapp/android/app/build/outputs/bundle/release/app-release.aab
           track: ${{ inputs.track }}
+          tracks: ${{ inputs.track }}
           status: completed
 
       - name: Publish job summary
