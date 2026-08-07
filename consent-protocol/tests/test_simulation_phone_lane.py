@@ -169,3 +169,74 @@ def test_the_allowlist_the_deploy_pins_survives_the_backends_own_rule(clean_env)
 
     assert numbers, "the pinned allowlist parsed to nothing"
     assert all(n.startswith(account_routes._SIMULATION_PHONE_PREFIX) for n in numbers)
+
+
+# --- dev-only scoping, executed rather than asserted ---------------------------------
+#
+# The founder constraint is that this is development configuration and touches no other
+# environment. That is a claim about a bash script, so it is checked by RUNNING the
+# script's own personal-agent block for every value the deploy lanes actually pass --
+# the same technique `test_pod_image_build_contract.py` uses -- rather than by reading
+# the `if` and trusting it.
+
+# Every value the deploy lanes pass. `manual` is the template's own default, and the
+# empty string is a container that lost its configuration.
+_NON_DEV_ENVS = ["uat", "prod", "production", "staging", "manual", ""]
+
+
+def _run_personal_agent_block(deploy_env: str) -> list[str]:
+    """Execute the real block and return the env vars it would actually set."""
+    import subprocess
+
+    from tests._deploy_contract import backend_deploy_script
+
+    script = backend_deploy_script()
+    start = script.index('personal_agent_enabled=""')
+    end = script.index('append_optional_env "HUSHH_DEV_PHONE_TEST_NUMBERS"')
+    slice_ = script[start : script.index("\n", end) + 1]
+
+    # Cloud Build expands ${_FOO} textually before bash sees it; reproduce that.
+    slice_ = slice_.replace("${_DEPLOY_ENV}", deploy_env).replace(
+        "${_RUNTIME_SERVICE_ACCOUNT}", "runtime@example.iam.gserviceaccount.com"
+    )
+    preamble = (
+        "env_vars=()\n"
+        "append_optional_env() {\n"
+        '  local env_name="$1"\n'
+        '  local env_value="$2"\n'
+        '  if [[ -n "${env_value}" ]]; then\n'
+        '    env_vars+=("${env_name}=${env_value}")\n'
+        "  fi\n"
+        "}\n"
+    )
+    result = subprocess.run(  # noqa: S603 - fixed argv, no shell=True, test-local input
+        ["bash", "-c", preamble + slice_ + '\nprintf "%s\\n" "${env_vars[@]}"'],  # noqa: S607
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return [line for line in result.stdout.splitlines() if line]
+
+
+@pytest.mark.parametrize("deploy_env", _NON_DEV_ENVS)
+def test_no_other_environment_gains_a_simulation_variable(deploy_env: str):
+    """uat, production, staging and an unconfigured container are byte-identical.
+
+    `append_optional_env` skips an empty value, so an empty variable is never set at
+    all — the runtime default applies and the lane behaves exactly as it did before
+    this workstream existed.
+    """
+    names = {line.split("=", 1)[0] for line in _run_personal_agent_block(deploy_env)}
+
+    assert "HUSHH_DEV_SIMULATION_ENABLED" not in names
+    assert "HUSHH_DEV_PHONE_TEST_NUMBERS" not in names
+
+
+def test_dev_is_the_one_environment_that_gains_them():
+    """The other half. A guard that never permits is as broken as one that never denies."""
+    emitted = dict(line.split("=", 1) for line in _run_personal_agent_block("dev"))
+
+    assert emitted["HUSHH_DEV_SIMULATION_ENABLED"] == "true"
+    assert emitted["HUSHH_DEV_PHONE_TEST_NUMBERS"].startswith(
+        account_routes._SIMULATION_PHONE_PREFIX
+    )
