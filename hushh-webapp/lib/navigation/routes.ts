@@ -368,7 +368,10 @@ export const CAPABILITY_ONBOARDING_ROUTE_PREFIXES: Readonly<
   gmail: [ROUTES.ONE_SETUP_GMAIL, ROUTES.PROFILE_GMAIL_OAUTH_RETURN],
   email: [ROUTES.ONE_SETUP_EMAIL],
   location: [ROUTES.ONE_SETUP_LOCATION],
-  ria: [ROUTES.ONE_SETUP_RIA],
+  // RIA_CLAIM belongs to the ria capability: recognising an adviser from their
+  // filed number routes here from setup, and the journey guard must admit it
+  // or the redirect is bounced straight back to the hub.
+  ria: [ROUTES.ONE_SETUP_RIA, ROUTES.RIA_CLAIM],
   "connected-systems": [ROUTES.ONE_SETUP_CONNECTED_SYSTEMS],
 };
 
@@ -433,6 +436,9 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.LOGIN ||
     normalizedPathname === ROUTES.GETTING_STARTED ||
     normalizedPathname === ROUTES.PHONE_MANDATE ||
+    // Reached straight from the phone mandate when the number the adviser just
+    // verified is on an SEC filing, before any capability is active.
+    normalizedPathname === ROUTES.RIA_CLAIM ||
     normalizedPathname === ROUTES.LOGOUT ||
     normalizedPathname === ROUTES.PROFILE ||
     normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
