@@ -24,7 +24,7 @@ flowchart TB
 | | |
 |---|---|
 | Branch | `claude/hushh-infrastructure-analysis-7o991c` |
-| Head SHA | `890e42823ee2792c4196d9cae8a4f11a195ce68f` |
+| Head SHA | **take it from the PR** — see the note below |
 | PR | [#4675](https://github.com/hushh-labs/hushh-research/pull/4675) (`[dev-ci][do-not-merge]`) |
 | Target | `hushh-pda-dev` / `us-central1`, service `consent-protocol` |
 | Front end | `https://dev.one.hushh.ai` |
@@ -33,8 +33,11 @@ You must be in the **`dev` surface** of the governed-actor cohort (`config/ci-go
 for step 2. Dev is a **shared, costed** environment — a dispatch replaces whatever was last
 deployed there, so tell the team before you start.
 
-If more commits land on the branch after this was written, the head SHA changes. Take the
-new one from the PR and use it consistently in steps 1 and 2.
+**Do not trust a SHA written in a document, including this one.** This page deliberately
+does not pin one: the commit that added it changed the head, which is exactly how a pinned
+SHA goes stale. Take the current head from PR #4675 (or `git rev-parse origin/claude/hushh-infrastructure-analysis-7o991c`)
+and use that *same* value in steps 1 and 2. The two must match — the deploy gate checks the
+SHA, not the branch.
 
 ---
 
@@ -68,7 +71,7 @@ at *Assert manual dispatch originates from main*.
 2. **Use workflow from: `main`** ← the whole step turns on this
 3. `scope`: `auto`
 4. `ref`: `claude/hushh-infrastructure-analysis-7o991c`
-5. `sha`: `890e42823ee2792c4196d9cae8a4f11a195ce68f`
+5. `sha`: the SHA you confirmed green in step 1
 
 Paste the SHA rather than leaving it blank. Blank means "head of ref at dispatch time"; if
 anything lands on the branch between steps 1 and 2 you would deploy a SHA CI never saw, and
