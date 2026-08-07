@@ -15,6 +15,7 @@ import {
   Building2,
   CheckCircle2,
   ChevronLeft,
+  ExternalLink,
   Loader2,
   ShieldCheck,
   UserRound,
@@ -29,7 +30,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { toNanpDigits } from "@/lib/ria/ria-claim-entry";
 import { Button } from "@/lib/morphy-ux/button";
-import { ROUTES } from "@/lib/navigation/routes";
+import { normalizeInternalRouteHref, ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
@@ -39,6 +40,7 @@ import {
   type RiaClaimCompleteResult,
   type RiaClaimFirm,
   type RiaClaimLookupResult,
+  type RiaClaimProfileFacts,
   type RiaClaimVerifyResult,
 } from "@/lib/services/ria-service";
 
@@ -173,6 +175,78 @@ function CodeCells({
   );
 }
 
+/** One labelled fact row, matching the review-card grammar. */
+function FactRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-h-[44px] items-center justify-between gap-4 border-t border-[color:var(--border)] px-4 py-2.5 first:border-t-0">
+      <span className="text-[13px] text-muted-foreground">{label}</span>
+      <span className="text-right text-[15px] font-medium">{value}</span>
+    </div>
+  );
+}
+
+/** What the regulator publishes, filled in without asking the adviser. */
+function ClaimedFacts({ facts }: { facts: RiaClaimProfileFacts }) {
+  const rows: { label: string; value: string }[] = [];
+  if (facts.crd_number) rows.push({ label: "CRD", value: facts.crd_number });
+  if (facts.regulator) {
+    rows.push({
+      label: "Regulator",
+      value: [facts.regulator, facts.regulator_status].filter(Boolean).join(" · "),
+    });
+  }
+  if (facts.registered_since) {
+    rows.push({ label: "Registered since", value: facts.registered_since });
+  }
+  const office = [titleCase(facts.branch_city), facts.branch_state].filter(Boolean).join(", ");
+  if (office) rows.push({ label: "Office", value: office });
+  const aum = formatAum(facts.aum);
+  if (aum) rows.push({ label: "Firm assets", value: aum.replace(" AUM", "") });
+  if (facts.num_accounts) {
+    rows.push({ label: "Accounts", value: facts.num_accounts.toLocaleString() });
+  }
+  const exams = (facts.exams ?? []).map((e) => e.code).filter(Boolean);
+  if (exams.length) rows.push({ label: "Exams", value: exams.join(", ") });
+  const states = (facts.registered_states ?? []).map((s) => s.state).filter(Boolean);
+  if (states.length) {
+    rows.push({
+      label: states.length === 1 ? "Registered in" : `Registered in ${states.length}`,
+      value: states.slice(0, 3).join(", ") + (states.length > 3 ? "…" : ""),
+    });
+  }
+  const filed = facts.notice_filed_states ?? [];
+  if (filed.length) {
+    rows.push({ label: `Notice filed in ${filed.length}`, value: filed.slice(0, 3).join(", ") + (filed.length > 3 ? "…" : "") });
+  }
+  const prior = facts.previous_firms ?? [];
+  if (prior.length) {
+    rows.push({ label: "Previously", value: titleCase(prior[0]?.firm_name) });
+  }
+  if (!rows.length) return null;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] text-muted-foreground">From your SEC record.</p>
+      <div className="overflow-hidden rounded-[22px] border border-[color:var(--border)] bg-[color:var(--card)] shadow-[0_8px_24px_rgba(62,48,30,0.05)]">
+        {rows.map((row) => (
+          <FactRow key={row.label} label={row.label} value={row.value} />
+        ))}
+      </div>
+      {facts.report_url ? (
+        <a
+          href={facts.report_url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[color:var(--app-accent)]"
+        >
+          View on adviserinfo.sec.gov
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
 export default function RiaClaimPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -185,6 +259,9 @@ export default function RiaClaimPage() {
   const seededPhone =
     toNanpDigits(searchParams.get("phone")) ||
     toNanpDigits(accountPhone || user?.phoneNumber);
+  // Where the person was before recognition pulled them here, so claiming
+  // hands them back rather than stranding them in the RIA workspace.
+  const returnTo = normalizeInternalRouteHref(searchParams.get("return_to"));
 
   const [step, setStep] = useState<ClaimStep>("phone");
   const [phoneDigits, setPhoneDigits] = useState("");
@@ -212,6 +289,9 @@ export default function RiaClaimPage() {
   const [verifyResult, setVerifyResult] = useState<RiaClaimVerifyResult | null>(null);
   const [pickCrd, setPickCrd] = useState<number | null>(null);
   const [completeResult, setCompleteResult] = useState<RiaClaimCompleteResult | null>(null);
+  // True when first-run setup still has steps left, so the done screen returns
+  // the person to the hub instead of ending their setup early.
+  const [rootSetupUnresolved, setRootSetupUnresolved] = useState(false);
 
   const submittingRef = useRef(false);
 
@@ -306,13 +386,20 @@ export default function RiaClaimPage() {
         // hub must stop listing it as remaining. syncSetupCapabilities REPLACES
         // the stored set, so pass the union.
         try {
-          const current = await PreVaultUserStateService.bootstrapState(user.uid);
+          const current = await PreVaultUserStateService.bootstrapState(user.uid, {
+            force: true,
+          });
           if (!current.setupCapabilityIds.includes("ria")) {
             await PreVaultUserStateService.syncSetupCapabilities(
               user.uid,
               Array.from(new Set([...current.setupCapabilityIds, "ria"])).sort(),
             );
           }
+          // Claiming is one capability inside first-run setup, not an exit from
+          // it. While the root setup is unresolved the person still has other
+          // steps to finish, so the done screen must hand them back to the hub
+          // rather than drop them into the RIA workspace.
+          setRootSetupUnresolved(!PreVaultUserStateService.isSetupResolved(current));
         } catch {
           // best-effort; the dashboard reconciles the count on next load.
         }
@@ -865,23 +952,44 @@ export default function RiaClaimPage() {
                   </div>
                 </div>
               </div>
+              {completeResult.facts ? (
+                <ClaimedFacts facts={completeResult.facts} />
+              ) : null}
               {!verified ? (
                 <p className="text-[13px] leading-relaxed text-muted-foreground">
                   Finish verification anytime from your profile.
                 </p>
               ) : null}
-              <div className="mx-auto w-full sm:max-w-[22rem]">
+              <div className="mx-auto w-full space-y-3 sm:max-w-[22rem]">
                 <Button
                   variant="blue-gradient"
                   effect="fill"
                   size="lg"
                   fullWidth
                   className="h-12 text-base"
-                  onClick={() => router.replace(ROUTES.RIA_PROFILE)}
+                  onClick={() =>
+                    router.replace(
+                      rootSetupUnresolved || returnTo
+                        ? returnTo || ROUTES.ONE_SETUP
+                        : ROUTES.RIA_PROFILE,
+                    )
+                  }
                   data-voice-control-id="ria-claim-open-profile"
                 >
-                  Open your profile
+                  {rootSetupUnresolved || returnTo ? "Continue setup" : "Open your profile"}
                 </Button>
+                {rootSetupUnresolved || returnTo ? (
+                  <Button
+                    variant="none"
+                    effect="fade"
+                    size="lg"
+                    fullWidth
+                    className="h-12 text-base"
+                    onClick={() => router.replace(ROUTES.RIA_PROFILE)}
+                  >
+                    View profile
+                  </Button>
+                ) : null}
               </div>
             </div>
           ) : null}
