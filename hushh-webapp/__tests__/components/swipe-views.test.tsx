@@ -148,8 +148,21 @@ describe("SwipeViews", () => {
     expect(embla.options).toMatchObject({
       duration: 16,
       dragThreshold: 6,
-      watchResize: false,
     });
+
+    // Resize watching stays ON so a stale container measurement can correct
+    // itself, but is scoped to the container: per-slide entries (streaming
+    // content changing height) must not re-trigger the horizontal engine.
+    const watchResize = embla.options?.watchResize as (
+      api: { containerNode: () => Element },
+      entries: { target: Element }[],
+    ) => boolean;
+    expect(typeof watchResize).toBe("function");
+    const containerNode = document.createElement("div");
+    const slideNode = document.createElement("div");
+    const apiStub = { containerNode: () => containerNode };
+    expect(watchResize(apiStub, [{ target: containerNode }])).toBe(true);
+    expect(watchResize(apiStub, [{ target: slideNode }])).toBe(false);
   });
 
   it("starts pane motion immediately when the shared top tab is pressed", () => {
