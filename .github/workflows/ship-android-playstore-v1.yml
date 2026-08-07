@@ -271,7 +271,6 @@ jobs:
           serviceAccountJson: ${{ env.PLAY_SERVICE_ACCOUNT_PATH }}
           packageName: ${{ env.ANDROID_PACKAGE_NAME }}
           releaseFiles: hushh-webapp/android/app/build/outputs/bundle/release/app-release.aab
-          track: ${{ inputs.track }}
           tracks: ${{ inputs.track }}
           status: completed
 
