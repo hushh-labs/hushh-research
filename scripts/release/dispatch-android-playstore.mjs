@@ -19,7 +19,7 @@
 import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 
-const WORKFLOW = "Ship Android to Google Play Store";
+const WORKFLOW = ".github/workflows/ship-android-playstore.yml";
 const REF = "main";
 
 function fail(message) {
