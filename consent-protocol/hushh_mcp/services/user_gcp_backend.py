@@ -105,7 +105,35 @@ class UserGcpBackend:
         cfg: dict[str, Any] = self._inner.render_deploy_config(spec)
         # Mark tenancy so the artifact is unambiguously user-owned.
         cfg["metadata"]["labels"]["hussh-tenancy"] = "user-owned"
+        self._pin_model_access_to_the_user(cfg)
         return cfg
+
+    def _pin_model_access_to_the_user(self, cfg: dict[str, Any]) -> None:
+        """A user-owned pod reaches Vertex in the USER's project. By construction.
+
+        The inner renderer resolves the model project as
+        ``HUSSH_POD_VERTEX_PROJECT or self._project``, and that precedence is
+        backwards for this path: the override is read from the HUB's environment,
+        so the moment an operator sets it -- which is the whole reason the variable
+        exists -- every user-owned render would silently point at hussh's Vertex
+        project instead of the person's.
+
+        Today the variable is set by no deploy file, so path A renders correctly by
+        the accident of an unset override. That is not a boundary, it is a coincidence
+        that holds until someone configures the fleet. Per
+        `docs/reference/architecture/private-agent-north-star.md` the hussh Vertex
+        identity is confined to the simulation tier, so this path overwrites rather
+        than inherits.
+        """
+        containers = cfg["spec"]["template"]["spec"]["containers"]
+        pinned = {
+            "GOOGLE_CLOUD_PROJECT": self._user_project or "",
+            "GOOGLE_CLOUD_LOCATION": self._user_region,
+        }
+        for entry in containers[0]["env"]:
+            replacement = pinned.get(entry.get("name", ""))
+            if replacement is not None:
+                entry["value"] = replacement
 
     def render_bootstrap_plan(self, spec: PodSpec) -> dict[str, Any]:
         """The least-privilege setup the USER authorizes in THEIR project (keyless).

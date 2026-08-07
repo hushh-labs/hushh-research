@@ -106,6 +106,7 @@ tests/test_standing_read_reissue.py
 tests/test_stream_agent_thinking_gemini_error_cwe209.py
 tests/test_stream_path_query_bounds_cwe400.py
 tests/test_user_gcp_backend.py
+tests/test_user_gcp_model_access_boundary.py
 tests/test_vault_keys_metadata.py
 tests/test_webauthn_aal.py
 tests/test_webauthn_mds.py
