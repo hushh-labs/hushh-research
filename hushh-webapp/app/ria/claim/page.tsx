@@ -276,35 +276,13 @@ export default function RiaClaimPage() {
     void handleLookup(seededPhone);
   }, [seededPhone, user, authLoading, handleLookup]);
 
-  const beginClaim = useCallback(
-    async (type: ClaimType, candidateCrd: number | null) => {
-      if (!firmCrd || busy) return;
-      setBusy(true);
-      setError(null);
-      setClaimType(type);
-      setSelectedCandidateCrd(candidateCrd);
-      try {
-        const idToken = await getIdToken();
-        const start = await RiaService.claimOtpStart(idToken, { phone: phoneDigits });
-        setPhoneMasked(start.phone_masked ?? "");
-        if (start.eligible && start.verification_id) {
-          setVerificationId(start.verification_id);
-          setCodeLength(start.code_length ?? 6);
-          setOtpUnavailable(false);
-        } else {
-          setVerificationId(null);
-          setOtpUnavailable(true);
-        }
-        setCode("");
-        setStep("code");
-      } catch (err) {
-        setError(describeError(err));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [firmCrd, busy, phoneDigits, getIdToken],
-  );
+  // True when the number being claimed is the one already verified on this
+  // account, so the backend can prove possession from its own record.
+  const claimingVerifiedAccountPhone =
+    phoneDigits.length === 10 &&
+    phoneDigits === toNanpDigits(accountPhone || user?.phoneNumber);
+
+
 
   const completeClaim = useCallback(
     async (ticket: string, type: ClaimType, individualCrd: number | null) => {
@@ -344,6 +322,91 @@ export default function RiaClaimPage() {
     [firmCrd, phoneDigits, getIdToken, refreshPersonaState, user],
   );
 
+  /** Route a verify result onward: complete it, or ask which adviser. */
+  const settleVerifyResult = useCallback(
+    async (
+      result: RiaClaimVerifyResult,
+      type: ClaimType,
+      candidateCrd: number | null,
+    ) => {
+      setVerifyResult(result);
+      if (type === "firm") {
+        await completeClaim(result.claim_ticket, "firm", null);
+        return;
+      }
+      if (candidateCrd) {
+        await completeClaim(result.claim_ticket, "individual", candidateCrd);
+        return;
+      }
+      const roster = result.roster ?? [];
+      const soleEntry = roster.length === 1 ? roster[0] : undefined;
+      if (soleEntry?.individual_crd) {
+        await completeClaim(result.claim_ticket, "individual", soleEntry.individual_crd);
+        return;
+      }
+      setPickCrd(null);
+      setStep("pick");
+    },
+    [completeClaim],
+  );
+
+  const beginClaim = useCallback(
+    async (type: ClaimType, candidateCrd: number | null) => {
+      if (!firmCrd || busy) return;
+      setBusy(true);
+      setError(null);
+      setClaimType(type);
+      setSelectedCandidateCrd(candidateCrd);
+      try {
+        const idToken = await getIdToken();
+
+        // If this IS the number already verified on the account, the backend
+        // proves possession from its own record. Asking for a second passcode
+        // on the number they verified moments ago is friction, not security.
+        if (claimingVerifiedAccountPhone) {
+          try {
+            const verified = await RiaService.claimVerify(idToken, {
+              phone: phoneDigits,
+              claim_type: type,
+              firm_crd: firmCrd,
+              individual_crd: type === "individual" ? candidateCrd : undefined,
+            });
+            await settleVerifyResult(verified, type, candidateCrd);
+            return;
+          } catch {
+            // Fall through to the passcode: the account record did not satisfy
+            // the backend, so possession must still be proven the normal way.
+          }
+        }
+
+        const start = await RiaService.claimOtpStart(idToken, { phone: phoneDigits });
+        setPhoneMasked(start.phone_masked ?? "");
+        if (start.eligible && start.verification_id) {
+          setVerificationId(start.verification_id);
+          setCodeLength(start.code_length ?? 6);
+          setOtpUnavailable(false);
+        } else {
+          setVerificationId(null);
+          setOtpUnavailable(true);
+        }
+        setCode("");
+        setStep("code");
+      } catch (err) {
+        setError(describeError(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      firmCrd,
+      busy,
+      phoneDigits,
+      getIdToken,
+      claimingVerifiedAccountPhone,
+      settleVerifyResult,
+    ],
+  );
+
   const handleCodeFilled = useCallback(
     async (filledCode: string) => {
       if (!firmCrd || !verificationId || submittingRef.current) return;
@@ -360,23 +423,7 @@ export default function RiaClaimPage() {
           verification_id: verificationId,
           verification_code: filledCode,
         });
-        setVerifyResult(result);
-        if (claimType === "firm") {
-          await completeClaim(result.claim_ticket, "firm", null);
-          return;
-        }
-        if (selectedCandidateCrd) {
-          await completeClaim(result.claim_ticket, "individual", selectedCandidateCrd);
-          return;
-        }
-        const roster = result.roster ?? [];
-        const soleEntry = roster.length === 1 ? roster[0] : undefined;
-        if (soleEntry?.individual_crd) {
-          await completeClaim(result.claim_ticket, "individual", soleEntry.individual_crd);
-          return;
-        }
-        setPickCrd(null);
-        setStep("pick");
+        await settleVerifyResult(result, claimType, selectedCandidateCrd);
       } catch (err) {
         setCode("");
         setError(
@@ -389,7 +436,15 @@ export default function RiaClaimPage() {
         setBusy(false);
       }
     },
-    [firmCrd, verificationId, phoneDigits, claimType, selectedCandidateCrd, getIdToken, completeClaim],
+    [
+      firmCrd,
+      verificationId,
+      phoneDigits,
+      claimType,
+      selectedCandidateCrd,
+      getIdToken,
+      settleVerifyResult,
+    ],
   );
 
   useEffect(() => {
