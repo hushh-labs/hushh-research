@@ -3,6 +3,18 @@ name: "PR Validation"
 on:
   pull_request:
     branches: ["**"]
+  # Agent-authored branches only. These are pushed by an app installation token,
+  # and GitHub does not raise `pull_request: synchronize` for those pushes -- so an
+  # open PR on such a branch accumulates commits with ZERO check runs, and
+  # deploy-dev.yml then refuses the SHA because it requires a green `CI Status
+  # Gate` on the exact commit. Every one of the last 30 runs on
+  # claude/hushh-infrastructure-analysis-7o991c was a manual workflow_dispatch.
+  #
+  # Deliberately narrow: `claude/**` and nothing else. `main`, `maintainer/**`,
+  # `integration/**` and release branches keep exactly the triggers they had, so
+  # no other lane changes behaviour or spends a minute more of Actions time.
+  push:
+    branches: ["claude/**"]
   workflow_dispatch:
     inputs:
       scope:
