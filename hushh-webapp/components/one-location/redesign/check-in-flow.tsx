@@ -21,12 +21,26 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, CheckCircle2, RefreshCw, Search, Shield } from "lucide-react";
+import {
+  Check,
+  CheckCircle2,
+  RefreshCw,
+  Search,
+  Shield,
+  UsersRound,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
+import {
+  mergeRecipientsByUserId,
+  type CircleRecipientSelection,
+} from "@/lib/one-location/circle-recipient-selection";
+import { CircleGrowActions } from "@/components/one-location/redesign/circles/circle-grow-actions";
 
 import type { LocationHubViewModel } from "./location-redesign-hub";
+
 
 /** Check-in durations. "until_stop" maps to the maximum supported window. */
 const CHECK_IN_DURATIONS: { value: string; label: string }[] = [
@@ -193,7 +207,6 @@ export function CheckInFlow({
   onClose: () => void;
   entrySource?: "nearby";
 }) {
-  const contacts = vm.sosRecipients;
   const discardPrivateCheckInOperation =
     vm.onDiscardPrivateCheckInOperation;
   const [submitting, setSubmitting] = useState(false);
@@ -211,6 +224,9 @@ export function CheckInFlow({
     [],
   );
   const [seeded, setSeeded] = useState(entrySource === "nearby");
+  const [circleSelection, setCircleSelection] =
+    useState<CircleRecipientSelection | null>(null);
+  const [circleLoadingId, setCircleLoadingId] = useState<string | null>(null);
   const [confirmedPoint, setConfirmedPoint] =
     useState<PlainLocationPoint | null>(null);
   const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
@@ -220,6 +236,49 @@ export function CheckInFlow({
   const confirmedRecipientKeysRef = useRef<Record<string, string | null> | null>(
     null,
   );
+  const contacts = useMemo(
+    () =>
+      mergeRecipientsByUserId(
+        vm.sosRecipients,
+        (circleSelection?.ready ?? []).map((target) => target.recipient),
+      ),
+    [circleSelection, vm.sosRecipients],
+  );
+
+  const selectCircle = async (circleId: string) => {
+    if (circleLoadingId) return;
+    if (circleSelection?.circle.id === circleId) {
+      setCircleSelection(null);
+      setCheckedIds([]);
+      setSeeded(false);
+      return;
+    }
+    setCircleLoadingId(circleId);
+    try {
+      const selection = await vm.onResolveNamedCircleRecipients(
+        circleId,
+        "location",
+      );
+      setCircleSelection(selection);
+      setCheckedIds(
+        selection.ready.map((target) => target.recipient.userId),
+      );
+      setSeeded(true);
+      if (!selection.ready.length) {
+        toast.error(
+          "No current Circle members are ready to receive encrypted location.",
+        );
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not load this Circle.",
+      );
+    } finally {
+      setCircleLoadingId(null);
+    }
+  };
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNowMs(Date.now()), 5_000);
@@ -359,6 +418,7 @@ export function CheckInFlow({
         point: reviewedPoint,
         clientOperationId: operationId,
         confirmedAt: confirmationTime,
+        sourceCircleId: circleSelection?.circle.id ?? null,
       });
       if (result.succeededRecipientIds.length > 0) {
         setCompletedRecipientIds((current) => [
@@ -500,6 +560,90 @@ export function CheckInFlow({
 
       {/* WHO SHOULD KNOW? */}
       <SectionLabel>WHO SHOULD KNOW?</SectionLabel>
+      {vm.circles.length ? (
+        <div className={cn(CARD, "mb-2 overflow-hidden")}>
+          {vm.circles.map((circle, index) => {
+            const selected = circleSelection?.circle.id === circle.id;
+            return (
+              <button
+                key={circle.id}
+                type="button"
+                disabled={Boolean(circleLoadingId) || busy}
+                onClick={() => void selectCircle(circle.id)}
+                aria-pressed={selected}
+                className={cn(
+                  "flex min-h-[58px] w-full items-center gap-3 px-4 py-2.5 text-left",
+                  index < vm.circles.length - 1 &&
+                    "border-b border-black/[0.06] dark:border-white/[0.08]",
+                  selected &&
+                    "bg-[color:var(--app-accent-soft)]",
+                )}
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+                  <UsersRound className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px] font-semibold text-foreground">
+                    {circle.name}
+                  </span>
+                  <span className="block text-[12px] text-muted-foreground">
+                    {selected
+                      ? `${circleSelection.ready.length} ready now`
+                      : `${circle.memberCount} members`}
+                  </span>
+                </span>
+                <span className="text-[12px] font-semibold text-[color:var(--app-accent)]">
+                  {circleLoadingId === circle.id
+                    ? "Loading…"
+                    : selected
+                      ? "Selected"
+                      : "Select all"}
+                </span>
+              </button>
+            );
+          })}
+          {circleSelection ? (
+            <>
+              <p className="border-t border-black/[0.06] px-4 py-2.5 text-[12px] leading-5 text-muted-foreground dark:border-white/[0.08]">
+                Current ready members only. Future members are not added to this
+                check-in.
+                {circleSelection.excluded.filter(
+                  (item) => item.reason !== "self",
+                ).length
+                  ? ` ${
+                      circleSelection.excluded.filter(
+                        (item) => item.reason !== "self",
+                      ).length
+                    } not ready.`
+                  : ""}
+              </p>
+              {/* Grow this Circle in-context: invite an existing connection or
+                  share the invite code, so a user can pull loved ones in right
+                  before they check in — especially when few members are ready. */}
+              <div className="border-t border-black/[0.06] px-4 py-3 dark:border-white/[0.08]">
+                <CircleGrowActions
+                  circleId={circleSelection.circle.id}
+                  circleName={circleSelection.circle.name}
+                  busy={busy || Boolean(circleLoadingId)}
+                  canInvite={
+                    circleSelection.circle.viewerCapabilities
+                      ?.canInviteMembers ??
+                    circleSelection.circle.role === "owner"
+                  }
+                  onShareCode={vm.onShareNamedCircleCodeById}
+                  onLoadEligibleConnections={
+                    vm.onLoadNamedCircleEligibleConnections
+                  }
+                  onInviteConnections={vm.onInviteNamedCircleConnections}
+                  onCancelMemberInvite={vm.onCancelNamedCircleMemberInvite}
+                  testId="check-in-circle-grow-actions"
+                />
+              </div>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
       <div
         className={cn(CARD, "mb-2 flex items-center gap-2 px-[14px] py-[11px]")}
       >

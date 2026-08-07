@@ -145,6 +145,12 @@ class OneLocationCenterContributor:
                     or "Someone in your One Network",
                 )
             )
+        for invite in state.get("circleMemberInvites") or []:
+            if _safe_str(invite.get("inviteeUserId")) != user_id:
+                continue
+            if _safe_str(invite.get("status")) != "pending":
+                continue
+            entries.append(self._circle_member_invite_entry(invite))
         return entries
 
     def _outgoing_requests(self, state: dict[str, Any], user_id: str) -> list[dict[str, Any]]:
@@ -363,6 +369,49 @@ class OneLocationCenterContributor:
             "counterpart_label": "Public location link",
             "issued_at": invite.get("createdAt") or invite.get("updatedAt"),
             "expires_at": invite.get("expiresAt"),
+            "metadata": metadata,
+        }
+
+    def _circle_member_invite_entry(self, invite: dict[str, Any]) -> dict[str, Any]:
+        """Project membership consent without manufacturing location authority."""
+
+        invite_id = _safe_str(invite.get("id"))
+        circle_id = _safe_str(invite.get("circleId"))
+        circle_name = _safe_str(invite.get("circleName")) or "a Circle"
+        inviter_id = _safe_str(invite.get("inviterUserId"))
+        inviter_label = _safe_str(invite.get("inviterDisplayName")) or "Someone in your One Network"
+        request_url = f"/one/location?tab=people&circleInviteId={invite_id}"
+        metadata = _coerce_metadata(
+            {
+                "request_source": "one_location_circle_member_invite",
+                "workflow_kind": "circle_membership",
+                "section": "people",
+                "invite_id": invite_id,
+                "circle_id": circle_id,
+                "circle_name": circle_name,
+                "circle_kind": _safe_str(invite.get("circleKind")),
+                "requester_label": inviter_label,
+            }
+        )
+        return {
+            "id": f"one_location_circle_member_invite:{invite_id}",
+            # This is intentionally an invite, not a location access request.
+            # It belongs in the contributor's incoming/pending bucket so the
+            # investor Consent Manager can discover it without exposing the
+            # generic Allow/Don't allow location-grant controls.
+            "kind": "invite",
+            "status": "pending",
+            "action": "CIRCLE_MEMBER_INVITED",
+            "scope": None,
+            "scope_description": f"Invitation to join {circle_name}",
+            "counterpart_type": "investor",
+            "counterpart_id": inviter_id or None,
+            "counterpart_label": inviter_label,
+            "request_id": invite_id,
+            "request_url": request_url,
+            "issued_at": invite.get("createdAt"),
+            "expires_at": invite.get("expiresAt"),
+            "reason": f"{inviter_label} invited you to join {circle_name}.",
             "metadata": metadata,
         }
 

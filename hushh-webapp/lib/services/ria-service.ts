@@ -293,6 +293,25 @@ export interface RiaClaimProfileSummary {
   firm_id?: string | null;
 }
 
+/** The public regulatory facts a claim pulled in, for display. */
+export interface RiaClaimProfileFacts {
+  crd_number?: string | null;
+  regulator?: string | null;
+  regulator_status?: string | null;
+  registered_since?: string | null;
+  branch_city?: string | null;
+  branch_state?: string | null;
+  exams?: { code?: string | null; name?: string | null; date?: string | null }[];
+  registered_states?: { state?: string | null; status?: string | null }[];
+  previous_firms?: { firm_name?: string | null; from?: string | null; to?: string | null }[];
+  notice_filed_states?: string[];
+  aum?: number | null;
+  num_accounts?: number | null;
+  firm_website?: string | null;
+  report_url?: string | null;
+  has_disclosures?: boolean | null;
+}
+
 export interface RiaClaimCompleteResult {
   status: string;
   claim_type: string;
@@ -300,6 +319,7 @@ export interface RiaClaimCompleteResult {
   profile_verified: boolean;
   provisional: boolean;
   profile: RiaClaimProfileSummary;
+  facts?: RiaClaimProfileFacts | null;
 }
 
 export interface RiaLicenseVerificationResult {

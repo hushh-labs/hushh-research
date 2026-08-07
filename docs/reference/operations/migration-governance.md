@@ -45,8 +45,8 @@ stateDiagram-v2
 
   note right of replay
     Contract model, enforced in the blocking CI governance lane:
-    uat_integrated_schema.json  policy exact, v120
-    prod_core_schema.json       policy exact, v120
+    uat_integrated_schema.json  policy exact, v127
+    prod_core_schema.json       policy exact, v127
     verify_release_migration_contract.py fails when prod policy is not exact
     report_prod_contract_posture.py exits non-zero on any prod/integrated delta
   end note

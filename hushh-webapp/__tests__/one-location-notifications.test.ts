@@ -209,6 +209,16 @@ describe("One-Location workflow deep-link sections", () => {
     expect(oneLocationSectionForWorkflowNotificationType("location_access_denied")).toBe("my_requests");
     expect(oneLocationSectionForWorkflowNotificationType("location_public_invite_submitted")).toBe("public_responses");
     expect(oneLocationSectionForWorkflowNotificationType("location_one_network_joined")).toBe("people");
+    expect(oneLocationSectionForWorkflowNotificationType("location_circle_member_invite")).toBe("people");
+  });
+
+  it("keeps a Circle invitation deep link on the People surface", () => {
+    expect(
+      resolveOneLocationNotificationHref({
+        request_url:
+          "/one/location?tab=people&circleInviteId=invite_circle_1",
+      }),
+    ).toBe("/one/location?tab=people&circleInviteId=invite_circle_1");
   });
 });
 

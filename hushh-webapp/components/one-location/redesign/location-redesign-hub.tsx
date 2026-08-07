@@ -50,11 +50,19 @@ import { PageHeader } from "@/components/app-ui/page-sections";
 import type {
   OneLocationAccessRequest,
   OneLocationCircleInvite,
+  OneLocationCircleDetail,
+  OneLocationCircleEligibleConnections,
+  OneLocationCircleInviteCode,
+  OneLocationCircleInvitePreview,
+  OneLocationCircleKind,
+  OneLocationCircleMemberInvite,
+  OneLocationCircleSummary,
   OneLocationGrant,
   OneLocationPublicInvite,
   OneLocationRecipient,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
+import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 
 import {
   EmptyState,
@@ -87,6 +95,12 @@ import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ROUTES } from "@/lib/navigation/routes";
+import {
+  CircleDetailFlow,
+  CirclesSection,
+  CreateCircleFlow,
+  JoinCircleFlow,
+} from "@/components/one-location/redesign/circles/named-circle-flows";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import {
   buildNearbyCheckInResumeHref,
@@ -115,6 +129,8 @@ export type PrivateCheckInRequest = {
   point: PlainLocationPoint;
   clientOperationId: string;
   confirmedAt: string;
+  /** Named-Circle provenance when the check-in was targeted at a Circle. */
+  sourceCircleId?: string | null;
 };
 
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
@@ -163,6 +179,12 @@ export type LocationHubViewModel = {
 
   /* data lists */
   recipients: OneLocationRecipient[];
+  circles: OneLocationCircleSummary[];
+  selectedShareCircleSelection: CircleRecipientSelection | null;
+  incomingCircleMemberInvites: OneLocationCircleMemberInvite[];
+  incomingCircleMemberInvitesLoading: boolean;
+  incomingCircleMemberInvitesError: string | null;
+  incomingCircleMemberInviteFocusResolved: boolean;
   visibleRecipients: OneLocationRecipient[];
   visibleShareRecipients: OneLocationRecipient[];
   activeOwnerGrants: OneLocationGrant[];
@@ -199,6 +221,11 @@ export type LocationHubViewModel = {
 
   /* selection */
   toggleShareRecipient: (id: string, surface?: string) => void;
+  onSelectShareCircle: (circleId: string) => Promise<void>;
+  onResolveNamedCircleRecipients: (
+    circleId: string,
+    purpose?: "location" | "sms",
+  ) => Promise<CircleRecipientSelection>;
   toggleRequestOwner: (id: string, surface?: string) => void;
 
   /* actions — wired 1:1 to existing handlers */
@@ -226,6 +253,55 @@ export type LocationHubViewModel = {
   onShareCircleInvite: () => void;
   onRevokeCircleInvite: (invite: OneLocationCircleInvite) => void;
 
+  /* Durable named Circles. Legacy one-person Circle invites above remain
+     isolated for backward compatibility. */
+  onLoadNamedCircle: (circleId: string) => Promise<OneLocationCircleDetail>;
+  onCreateNamedCircle: (
+    name: string,
+    kind: OneLocationCircleKind,
+  ) => Promise<OneLocationCircleDetail>;
+  onRenameNamedCircle: (
+    circleId: string,
+    name: string,
+  ) => Promise<OneLocationCircleDetail>;
+  onResolveNamedCircleCode: (
+    code: string,
+  ) => Promise<OneLocationCircleInvitePreview>;
+  onJoinNamedCircle: (
+    code: string,
+  ) => Promise<{ circle: OneLocationCircleDetail; joined: boolean }>;
+  onGenerateNamedCircleCode: (
+    circleId: string,
+    rotate?: boolean,
+  ) => Promise<OneLocationCircleInviteCode>;
+  onCopyNamedCircleCode: (code: string) => Promise<void>;
+  onShareNamedCircleCode: (
+    circle: OneLocationCircleDetail,
+    code: string,
+  ) => Promise<void>;
+  /** Share a Circle's invite code from a surface that only knows its id. */
+  onShareNamedCircleCodeById: (circleId: string) => Promise<void>;
+
+  onRemoveNamedCircleMember: (
+    circleId: string,
+    memberUserId: string,
+  ) => Promise<void>;
+  onLoadNamedCircleEligibleConnections: (
+    circleId: string,
+  ) => Promise<OneLocationCircleEligibleConnections>;
+  onInviteNamedCircleConnections: (
+    circleId: string,
+    inviteeUserIds: string[],
+  ) => Promise<void>;
+  onAcceptNamedCircleMemberInvite: (inviteId: string) => Promise<void>;
+  onDeclineNamedCircleMemberInvite: (inviteId: string) => Promise<void>;
+  onCancelNamedCircleMemberInvite: (inviteId: string) => Promise<void>;
+  onRetryNamedCircleMemberInvites: () => void;
+  onLeaveNamedCircle: (circleId: string) => Promise<void>;
+  onDeleteNamedCircle: (circleId: string) => Promise<void>;
+  prepareNamedCircleShare: (circleId: string, recipientUserId: string) => void;
+  clearNamedCircleShareContext: () => void;
+
   /* Save My Soul (internal compatibility identifier remains SOS). */
   /** Connected, share-ready circle used by non-SMS quick actions. */
   sosRecipients: OneLocationRecipient[];
@@ -245,9 +321,11 @@ export type LocationHubViewModel = {
   onTriggerSos: (message?: string | null) => void | Promise<void>;
   onStopSos: () => void;
   onAddSmsContact: (recipientUserId: string) => void;
+  onAddSmsCircle: (circleId: string) => Promise<void>;
   onRemoveSmsContact: (recipientUserId: string) => Promise<boolean>;
 
-  /* Check-In (quick action) — reuses the encrypted share pipeline. */
+  /* Check-In (quick action) — reuses the encrypted share pipeline. Circle
+     provenance rides in the request's optional sourceCircleId. */
   onCheckIn: (request: PrivateCheckInRequest) => Promise<PrivateCheckInResult>;
   onDiscardPrivateCheckInOperation: (operationId: string | null) => void;
 
@@ -278,6 +356,9 @@ type FlowKind =
   | "share"
   | "ask"
   | "invite"
+  | "create-circle"
+  | "join-circle"
+  | "circle-detail"
   | "temp-link"
   | "check-in"
   | "sos"
@@ -299,6 +380,9 @@ const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
   share: "share",
   ask: "ask",
   invite: "invite",
+  "create-circle": "create-circle",
+  "join-circle": "join-circle",
+  "circle-detail": "circle-detail",
   "temp-link": "temp-link",
   "check-in": "check-in",
   sos: "sos",
@@ -406,6 +490,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     resolveLocationHubTab(searchParams.get(LOCATION_HUB_TAB_PARAM)),
   );
   const [flow, setFlow] = useState<FlowKind>("none");
+  const focusedCircleMemberInviteId =
+    String(searchParams.get("circleInviteId") || "").trim() || null;
   // Router state can settle one paint after a tap. Keep the local focused
   // surface alive until its authored `?action=` update arrives so a stale query
   // snapshot cannot close a newly opened detail flow.
@@ -496,7 +582,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const activeFlowRef = useRef<FlowKind>("none");
   const resetShareComposer = vm.resetShareComposer;
   const startShareComposer = vm.startShareComposer;
-  const setShareReviewOpen = vm.setShareReviewOpen;
 
   const resetShareLocalState = useCallback(() => {
     setShareStep("person");
@@ -527,6 +612,20 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     [pathname, router, searchParams],
   );
 
+  const openCircleDetail = useCallback(
+    (circleId: string, navigation: "push" | "replace" = "push") => {
+      const next: FlowKind = "circle-detail";
+      pendingFlowRef.current = next;
+      const params = new URLSearchParams(searchParams.toString());
+      params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[next]);
+      params.set("circleId", circleId);
+      params.set(LOCATION_HUB_TAB_PARAM, "people");
+      const href = `${pathname}?${params.toString()}`;
+      router[navigation](href, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
   const openShareFlow = useCallback(
     (initialRecipientId?: string) => {
       resetShareLocalState();
@@ -538,6 +637,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
 
   const closeFlow = useCallback(
     (nextTab?: LocationHubTab) => {
+      if (flow === "share") {
+        vm.clearNamedCircleShareContext();
+      }
       setFlow("none");
       activeFlowRef.current = "none";
       pendingFlowRef.current = "none";
@@ -549,6 +651,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
 
       const params = new URLSearchParams(searchParams.toString());
       params.delete(FLOW_ACTION_PARAM);
+      params.delete("circleId");
       params.delete(FLOW_SOURCE_PARAM);
       if (nextTab === "now") {
         params.delete(LOCATION_HUB_TAB_PARAM);
@@ -560,8 +663,17 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         scroll: false,
       });
     },
-    [pathname, router, searchParams, vm],
+    [flow, pathname, router, searchParams, vm],
   );
+
+  const dismissFocusedCircleMemberInvite = useCallback(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("circleInviteId");
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
+  }, [pathname, router, searchParams]);
 
   const closeShareFlow = useCallback(() => {
     resetShareDraft();
@@ -629,7 +741,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     setFlow((current) => (current === desired ? current : desired));
     if (desired === "none") {
       setShareStep("person");
-      setShareReviewOpen(false);
+      vm.setShareReviewOpen(false);
+      vm.clearNamedCircleShareContext();
     }
   }, [
     nearbyCheckInAvailable,
@@ -637,7 +750,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     resetShareDraft,
     router,
     searchParams,
-    setShareReviewOpen,
+    vm,
   ]);
 
   // When a share completes successfully (page bumps shareCompletedTick), close
@@ -718,6 +831,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "sms-contacts" ? (
           <SmsContactsFlow
             recipients={vm.smsContactCandidates}
+            circles={vm.circles}
             selectedUserIds={vm.smsContactUserIds}
             busyKey={vm.busy}
             // SMS contacts is only ever opened from Settings, so its in-content
@@ -725,11 +839,59 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             // matches the chrome/OS back button behavior.
             onBack={() => openFlow("settings")}
             onAdd={vm.onAddSmsContact}
-
+            onAddCircle={vm.onAddSmsCircle}
             onRemove={vm.onRemoveSmsContact}
             recipientLabel={vm.recipientLabel}
             recipientSubtitle={vm.recipientSubtitle}
             isRecipientShareReady={vm.isRecipientShareReady}
+            onShareCircleCode={vm.onShareNamedCircleCodeById}
+            onLoadCircleEligibleConnections={
+              vm.onLoadNamedCircleEligibleConnections
+            }
+            onInviteCircleConnections={vm.onInviteNamedCircleConnections}
+            onCancelCircleMemberInvite={vm.onCancelNamedCircleMemberInvite}
+          />
+
+        ) : flow === "create-circle" ? (
+          <CreateCircleFlow
+            busy={vm.busy === "namedCircle"}
+            onSubmit={async (name, kind) => {
+              const circle = await vm.onCreateNamedCircle(name, kind);
+              openCircleDetail(circle.id, "replace");
+            }}
+          />
+        ) : flow === "join-circle" ? (
+          <JoinCircleFlow
+            busy={vm.busy === "namedCircle"}
+            onResolve={vm.onResolveNamedCircleCode}
+            onJoin={async (code) => {
+              const result = await vm.onJoinNamedCircle(code);
+              openCircleDetail(result.circle.id, "replace");
+            }}
+          />
+        ) : flow === "circle-detail" ? (
+          <CircleDetailFlow
+            circleId={String(searchParams.get("circleId") || "")}
+            currentUserId={vm.userId}
+            busy={vm.busy === "namedCircle"}
+            onBack={() => closeFlow("people")}
+            onLoad={vm.onLoadNamedCircle}
+            onRename={vm.onRenameNamedCircle}
+            onGenerateCode={vm.onGenerateNamedCircleCode}
+            onCopyCode={vm.onCopyNamedCircleCode}
+            onShareCode={vm.onShareNamedCircleCode}
+            onShareWithMember={(circleId, recipientUserId) => {
+              vm.prepareNamedCircleShare(circleId, recipientUserId);
+              openFlow("share");
+            }}
+            onRemoveMember={vm.onRemoveNamedCircleMember}
+            onLoadEligibleConnections={
+              vm.onLoadNamedCircleEligibleConnections
+            }
+            onInviteConnections={vm.onInviteNamedCircleConnections}
+            onCancelMemberInvite={vm.onCancelNamedCircleMemberInvite}
+            onLeave={vm.onLeaveNamedCircle}
+            onDelete={vm.onDeleteNamedCircle}
           />
         ) : flow === "active-shares" ||
           flow === "shared-with-me" ||
@@ -799,7 +961,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <LocationHubPanel>
             <NowHub
               vm={vm}
-              onStartShare={() => openShareFlow()}
+              onStartShare={() => {
+                vm.clearNamedCircleShareContext();
+                openShareFlow();
+              }}
               onCheckIn={() =>
                 nearbyCheckInAvailable
                   ? router.push(`${ROUTES.ONE_LOCATION_MAP}?action=check-in`)
@@ -822,6 +987,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               vm={vm}
               onAddConnections={() => router.push(ROUTES.CONNECT)}
               onInvite={() => openFlow("invite")}
+              onCreateCircle={() => openFlow("create-circle")}
+              onJoinCircle={() => openFlow("join-circle")}
+              onOpenCircle={openCircleDetail}
+              focusedInviteId={focusedCircleMemberInviteId}
+              onDismissFocusedInvite={dismissFocusedCircleMemberInvite}
               onStartShare={openShareFlow}
               onAsk={() => openFlow("ask")}
             />
@@ -1310,12 +1480,22 @@ function PeopleHub({
   vm,
   onAddConnections,
   onInvite,
+  onCreateCircle,
+  onJoinCircle,
+  onOpenCircle,
+  focusedInviteId,
+  onDismissFocusedInvite,
   onStartShare,
   onAsk,
 }: {
   vm: LocationHubViewModel;
   onAddConnections: () => void;
   onInvite: () => void;
+  onCreateCircle: () => void;
+  onJoinCircle: () => void;
+  onOpenCircle: (circleId: string) => void;
+  focusedInviteId: string | null;
+  onDismissFocusedInvite: () => void;
   onStartShare: (initialRecipientId?: string) => void;
   onAsk: () => void;
 }) {
@@ -1332,9 +1512,28 @@ function PeopleHub({
   if (!showPeopleList) {
     return (
       <div className="space-y-5">
+        <CirclesSection
+          circles={vm.circles}
+          incomingInvites={vm.incomingCircleMemberInvites}
+          incomingInvitesLoading={vm.incomingCircleMemberInvitesLoading}
+          incomingInvitesError={vm.incomingCircleMemberInvitesError}
+          focusedInviteId={focusedInviteId}
+          focusedInviteResolutionReady={
+            vm.incomingCircleMemberInviteFocusResolved
+          }
+          inviteBusy={vm.busy === "circleMemberInvite"}
+          onCreate={onCreateCircle}
+          onJoin={onJoinCircle}
+          onOpen={onOpenCircle}
+          onAcceptInvite={vm.onAcceptNamedCircleMemberInvite}
+          onDeclineInvite={vm.onDeclineNamedCircleMemberInvite}
+          onRetryInvites={vm.onRetryNamedCircleMemberInvites}
+          onDismissFocusedInvite={onDismissFocusedInvite}
+        />
+
         <SectionCard
-          title="Trusted Circle"
-          description="Only your connections can receive private live location."
+          title="Connections"
+          description="Connections and Circle members are eligible for explicit private sharing."
         >
           <div className="grid grid-cols-1 gap-2">
             <Button
@@ -1378,6 +1577,25 @@ function PeopleHub({
 
   return (
     <div className="space-y-4">
+      <CirclesSection
+        circles={vm.circles}
+        incomingInvites={vm.incomingCircleMemberInvites}
+        incomingInvitesLoading={vm.incomingCircleMemberInvitesLoading}
+        incomingInvitesError={vm.incomingCircleMemberInvitesError}
+        focusedInviteId={focusedInviteId}
+        focusedInviteResolutionReady={
+          vm.incomingCircleMemberInviteFocusResolved
+        }
+        inviteBusy={vm.busy === "circleMemberInvite"}
+        onCreate={onCreateCircle}
+        onJoin={onJoinCircle}
+        onOpen={onOpenCircle}
+        onAcceptInvite={vm.onAcceptNamedCircleMemberInvite}
+        onDeclineInvite={vm.onDeclineNamedCircleMemberInvite}
+        onRetryInvites={vm.onRetryNamedCircleMemberInvites}
+        onDismissFocusedInvite={onDismissFocusedInvite}
+      />
+
       <PersonSearchInput
         value={vm.recipientSearch}
         onChange={vm.setRecipientSearch}
@@ -1710,6 +1928,7 @@ function ShareFlow({
 
   // Review screen (consent check) is driven by the existing shareReviewOpen flag.
   if (vm.shareReviewOpen) {
+    const selectedCircle = vm.selectedShareCircleSelection;
     return (
       <div className="space-y-5">
         <TaskFlowHeader
@@ -1719,6 +1938,14 @@ function ShareFlow({
         />
         <SectionCard>
           <div className="space-y-3">
+            {selectedCircle ? (
+              <ReviewRow
+                label="Circle"
+                value={`${selectedCircle.circle.name} · ${selectedReady.length} ${
+                  selectedReady.length === 1 ? "person" : "people"
+                }`}
+              />
+            ) : null}
             <ReviewRow
               label="Can see"
               value={
@@ -1862,6 +2089,69 @@ function ShareFlow({
         title="Who can see you?"
         description="Only trusted and location-ready people can receive private live location."
       />
+      {vm.circles.length ? (
+        <SectionCard title="Share with a Circle">
+          <div className="grid gap-2">
+            {vm.circles.map((circle) => {
+              const selected =
+                vm.selectedShareCircleSelection?.circle.id === circle.id;
+              return (
+                <button
+                  key={circle.id}
+                  type="button"
+                  disabled={vm.busy === "shareCircle"}
+                  onClick={() => void vm.onSelectShareCircle(circle.id)}
+                  aria-pressed={selected}
+                  className={cn(
+                    "flex min-h-14 items-center gap-3 rounded-2xl border px-3.5 py-3 text-left transition",
+                    selected
+                      ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-soft)]"
+                      : "border-border/70 bg-background hover:bg-muted/45",
+                  )}
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+                    <UsersRound className="h-[18px] w-[18px]" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-foreground">
+                      {circle.name}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {selected
+                        ? `${selectedReady.length} ready now`
+                        : `${circle.memberCount} ${
+                            circle.memberCount === 1 ? "member" : "members"
+                          }`}
+                    </span>
+                  </span>
+                  <span className="text-xs font-semibold text-[color:var(--app-accent)]">
+                    {vm.busy === "shareCircle"
+                      ? "Loading…"
+                      : selected
+                        ? "Selected"
+                        : "Select"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {vm.selectedShareCircleSelection ? (
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">
+              Current ready members only; future members are never added
+              automatically.
+              {vm.selectedShareCircleSelection.excluded.filter(
+                (item) => item.reason !== "self",
+              ).length
+                ? ` ${
+                    vm.selectedShareCircleSelection.excluded.filter(
+                      (item) => item.reason !== "self",
+                    ).length
+                  } member(s) need Location setup and are not included.`
+                : ""}
+            </p>
+          ) : null}
+        </SectionCard>
+      ) : null}
       <PersonSearchInput
         value={vm.shareRecipientSearch}
         onChange={vm.setShareRecipientSearch}

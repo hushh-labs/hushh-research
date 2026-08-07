@@ -342,14 +342,17 @@ case "$reload_mode" in
     # `uv sync --frozen --group dev` if you see a
     # "--reload-exclude has no effect unless watchfiles is installed"
     # warning at startup.
-    uvicorn_args+=(--reload-exclude ".venv/*")
-    uvicorn_args+=(--reload-exclude "__pycache__/*")
-    uvicorn_args+=(--reload-exclude ".pytest_cache/*")
-    uvicorn_args+=(--reload-exclude ".mypy_cache/*")
-    uvicorn_args+=(--reload-exclude ".ruff_cache/*")
-    uvicorn_args+=(--reload-exclude "artifacts/*")
-    uvicorn_args+=(--reload-exclude "data/*")
-    uvicorn_args+=(--reload-exclude "tmp/*")
+    # Keep each option and glob in one argv item. Git Bash/MSYS can expand a
+    # standalone wildcard before a native Windows Python process receives it,
+    # which makes Click treat every matched file as an unexpected argument.
+    uvicorn_args+=("--reload-exclude=.venv/*")
+    uvicorn_args+=("--reload-exclude=__pycache__/*")
+    uvicorn_args+=("--reload-exclude=.pytest_cache/*")
+    uvicorn_args+=("--reload-exclude=.mypy_cache/*")
+    uvicorn_args+=("--reload-exclude=.ruff_cache/*")
+    uvicorn_args+=("--reload-exclude=artifacts/*")
+    uvicorn_args+=("--reload-exclude=data/*")
+    uvicorn_args+=("--reload-exclude=tmp/*")
     echo "Uvicorn autoreload enabled (dev watch mode, .venv/caches excluded)."
     ;;
   *)
