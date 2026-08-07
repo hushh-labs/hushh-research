@@ -33,6 +33,18 @@ You must be in the **`dev` surface** of the governed-actor cohort (`config/ci-go
 for step 2. Dev is a **shared, costed** environment — a dispatch replaces whatever was last
 deployed there, so tell the team before you start.
 
+### Step 2 is blocked until two files land on `main`
+
+Both are `protected_pipeline_paths`, so both need the maintainer cohort and the Admin SOP.
+Neither can be delivered from the branch: the deploy workflow and every script it runs
+before *Checkout deployment SHA* execute from `main`'s tree, not from the SHA being
+deployed. The branch carries both changes already — they are a cherry-pick, not a rewrite.
+
+| File | Change | Why it blocks |
+|---|---|---|
+| `scripts/ci/require-deploy-sha-on-main.sh` | send the check-runs JSON to a file instead of one argv string | **hard blocker** — without it the gate exits 126 on this branch's SHAs and nothing deploys |
+| `.github/workflows/deploy-dev.yml` | `_RUNTIME_ENVIRONMENT` and `_APP_ENV`: `uat` → `dev` | dev would deploy but keep reporting `uat` |
+
 **Do not trust a SHA written in a document, including this one.** This page deliberately
 does not pin one: the commit that added it changed the head, which is exactly how a pinned
 SHA goes stale. Take the current head from PR #4675 (or `git rev-parse origin/claude/hushh-infrastructure-analysis-7o991c`)
@@ -154,7 +166,8 @@ yet, in any environment, for anyone.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Deploy fails at *Validate deployment SHA* | No green `CI Status Gate` on that SHA | Step 1, then re-dispatch with the same SHA |
+| Deploy fails at *Validate deployment SHA* with `Argument list too long`, exit 126 | The gate on `main` passes the check-runs JSON as one argv string; Linux caps that at 128 KiB and this branch's commits carry ~30 checks | Land the `require-deploy-sha-on-main.sh` fix on `main` (see above). Re-dispatching cannot help — the gate never read a check |
+| Deploy fails at *Validate deployment SHA* with `Refusing deploy:` | Read the message. It names which of the three refusals fired: not in the clone, not reachable from the ref, or no green `CI Status Gate` | For the check case, step 1, then re-dispatch with the same SHA |
 | Deploy dies in ~1 second | Dispatched from the branch | Re-dispatch with **Use workflow from: `main`** |
 | Deploy fails at *Assert manual dev dispatch actor policy* | Account not in the `dev` surface | Governed-actor cohort in `config/ci-governance.json` |
 | Phone step says not allowlisted | A number outside the pinned five, or the simulation lane is off | Use `+15550100`–`+15550104`; confirm the revision carries `HUSHH_DEV_SIMULATION_ENABLED` |
