@@ -55,6 +55,11 @@ def _require_database_on_startup() -> bool:
     return _is_production()
 
 
+# Tables the process refuses to start without. Every entry must still exist once
+# all migrations have run; a stale entry here is not a failing check but a
+# backend that cannot boot. test_server_startup_guards.py enforces that, because
+# the predeploy schema gate only knows about tables named in the DB contract and
+# so cannot catch a guard entry that no longer has a table behind it.
 REQUIRED_RUNTIME_TABLES = (
     "vault_keys",
     "vault_key_wrappers",
@@ -62,8 +67,6 @@ REQUIRED_RUNTIME_TABLES = (
     "user_push_tokens",
     "internal_access_events",
     "runtime_persona_state",
-    "ria_pick_uploads",
-    "ria_pick_upload_rows",
     "one_location_circles",
     "one_location_circle_memberships",
     "one_location_circle_invite_codes",
