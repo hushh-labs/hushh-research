@@ -182,6 +182,8 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "plaid_redirect_uri": args.plaid_redirect_uri,
         "plaid_tx_history_days": args.plaid_tx_history_days,
         "one_location_read_only_state_enabled": args.one_location_read_only_state_enabled,
+        "one_location_nearby_presence_mode": args.one_location_nearby_presence_mode,
+        "one_location_nearby_presence_cohort": args.one_location_nearby_presence_cohort,
         "consent_center_summary_v2_enabled": args.consent_center_summary_v2_enabled,
         "db_bulk_batching_enabled": args.db_bulk_batching_enabled,
         "hushh_trusted_device_enabled": args.hushh_trusted_device_enabled,
@@ -270,6 +272,12 @@ def main() -> int:
     parser.add_argument("--plaid-redirect-uri", default="")
     parser.add_argument("--plaid-tx-history-days", default="")
     parser.add_argument("--one-location-read-only-state-enabled", default="false")
+    # Nearby check-in admission. Blank leaves the flow closed in production and
+    # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
+    # config entirely rather than writing an empty string the gate would have to
+    # interpret. Opening production needs BOTH of these -- see the route gate.
+    parser.add_argument("--one-location-nearby-presence-mode", default="")
+    parser.add_argument("--one-location-nearby-presence-cohort", default="")
     parser.add_argument("--consent-center-summary-v2-enabled", default="false")
     parser.add_argument("--db-bulk-batching-enabled", default="false")
     parser.add_argument("--hushh-trusted-device-enabled", default="false")
