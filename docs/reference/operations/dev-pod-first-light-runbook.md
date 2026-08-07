@@ -1,9 +1,9 @@
 # Dev pod first light — the human actions, in order
 
 **Dated 2026-08-07.** Everything code-side for task #110 is landed and pushed. What remains
-is three human actions: two governed workflow dispatches and a browser session with a real
-AI key. (A fourth — setting a dev OTP — was removed; the code is optional in the simulation
-lane, see step 3.)
+is two human actions and a check: confirm CI is green, dispatch the dev deploy, and a browser
+session with a real AI key. (Setting a dev OTP was removed; the code is optional in the
+simulation lane, see step 3.)
 
 Read this top to bottom before starting. Step 1 is the one most likely to be skipped, and
 skipping it makes step 2 fail.
@@ -12,7 +12,7 @@ skipping it makes step 2 fail.
 
 ```mermaid
 flowchart TB
-  A["1 · Run CI on the branch<br/>Actions → PR Validation → dispatch"] -->|"CI Status Gate green<br/>on the exact SHA"| B
+  A["1 · Confirm CI Status Gate<br/>is green on the head SHA"] -->|"CI Status Gate green<br/>on the exact SHA"| B
   B["2 · Deploy to Dev<br/>FROM main, ref = the branch"] -->|"creates personal_agent_registry<br/>promotes traffic itself"| C
   C["3 · Nothing — the OTP is<br/>optional in the dev lane"] --> D
   D["4 · Browser: claim +15550100,<br/>connect a REAL AI key"] --> E{"Pod created?"}
@@ -41,25 +41,25 @@ SHA, not the branch.
 
 ---
 
-## Step 1 — Run CI on the branch head
+## Step 1 — Confirm CI is green on the branch head
 
-**Why this step exists, and why it is easy to miss.** CI does not run automatically on this
-branch. Every one of the last 30 `PR Validation` runs on it was a manual `workflow_dispatch`;
-there has never been a `pull_request`-triggered run, and the head SHA currently carries
-**zero** check runs. Actions itself is healthy — other branches got `pull_request` runs
-minutes ago — so this is specific to how this branch is pushed.
+**This step used to say CI never runs automatically here, and gave a reason that turned
+out to be wrong.** The claim was that GitHub does not raise `pull_request: synchronize`
+for app-token pushes. It does — `pull_request` runs fire on this branch. What was actually
+true is narrower: CI had not run for a stretch, and when it did run it was **failing**, so
+the head carried no green gate either way.
 
-Step 2 refuses any SHA without a green `CI Status Gate`, so without this it fails at
-*Validate deployment SHA against requested ref*.
+`ci.yml` now also triggers on pushes to `claude/**`, so a push produces a run without
+anyone dispatching one. Both the push and pull_request runs appear.
 
-1. GitHub → **Actions** → **PR Validation** → **Run workflow**
-2. Branch: `claude/hushh-infrastructure-analysis-7o991c`
-3. `scope`: `all`
-4. Run, and wait for the job named **`CI Status Gate`** to finish green.
-
-**Confirm before moving on:** open the PR and check the head commit shows a green
-`CI Status Gate`. A green *run* on an older commit is not the same thing — the gate checks
-the SHA, not the branch.
+1. Open PR [#4675](https://github.com/hushh-labs/hushh-research/pull/4675) and look at the
+   head commit's checks.
+2. If **`CI Status Gate`** is green, go to step 2.
+3. If it is red, read the first FAILING job, not the gate. The gate is a summary: when
+   `Governance` fails, `Preflight Gate` fails, every test lane skips, and the gate reports
+   failure over a suite that never ran. The real message is in the earlier job.
+4. Only if no run exists at all: Actions → **PR Validation** → **Run workflow** → branch
+   `claude/hushh-infrastructure-analysis-7o991c`, `scope: all`.
 
 ## Step 2 — Deploy to Dev, dispatched **from `main`**
 
