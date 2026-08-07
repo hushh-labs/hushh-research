@@ -295,3 +295,84 @@ def test_uat_still_requires_its_code(clean_env):
 
     assert account_routes._dev_phone_code_is_optional() is False
     assert account_routes._phone_test_enabled() is False
+
+
+# --- dev reports its own name -------------------------------------------------------
+#
+# deploy-dev.yml passes _RUNTIME_ENVIRONMENT=uat, so dev used to report `uat` and was
+# indistinguishable from real UAT to every runtime check. The deploy script now
+# overrides that for the dev lane. These execute the real resolution rather than
+# reading the `if`, and pin the two consequences that actually matter.
+
+
+def _resolve_runtime_environment(deploy_env: str, runtime_env: str = "uat") -> str:
+    """Run the script's own runtime-identity resolution for a given lane."""
+    import subprocess
+
+    from tests._deploy_contract import backend_deploy_script
+
+    script = backend_deploy_script()
+    start = script.index('runtime_environment="${_RUNTIME_ENVIRONMENT}"')
+    end = script.index('if [[ "${_DEPLOY_ENV}" == "dev" ]]; then\n  runtime_environment="dev"\nfi')
+    slice_ = script[start : end + len('if [[ "${_DEPLOY_ENV}" == "dev" ]]; then\n  runtime_environment="dev"\nfi')]
+    slice_ = slice_.replace("${_RUNTIME_ENVIRONMENT}", runtime_env).replace(
+        "${_DEPLOY_ENV}", deploy_env
+    )
+    return subprocess.run(  # noqa: S603
+        ["bash", "-c", slice_ + '\nprintf "%s" "${runtime_environment}"'],  # noqa: S607
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+
+
+def test_the_dev_lane_reports_dev_not_uat():
+    assert _resolve_runtime_environment("dev") == "dev"
+
+
+def test_dev_reports_dev_even_though_the_workflow_still_passes_uat():
+    """deploy-dev.yml lives on `main` and still sends uat; the script overrides it."""
+    assert _resolve_runtime_environment("dev", runtime_env="uat") == "dev"
+
+
+def test_uat_and_production_keep_the_value_they_were_given():
+    assert _resolve_runtime_environment("uat", runtime_env="uat") == "uat"
+    assert _resolve_runtime_environment("production", runtime_env="production") == "production"
+    # And the pre-existing fallback to the deploy lane is untouched.
+    assert _resolve_runtime_environment("production", runtime_env="") == "production"
+
+
+def test_dev_stays_inside_the_hosted_runtime_guards():
+    """`dev` is in _HOSTED_ENVIRONMENTS; `development` is not.
+
+    That set gates the assertions that a hosted runtime must use Vertex ADC and must
+    have GOOGLE_CLOUD_PROJECT. Reporting `development` would silently relax both, so
+    this pins the value against the callee's own set rather than a literal.
+    """
+    from hushh_mcp.runtime_providers.factory import _HOSTED_ENVIRONMENTS
+
+    assert _resolve_runtime_environment("dev") in _HOSTED_ENVIRONMENTS
+    assert "development" not in _HOSTED_ENVIRONMENTS
+
+
+def test_dev_no_longer_answers_to_the_uat_phone_allowlist(clean_env):
+    """The behaviour change this carries: dev stops borrowing UAT's phone secrets.
+
+    The dev revision mounts HUSHH_UAT_PHONE_TEST_* and, while it reported `uat`,
+    resolved them as its own. Reporting `dev` ends that, and the dev lane the deploy
+    configures is what replaces it.
+    """
+    clean_env.setenv("ENVIRONMENT", "dev")
+    clean_env.setenv("HUSHH_UAT_PHONE_TEST_NUMBERS", "+16505550101")
+    clean_env.setenv("HUSHH_UAT_PHONE_TEST_CODE", "121212")
+
+    assert account_routes._configured_phone_test_numbers() == set()
+    assert account_routes._phone_test_enabled() is False
+
+    # ...and the dev lane the deploy script configures takes over.
+    clean_env.setenv("HUSHH_DEV_SIMULATION_ENABLED", "1")
+    clean_env.setenv("HUSHH_DEPLOY_ENV", "dev")
+    clean_env.setenv("HUSHH_DEV_PHONE_TEST_NUMBERS", "+15550100")
+
+    assert account_routes._configured_phone_test_numbers() == {"+15550100"}
+    assert account_routes._phone_test_enabled() is True

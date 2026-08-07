@@ -94,8 +94,10 @@ from the ref **and** carries a green `CI Status Gate` (or `Queue Validation` /
 ### Dev fast lane — preview a feature branch
 
 To see an unstable feature branch (e.g. a `claude/…` branch) running end-to-end, deploy
-it to **dev** (`deploy-dev.yml` → `hushh-pda-dev`). Dev accepts **any CI-green ref**, keeps
-the `uat` runtime identity for behavior parity, and **never promotes** to uat/prod.
+it to **dev** (`deploy-dev.yml` → `hushh-pda-dev`). Dev accepts **any CI-green ref** and
+**never promotes** to uat/prod. The backend reports `ENVIRONMENT=dev` (2026-08-07); the
+frontend still reports `uat`. See `consent-protocol/docs/reference/dev-environment-setup.md`
+§ *Identity Model* for what that changed and what it deliberately did not.
 
 - It is a **shared** integration environment — a dispatch replaces whatever was last
   deployed there, so coordinate with the team before stomping it.

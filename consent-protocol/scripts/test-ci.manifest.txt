@@ -24,6 +24,7 @@ tests/test_compute_backend_parity.py
 tests/test_consent_audit_chain.py
 tests/test_consent_token_asymmetric.py
 tests/test_contracts_root_resolution.py
+tests/test_debug_route_is_local_only.py
 tests/test_dev_migration_lane.py
 tests/test_dev_simulation_guard.py
 tests/test_developer_api_routes.py

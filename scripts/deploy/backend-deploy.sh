@@ -134,12 +134,32 @@ append_optional_secret "${_WALLET_PASS_KEY_PEM_SECRET}" "WALLET_PASS_KEY_PEM"
 append_optional_secret "${_WALLET_PASS_WWDR_PEM_SECRET}" "WALLET_PASS_WWDR_PEM"
 append_optional_secret "${_WALLET_API_KEY_SECRET}" "WALLET_API_KEY"
 
-# Runtime identity may differ from deploy identity: the dev environment
-# deploys with _DEPLOY_ENV=dev (labels, provenance) but runs with
-# ENVIRONMENT=uat so behavior gates replicate UAT exactly.
+# Runtime identity normally comes from _RUNTIME_ENVIRONMENT, falling back to the
+# deploy lane.
 runtime_environment="${_RUNTIME_ENVIRONMENT}"
 if [[ -z "${runtime_environment}" ]]; then
   runtime_environment="${_DEPLOY_ENV}"
+fi
+
+# DEV REPORTS ITS OWN NAME.
+#
+# deploy-dev.yml passes _RUNTIME_ENVIRONMENT=uat so dev's behaviour gates would
+# "replicate UAT exactly". The cost of that was a runtime name that reads `uat` on
+# a dev box AND `uat` on real UAT, so no code could tell them apart -- which is why
+# `dev_simulation_guard` had to read the deploy lane instead, and why dev silently
+# resolved UAT's phone-test allowlist and code as though they were its own.
+#
+# `dev` is the correct value, not `development`: `runtime_providers/factory.py`
+# keys `_HOSTED_ENVIRONMENTS` on {"dev","uat","staging","production","prod"}, and
+# that set gates the assertions that a hosted runtime must use Vertex ADC and must
+# have GOOGLE_CLOUD_PROJECT. `dev` keeps those guards; `development` is absent from
+# the set and would quietly relax them.
+#
+# This override lives HERE and not in deploy-dev.yml on purpose. The deploy
+# workflow definition always runs from `main`, so a change there does nothing for a
+# branch deploy; this script ships from the deployed SHA and takes effect with it.
+if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+  runtime_environment="dev"
 fi
 
 require_non_negative_int() {

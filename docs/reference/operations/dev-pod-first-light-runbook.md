@@ -81,9 +81,8 @@ the gate would reject it.
 migrations `900`/`905` exist only on this branch — so this dispatch is what finally creates
 `personal_agent_registry` in dev. It also rebuilds the pod image
 (`_BUILD_POD_IMAGE` defaults true) and **promotes traffic itself**, so there is no manual
-traffic step. The revision runs with `ENVIRONMENT=uat` for behaviour parity and
-`_DEPLOY_ENV=dev` for lane identity; that split is deliberate and is what the simulation
-guard reads.
+traffic step. The revision now runs with `ENVIRONMENT=dev` as well as `_DEPLOY_ENV=dev`;
+the simulation guard reads the deploy lane either way.
 
 **Watch:** the *Post-deploy dev schema contract gate* step. It is the one that would notice
 if the new migrations did not land.
