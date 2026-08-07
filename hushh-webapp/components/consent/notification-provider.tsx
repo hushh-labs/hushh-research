@@ -423,7 +423,8 @@ function isOneLocationWorkflowNotificationType(
     value === "location_access_denied" ||
     value === "location_referral_invite" ||
     value === "location_public_invite_submitted" ||
-    value === "location_one_network_joined"
+    value === "location_one_network_joined" ||
+    value === "location_circle_member_invite"
   );
 }
 
@@ -835,6 +836,7 @@ export function ConsentNotificationProvider({
       const referralId = String(data.referral_id || "").trim();
       const submissionId = String(data.submission_id || "").trim();
       const connectionId = String(data.connection_id || "").trim();
+      const inviteId = String(data.invite_id || "").trim();
       const id = oneLocationNotificationId(data);
       if (!id) return;
 
@@ -898,12 +900,18 @@ export function ConsentNotificationProvider({
           referralId: referralId || null,
           submissionId: submissionId || null,
           connectionId: connectionId || null,
+          inviteId: inviteId || null,
         },
       });
       dispatchConsentStateChanged({
         source: "one_location_notification",
         requestId:
-          requestId || grantId || referralId || submissionId || connectionId,
+          requestId ||
+          grantId ||
+          referralId ||
+          submissionId ||
+          connectionId ||
+          inviteId,
         notificationType: msgType,
       });
       const eventId = `${msgType}:${id}`;
@@ -1336,6 +1344,7 @@ export function ConsentNotificationProvider({
         data.submission_id ||
         data.referral_id ||
         data.connection_id ||
+        data.invite_id ||
         "";
       const dedupKey = `${msgType}:${msgId}`;
       if (msgId && toastedIdsRef.current.has(dedupKey)) return;

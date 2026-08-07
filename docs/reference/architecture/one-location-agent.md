@@ -148,9 +148,88 @@ owner/link metadata plus the attached public location snapshot.
 - Invite to One links are hash-only onboarding links. A signed-in visitor must
   complete the normal phone verification gate and unlock their own vault so the
   client can bootstrap only that visitor's One Location recipient key. Claiming
-  creates a metadata-only mutual One Network connection; it never creates a live
-  location grant, exposes private owner profile data, or requests location
-  permission.
+  creates the legacy metadata-only trusted edge; its compatibility client may
+  separately materialize a mutual One Network connection. Claiming never
+  creates a live location grant, exposes private owner profile data, or requests
+  location permission.
+- Named Circles are a separate durable metadata graph backed by
+  `one_location_circles`, `one_location_circle_memberships`, and
+  `one_location_circle_invite_codes`. The user's confirmed Join action on a
+  valid code is membership consent: it joins immediately, bypasses a second
+  connection-request approval, and creates source-aware canonical mutual
+  connections with every active Circle member. It creates no
+  `trusted_connections` edge, SMS selection, location grant, envelope, or
+  capability.
+- Every active Circle member can invite their own existing direct connections through
+  `one_location_circle_member_invites`. Creating an invitation grants nothing.
+  The invitee must accept before membership and Circle-sourced connection
+  origins are created; this avoids a second Connect-tab request while
+  preserving consent to join a group and become visible to its members. The
+  actual inviter must remain an active member through acceptance. Non-owners
+  may reserve at most five pending invitations, and a declined, cancelled, or
+  expired invitation has a 12-hour Circle-wide cooldown before another member
+  can contact the same person again.
+- Codes use a 12-character human-safe alphabet, expire after 72 hours, are
+  shared by the Circle, and are stored only as a domain-separated keyed HMAC
+  digest. Active members may re-read and share the current code; ensuring a
+  code is idempotent and does not invalidate one already being shared. Only the
+  canonical `one_location_circles.owner_user_id` may rotate or revoke it.
+  Legacy active codes that cannot be re-read require that explicit owner
+  rotation; a member read never invalidates them. Raw codes are returned with `private,
+  no-store` cache policy and must not appear in URLs, logs, analytics, or
+  durable client storage.
+- Owner removal is a governance boundary: ordinary members cannot select,
+  invite, or restore a removed account. The owner may send a new targeted
+  invitation, and only that owner-authored acceptance may reactivate the
+  membership. Code join remains blocked for removed accounts.
+- Active co-membership makes two people connected and eligible to start an
+  explicit share, but it is not location or Save My Soul authorization.
+  Every share remains per-recipient, encrypted, duration-bounded, and
+  revocable. Circle-only grants always persist `source_circle_id`. On leave,
+  removal, deletion, or account cleanup, a grant is reassigned to another
+  active shared Circle, converted to direct provenance when a non-Circle
+  connection survives, and revoked only when no eligible relationship remains.
+  Account reset/deletion locks affected Circles first, revokes each shared code,
+  and cancels invitations authored by the departing account before its
+  membership rows are erased.
+- Share and Check-In offer an explicit named-Circle target. Selecting one
+  snapshots that Circle's current active, recipient-key-ready members, excludes
+  the owner and setup-incomplete members with visible reasons, and still creates
+  one encrypted grant/envelope per selected person. It does not include people
+  who join after confirmation.
+- Save My Soul keeps the stricter durable `one_location_sms_contacts` boundary.
+  Choosing "Add Circle" in SMS contacts explicitly adds only the Circle's
+  current phone-verified, recipient-key-ready members as individual SMS
+  contacts. It never follows future membership automatically, and the user may
+  remove any person independently.
+- Check-In and SMS contacts surface an in-context "grow this Circle" affordance
+  (shared `CircleGrowActions`) beside a selected/added Circle: "Invite people"
+  reuses the same targeted `one_location_circle_member_invites` acceptance flow,
+  and "Share code" reuses the member-visible 12-character code via the platform
+  share sheet. These are pure relationship-consent entry points — inviting or
+  sharing a code grants no location, SMS, or trusted-edge authority, and a new
+  member is never retroactively added to an in-flight check-in or SMS snapshot.
+  Members without invite capability still get "Share code" alone; owners/members
+  with view-but-uncached codes generate one on demand before sharing.
+
+- `connection_origins` records each independent direct, imported, legacy, or
+  named-Circle source for a canonical connection. Leaving, removal, or Circle
+  deletion revokes only the matching named-Circle origins and recomputes the
+  canonical connection. A direct connection or another shared Circle keeps the
+  pair connected.
+- A member leaving or being removed atomically revokes the shared bearer code
+  and cancels pending targeted invitations authored by that member. Remaining
+  members can ensure a fresh code without gaining any location or SMS authority.
+- Migration 126 backfills the same canonical connection and named-Circle origin
+  for every active co-member pair from Circles created under migration 125, so
+  rollout does not require members to leave and rejoin.
+- Circle-backed grant creation, its audit event, and SMS-contact selection lock
+  the Circle and both memberships in the same transaction. Membership removal,
+  Circle deletion, and account cleanup use the matching lock order so a
+  concurrent mutation cannot recreate authority or a stale SMS selection after
+  cleanup.
+- A user may belong to at most 10 active Circles. A Circle has one owner, up to
+  20 active members, and one active invite code.
 - Consent/audit records are metadata-only.
 
 Capability scopes:
@@ -345,6 +424,12 @@ safe ids, actor ids, action type, expiry/countdown metadata, and `/one/location`
 navigation. They must not include coordinates, addresses, map previews,
 freshness trails, ciphertext, token values, or debug terminology.
 
+Pending targeted Circle-member invitations are also projected into the shared
+Consent Manager Requests read model as membership invitations with no consent
+scope or location capability. Consent Manager deep-links to the focused
+Location People invitation for Join/Decline; it must never route that row
+through generic location Allow/Don't allow actions.
+
 ## Retention Contract
 
 Expired or revoked One Location work is short-lived. Checkout synchronously
@@ -362,14 +447,23 @@ configure and verify the hourly `one-location-retention-purge-uat` job through
 `X-Hushh-Maintenance-Token` backed by the dedicated
 `ONE_LOCATION_RETENTION_TOKEN`, so due encrypted material is scrubbed within
 the configured scheduler interval even when no feature traffic occurs. Public
-request-link invites, public submissions, Invite to One links, and
-checked-out/expired nearby presence follow the same terminal-state retention
-boundary.
+request-link invites, public submissions, Invite to One links, expired/revoked
+named Circle codes, and checked-out/expired nearby presence follow the same
+terminal-state retention boundary. Pending targeted Circle-member invitations
+are marked expired opportunistically; accepted, declined, cancelled, and
+expired invitation rows are purged through the same scheduled retention
+endpoint and are also deleted with their Circle or either account.
 
 ## Native Contract
 
 v1 is foreground-only.
 
+- Named Circle create, code join, targeted member invitation/acceptance,
+  preview, management, and share flows stay on the native-required static
+  `/one/location` route for web, iOS, and Android.
+- iOS and Android use the existing Capacitor Share plugin for code-only share
+  text. Web uses Web Share with the shared clipboard fallback. This contract
+  intentionally does not claim Universal Links or Android App Links.
 - iOS uses `NSLocationWhenInUseUsageDescription` and the `HushhLocation`
   Capacitor plugin.
 - Android uses fine/coarse location permissions and the `HushhLocation`
@@ -409,6 +503,19 @@ The implementation must prove:
 - non-recipient reads fail
 - expired/revoked grants block reads
 - referrals create requests but no access
+- Circle code join creates source-aware mutual connections, but no automatic
+  trusted edge, SMS selection, location grant, envelope, or capability
+- inviting an existing direct connection requires invitee acceptance before
+  Circle membership
+- pending targeted Circle-member invitations appear once in Consent Manager
+  Requests without a location scope, capability, or generic access action
+- explicit Circle targets expand only the confirmed current roster; future
+  members are not auto-added, and every Share/Check-In grant remains
+  recipient-specific with exact Circle provenance
+- Save My Soul Circle bulk-add persists an explicit current-member SMS-contact
+  snapshot rather than treating membership as emergency-delivery authority
+- leave, removal, and deletion preserve direct and other-Circle connection
+  origins
 - notification and audit metadata contain no coordinates
 - public links store token hashes only; snapshot-backed links reveal only the
   explicit public snapshot, while request-only links never reveal location

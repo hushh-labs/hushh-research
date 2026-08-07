@@ -1,5 +1,12 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
@@ -30,17 +37,37 @@ const recipients: OneLocationRecipient[] = [
 
 const baseProps = {
   recipients,
+  circles: [
+    {
+      id: "circle-1",
+      name: "Family",
+      kind: "family" as const,
+      role: "owner" as const,
+      memberCount: 3,
+      memberLimit: 20,
+    },
+  ],
   selectedUserIds: ["selected"],
   busyKey: null,
   onBack: vi.fn(),
   onAdd: vi.fn(),
+  onAddCircle: vi.fn().mockResolvedValue(undefined),
   onRemove: vi.fn(),
   recipientLabel: (recipient: OneLocationRecipient) => recipient.displayName,
   recipientSubtitle: (recipient: OneLocationRecipient) =>
     recipient.maskedPhone || "Connected",
   isRecipientShareReady: (recipient: OneLocationRecipient) =>
     recipient.canReceiveLocation,
+  onShareCircleCode: vi.fn().mockResolvedValue(undefined),
+  onLoadCircleEligibleConnections: vi.fn().mockResolvedValue({
+    eligibleConnections: [],
+    pendingInvites: [],
+    remainingCapacity: 0,
+  }),
+  onInviteCircleConnections: vi.fn().mockResolvedValue(undefined),
+  onCancelCircleMemberInvite: vi.fn().mockResolvedValue(undefined),
 };
+
 
 describe("SmsContactsFlow", () => {
   it("separates selected and available circle members", () => {
@@ -58,6 +85,20 @@ describe("SmsContactsFlow", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     expect(onAdd).toHaveBeenCalledWith("available");
+  });
+
+  it("adds the current ready members from an explicitly selected Circle", () => {
+    const onAddCircle = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SmsContactsFlow {...baseProps} onAddCircle={onAddCircle} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Add Circle" }));
+
+    expect(onAddCircle).toHaveBeenCalledWith("circle-1");
+    expect(
+      screen.getByText(/never added to SMS automatically/i),
+    ).toBeInTheDocument();
   });
 
   it("requires confirmation and waits for successful removal", async () => {
@@ -129,4 +170,63 @@ describe("SmsContactsFlow", () => {
       "!rounded-t-[24px]",
     );
   });
+
+  it("shares the Circle invite code in-context from the grow actions", async () => {
+    const onShareCircleCode = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SmsContactsFlow
+        {...baseProps}
+        onShareCircleCode={onShareCircleCode}
+      />,
+    );
+
+    const grow = screen.getByTestId("sms-circle-grow-actions-circle-1");
+    fireEvent.click(within(grow).getByRole("button", { name: /Share code/i }));
+
+    await waitFor(() =>
+      expect(onShareCircleCode).toHaveBeenCalledWith("circle-1"),
+    );
+  });
+
+  it("invites an existing connection to grow the Circle without leaving SMS", async () => {
+    const onLoadCircleEligibleConnections = vi.fn().mockResolvedValue({
+      eligibleConnections: [
+        {
+          connectionId: "conn-1",
+          userId: "asha-user",
+          displayName: "Asha Meena",
+        },
+      ],
+      pendingInvites: [],
+      remainingCapacity: 1,
+    });
+    const onInviteCircleConnections = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SmsContactsFlow
+        {...baseProps}
+        onLoadCircleEligibleConnections={onLoadCircleEligibleConnections}
+        onInviteCircleConnections={onInviteCircleConnections}
+      />,
+    );
+
+    const grow = screen.getByTestId("sms-circle-grow-actions-circle-1");
+    fireEvent.click(
+      within(grow).getByRole("button", { name: /Invite people/i }),
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /Asha Meena Connected on One/i,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
+
+    await waitFor(() =>
+      expect(onInviteCircleConnections).toHaveBeenCalledWith("circle-1", [
+        "asha-user",
+      ]),
+    );
+  });
 });
+

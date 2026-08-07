@@ -3152,7 +3152,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await switchLocationTab("People", "Trusted Circle");
+    await switchLocationTab("People", "Your circles");
     // Empty state keeps connection management and invite/sync/share actions.
     // "Ask someone to share" is populated-state-only, and the redundant
     // approval explainer must not add another card below these actions.

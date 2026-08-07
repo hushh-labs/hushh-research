@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isCircleMemberInviteConsent,
   isLocationConsent,
+  locationConsentSummary,
+  locationConsentWorkflowHref,
   parseLocationConsentEntry,
 } from "@/lib/consent/location-consent";
 
@@ -27,6 +30,24 @@ describe("isLocationConsent", () => {
         "attr.shopping.receipts.*",
       ),
     ).toBe(false);
+  });
+
+  it("recognizes targeted Circle membership invitations", () => {
+    const metadata = {
+      request_source: "one_location_circle_member_invite",
+      invite_id: "invite_1",
+      circle_name: "Hushh Family",
+      requester_label: "Bob",
+      section: "people",
+    };
+
+    expect(isCircleMemberInviteConsent(metadata)).toBe(true);
+    expect(locationConsentSummary(metadata)).toContain(
+      "Bob invited you to join Hushh Family",
+    );
+    expect(locationConsentWorkflowHref(metadata)).toBe(
+      "/one/location?circleInviteId=invite_1&section=people",
+    );
   });
 });
 
@@ -79,6 +100,22 @@ describe("parseLocationConsentEntry", () => {
     expect(ref).toEqual({
       kind: "circle_invite",
       id: "ci_321",
+      requestId: null,
+    });
+  });
+
+  it("maps a targeted Circle member invite without treating it as access", () => {
+    const ref = parseLocationConsentEntry({
+      id: "one_location_circle_member_invite:invite_1",
+      request_id: "invite_1",
+      metadata: {
+        request_source: "one_location_circle_member_invite",
+        invite_id: "invite_1",
+      },
+    });
+    expect(ref).toEqual({
+      kind: "circle_member_invite",
+      id: "invite_1",
       requestId: null,
     });
   });

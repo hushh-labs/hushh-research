@@ -790,4 +790,93 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onRetryPeople).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
   });
+
+  describe("circle invite screen (third screen)", () => {
+    const invite = {
+      circleId: "circle-1",
+      circleName: "Meena Family",
+      code: "ABCDEFGHJKLM",
+    };
+
+    it("shows the invite code before the contact list and lets the user copy/share it", async () => {
+      const onPrepareOnboardingCircleInvite = vi
+        .fn()
+        .mockResolvedValue(invite);
+      const onCopyOnboardingCircleCode = vi.fn();
+      const onShareOnboardingCircleCode = vi.fn();
+      renderFlow({
+        onPrepareOnboardingCircleInvite,
+        onCopyOnboardingCircleCode,
+        onShareOnboardingCircleCode,
+      });
+
+      // welcome -> features
+      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+      // features -> invite (NOT people, because the invite screen is enabled)
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+      expect(
+        screen.getByTestId("one-location-onboarding-invite"),
+      ).toBeTruthy();
+      expect(onPrepareOnboardingCircleInvite).toHaveBeenCalledTimes(1);
+
+      await waitFor(() =>
+        expect(
+          screen.getByTestId("one-location-onboarding-invite-code")
+            .textContent,
+        ).toContain("ABCD-EFGH-JKLM"),
+      );
+      expect(screen.getByText("Meena Family")).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: /Copy/ }));
+      expect(onCopyOnboardingCircleCode).toHaveBeenCalledWith(
+        "ABCDEFGHJKLM",
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /Share/ }));
+      expect(onShareOnboardingCircleCode).toHaveBeenCalledWith(invite);
+
+      // Continue advances from the invite screen to the contact list.
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      expect(screen.getByTestId("one-location-onboarding-people")).toBeTruthy();
+    });
+
+    it("surfaces a retry when preparing the code fails", async () => {
+      const onPrepareOnboardingCircleInvite = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("temporary"))
+        .mockResolvedValue(invite);
+      renderFlow({ onPrepareOnboardingCircleInvite });
+
+      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+      await waitFor(() =>
+        expect(screen.getByText("temporary")).toBeTruthy(),
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      await waitFor(() =>
+        expect(onPrepareOnboardingCircleInvite).toHaveBeenCalledTimes(2),
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByTestId("one-location-onboarding-invite-code")
+            .textContent,
+        ).toContain("ABCD-EFGH-JKLM"),
+      );
+    });
+
+    it("skips the invite screen entirely when no prepare handler is provided", () => {
+      renderFlow();
+      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      // With no onPrepareOnboardingCircleInvite, Continue goes straight to the
+      // contact list — the invite screen never appears.
+      expect(screen.getByTestId("one-location-onboarding-people")).toBeTruthy();
+      expect(
+        screen.queryByTestId("one-location-onboarding-invite"),
+      ).toBeNull();
+    });
+  });
 });

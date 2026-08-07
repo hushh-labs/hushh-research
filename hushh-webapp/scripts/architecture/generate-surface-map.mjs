@@ -157,6 +157,60 @@ function routeSort(left, right) {
 }
 
 const routeOverrides = {
+  "/one/location": {
+    api_dependencies: [
+      {
+        service_file: "lib/one-location/service.ts",
+        service_methods: [
+          "getState",
+          "listCircles",
+          "getCircle",
+          "createNamedCircle",
+          "updateNamedCircle",
+          "deleteNamedCircle",
+          "createNamedCircleInviteCode",
+          "revokeNamedCircleInviteCode",
+          "resolveNamedCircleCode",
+          "joinNamedCircle",
+          "removeNamedCircleMember",
+          "leaveNamedCircle",
+          "listNamedCircleEligibleConnections",
+          "createNamedCircleMemberInvites",
+          "listNamedCircleMemberInvites",
+          "acceptNamedCircleMemberInvite",
+          "declineNamedCircleMemberInvite",
+          "cancelNamedCircleMemberInvite",
+          "addSmsContact",
+          "removeSmsContact",
+        ],
+        nextjs_api_route: "/api/one/{path*}",
+        nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+        backend_endpoint_family:
+          "/api/one/location/{circles,circle-codes,circle-member-invites,sms-contacts}/*",
+        native_transport:
+          "CapacitorHttp direct backend via the shared One Location service",
+      },
+    ],
+    native_plugin_dependencies: [
+      {
+        package: "@capacitor/share",
+        integration:
+          "Native iOS and Android share sheets for text-only Circle invite codes; code values never enter URLs",
+      },
+    ],
+    thread_and_consent_contract: {
+      membership_authority:
+        "Circle join creates source-aware connections with active members, but never creates a trusted edge, SMS selection, location grant, envelope, or capability",
+      location_authority:
+        "Every live-location share remains recipient-specific, encrypted, duration-bounded, and explicitly confirmed",
+      circle_targeting_authority:
+        "Share and Check-In expand only the explicitly selected Circle's current ready members; SMS adds an explicit current-member snapshot, and future members are never auto-selected",
+      circle_invitation_authority:
+        "Every active member may share the shared Circle code or invite their own direct connections; invitees still accept, while rotation, revocation, rename, removal, and deletion remain owner-governed",
+      invite_code_storage:
+        "Active members may re-read the shared code under private no-store responses; only its keyed digest and derivation version persist, and raw codes never enter URLs or durable client storage",
+    },
+  },
   "/one/location/map": {
     api_dependencies: [
       {
