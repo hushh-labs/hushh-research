@@ -176,14 +176,15 @@ function CodeCells({
 export default function RiaClaimPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, loading: authLoading } = useAuth();
+  const { user, phoneNumber: accountPhone, loading: authLoading } = useAuth();
   const { refresh: refreshPersonaState } = usePersonaState();
   // Arrives pre-filled when the sign-up phone screen recognised this number.
   // Someone who verified their phone on an earlier visit never sees that
   // screen again, so fall back to the number already on their account — they
   // should be recognised whenever they reach here, not only on first sign-up.
   const seededPhone =
-    toNanpDigits(searchParams.get("phone")) || toNanpDigits(user?.phoneNumber);
+    toNanpDigits(searchParams.get("phone")) ||
+    toNanpDigits(accountPhone || user?.phoneNumber);
 
   const [step, setStep] = useState<ClaimStep>("phone");
   const [phoneDigits, setPhoneDigits] = useState("");
