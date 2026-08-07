@@ -65,6 +65,9 @@ describe("NearbyCheckInSheet", () => {
       {
         placeId: "stanford-main",
         text: "Stanford University",
+        name: "Stanford University",
+        address: "450 Jane Stanford Way",
+        category: "University",
         distanceMeters: 48,
       },
       {
@@ -79,12 +82,17 @@ describe("NearbyCheckInSheet", () => {
         audience: "all_opted_in",
         radiusMeters: 500,
         allowConnectionRequests: false,
-        consentVersion: "one-location-nearby-presence-v2",
+        consentVersion: "one-location-nearby-presence-v3",
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
       },
       attendees: [],
+    });
+    service.checkoutNearby.mockResolvedValue({
+      presence: null,
+      attendees: [],
+      checkedOut: true,
     });
   });
 
@@ -116,7 +124,11 @@ describe("NearbyCheckInSheet", () => {
       vaultOwnerToken: "owner-token",
       lat: point.latitude,
       lng: point.longitude,
+      category: "all",
     });
+    expect(screen.queryByText("Stanford Shopping Center")).not.toBeInTheDocument();
+    expect(screen.getByText("University · 450 Jane Stanford Way")).toBeInTheDocument();
+    expect(screen.getByText("48 m away")).toBeInTheDocument();
     expect(nearest).toHaveAttribute("aria-checked", "true");
     expect(
       screen.getByRole("switch", {
@@ -148,7 +160,7 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.click(submit);
 
     await waitFor(() => {
-      expect(service.checkInNearby).toHaveBeenCalledWith({
+    expect(service.checkInNearby).toHaveBeenCalledWith({
         vaultOwnerToken: "owner-token",
         placeId: "stanford-main",
         point: confirmationPoint,
@@ -161,7 +173,9 @@ describe("NearbyCheckInSheet", () => {
   });
 
   it("blocks check-in when the final confirmation point is too approximate", async () => {
-    const approximatePoint = { ...point, accuracyM: 101 };
+    // Above the 5 km ceiling: a reading this broad cannot place anyone. Browser
+    // fixes in the hundreds of metres are usable and must NOT land here.
+    const approximatePoint = { ...point, accuracyM: 5_001 };
     const capture = vi
       .fn()
       .mockResolvedValueOnce(point)
@@ -191,6 +205,90 @@ describe("NearbyCheckInSheet", () => {
     ).toBeInTheDocument();
     expect(service.checkInNearby).not.toHaveBeenCalled();
     expect(capture).toHaveBeenCalledTimes(2);
+  });
+
+  it("still lists nearby places on a browser-grade coarse fix", async () => {
+    // Regression: a wifi/IP fix (routinely 250 m - 5 km) used to fail the 100 m
+    // gate, which returned before loadPlaces ever ran. The owner saw the
+    // "too approximate" error AND an empty picker -- no hotels, no restaurants,
+    // no clinics -- so the flow was unreachable on desktop web and indoors.
+    const coarsePoint = { ...point, accuracyM: 850 };
+    const capture = vi.fn().mockResolvedValue(coarsePoint);
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("radio", { name: /Stanford University/ }),
+    ).toBeInTheDocument();
+    expect(service.nearbyPlaces).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lat: coarsePoint.latitude,
+        lng: coarsePoint.longitude,
+      }),
+    );
+    expect(
+      screen.queryByText(/This location is too approximate/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("tells the owner the fix is broad without blocking check-in", async () => {
+    const coarsePoint = { ...point, accuracyM: 1_200 };
+    const capture = vi.fn().mockResolvedValue(coarsePoint);
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("radio", { name: /Stanford University/ });
+    expect(
+      await screen.findByText(/accurate to about 1\.2 km/i),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /Show me in the nearby people list/,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Check in and see people" }),
+    );
+
+    await waitFor(() => {
+      expect(service.checkInNearby).toHaveBeenCalledWith(
+        expect.objectContaining({ placeId: "stanford-main" }),
+      );
+    });
+  });
+
+  it("stays quiet about accuracy when the fix is precise", async () => {
+    const capture = vi.fn().mockResolvedValue(point);
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("radio", { name: /Stanford University/ });
+    expect(screen.queryByText(/accurate to about/i)).not.toBeInTheDocument();
   });
 
   it("keeps a persistent retry after the initial presence read fails", async () => {
@@ -229,6 +327,7 @@ describe("NearbyCheckInSheet", () => {
         vaultOwnerToken: "owner-token",
         lat: point.latitude,
         lng: point.longitude,
+        category: "all",
       });
     });
     expect(
@@ -248,7 +347,7 @@ describe("NearbyCheckInSheet", () => {
         audience: "all_opted_in",
         radiusMeters: 500,
         allowConnectionRequests: true,
-        consentVersion: "one-location-nearby-presence-v2",
+        consentVersion: "one-location-nearby-presence-v3",
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
@@ -307,7 +406,7 @@ describe("NearbyCheckInSheet", () => {
           audience: "all_opted_in",
           radiusMeters: 500,
           allowConnectionRequests: false,
-          consentVersion: "one-location-nearby-presence-v2",
+          consentVersion: "one-location-nearby-presence-v3",
           checkedInAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
           placeLabel: "Stanford University",
@@ -337,6 +436,7 @@ describe("NearbyCheckInSheet", () => {
         vaultOwnerToken: "owner-token",
         lat: point.latitude,
         lng: point.longitude,
+        category: "all",
       });
     });
     expect(
@@ -351,7 +451,7 @@ describe("NearbyCheckInSheet", () => {
         audience: "all_opted_in" as const,
         radiusMeters: 500,
         allowConnectionRequests: false,
-        consentVersion: "one-location-nearby-presence-v2",
+        consentVersion: "one-location-nearby-presence-v3",
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
@@ -405,7 +505,7 @@ describe("NearbyCheckInSheet", () => {
         audience: "all_opted_in" as const,
         radiusMeters: 500,
         allowConnectionRequests: false,
-        consentVersion: "one-location-nearby-presence-v2",
+        consentVersion: "one-location-nearby-presence-v3",
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
@@ -466,7 +566,7 @@ describe("NearbyCheckInSheet", () => {
         audience: "all_opted_in",
         radiusMeters: 500,
         allowConnectionRequests: false,
-        consentVersion: "one-location-nearby-presence-v2",
+        consentVersion: "one-location-nearby-presence-v3",
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
@@ -525,7 +625,7 @@ describe("NearbyCheckInSheet", () => {
         audience: "all_opted_in",
         radiusMeters: 500,
         allowConnectionRequests: false,
-        consentVersion: "one-location-nearby-presence-v2",
+        consentVersion: "one-location-nearby-presence-v3",
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
@@ -567,7 +667,7 @@ describe("NearbyCheckInSheet", () => {
         audience: "all_opted_in",
         radiusMeters: 500,
         allowConnectionRequests: true,
-        consentVersion: "one-location-nearby-presence-v2",
+        consentVersion: "one-location-nearby-presence-v3",
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
@@ -608,7 +708,7 @@ describe("NearbyCheckInSheet", () => {
           audience: "all_opted_in",
           radiusMeters: 500,
           allowConnectionRequests: false,
-          consentVersion: "one-location-nearby-presence-v2",
+          consentVersion: "one-location-nearby-presence-v3",
           checkedInAt: new Date().toISOString(),
           expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
           placeLabel: "Stanford University",
@@ -653,5 +753,339 @@ describe("NearbyCheckInSheet", () => {
     expect(service.getNearbyPresence).toHaveBeenLastCalledWith({
       vaultOwnerToken: "owner-token-2",
     });
+  });
+
+  it("keeps category and typed discovery inside the same 500 m search area", async () => {
+    const onSearchAreaChange = vi.fn();
+    service.placesAutocomplete.mockResolvedValue([
+      {
+        placeId: "clinic-1",
+        text: "Campus Medical Clinic",
+        distanceMeters: 71,
+      },
+    ]);
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+        onOpenChange={vi.fn()}
+        onSearchAreaChange={onSearchAreaChange}
+      />,
+    );
+
+    await screen.findByRole("radio", { name: /Stanford University/ });
+    expect(onSearchAreaChange).toHaveBeenLastCalledWith(point);
+
+    fireEvent.click(screen.getByRole("button", { name: "Health" }));
+    await waitFor(() => {
+      expect(service.nearbyPlaces).toHaveBeenLastCalledWith({
+        vaultOwnerToken: "owner-token",
+        lat: point.latitude,
+        lng: point.longitude,
+        category: "health",
+      });
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("Search for another place"), {
+      target: { value: "clinic" },
+    });
+    await waitFor(() => {
+      expect(service.placesAutocomplete).toHaveBeenCalledWith({
+        vaultOwnerToken: "owner-token",
+        input: "clinic",
+        lat: point.latitude,
+        lng: point.longitude,
+        nearbyOnly: true,
+      });
+    });
+    expect(
+      await screen.findByRole("radio", { name: /Campus Medical Clinic/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Search results")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Health" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Health" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.queryByText(/Sorted by distance/)).not.toBeInTheDocument();
+    expect(screen.getByText("Google Maps")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Search for another place"), {
+      target: { value: "" },
+    });
+    expect(await screen.findByRole("button", { name: "Health" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("cannot submit an old place while typed search is unresolved", async () => {
+    let resolveSearch:
+      | ((value: Array<{ placeId: string; text: string }>) => void)
+      | null = null;
+    service.placesAutocomplete.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSearch = resolve;
+        }),
+    );
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /Show me in the nearby people list/,
+      }),
+    );
+    const submit = screen.getByRole("button", {
+      name: "Check in and see people",
+    });
+    expect(submit).toBeEnabled();
+
+    fireEvent.change(screen.getByPlaceholderText("Search for another place"), {
+      target: { value: "clinic" },
+    });
+    expect(
+      screen.queryByRole("radio", { name: /Stanford University/ }),
+    ).not.toBeInTheDocument();
+    expect(submit).toBeDisabled();
+    fireEvent.click(submit);
+    expect(service.checkInNearby).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(service.placesAutocomplete).toHaveBeenCalled();
+    });
+    await act(async () => {
+      resolveSearch?.([{ placeId: "clinic-1", text: "Campus Clinic" }]);
+    });
+    expect(
+      await screen.findByRole("radio", { name: /Campus Clinic/ }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(submit).toBeEnabled();
+    expect(service.checkInNearby).not.toHaveBeenCalled();
+  });
+
+  it("resets the category honestly when location recovery reloads all places", async () => {
+    const capture = vi
+      .fn()
+      .mockResolvedValueOnce(point)
+      .mockResolvedValueOnce({ ...point, accuracyM: 5_001 })
+      .mockResolvedValueOnce(point);
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(screen.getByRole("button", { name: "Health" }));
+    await waitFor(() => {
+      expect(service.nearbyPlaces).toHaveBeenLastCalledWith(
+        expect.objectContaining({ category: "health" }),
+      );
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /Show me in the nearby people list/,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Check in and see people" }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Try location again" }));
+    await waitFor(() => {
+      expect(service.nearbyPlaces).toHaveBeenLastCalledWith(
+        expect.objectContaining({ category: "all" }),
+      );
+    });
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Health" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("clears stale discovery state before a moved user reopens the sheet", async () => {
+    const movedPoint = {
+      ...point,
+      latitude: 37.431,
+      longitude: -122.165,
+      capturedAt: new Date(Date.now() + 5_000).toISOString(),
+    };
+    const capture = vi
+      .fn()
+      .mockResolvedValueOnce(point)
+      .mockResolvedValueOnce(movedPoint);
+    const onSearchAreaChange = vi.fn();
+    const { rerender } = render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+        onSearchAreaChange={onSearchAreaChange}
+      />,
+    );
+
+    await screen.findByRole("radio", { name: /Stanford University/ });
+    rerender(
+      <NearbyCheckInSheet
+        open={false}
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+        onSearchAreaChange={onSearchAreaChange}
+      />,
+    );
+    await waitFor(() => {
+      expect(onSearchAreaChange).toHaveBeenLastCalledWith(null);
+    });
+    onSearchAreaChange.mockClear();
+    service.nearbyPlaces.mockResolvedValueOnce([
+      {
+        placeId: "moved-cafe",
+        text: "Moved Cafe",
+        name: "Moved Cafe",
+        category: "Cafe",
+        distanceMeters: 35,
+      },
+    ]);
+
+    rerender(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+        onSearchAreaChange={onSearchAreaChange}
+      />,
+    );
+
+    expect(screen.queryByText("Stanford University")).not.toBeInTheDocument();
+    expect(await screen.findByText("Moved Cafe")).toBeInTheDocument();
+    expect(onSearchAreaChange.mock.calls).not.toContainEqual([point]);
+    expect(onSearchAreaChange).toHaveBeenLastCalledWith(movedPoint);
+  });
+
+  it("reloads the selected category when a place becomes unavailable", async () => {
+    const capture = vi.fn().mockResolvedValue(point);
+    service.checkInNearby.mockRejectedValueOnce(new Error("invalid place"));
+    service.nearbyCheckInErrorDetails.mockReturnValueOnce({
+      message: "This place is no longer available. Choose another nearby place.",
+      retryLocation: false,
+      openAppSettings: false,
+      retryPlaces: true,
+    });
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(screen.getByRole("button", { name: "Health" }));
+    await waitFor(() => {
+      expect(service.nearbyPlaces).toHaveBeenLastCalledWith(
+        expect.objectContaining({ category: "health" }),
+      );
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /Show me in the nearby people list/,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Check in and see people" }),
+    );
+
+    await waitFor(() => {
+      const healthCalls = service.nearbyPlaces.mock.calls.filter(
+        ([request]) => request.category === "health",
+      );
+      expect(healthCalls).toHaveLength(2);
+    });
+    expect(screen.getByRole("button", { name: "Health" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("reloads recommendations around the fresh confirmation point after moving", async () => {
+    const movedPoint = {
+      ...point,
+      latitude: 37.435,
+      longitude: -122.16,
+      capturedAt: new Date(Date.now() + 5_000).toISOString(),
+    };
+    const capture = vi
+      .fn()
+      .mockResolvedValueOnce(point)
+      .mockResolvedValueOnce(movedPoint);
+    service.checkInNearby.mockRejectedValueOnce(new Error("outside radius"));
+    service.nearbyCheckInErrorDetails.mockReturnValueOnce({
+      message: "You moved outside that place's range. Choose a nearby place again.",
+      retryLocation: false,
+      openAppSettings: false,
+      retryPlaces: true,
+    });
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /Show me in the nearby people list/,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Check in and see people" }),
+    );
+
+    await waitFor(() => {
+      expect(service.nearbyPlaces).toHaveBeenLastCalledWith({
+        vaultOwnerToken: "owner-token",
+        lat: movedPoint.latitude,
+        lng: movedPoint.longitude,
+        category: "all",
+      });
+    });
+    expect(capture).toHaveBeenCalledTimes(2);
   });
 });

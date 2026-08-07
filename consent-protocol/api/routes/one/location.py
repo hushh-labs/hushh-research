@@ -27,7 +27,11 @@ from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_vault_owner_token
 from api.middlewares.rate_limit import RateLimits, limiter
-from hushh_mcp.services.google_maps_service import GoogleMapsError, GoogleMapsService
+from hushh_mcp.services.google_maps_service import (
+    GoogleMapsError,
+    GoogleMapsService,
+    NearbyPlaceCategory,
+)
 from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
@@ -143,6 +147,7 @@ class MapsAutocompleteRequest(_CamelModel):
     session_token: str | None = Field(default=None, alias="sessionToken", max_length=120)
     lat: float | None = Field(default=None, ge=-90, le=90)
     lng: float | None = Field(default=None, ge=-180, le=180)
+    nearby_only: bool = Field(default=False, alias="nearbyOnly")
 
 
 class MapsNearbyPlacesRequest(_CamelModel):
@@ -150,6 +155,7 @@ class MapsNearbyPlacesRequest(_CamelModel):
 
     lat: float = Field(ge=-90, le=90)
     lng: float = Field(ge=-180, le=180)
+    category: NearbyPlaceCategory = "all"
 
 
 class MapsPlaceDetailsRequest(_CamelModel):
@@ -553,6 +559,14 @@ async def maps_autocomplete(
 ):
     _user_id(token_data)  # auth-gate only; result is not user-scoped
     _set_private_no_store(response)
+    if payload.nearby_only and (payload.lat is None or payload.lng is None):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "ONE_LOCATION_NEARBY_POINT_REQUIRED",
+                "message": "A current location is required for nearby place search.",
+            },
+        )
     try:
         location_bias = (
             {"lat": payload.lat, "lng": payload.lng}
@@ -562,13 +576,14 @@ async def maps_autocomplete(
         suggestions = await _maps_service().autocomplete(
             payload.input,
             session_token=payload.session_token,
+            nearby_only=payload.nearby_only,
             **location_bias,
         )
         return {"suggestions": suggestions}
     except GoogleMapsError as exc:
         raise HTTPException(
             status_code=exc.status_code,
-            detail={"code": "ONE_LOCATION_MAPS_FAILED", "message": str(exc)},
+            detail={"code": exc.code, "message": str(exc)},
         ) from exc
 
 
@@ -588,12 +603,12 @@ async def maps_place_details(
     except GoogleMapsError as exc:
         raise HTTPException(
             status_code=exc.status_code,
-            detail={"code": "ONE_LOCATION_MAPS_FAILED", "message": str(exc)},
+            detail={"code": exc.code, "message": str(exc)},
         ) from exc
 
 
 @router.post("/location/maps/nearby-places")
-@limiter.limit(RateLimits.ONE_LOCATION_NEARBY_READ)
+@limiter.limit(RateLimits.ONE_LOCATION_MAPS_PROVIDER)
 async def maps_nearby_places(
     request: Request,
     response: Response,
@@ -607,12 +622,13 @@ async def maps_nearby_places(
         suggestions = await _maps_service().nearby_places(
             lat=payload.lat,
             lng=payload.lng,
+            category=payload.category,
         )
         return {"suggestions": suggestions}
     except GoogleMapsError as exc:
         raise HTTPException(
             status_code=exc.status_code,
-            detail={"code": "ONE_LOCATION_MAPS_FAILED", "message": str(exc)},
+            detail={"code": exc.code, "message": str(exc)},
         ) from exc
 
 
@@ -629,7 +645,10 @@ async def check_in_nearby(
     _require_nearby_presence_simulation()
     _set_private_no_store(response)
     try:
-        place = await _maps_service().place_details(payload.place_id)
+        place = await _maps_service().place_details(
+            payload.place_id,
+            require_check_inable=True,
+        )
         service = _nearby_presence_service()
         state = await run_in_threadpool(
             service.check_in,
@@ -650,7 +669,7 @@ async def check_in_nearby(
     except GoogleMapsError as exc:
         raise HTTPException(
             status_code=exc.status_code,
-            detail={"code": "ONE_LOCATION_MAPS_FAILED", "message": str(exc)},
+            detail={"code": exc.code, "message": str(exc)},
         ) from exc
     except (TypeError, ValueError) as exc:
         raise HTTPException(
@@ -724,7 +743,7 @@ async def maps_reverse_geocode(
     except GoogleMapsError as exc:
         raise HTTPException(
             status_code=exc.status_code,
-            detail={"code": "ONE_LOCATION_MAPS_FAILED", "message": str(exc)},
+            detail={"code": exc.code, "message": str(exc)},
         ) from exc
 
 
@@ -745,7 +764,7 @@ async def maps_route_eta(
     except GoogleMapsError as exc:
         raise HTTPException(
             status_code=exc.status_code,
-            detail={"code": "ONE_LOCATION_MAPS_FAILED", "message": str(exc)},
+            detail={"code": exc.code, "message": str(exc)},
         ) from exc
 
 

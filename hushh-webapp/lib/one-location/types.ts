@@ -337,10 +337,25 @@ export type OneLocationActivityResponse = {
   events: OneLocationActivityEvent[];
 };
 
+export type OneLocationNearbyPlaceCategory =
+  | "all"
+  | "food_drink"
+  | "health"
+  | "shopping_services"
+  | "hotels_stays"
+  | "education"
+  | "outdoors_landmarks"
+  | "transit";
+
 export type OneLocationNearbyPlaceSuggestion = {
   placeId: string;
+  /** Compatibility label used by autocomplete and older provider responses. */
   text: string;
-  /** Present for automatic nearby results; autocomplete does not return it. */
+  name?: string | null;
+  address?: string | null;
+  primaryType?: string | null;
+  category?: string | null;
+  /** Present for strict nearby results; generic autocomplete does not return it. */
   distanceMeters?: number | null;
 };
 

@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -9,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mapHarness = vi.hoisted(() => {
   const map = {
+    addCircles: vi.fn(async (_circles: unknown[]) => ["circle-0"]),
     addMarkers: vi.fn(async (markers: unknown[]) =>
       markers.map((_, index) => `marker-${index}`),
     ),
@@ -19,6 +21,7 @@ const mapHarness = vi.hoisted(() => {
     enableClustering: vi.fn(async () => undefined),
     fitBounds: vi.fn(async () => undefined),
     removeMarkers: vi.fn(async () => undefined),
+    removeCircles: vi.fn(async () => undefined),
     setCamera: vi.fn(async () => undefined),
     setOnMarkerClickListener: vi.fn(async () => undefined),
     setPadding: vi.fn(async () => undefined),
@@ -56,6 +59,13 @@ const experienceHarness = vi.hoisted(() => ({
   demoMode: true,
   nearbyAvailable: false,
   query: "demo=people",
+  searchPoint: {
+    latitude: 37.776,
+    longitude: -122.418,
+    accuracyM: 12,
+    capturedAt: "2026-07-23T00:00:00.000Z",
+    sourcePlatform: "web" as const,
+  },
 }));
 
 vi.mock("@capacitor/google-maps", () => ({
@@ -149,12 +159,15 @@ vi.mock(
     NearbyCheckInSheet: ({
       open,
       onStateChange,
+      onSearchAreaChange,
     }: {
       open: boolean;
       onStateChange: (state: unknown) => void;
+      onSearchAreaChange: (point: unknown) => void;
     }) => (
       <div
         data-testid="nearby-check-in-sheet-mock"
+        data-one-location-nearby-check-in-sheet=""
         data-open={open ? "true" : "false"}
       >
         <button
@@ -167,7 +180,7 @@ vi.mock(
                 audience: "all_opted_in",
                 radiusMeters: 500,
                 allowConnectionRequests: true,
-                consentVersion: "one-location-nearby-presence-v2",
+                consentVersion: "one-location-nearby-presence-v3",
                 checkedInAt: "2026-07-31T00:00:00.000Z",
                 expiresAt: "2026-07-31T01:00:00.000Z",
                 placeLabel: "Event venue",
@@ -190,6 +203,20 @@ vi.mock(
           }
         >
           Publish nearby state
+        </button>
+        <button
+          type="button"
+          data-testid="publish-nearby-search-area"
+          onClick={() => onSearchAreaChange(experienceHarness.searchPoint)}
+        >
+          Publish search area
+        </button>
+        <button
+          type="button"
+          data-testid="clear-nearby-search-area"
+          onClick={() => onSearchAreaChange(null)}
+        >
+          Clear search area
         </button>
       </div>
     ),
@@ -216,9 +243,33 @@ beforeEach(() => {
   forgetOneLocationControlPreference("test-user");
   window.sessionStorage.clear();
   window.history.replaceState({}, "", "/one/location/map");
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    value: 768,
+  });
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
   experienceHarness.demoMode = true;
   experienceHarness.nearbyAvailable = false;
   experienceHarness.query = "demo=people";
+  experienceHarness.searchPoint = {
+    latitude: 37.776,
+    longitude: -122.418,
+    accuracyM: 12,
+    capturedAt: "2026-07-23T00:00:00.000Z",
+    sourcePlatform: "web",
+  };
   class ResizeObserverStub {
     observe() {}
     disconnect() {}
@@ -531,6 +582,192 @@ describe("LocationImmersiveMap demo experience", () => {
       "/one/location/map?action=check-in",
       { scroll: false },
     );
+  });
+
+  it("renders and clears the transient 500 m check-in search circle", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    await waitFor(() => {
+      expect(mapHarness.map.addCircles).toHaveBeenCalledWith([
+        expect.objectContaining({
+          center: { lat: 37.776, lng: -122.418 },
+          radius: 500,
+          clickable: false,
+        }),
+      ]);
+    });
+    expect(
+      screen.getByTestId("one-location-nearby-search-area-legend"),
+    ).toHaveTextContent("500 m search area");
+    expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("clear-nearby-search-area"));
+    await waitFor(() => {
+      expect(mapHarness.map.removeCircles).toHaveBeenCalledWith(["circle-0"]);
+    });
+    expect(
+      screen.queryByTestId("one-location-nearby-search-area-legend"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the full search circle in the visible mobile viewport above the sheet", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 800,
+    });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn((query: string) => ({
+        matches: query.includes("max-width: 767px"),
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function getBoundingClientRect() {
+        const isCheckInSheet = this.hasAttribute(
+          "data-one-location-nearby-check-in-sheet",
+        );
+        const isPeopleTray =
+          this.getAttribute("data-testid") === "one-location-map-people-tray";
+        const top = isCheckInSheet ? 280 : isPeopleTray ? 732 : 0;
+        const bottom = isCheckInSheet ? 800 : isPeopleTray ? 788 : 56;
+        return {
+          x: 0,
+          y: top,
+          top,
+          right: 390,
+          bottom,
+          left: 0,
+          width: 390,
+          height: bottom - top,
+          toJSON: () => ({}),
+        };
+      },
+    );
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+
+    await waitFor(() => {
+      expect(mapHarness.map.setPadding).toHaveBeenCalledWith(
+        expect.objectContaining({
+          right: 20,
+          bottom: 532,
+        }),
+      );
+      expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+    });
+  });
+
+  it("frames a 500 m circle correctly across the antimeridian", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+    experienceHarness.searchPoint = {
+      ...experienceHarness.searchPoint,
+      latitude: 0,
+      longitude: 179.999,
+    };
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+
+    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalled());
+    const bounds = mapHarness.map.fitBounds.mock.calls.at(-1)?.[0] as {
+      value: {
+        southwest: { lng: number };
+        northeast: { lng: number };
+        center: { lng: number };
+      };
+    };
+    expect(bounds.value.center.lng).toBe(179.999);
+    expect(bounds.value.southwest.lng).toBeGreaterThan(
+      bounds.value.northeast.lng,
+    );
+  });
+
+  it("serializes circle framing so a stale fit cannot win a location race", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+    let resolveFirstFit: (() => void) | null = null;
+    mapHarness.map.fitBounds
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirstFit = resolve;
+          }),
+      )
+      .mockResolvedValue(undefined);
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalledTimes(1));
+
+    experienceHarness.searchPoint = {
+      ...experienceHarness.searchPoint,
+      latitude: 37.79,
+      longitude: -122.4,
+    };
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    expect(mapHarness.map.fitBounds).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveFirstFit?.());
+    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalledTimes(2));
+    const latestBounds = mapHarness.map.fitBounds.mock.calls.at(-1)?.[0] as {
+      value: { center: { lat: number; lng: number } };
+    };
+    expect(latestBounds.value.center).toEqual({ lat: 37.79, lng: -122.4 });
   });
 
   it("resumes the existing nearby history boundary without pushing another sheet entry", async () => {

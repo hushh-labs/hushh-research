@@ -1,12 +1,18 @@
 """Privacy-bounded, short-lived nearby check-in presence for One Location.
 
 This operon is deliberately separate from recipient-scoped live-location
-grants. A fresh foreground GPS fix proves that the owner is near a public place
-they selected. The captured check-in point is then retained only as short-lived
-authenticated ciphertext and indexed by a short-epoch, server-keyed spatial
-token. Candidate tokens are a broad-phase optimization; the service decrypts
-both captured points and performs an exact Haversine check before returning a
-peer or authorizing a Connect request.
+grants. A fresh foreground GPS fix proves that the owner is plausibly at a
+public place they selected, and is then discarded. Only that *place's*
+coordinates are retained, as short-lived authenticated ciphertext indexed by a
+short-epoch, server-keyed spatial token. Candidate tokens are a broad-phase
+optimization; the service decrypts both place anchors and performs an exact
+Haversine check before returning a peer or authorizing a Connect request.
+
+Anchoring on the venue rather than the receiver reading is what lets the same
+500 m guarantee hold on a 10 m native GPS fix and a 2 km browser fix alike:
+co-presence is a property of the places two people chose, not of how well their
+hardware happened to locate them. It also means the owner's true position is
+never persisted in any form.
 
 Postgres is authoritative today. ``NearbyPresenceStore`` is the replaceable
 port for a future Redis/Memorystore active-presence index without changing the
@@ -35,11 +41,20 @@ from db.db_client import get_db
 from hushh_mcp.config import VAULT_DATA_KEY
 from hushh_mcp.services.connections_service import ConnectionsService
 
-NEARBY_PRESENCE_CONSENT_VERSION = "one-location-nearby-presence-v2"
+NEARBY_PRESENCE_CONSENT_VERSION = "one-location-nearby-presence-v3"
 NEARBY_PRESENCE_DURATION_MINUTES = frozenset({30, 60, 120})
 NEARBY_PRESENCE_DEFAULT_DURATION_MINUTES = 60
 NEARBY_PRESENCE_RADIUS_METERS = 500
-NEARBY_PRESENCE_MAX_ACCURACY_METERS = 100.0
+# Co-presence is anchored to the *selected place*, not the reported point, so a
+# coarse fix can no longer smear the geofence. Accuracy is therefore only a
+# plausibility signal: it bounds how far the owner may be from the place they
+# claim. A browser on wifi/IP trilateration routinely reports 1-5 km, which the
+# previous 100 m ceiling rejected outright -- that made the whole flow (places
+# included) unreachable on desktop web and indoors. The ceiling now matches the
+# API contract bound (`accuracyM <= 5000`), and the tolerance below caps how
+# much slack a coarse reading may actually buy.
+NEARBY_PRESENCE_MAX_ACCURACY_METERS = 5_000.0
+NEARBY_PRESENCE_MAX_ACCURACY_TOLERANCE_METERS = 2_000.0
 NEARBY_PRESENCE_MAX_POINT_AGE_SECONDS = 300.0
 NEARBY_PRESENCE_FUTURE_TOLERANCE_SECONDS = 60.0
 NEARBY_PRESENCE_ROSTER_LIMIT = 20
@@ -50,8 +65,14 @@ _CELL_TILE_ZOOM = 16
 _MERCATOR_MAX_LATITUDE = 85.05112878
 _EARTH_RADIUS_METERS = 6_371_000.0
 _ANCHOR_ALGORITHM = "aes-256-gcm"
-_ANCHOR_SCHEMA_VERSION = 2
-_ANCHOR_COORDINATE_KIND = "captured_check_in_point_v1"
+_ANCHOR_SCHEMA_VERSION = 3
+# v3 stores the coordinates of the place the owner explicitly selected instead
+# of their captured GPS point. Co-presence becomes exact (two people at the same
+# venue always match, whatever their receiver reported) and the owner's true
+# position is never persisted at all. `_decrypt_anchor` rejects both the old
+# schema version and the old coordinate kind, and `get_state` checks the consent
+# version before it ever decrypts, so v2 rows are checked out rather than read.
+_ANCHOR_COORDINATE_KIND = "selected_place_point_v1"
 _ANCHOR_AAD_PREFIX = b"hushh:one-location-nearby-presence:check-in-point:v2\0"
 _KEY_DERIVATION_SALT = b"hushh:one-location-nearby-presence:kdf:v1"
 _ANCHOR_KEY_INFO = b"hushh:one-location-nearby-presence:check-in-point-encryption:v2"
@@ -858,6 +879,7 @@ class OneLocationNearbyPresenceService:
         ):
             raise NearbyPresenceError(
                 "NEARBY_PRESENCE_LOCATION_TOO_COARSE",
+                "Your location reading is too broad to place you. "
                 "Turn on precise location, then try again.",
                 status_code=422,
             )
@@ -885,26 +907,40 @@ class OneLocationNearbyPresenceService:
             destination_lat=normalized_place_lat,
             destination_lng=normalized_place_lng,
         )
-        # Accuracy is uncertainty, not extra admission radius. Requiring the
-        # uncertainty envelope to fit keeps the effective geofence at 500 m.
-        if distance + normalized_accuracy > NEARBY_PRESENCE_RADIUS_METERS:
+        # The geofence now lives in two places that cannot be smeared by a coarse
+        # receiver: the place list the owner chose from is itself restricted to a
+        # 500 m circle around this same point, and co-presence is measured
+        # place-to-place below. So this check only asks "is the owner plausibly at
+        # the place they claim?" -- accuracy widens that envelope instead of
+        # shrinking the geofence. The old `distance + accuracy` form double-counted
+        # the radius and made any fix coarser than 100 m unable to confirm a place
+        # it legitimately sat on. Tolerance is capped so a deliberately coarse
+        # reading cannot buy unlimited reach.
+        tolerance = min(
+            normalized_accuracy,
+            NEARBY_PRESENCE_MAX_ACCURACY_TOLERANCE_METERS,
+        )
+        if distance > NEARBY_PRESENCE_RADIUS_METERS + tolerance:
             raise NearbyPresenceError(
                 "NEARBY_PRESENCE_OUTSIDE_RADIUS",
                 "Choose a place closer to your current location.",
                 status_code=422,
             )
 
+        # Anchor on the selected place, never the captured point: it makes the
+        # roster exact regardless of receiver quality and keeps the owner's real
+        # position out of storage entirely.
         anchor = {
             "schemaVersion": _ANCHOR_SCHEMA_VERSION,
             "coordinateKind": _ANCHOR_COORDINATE_KIND,
             "label": str(place_label or "Selected place").strip()[:300],
-            "latitude": normalized_current_lat,
-            "longitude": normalized_current_lng,
+            "latitude": normalized_place_lat,
+            "longitude": normalized_place_lng,
         }
         envelope = _encrypt_anchor(anchor, owner_user_id=owner_user_id)
         tile_x, tile_y = _tile_xy(
-            lat=normalized_current_lat,
-            lng=normalized_current_lng,
+            lat=normalized_place_lat,
+            lng=normalized_place_lng,
         )
         epoch = _cell_epoch(now)
         self._store.upsert_presence(

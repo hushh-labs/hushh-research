@@ -27,7 +27,8 @@ def test_nearby_check_in_uses_token_identity_and_server_resolved_place(
     client,
     monkeypatch,
 ):
-    async def place_details(self, place_id):
+    async def place_details(self, place_id, *, require_check_inable=False):
+        assert require_check_inable is True
         return {
             "placeId": place_id,
             "label": "Demo Hall",
@@ -76,6 +77,61 @@ def test_nearby_check_in_uses_token_identity_and_server_resolved_place(
     assert response.status_code == 200
     assert response.json()["presence"]["placeLabel"] == "Demo Hall"
     assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_nearby_check_in_rejects_a_non_check_in_place_before_persistence(
+    client,
+    monkeypatch,
+):
+    async def place_details(self, place_id, *, require_check_inable=False):
+        assert place_id == "closed-venue"
+        assert require_check_inable is True
+        raise gms.GoogleMapsError(
+            "The selected place is not available for check-in.",
+            status_code=422,
+            code="ONE_LOCATION_PLACE_NOT_CHECK_INABLE",
+        )
+
+    class FailIfCalledPresenceService:
+        def check_in(self, **kwargs):
+            raise AssertionError("invalid places must not reach persistence")
+
+    monkeypatch.setattr(gms.GoogleMapsService, "place_details", place_details)
+    monkeypatch.setattr(
+        location_routes,
+        "_nearby_presence_service",
+        lambda: FailIfCalledPresenceService(),
+    )
+
+    response = client.post(
+        "/api/one/location/nearby-presence/check-in",
+        json={
+            "placeId": "closed-venue",
+            "currentLat": 12.9716,
+            "currentLng": 77.5946,
+            "accuracyM": 12,
+            "capturedAt": datetime.now(timezone.utc).isoformat(),
+            "durationMinutes": 60,
+            "consentAccepted": True,
+            "allowConnectionRequests": False,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "code": "ONE_LOCATION_PLACE_NOT_CHECK_INABLE",
+        "message": "The selected place is not available for check-in.",
+    }
+
+
+def test_nearby_place_picker_uses_the_maps_provider_rate_bucket():
+    route_key = (
+        f"{location_routes.maps_nearby_places.__module__}."
+        f"{location_routes.maps_nearby_places.__name__}"
+    )
+    configured_limits = location_routes.limiter._route_limits[route_key]
+
+    assert [str(item.limit) for item in configured_limits] == ["30 per 1 minute"]
 
 
 def test_roster_never_returns_peer_location_or_stable_identity(client, monkeypatch):
@@ -251,8 +307,9 @@ def test_presence_errors_keep_stable_code_and_message(client, monkeypatch):
 
 
 def test_nearby_place_picker_is_bounded_and_authenticated(client, monkeypatch):
-    async def nearby_places(self, *, lat, lng):
+    async def nearby_places(self, *, lat, lng, category):
         assert (lat, lng) == (12.9716, 77.5946)
+        assert category == "health"
         return [
             {
                 "placeId": "place-a",
@@ -264,7 +321,7 @@ def test_nearby_place_picker_is_bounded_and_authenticated(client, monkeypatch):
     monkeypatch.setattr(gms.GoogleMapsService, "nearby_places", nearby_places)
     response = client.post(
         "/api/one/location/maps/nearby-places",
-        json={"lat": 12.9716, "lng": 77.5946},
+        json={"lat": 12.9716, "lng": 77.5946, "category": "health"},
     )
 
     assert response.status_code == 200
@@ -272,10 +329,33 @@ def test_nearby_place_picker_is_bounded_and_authenticated(client, monkeypatch):
     assert response.json()["suggestions"][0]["placeId"] == "place-a"
 
 
+def test_nearby_place_picker_rejects_unknown_category(client):
+    response = client.post(
+        "/api/one/location/maps/nearby-places",
+        json={
+            "lat": 12.9716,
+            "lng": 77.5946,
+            "category": "random_recommendations",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_nearby_autocomplete_requires_a_current_point(client):
+    response = client.post(
+        "/api/one/location/maps/autocomplete",
+        json={"input": "clinic", "nearbyOnly": True},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "ONE_LOCATION_NEARBY_POINT_REQUIRED"
+
+
 def test_nearby_place_picker_fails_closed_in_production(client, monkeypatch):
     called = False
 
-    async def nearby_places(self, *, lat, lng):
+    async def nearby_places(self, *, lat, lng, category):
         nonlocal called
         called = True
         return []
