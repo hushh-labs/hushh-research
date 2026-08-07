@@ -9,7 +9,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import { ChevronLeft, Loader2, Phone } from "lucide-react";
+import { ChevronLeft, Loader2, Phone, SendHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -48,7 +48,14 @@ export type SosPanelProps = {
   recipients: OneLocationRecipient[];
   active: boolean;
   busy: boolean;
-  onTrigger: (message?: string | null) => void;
+  /**
+   * Returning the handler's promise is load-bearing: the panel awaits it to
+   * learn whether the trigger actually started work. `handleTriggerSos` bails
+   * out early (no SMS contacts, blocked permission, an incident already live)
+   * without ever entering its busy phase, and the panel needs to know so it can
+   * release the fired latch instead of sitting on a dead progress ring.
+   */
+  onTrigger: (message?: string | null) => void | Promise<void>;
   /**
    * Stop a live SMS/SOS session: revokes the location grants created by the
    * alert AND clears the incident, so "SENT · Live now" resets. Kept separate
@@ -156,13 +163,33 @@ export function SosPanel({
     if (resetProgress && !firedRef.current) setProgress(0);
   }, []);
 
-  const completeHold = useCallback(() => {
+  /**
+   * Single path into `onTrigger`, shared by the press-and-hold ring and the
+   * send button in the message box.
+   *
+   * The `finally` is the fix for a panel that could latch permanently: when
+   * `onTrigger` returned early it never set `busy`, so the reset effect below
+   * (which only runs on a busy true -> false edge) never fired, `firedRef`
+   * stayed true, and `progress` stayed at 1. The ring then showed a frozen
+   * "0.0 s" with the radar pulse running forever and refused every later press.
+   * If the trigger never entered its busy phase there is nothing to wait for,
+   * so release the latch here.
+   */
+  const fireTrigger = useCallback(() => {
     if (firedRef.current || disabled) return;
     firedRef.current = true;
     clearHold(false);
     setProgress(1);
-    onTrigger(selectedMessage);
+    void Promise.resolve(onTrigger(selectedMessage)).finally(() => {
+      if (observedBusyRef.current) return;
+      firedRef.current = false;
+      setProgress(0);
+    });
   }, [clearHold, disabled, onTrigger, selectedMessage]);
+
+  const completeHold = useCallback(() => {
+    fireTrigger();
+  }, [fireTrigger]);
 
   const updateProgress = useCallback(function tickProgress() {
     if (!holdStartedAtRef.current || firedRef.current) return;
@@ -188,6 +215,23 @@ export function SosPanel({
   }, [completeHold, hardDisabled, noReadyRecipients, updateProgress]);
 
   const cancelHold = useCallback(() => clearHold(true), [clearHold]);
+
+  /**
+   * Send button inside the message box. A typed message is already a deliberate
+   * act, so this sends immediately rather than asking for a second two-second
+   * hold. Enter deliberately still inserts a newline: an emergency alert must
+   * not be one stray keystroke away.
+   */
+  const handleSendCustomMessage = useCallback(() => {
+    if (hardDisabled) return;
+    if (noReadyRecipients) {
+      toast.error(
+        "Please add at least one contact in your SMS emergency contact list.",
+      );
+      return;
+    }
+    fireTrigger();
+  }, [fireTrigger, hardDisabled, noReadyRecipients]);
 
   useEffect(() => {
     const onWindowBlur = () => cancelHold();
@@ -447,25 +491,51 @@ export function SosPanel({
               <label htmlFor="sos-short-message" className="sr-only">
                 Short text message
               </label>
-              <textarea
-                id="sos-short-message"
-                aria-describedby={
-                  customMessageLimitExceeded
-                    ? "sos-short-message-count sos-short-message-error"
-                    : "sos-short-message-count"
-                }
-                aria-invalid={customMessageLimitExceeded}
-                value={customMessage}
-                onChange={(event) => setCustomMessage(event.target.value)}
-                placeholder="Type a short message"
-                rows={2}
-                className={cn(
-                  "min-h-[72px] w-full resize-none rounded-2xl border bg-[#1c1c1e] px-3.5 py-3 text-[14px] leading-relaxed text-white outline-none placeholder:text-white/40 focus:border-white/55",
-                  customMessageLimitExceeded
-                    ? "border-[#ff453a]"
-                    : "border-white/10",
-                )}
-              />
+              <div className="relative">
+                <textarea
+                  id="sos-short-message"
+                  aria-describedby={
+                    customMessageLimitExceeded
+                      ? "sos-short-message-count sos-short-message-error"
+                      : "sos-short-message-count"
+                  }
+                  aria-invalid={customMessageLimitExceeded}
+                  value={customMessage}
+                  onChange={(event) => setCustomMessage(event.target.value)}
+                  placeholder="Type a short message"
+                  rows={2}
+                  className={cn(
+                    // pr-14 reserves the send button's column so typed text
+                    // never runs underneath it.
+                    "min-h-[72px] w-full resize-none rounded-2xl border bg-[#1c1c1e] py-3 pl-3.5 pr-14 text-[14px] leading-relaxed text-white outline-none placeholder:text-white/40 focus:border-white/55",
+                    customMessageLimitExceeded
+                      ? "border-[#ff453a]"
+                      : "border-white/10",
+                  )}
+                />
+                {/* Without this the only way to send a typed message was to go
+                    back up and hold the ring for two seconds, with nothing in
+                    the message box confirming the text had been taken. */}
+                <button
+                  type="button"
+                  data-testid="sos-send-custom-message"
+                  onClick={handleSendCustomMessage}
+                  disabled={hardDisabled || !selectedMessage}
+                  aria-label="Send this SMS alert"
+                  className={cn(
+                    "press-scale absolute bottom-2.5 right-2.5 flex h-10 w-10 items-center justify-center rounded-full transition-colors",
+                    hardDisabled || !selectedMessage
+                      ? "bg-white/10 text-white/35"
+                      : "bg-[#ff3b30] text-white",
+                  )}
+                >
+                  {busy ? (
+                    <Loader2 className="h-[18px] w-[18px] animate-spin" />
+                  ) : (
+                    <SendHorizontal className="h-[18px] w-[18px]" strokeWidth={2} />
+                  )}
+                </button>
+              </div>
               <div
                 id="sos-short-message-count"
                 className={cn(

@@ -543,7 +543,14 @@ def validate_workflows(skill_manifests: dict[str, dict[str, Any]], errors: list[
     }
     issue_sections: dict[str, str] = {}
 
-    for workflow_dir in sorted(path for path in WORKFLOWS_ROOT.iterdir() if path.is_dir()):
+    # Empty directories are not repository state, but sync providers can retain
+    # them after a workflow rename. Validate only directories with authored files.
+    workflow_dirs = sorted(
+        path
+        for path in WORKFLOWS_ROOT.iterdir()
+        if path.is_dir() and any(path.iterdir())
+    )
+    for workflow_dir in workflow_dirs:
         workflow_path = workflow_dir / "workflow.json"
         playbook_path = workflow_dir / "PLAYBOOK.md"
         rel = workflow_dir.relative_to(REPO_ROOT)

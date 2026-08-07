@@ -43,7 +43,7 @@ describe("setup catalog voice parity", () => {
         .filter((action) => action.action_id.startsWith("setup.open_"))
         .map((action) => action.label),
     ).toEqual([
-      "Set up Connections",
+      "Set up AI access",
       ...CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ]);
     expect(actions.get("setup.open_connections")?.execution_target).toMatchObject({
