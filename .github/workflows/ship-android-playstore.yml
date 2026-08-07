@@ -29,6 +29,11 @@ on:
         description: "Optional release notes / summary of changes"
         required: false
         type: string
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/ship-android-playstore.yml
 
 permissions:
   contents: read
