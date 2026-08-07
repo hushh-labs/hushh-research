@@ -239,7 +239,7 @@ export type LocationHubViewModel = {
   onShareToContacts: () => void;
   onOpenShareReview: () => void;
   onConfirmShare: () => void;
-  onSendRequest: () => void;
+  onSendRequest: (reason?: string | null) => void;
   onApprove: (request: OneLocationAccessRequest) => void;
   onDeny: (requestId: string) => void;
   onViewGrant: (grant: OneLocationGrant) => void;
@@ -2327,7 +2327,7 @@ function AskFlow({
 
       <Button
         onClick={() => {
-          vm.onSendRequest();
+          vm.onSendRequest(reason);
           onClose();
         }}
         disabled={!vm.selectedRequestOwnerIds.length}
