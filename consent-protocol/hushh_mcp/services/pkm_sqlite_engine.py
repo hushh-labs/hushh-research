@@ -340,8 +340,28 @@ class SqlitePkmWriteEngine:
                 "SELECT * FROM pkm_domain_commits WHERE commit_id=?", (commit_id,)
             ).fetchone()
             if prior is not None:
-                if (prior["request_fingerprint"] or None) != (fingerprint or None):
-                    # An idempotency key must never bind two different payloads.
+                # An idempotency key binds ONE payload, from ONE owner, in ONE domain,
+                # at ONE expected revision. Comparing the fingerprint alone was strictly
+                # weaker than the Postgres oracle this engine has to match, which raises
+                # `pkm_*_commit_binding_mismatch` when any of user_id, domain,
+                # commit_kind or the expected revisions differ
+                # (`db/migrations/098_pkm_v7_recovery_foundation.sql:1274-1284`).
+                #
+                # The lookup is by commit_id alone and always was, so a replay carrying a
+                # DIFFERENT user_id fell straight through to the success return below:
+                # it reported `success=True, idempotent_replay=True` for a write that
+                # never happened, and skipped the `expected != current` check on the way
+                # past — a fabricated success and an OCC bypass in one call. The
+                # conformance suite never caught it because it only ever varies the
+                # fingerprint for a single user, so the engine passed the oracle on the
+                # one axis the oracle was asked about.
+                if (
+                    str(prior["user_id"]) != user_id
+                    or str(prior["domain"]) != domain
+                    or str(prior["commit_kind"]) != commit_kind
+                    or int(prior["expected_content_revision"]) != expected
+                    or (prior["request_fingerprint"] or None) != (fingerprint or None)
+                ):
                     raise RuntimeError(ERR_COMMIT_BINDING)
                 return {
                     "success": True,

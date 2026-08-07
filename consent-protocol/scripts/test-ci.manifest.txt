@@ -74,6 +74,7 @@ tests/test_personal_agent_wiring.py
 tests/test_pkm_engine_conformance_postgres.py
 tests/test_pkm_engine_conformance_sqlite.py
 tests/test_pkm_grounding_service.py
+tests/test_pkm_sqlite_commit_binding.py
 tests/test_pkm_upgrade_routes.py
 tests/test_pkm_upgrade_service.py
 tests/test_pkm_write_engine_seam.py
