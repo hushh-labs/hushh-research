@@ -150,7 +150,7 @@ describe("CapabilityCinematicIntroGate", () => {
     );
 
     expect(gateSource).toContain(
-      "min-h-[calc(100dvh-var(--top-shell-reserved-height)-var(--app-scroll-bottom-pad,0px))]",
+      "min-h-[calc(100dvh-var(--top-shell-reserved-height,4rem)-var(--app-scroll-bottom-pad,2rem))]",
     );
     expect(gateSource).not.toContain("overflow-hidden");
   });
