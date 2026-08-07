@@ -4055,9 +4055,16 @@ class OneLocationAgentService:
                 "resolved_kind": "sos",
             }
             if _key_writer_guarded:
+                # Deferred: the caller sends it after the write commits and
+                # records the outcome there.
                 envelope_payload["_post_commit_notification"] = notification_args
             else:
-                self._send_location_share_created_notification(**notification_args)
+                # Direct route path (POST .../envelopes), which is the one
+                # runSosPanic drives. Record reachability so the sender can be
+                # told which contacts the alert actually reached.
+                envelope_payload["recipientAlerted"] = (
+                    self._send_location_share_created_notification(**notification_args)
+                )
         return envelope_payload
 
     def view_latest_envelope(self, *, recipient_user_id: str, grant_id: str) -> dict[str, Any]:

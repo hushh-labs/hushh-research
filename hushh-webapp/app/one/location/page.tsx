@@ -754,6 +754,15 @@ function isRetryableForegroundError(error: unknown): boolean {
   return failureClass === "one_api_unavailable" || failureClass === "network";
 }
 
+/** "Parth", "Parth and Aarav", "Parth, Aarav and 2 others". */
+function formatNameList(names: string[]): string {
+  const cleaned = names.map((name) => name.trim()).filter(Boolean);
+  if (cleaned.length === 0) return "someone";
+  if (cleaned.length === 1) return cleaned[0]!;
+  if (cleaned.length === 2) return `${cleaned[0]} and ${cleaned[1]}`;
+  return `${cleaned[0]}, ${cleaned[1]} and ${cleaned.length - 2} others`;
+}
+
 async function runOneLocationForegroundAttempt<T>(params: {
   operation: OneLocationForegroundOperation;
   trigger: OneLocationForegroundTrigger;
@@ -3034,11 +3043,15 @@ export function OneLocationAgentPageContent({
         recipientPublicKeyJwk: recipient.publicKeyJwk,
         recipientKeyId: recipient.keyId,
       });
-      await OneLocationService.storeEnvelope({
+      // Returned so Save My Soul can tell the sender which contacts the alert
+      // actually reached. null for every other share kind, which does not
+      // notify from this route.
+      const stored = await OneLocationService.storeEnvelope({
         vaultOwnerToken,
         grantId: grant.id,
         envelope,
       });
+      return stored.recipientAlerted;
     },
     [vaultOwnerToken],
   );
@@ -3350,11 +3363,30 @@ export function OneLocationAgentPageContent({
         });
         setSosIncident(incident);
         const skipped = totalSelected - readyRecipients.length;
-        toast.success(
-          skipped > 0
-            ? `SMS sent to ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).`
-            : `SMS sent to ${readyRecipients.length} contact(s).`,
-        );
+        // Name who could not be reached rather than reporting a flat count. A
+        // contact with notifications off, or who reinstalled and lost their push
+        // token, previously looked identical to one whose phone lit up — the
+        // worst way for an emergency alert to fail.
+        const unreachable = incident.delivery
+          .filter((outcome) => outcome.alerted === false)
+          .map((outcome) => outcome.displayName);
+        const reached = readyRecipients.length - unreachable.length;
+
+        if (reached === 0) {
+          toast.error(
+            `Location shared, but no one was alerted — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off. Call emergency services if you need help now.`,
+          );
+        } else if (unreachable.length > 0) {
+          toast.warning(
+            `SMS sent to ${reached} of ${readyRecipients.length} contacts. Couldn't alert ${formatNameList(unreachable)} — notifications are off on their end.`,
+          );
+        } else {
+          toast.success(
+            skipped > 0
+              ? `SMS sent to ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).`
+              : `SMS sent to ${readyRecipients.length} contact(s).`,
+          );
+        }
         await refresh();
       } catch (error) {
         // Recover from memory — SosPanicError carries any partial incident

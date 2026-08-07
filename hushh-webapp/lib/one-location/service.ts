@@ -13,6 +13,7 @@ import type {
   OneLocationActivityResponse,
   OneLocationCircleInvite,
   OneLocationEncryptedEnvelope,
+  OneLocationStoredEnvelope,
   OneLocationEncryptedPrivateKey,
   OneLocationNearbyAttendee,
   OneLocationNearbyPlaceCategory,
@@ -471,8 +472,11 @@ export class OneLocationService {
     vaultOwnerToken: string;
     grantId: string;
     envelope: OneLocationEncryptedEnvelope;
-  }): Promise<OneLocationEncryptedEnvelope> {
-    const response = await apiJson<{ envelope: OneLocationEncryptedEnvelope }>(
+  }): Promise<OneLocationStoredEnvelope> {
+    const response = await apiJson<{
+      envelope: OneLocationEncryptedEnvelope;
+      recipientAlerted?: boolean;
+    }>(
       `/api/one/location/grants/${encodeURIComponent(params.grantId)}/envelopes`,
       {
         method: "POST",
@@ -480,7 +484,16 @@ export class OneLocationService {
         body: JSON.stringify({ envelope: params.envelope }),
       },
     );
-    return response.envelope;
+    return {
+      envelope: response.envelope,
+      // Only Save My Soul notifies from this route, so every other share kind
+      // legitimately omits the field. `null` means "not reported", which callers
+      // must not treat as a delivery failure.
+      recipientAlerted:
+        typeof response.recipientAlerted === "boolean"
+          ? response.recipientAlerted
+          : null,
+    };
   }
 
   static async viewEnvelope(params: {
