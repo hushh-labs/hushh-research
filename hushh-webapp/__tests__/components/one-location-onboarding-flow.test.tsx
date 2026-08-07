@@ -155,7 +155,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(featureSurface?.className).toContain("bg-white");
     expect(featureSurface?.className).toContain("px-6");
     expect(featureSurface?.className).toContain(
-      "pt-[max(env(safe-area-inset-top,0px),12px)]",
+      "pt-[max(var(--app-safe-area-top-effective,0px),12px)]",
     );
 
     const featureScroll = document.querySelector("[data-one-feature-scroll]");
@@ -813,7 +813,7 @@ describe("OneLocationOnboardingFlow", () => {
       // welcome -> features
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
       // features -> invite (NOT people, because the invite screen is enabled)
-      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
 
       expect(
         screen.getByTestId("one-location-onboarding-invite"),
@@ -849,7 +849,7 @@ describe("OneLocationOnboardingFlow", () => {
       renderFlow({ onPrepareOnboardingCircleInvite });
 
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
 
       await waitFor(() =>
         expect(screen.getByText("temporary")).toBeTruthy(),
@@ -870,7 +870,7 @@ describe("OneLocationOnboardingFlow", () => {
     it("skips the invite screen entirely when no prepare handler is provided", () => {
       renderFlow();
       fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
       // With no onPrepareOnboardingCircleInvite, Continue goes straight to the
       // contact list — the invite screen never appears.
       expect(screen.getByTestId("one-location-onboarding-people")).toBeTruthy();
