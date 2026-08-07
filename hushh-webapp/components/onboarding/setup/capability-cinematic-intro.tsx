@@ -160,9 +160,9 @@ export function CapabilityCinematicIntroGate({
 
   const content = (
     <section
-      className={`motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-col items-start ${
+      className={`motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-col items-start my-auto ${
         embedded
-          ? "min-h-[calc(100dvh-var(--top-shell-reserved-height)-var(--app-scroll-bottom-pad,0px))] justify-center"
+          ? "min-h-[calc(100dvh-var(--top-shell-reserved-height,4rem)-var(--app-scroll-bottom-pad,2rem))] justify-center"
           : ""
       }`}
       aria-labelledby={`capability-intro-${capabilityId}`}

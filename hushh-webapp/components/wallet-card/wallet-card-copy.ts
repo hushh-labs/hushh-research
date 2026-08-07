@@ -11,36 +11,46 @@
  */
 
 export const WALLET_CARD_COPY = {
+  /**
+   * Settings-list row in Profile > Your account. One string for both states,
+   * because that list does not hold a vault owner token and so cannot know
+   * whether a card exists without making the row gate on an unlock.
+   */
+  profileEntry: {
+    title: "Apple Wallet",
+    description: "Share your profile with a scan.",
+  },
   /** Entry point shown before a Wallet Profile exists. */
   entryBeforeSetup: {
     title: "Add to Apple Wallet",
-    description: "Keep your Hussh One profile ready to share.",
+    description: "Your profile, ready to share.",
   },
   /** Setup introduction. */
   setupIntro: {
-    title: "Your profile, ready when you need it",
-    description:
-      "Add a secure Hussh One pass to Apple Wallet and share your selected details with a simple scan.",
+    title: "Your profile, one scan away",
+    description: "Add a Hussh One pass to Apple Wallet.",
   },
-  /** Privacy assurance shown alongside the shared-information review. */
+  /**
+   * Privacy assurance shown alongside the shared-information review. Both
+   * disclosures survive the shorter wording: what is visible, and that it
+   * stays reversible.
+   */
   privacyAssurance: {
-    title: "You stay in control",
-    description:
-      "Only the information you select will be visible. You can update or disable access at any time.",
+    title: "You choose what shows",
+    description: "Only what you pick is visible. Change or switch it off anytime.",
   },
   /** Entry point shown once a Wallet Profile exists. */
   entryAfterSetup: {
-    title: "Manage Wallet Profile",
-    description: "Control what people see when they scan your pass.",
+    title: "Wallet Profile",
+    description: "Control what people see.",
   },
   /** Confirmation after the pass has been handed to Apple Wallet. */
   success: {
-    title: "Your Hussh One pass is ready",
-    description: "You can now share your profile directly from Apple Wallet.",
+    title: "Pass added",
+    description: "Share your profile straight from Apple Wallet.",
   },
   /** Shown when pass signing is unavailable. The technical error stays server-side. */
-  signingFailure:
-    "We couldn't create your Wallet pass right now. Please try again in a moment.",
+  signingFailure: "Couldn't create your pass. Try again in a moment.",
   /** Public page state after the owner removes their Wallet Profile. */
   revokedPage: "This profile is no longer shared.",
   /** Public page state once the share link has expired. */
@@ -69,6 +79,7 @@ export const WALLET_CARD_OWNER_COPY = {
   visitorPreviewError:
     "We couldn't load the visitor view right now. Please try again in a moment.",
   addToWallet: "Add to Apple Wallet",
+  addOnIphoneHint: "Open this page on your iPhone to add the pass.",
   shareLink: "Share your link",
   copyLink: "Copy link",
   editInformation: "Edit shared information",

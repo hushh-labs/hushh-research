@@ -21,7 +21,7 @@ That deploy config is now two files: ``deploy/backend.cloudbuild.yaml`` owns the
 per-arg cap. Assertions about *wiring* therefore read the combined surface; the
 assertion about *defaults* still reads the YAML, which is where they live.
 
-The wiring is deliberately *optional* (``append_optional_secret`` probes with
+The wiring is deliberately *optional* (``add_secret`` probes with
 ``gcloud secrets describe`` and skips what is absent), so this contract can land
 and deploy safely long before the certificate exists. These tests exist so the
 name agreement cannot silently drift afterwards.
@@ -102,7 +102,7 @@ def test_the_deploy_names_match_the_names_the_runtime_reads() -> None:
 
 
 def test_the_pems_stay_optional_so_the_deploy_survives_their_absence() -> None:
-    """``append_optional_secret`` is what keeps an un-provisioned environment
+    """``add_secret`` is what keeps an un-provisioned environment
     deployable. Promoting these to the mandatory ``secrets=`` string would break
     every deploy in every project until the certificate is minted."""
     cloudbuild = _read(CLOUDBUILD)

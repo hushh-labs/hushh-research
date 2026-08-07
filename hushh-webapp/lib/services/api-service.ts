@@ -52,7 +52,10 @@ import {
   REQUEST_TIMESTAMP_HEADER,
 } from "@/lib/observability/request-id";
 import { resolveRouteId } from "@/lib/observability/route-map";
-import { resolveRuntimeBackendUrl } from "@/lib/runtime/settings";
+import {
+  resolveRuntimeBackendUrl,
+  resolveRuntimeFrontendUrl,
+} from "@/lib/runtime/settings";
 import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
@@ -350,7 +353,10 @@ async function apiFetch(
   options: RequestInit = {},
 ): Promise<Response> {
   const apiBase = getApiBaseUrl();
-  const url = `${apiBase}${path}`;
+  // An absolute path is already fully resolved. Native builds use this to reach
+  // a Next.js-only route on the web origin, which `apiBase` (the Python
+  // backend) does not host.
+  const url = /^https?:\/\//i.test(path) ? path : `${apiBase}${path}`;
   const requestStartedAt = Date.now();
   const httpMethod = (options.method || "GET").toUpperCase();
   const routeId =
@@ -1738,6 +1744,47 @@ export class ApiService {
       method: "POST",
       body: JSON.stringify(data),
     });
+  }
+
+  /**
+   * Ask the server to send a lifecycle mail through `hushh-mail-api`.
+   *
+   * Fire and forget by contract: the caller is a sign-in or a phone step, and
+   * neither may be delayed or failed by a mail. Every error resolves to `false`.
+   *
+   * `/api/auth/mail` is a Next.js route, so a native build — where `apiFetch`
+   * resolves against the Python backend — targets the web origin explicitly.
+   */
+  static async notifyAuthMail(
+    event: "signed_in" | "signed_out" | "phone_conflict" | "capabilities_linked",
+    options?: {
+      phoneNumber?: string;
+      /** Currently connected capability ids; the server diffs these. */
+      capabilities?: string[];
+      /** Ids whose state was resolvable this pass. Absent ids are unknown, not absent. */
+      observed?: string[];
+      idToken?: string;
+    },
+  ): Promise<boolean> {
+    try {
+      const idToken = options?.idToken || (await this.getFirebaseToken());
+      if (!idToken) return false;
+
+      const origin = Capacitor.isNativePlatform() ? resolveRuntimeFrontendUrl() : "";
+      const response = await apiFetch(`${origin}/api/auth/mail`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({
+          event,
+          ...(options?.phoneNumber ? { phoneNumber: options.phoneNumber } : {}),
+          ...(options?.capabilities ? { capabilities: options.capabilities } : {}),
+          ...(options?.observed ? { observed: options.observed } : {}),
+        }),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
   }
 
   static async refreshAccountIdentityShadow(

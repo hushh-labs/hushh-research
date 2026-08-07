@@ -1323,7 +1323,7 @@ export function VaultFlow({
           )}
 
           {step === "method" && (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <VaultFlowHeader
                 icon={
                   recommendedQuickMethod === "generated_default_web_prf" ||
@@ -1344,11 +1344,11 @@ export function VaultFlow({
 
               <div className="flex flex-col gap-3 pt-2">
                 <Button
-                  variant="gradient"
-                  effect="glass"
-                  size="default"
+                  variant="blue-gradient"
+                  effect="fill"
+                  size="lg"
                   fullWidth
-                  className="h-12 rounded-full text-[16px] font-medium"
+                  className="h-12 rounded-full text-[15px] font-semibold"
                   disabled={isUnlocking || !pendingUnlockKey || !recommendedQuickMethod}
                   onClick={async () => {
                     if (!pendingUnlockKey || !recommendedQuickMethod) return;
@@ -1397,9 +1397,9 @@ export function VaultFlow({
                 <Button
                   variant="none"
                   effect="fade"
-                  size="default"
+                  size="lg"
                   fullWidth
-                  className="h-11 whitespace-normal rounded-full px-4 text-center text-[15px] font-medium leading-snug sm:h-12"
+                  className="h-12 rounded-full border border-[color:var(--app-accent-border)] !bg-[color:var(--app-accent-tint)] px-4 text-center text-[15px] font-medium !text-[color:var(--app-accent-deep)] transition-colors hover:!bg-[color:var(--app-accent-surface-strong)]"
                   disabled={isUnlocking || !pendingUnlockKey}
                   onClick={async () => {
                     if (!pendingUnlockKey) return;

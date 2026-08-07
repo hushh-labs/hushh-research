@@ -136,12 +136,11 @@ def resolve_app_id(token: str, bundle_id: str) -> str:
     return data[0]["id"]
 
 
-def latest_build_number(token: str, app_id: str, marketing_version: str) -> int:
-    """Highest CFBundleVersion known to ASC for this marketing version train."""
+def latest_build_number(token: str, app_id: str, marketing_version: str | None = None) -> int:
+    """Highest CFBundleVersion known to ASC across ALL marketing version trains."""
     query = urllib.parse.urlencode(
         {
             "filter[app]": app_id,
-            "filter[preReleaseVersion.version]": marketing_version,
             "limit": "200",
             "sort": "-version",
         }
@@ -162,8 +161,8 @@ def latest_build_number(token: str, app_id: str, marketing_version: str) -> int:
                 continue
         url = (payload.get("links") or {}).get("next")
     log(
-        f"App Store Connect: {seen} build(s) for {marketing_version}; "
-        f"highest = {highest}"
+        f"App Store Connect: inspected {seen} total build(s) across all trains; "
+        f"global highest CFBundleVersion = {highest}"
     )
     return highest
 

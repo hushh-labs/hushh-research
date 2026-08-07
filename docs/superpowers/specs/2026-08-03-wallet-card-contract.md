@@ -172,14 +172,23 @@ Omit `webServiceURL` and `authenticationToken` entirely (D2 — no web service).
 
 ## 9. Copy (use verbatim)
 
-- Entry, before setup: **"Add to Apple Wallet"** / "Keep your Hussh One profile ready to share."
-- Setup intro: **"Your profile, ready when you need it"** / "Add a secure Hussh One pass to Apple Wallet and share your selected details with a simple scan."
-- Privacy assurance: **"You stay in control"** / "Only the information you select will be visible. You can update or disable access at any time."
-- After setup entry: **"Manage Wallet Profile"** / "Control what people see when they scan your pass."
-- Success: **"Your Hussh One pass is ready"** / "You can now share your profile directly from Apple Wallet."
-- Signing failure (user-facing): "We couldn't create your Wallet pass right now. Please try again in a moment." — log the technical error server-side only.
+All strings follow the less-text standard: headlines 2–6 words, supporting text
+one short sentence, buttons 1–3 words. Shortening never drops a disclosure — the
+privacy assurance still states both what is visible and that it is reversible.
+
+- Profile settings row: **"Apple Wallet"** / "Share your profile with a scan."
+- Entry, before setup: **"Add to Apple Wallet"** / "Your profile, ready to share."
+- Setup intro: **"Your profile, one scan away"** / "Add a Hussh One pass to Apple Wallet."
+- Privacy assurance: **"You choose what shows"** / "Only what you pick is visible. Change or switch it off anytime."
+- After setup entry: **"Wallet Profile"** / "Control what people see."
+- Success: **"Pass added"** / "Share your profile straight from Apple Wallet."
+- Signing failure (user-facing): "Couldn't create your pass. Try again in a moment." — log the technical error server-side only.
 - Revoked page: "This profile is no longer shared."
 - Expired page: "This profile link has expired."
+
+The profile settings row is deliberately one string for both states. That list is
+rendered without a vault owner token, so resolving "add" versus "manage" would
+force an unlock before a settings row could draw.
 
 Never use: "Share everything", "Your complete identity", "All your data in one scan", "Unlimited profile access", "Your entire PKM".
 

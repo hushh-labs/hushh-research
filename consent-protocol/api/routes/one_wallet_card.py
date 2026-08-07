@@ -56,13 +56,17 @@ from hushh_mcp.services.apple_wallet_pass_service import (
     WALLET_PASS_UNAVAILABLE_MESSAGE,
     WalletPassContent,
     WalletPassError,
-    build_pkpass,
-    wallet_pass_signing_available,
 )
 from hushh_mcp.services.one_wallet_card_service import (
     OneWalletCardError,
     OneWalletCardService,
     wallet_card_error_detail,
+)
+from hushh_mcp.services.wallet_pass_provider import (
+    build_wallet_pass,
+)
+from hushh_mcp.services.wallet_pass_provider import (
+    signing_available as wallet_pass_signing_available,
 )
 
 logger = logging.getLogger(__name__)
@@ -762,7 +766,7 @@ def download_wallet_pass(
 
     try:
         content = _pass_content(material)
-        bundle = build_pkpass(content, avatar_image=_avatar_image(material))
+        bundle = build_wallet_pass(content, avatar_image=_avatar_image(material))
     except WalletPassError as exc:
         # The message can carry cryptographic detail, so log the class only.
         logger.error("wallet_card.pass_build_failed error=%s", exc.__class__.__name__)

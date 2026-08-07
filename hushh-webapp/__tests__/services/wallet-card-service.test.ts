@@ -420,14 +420,14 @@ describe("checkPassAvailability", () => {
       fetchResponse(503, {
         status: "unavailable",
         code: "WALLET_PASS_SIGNING_UNAVAILABLE",
-        message: "We couldn't create your Wallet pass right now. Please try again in a moment.",
+        message: "Couldn't create your pass. Try again in a moment.",
       }),
     );
 
     expect(await WalletCardService.checkPassAvailability(SHARE_TOKEN)).toEqual({
       state: "signing_unavailable",
       message:
-        "We couldn't create your Wallet pass right now. Please try again in a moment.",
+        "Couldn't create your pass. Try again in a moment.",
       code: "WALLET_PASS_SIGNING_UNAVAILABLE",
     });
   });

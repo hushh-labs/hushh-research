@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Search as SearchIcon, UserRound, Users } from "lucide-react";
@@ -10,6 +10,8 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { AdvisorsNearby } from "@/components/connect/advisors-nearby";
+import { InsuranceAgentsNearby } from "@/components/connect/insurance-agents-nearby";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
@@ -28,6 +30,7 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import {
   ConnectionsService,
   type ConnectionInformationScopeCatalog,
@@ -37,10 +40,27 @@ import {
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 
+type ConnectTab = "people" | "nearby";
+/** Which directory "Around you" is showing. Both are location-anchored. */
+type NearbyDirectory = "advisors" | "insurance";
+
+const CONNECT_TABS = [
+  { value: "people", label: "People" },
+  { value: "nearby", label: "Around you" },
+];
+
+const NEARBY_DIRECTORY_TABS = [
+  { value: "advisors", label: "Advisors" },
+  { value: "insurance", label: "Insurance" },
+];
+
 export default function ConnectPageClient() {
   const { user } = useRequireAuth();
   const router = useRouter();
 
+  const [tab, setTab] = useState<ConnectTab>("people");
+  const [nearbyDirectory, setNearbyDirectory] =
+    useState<NearbyDirectory>("advisors");
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, 300);
 
@@ -65,6 +85,11 @@ export default function ConnectPageClient() {
     requestedHandles: string[];
     offeredHandles: string[];
   } | null>(null);
+
+  const getIdToken = useCallback(
+    async () => (user ? await user.getIdToken() : null),
+    [user],
+  );
 
   const loadConnections = useCallback(async (): Promise<
     ConnectionSummaryEntry[]
@@ -352,11 +377,7 @@ export default function ConnectPageClient() {
   const cancelConnectionRequest = useCallback(
     async (person: DirectoryPerson) => {
       if (!user) return;
-      const requestId = outgoingRequestIds[person.userId];
-      if (!requestId) {
-        toast.error("This request is still loading. Try again in a moment.");
-        return;
-      }
+      const requestId = outgoingRequestIds[person.userId] || person.userId;
       try {
         setBusyId(person.userId);
         const idToken = await user.getIdToken();
@@ -387,6 +408,21 @@ export default function ConnectPageClient() {
     [outgoingRequestIds, user],
   );
 
+  // Present connections in a stable, predictable order: alphabetical by the
+  // name the user sees (case-insensitive), falling back to the userId when a
+  // display name is absent. Locale compare keeps accented names sensibly placed.
+  const sortedConnections = useMemo(
+    () =>
+      [...connections].sort((a, b) =>
+        (a.displayName || a.userId).localeCompare(
+          b.displayName || b.userId,
+          undefined,
+          { sensitivity: "base" },
+        ),
+      ),
+    [connections],
+  );
+
   return (
     <AppPageShell
       as="main"
@@ -408,16 +444,35 @@ export default function ConnectPageClient() {
       }}
     >
       <AppPageHeaderRegion>
-        <PageHeader
-          title="Connect"
-          description="Find people on Hussh and send a connection request."
-          accent="neutral"
-        />
+        <PageHeader title="Connect" accent="neutral" />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
         <SurfaceStack compact>
           <div className="space-y-4 sm:space-y-5">
+            <SegmentedTabs
+              value={tab}
+              onValueChange={(value) => setTab(value as ConnectTab)}
+              options={CONNECT_TABS}
+            />
+
+            {tab === "nearby" ? (
+              <div className="space-y-4">
+                <SegmentedTabs
+                  value={nearbyDirectory}
+                  onValueChange={(value) =>
+                    setNearbyDirectory(value as NearbyDirectory)
+                  }
+                  options={NEARBY_DIRECTORY_TABS}
+                />
+                {nearbyDirectory === "insurance" ? (
+                  <InsuranceAgentsNearby getIdToken={getIdToken} />
+                ) : (
+                  <AdvisorsNearby getIdToken={getIdToken} />
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4 sm:space-y-5">
             <SettingsGroup
               title={`My connections (${connections.length})`}
               separatorInset
@@ -430,7 +485,7 @@ export default function ConnectPageClient() {
                   disabled
                 />
               ) : (
-                connections.map((connection) => (
+                sortedConnections.map((connection) => (
                   <SettingsRow
                     key={connection.connectionId}
                     icon={Users}
@@ -558,10 +613,7 @@ export default function ConnectPageClient() {
                               variant="none"
                               effect="fill"
                               size="sm"
-                              disabled={
-                                busyId === person.userId ||
-                                !outgoingRequestIds[person.userId]
-                              }
+                              disabled={busyId === person.userId}
                               onClick={() => void cancelConnectionRequest(person)}
                             >
                               {busyId === person.userId
@@ -600,7 +652,9 @@ export default function ConnectPageClient() {
                   </div>
                 ) : null}
               </SettingsGroup>
-            </div>
+                </div>
+              </div>
+            )}
           </div>
         </SurfaceStack>
       </AppPageContentRegion>

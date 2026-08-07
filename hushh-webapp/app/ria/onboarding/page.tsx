@@ -50,6 +50,11 @@ import {
   type RiaLicenseVerificationResult,
   type RiaOnboardingStatus,
 } from "@/lib/services/ria-service";
+import {
+  buildRiaClaimRoute,
+  isClaimableLookupOutcome,
+  toNanpDigits,
+} from "@/lib/ria/ria-claim-entry";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { trackEvent } from "@/lib/observability/client";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
@@ -503,6 +508,35 @@ export default function RiaOnboardingPage({
     onboardingEntryHandledRef.current = true;
     router.replace(ROUTES.RIA_PROFILE);
   }, [entryMode, router]);
+
+  // Recognise before asking. An adviser opening RIA setup has usually already
+  // given us the number the SEC lists them at, so check it before showing a
+  // blank wizard. Fails open: any miss, error or timeout leaves the wizard
+  // exactly as it was.
+  const claimProbeRef = useRef(false);
+  useEffect(() => {
+    if (entryMode !== "wizard" || claimProbeRef.current || !user) return;
+    const phone = toNanpDigits(user.phoneNumber);
+    if (!phone) return;
+    claimProbeRef.current = true;
+    void (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12_000);
+        const lookup = await RiaService.claimLookup(
+          idToken,
+          { phone },
+          { signal: controller.signal },
+        ).finally(() => clearTimeout(timer));
+        if (isClaimableLookupOutcome(lookup)) {
+          router.replace(buildRiaClaimRoute(phone));
+        }
+      } catch {
+        /* stay in the wizard */
+      }
+    })();
+  }, [entryMode, user, router]);
 
   useEffect(() => {
     if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;

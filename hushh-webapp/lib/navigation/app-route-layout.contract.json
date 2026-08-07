@@ -3498,6 +3498,41 @@
     }
   },
   {
+    "route": "/ria/claim",
+    "mode": "flow",
+    "exemptionReason": "Claim-by-phone is a fullscreen setup flow (phone, match, passcode, pick, done) that owns its own compact content rhythm.",
+    "shellVerification": {
+      "file": "app/ria/claim/page.tsx",
+      "includes": [
+        "FullscreenFlowShell"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.ria.claim",
+      "purpose": "Help the person claim their SEC advisor or firm profile with their office number.",
+      "screen": "ria_claim",
+      "entryCue": "You can say “Claim RIA Profile” to use the primary control on this screen.",
+      "proactivity": "on_entry",
+      "primaryActionId": "route.ria_claim",
+      "happyPathActionIds": [
+        "route.ria_claim"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": "/ria/claim",
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/ria/onboarding",
     "mode": "flow",
     "exemptionReason": "RIA onboarding is a five-step fullscreen setup flow that owns its own compact content rhythm.",

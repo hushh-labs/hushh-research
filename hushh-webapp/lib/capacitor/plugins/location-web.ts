@@ -89,36 +89,118 @@ export class HushhLocationWeb implements HushhLocationPlugin {
 
     const timeoutMs = options?.timeoutMs ?? 15_000;
 
-    const attempt = (enableHighAccuracy: boolean) =>
-      new Promise<{
-        latitude: number;
-        longitude: number;
-        accuracyM: number | null;
-        capturedAt: string;
-        sourcePlatform: "web";
-      }>((resolve, reject) => {
+    type WebFix = {
+      latitude: number;
+      longitude: number;
+      accuracyM: number | null;
+      capturedAt: string;
+      sourcePlatform: "web";
+    };
+
+    // Accuracy (meters) at which we stop sampling early — a confident fix.
+    const TARGET_ACCURACY_M = 35;
+
+    const toFix = (position: GeolocationPosition): WebFix => ({
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracyM: Number.isFinite(position.coords.accuracy)
+        ? position.coords.accuracy
+        : null,
+      capturedAt: new Date(position.timestamp || Date.now()).toISOString(),
+      sourcePlatform: "web",
+    });
+
+    const isBetter = (candidate: WebFix, current: WebFix | null): boolean => {
+      if (!current) return true;
+      // Prefer a fix that reports accuracy over one that does not.
+      if (candidate.accuracyM == null) return false;
+      if (current.accuracyM == null) return true;
+      return candidate.accuracyM < current.accuracyM;
+    };
+
+    // Single-shot reader (used for the low-accuracy desktop fallback). Always
+    // requests a FRESH fix (maximumAge: 0) so a stale cached position from a
+    // previous place is never returned as "current location".
+    const readOnce = (enableHighAccuracy: boolean) =>
+      new Promise<WebFix>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(
-          (position) => {
-            resolve({
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              accuracyM: Number.isFinite(position.coords.accuracy)
-                ? position.coords.accuracy
-                : null,
-              capturedAt: new Date(
-                position.timestamp || Date.now(),
-              ).toISOString(),
-              sourcePlatform: "web",
-            });
-          },
+          (position) => resolve(toFix(position)),
           (error) => reject(error),
-          {
-            enableHighAccuracy,
-            timeout: timeoutMs,
-            maximumAge: 30_000,
-          },
+          { enableHighAccuracy, timeout: timeoutMs, maximumAge: 0 },
         );
       });
+
+    // Best-of-samples reader: collect fresh fixes via watchPosition for a short
+    // budget and return the most accurate one. This prevents the occasional
+    // wildly-off first reading (coarse network/IP fix or a stale cache) from
+    // being shown as the user's current location. Resolves early once a fix is
+    // accurate enough; otherwise returns the best sample seen when the budget
+    // elapses.
+    const sampleBest = (enableHighAccuracy: boolean, budgetMs: number) =>
+      new Promise<WebFix>((resolve, reject) => {
+        let best: WebFix | null = null;
+        let settled = false;
+        let watchId: number | null = null;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+
+        const cleanup = () => {
+          if (timer !== null) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          if (watchId !== null) {
+            navigator.geolocation.clearWatch(watchId);
+            watchId = null;
+          }
+        };
+        const finish = (value: WebFix | null, error?: unknown) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          if (value) resolve(value);
+          else reject(error);
+        };
+
+        try {
+          watchId = navigator.geolocation.watchPosition(
+            (position) => {
+              const fix = toFix(position);
+              if (isBetter(fix, best)) best = fix;
+              if (
+                best?.accuracyM != null &&
+                best.accuracyM <= TARGET_ACCURACY_M
+              ) {
+                finish(best);
+              }
+            },
+            (error) => {
+              // Only a hard permission denial should abort sampling; transient
+              // unavailable/timeout errors are ignored so a later fix can land.
+              if ((error as GeolocationPositionError)?.code === 1) {
+                finish(null, error);
+              }
+            },
+            { enableHighAccuracy, timeout: budgetMs, maximumAge: 0 },
+          );
+        } catch (error) {
+          finish(null, error);
+          return;
+        }
+
+        timer = setTimeout(() => {
+          if (best) finish(best);
+          else finish(null, { code: 3 } as GeolocationPositionError);
+        }, budgetMs);
+      });
+
+    const attempt = (enableHighAccuracy: boolean) => {
+      if (!enableHighAccuracy) return readOnce(false);
+      // Sample within a bounded window (cap at 9s) so the picker stays snappy
+      // while still rejecting a single jumpy reading.
+      const budgetMs = Math.min(Math.max(timeoutMs, 1_000), 9_000);
+      return sampleBest(true, budgetMs);
+    };
+
 
     // The browser GeolocationPositionError codes: 1 = PERMISSION_DENIED,
     // 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT. Many desktops have no GPS, so a

@@ -24,8 +24,13 @@ const {
   mockReverseGeocode,
   mockPlacesAutocomplete,
   mockPlaceDetails,
+  mockGetMapState,
+  mockUpdateMapPreferences,
   mockAddSavedLocation,
   mockLoadSavedLocations,
+  mockStageSavedLocation,
+  mockClearSavedLocation,
+  mockClearPreVaultForUser,
   mockCreateGrant,
   mockStoreEnvelope,
   mockViewEnvelope,
@@ -65,8 +70,13 @@ const {
   mockReverseGeocode: vi.fn(),
   mockPlacesAutocomplete: vi.fn(),
   mockPlaceDetails: vi.fn(),
+  mockGetMapState: vi.fn(),
+  mockUpdateMapPreferences: vi.fn(),
   mockAddSavedLocation: vi.fn(),
   mockLoadSavedLocations: vi.fn(),
+  mockStageSavedLocation: vi.fn(),
+  mockClearSavedLocation: vi.fn(),
+  mockClearPreVaultForUser: vi.fn(),
   mockCreateGrant: vi.fn(),
   mockStoreEnvelope: vi.fn(),
   mockViewEnvelope: vi.fn(),
@@ -120,6 +130,42 @@ vi.mock("@/lib/firebase/auth-context", () => ({
 
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: mockUseVault,
+}));
+
+vi.mock("@/components/one-location/onboarding/location-picker-map", () => ({
+  LocationPickerMap: ({
+    onConfirm,
+    onCancel,
+    confirmLabel,
+    cancelLabel,
+  }: {
+    onConfirm: (picked: {
+      latitude: number;
+      longitude: number;
+      address: string;
+    }) => void;
+    onCancel: () => void;
+    confirmLabel: string;
+    cancelLabel: string;
+  }) => (
+    <div aria-label="Mock location picker">
+      <button
+        type="button"
+        onClick={() =>
+          onConfirm({
+            latitude: 28.6139,
+            longitude: 77.209,
+            address: "Kartavya Path, New Delhi, Delhi 110001, India",
+          })
+        }
+      >
+        {confirmLabel}
+      </button>
+      <button type="button" onClick={onCancel}>
+        {cancelLabel}
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/one-location/saved-locations-section", () => ({
@@ -213,6 +259,8 @@ vi.mock("@/lib/one-location/service", () => ({
     reverseGeocode: mockReverseGeocode,
     placesAutocomplete: mockPlacesAutocomplete,
     placeDetails: mockPlaceDetails,
+    getMapState: mockGetMapState,
+    updateMapPreferences: mockUpdateMapPreferences,
     watchCurrentPosition: vi.fn().mockResolvedValue(null),
     clearWatch: vi.fn(),
     clearLocationWatch: vi.fn().mockResolvedValue(undefined),
@@ -238,6 +286,14 @@ vi.mock("@/lib/one-location/saved-locations", () => ({
   DuplicateSavedLocationError: class extends Error {},
   addSavedLocation: mockAddSavedLocation,
   loadSavedLocations: mockLoadSavedLocations,
+}));
+
+vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({
+  PreVaultSensitiveDraftService: {
+    stageSavedLocation: mockStageSavedLocation,
+    clearSavedLocation: mockClearSavedLocation,
+    clearForUser: mockClearPreVaultForUser,
+  },
 }));
 
 vi.mock("@/lib/one-location/contact-signals", () => ({
@@ -475,17 +531,13 @@ async function openLocationFeatureStep() {
 async function openLocationPeopleStep() {
   await openLocationFeatureStep();
   await waitFor(() => {
-    const savePrompt = screen.queryByRole("dialog", {
-      name: "Save this place",
-    });
+    const savePrompt = screen.queryByTestId("save-location-modal");
     const continueButton = screen.queryByRole("button", {
       name: /Add my people|Allow location/,
     });
     expect(savePrompt || continueButton).toBeTruthy();
   });
-  const savePrompt = screen.queryByRole("dialog", {
-    name: "Save this place",
-  });
+  const savePrompt = screen.queryByTestId("save-location-modal");
   if (savePrompt) {
     fireEvent.click(
       within(savePrompt).getByRole("button", { name: "Skip for now" }),
@@ -528,6 +580,11 @@ async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
       await screen.findByRole("heading", { name: "Location Agent" }),
     ).toBeTruthy();
   }
+
+  // Tests after this helper exercise workspace actions. Ignore the deliberate
+  // onboarding picker capture so their assertions count only the action under
+  // test (share, request, Nearby, emergency, and public-link flows).
+  mockCaptureCurrentPosition.mockClear();
 }
 
 async function openLocationPermissionsStep() {
@@ -689,6 +746,18 @@ describe("OneLocationAgentPage", () => {
       label: "Hushh Office, Bengaluru, Karnataka, India",
       latitude: 12.9716,
       longitude: 77.5946,
+    });
+    mockGetMapState.mockResolvedValue({
+      preferences: {
+        presenceMode: "ghost",
+        rendererConsentVersion: "google-maps-renderer-v1",
+      },
+      freshnessSeconds: 60,
+      markers: [],
+    });
+    mockUpdateMapPreferences.mockResolvedValue({
+      presenceMode: "ghost",
+      rendererConsentVersion: "google-maps-renderer-v1",
     });
     mockAddSavedLocation.mockResolvedValue([
       {
@@ -1024,10 +1093,10 @@ describe("OneLocationAgentPage", () => {
       ).toHaveAttribute("aria-checked", "true"),
     );
 
-    fireEvent.click(
-      screen.getByRole("switch", { name: "Turn location off" }),
+    fireEvent.click(screen.getByRole("switch", { name: "Turn location off" }));
+    await waitFor(() =>
+      expect(screen.getByText("Location paused")).toBeTruthy(),
     );
-    await waitFor(() => expect(screen.getByText("Location paused")).toBeTruthy());
 
     mockCaptureCurrentPosition.mockClear();
     mockCaptureCurrentPosition.mockRejectedValue(
@@ -1194,9 +1263,7 @@ describe("OneLocationAgentPage", () => {
       target: { value: "Trusted" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(
-      screen.getByRole("radio", { name: /Approximate area/i }),
-    );
+    fireEvent.click(screen.getByRole("radio", { name: /Approximate area/i }));
     fireEvent.click(screen.getByRole("combobox", { name: "Duration" }));
     fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Optional note" }), {
@@ -1271,9 +1338,9 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("combobox", { name: "Duration" }).textContent,
     ).toContain("15 min");
-    expect(
-      screen.getByRole("textbox", { name: "Optional note" }),
-    ).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Optional note" })).toHaveValue(
+      "",
+    );
     expect(screen.getByText("0/140")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Review share" }));
@@ -1301,9 +1368,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("region", { name: "Saved Locations" }),
     ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Manage sharing" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Manage sharing" })).toBeNull();
     expect(mockRouterPush).toHaveBeenCalledWith(
       "/one/location?action=settings",
       { scroll: false },
@@ -1567,9 +1632,7 @@ describe("OneLocationAgentPage", () => {
     await openLocationPermissionsStep();
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
-    expect(
-      screen.getByRole("button", { name: "Add my people" }),
-    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add my people" })).toBeEnabled();
     expect(onSetupComplete).not.toHaveBeenCalled();
   });
 
@@ -1608,9 +1671,7 @@ describe("OneLocationAgentPage", () => {
       appInteractionCoordinator.handleLifecycle("active");
     });
 
-    expect(
-      await screen.findByRole("dialog", { name: "Save this place" }),
-    ).toBeTruthy();
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
   });
 
@@ -1625,7 +1686,7 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("Workspace state unavailable")).toBeNull();
   });
 
-  it("starts Location setup without vault authority or a saved-place prompt", async () => {
+  it("stages the onboarding location in memory when vault authority is not ready", async () => {
     mockUseVault.mockReturnValue({
       isVaultUnlocked: false,
       vaultKey: null,
@@ -1639,9 +1700,121 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     expect(mockRegisterKey).not.toHaveBeenCalled();
     expect(mockGetState).not.toHaveBeenCalled();
-    expect(
-      screen.queryByRole("dialog", { name: "Save this place" }),
-    ).toBeNull();
+
+    await openLocationPermissionsStep();
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
+    expect(mockReverseGeocode).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+      target: { value: "Flat 4B" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+
+    await waitFor(() =>
+      expect(mockStageSavedLocation).toHaveBeenCalledWith("user_a", {
+        category: "home",
+        label: "",
+        latitude: 28.6139,
+        longitude: 77.209,
+        address: "Flat 4B, Kartavya Path, New Delhi, Delhi 110001, India",
+      }),
+    );
+    expect(mockAddSavedLocation).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("save-location-modal")).toBeNull();
+  });
+
+  it("never carries an in-flight location capture across an account switch", async () => {
+    let resolveUserACapture:
+      | ((value: {
+          latitude: number;
+          longitude: number;
+          accuracyM: number;
+          capturedAt: string;
+          sourcePlatform: "web";
+        }) => void)
+      | undefined;
+    mockUseVault.mockReturnValue({
+      isVaultUnlocked: false,
+      vaultKey: null,
+      vaultOwnerToken: null,
+    });
+    mockCaptureCurrentPosition
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveUserACapture = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        latitude: 12.9716,
+        longitude: 77.5946,
+        accuracyM: 15,
+        capturedAt: "2026-08-04T01:00:00.000Z",
+        sourcePlatform: "web",
+      });
+
+    const view = render(<OneLocationAgentPage mode="setup" />);
+    await openLocationPermissionsStep();
+    await waitFor(() =>
+      expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1),
+    );
+
+    mockUseRequireAuth.mockReturnValue({
+      loading: false,
+      isAuthenticated: true,
+      userId: "user_b",
+      user: {
+        uid: "user_b",
+        displayName: "Second User",
+        email: "second@example.com",
+        photoURL: null,
+        getIdToken: vi.fn().mockResolvedValue("id-token-b"),
+      },
+    });
+    view.rerender(<OneLocationAgentPage mode="setup" />);
+
+    await waitFor(() =>
+      expect(mockClearPreVaultForUser).toHaveBeenCalledWith("user_a"),
+    );
+    await openLocationPermissionsStep();
+    await waitFor(() =>
+      expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(2),
+    );
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
+
+    await act(async () => {
+      resolveUserACapture?.({
+        latitude: 40.7128,
+        longitude: -74.006,
+        accuracyM: 10,
+        capturedAt: "2026-08-04T00:59:00.000Z",
+        sourcePlatform: "web",
+      });
+      await Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+      target: { value: "Second user's home" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+
+    await waitFor(() =>
+      expect(mockStageSavedLocation).toHaveBeenCalledWith(
+        "user_b",
+        expect.objectContaining({
+          category: "home",
+          address: expect.stringContaining("Second user's home"),
+        }),
+      ),
+    );
+    expect(mockStageSavedLocation).not.toHaveBeenCalledWith(
+      "user_a",
+      expect.anything(),
+    );
   });
 
   it("keeps contact prefetch alive across steps and renders the first available source", async () => {
@@ -1837,7 +2010,11 @@ describe("OneLocationAgentPage", () => {
       expect(mockRequestLocationPermission).toHaveBeenCalledTimes(1),
     );
     expect(toast.success).toHaveBeenCalledWith("Location access enabled.");
-    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1),
+    );
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
     expect(
       await screen.findByRole("heading", { name: "Add people" }),
@@ -1894,9 +2071,7 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openLocationPermissionsStep();
-    expect(
-      await screen.findByRole("dialog", { name: "Save this place" }),
-    ).toBeTruthy();
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     await waitFor(() =>
       expect(mockReverseGeocode).toHaveBeenCalledWith({
         vaultOwnerToken: "vault-token",
@@ -1905,6 +2080,10 @@ describe("OneLocationAgentPage", () => {
       }),
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+      target: { value: "Flat 4B" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
     fireEvent.click(screen.getByRole("button", { name: "Save location" }));
 
@@ -1920,14 +2099,12 @@ describe("OneLocationAgentPage", () => {
           label: "",
           latitude: 28.6139,
           longitude: 77.209,
-          address: "Kartavya Path, New Delhi, Delhi 110001, India",
+          address: "Flat 4B, Kartavya Path, New Delhi, Delhi 110001, India",
         },
       }),
     );
     await waitFor(() =>
-      expect(
-        screen.queryByRole("dialog", { name: "Save this place" }),
-      ).toBeNull(),
+      expect(screen.queryByTestId("save-location-modal")).toBeNull(),
     );
     expect(
       window.localStorage.getItem(
@@ -1973,17 +2150,15 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
-    expect(
-      await screen.findByRole("dialog", { name: "Save this place" }),
-    ).toBeTruthy();
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(2);
   });
 
-  it("reoffers the workspace prompt when legacy state says answered but encrypted PKM is empty", async () => {
-    window.localStorage.removeItem(
+  it("retires a legacy skipped outcome and still opens the onboarding picker", async () => {
+    window.localStorage.setItem(
       "one_location_saved_location_prompt_v2:user_a",
+      "skipped",
     );
-    mockLoadSavedLocations.mockResolvedValue([]);
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -1994,17 +2169,15 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openLocationPermissionsStep();
 
-    expect(
-      await screen.findByRole("dialog", { name: "Save this place" }),
-    ).toBeTruthy();
-    expect(mockLoadSavedLocations).toHaveBeenCalledWith({
-      userId: "user_a",
-      vaultKey: "vault-key",
-      vaultOwnerToken: "vault-token",
-    });
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     expect(
       window.localStorage.getItem(
         "one_location_saved_location_prompt_v1:user_a",
+      ),
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem(
+        "one_location_saved_location_prompt_v2:user_a",
       ),
     ).toBeNull();
   });
@@ -2020,6 +2193,8 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openLocationPermissionsStep();
     expect(mockRequestLocationPermission).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
     expect(
       await screen.findByRole("heading", { name: "Add people" }),
@@ -2033,14 +2208,14 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Location Agent" }),
     ).toBeTruthy();
-    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
     // Completing onboarding persists the one-time intro flag.
     expect(
       window.localStorage.getItem("one_location_onboarding_v2:user_a"),
     ).toBe("1");
   });
 
-  it("reoffers the encrypted saved-place prompt in the unlocked workspace when Location is already granted", async () => {
+  it("reoffers the two-step saved-place flow when Location is already granted", async () => {
     window.localStorage.removeItem(
       "one_location_saved_location_prompt_v2:user_a",
     );
@@ -2061,46 +2236,19 @@ describe("OneLocationAgentPage", () => {
     await openLocationPermissionsStep();
 
     expect(mockRequestLocationPermission).not.toHaveBeenCalled();
-    expect(
-      await screen.findByRole("dialog", { name: "Save this place" }),
-    ).toBeTruthy();
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Change captured location",
-      }),
-    );
-    fireEvent.change(
-      screen.getByRole("searchbox", {
-        name: "Search for another place",
-      }),
-      { target: { value: "Hushh Office" } },
-    );
-    await waitFor(() =>
-      expect(mockPlacesAutocomplete).toHaveBeenCalledWith({
-        vaultOwnerToken: "vault-token",
-        input: "Hushh Office",
-      }),
-    );
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Hushh Office, Bengaluru",
-      }),
-    );
-
-    await waitFor(() =>
-      expect(mockPlaceDetails).toHaveBeenCalledWith({
-        vaultOwnerToken: "vault-token",
-        placeId: "hushh-office",
-      }),
-    );
-    expect(
-      await screen.findByText(
-        "Hushh Office, Bengaluru, Karnataka, India",
-      ),
-    ).toBeTruthy();
-    expect(screen.queryByText(/12\.9716|77\.5946/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+      target: { value: "Tower 2, Floor 4" },
+    });
+    fireEvent.change(screen.getByLabelText(/Building colour/), {
+      target: { value: "White gate" },
+    });
+    fireEvent.change(screen.getByLabelText(/Nearby landmark/), {
+      target: { value: "India Gate" },
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
     fireEvent.click(screen.getByRole("button", { name: "Save location" }));
@@ -2115,9 +2263,10 @@ describe("OneLocationAgentPage", () => {
         input: {
           category: "work",
           label: "",
-          latitude: 12.9716,
-          longitude: 77.5946,
-          address: "Hushh Office, Bengaluru, Karnataka, India",
+          latitude: 28.6139,
+          longitude: 77.209,
+          address:
+            "Tower 2, Floor 4, White gate, Near India Gate, Kartavya Path, New Delhi, Delhi 110001, India",
         },
       }),
     );
@@ -3023,9 +3172,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
 
     mockRouterPush.mockClear();
-    fireEvent.click(
-      screen.getByRole("button", { name: /Add Connections/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /Add Connections/i }));
     expect(mockRouterPush).toHaveBeenCalledWith("/one/connect");
 
     fireEvent.click(screen.getByRole("button", { name: "Links" }));

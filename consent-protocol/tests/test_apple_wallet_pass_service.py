@@ -307,10 +307,7 @@ def test_back_fields_carry_the_volatile_detail_and_the_control_note(
     assert back["portfolio"] == "https://ada.example.com/work"
     assert back["profile_link"] == PUBLIC_CARD_URL
     assert "how_it_works" in back
-    assert (
-        back["control"] == "Only the information you select will be visible. "
-        "You can update or disable access at any time."
-    )
+    assert back["control"] == "Only what you pick is visible. Change or switch it off anytime."
 
 
 def test_absent_optional_fields_produce_no_blank_rows(signing_material) -> None:

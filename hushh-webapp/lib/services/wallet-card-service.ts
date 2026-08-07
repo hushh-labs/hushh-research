@@ -48,8 +48,7 @@ export const WALLET_CARD_SERVICE_COPY = {
   expired: "This profile link has expired.",
   notFound: "This profile is not available.",
   unavailable: "This profile could not be loaded right now.",
-  signingUnavailable:
-    "We couldn't create your Wallet pass right now. Please try again in a moment.",
+  signingUnavailable: "Couldn't create your pass. Try again in a moment.",
   unsupported: "Apple Wallet is available on iPhone and iPad.",
 } as const;
 
