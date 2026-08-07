@@ -53,6 +53,15 @@ EXPECTED_AGENTS = {
     "product_docs_architect",
     "security_consent_auditor",
     "voice_systems_architect",
+    # Wave 2 -- the per-domain principal lanes for the Private Agent platform,
+    # added alongside the north star. Same contract as wave 1: read-only,
+    # advisory-only, thin TOML with shared craft left in AGENTS.md.
+    "chief_systems_architect",
+    "ai_platform_engineer",
+    "cloud_platform_engineer",
+    "site_reliability_engineer",
+    "validation_simulation_engineer",
+    "documentation_architect",
 }
 REQUIRED_KEYS = {"name", "description", "developer_instructions", "sandbox_mode"}
 READ_ONLY_BASELINE = EXPECTED_AGENTS
