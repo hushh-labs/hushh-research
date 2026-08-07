@@ -31,6 +31,7 @@ _CONFIG_ARGS = (
     "obs_data_stale_ratio_threshold passkey_allowed_rp_ids plaid_env "
     "plaid_client_name plaid_country_codes plaid_webhook_url plaid_redirect_path "
     "plaid_redirect_uri plaid_tx_history_days one_location_read_only_state_enabled "
+    "one_location_nearby_presence_mode one_location_nearby_presence_cohort "
     "consent_center_summary_v2_enabled db_bulk_batching_enabled "
     "hushh_trusted_device_enabled hushh_trusted_device_uat_allowlist "
     "advisors_api_base_url advisors_api_key_source_project "
