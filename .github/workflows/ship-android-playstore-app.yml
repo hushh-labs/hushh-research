@@ -19,12 +19,7 @@ on:
         description: "Google Play Console track (internal, alpha, beta, production)"
         required: false
         default: "internal"
-        type: choice
-        options:
-          - internal
-          - alpha
-          - beta
-          - production
+        type: string
       dry_run:
         description: "Build & sign .aab but do NOT upload to Google Play Console"
         required: false
