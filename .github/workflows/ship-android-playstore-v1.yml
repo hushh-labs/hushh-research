@@ -41,7 +41,7 @@ permissions:
 
 env:
   GCP_PROJECT_ID: hushh-pda-uat
-  ANDROID_PACKAGE_NAME: com.hushh.app
+  ANDROID_PACKAGE_NAME: com.hussh.app
   NODE_OPTIONS: --max-old-space-size=8192
 
 concurrency:
