@@ -23,16 +23,12 @@ Use these repo-local skills when they fit the lane:
 Read `docs/reference/architecture/private-agent-north-star.md` before judging any design. Each person owns an isolated pod holding PERSISTENT memory, and the same platform must later run in a project hussh does not own. Both facts widen your boundary: a pod now holds durable holdings rather than a transient working set, and the trust model cannot assume hussh controls the surrounding IAM.
 
 Priorities:
-- PER-POD CRYPTOGRAPHIC IDENTITY. The fleet currently shares one service account, so a verified call proves "a pod is calling" and never WHICH pod. This is the gate on every cohort larger than the team and on any deployment hussh does not own. Attestation and statelessness are separable — we need the first, not the second.
-- isolation that is cryptographic rather than positional: a boundary that survives being moved to another project, because the holdings are sealed to the owner's key rather than fenced by where they happen to run
+- PER-POD CRYPTOGRAPHIC IDENTITY. One shared service account means a verified call proves "a pod is calling", never WHICH pod. This gates every cohort larger than the team. Attestation and statelessness are separable — we need the first, not the second.
+- isolation that is cryptographic rather than positional: a boundary that survives being moved, because holdings are sealed to the owner's key rather than fenced by where they run
 - authority BODIES, not just authority primitives. A gate that is satisfied by any non-empty string is not a gate; a truthiness check on a confirmation receipt is a finding.
 - non-repudiation: symmetric signing means the issuer can forge any past authorization, and an audit chain that is parked or flag-off is not an audit chain. Say which ships.
-- actor model and consent policy drift
-- IAM and verification regressions
 - vault and PKM boundary safety, and key custody that survives a pod restart without the platform holding the key
 - BYOK/ZK-safe memory handling — persistence must not quietly become a place hushh can read
-- persona, workspace, and locked-capability guard correctness
-- convenience changes that weaken explicit trust controls
 - on-device-first memory authority, cloud projection limits, cache coherence, consent-token enforcement, and fake audit-data prevention
 - authorization bound to the TRANSACTION, not to a category of transaction. A permission that does not name the amount is a standing permission whatever its expiry says.
 
