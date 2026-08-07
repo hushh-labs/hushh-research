@@ -186,6 +186,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.RIA_ONBOARDING) {
     return { screen: "ria_onboarding", subview: query.get("step") || null };
   }
+  if (normalizedPath === ROUTES.RIA_CLAIM) {
+    return { screen: "ria_claim", subview: null };
+  }
   if (normalizedPath === ROUTES.RIA_PROFILE) {
     return { screen: "profile_regulatory", subview: query.get("tab") || null };
   }

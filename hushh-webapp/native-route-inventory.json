@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-08-02",
-  "total_routes": 105,
-  "native_required_routes": 95,
+  "total_routes": 106,
+  "native_required_routes": 96,
   "excluded_routes": 10,
   "routes": [
     {
@@ -1076,6 +1076,18 @@
       "allowedDataStates": [
         "loaded",
         "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/ria/claim",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fria%2Fclaim",
+      "expectedMarker": "native-route-ria-claim",
+      "expectedRoute": "/ria/claim",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
       ]
     },
     {

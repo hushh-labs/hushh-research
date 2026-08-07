@@ -175,7 +175,7 @@ import { updateOneLocationControlState } from "@/lib/one-location/location-contr
 import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
 import {
   isOneLocationNearbyCheckInAvailable,
-  ONE_LOCATION_NEARBY_MAX_ACCURACY_METERS,
+  ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
 } from "@/lib/one-location/nearby-check-in-availability";
 
 import {
@@ -2219,13 +2219,17 @@ export function OneLocationAgentPageContent({
     (locationControl.selfPreviewEnabled ||
       locationControl.nearbyPresenceActive ||
       (locationControl.autoShareEnabled && activeOwnerGrants.length > 0));
+  // "Location limited" is a signal-quality badge, not an admission gate, so it
+  // tracks the coarse threshold rather than the hard check-in ceiling. Those two
+  // are now far apart: a 1 km browser fix is genuinely limited but still
+  // perfectly usable for picking the venue you are standing in.
   const locationAccuracyLimited =
     locationEnabled &&
     (permission?.state !== "granted" ||
       permission?.precise === false ||
       (typeof myLocationPoint?.accuracyM === "number" &&
         Number.isFinite(myLocationPoint.accuracyM) &&
-        myLocationPoint.accuracyM > ONE_LOCATION_NEARBY_MAX_ACCURACY_METERS));
+        myLocationPoint.accuracyM > ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS));
 
   useEffect(() => {
     if (!nearbyCheckInAvailable || !auth.userId || !vaultOwnerToken) {

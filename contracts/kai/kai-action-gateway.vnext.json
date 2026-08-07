@@ -17,6 +17,7 @@
     "hushh-webapp/app/one/setup/ria/page.voice-action-contract.json",
     "hushh-webapp/app/page.voice-action-contract.json",
     "hushh-webapp/app/register-phone/page.voice-action-contract.json",
+    "hushh-webapp/app/ria/claim/page.voice-action-contract.json",
     "hushh-webapp/app/ria/clients/page.voice-action-contract.json",
     "hushh-webapp/app/ria/onboarding/page.voice-action-contract.json",
     "hushh-webapp/app/ria/page.voice-action-contract.json",
@@ -411,6 +412,28 @@
         "guard_ids": [
           "auth_signed_in"
         ]
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "ria_claim",
+      "surface_title": "RIA Claim Profile",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/ria/claim/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "ria"
+          ]
+        }
       },
       "orchestration": {
         "instruction_id": null,
@@ -6558,6 +6581,150 @@
             "action_id": "phone_mandate.submit_code",
             "label": "Submit Verification Code",
             "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.ria_claim",
+      "surface_id": "ria_claim",
+      "label": "Claim RIA Profile",
+      "aliases": [
+        "claim my profile",
+        "claim ria profile",
+        "claim advisor profile",
+        "claim my firm"
+      ],
+      "search_keywords": [
+        "claim",
+        "ria",
+        "advisor",
+        "firm",
+        "phone",
+        "sec"
+      ],
+      "meaning": "Navigates to the claim-by-phone flow where an adviser claims their SEC profile with their office number.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/ria/claim"
+        ],
+        "screens": [
+          "ria_claim"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA workspace must be available or in setup for this account."
+        ],
+        "active_personas": [
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": true
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/ria/claim"
+      },
+      "control_ids": [
+        "ria-claim-phone-input",
+        "ria-claim-lookup"
+      ],
+      "state_exposure": [
+        "current claim step",
+        "matched firm and adviser candidates"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/ria/claim/page.tsx"
+      ],
+      "workflow": {
+        "workflow_id": "route.ria_claim.entry",
+        "confirmation_required": true,
+        "failure_message": null,
+        "blocked_guidance": "Sign in before claiming an advisor profile.",
+        "steps": [
+          {
+            "type": "persona_switch",
+            "preconditions": [],
+            "postconditions": [],
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "persona": "ria"
+            },
+            "target_persona": "ria",
+            "confirmation_required": true
+          },
+          {
+            "type": "route_switch",
+            "preconditions": [],
+            "postconditions": [],
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/claim",
+              "screen": "ria_claim"
+            },
+            "href": "/ria/claim"
+          }
+        ]
+      },
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /ria/claim"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.ria_claim",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.ria_claim",
+            "label": "Claim RIA Profile",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/ria/claim",
+              "screen": "ria_claim"
+            }
           }
         ],
         "progress_contract": {

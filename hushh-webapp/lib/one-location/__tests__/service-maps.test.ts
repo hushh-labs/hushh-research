@@ -21,6 +21,32 @@ describe("OneLocationService maps methods", () => {
     );
   });
 
+  it("strictly restricts check-in autocomplete to the current search area", async () => {
+    const spy = vi
+      .spyOn(apiClient, "apiJson")
+      .mockResolvedValue({ suggestions: [] } as never);
+
+    await OneLocationService.placesAutocomplete({
+      vaultOwnerToken: "t",
+      input: "clinic",
+      lat: 12.9716,
+      lng: 77.5946,
+      nearbyOnly: true,
+    });
+
+    expect(spy).toHaveBeenCalledWith(
+      "/api/one/location/maps/autocomplete",
+      expect.objectContaining({
+        body: JSON.stringify({
+          input: "clinic",
+          lat: 12.9716,
+          lng: 77.5946,
+          nearbyOnly: true,
+        }),
+      }),
+    );
+  });
+
   it("placeDetails returns a DriveDestination", async () => {
     vi.spyOn(apiClient, "apiJson").mockResolvedValue({
       place: { placeId: "p1", label: "SB", latitude: 1, longitude: 2 },
@@ -41,6 +67,7 @@ describe("OneLocationService maps methods", () => {
       vaultOwnerToken: "t",
       lat: 12.9716,
       lng: 77.5946,
+      category: "health",
     });
 
     expect(out[0]?.text).toBe("Demo Hall");
@@ -48,7 +75,11 @@ describe("OneLocationService maps methods", () => {
       "/api/one/location/maps/nearby-places",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ lat: 12.9716, lng: 77.5946 }),
+        body: JSON.stringify({
+          lat: 12.9716,
+          lng: 77.5946,
+          category: "health",
+        }),
       }),
     );
   });
@@ -59,7 +90,7 @@ describe("OneLocationService maps methods", () => {
         status: "active",
         audience: "all_opted_in",
         allowConnectionRequests: true,
-        consentVersion: "one-location-nearby-presence-v2",
+        consentVersion: "one-location-nearby-presence-v3",
         checkedInAt: "2026-07-30T10:00:00Z",
         expiresAt: "2026-07-30T12:00:00Z",
         placeLabel: "Demo Hall",
@@ -125,6 +156,36 @@ describe("OneLocationService maps methods", () => {
       message: "Turn on precise location, then try again.",
       retryLocation: true,
       openAppSettings: true,
+    });
+  });
+
+  it("maps an invalidated place to a nearby-place refresh", () => {
+    const details = OneLocationService.nearbyCheckInErrorDetails(
+      new apiClient.ApiError("not check-inable", 422, {
+        detail: { code: "ONE_LOCATION_PLACE_NOT_CHECK_INABLE" },
+      }),
+    );
+
+    expect(details).toEqual({
+      message: "This place is no longer available. Choose another nearby place.",
+      retryLocation: false,
+      openAppSettings: false,
+      retryPlaces: true,
+    });
+  });
+
+  it("refreshes nearby places when confirmation detects that the user moved", () => {
+    const details = OneLocationService.nearbyCheckInErrorDetails(
+      new apiClient.ApiError("outside", 422, {
+        detail: { code: "NEARBY_PRESENCE_OUTSIDE_RADIUS" },
+      }),
+    );
+
+    expect(details).toEqual({
+      message: "You moved outside that place's range. Choose a nearby place again.",
+      retryLocation: false,
+      openAppSettings: false,
+      retryPlaces: true,
     });
   });
 
