@@ -795,7 +795,8 @@ async def _account_phone_matches(firebase_uid: str, phone_digits: str) -> bool:
         return False
     if identity.get("phone_verified") is not True:
         return False
-    return normalize_nanp_phone(str(identity.get("phone_number") or "")) == phone_digits
+    stored: str = normalize_nanp_phone(str(identity.get("phone_number") or ""))
+    return bool(stored) and stored == phone_digits
 
 
 async def _prove_claim_possession(
