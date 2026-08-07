@@ -629,7 +629,7 @@ CREATE INDEX idx_consent_audit_pending ON consent_audit(user_id) WHERE action = 
 ### Native
 
 - `hushh-webapp/ios/App/App/Plugins/KaiPlugin.swift` - iOS plugin
-- `hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/Kai/KaiPlugin.kt` - Android plugin
+- `hushh-webapp/android/app/src/main/java/com/hussh/app/plugins/Kai/KaiPlugin.kt` - Android plugin
 
 ---
 

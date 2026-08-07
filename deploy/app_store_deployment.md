@@ -399,7 +399,7 @@ cd android
 - **Manifest**: `android/app/src/main/AndroidManifest.xml`
 - **Strings**: `android/app/src/main/res/values/strings.xml`
 - **Icons**: `android/app/src/main/res/mipmap-*/`
-- **Source**: `android/app/src/main/java/com/hushh/app/`
+- **Source**: `android/app/src/main/java/com/hussh/app/`
 
 ### Shared
 - **Capacitor Config**: `capacitor.config.ts`
