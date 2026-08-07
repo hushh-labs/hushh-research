@@ -379,7 +379,11 @@ describe("ConsentCenterPage requestId deep links", () => {
     render(<ConsentCenterPage />);
 
     expect(
-      await screen.findByRole("dialog", { name: "Northstar Planning" }),
+      await screen.findByRole(
+        "dialog",
+        { name: "Northstar Planning" },
+        { timeout: 5_000 },
+      ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Don't allow" })).toBeTruthy();

@@ -40,7 +40,8 @@ export type OneLocationWorkflowNotificationType =
   | "location_access_denied"
   | "location_referral_invite"
   | "location_public_invite_submitted"
-  | "location_one_network_joined";
+  | "location_one_network_joined"
+  | "location_circle_member_invite";
 
 export type OneLocationNotificationSection =
   | "people"
@@ -91,6 +92,10 @@ const WORKFLOW_COPY: Record<
   location_one_network_joined: {
     title: "Connected on One",
     fallbackDescription: "A trusted person joined your One Network.",
+  },
+  location_circle_member_invite: {
+    title: "Circle invitation",
+    fallbackDescription: "A connection invited you to join their Circle.",
   },
 };
 
@@ -378,6 +383,7 @@ export function buildOneLocationWorkflowHref(params: {
   requestId?: string | null;
   referralId?: string | null;
   submissionId?: string | null;
+  circleInviteId?: string | null;
   section?: OneLocationNotificationSection | null;
   openGrant?: boolean;
 }): string {
@@ -386,11 +392,13 @@ export function buildOneLocationWorkflowHref(params: {
   const requestId = String(params.requestId || "").trim();
   const referralId = String(params.referralId || "").trim();
   const submissionId = String(params.submissionId || "").trim();
+  const circleInviteId = String(params.circleInviteId || "").trim();
   const section = String(params.section || "").trim();
   if (grantId) query.set(ONE_LOCATION_GRANT_ID_PARAM, grantId);
   if (requestId) query.set(ONE_LOCATION_REQUEST_ID_PARAM, requestId);
   if (referralId) query.set(ONE_LOCATION_REFERRAL_ID_PARAM, referralId);
   if (submissionId) query.set(ONE_LOCATION_SUBMISSION_ID_PARAM, submissionId);
+  if (circleInviteId) query.set("circleInviteId", circleInviteId);
   if (section) query.set(ONE_LOCATION_SECTION_PARAM, section);
   if (grantId && params.openGrant) {
     query.set(
@@ -420,6 +428,7 @@ export function oneLocationSectionForWorkflowNotificationType(
     case "location_referral_invite":
       return "my_requests";
     case "location_one_network_joined":
+    case "location_circle_member_invite":
       return "people";
     default:
       return "activity";
@@ -609,6 +618,11 @@ export function locationWorkflowNotificationCopy(params: {
       return {
         title: copy.title,
         description: `${networkLabel} is now connected with you on One.`,
+      };
+    case "location_circle_member_invite":
+      return {
+        title: copy.title,
+        description: `${networkLabel} invited you to join a Circle.`,
       };
     default:
       return { title: copy.title, description: copy.fallbackDescription };

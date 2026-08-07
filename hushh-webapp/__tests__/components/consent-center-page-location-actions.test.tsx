@@ -238,6 +238,46 @@ function pendingLocationRequestList() {
   };
 }
 
+function pendingCircleMemberInviteList() {
+  return {
+    user_id: "user-1",
+    actor: "investor",
+    mode: "consents",
+    surface: "pending",
+    query: "",
+    page: 1,
+    limit: 20,
+    total: 1,
+    has_more: false,
+    items: [
+      {
+        id: "one_location_circle_member_invite:invite-1",
+        kind: "invite",
+        status: "pending",
+        action: "CIRCLE_MEMBER_INVITED",
+        scope: null,
+        scope_description: "Invitation to join Hushh Family",
+        counterpart_type: "investor",
+        counterpart_label: "Bob",
+        request_id: "invite-1",
+        request_url:
+          "/one/location?tab=people&circleInviteId=invite-1",
+        issued_at: "2026-06-24T18:03:06.000Z",
+        expires_at: "2026-06-27T18:03:06.000Z",
+        metadata: {
+          request_source: "one_location_circle_member_invite",
+          workflow_kind: "circle_membership",
+          section: "people",
+          invite_id: "invite-1",
+          circle_id: "circle-1",
+          circle_name: "Hushh Family",
+          requester_label: "Bob",
+        },
+      },
+    ],
+  };
+}
+
 function activeDeveloperGrantList() {
   return {
     user_id: "user-1",
@@ -286,9 +326,13 @@ describe("ConsentCenterPage One Location action routing", () => {
 
     render(<ConsentCenterPage />);
 
-    const revokeButton = (await screen.findByRole("button", {
-      name: "Stop sharing",
-    })) as HTMLButtonElement;
+    const revokeButton = (await screen.findByRole(
+      "button",
+      {
+        name: "Stop sharing",
+      },
+      { timeout: 5_000 },
+    )) as HTMLButtonElement;
     fireEvent.click(revokeButton);
 
     await waitFor(() => {
@@ -370,6 +414,36 @@ describe("ConsentCenterPage One Location action routing", () => {
       expect.objectContaining({ id: "one_location_request:req-1" }),
     );
     expect(mocks.handleDeny).not.toHaveBeenCalled();
+  });
+
+  it("shows a Circle invitation in Requests without generic location approval controls", async () => {
+    mocks.search =
+      "tab=pending&requestId=one_location_circle_member_invite:invite-1";
+    mocks.getSummary.mockResolvedValue(
+      summaryResponse({ pending: 1, active: 0, previous: 0 }),
+    );
+    mocks.listEntries.mockResolvedValue(pendingCircleMemberInviteList());
+
+    render(<ConsentCenterPage />);
+
+    expect(
+      await screen.findAllByText("Bob invited you to join Hushh Family.", {
+        exact: false,
+      }),
+    ).not.toHaveLength(0);
+    expect(
+      screen.getByRole("link", { name: "Open invitation" }),
+    ).toHaveAttribute(
+      "href",
+      "/one/location?circleInviteId=invite-1&section=people",
+    );
+    expect(
+      screen.queryByRole("button", { name: "Allow" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Don't allow" }),
+    ).not.toBeInTheDocument();
+    expect(mocks.handleLocationApprove).not.toHaveBeenCalled();
   });
 
 

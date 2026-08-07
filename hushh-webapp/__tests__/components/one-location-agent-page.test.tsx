@@ -279,6 +279,44 @@ vi.mock("@/lib/one-location/service", () => ({
     createCircleInvite: mockCreateCircleInvite,
     revokePublicInvite: vi.fn(),
     revokeCircleInvite: vi.fn(),
+    // Named-circle surface: the mandatory onboarding invite screen
+    // find-or-creates the user's first owned Circle and issues its
+    // member-visible invite code before the people step opens.
+    listCircles: vi.fn().mockResolvedValue([]),
+    getCircle: vi.fn(),
+    createNamedCircle: vi.fn().mockResolvedValue({
+      id: "circle_onboarding",
+      name: "Test's Circle",
+      kind: "family",
+      role: "owner",
+      memberCount: 1,
+      memberLimit: 8,
+      members: [],
+      activeInviteCode: null,
+    }),
+    updateNamedCircle: vi.fn(),
+    deleteNamedCircle: vi.fn(),
+    createNamedCircleInviteCode: vi.fn().mockResolvedValue({
+      id: "invite_code_1",
+      circleId: "circle_onboarding",
+      code: "HUSHH123",
+      expiresAt: "2026-05-23T07:30:00.000Z",
+    }),
+    revokeNamedCircleInviteCode: vi.fn(),
+    resolveNamedCircleCode: vi.fn(),
+    joinNamedCircle: vi.fn(),
+    leaveNamedCircle: vi.fn(),
+    removeNamedCircleMember: vi.fn(),
+    listNamedCircleEligibleConnections: vi.fn(),
+    createNamedCircleMemberInvites: vi.fn(),
+    listNamedCircleMemberInvites: vi.fn().mockResolvedValue([]),
+    acceptNamedCircleMemberInvite: vi.fn(),
+    declineNamedCircleMemberInvite: vi.fn(),
+    cancelNamedCircleMemberInvite: vi.fn(),
+    addSmsContact: vi.fn(),
+    removeSmsContact: vi.fn(),
+    routeEta: vi.fn(),
+    createGrantWithEnvelope: vi.fn(),
   },
 }));
 
@@ -528,6 +566,18 @@ async function openLocationFeatureStep() {
   ).toBeTruthy();
 }
 
+// The features step now always advances into the mandatory invite screen
+// (the page provides onPrepareOnboardingCircleInvite). Wait for the code to
+// finish provisioning — the footer button reads "Next" only once the invite
+// is ready — then continue to the people step.
+async function passLocationInviteStep() {
+  expect(
+    await screen.findByRole("heading", { name: "Share your circle code" }),
+  ).toBeTruthy();
+  const nextButton = await screen.findByRole("button", { name: "Next" });
+  fireEvent.click(nextButton);
+}
+
 async function openLocationPeopleStep() {
   await openLocationFeatureStep();
   await waitFor(() => {
@@ -548,6 +598,7 @@ async function openLocationPeopleStep() {
   });
   await waitFor(() => expect(continueButton).toBeEnabled());
   fireEvent.click(continueButton);
+  await passLocationInviteStep();
   expect(
     await screen.findByRole("heading", { name: "Add people" }),
   ).toBeTruthy();
@@ -2016,6 +2067,7 @@ describe("OneLocationAgentPage", () => {
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
+    await passLocationInviteStep();
     expect(
       await screen.findByRole("heading", { name: "Add people" }),
     ).toBeTruthy();
@@ -2118,6 +2170,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
+    await passLocationInviteStep();
     expect(
       await screen.findByRole("heading", { name: "Add people" }),
     ).toBeTruthy();
@@ -2196,6 +2249,7 @@ describe("OneLocationAgentPage", () => {
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
+    await passLocationInviteStep();
     expect(
       await screen.findByRole("heading", { name: "Add people" }),
     ).toBeTruthy();
@@ -3152,7 +3206,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await switchLocationTab("People", "Trusted Circle");
+    await switchLocationTab("People", "Your circles");
     // Empty state keeps connection management and invite/sync/share actions.
     // "Ask someone to share" is populated-state-only, and the redundant
     // approval explainer must not add another card below these actions.

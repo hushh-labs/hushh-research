@@ -151,6 +151,8 @@ export type OneLocationGrant = {
   updatedAt?: string | null;
   revokedAt?: string | null;
   latestEnvelopeId?: string | null;
+  /** Optional provenance for an explicit share started from a named Circle. */
+  sourceCircleId?: string | null;
   /**
    * Share intent surfaced by the backend so the recipient's notification, bell,
    * and Consent Manager can distinguish an emergency SOS from a friendly
@@ -243,6 +245,107 @@ export type OneLocationCircleInvite = {
   message?: string | null;
 };
 
+export type OneLocationCircleKind = "family" | "friends" | "other";
+export type OneLocationCircleRole = "owner" | "member";
+
+export type OneLocationCircleViewerCapabilities = {
+  canInviteMembers: boolean;
+  canViewInviteCode: boolean;
+  canRotateInviteCode: boolean;
+  canManageCircle: boolean;
+  canModerateInvites: boolean;
+};
+
+export type OneLocationCircleSummary = {
+  id: string;
+  name: string;
+  kind: OneLocationCircleKind;
+  role: OneLocationCircleRole;
+  memberCount: number;
+  memberLimit: number;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  viewerCapabilities?: OneLocationCircleViewerCapabilities;
+};
+
+export type OneLocationCircleMember = {
+  userId: string;
+  displayName: string;
+  photoUrl?: string | null;
+  role: OneLocationCircleRole;
+  joinedAt?: string | null;
+  phoneVerified: boolean;
+  secureLocationReady: boolean;
+  keyId?: string | null;
+  publicKeyJwk?: JsonWebKey | null;
+  keyAlgorithm?: string | null;
+  keyRegisteredAt?: string | null;
+  canReceiveLocation?: boolean;
+};
+
+export type OneLocationCircleDetail = OneLocationCircleSummary & {
+  members: OneLocationCircleMember[];
+  activeInviteCode?: OneLocationCircleInviteCode | null;
+  /** True only for a legacy active code that must be explicitly rotated by the owner. */
+  inviteCodeNeedsOwnerRotation?: boolean;
+};
+
+export type OneLocationCircleInviteCode = {
+  id: string;
+  circleId: string;
+  /** Re-readable by active members; never persist it in client storage or URLs. */
+  code: string;
+  expiresAt: string;
+};
+
+export type OneLocationCircleInvitePreview = {
+  name: string;
+  kind: OneLocationCircleKind;
+  ownerDisplayName: string;
+  memberCount: number;
+  expiresAt: string;
+  alreadyMember: boolean;
+};
+
+export type OneLocationCircleEligibleConnection = {
+  connectionId: string;
+  userId: string;
+  displayName: string;
+  photoUrl?: string | null;
+  connectedAt?: string | null;
+};
+
+export type OneLocationCircleMemberInviteStatus =
+  | "pending"
+  | "accepted"
+  | "declined"
+  | "cancelled"
+  | "expired"
+  | string;
+
+export type OneLocationCircleMemberInvite = {
+  id: string;
+  circleId: string;
+  circleName: string;
+  circleKind: OneLocationCircleKind;
+  inviterUserId: string;
+  inviterDisplayName: string;
+  inviteeUserId: string;
+  inviteeDisplayName?: string | null;
+  inviteePhotoUrl?: string | null;
+  status: OneLocationCircleMemberInviteStatus;
+  createdAt?: string | null;
+  expiresAt?: string | null;
+  respondedAt?: string | null;
+  cancelledAt?: string | null;
+};
+
+export type OneLocationCircleEligibleConnections = {
+  eligibleConnections: OneLocationCircleEligibleConnection[];
+  pendingInvites: OneLocationCircleMemberInvite[];
+  remainingCapacity: number;
+};
+
 export type OneLocationNetworkConnection = {
   id: string;
   userAId: string;
@@ -278,6 +381,9 @@ export type OneLocationMyRecipientKey = {
 
 export type OneLocationState = {
   recipients: OneLocationRecipient[];
+  circles?: OneLocationCircleSummary[];
+  /** Pending targeted invitations for this user to join a named Circle. */
+  circleMemberInvites?: OneLocationCircleMemberInvite[];
   myRecipientKey?: OneLocationMyRecipientKey | null;
   kaiCircleCandidates?: KaiCircleCandidate[];
   viewerCapabilities?: OneLocationViewerCapabilities;
@@ -357,6 +463,18 @@ export type OneLocationNearbyPlaceSuggestion = {
   category?: string | null;
   /** Present for strict nearby results; generic autocomplete does not return it. */
   distanceMeters?: number | null;
+  /**
+   * The venue's public point. Present on nearby results so the map can pin the
+   * place the owner is choosing separately from where they are standing.
+   * Autocomplete does not return it; the sheet resolves it on selection.
+   */
+  latitude?: number | null;
+  longitude?: number | null;
+  /**
+   * Category chips this place belongs to. Lets the drawer filter the merged
+   * nearby sweep locally instead of re-querying per chip and re-truncating.
+   */
+  categories?: OneLocationNearbyPlaceCategory[] | null;
 };
 
 export type OneLocationNearbyRelationship =
@@ -383,6 +501,14 @@ export type OneLocationNearbyPresence = {
   checkedInAt: string;
   expiresAt: string;
   placeLabel?: string | null;
+  /**
+   * The owner's own check-in anchor — the public venue they picked, not their
+   * live position. Returned only to the owner so the map can keep showing where
+   * they checked in after a reload, and how far they have since drifted from
+   * it. No other participant's anchor is ever exposed.
+   */
+  placeLat?: number | null;
+  placeLng?: number | null;
 };
 
 export type OneLocationNearbyPresenceState = {
@@ -465,6 +591,20 @@ export type OneLocationEncryptedEnvelope = {
     | "foreground_map_visible";
   createdAt?: string | null;
   metadata?: Record<string, unknown>;
+};
+
+/**
+ * Result of storing one encrypted envelope.
+ *
+ * `recipientAlerted` reports whether the recipient had a device the alert could
+ * be delivered to — not FCM's eventual delivery result, which stays
+ * asynchronous. Only Save My Soul notifies from the envelope-store route, so
+ * every other share kind leaves it `null`. `null` means "not reported" and must
+ * never be rendered as a delivery failure.
+ */
+export type OneLocationStoredEnvelope = {
+  envelope: OneLocationEncryptedEnvelope;
+  recipientAlerted: boolean | null;
 };
 
 export type OneLocationMapPreferences = {

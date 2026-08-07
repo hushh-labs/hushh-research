@@ -78,8 +78,10 @@ export const UI_FLOWS = [
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[1] },
       { type: "click_button", name: "Add my people" },
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[2] },
-      { type: "click_button", name: "Continue" },
+      { type: "click_button", name: "Next" },
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[3] },
+      { type: "click_button", name: "Continue" },
+      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[4] },
     ],
   },
   {

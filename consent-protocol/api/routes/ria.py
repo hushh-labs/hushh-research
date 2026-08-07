@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import limiter
 from api.routes.account import _verify_phone_claim_id_token
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.ria_claim_service import (
     RIAClaimService,
@@ -779,7 +780,28 @@ async def ria_claim_otp_start(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
-async def _prove_claim_possession(payload: RIAClaimVerifyRequest, phone_digits: str) -> str:
+async def _account_phone_matches(firebase_uid: str, phone_digits: str) -> bool:
+    """True when this account's already-verified phone IS the number being claimed.
+
+    The phone mandate verifies possession of the account's number and records it
+    server-side. When an adviser then claims the same number, asking for a second
+    passcode proves nothing the backend does not already hold. This reads our own
+    record — never anything the browser asserts — so the possession model is
+    unchanged.
+    """
+    try:
+        identity = (await ActorIdentityService().get_many([firebase_uid])).get(firebase_uid) or {}
+    except Exception:  # noqa: BLE001 - identity cache is advisory here; fail closed
+        return False
+    if identity.get("phone_verified") is not True:
+        return False
+    stored: str = normalize_nanp_phone(str(identity.get("phone_number") or ""))
+    return bool(stored) and stored == phone_digits
+
+
+async def _prove_claim_possession(
+    payload: RIAClaimVerifyRequest, phone_digits: str, firebase_uid: str
+) -> str:
     """Return the proof channel after verifying possession, or raise 401."""
     if payload.phone_id_token:
         token_phone, _session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
@@ -802,6 +824,11 @@ async def _prove_claim_possession(payload: RIAClaimVerifyRequest, phone_digits: 
                 "message": "That code didn't work. Check it and try again.",
             },
         )
+    # No passcode supplied: accept the account's own verified phone when it is
+    # the number being claimed. This is what removes the second passcode from
+    # the journey for an adviser who just verified that exact line.
+    if await _account_phone_matches(firebase_uid, phone_digits):
+        return "verified_account_phone"
     raise HTTPException(
         status_code=422,
         detail={
@@ -821,7 +848,7 @@ async def ria_claim_verify(
     phone_digits = normalize_nanp_phone(payload.phone)
     if not phone_digits:
         raise HTTPException(status_code=400, detail="Enter a valid US phone number.")
-    proof_channel = await _prove_claim_possession(payload, phone_digits)
+    proof_channel = await _prove_claim_possession(payload, phone_digits, firebase_uid)
     service = RIAClaimService()
     try:
         result = await service.evaluate_with_possession(

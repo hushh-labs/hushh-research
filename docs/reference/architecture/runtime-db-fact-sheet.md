@@ -70,7 +70,8 @@ that file for the full record; this table is the index.
 | `market_reference_and_cache` | `reference` | `backend-runtime-governance` | `tickers`, `ticker_*`, `renaissance_*`, `kai_market_cache_entries` |
 | `one_action_directive_authority` | `workflow_state` | `backend-agents-operons` | 1 table |
 | `one_email_kyc_workflow` | `workflow_state` | `backend-runtime-governance` | 4 tables |
-| `one_location_agent` | `workflow_state` | `iam-consent-governance` | 12 tables |
+| `one_location_agent` | `workflow_state` | `iam-consent-governance` | 13 tables |
+| `one_location_named_circle_relationships` | `personal_metadata` | `iam-consent-governance` | 3 tables |
 | `pkm_default_available_projection` | `personal_projection` | `vault-pkm-governance` | 1 table |
 | `pkm_encrypted_memory` | `personal_encrypted` | `vault-pkm-governance` | 3 tables |
 | `pkm_metadata_and_scope` | `personal_metadata` | `vault-pkm-governance` | 5 tables |
@@ -83,7 +84,10 @@ that file for the full record; this table is the index.
 | `subscription_fabric_receipts` | `audit_regulated` | `iam-consent-governance` | 1 table |
 | `subscription_fabric_requests` | `workflow_state` | `iam-consent-governance` | 1 table |
 | `trusted_connections_graph` | `workflow_state` | `iam-consent-governance` | 1 table |
-| `two_way_connection_graph` | `workflow_state` | `iam-consent-governance` | 2 tables |
+| `trusted_device_registry` | `personal_metadata` | `iam-consent-governance` | 1 table |
+| `trusted_device_authorization_workflows` | `workflow_state` | `iam-consent-governance` | 2 tables |
+| `trusted_device_audit` | `audit_regulated` | `iam-consent-governance` | 1 table |
+| `two_way_connection_graph` | `workflow_state` | `iam-consent-governance` | 3 tables |
 | `vault_key_material` | `personal_encrypted` | `vault-pkm-governance` | 2 tables |
 | `connected_system_audit` *(customer0)* | `audit_regulated` | `iam-consent-governance` | 1 table |
 | `connected_system_workflows` *(customer0)* | `workflow_state` | `iam-consent-governance` | 2 tables |

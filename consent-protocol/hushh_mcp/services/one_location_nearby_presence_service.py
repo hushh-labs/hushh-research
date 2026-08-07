@@ -766,6 +766,14 @@ def _roster_seed(now: datetime) -> str:
     ).hexdigest()
 
 
+def _anchor_coordinate(anchor: dict[str, Any], field: str) -> float | None:
+    try:
+        value = float(anchor[field])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
 def _presence_payload(row: dict[str, Any], anchor: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": "active",
@@ -776,6 +784,12 @@ def _presence_payload(row: dict[str, Any], anchor: dict[str, Any]) -> dict[str, 
         "checkedInAt": row.get("checked_in_at"),
         "expiresAt": row.get("expires_at"),
         "placeLabel": str(anchor.get("label") or "Selected place"),
+        # The owner's OWN anchor, returned only to the owner. It is the public
+        # venue they picked, and the map needs it to keep showing where they
+        # checked in after a reload -- distinct from where they now stand.
+        # Nobody else's anchor is ever serialized; see the roster payload.
+        "placeLat": _anchor_coordinate(anchor, "latitude"),
+        "placeLng": _anchor_coordinate(anchor, "longitude"),
     }
 
 
