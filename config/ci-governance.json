@@ -27,7 +27,8 @@
       "Jhumma-hushh",
       "DamriaNeelesh",
       "parthmawai",
-      "abdulbeast4-creator"
+      "abdulbeast4-creator",
+      "smirthi-dharma"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
@@ -42,7 +43,8 @@
       "Jhumma-hushh",
       "DamriaNeelesh",
       "parthmawai",
-      "abdulbeast4-creator"
+      "abdulbeast4-creator",
+      "smirthi-dharma"
     ],
     "protected_pipeline_edit_users": [
       "kushaltrivedi5",
@@ -74,7 +76,8 @@
       "Jhumma-hushh",
       "DamriaNeelesh",
       "parthmawai",
-      "abdulbeast4-creator"
+      "abdulbeast4-creator",
+      "smirthi-dharma"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
@@ -89,7 +92,8 @@
       "Jhumma-hushh",
       "DamriaNeelesh",
       "parthmawai",
-      "abdulbeast4-creator"
+      "abdulbeast4-creator",
+      "smirthi-dharma"
     ]
   },
   "dev": {
@@ -119,7 +123,8 @@
       "Jhumma-hushh",
       "DamriaNeelesh",
       "parthmawai",
-      "abdulbeast4-creator"
+      "abdulbeast4-creator",
+      "smirthi-dharma"
     ]
   },
   "production": {
