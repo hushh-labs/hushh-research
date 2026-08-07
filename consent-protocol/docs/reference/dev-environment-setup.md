@@ -100,9 +100,44 @@ deploy workflow definition always runs from `main`, so a substitution change the
 nothing for a branch deploy; the script ships from the deployed SHA. `deploy-dev.yml` still
 passes `_RUNTIME_ENVIRONMENT=uat` and the script overrides it for the dev lane.
 
+### The frontend half — safe now, still one `main`-side line
+
 **The frontend still reports `uat`** (`_APP_ENV=uat`), because that substitution is set in
-`deploy-dev.yml` and only a change on `main` can move it. That asymmetry is deliberate for
-now and is the remaining half of this item.
+`deploy-dev.yml` and only a change on `main` can move it.
+
+**Do not flip it without reading this.** The frontend is where the "auth defaults off"
+warning is actually true — it was wrong about the backend and right here. The frontend type
+has no `dev`: `normalizeEnvironment` maps `dev` → `development`, so `NEXT_PUBLIC_APP_ENV=dev`
+makes `resolveAppEnvironment()` return `development`. Twelve auth bypasses were gated on
+`isDevelopment()`, which asks only "is this build labelled development":
+
+- `DEV_AUTO_GRANT` — auto-grants a consent token
+- `Bearer DEV_TOKEN` — accepted as a valid Firebase session
+- ten vault routes — `if (!validation.valid && !isDevelopment())` and
+  `if (!authHeader && !isDevelopment())`, i.e. proceed anyway
+
+All twelve would have turned on for an internet-reachable service holding real test
+accounts.
+
+They now use `devAuthBypassAllowed()`, which requires the development label **and** the
+absence of `HUSHH_DEPLOY_ENV` — set on every hosted Cloud Run service (verified present on
+`hushh-webapp` in `hushh-pda-dev`) and absent on a developer's machine. Every caller is a
+server-side route handler, so the variable is read without a `NEXT_PUBLIC_` prefix on
+purpose. Behaviour today is unchanged, because the frontend still reports `uat` and
+`isDevelopment()` was already false on every hosted lane.
+
+The other consumers were checked and are all binary `!== "production"`
+(`nearby-check-in-availability`, `location-map-demo`, `ria-client-test-profile`,
+`marketplace`, `ria/onboarding`, `observability/env`), so they do not move. The
+`config.ts` URL fallbacks to `127.0.0.1:8000` and `localhost:3000` do not fire either:
+`NEXT_PUBLIC_BACKEND_URL` and `NEXT_PUBLIC_APP_URL` are baked at build time from the
+`BACKEND_URL` and `NEXT_PUBLIC_APP_URL` secrets, both confirmed present in
+`hushh-pda-dev`.
+
+**So the remaining step is one substitution on `main`:** `_APP_ENV=uat` → `_APP_ENV=dev`
+in `deploy-dev.yml`'s frontend block. It needs the maintainer cohort, and after it the
+frontend reports `development` — not `dev`, because the frontend vocabulary has no such
+value.
 
 ## Intentional divergences from UAT
 
