@@ -2533,6 +2533,11 @@ describe("OneLocationAgentPage", () => {
       ),
     ).toBeTruthy();
 
+    expect(screen.getByText("Access active")).toBeTruthy();
+    expect(screen.getByText(/^Access until /)).toBeTruthy();
+    expect(screen.queryByText(/^Live$/)).toBeNull();
+    expect(screen.queryByText(/^Live until /)).toBeNull();
+
     const mapPreview = screen.getByTitle("Live location map preview");
     expect(mapPreview.getAttribute("src")).toContain(
       "https://www.google.com/maps?q=28.613900%2C77.209000",

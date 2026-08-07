@@ -1349,9 +1349,9 @@ export function LocationImmersiveMap() {
       }
       return "No one checked in nearby";
     }
-    return `${markers.length} ${
-      markers.length === 1 ? "person" : "people"
-    } sharing with you`;
+    return `${markers.length} live ${
+      markers.length === 1 ? "location" : "locations"
+    } on your map`;
   }, [markers.length, nearbyAttendees.length, nearbyPresenceState.presence]);
 
   const peopleDrawerSubtitle = nearbyPresenceState.presence

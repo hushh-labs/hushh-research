@@ -291,8 +291,8 @@ export function SharedWithMeCard({
           </p>
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
             <p className={cn(MUTED_TEXT, "min-w-0 truncate")}>{statusLine}</p>
-            <StatusPill tone="live" className="shrink-0">
-              Live
+            <StatusPill tone="ready" className="shrink-0">
+              Access active
             </StatusPill>
           </div>
         </div>
