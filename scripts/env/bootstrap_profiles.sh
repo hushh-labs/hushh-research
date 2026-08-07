@@ -1209,8 +1209,12 @@ if profile_is_in_focus "uat"; then
   HYDRATED_FILES+=("$FRONTEND_DIR/.env.uat.local")
 fi
 if profile_is_in_focus "dev"; then
-  # dev keeps the UAT runtime identity (NEXT_PUBLIC_APP_ENV=uat); it is an
-  # infrastructure replica of UAT living in its own GCP project.
+  # The LOCAL dev profile still hydrates NEXT_PUBLIC_APP_ENV=uat, deliberately,
+  # even though the DEPLOYED dev environment now reports its own name. Local
+  # `--mode dev` runs the Next server on the developer's machine with no deploy
+  # lane set, so `development` there would satisfy devAuthBypassAllowed() and turn
+  # on the vault auth bypasses while talking to the SHARED dev backend. Changing
+  # this is a separate decision, not a consequence of the deploy rename.
   hydrate_frontend_cloud "$FRONTEND_DIR/.env.dev.local" "dev" "$DEV_PROJECT_ID" "uat"
   HYDRATED_FILES+=("$FRONTEND_DIR/.env.dev.local")
 fi

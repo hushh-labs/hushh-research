@@ -111,7 +111,7 @@ gcloud builds triggers create github \
   --branch-pattern='^main$' \
   --build-config=deploy/frontend.cloudbuild.yaml \
   --included-files='hushh-webapp/**,deploy/frontend.cloudbuild.yaml' \
-  --substitutions='_FRONTEND_SERVICE=hushh-webapp,_REGION=us-central1,_APP_ENV=uat,_CLOUD_RUN_NO_TRAFFIC=false,_IMAGE_TAG=dev-${COMMIT_SHA},_DEPLOY_ENV=dev,_DEPLOY_SOURCE=cloudbuild-trigger,_DEPLOY_SHA=${COMMIT_SHA},_GITHUB_RUN_ID=cb-${BUILD_ID}'
+  --substitutions='_FRONTEND_SERVICE=hushh-webapp,_REGION=us-central1,_APP_ENV=dev,_CLOUD_RUN_NO_TRAFFIC=false,_IMAGE_TAG=dev-${COMMIT_SHA},_DEPLOY_ENV=dev,_DEPLOY_SOURCE=cloudbuild-trigger,_DEPLOY_SHA=${COMMIT_SHA},_GITHUB_RUN_ID=cb-${BUILD_ID}'
 
 echo
 echo "Done. Verify with:"
