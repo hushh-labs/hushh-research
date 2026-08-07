@@ -8,7 +8,7 @@ name: Ship Android to Google Play Store
 # iOS sibling: .github/workflows/ship-ios-testflight.yml
 # Runbook & secret setup: docs/guides/mobile/ship-android-playstore.md
 
-on:
+"on":
   workflow_dispatch:
     inputs:
       sha:
@@ -140,22 +140,22 @@ jobs:
           FB_APP_ID="$(get NEXT_PUBLIC_FIREBASE_APP_ID)";              require NEXT_PUBLIC_FIREBASE_APP_ID "$FB_APP_ID"
           FB_VAPID="$(get NEXT_PUBLIC_FIREBASE_VAPID_KEY)";            require NEXT_PUBLIC_FIREBASE_VAPID_KEY "$FB_VAPID"
 
-          cat <<EOF > hushh-webapp/.env.uat.local
-APP_RUNTIME_PROFILE=uat
-NEXT_PUBLIC_APP_ENV=uat
-NEXT_PUBLIC_BACKEND_URL=${BACKEND_URL}
-NEXT_PUBLIC_APP_URL=${APP_URL}
-NEXT_PUBLIC_PASSKEY_RP_ID=one.hushh.ai
-NEXT_PUBLIC_FIREBASE_API_KEY=${FB_API_KEY}
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${FB_AUTH_DOMAIN}
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=${FB_PROJECT_ID}
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${FB_STORAGE}
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${FB_SENDER}
-NEXT_PUBLIC_FIREBASE_APP_ID=${FB_APP_ID}
-NEXT_PUBLIC_FIREBASE_VAPID_KEY=${FB_VAPID}
-NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY=$(get NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY)
-NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY=$(get NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY)
-EOF
+          {
+            echo "APP_RUNTIME_PROFILE=uat"
+            echo "NEXT_PUBLIC_APP_ENV=uat"
+            echo "NEXT_PUBLIC_BACKEND_URL=${BACKEND_URL}"
+            echo "NEXT_PUBLIC_APP_URL=${APP_URL}"
+            echo "NEXT_PUBLIC_PASSKEY_RP_ID=one.hushh.ai"
+            echo "NEXT_PUBLIC_FIREBASE_API_KEY=${FB_API_KEY}"
+            echo "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${FB_AUTH_DOMAIN}"
+            echo "NEXT_PUBLIC_FIREBASE_PROJECT_ID=${FB_PROJECT_ID}"
+            echo "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${FB_STORAGE}"
+            echo "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${FB_SENDER}"
+            echo "NEXT_PUBLIC_FIREBASE_APP_ID=${FB_APP_ID}"
+            echo "NEXT_PUBLIC_FIREBASE_VAPID_KEY=${FB_VAPID}"
+            echo "NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY=$(get NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY)"
+            echo "NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY=$(get NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY)"
+          } > hushh-webapp/.env.uat.local
           chmod 600 hushh-webapp/.env.uat.local
           echo "Materialized UAT frontend contract at hushh-webapp/.env.uat.local"
 
