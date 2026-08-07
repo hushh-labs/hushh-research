@@ -483,8 +483,35 @@ class GcpBackend:
     async def _execute(self, spec: PodSpec, config: dict[str, Any]) -> BackendHandle:
         """Live Cloud Run provisioning: create the service, wait for Ready, return
         the handle. Creates a billable Cloud Run service; reached only in live mode
-        with credentials (HUSSH_GCP_BACKEND_LIVE + a resolvable SA)."""
+        with credentials (HUSSH_GCP_BACKEND_LIVE + a resolvable SA).
+
+        SIMULATION TIER ONLY, enforced here rather than documented elsewhere.
+
+        This backend stands up a pod that hussh operates, on hussh's infrastructure.
+        Per the north star, that is the simulation and validation tier: it proves
+        pod lifecycle, harness execution, grounding, intelligence chaining and
+        front-end connectivity, and it is deliberately NOT a production deployment
+        path. Production is user-owned only -- the person's own GCP project with
+        their own Vertex ADC, or Anypoint with their own AI key -- because Zero
+        Knowledge cannot be held by a pod its operator can read.
+
+        The refusal lives at the live-execution boundary, not at render time, so
+        plan-mode inspection stays available everywhere while nothing bills.
+
+        Until now the only thing keeping this backend out of production was an
+        ACCIDENT: `personal_agent_registry` sits in the parked migration lane, so
+        UAT and production have no such table. That is a schema side-effect, not a
+        control, and it would evaporate the moment someone renumbered 900 into
+        `migrations/`.
+        """
+        from hushh_mcp.services.dev_simulation_guard import require_simulation_permitted
         from hushh_mcp.services.gcp_run_client import GcpRunClient
+
+        # Fail CLOSED. The guard requires an explicit opt-in AND a deploy lane or
+        # runtime environment that names a development lane; absence of
+        # configuration denies, and there is deliberately no "unknown" state that
+        # resolves to permitted.
+        require_simulation_permitted("hussh-managed pod provisioning")
 
         client = self._client or self._build_client()
         name = str(config["metadata"]["name"])
