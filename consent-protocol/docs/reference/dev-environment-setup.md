@@ -68,17 +68,41 @@ The dev environment splits infrastructure identity from runtime identity on purp
 | Cloud SQL instance | `hushh-pda-dev:us-central1:hushh-dev-pg` | own database |
 | Frontend origin | `https://dev.one.hushh.ai` | own domain |
 | Deploy labels / provenance | `deploy-env=dev`, `deploy-source=deploy-dev` | auditability |
-| Runtime identity | `ENVIRONMENT=uat`, `NEXT_PUBLIC_APP_ENV=uat` | exact UAT behavior parity |
+| Backend runtime identity | `ENVIRONMENT=dev` | dev reports its own name (2026-08-07) |
+| Frontend runtime identity | `NEXT_PUBLIC_APP_ENV=uat` | unchanged — see the note below |
 
-Backend behavior gates (UAT phone test numbers, webhook auth defaults, SSE defaults,
-review-alias verification, non-production CORS) all key off `ENVIRONMENT`. Keeping the
-`uat` runtime identity is what makes dev a true replica. The string `dev` must NOT be
-used as `ENVIRONMENT` or `NEXT_PUBLIC_APP_ENV`: existing code treats `dev` as local
-development and would silently change behavior (auth defaults off, debug routes on).
+**The backend now reports `dev`, and this section used to say it must not.** That warning
+was right about one thing and wrong about another, and both are worth keeping:
 
-The deploy pipeline enforces this through the `_RUNTIME_ENVIRONMENT=uat` Cloud Build
-substitution (backend) and `_APP_ENV=uat` (frontend), while `_DEPLOY_ENV=dev` drives
-labels and provenance verification.
+- **Right: debug routes.** `/api/_debug/firebase` gated on the environment name alone and
+  was closed only because dev reported `uat`. That gate now also requires *no deploy
+  lane*, so it is open on a developer's machine and closed on every hosted lane including
+  dev. The regression this section predicted was real, and is fixed rather than accepted.
+- **Wrong: auth defaults.** `developer_api_enabled()` defaults true for anything that is
+  not `production`, so `uat` and `dev` are identical. Same for SSE (`!= "production"`),
+  CORS and database-on-startup (all `_is_production()`), the review-alias allowlist and
+  `location.py`'s safe-environment set — every one admits `dev` and `uat` equally. The
+  webhook auth defaults are moot because the dev lane sets them explicitly.
+
+**`dev`, not `development`.** `runtime_providers/factory.py` keys `_HOSTED_ENVIRONMENTS`
+on `{"dev","uat","staging","production","prod"}`, and that set gates the assertions that a
+hosted runtime must use Vertex ADC and must carry `GOOGLE_CLOUD_PROJECT`. `dev` keeps those
+guards; `development` is absent from the set and would quietly relax them.
+
+**What changed behaviourally:** dev no longer resolves `HUSHH_UAT_PHONE_TEST_NUMBERS` /
+`_CODE` as its own. It had been doing so silently — the dev revision mounts UAT's
+phone-test secrets and, while it reported `uat`, treated them as its allowlist. Dev now
+has its own simulation lane (`HUSHH_DEV_PHONE_TEST_NUMBERS`, reserved fictitious numbers,
+OTP optional) which the deploy configures.
+
+The override lives in `scripts/deploy/backend-deploy.sh`, not in `deploy-dev.yml`. The
+deploy workflow definition always runs from `main`, so a substitution change there does
+nothing for a branch deploy; the script ships from the deployed SHA. `deploy-dev.yml` still
+passes `_RUNTIME_ENVIRONMENT=uat` and the script overrides it for the dev lane.
+
+**The frontend still reports `uat`** (`_APP_ENV=uat`), because that substitution is set in
+`deploy-dev.yml` and only a change on `main` can move it. That asymmetry is deliberate for
+now and is the remaining half of this item.
 
 ## Intentional divergences from UAT
 
