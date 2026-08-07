@@ -19,7 +19,7 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
@@ -27,6 +27,7 @@ import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { useAuth } from "@/hooks/use-auth";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { toNanpDigits } from "@/lib/ria/ria-claim-entry";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
@@ -173,8 +174,11 @@ function CodeCells({
 
 export default function RiaClaimPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
   const { refresh: refreshPersonaState } = usePersonaState();
+  // Arrives pre-filled when the sign-up phone screen recognised this number.
+  const seededPhone = toNanpDigits(searchParams.get("phone"));
 
   const [step, setStep] = useState<ClaimStep>("phone");
   const [phoneDigits, setPhoneDigits] = useState("");
@@ -224,13 +228,14 @@ export default function RiaClaimPage() {
     return "Something went wrong. Try again.";
   };
 
-  const handleLookup = useCallback(async () => {
-    if (phoneDigits.length !== 10 || busy) return;
+  const handleLookup = useCallback(async (phoneOverride?: string) => {
+    const phone = phoneOverride ?? phoneDigits;
+    if (phone.length !== 10 || busy) return;
     setBusy(true);
     setError(null);
     try {
       const idToken = await getIdToken();
-      const result = await RiaService.claimLookup(idToken, { phone: phoneDigits });
+      const result = await RiaService.claimLookup(idToken, { phone });
       if (result.outcome === "invalid_phone") {
         setError("Enter a valid US phone number.");
         return;
@@ -254,6 +259,16 @@ export default function RiaClaimPage() {
       setBusy(false);
     }
   }, [phoneDigits, busy, getIdToken]);
+
+  // Recognised at sign-up: run the lookup immediately so the person lands on
+  // their firm instead of retyping the number they just verified.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || !seededPhone || !user || authLoading) return;
+    seededRef.current = true;
+    setPhoneDigits(seededPhone);
+    void handleLookup(seededPhone);
+  }, [seededPhone, user, authLoading, handleLookup]);
 
   const beginClaim = useCallback(
     async (type: ClaimType, candidateCrd: number | null) => {
