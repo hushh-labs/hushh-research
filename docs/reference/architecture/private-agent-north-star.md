@@ -63,18 +63,64 @@ this document, however elegant its other properties.
 > coherent architecture — and it is the one that closes the identity gap without giving up
 > persistence.
 
-## The deployment matrix (founder directive, 2026-08-06)
+## Simulation and production are different architectures (founder directive, 2026-08-06)
 
-Deployment target and model credential are **two independent axes**, and the platform must
-support the cells below. Provisioning the person's agent after their AI key is connected is
-a **required implementation** on the hussh-managed pod *and* on Anypoint — not a hussh-GCP-
-only path with the others deferred.
+**This supersedes the deployment matrix recorded earlier the same day.** That matrix was a
+3×2 of deployment target × model credential. It is replaced by **one simulation tier and
+two production paths**, and the separation is the resolution rather than a narrowing.
 
-| Deployment target | Model credential |
-|---|---|
-| The person's **own GCP project** | their own Vertex ADC, **or** hussh Vertex ADC |
-| **hussh-managed pod** | hussh Vertex ADC, **or** the person's own AI key |
-| **Anypoint** | the person's own AI key, **or** hussh Vertex ADC |
+### The simulation / validation tier
+
+**hussh-managed pod + hussh Vertex ADC.** Its purpose is to prove the machinery:
+
+- pod interaction and lifecycle behaviour — keep the pod alive across restarts;
+- agent harness execution, grounding, orchestration, and **intelligence chaining**;
+- performance metrics, and how the agent **evolves over time**;
+- end-to-end connectivity with the front end and any connected surface.
+
+**It is not a production deployment path and must never become one.** Production has to
+hold Zero Knowledge primitives and the Private Agent Infrastructure model, and a pod that
+hussh operates, on hussh's model identity, cannot hold them. The tier exists to prove the
+lifecycle works — never to claim hussh cannot read that pod.
+
+### The production paths — exactly two, both user-owned
+
+| Path | Compute | Model credential |
+|---|---|---|
+| **A. User-owned GCP** | the person's own GCP project | their own Vertex ADC |
+| **B. Anypoint** | user-controlled infrastructure | the person's own AI key |
+
+**No hussh-hosted production tier, no exceptions** (founder, 2026-08-06). Onboarding is
+therefore "connect your Google Cloud account" — which
+`user_gcp_backend.render_bootstrap_plan` already designs as a keyless, least-privilege,
+one-time federation — or "connect your Anypoint org". There is no zero-config path, and
+that is the cost of the promise.
+
+Provisioning after the person's AI key is connected is a **required implementation** on the
+simulation tier *and* on Anypoint.
+
+### Why the separation resolves so much
+
+With hussh Vertex ADC confined to development, the questions that made the matrix hard
+stop being production questions. A `roles/aiplatform.user` grant lands in a dev project on
+a dev fleet serving reviewer accounts. The fleet-shared blast radius, the measured 100
+service-accounts-per-project ceiling, and "hussh's infrastructure sees the prompts" all
+become dev-tier facts. And the one cell that was a genuine security problem — Anypoint
+reaching hussh Vertex, which has no ambient Google identity and would need an exported
+credential — **is deleted from the architecture rather than mitigated.**
+
+### The uncomfortable part, recorded so nobody discovers it later
+
+**The path being banned from production is the only one that works today.** `GcpBackend` is
+live-wired and functional; `UserGcpBackend.provision` and `AnypointBackend._execute` both
+raise `NotImplementedError` when live. This directive does not restrict working code — it
+declares that the two paths which must carry production are the two that have never run.
+
+And the only thing keeping hussh-managed pods out of production right now is an
+**accident**: `personal_agent_registry` lives in the parked migration lane, so UAT and
+production have no such table. That is a schema side-effect, not a control, and it holds
+only until someone renumbers `900` into `migrations/`. The boundary needs a guard that
+fails closed.
 
 **Correction, same day.** An earlier revision of this section claimed "the seam already
 exists and is the right one," citing `runtime_providers/factory.py`. That is **one axis
@@ -103,30 +149,23 @@ Every cell must preserve the Private Agent properties: the person's holdings sta
 and sealed, consent is still required and revocable, and the choice of cell is visible to
 the person rather than an invisible operator setting.
 
-### Two constraints on how a managed cell is built
+### Constraints that survive the separation
 
-Both come from measured facts, not caution.
+**Even in the simulation tier, do not grant `roles/aiplatform.user` to the pod service
+account.** Verified live in `hushh-pda-dev`: that account appears in **zero** project IAM
+bindings, and it is **fleet-shared** — a project-level grant hands every pod the same
+Vertex access at once. Per-pod service accounts do not rescue it: the measured ceiling is
+**100 per project**, ten times tighter than the 1000-service Cloud Run ceiling, with a
+10/minute creation limit. The shape that works is a **turn-bounded credential** — the hub
+mints a short-lived Vertex access token and passes it through the relay exactly as a BYOK
+key travels today. This is now a dev-tier concern, but the isolation property is what the
+simulation is supposed to be validating, so spending it would make the simulation prove
+the wrong thing.
 
-**Do not grant `roles/aiplatform.user` to the pod service account.** Verified live in
-`hushh-pda-dev`: that account appears in **zero** project IAM bindings — the zero-role
-property is real, not aspirational. It is also **fleet-shared**, so a project-level grant
-hands every pod the same Vertex access at once and spends the isolation property
-permanently. Per-pod service accounts do not rescue it either: the measured
-service-account ceiling is **100 per project**, ten times tighter than the 1000-service
-Cloud Run ceiling already named as a sharding trigger, with a 10/minute creation limit that
-would make burst provisioning fail somewhere nobody tests.
-
-The shape that works instead is a **turn-bounded credential**: the hub mints a short-lived
-Vertex access token and passes it through the relay exactly as a BYOK key travels today.
-The pod holds no refreshable credential, the pod service account stays at zero roles, and
-the same mechanism serves Anypoint — where ambient ADC is impossible — with no additional
-design.
-
-**Never render a hussh service-account key into a runtime hussh does not operate.** For
-Anypoint that would be a standing credential in someone else's cloud, and it is the one
-construction in this matrix that is a security problem rather than an engineering gap. The
-existing parity guard blocks the literal forms; a base64 blob under a neutral key name
-would slip past it, so this is stated here as doctrine rather than left to the test.
+**Never render a hussh service-account key into a runtime hussh does not operate.** Under
+the separation this stops being a live design question, because no production path routes
+through hussh's model identity. It stays here as doctrine: the existing parity guard blocks
+the literal forms, and a base64 blob under a neutral key name would slip past it.
 
 ## Deployment-agnostic is a first-class requirement
 

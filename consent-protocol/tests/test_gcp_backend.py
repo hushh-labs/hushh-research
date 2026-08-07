@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from hushh_mcp.services.compute_backend import (
     BACKEND_GCP,
     TIER_DEDICATED,
@@ -261,7 +263,27 @@ def _live(client) -> GcpBackend:
     return GcpBackend(project="p", region="us-central1", image="img:1", live=True, client=client)
 
 
-async def test_live_provision_creates_service_and_returns_live_handle():
+@pytest.fixture
+def simulation_lane(monkeypatch):
+    """Declare the lane a live hussh-managed provision is only ever allowed in.
+
+    Under the simulation/production separation in
+    `docs/reference/architecture/private-agent-north-star.md`, a pod that hussh
+    operates on hussh's infrastructure is the SIMULATION tier — so `GcpBackend`'s
+    live path calls `require_simulation_permitted` and refuses when no development
+    lane is stated. These tests exercise that live path, so they have to say which
+    lane they are standing in; without this fixture they raise
+    `SimulationNotPermittedError`, which is the guard working.
+
+    The refusal itself is asserted in `test_hushh_managed_is_simulation_only.py` —
+    kept there rather than here so this file stays about the backend and that one
+    stays about the boundary.
+    """
+    monkeypatch.setenv("HUSHH_DEV_SIMULATION_ENABLED", "1")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+
+
+async def test_live_provision_creates_service_and_returns_live_handle(simulation_lane):
     fake = _FakeRunClient(ready=True)
     handle = await _live(fake).provision(_spec())
     assert len(fake.created) == 1
@@ -272,7 +294,7 @@ async def test_live_provision_creates_service_and_returns_live_handle():
     assert handle.backend_metadata["ready"] is True
 
 
-async def test_live_provision_not_ready_is_deploying():
+async def test_live_provision_not_ready_is_deploying(simulation_lane):
     handle = await _live(_FakeRunClient(ready=False)).provision(_spec())
     assert handle.status == "deploying"
     assert handle.backend_metadata["ready"] is False
