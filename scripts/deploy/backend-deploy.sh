@@ -288,7 +288,29 @@ gcp_backend_live=""
 pod_signing_key_secret=""
 pod_invoker_member=""
 pod_turn_enabled=""
+dev_simulation_enabled=""
+dev_phone_test_numbers=""
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+  # The simulation opt-in. hussh-managed pods are the SIMULATION tier under
+  # docs/reference/architecture/private-agent-north-star.md, so GcpBackend now
+  # calls require_simulation_permitted() before any live create and REFUSES when
+  # this is unset. It is a second, independent switch on top of the deploy lane
+  # precisely so a container that lost its lane cannot infer permission -- the
+  # guard denies on absence rather than defaulting to "development".
+  #
+  # Without this line the dev pod path stops working entirely, which is the whole
+  # reason it is set here in the same change that added the guard.
+  dev_simulation_enabled="true"
+  # The simulation phone allowlist, pinned in git rather than held as a secret:
+  # these are reserved fictitious numbers (+1 555 0100-0199), they identify no
+  # one, and an auditable allowlist is worth more than a hidden one. The backend
+  # REFUSES any entry outside that block, so this cannot quietly grow to include
+  # a real person.
+  #
+  # The CODE is deliberately NOT set here. Until an operator supplies
+  # HUSHH_DEV_PHONE_TEST_CODE the lane is dark, because _phone_test_enabled()
+  # needs both. Numbers without a code is the correct fail-closed default.
+  dev_phone_test_numbers="+15550100,+15550101,+15550102,+15550103,+15550104"
   personal_agent_enabled="true"
   personal_agent_backend="gcp"
   # Creating a pod is a BILLABLE act, which is why this is a separate switch from
@@ -324,6 +346,8 @@ append_optional_env "HUSSH_GCP_BACKEND_LIVE" "${gcp_backend_live}"
 append_optional_env "HUSSH_POD_SIGNING_KEY_SECRET" "${pod_signing_key_secret}"
 append_optional_env "HUSSH_POD_INVOKER_MEMBER" "${pod_invoker_member}"
 append_optional_env "HUSSH_POD_TURN_ENABLED" "${pod_turn_enabled}"
+append_optional_env "HUSHH_DEV_SIMULATION_ENABLED" "${dev_simulation_enabled}"
+append_optional_env "HUSHH_DEV_PHONE_TEST_NUMBERS" "${dev_phone_test_numbers}"
 
 # Join with '|' (not ',') so env VALUES may themselves contain commas.
 # Paired with gcloud's alternate-delimiter syntax on --set-env-vars below.

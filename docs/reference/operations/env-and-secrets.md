@@ -364,6 +364,9 @@ Used by:
 | `SUPPORT_EMAIL_TO` | Optional | No | Local: `.env`; Prod: Cloud Run env | Defaults to `ONE_EMAIL_ADDRESS`. |
 | `SUPPORT_EMAIL_TEST_TO` | Optional | No | Local/UAT env | Non-production verification recipient. |
 | `SUPPORT_EMAIL_MODE` | Optional | No | Local/UAT env | `live` or `test`. |
+| `HUSHH_DEV_SIMULATION_ENABLED` | Simulation lane only | No | Set by `scripts/deploy/backend-deploy.sh` when `_DEPLOY_ENV=dev` | The opt-in `dev_simulation_guard` requires on top of a dev deploy lane. Unset denies, so hussh-managed pod provisioning and the dev phone lane both refuse. Never set outside dev. |
+| `HUSHH_DEV_PHONE_TEST_NUMBERS` | Simulation lane only | No | Pinned in `scripts/deploy/backend-deploy.sh` | Simulation phone allowlist. Reserved fictitious numbers only (`+1 555 0100`–`0199`); the backend raises on anything else. Pinned in git rather than held as a secret because these identify nobody and an auditable allowlist beats a hidden one. |
+| `HUSHH_DEV_PHONE_TEST_CODE` | Simulation lane only | Yes | Dev Secret Manager / operator-set | Fixed OTP for the simulation allowlist. Deliberately not set by the deploy script: until an operator supplies it the lane stays dark, since both numbers and code are required. |
 | `HUSHH_UAT_PHONE_TEST_NUMBERS` | UAT test only | Yes | UAT Secret Manager | Comma-separated E.164 allowlist for fixed-code phone verification; only honored when `ENVIRONMENT=uat`. |
 | `HUSHH_UAT_PHONE_TEST_CODE` | UAT test only | Yes | UAT Secret Manager | Fixed OTP for the UAT phone allowlist. Never expose as `NEXT_PUBLIC_*`. |
 | `HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET` | Optional | Yes | UAT Secret Manager | Optional HMAC key for stateless UAT phone challenge IDs; falls back to `APP_SIGNING_KEY`. |

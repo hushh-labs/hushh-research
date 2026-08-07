@@ -625,6 +625,13 @@ def _parse_phone_test_numbers(raw: str) -> set[str]:
     }
 
 
+#: The North American reserved fictitious range (+1 555 0100 -- +1 555 0199).
+#: A simulation allowlist may contain NOTHING else, so a dev lane can never claim
+#: a routable number that belongs to a real person. The UAT and production lanes
+#: are unaffected: they are operator-curated and predate this.
+_SIMULATION_PHONE_PREFIX = "+1555010"
+
+
 def _configured_uat_phone_test_numbers() -> set[str]:
     raw = _clean_env("HUSHH_UAT_PHONE_TEST_NUMBERS") or _clean_env("UAT_PHONE_TEST_NUMBERS")
     return _parse_phone_test_numbers(raw)
@@ -634,13 +641,52 @@ def _configured_prod_phone_test_numbers() -> set[str]:
     return _parse_phone_test_numbers(_clean_env("HUSHH_PROD_PHONE_TEST_NUMBERS"))
 
 
+def _configured_dev_phone_test_numbers() -> set[str]:
+    """The simulation lane's allowlist, or empty when simulation is not permitted.
+
+    This exists because the dev hub deliberately runs with the **uat** runtime
+    identity for behaviour parity, so `_runtime_environment()` reads `uat` on a
+    dev box and `uat` on real UAT and cannot separate them. Until this lane
+    existed, dev reached the bypass only by being indistinguishable from UAT --
+    which is precisely the confusion `dev_simulation_guard` was written to end.
+
+    The guard reads the DEPLOY LANE, which is written per-lane by the deploy
+    workflow and stays honest, and it denies when unconfigured. So this branch is
+    reachable on a dev deployment and on a developer's box that opted in, and
+    nowhere else.
+    """
+    from hushh_mcp.services.dev_simulation_guard import simulation_permitted
+
+    if not simulation_permitted():
+        return set()
+    numbers = _parse_phone_test_numbers(_clean_env("HUSHH_DEV_PHONE_TEST_NUMBERS"))
+    # Fail loud rather than silently narrowing: an operator who put a real number
+    # in a simulation allowlist has made a mistake worth stopping on.
+    outside = {n for n in numbers if not n.startswith(_SIMULATION_PHONE_PREFIX)}
+    if outside:
+        raise RuntimeError(
+            "HUSHH_DEV_PHONE_TEST_NUMBERS may only contain reserved fictitious "
+            f"numbers ({_SIMULATION_PHONE_PREFIX}xx); refused {sorted(outside)}"
+        )
+    return numbers
+
+
 def _configured_phone_test_numbers() -> set[str]:
     environment = _runtime_environment()
+    dev_numbers = _configured_dev_phone_test_numbers()
+    if dev_numbers:
+        return dev_numbers
     if environment == "uat":
         return _configured_uat_phone_test_numbers()
     if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
         return _configured_prod_phone_test_numbers()
     return set()
+
+
+def _configured_dev_phone_test_code() -> str:
+    from hushh_mcp.services.dev_simulation_guard import simulation_permitted
+
+    return _clean_env("HUSHH_DEV_PHONE_TEST_CODE") if simulation_permitted() else ""
 
 
 def _configured_uat_phone_test_code() -> str:
@@ -657,6 +703,9 @@ def _configured_prod_phone_test_challenge_secret() -> str:
 
 def _configured_phone_test_code() -> str:
     environment = _runtime_environment()
+    dev_code = _configured_dev_phone_test_code()
+    if dev_code:
+        return dev_code
     if environment == "uat":
         return _configured_uat_phone_test_code()
     if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
@@ -666,6 +715,9 @@ def _configured_phone_test_code() -> str:
 
 def _phone_test_enabled() -> bool:
     if _runtime_environment() == "production":
+        # The simulation lane is never reachable here: `simulation_permitted()`
+        # refuses `production` outright, so the dev resolvers return empty and
+        # this branch is the only answer production can give.
         return bool(
             _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED")
             and _configured_prod_phone_test_numbers()
