@@ -396,10 +396,6 @@ export default function ConnectPageClient() {
       }
       
       setPeople((prev) =>
-        }
-      }
-      
-      setPeople((prev) =>
         prev.map((p) =>
           selectedUserIds.has(p.userId) && p.relationship === "none"
             ? { ...p, relationship: "pending_outgoing" }
