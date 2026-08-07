@@ -95,7 +95,6 @@ function toTimestamp(value?: string | number | null): number {
 }
 
 function consentSummary(entry: ConsentCenterEntry): string {
-  if (entry.kind === "connection_request") return "Wants to connect with you.";
   if (entry.kind === "invite") return "Invitation waiting for your approval.";
   return (
     entry.additional_access_summary ||
@@ -255,6 +254,13 @@ export function useFeedActionables(): UseFeedActionablesResult {
     // one-tap approving; mirrors the prior consent inbox).
     if ((pendingConsentCount ?? 0) > 0) {
       for (const entry of consentItems ?? []) {
+        // Incoming connection requests reach this lane too — the Consent
+        // Center folds them into its `pending` surface from the very same
+        // ConnectionsService the connections lane below reads. Rendering both
+        // put one request in "Needs you" twice (a chevron-only consent row and
+        // the real one). The connections lane owns them: it carries the inline
+        // Confirm/Decline and the scoped Review route.
+        if (entry.kind === "connection_request") continue;
         items.push({
           id: `consent:${entry.id}`,
           icon: ShieldCheck,
