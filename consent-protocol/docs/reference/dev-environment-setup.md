@@ -134,10 +134,26 @@ The other consumers were checked and are all binary `!== "production"`
 `BACKEND_URL` and `NEXT_PUBLIC_APP_URL` secrets, both confirmed present in
 `hushh-pda-dev`.
 
-**So the remaining step is one substitution on `main`:** `_APP_ENV=uat` → `_APP_ENV=dev`
-in `deploy-dev.yml`'s frontend block. It needs the maintainer cohort, and after it the
-frontend reports `development` — not `dev`, because the frontend vocabulary has no such
-value.
+**The substitution change is staged on the branch and awaits the Admin SOP.**
+`deploy-dev.yml` now passes `_APP_ENV=dev` (frontend) and `_RUNTIME_ENVIRONMENT=dev`
+(backend). Both are inert until that file lands on `main`, because the deploy workflow
+definition always runs from there — the backend already reports `dev` regardless, via
+the override in `scripts/deploy/backend-deploy.sh`, which is what makes a branch deploy
+correct in the meantime.
+
+`scripts/ops/setup_dev_cloudbuild_triggers.sh` was flipped in the same change. It is a
+**second** deploy path into the same environment — a Cloud Build trigger that
+auto-deploys the frontend to dev on `main` pushes — and leaving it at `uat` would have
+made the two paths disagree, with whichever ran last deciding what dev reported.
+
+After the SOP lands it, the frontend reports **`development`**, not `dev`: the frontend
+vocabulary has no `dev`, and `normalizeEnvironment` maps it. The backend reports `dev`.
+That asymmetry is a property of the two vocabularies, not a mistake.
+
+The **local** `--mode dev` profile deliberately still hydrates `NEXT_PUBLIC_APP_ENV=uat`
+(`scripts/env/bootstrap_profiles.sh`). Local has no deploy lane, so `development` there
+would satisfy `devAuthBypassAllowed()` and turn on the vault auth bypasses while talking
+to the shared dev backend. Changing that is a separate decision.
 
 ## Intentional divergences from UAT
 

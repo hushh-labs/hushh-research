@@ -143,9 +143,9 @@ fi
 
 # DEV REPORTS ITS OWN NAME.
 #
-# deploy-dev.yml passes _RUNTIME_ENVIRONMENT=uat so dev's behaviour gates would
-# "replicate UAT exactly". The cost of that was a runtime name that reads `uat` on
-# a dev box AND `uat` on real UAT, so no code could tell them apart -- which is why
+# deploy-dev.yml used to pass _RUNTIME_ENVIRONMENT=uat so dev's behaviour gates would
+# "replicate UAT exactly". The cost was a runtime name that read `uat` on a dev box
+# AND `uat` on real UAT, so no code could tell them apart -- which is why
 # `dev_simulation_guard` had to read the deploy lane instead, and why dev silently
 # resolved UAT's phone-test allowlist and code as though they were its own.
 #
@@ -155,9 +155,11 @@ fi
 # have GOOGLE_CLOUD_PROJECT. `dev` keeps those guards; `development` is absent from
 # the set and would quietly relax them.
 #
-# This override lives HERE and not in deploy-dev.yml on purpose. The deploy
-# workflow definition always runs from `main`, so a change there does nothing for a
-# branch deploy; this script ships from the deployed SHA and takes effect with it.
+# This override lives HERE as well as in deploy-dev.yml, on purpose. The deploy
+# workflow definition always runs from `main`, so the substitution change only takes
+# effect once it lands there; this script ships from the deployed SHA, so it is what
+# makes a BRANCH deploy report `dev` in the meantime. Keeping both means the two can
+# never disagree, and removing this one would silently re-skew branch deploys.
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   runtime_environment="dev"
 fi
