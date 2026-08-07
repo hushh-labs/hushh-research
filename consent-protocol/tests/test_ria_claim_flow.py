@@ -646,3 +646,91 @@ def test_claim_complete_route_happy_path(monkeypatch):
     )
     assert response.status_code == 200
     assert response.json()["status"] == "claimed"
+
+
+# ---------------------------------------------------------------------------
+# Possession via the account's already-verified phone (removes the second OTP)
+# ---------------------------------------------------------------------------
+
+
+def _identity(phone: str | None, verified: bool) -> dict[str, Any]:
+    return {"phone_number": phone, "phone_verified": verified}
+
+
+def test_claim_verify_accepts_the_accounts_own_verified_phone(monkeypatch):
+    """An adviser who just verified this number must not be asked again."""
+    _enable_test_code(monkeypatch)
+
+    async def _mock_get_many(self, user_ids):
+        return {_TEST_UID: _identity("+18015663510", True)}
+
+    monkeypatch.setattr(ria_module.ActorIdentityService, "get_many", _mock_get_many)
+
+    async def _mock_evaluate(self, **kwargs):
+        return {"claim_ticket": "ticket", "roster_unlocked": True}
+
+    monkeypatch.setattr(RIAClaimService, "evaluate_with_possession", _mock_evaluate)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/ria/claim/verify",
+        json={
+            "phone": "(801) 566-3510",
+            "claim_type": "individual",
+            "firm_crd": 283040,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["proof_channel"] == "verified_account_phone"
+
+
+def test_claim_verify_rejects_a_different_number_than_the_account_holds(monkeypatch):
+    """Possession of MY number never proves possession of someone else's."""
+    _enable_test_code(monkeypatch)
+
+    async def _mock_get_many(self, user_ids):
+        return {_TEST_UID: _identity("+12125550000", True)}
+
+    monkeypatch.setattr(ria_module.ActorIdentityService, "get_many", _mock_get_many)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/ria/claim/verify",
+        json={"phone": "8015663510", "claim_type": "individual", "firm_crd": 283040},
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "CLAIM_PROOF_REQUIRED"
+
+
+def test_claim_verify_rejects_an_unverified_account_phone(monkeypatch):
+    """A stored-but-unverified number is not proof of anything."""
+    _enable_test_code(monkeypatch)
+
+    async def _mock_get_many(self, user_ids):
+        return {_TEST_UID: _identity("+18015663510", False)}
+
+    monkeypatch.setattr(ria_module.ActorIdentityService, "get_many", _mock_get_many)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/ria/claim/verify",
+        json={"phone": "8015663510", "claim_type": "individual", "firm_crd": 283040},
+    )
+    assert response.status_code == 422
+
+
+def test_claim_verify_survives_an_identity_lookup_failure(monkeypatch):
+    """The identity cache is advisory: if it errors, fail closed to the passcode."""
+    _enable_test_code(monkeypatch)
+
+    async def _boom(self, user_ids):
+        raise RuntimeError("identity cache unavailable")
+
+    monkeypatch.setattr(ria_module.ActorIdentityService, "get_many", _boom)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/ria/claim/verify",
+        json={"phone": "8015663510", "claim_type": "individual", "firm_crd": 283040},
+    )
+    assert response.status_code == 422
