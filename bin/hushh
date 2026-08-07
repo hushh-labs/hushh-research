@@ -157,6 +157,7 @@ EOF
     esac
   done
 
+  printf '\033]0;Local Web Frontend (%s)\007' "$mode" 2>/dev/null || true
   bash "$REPO_ROOT/scripts/env/use_profile.sh" "$mode"
   cd "$REPO_ROOT/hushh-webapp"
   if [ "${#next_args[@]}" -gt 0 ]; then
@@ -835,6 +836,7 @@ EOF
           ;;
       esac
     done
+    printf '\033]0;Cloud SQL Proxy (%s)\007' "$mode" 2>/dev/null || true
     exec bash "$REPO_ROOT/scripts/runtime/run_proxy_local.sh" "$mode"
     ;;
   terminal)
@@ -868,6 +870,7 @@ EOF
           ;;
       esac
     done
+    printf '\033]0;Local Backend (%s)\007' "$mode" 2>/dev/null || true
     # ── Offline mode routes to its own runtime script ──
     if [ "$mode" = "offline" ]; then
       exec bash "$REPO_ROOT/scripts/runtime/run_backend_offline.sh" "${extra[@]}"

@@ -3,10 +3,13 @@
 tests/performance/test_market_cache_instrumentation.py
 tests/quality/test_byok_encryption.py
 tests/quality/test_kai_route_auth_compliance.py
+tests/services/test_advisor_directory_service.py
 tests/services/test_consent_request_lock.py
 tests/services/test_pkm_service_store_domain_data.py
 tests/test_a2a_agent_card_well_known.py
 tests/test_adk_a2a_compliance_script.py
+tests/test_advisors_coordinate_privacy.py
+tests/test_advisors_runtime_config_wiring.py
 tests/test_agent_manifest_index.py
 tests/test_agent_prompt_routes.py
 tests/test_agent_prompt_service.py
@@ -99,6 +102,7 @@ tests/test_pod_turn_route.py
 tests/test_portfolio_stream_quality_rules.py
 tests/test_product_agent_registry_v2.py
 tests/test_request_consent_local_keypair.py
+tests/test_ria_claim_flow.py
 tests/test_ria_iam_service_architecture.py
 tests/test_scoped_export_download.py
 tests/test_simulation_phone_lane.py

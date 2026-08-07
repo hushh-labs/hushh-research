@@ -38,7 +38,7 @@ Examples of unacceptable behavior include:
 
 ## Hussh-Specific Guidelines
 
-As a project focused on **consent-first personal AI infrastructure**, we hold
+As a project focused on **consent-first private AI infrastructure**, we hold
 ourselves to additional standards:
 
 * **Respect user privacy** - Never share or expose user data, even in examples

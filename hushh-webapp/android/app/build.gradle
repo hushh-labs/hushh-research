@@ -3,12 +3,20 @@ apply plugin: 'kotlin-android'
 
 def releaseSigningProperties = new Properties()
 def releaseSigningPropertiesFile = new File(rootProject.projectDir.parentFile, ".env.local.d/android/release-signing.properties")
-def hasReleaseSigning = releaseSigningPropertiesFile.exists()
+
+def envKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+def envKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+def envKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+def envKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+
+def hasEnvReleaseSigning = envKeystorePath && new File(envKeystorePath).exists() && envKeyAlias && envKeystorePassword
+def hasReleaseSigning = releaseSigningPropertiesFile.exists() || hasEnvReleaseSigning
+
 // A package/SHA-restricted Android Maps SDK key. It is intentionally supplied
 // by the build environment and never committed. An empty value builds a safe
 // unavailable Map surface instead of falling back to the browser/server key.
 def googleMapsApiKey = (System.getenv("NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY") ?: project.findProperty("GOOGLE_MAPS_ANDROID_API_KEY") ?: "").replace('"', '\\"')
-if (hasReleaseSigning) {
+if (releaseSigningPropertiesFile.exists()) {
     releaseSigningProperties.load(new FileInputStream(releaseSigningPropertiesFile))
 }
 
@@ -29,22 +37,27 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (hasEnvReleaseSigning) {
+                keyAlias envKeyAlias
+                keyPassword envKeyPassword ?: envKeystorePassword
+                storeFile file(envKeystorePath)
+                storePassword envKeystorePassword
+            } else if (releaseSigningPropertiesFile.exists()) {
+                keyAlias releaseSigningProperties['keyAlias']
+                keyPassword releaseSigningProperties['keyPassword']
+                storeFile releaseSigningProperties['storeFile'] ? file(releaseSigningProperties['storeFile']) : null
+                storePassword releaseSigningProperties['storePassword']
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release
-            }
-        }
-    }
-    signingConfigs {
-        if (hasReleaseSigning) {
-            release {
-                keyAlias releaseSigningProperties['keyAlias']
-                keyPassword releaseSigningProperties['keyPassword']
-                storeFile releaseSigningProperties['storeFile'] ? file(releaseSigningProperties['storeFile']) : null
-                storePassword releaseSigningProperties['storePassword']
             }
         }
     }

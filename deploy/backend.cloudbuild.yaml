@@ -109,7 +109,7 @@ steps:
   #
   # Apple Wallet pass signing material (WALLET_PASS_CERT_PEM / KEY_PEM /
   # WWDR_PEM) is optional by construction: until the Pass Type ID certificate
-  # is minted these secrets do not exist, so append_optional_secret skips them
+  # is minted these secrets do not exist, so add_secret skips them
   # and the signing service answers 503 instead of 500. They are defaulted to
   # their canonical names so the first deploy after provisioning picks them up
   # with no change to this file.
@@ -192,6 +192,7 @@ steps:
       - "_ONE_EMAIL_WEBHOOK_AUDIENCE=${_ONE_EMAIL_WEBHOOK_AUDIENCE}"
       - "_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=${_ONE_EMAIL_WEBHOOK_AUTH_ENABLED}"
       - "_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=${_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL}"
+      - "_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED}"
       - "_OPENAI_API_KEY_SECRET=${_OPENAI_API_KEY_SECRET}"
       - "_PLAID_ACCESS_TOKEN_KEY_SECRET=${_PLAID_ACCESS_TOKEN_KEY_SECRET}"
       - "_PLAID_CLIENT_ID_SECRET=${_PLAID_CLIENT_ID_SECRET}"
@@ -200,6 +201,10 @@ steps:
       - "_REGION=${_REGION}"
       - "_REVIEWER_UID_SECRET=${_REVIEWER_UID_SECRET}"
       - "_REVIEWER_VAULT_PASSPHRASE_SECRET=${_REVIEWER_VAULT_PASSPHRASE_SECRET}"
+      - "_RIA_CLAIM_TEST_CODE_SECRET=${_RIA_CLAIM_TEST_CODE_SECRET}"
+      - "_RIA_CLAIM_TEST_NUMBERS_SECRET=${_RIA_CLAIM_TEST_NUMBERS_SECRET}"
+      - "_RIA_IDENTITY_API_KEY_SECRET=${_RIA_IDENTITY_API_KEY_SECRET}"
+      - "_RIA_IDENTITY_BASE_URL_SECRET=${_RIA_IDENTITY_BASE_URL_SECRET}"
       - "_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS=${_RIA_INTELLIGENCE_CRD_SCRAPER_TIMEOUT_SECONDS}"
       - "_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=${_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET}"
       - "_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS=${_RIA_ONBOARDING_PROVIDER_TIMEOUT_SECONDS}"
@@ -207,8 +212,10 @@ steps:
       - "_RUNTIME_SERVICE_ACCOUNT=${_RUNTIME_SERVICE_ACCOUNT}"
       - "_VAULT_DATA_KEY_SECRET=${_VAULT_DATA_KEY_SECRET}"
       - "_VOICE_RUNTIME_CONFIG_JSON_SECRET=${_VOICE_RUNTIME_CONFIG_JSON_SECRET}"
+      - "_WALLET_API_KEY_SECRET=${_WALLET_API_KEY_SECRET}"
       - "_WALLET_PASS_CERT_PEM_SECRET=${_WALLET_PASS_CERT_PEM_SECRET}"
       - "_WALLET_PASS_KEY_PEM_SECRET=${_WALLET_PASS_KEY_PEM_SECRET}"
+      - "_WALLET_PASS_PROVIDER=${_WALLET_PASS_PROVIDER}"
       - "_WALLET_PASS_WWDR_PEM_SECRET=${_WALLET_PASS_WWDR_PEM_SECRET}"
     id: "deploy-backend"
 
@@ -292,7 +299,18 @@ substitutions:
   _REVIEWER_UID_SECRET: ""
   _REVIEWER_VAULT_PASSPHRASE_SECRET: ""
   _RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET: ""
+  _RIA_IDENTITY_BASE_URL_SECRET: ""
+  _RIA_IDENTITY_API_KEY_SECRET: ""
+  # Claim demo passcode allowlist. Never pass these in production lanes; the
+  # regulated runtime guard refuses boot if they are set there.
+  _RIA_CLAIM_TEST_NUMBERS_SECRET: ""
+  _RIA_CLAIM_TEST_CODE_SECRET: ""
   _ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET: ""
+  # Caller key for the org-owned hushh-wallet-api. Empty => the optional
+  # secret is skipped and the provider falls back to local signing.
+  _WALLET_API_KEY_SECRET: ""
+  # local | service. Empty/local keeps in-process signing.
+  _WALLET_PASS_PROVIDER: ""
   _ONE_EMAIL_ADDRESS: ""
   _ONE_EMAIL_DELEGATED_USER: ""
   _ONE_EMAIL_PUBSUB_TOPIC: ""
@@ -302,10 +320,11 @@ substitutions:
   _ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED: "true"
   _ONE_EMAIL_KYC_DEFAULT_SCOPE: ""
   _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
+  _ONE_WALLET_CARD_ENABLED: ""
   _APP_REVIEW_MODE: ""
   _HUSHH_PROD_PHONE_TEST_ENABLED: ""
   # Durable Kai analyze-run terminal-checkpoint store (migration 125). Empty =>
-  # off (append_optional_env skips empty values; runtime_settings defaults
+  # off (add_env skips empty values; runtime_settings defaults
   # False), preserving in-memory-only behavior. Set per-env below.
   _KAI_ANALYZE_DURABLE_RUN_STORE: ""
   _CLOUD_RUN_NO_TRAFFIC: "false"

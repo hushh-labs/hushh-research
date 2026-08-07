@@ -59,8 +59,8 @@ import {
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { motionDurations, motionEasings } from "@/lib/morphy-ux/motion";
 import { useVault } from "@/lib/vault/vault-context";
+import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 
-const RENDERER_CONSENT_VERSION = "google-maps-renderer-v1";
 const MAP_ID = "one-location-private-map";
 const MAP_ACCENT_CONTROL_CLASSNAME =
   "!border-[var(--app-accent-border)] !bg-[var(--app-accent-surface)] !text-[var(--app-accent-deep)] hover:!bg-[var(--app-accent-surface-strong)] dark:!text-[var(--app-accent-bright)]";
@@ -310,13 +310,7 @@ export function LocationImmersiveMap() {
     router.push(`${ROUTES.ONE_LOCATION_MAP}?${params.toString()}`, {
       scroll: false,
     });
-  }, [
-    demoMode,
-    nearbyCheckInAvailable,
-    rendererReady,
-    router,
-    searchParams,
-  ]);
+  }, [demoMode, nearbyCheckInAvailable, rendererReady, router, searchParams]);
 
   const closeNearbyCheckIn = useCallback(() => {
     setNearbyCheckInOpen(false);
@@ -541,7 +535,8 @@ export function LocationImmersiveMap() {
         if (cancelled) return;
         setPreferences(state.preferences);
         setAcceptedRenderer(
-          state.preferences.rendererConsentVersion === RENDERER_CONSENT_VERSION,
+          state.preferences.rendererConsentVersion ===
+            GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
         );
       })
       .catch(() => {
@@ -817,7 +812,7 @@ export function LocationImmersiveMap() {
     try {
       const next = await OneLocationService.updateMapPreferences({
         vaultOwnerToken,
-        rendererConsentVersion: RENDERER_CONSENT_VERSION,
+        rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
       });
       setPreferences(next);
       setAcceptedRenderer(true);
@@ -1025,8 +1020,7 @@ export function LocationImmersiveMap() {
           currentOwner.vaultOwnerToken === ownerSnapshot.vaultOwnerToken &&
           currentPresence.presence?.checkedInAt === presenceCheckedInAt &&
           currentPresence.attendees.some(
-            (item) =>
-              item.participantAlias === attendee.participantAlias,
+            (item) => item.participantAlias === attendee.participantAlias,
           )
         );
       };
@@ -1150,7 +1144,7 @@ export function LocationImmersiveMap() {
         className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))]"
       >
         <ShellActionSurface
-          className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
+          className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
           aria-label="Back to Location"
           data-testid="one-location-map-close"
           disabled={closing}
@@ -1204,7 +1198,7 @@ export function LocationImmersiveMap() {
         ) : null}
         {rendererReady ? (
           <ShellActionSurface
-            className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
+            className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
             aria-label="Show my location"
             data-testid="one-location-map-locate"
             disabled={busy === "locate"}
@@ -1576,13 +1570,6 @@ export function LocationImmersiveMap() {
                         : "Sharing privately now"}
                     </p>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void showEveryone()}
-                  >
-                    Show everyone
-                  </Button>
                 </div>
               ) : null}
 

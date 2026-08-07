@@ -120,18 +120,21 @@ export function WalletCardManage({
                 {shareLink.shareUrl}
               </span>
             </div>
+            {applePassSupported ? null : (
+              <p className="text-[12px] text-muted-foreground">
+                {WALLET_CARD_OWNER_COPY.addOnIphoneHint}
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
-              {applePassSupported ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  loading={busyAction === "add-to-wallet"}
-                  onClick={() => onAction("add-to-wallet")}
-                >
-                  <Wallet className="mr-2 h-4 w-4" aria-hidden />
-                  {WALLET_CARD_OWNER_COPY.addToWallet}
-                </Button>
-              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                loading={busyAction === "add-to-wallet"}
+                onClick={() => onAction("add-to-wallet")}
+              >
+                <Wallet className="mr-2 h-4 w-4" aria-hidden />
+                {WALLET_CARD_OWNER_COPY.addToWallet}
+              </Button>
               <Button
                 type="button"
                 size="sm"

@@ -17,7 +17,13 @@ _TOKEN_PREFIXES = ("HCT:", "Bearer ")
 _TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:)[A-Za-z0-9._~+/=-]+")
 _QUERY_SECRET_RE = re.compile(
     r"([?&](?:access_token|api[_-]?key|apikey|auth|client_secret|key|"
-    r"private_key|refresh_token|secret|signature|token)=)([^&\s\"'<>]+)",
+    r"private_key|refresh_token|secret|signature|token|"
+    # A person's position is as sensitive as a credential and leaks the same
+    # way. httpx logs every outbound request URL at INFO, so any provider call
+    # that carries coordinates in its query string — the advisor directory, the
+    # Maps geocoder — would otherwise write a home address to a retained log.
+    r"lat|latitude|latlng|lng|lon|longitude|coords|coordinates|postal_?code|zip)=)"
+    r"([^&\s\"'<>]+)",
     flags=re.IGNORECASE,
 )
 

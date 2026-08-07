@@ -1699,11 +1699,13 @@ export function ConnectedSystemsPanel({
                 "CRM system";
               const availability = registryAvailabilityLabel(system);
               const rowState =
-                availability !== "Available"
-                  ? "Temporarily unavailable"
-                  : boundSystemIds.has(system.systemId)
-                    ? "Connected"
-                    : "Set up";
+                availability === "Needs setup"
+                  ? "Needs setup"
+                  : availability !== "Available"
+                    ? "Temporarily unavailable"
+                    : boundSystemIds.has(system.systemId)
+                      ? "Connected"
+                      : "Set up";
               return (
                 <SettingsRow
                   key={system.systemId}

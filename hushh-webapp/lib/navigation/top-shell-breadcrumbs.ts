@@ -127,7 +127,7 @@ function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.CONSENTS]: "Consent Center",
     [ROUTES.ONE_FEED]: "Feed",
     [ROUTES.ONE_KYC]: "KYC",
-    [KAI_MARKET_PATH]: "Kai",
+    [KAI_MARKET_PATH]: "Finance",
     [ROUTES.CONNECT]: "Connect",
   };
   return labels[path] ?? "One";
@@ -312,7 +312,7 @@ function resolveTopShellBreadcrumbInner(
         width: "content",
         align: "center",
         items: [
-          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Finance", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: ticker ? `${ticker} run` : "Saved run" },
         ],
@@ -325,7 +325,7 @@ function resolveTopShellBreadcrumbInner(
         width: "content",
         align: "center",
         items: [
-          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Finance", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: ticker ? `${ticker} live` : "Active run" },
         ],
@@ -338,7 +338,7 @@ function resolveTopShellBreadcrumbInner(
         width: "content",
         align: "center",
         items: [
-          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Finance", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: `${ticker} preview` },
         ],
@@ -351,7 +351,7 @@ function resolveTopShellBreadcrumbInner(
         width: "content",
         align: "center",
         items: [
-          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Finance", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: "Debate" },
         ],
@@ -364,7 +364,7 @@ function resolveTopShellBreadcrumbInner(
       backHref: ROUTES.ONE_HOME,
       width: "content",
       align: "center",
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Kai" }],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Finance" }],
     };
   }
 
@@ -385,7 +385,7 @@ function resolveTopShellBreadcrumbInner(
         fromSetup
           ? { label: "Set up", href: ROUTES.ONE_SETUP }
           : { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Kai" },
+        { label: "Finance" },
       ],
     };
   }
@@ -713,12 +713,26 @@ function resolveTopShellBreadcrumbInner(
         searchParams?.get("source") === "nearby";
       const nearbyReturnToken =
         searchParams?.get(NEARBY_PRIVATE_RETURN_TOKEN_PARAM) ?? null;
+      // Preserve the originating hub tab so the single top-bar (and OS/hardware)
+      // back button returns the user to the tab the flow was opened FROM —
+      // "Create a new link" from Links returns to Links, "Invite trusted person"
+      // from People returns to People — instead of always dropping to the
+      // default "Now" tab. `openFlow` keeps the current `?view=` tab in the URL
+      // when it appends `?action=`, so it is available here. SMS contacts is
+      // only ever reached from Settings, so it retraces to the Settings flow.
+      const hubView = String(searchParams?.get("view") || "").trim();
+      const hubBackHref =
+        action === "sms-contacts"
+          ? `${ROUTES.ONE_LOCATION}?action=settings`
+          : hubView
+            ? `${ROUTES.ONE_LOCATION}?view=${encodeURIComponent(hubView)}`
+            : ROUTES.ONE_LOCATION;
       return {
         backHref: returnToNearbyCheckIn
           ? isNearbyPrivateReturnToken(nearbyReturnToken)
             ? buildNearbyCheckInResumeHref(nearbyReturnToken)
             : `${ROUTES.ONE_LOCATION_MAP}?action=check-in`
-          : ROUTES.ONE_LOCATION,
+          : hubBackHref,
         width: "profile",
         align: "center",
         items: [
@@ -730,6 +744,7 @@ function resolveTopShellBreadcrumbInner(
         ],
       };
     }
+
     return {
       backHref:
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,

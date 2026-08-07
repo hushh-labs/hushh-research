@@ -66,9 +66,7 @@ WALLET_PASS_FILENAME = "hushh-one.pkpass"  # noqa: S105
 # User-facing failure copy (contract §9). The technical cause is logged
 # server-side only and is never returned to the client.
 WALLET_PASS_UNAVAILABLE_CODE = "wallet_pass_unavailable"  # noqa: S105
-WALLET_PASS_UNAVAILABLE_MESSAGE = (
-    "We couldn't create your Wallet pass right now. Please try again in a moment."  # noqa: S105
-)
+WALLET_PASS_UNAVAILABLE_MESSAGE = "Couldn't create your pass. Try again in a moment."  # noqa: S105
 
 _CARD_BACKGROUND_COLOR = "rgb(12, 13, 17)"
 _CARD_FOREGROUND_COLOR = "rgb(255, 255, 255)"
@@ -391,9 +389,8 @@ def _build_back_fields(content: WalletPassContent) -> list[dict[str, str]]:
         ),
         _text_field(
             "control",
-            "Only the information you select will be visible. "
-            "You can update or disable access at any time.",
-            label="You stay in control",
+            "Only what you pick is visible. Change or switch it off anytime.",
+            label="You choose what shows",
         ),
     )
 

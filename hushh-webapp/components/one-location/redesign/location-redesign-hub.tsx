@@ -717,8 +717,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             recipients={vm.smsContactCandidates}
             selectedUserIds={vm.smsContactUserIds}
             busyKey={vm.busy}
-            onBack={() => closeFlow("now")}
+            // SMS contacts is only ever opened from Settings, so its in-content
+            // back arrow returns to Settings (not the default "Now" tab), which
+            // matches the chrome/OS back button behavior.
+            onBack={() => openFlow("settings")}
             onAdd={vm.onAddSmsContact}
+
             onRemove={vm.onRemoveSmsContact}
             recipientLabel={vm.recipientLabel}
             recipientSubtitle={vm.recipientSubtitle}
@@ -1652,6 +1656,8 @@ function SosFlow({
       active={vm.sosActive}
       busy={vm.sosBusy}
       onTrigger={vm.onTriggerSos}
+      onStopSos={vm.onStopSos}
+      stopBusy={vm.sosBusy}
       onClose={onClose}
       onEditContacts={onEditContacts}
       recipientLabel={vm.recipientLabel}

@@ -71,6 +71,25 @@ Approximate native permission and fixes worse than 100 m fail before
 publication with an app-settings recovery path. Active rosters refresh on a
 15-second, visible-app cadence without extending the server expiry.
 
+## Saved location onboarding
+
+Every Location onboarding run offers the saved-place flow after foreground
+permission is ready. The owner first confirms an entrance with a centre-pin map,
+then supplies the house/flat/floor or block and PIN/postal code; building colour,
+landmark, and a custom **Other** label remain optional. Google Maps never
+initializes until the owner accepts the same versioned renderer disclosure used
+by **Your Map**. Moving the map invalidates the previous address and disables
+confirmation until the selected centre has finished resolving, so coordinates
+cannot be paired with stale address copy.
+
+Root setup deliberately precedes vault creation. Its confirmed place therefore
+stays only in process memory, address autofill is disabled, reload/sign-out
+discards it, and Skip clears it. Once setup creates and unlocks the vault, the
+existing finalization transaction writes the place through encrypted Location
+PKM. No bootstrap database, browser-storage record, vault schema, or plaintext
+fallback is introduced. Home and Work retain their singleton behavior, and the
+existing 25-metre cross-category duplicate guard remains authoritative.
+
 ## Your Map
 
 `/one/location/map` is an immersive private map. It suppresses the app top

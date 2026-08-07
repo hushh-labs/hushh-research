@@ -30,6 +30,19 @@ export function resolveRuntimeFrontendUrl(): string {
   return normalizeUrl(process.env.NEXT_PUBLIC_APP_URL);
 }
 
+/**
+ * `hushh-mail-api` binding. Both values are server-only: the key authorises
+ * sending under Hushh's SPF and DKIM, so neither is ever exposed with a
+ * `NEXT_PUBLIC_` prefix.
+ */
+export function resolveMailApiEndpoint(): string {
+  return normalizeUrl(process.env.MAIL_API_ENDPOINT);
+}
+
+export function resolveMailApiKey(): string {
+  return normalizeText(process.env.MAIL_API_KEY);
+}
+
 export function resolveVoiceFailFastPolicy(): boolean {
   return false;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -16,6 +16,7 @@ import {
   PreVaultUserStateService,
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
+import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { CapabilityTourService } from "@/lib/services/capability-tour-service";
 import { OneLocationService } from "@/lib/one-location/service";
@@ -68,6 +69,8 @@ export function useCapabilitySetupStates(
   options: UseCapabilitySetupStatesOptions = {}
 ): UseCapabilitySetupStatesResult {
   const { enrichVault = false, enrichOauth = false, enrichRia = false } = options;
+  // Last reported "<uid>:<connected ids>" so an unchanged set is not re-posted.
+  const reportedConnectedRef = useRef<string>("");
 
   const { user } = useAuth();
   const { isVaultUnlocked, getVaultKey, getVaultOwnerToken } = useVault();
@@ -415,6 +418,65 @@ export function useCapabilitySetupStates(
     for (const status of statuses) map[status.id] = status;
     return map;
   }, [statuses]);
+
+  // "unknown" means this pass could not resolve the capability — the dashboard
+  // does not enrich OAuth, so Gmail reads unknown there. Reporting it as
+  // not-connected would later make a months-old link look brand new.
+  const observedIds = useMemo(
+    () =>
+      statuses
+        .filter((status) => status.state !== "unknown")
+        .map((status) => status.id)
+        .sort(),
+    [statuses]
+  );
+
+  const connectedIds = useMemo(
+    () =>
+      statuses
+        .filter((status) => status.state === "completed")
+        .map((status) => status.id)
+        .sort(),
+    [statuses]
+  );
+
+  const connectedSignature = useMemo(
+    () => `${observedIds.join(",")}|${connectedIds.join(",")}`,
+    [observedIds, connectedIds]
+  );
+
+  const isSettled =
+    Boolean(userId) &&
+    bootstrapOwnerId === userId &&
+    (bootstrapResolved || Boolean(cachedPreVaultState)) &&
+    !enrichingVault &&
+    !enrichingOauth &&
+    !enrichingRia &&
+    !enrichingLocation;
+
+  /**
+   * Report the connected set so the server can mail about anything newly
+   * connected.
+   *
+   * Reporting a set beats firing an event per link: there are nine ways to
+   * connect something and hooking each one means the one added next year is
+   * silently missed. The server owns the diff and the durable record, so this
+   * side stays a plain observation with no memory of its own beyond avoiding a
+   * repeat post of an unchanged set.
+   *
+   * Only while settled — a partially enriched pass reports a smaller set, which
+   * is harmless because the server only ever adds, but posting it is noise.
+   */
+  useEffect(() => {
+    if (!isSettled || !userId) return;
+    const key = `${userId}:${connectedSignature}`;
+    if (reportedConnectedRef.current === key) return;
+    reportedConnectedRef.current = key;
+    void ApiService.notifyAuthMail("capabilities_linked", {
+      observed: observedIds,
+      capabilities: connectedIds,
+    });
+  }, [connectedIds, connectedSignature, isSettled, observedIds, userId]);
 
   return {
     statuses,
