@@ -178,7 +178,11 @@ export default function RiaClaimPage() {
   const { user, loading: authLoading } = useAuth();
   const { refresh: refreshPersonaState } = usePersonaState();
   // Arrives pre-filled when the sign-up phone screen recognised this number.
-  const seededPhone = toNanpDigits(searchParams.get("phone"));
+  // Someone who verified their phone on an earlier visit never sees that
+  // screen again, so fall back to the number already on their account — they
+  // should be recognised whenever they reach here, not only on first sign-up.
+  const seededPhone =
+    toNanpDigits(searchParams.get("phone")) || toNanpDigits(user?.phoneNumber);
 
   const [step, setStep] = useState<ClaimStep>("phone");
   const [phoneDigits, setPhoneDigits] = useState("");
