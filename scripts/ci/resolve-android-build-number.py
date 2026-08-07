@@ -5,7 +5,7 @@ The one-click Google Play pipeline needs a versionCode that is strictly greater
 than both:
 
   * the highest versionCode already uploaded to Google Play Console for
-    com.hushh.app across all tracks (internal, alpha, beta, production), and
+    com.hussh.app across all tracks (internal, alpha, beta, production), and
   * the ``versionCode`` committed in ``hushh-webapp/android/app/build.gradle``.
 
 This script reads the local ``build.gradle`` versionCode, optionally queries the
@@ -31,7 +31,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-DEFAULT_PACKAGE_NAME = "com.hushh.app"
+DEFAULT_PACKAGE_NAME = "com.hussh.app"
 DEFAULT_GRADLE_PATH = os.path.join(
     "hushh-webapp", "android", "app", "build.gradle"
 )
@@ -83,7 +83,7 @@ def update_gradle_version_code(gradle_path: str, new_code: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Resolve next Google Play versionCode for com.hushh.app."
+        description="Resolve next Google Play versionCode for com.hussh.app."
     )
     parser.add_argument(
         "--package-name",

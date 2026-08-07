@@ -21,10 +21,10 @@ if (releaseSigningPropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.hushh.app"
+    namespace = "com.hussh.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.hushh.app"
+        applicationId "com.hussh.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 2
