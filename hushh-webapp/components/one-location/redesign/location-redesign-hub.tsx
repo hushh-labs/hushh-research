@@ -315,7 +315,10 @@ export type LocationHubViewModel = {
   sosEmergency: EmergencyInfo | null;
   sosEmergencyStatus: EmergencyNumberLookupStatus;
   onResolveSosLocation: () => void;
-  onTriggerSos: (message?: string | null) => void;
+  // Promise-returning on purpose: SosPanel awaits it to tell a real send from
+  // an early bail-out, so narrowing it back to `void` here would strip the
+  // signal the panel needs to release its fired latch.
+  onTriggerSos: (message?: string | null) => void | Promise<void>;
   onStopSos: () => void;
   onAddSmsContact: (recipientUserId: string) => void;
   onAddSmsCircle: (circleId: string) => Promise<void>;
