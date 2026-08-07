@@ -264,6 +264,14 @@ jobs:
           cd hushh-webapp/android
           ./gradlew bundleRelease --stacktrace
 
+      - name: Publish .aab as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hushh-one-android-release-aab
+          path: hushh-webapp/android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 14
+          if-no-files-found: error
+
       - name: Upload .aab to Google Play Console
         if: ${{ inputs.dry_run != true }}
         uses: r0adkll/upload-google-play@v1
