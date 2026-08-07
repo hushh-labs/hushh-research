@@ -200,6 +200,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          bash scripts/env/use_profile.sh uat
           cd hushh-webapp
           npm run sync:native-firebase-configs
           npm run cap:build
