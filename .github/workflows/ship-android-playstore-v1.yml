@@ -225,6 +225,13 @@ jobs:
             echo "WARNING: No Google Play service account key provided."
           fi
 
+      - name: Create Google Play Python venv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "${RUNNER_TEMP}/play-venv"
+          "${RUNNER_TEMP}/play-venv/bin/pip" install --quiet --disable-pip-version-check pyjwt cryptography
+
       - name: Resolve next monotonic Android versionCode
         id: versioning
         shell: bash
@@ -235,7 +242,7 @@ jobs:
             KEY_OPT="--service-account-json ${PLAY_SERVICE_ACCOUNT_PATH}"
           fi
 
-          NEXT_CODE="$(python3 scripts/ci/resolve-android-build-number.py ${KEY_OPT} --update-gradle)"
+          NEXT_CODE="$("${RUNNER_TEMP}/play-venv/bin/python" scripts/ci/resolve-android-build-number.py ${KEY_OPT} --update-gradle)"
           echo "next_version_code=${NEXT_CODE}" >> "$GITHUB_OUTPUT"
           echo "Resolved next Android versionCode: ${NEXT_CODE}"
 
