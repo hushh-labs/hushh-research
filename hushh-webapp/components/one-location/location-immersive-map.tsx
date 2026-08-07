@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GoogleMap, LatLngBounds, type Marker } from "@capacitor/google-maps";
+import {
+  GoogleMap,
+  LatLngBounds,
+  type Circle,
+  type Marker,
+} from "@capacitor/google-maps";
 import { App as CapacitorApp } from "@capacitor/app";
 import {
   ChevronDown,
@@ -62,6 +67,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 
 const MAP_ID = "one-location-private-map";
+const NEARBY_CHECK_IN_RADIUS_METERS = 500;
 const MAP_ACCENT_CONTROL_CLASSNAME =
   "!border-[var(--app-accent-border)] !bg-[var(--app-accent-surface)] !text-[var(--app-accent-deep)] hover:!bg-[var(--app-accent-surface-strong)] dark:!text-[var(--app-accent-bright)]";
 const MAP_ACCENT_ACTIVE_CLASSNAME =
@@ -161,6 +167,40 @@ async function frameMarkers(
   await map.fitBounds(new LatLngBounds({ southwest, northeast, center }), 24);
 }
 
+function wrappedLongitude(longitude: number): number {
+  return ((((longitude + 180) % 360) + 360) % 360) - 180;
+}
+
+function radiusBounds(point: PlainLocationPoint, radiusMeters: number) {
+  const latitudeDelta = radiusMeters / 111_320;
+  const longitudeScale = Math.abs(
+    Math.cos((point.latitude * Math.PI) / 180),
+  );
+  const longitudeDelta = Math.min(
+    180,
+    radiusMeters / (111_320 * Math.max(longitudeScale, 0.000001)),
+  );
+  const southwest = {
+    lat: Math.max(-90, point.latitude - latitudeDelta),
+    lng:
+      longitudeDelta === 180
+        ? -180
+        : wrappedLongitude(point.longitude - longitudeDelta),
+  };
+  const northeast = {
+    lat: Math.min(90, point.latitude + latitudeDelta),
+    lng:
+      longitudeDelta === 180
+        ? 180
+        : wrappedLongitude(point.longitude + longitudeDelta),
+  };
+  return new LatLngBounds({
+    southwest,
+    northeast,
+    center: { lat: point.latitude, lng: point.longitude },
+  });
+}
+
 /**
  * Full-screen private-map surface. It only receives ciphertext for active
  * recipient-scoped grants, decrypts it in foreground memory, and destroys both
@@ -181,6 +221,9 @@ export function LocationImmersiveMap() {
   const topControlsRef = useRef<HTMLDivElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
   const markerIdsRef = useRef<string[]>([]);
+  const nearbyCircleIdsRef = useRef<string[]>([]);
+  const nearbyCircleGenerationRef = useRef(0);
+  const nearbyCircleCommandRef = useRef<Promise<void>>(Promise.resolve());
   const markerByMapIdRef = useRef<Map<string, RenderMarker>>(new Map());
   const framedInitialMarkersRef = useRef(false);
   const refreshInFlightRef = useRef(false);
@@ -196,10 +239,6 @@ export function LocationImmersiveMap() {
     userId: auth.userId,
     vaultOwnerToken,
   });
-  nearbyConnectOwnerRef.current = {
-    userId: auth.userId,
-    vaultOwnerToken,
-  };
   const [demoMode, setDemoMode] = useState(initialDemoMode);
   const [acceptedRenderer, setAcceptedRenderer] = useState(false);
   const [preferences, setPreferences] = useState<OneLocationMapPreferences>({
@@ -227,15 +266,27 @@ export function LocationImmersiveMap() {
     string | null
   >(null);
   const [nearbyCheckInOpen, setNearbyCheckInOpen] = useState(false);
+  const [nearbySearchPoint, setNearbySearchPoint] =
+    useState<PlainLocationPoint | null>(null);
   const [nearbyPresenceState, setNearbyPresenceState] =
     useState<OneLocationNearbyPresenceState>({
       presence: null,
       attendees: [],
     });
   const nearbyPresenceStateRef = useRef(nearbyPresenceState);
-  nearbyPresenceStateRef.current = nearbyPresenceState;
   const mountedRef = useRef(true);
   const rendererReady = acceptedRenderer || demoMode;
+
+  useEffect(() => {
+    nearbyConnectOwnerRef.current = {
+      userId: auth.userId,
+      vaultOwnerToken,
+    };
+  }, [auth.userId, vaultOwnerToken]);
+
+  useEffect(() => {
+    nearbyPresenceStateRef.current = nearbyPresenceState;
+  }, [nearbyPresenceState]);
 
   useEffect(() => {
     const action = searchParams.get("action");
@@ -510,6 +561,7 @@ export function LocationImmersiveMap() {
     return () => {
       mountedRef.current = false;
       markerIdsRef.current = [];
+      nearbyCircleIdsRef.current = [];
       markerByMapIdRef.current.clear();
       void mapRef.current?.destroy();
       mapRef.current = null;
@@ -724,10 +776,27 @@ export function LocationImmersiveMap() {
       const trayBottomInset = trayRect
         ? Math.max(0, window.innerHeight - trayRect.bottom)
         : 12;
+      const desktopCheckInOpen =
+        nearbyCheckInOpen && window.matchMedia("(min-width: 768px)").matches;
+      const mobileCheckInOpen =
+        nearbyCheckInOpen && window.matchMedia("(max-width: 767px)").matches;
+      const checkInSheet = mobileCheckInOpen
+        ? document.querySelector<HTMLElement>(
+            "[data-one-location-nearby-check-in-sheet]",
+          )
+        : null;
+      const mobileSheetInset = checkInSheet
+        ? Math.max(0, window.innerHeight - checkInSheet.getBoundingClientRect().top)
+        : 0;
       const padding = {
         top: Math.ceil(top + 12),
-        right: 20,
-        bottom: Math.ceil(trayBottomInset + COLLAPSED_TRAY_HEIGHT + 12),
+        right: desktopCheckInOpen ? 436 : 20,
+        bottom: Math.ceil(
+          Math.max(
+            trayBottomInset + COLLAPSED_TRAY_HEIGHT + 12,
+            mobileSheetInset + 12,
+          ),
+        ),
         left: 20,
       };
       const key = `${padding.top}:${padding.right}:${padding.bottom}:${padding.left}`;
@@ -749,13 +818,92 @@ export function LocationImmersiveMap() {
     // out on purpose: its expand/collapse animation must not drive the camera.
     const observer = new ResizeObserver(schedulePadding);
     if (topControlsRef.current) observer.observe(topControlsRef.current);
+    const checkInSheet = document.querySelector<HTMLElement>(
+      "[data-one-location-nearby-check-in-sheet]",
+    );
+    if (nearbyCheckInOpen && checkInSheet) observer.observe(checkInSheet);
     window.addEventListener("resize", schedulePadding);
     return () => {
       if (paddingTimer !== null) window.clearTimeout(paddingTimer);
       observer.disconnect();
       window.removeEventListener("resize", schedulePadding);
     };
-  }, [mapReady]);
+  }, [mapReady, nearbyCheckInOpen]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const generation = ++nearbyCircleGenerationRef.current;
+    const searchPoint = nearbyCheckInOpen ? nearbySearchPoint : null;
+    let addedIds: string[] = [];
+
+    const enqueue = (command: () => Promise<void>): Promise<void> => {
+      const next = nearbyCircleCommandRef.current
+        .catch(() => undefined)
+        .then(command);
+      nearbyCircleCommandRef.current = next.catch(() => undefined);
+      return next;
+    };
+    const removeSafely = async (ids: string[]) => {
+      if (!ids.length) return;
+      await map.removeCircles(ids).catch(() => undefined);
+    };
+
+    void enqueue(async () => {
+      const previousIds = nearbyCircleIdsRef.current;
+      nearbyCircleIdsRef.current = [];
+      await removeSafely(previousIds);
+      if (
+        generation !== nearbyCircleGenerationRef.current ||
+        !searchPoint
+      ) {
+        return;
+      }
+
+      const circle: Circle = {
+        center: {
+          lat: searchPoint.latitude,
+          lng: searchPoint.longitude,
+        },
+        radius: NEARBY_CHECK_IN_RADIUS_METERS,
+        fillColor: "var(--app-accent-surface)",
+        fillOpacity: 0.1,
+        strokeColor: "var(--app-accent)",
+        strokeOpacity: 0.85,
+        strokeWeight: 2,
+        clickable: false,
+        title: "500 m check-in search area",
+      };
+      addedIds = await map.addCircles([circle]);
+      if (generation !== nearbyCircleGenerationRef.current) {
+        await removeSafely(addedIds);
+        addedIds = [];
+        return;
+      }
+      nearbyCircleIdsRef.current = addedIds;
+      await map.fitBounds(
+        radiusBounds(searchPoint, NEARBY_CHECK_IN_RADIUS_METERS),
+        32,
+      );
+    }).catch(() => {
+      // Place discovery remains usable from the drawer if an older renderer
+      // cannot draw the visual boundary. Never convert this into map data.
+    });
+
+    return () => {
+      if (nearbyCircleGenerationRef.current === generation) {
+        nearbyCircleGenerationRef.current += 1;
+      }
+      void enqueue(async () => {
+        const ownsCurrentIds =
+          addedIds.length > 0 &&
+          addedIds.every((id) => nearbyCircleIdsRef.current.includes(id));
+        if (ownsCurrentIds) nearbyCircleIdsRef.current = [];
+        await removeSafely(addedIds);
+        addedIds = [];
+      }).catch(() => undefined);
+    };
+  }, [mapReady, nearbyCheckInOpen, nearbySearchPoint]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1208,6 +1356,21 @@ export function LocationImmersiveMap() {
           </ShellActionSurface>
         ) : null}
       </div>
+      {rendererReady && nearbyCheckInOpen && nearbySearchPoint ? (
+        <div
+          className="pointer-events-none absolute left-4 z-20 inline-flex items-center gap-2 rounded-full border border-[var(--app-accent-border)] bg-background/90 px-3 py-1.5 text-xs font-semibold text-[var(--app-accent-deep)] shadow-lg backdrop-blur-md dark:text-[var(--app-accent-bright)]"
+          style={{
+            top: "calc(max(1rem, env(safe-area-inset-top)) + 4.5rem)",
+          }}
+          data-testid="one-location-nearby-search-area-legend"
+        >
+          <span
+            className="h-2.5 w-2.5 rounded-full border-2 border-[var(--app-accent)] bg-[var(--app-accent-surface)]"
+            aria-hidden="true"
+          />
+          500 m search area
+        </div>
+      ) : null}
       {!rendererReady ? (
         <section
           className="absolute inset-x-0 z-20 rounded-none border border-border/60 bg-background/95 p-5 shadow-2xl backdrop-blur md:left-1/2 md:right-auto md:w-[min(52rem,calc(100%-4rem))] md:-translate-x-1/2 md:rounded-3xl"
@@ -1652,6 +1815,7 @@ export function LocationImmersiveMap() {
             closeNearbyCheckIn();
           }}
           onStateChange={handleNearbyStateChange}
+          onSearchAreaChange={setNearbySearchPoint}
         />
       ) : null}
     </main>

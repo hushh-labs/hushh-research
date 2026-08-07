@@ -29,7 +29,7 @@ Every plugin must be registered on both iOS and Android before TypeScript calls 
 Key files:
 
 - `hushh-webapp/ios/App/App/MyViewController.swift`
-- `hushh-webapp/android/app/src/main/java/com/hushh/app/MainActivity.kt`
+- `hushh-webapp/android/app/src/main/java/com/hussh/app/MainActivity.kt`
 - `hushh-webapp/lib/capacitor/index.ts`
 - `hushh-webapp/lib/capacitor/types.ts`
 

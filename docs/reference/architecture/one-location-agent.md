@@ -195,9 +195,10 @@ discarded if Pause becomes active. Existing encrypted saved places remain
 readable, repairable, and removable while the vault is unlocked.
 
 `Location limited` means a channel is enabled but current permission or fix
-accuracy is not sufficient for Nearby admission. It must not be presented as a
-successful precise check-in; Nearby continues to require a fresh fix no worse
-than 100 metres.
+accuracy is degraded. It is a signal-quality badge, not an admission verdict: a
+broad fix is still usable for choosing the venue the owner is standing in. The
+badge appears above 200 metres, while Nearby admission only rejects a reading
+broader than 5 kilometres, which cannot place anyone at all.
 
 ## Nearby Check-In Contract
 
@@ -206,31 +207,41 @@ It never widens a private live-location grant, and a Connect relationship never
 grants nearby or live-location visibility.
 
 1. The signed-in, phone-verified vault owner opens Check in on Your Map. One
-   captures a foreground point to show nearby provider places, then lets the
-   owner choose or search the public place used for admission and display
-   context. There is no event code.
+   captures a foreground point and draws a transient 500-meter search boundary.
+   The drawer shows up to 20 operational, de-duplicated Google places ordered
+   by server-computed distance, with explicit category filters that reuse the
+   same boundary. Typed check-in search is restricted to that boundary. The
+   owner then chooses the public place used for admission and display context;
+   opening discovery never checks the owner in. The point and provider results
+   are not persisted. There is no event code.
 2. The owner chooses 30, 60, or 120 minutes and explicitly confirms showing
    their safe display label to other opted-in check-ins within the fixed
    500-meter radius. Allowing Connect requests is a separate switch and
    defaults off.
 3. On confirmation, One captures a new foreground point. The backend resolves
-   the selected place itself and requires that point's complete accuracy
-   envelope to remain inside 500 meters of it. Accuracy never expands the
-   admission radius.
-4. The confirmed check-in point and safe place label are persisted only inside
+   the selected place itself, rejects address/geocode records, closed places,
+   and service-area-only businesses, and checks that the owner is plausibly at
+   that place: the point must sit within 500 metres of it, widened by the
+   reported accuracy up to a 2-kilometre cap. Accuracy is a tolerance on that
+   plausibility test, never an expansion of the co-presence radius, which is
+   measured place-to-place in step 5. The cap stops a deliberately coarse
+   reading from buying unlimited reach.
+4. The **selected place's** coordinates and safe label are persisted only inside
    a short-lived AES-256-GCM envelope, alongside a server-keyed six-hour spatial
    candidate token, rotating alias, consent posture, fixed radius, and expiry
-   metadata. Accuracy is not persisted. Checkout clears all point ciphertext
-   and candidate material synchronously. At `expires_at`, roster visibility and
-   Connect authorization stop synchronously; encrypted material is scrubbed by
-   the next feature operation or the hosted hourly retention job.
+   metadata. The owner's captured point is never persisted, in plaintext or
+   ciphertext, and neither is its accuracy. Checkout clears all anchor
+   ciphertext and candidate material synchronously. At `expires_at`, roster
+   visibility and Connect authorization stop synchronously; encrypted material
+   is scrubbed by the next feature operation or the hosted hourly retention job.
 5. The candidate token is never accepted as proof of proximity. The service
-   decrypts candidate check-in points and applies exact Haversine distance
-   before returning at most 20 active people. Two people therefore match only
-   when their independently confirmed points are at most 500 meters apart.
-   Peers never
-   receive one another's place, coordinates, distance, direction, contact
-   details, or stable user id.
+   decrypts candidate place anchors and applies exact Haversine distance before
+   returning at most 20 active people. Two people therefore match only when the
+   places they each selected are at most 500 meters apart. Because the anchor is
+   the venue and not a receiver reading, co-presence is exact and identical for
+   a 10-metre GPS fix and a 2-kilometre browser fix. Peers never receive one
+   another's place, coordinates, distance, direction, contact details, or stable
+   user id.
 6. Presence uses server-authoritative expiry and has no watcher, heartbeat,
    automatic extension, arrival detection, movement history, or distance
    ranking. Closing the app does not check out; the explicit Check out action

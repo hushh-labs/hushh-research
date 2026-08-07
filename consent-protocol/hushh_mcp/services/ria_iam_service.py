@@ -803,6 +803,49 @@ class IAMSchemaNotReadyError(Exception):
         self.code = "IAM_SCHEMA_NOT_READY"
 
 
+def resolve_claim_profile_status(
+    *,
+    existing_status: str | None,
+    existing_provider: str | None,
+    existing_finra_crd: str | None,
+    new_crd: str,
+    new_verified: bool,
+) -> tuple[str, str, bool]:
+    """Decide a claim's stored status against a possibly-existing RIA profile.
+
+    Returns ``(verification_status, event_outcome, verified)``. Raises
+    ``RIAIAMPolicyError(409)`` when the claim would overwrite a genuinely
+    onboarding-verified profile with a *different* identity. A profile that was
+    itself created by an earlier claim (provider ``ria_identity_claim``) carries
+    no such weight and may be re-claimed freely; a same-identity re-claim never
+    downgrades a verified profile.
+    """
+    verified = new_verified
+    status_value = "verified" if verified else "submitted"
+    event_outcome = "verified" if verified else "evidence_only"
+    if existing_status is None:
+        return status_value, event_outcome, verified
+
+    existing_is_verified = str(existing_status or "").lower() in {
+        "verified",
+        "active",
+        "finra_verified",
+    }
+    existing_from_claim = str(existing_provider or "") == "ria_identity_claim"
+    existing_crd = str(existing_finra_crd or "").strip()
+    same_identity = bool(existing_crd) and existing_crd == str(new_crd or "").strip()
+
+    if existing_is_verified and not existing_from_claim and not same_identity:
+        raise RIAIAMPolicyError(
+            "You already have a verified advisor profile. Claiming a different "
+            "identity from here isn't supported.",
+            status_code=409,
+        )
+    if existing_is_verified and same_identity and not verified:
+        return "verified", "verified", True
+    return status_value, event_outcome, verified
+
+
 @dataclass(frozen=True)
 class ScopeTemplate:
     template_id: str
@@ -4237,6 +4280,261 @@ class RIAIAMService:
                     "advisory_firm_iapd_number": effective_sec_iard,
                     "broker_firm_legal_name": effective_broker_firm_name,
                     "broker_firm_crd": effective_broker_firm_crd,
+                    "firm_id": firm_id,
+                }
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def claim_ria_profile_from_identity(
+        self,
+        user_id: str,
+        *,
+        claim_type: str,
+        verification_level: str,
+        phone_e164: str,
+        display_name: str,
+        legal_name: str,
+        crd_number: str,
+        firm_name: str | None,
+        firm_crd: str | None,
+        firm_website: str | None = None,
+        firm_sec_number: str | None = None,
+        reference_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Auto-build an RIA profile from a possession-proven SEC claim.
+
+        The CRD and names come from the SEC's own record via the RIA identity
+        service, so the claim is CRD-backed by construction. A claim that only
+        reached ``provisional`` is stored as ``submitted`` — it opens the RIA
+        surface but no verified-only gate.
+        """
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            raise RIAIAMPolicyError("A user is required to claim a profile.")
+        if claim_type not in {"individual", "firm"}:
+            raise RIAIAMPolicyError("Unsupported claim type.")
+        verified = verification_level == "verified"
+        status_value = "verified" if verified else "submitted"
+        event_outcome = "verified" if verified else "evidence_only"
+
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_vault_user_row(conn, normalized_user_id)
+                await self._ensure_iam_schema_ready(conn)
+
+                # Protect a genuinely onboarding-verified profile from being
+                # silently overwritten with a different identity or downgraded.
+                existing = await conn.fetchrow(
+                    """
+                    SELECT verification_status, verification_provider, finra_crd
+                    FROM ria_profiles
+                    WHERE user_id = $1
+                    """,
+                    normalized_user_id,
+                )
+                status_value, event_outcome, verified = resolve_claim_profile_status(
+                    existing_status=existing["verification_status"] if existing else None,
+                    existing_provider=existing["verification_provider"] if existing else None,
+                    existing_finra_crd=existing["finra_crd"] if existing else None,
+                    new_crd=crd_number,
+                    new_verified=verified,
+                )
+
+                await conn.execute(
+                    """
+                    INSERT INTO actor_profiles (
+                        user_id,
+                        personas,
+                        last_active_persona,
+                        investor_marketplace_opt_in
+                    )
+                    VALUES ($1, ARRAY['investor','ria']::text[], 'ria', FALSE)
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET
+                      personas = CASE
+                        WHEN 'ria' = ANY(actor_profiles.personas) THEN actor_profiles.personas
+                        ELSE array_append(actor_profiles.personas, 'ria')
+                      END,
+                      last_active_persona = 'ria',
+                      updated_at = NOW()
+                    """,
+                    normalized_user_id,
+                )
+                await self._set_runtime_last_persona(conn, normalized_user_id, "ria")
+
+                ria = await conn.fetchrow(
+                    """
+                    INSERT INTO ria_profiles (
+                      user_id,
+                      display_name,
+                      legal_name,
+                      finra_crd,
+                      sec_iard,
+                      verification_status,
+                      verification_provider
+                    )
+                    VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), $6, $7)
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET
+                      display_name = EXCLUDED.display_name,
+                      legal_name = EXCLUDED.legal_name,
+                      finra_crd = EXCLUDED.finra_crd,
+                      sec_iard = EXCLUDED.sec_iard,
+                      verification_status = EXCLUDED.verification_status,
+                      verification_provider = EXCLUDED.verification_provider,
+                      updated_at = NOW()
+                    RETURNING id, user_id, display_name, legal_name, finra_crd, verification_status
+                    """,
+                    normalized_user_id,
+                    display_name,
+                    legal_name or "",
+                    crd_number or "",
+                    firm_sec_number or "",
+                    status_value,
+                    "ria_identity_claim",
+                )
+                if ria is None:
+                    raise RuntimeError("Failed to create claimed RIA profile")
+
+                firm_id: str | None = None
+                if firm_name and firm_name.strip():
+                    firm_row = await conn.fetchrow(
+                        """
+                        INSERT INTO ria_firms (legal_name)
+                        VALUES ($1)
+                        ON CONFLICT (legal_name) DO UPDATE
+                        SET updated_at = NOW()
+                        RETURNING id
+                        """,
+                        firm_name.strip(),
+                    )
+                    if firm_row:
+                        firm_id = str(firm_row["id"])
+                        await conn.execute(
+                            """
+                            INSERT INTO ria_firm_memberships (
+                              ria_profile_id,
+                              firm_id,
+                              role_title,
+                              membership_status,
+                              is_primary
+                            )
+                            VALUES ($1, $2, NULLIF($3, ''), 'active', TRUE)
+                            ON CONFLICT (ria_profile_id, firm_id) DO UPDATE
+                            SET
+                              role_title = EXCLUDED.role_title,
+                              membership_status = 'active',
+                              is_primary = TRUE,
+                              updated_at = NOW()
+                            """,
+                            ria["id"],
+                            firm_row["id"],
+                            "Advisor" if claim_type == "individual" else "Firm representative",
+                        )
+
+                try:
+                    await conn.execute(
+                        """
+                        UPDATE ria_profiles
+                        SET
+                          requested_capabilities = $2::text[],
+                          individual_legal_name = NULLIF($3, ''),
+                          individual_crd = NULLIF($4, ''),
+                          advisory_firm_legal_name = NULLIF($5, ''),
+                          advisory_firm_iapd_number = NULLIF($6, ''),
+                          advisory_status = $7,
+                          advisory_provider = $8,
+                          updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        ria["id"],
+                        ["advisory"],
+                        legal_name if claim_type == "individual" else "",
+                        crd_number if claim_type == "individual" else "",
+                        firm_name or "",
+                        firm_crd or "",
+                        status_value,
+                        "ria_identity_claim",
+                    )
+                except asyncpg.exceptions.UndefinedColumnError:
+                    logger.warning(
+                        "ria_profiles capability columns unavailable during claim write; using legacy verification fields only"
+                    )
+
+                await conn.execute(
+                    """
+                    INSERT INTO ria_verification_events (
+                      ria_profile_id,
+                      provider,
+                      outcome,
+                      checked_at,
+                      expires_at,
+                      reference_metadata
+                    )
+                    VALUES ($1, $2, $3, NOW(), $4, $5::jsonb)
+                    """,
+                    ria["id"],
+                    "ria_identity_claim",
+                    event_outcome,
+                    None,
+                    json.dumps(reference_metadata or {}),
+                )
+
+                await conn.execute(
+                    """
+                    INSERT INTO marketplace_public_profiles (
+                      user_id,
+                      profile_type,
+                      display_name,
+                      headline,
+                      verification_badge,
+                      is_discoverable,
+                      updated_at
+                    )
+                    VALUES ($1, 'ria', $2, NULLIF($3, ''), $4, TRUE, NOW())
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET
+                      profile_type = 'ria',
+                      display_name = EXCLUDED.display_name,
+                      headline = EXCLUDED.headline,
+                      verification_badge = EXCLUDED.verification_badge,
+                      updated_at = NOW()
+                    """,
+                    normalized_user_id,
+                    display_name,
+                    firm_name or "",
+                    "verified" if verified else "pending",
+                )
+
+                try:
+                    await conn.execute(
+                        """
+                        INSERT INTO ria_business_contacts (user_id, phone)
+                        VALUES ($1, NULLIF($2, ''))
+                        ON CONFLICT (user_id) DO UPDATE
+                        SET phone = EXCLUDED.phone, updated_at = NOW()
+                        """,
+                        normalized_user_id,
+                        phone_e164 or "",
+                    )
+                except asyncpg.exceptions.UndefinedTableError:
+                    logger.warning(
+                        "ria_business_contacts unavailable during claim write; skipping phone persistence"
+                    )
+
+                self._invalidate_cached_persona_state(normalized_user_id)
+                return {
+                    "ria_profile_id": str(ria["id"]),
+                    "user_id": str(ria["user_id"]),
+                    "display_name": str(ria["display_name"]),
+                    "legal_name": str(ria["legal_name"] or ""),
+                    "crd_number": str(ria["finra_crd"] or ""),
+                    "verification_status": str(ria["verification_status"]),
+                    "claim_type": claim_type,
+                    "firm_name": firm_name,
                     "firm_id": firm_id,
                 }
         except asyncpg.exceptions.UndefinedTableError as exc:

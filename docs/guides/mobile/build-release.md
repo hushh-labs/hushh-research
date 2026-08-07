@@ -3,6 +3,8 @@
 ## Visual Context
 
 Canonical visual owner: [Mobile Guide](../mobile.md).
+- One-click iOS TestFlight Pipeline: [Ship iOS to TestFlight](./ship-ios-testflight.md)
+- One-click Android Google Play Pipeline: [Ship Android to Google Play Store](./ship-android-playstore.md)
 
 ## Fresh Native Build Rule
 
