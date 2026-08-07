@@ -581,6 +581,48 @@ First must be empty — any hit is a raw `tel:` template that skipped the helper
 Second must list both directory surfaces (`advisor-detail-surface.tsx` and
 `insurance-agent-detail-surface.tsx`).
 
+### R15 — Stage by name, verify from the index, and land ignore rules on `main`
+
+**Incident (2026-08-07, landing the deploy-SHA gate fix on `main`).** A deliberately
+three-file change was cut from `origin/main`, staged with `git add -A`, and merged. It
+carried **5,952 extra files**: `consent-protocol/.sim/**`, the local multi-pod
+simulation's sealed `.bin` commit-log records, per-pod `pkm.sqlite3` databases and a
+46,111-line consent log. Merge `bc4d18dbb` went green through every gate — governance,
+secret scan, the full protocol suite — because none of them is a diff-size or
+diff-shape gate. It was caught by a human looking at the commit page.
+
+Two causes compounded, and the second is the one worth remembering.
+
+The `.gitignore` rule for that directory existed **only on the feature branch that
+created the simulation**. `main` had never carried it. So on a branch cut from `main`
+the artifacts were not ignored — and they were already sitting untracked in a working
+tree shared with the feature branch, because `git checkout -B` does not remove
+untracked files. `add -A` took them.
+
+The pre-commit check was `git diff --stat origin/main`. That reports **tracked files
+only** and structurally cannot show an untracked file. It printed the three intended
+paths, which is exactly what it was expected to print, and it was believed. A check
+that cannot observe the failure mode is not a check — it is a check-shaped object, and
+it is more dangerous than no check because it produces confidence.
+
+**Rule.** Stage by explicit path. Never `git add -A` or `git add .` in a tree shared
+with another branch or with generated output. Verify the change set from the **index**
+(`git diff --cached --name-only`), never from `git diff`, which is blind to exactly the
+files a careless add would have swept in. And when a `.gitignore` rule is added on a
+feature branch, land it on `main`: an ignore rule protects only the branches that carry
+it, and the branch most likely to be cut fresh from `main` is the one landing a fix.
+
+**Check.** Before committing, read the staged set and the untracked set, and check
+whether `main` is missing an ignore rule you rely on:
+```bash
+git diff --cached --name-only          # must be exactly the paths you named
+git status --porcelain --untracked-files=normal | grep '^??'   # what add -A would take
+git diff origin/main HEAD -- .gitignore                        # ignore rules that exist only here
+```
+The first must match your intent file-for-file. The second should be empty on a branch
+you are about to commit from. Any rule appearing in the third is protecting this branch
+and nothing else.
+
 ## Adding a rule
 
 Every mistake found becomes a rule. Fix the **cause**, not the symptom, then add
