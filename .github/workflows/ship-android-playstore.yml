@@ -109,7 +109,7 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
 
-      - name: Fetch Android Keystore & Google Play API secrets from GCP Secret Manager
+      - name: Fetch Android Keystore & Firebase secrets from GCP Secret Manager
         id: gcp-secrets
         continue-on-error: true
         uses: google-github-actions/get-secretmanager-secrets@v2
@@ -120,6 +120,23 @@ jobs:
             KEY_ALIAS:${{ env.GCP_PROJECT_ID }}/ANDROID_KEY_ALIAS
             KEY_PASS:${{ env.GCP_PROJECT_ID }}/ANDROID_KEY_PASSWORD
             PLAY_SERVICE_ACCOUNT_B64:${{ env.GCP_PROJECT_ID }}/GOOGLE_PLAY_SERVICE_ACCOUNT_JSON_B64
+            IOS_FIREBASE_B64:${{ env.GCP_PROJECT_ID }}/IOS_GOOGLESERVICE_INFO_PLIST_B64
+            ANDROID_FIREBASE_B64:${{ env.GCP_PROJECT_ID }}/ANDROID_GOOGLE_SERVICES_JSON_B64
+
+      - name: Hydrate Native Firebase Configs
+        shell: bash
+        run: |
+          set -euo pipefail
+          IOS_FB="${{ steps.gcp-secrets.outputs.IOS_FIREBASE_B64 }}"
+          ANDROID_FB="${{ steps.gcp-secrets.outputs.ANDROID_FIREBASE_B64 }}"
+
+          if [ -n "${IOS_FB}" ]; then
+            echo "${IOS_FB}" | base64 -d > GoogleService-Info.plist
+          fi
+          if [ -n "${ANDROID_FB}" ]; then
+            echo "${ANDROID_FB}" | base64 -d > google-services.json
+          fi
+          echo "Native Firebase configs hydrated."
 
       - name: Hydrate Android Release Keystore
         shell: bash
