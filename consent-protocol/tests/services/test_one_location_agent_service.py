@@ -148,8 +148,13 @@ class AtomicPrivateShareProbe(OneLocationAgentService):
         self.notifications: list[dict] = []
         self.expiry_normalizations: list[str | None] = []
 
-    def _is_active_connection(self, **_kwargs) -> bool:
-        return True
+    # This probe exercises the atomic private-share SQL, not the relationship
+    # graph, so eligibility is stubbed open. It stubs the single canonical
+    # predicate: stubbing a narrower helper here is what previously let the
+    # production connection gate drift away from what the picker offered
+    # without a single test noticing.
+    def _resolve_location_peer_eligibility(self, **_kwargs) -> tuple[bool, str | None]:
+        return True, None
 
     def _recipient_key_row(self, **_kwargs) -> dict:
         return {
@@ -3502,6 +3507,111 @@ def test_create_grant_rejects_an_unshared_explicit_circle() -> None:
         )
 
     assert error.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+
+
+def test_recipient_picker_offers_exactly_what_a_share_will_accept() -> None:
+    """Every offered recipient must be shareable, and vice versa.
+
+    The UAT regression this guards: the picker listed Circle-only peers while
+    the share gate accepted direct connections only, so people were shown an
+    "Add"/"Share" button that always answered "you can only share with your
+    connections" — a dead end with nothing the user could do about it.
+    """
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    service = FourUserMemoryService()
+    for user_id in ("user_b", "user_c", "user_d"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+    # user_b: direct connection only. user_c: Circle co-member only.
+    # user_d: neither, and must stay out of both sets.
+    service._seed_connection("user_a", "user_b")
+    service._seed_named_circle(circle_id, "user_a", "user_c")
+
+    offered = {
+        recipient["userId"]
+        for recipient in service.list_verified_recipients(owner_user_id="user_a")
+    }
+    assert offered == {"user_b", "user_c"}
+
+    for user_id in sorted(offered):
+        grant = service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id=user_id,
+            recipient_key_id=f"key-{user_id}",
+            duration_hours=1,
+            enforce_connection=True,
+        )
+        assert grant["status"] == "active"
+        service.add_sms_contact(owner_user_id="user_a", contact_user_id=user_id)
+
+    assert service.list_sms_contact_ids(owner_user_id="user_a") == ["user_b", "user_c"]
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id="user_d",
+            recipient_key_id="key-user_d",
+            duration_hours=1,
+            enforce_connection=True,
+        )
+    assert error.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+
+
+def test_create_grant_forwards_the_requested_circle_through_the_writer_guard() -> None:
+    """An explicitly requested Circle must survive the outer create_grant call.
+
+    `create_grant` re-enters itself once to take the key-writer guard. That
+    inner call used to drop `source_circle_id`, so a caller naming a Circle it
+    did not share had the constraint silently discarded and the share was
+    authorized as a plain connection instead of being refused.
+    """
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id="user_b",
+            recipient_key_id="key-user_b",
+            duration_hours=1,
+            source_circle_id="550e8400-e29b-41d4-a716-446655440000",
+            enforce_connection=True,
+            _key_writer_guarded=False,
+        )
+
+    assert error.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+    assert not service.grants
+
+
+def test_create_grant_stamps_the_circle_that_authorized_a_circle_only_share() -> None:
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_named_circle(circle_id, "user_a", "user_b")
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        enforce_connection=True,
+        _key_writer_guarded=False,
+    )
+
+    # Provenance is what makes the grant revocable with the Circle later.
+    assert grant["sourceCircleId"] == circle_id
 
 
 def test_enforced_circle_grant_locks_relationship_before_mutation(monkeypatch) -> None:

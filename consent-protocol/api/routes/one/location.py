@@ -1218,6 +1218,9 @@ def create_location_grant_with_envelope(
             envelope=payload.envelope,
             reason=payload.reason,
             share_kind=payload.share_kind,
+            source_circle_id=(
+                str(payload.source_circle_id) if payload.source_circle_id is not None else None
+            ),
             enforce_connection=True,
         )
     except Exception as exc:

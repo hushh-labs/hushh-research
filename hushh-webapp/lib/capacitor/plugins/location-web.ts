@@ -118,15 +118,21 @@ export class HushhLocationWeb implements HushhLocationPlugin {
       return candidate.accuracyM < current.accuracyM;
     };
 
-    // Single-shot reader (used for the low-accuracy desktop fallback). Always
-    // requests a FRESH fix (maximumAge: 0) so a stale cached position from a
-    // previous place is never returned as "current location".
-    const readOnce = (enableHighAccuracy: boolean) =>
+    // How old a cached fix may be before the last-resort reader refuses it.
+    // Deliberately far below the 60s the backend allows between capture and
+    // confirmation, so a fix accepted here still passes the server's freshness
+    // check and still describes where the user actually is.
+    const LAST_RESORT_MAX_AGE_MS = 30_000;
+
+    // Single-shot reader (used for the low-accuracy desktop fallback). Defaults
+    // to a FRESH fix (maximumAge: 0) so a stale cached position from a previous
+    // place is never returned as "current location".
+    const readOnce = (enableHighAccuracy: boolean, maximumAge = 0) =>
       new Promise<WebFix>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(
           (position) => resolve(toFix(position)),
           (error) => reject(error),
-          { enableHighAccuracy, timeout: timeoutMs, maximumAge: 0 },
+          { enableHighAccuracy, timeout: timeoutMs, maximumAge },
         );
       });
 
@@ -202,6 +208,32 @@ export class HushhLocationWeb implements HushhLocationPlugin {
     };
 
 
+    // Last resort before telling a user with working Location that we could not
+    // find them. Both fresh readers demand `maximumAge: 0`, so a browser whose
+    // provider is momentarily unable to produce a NEW fix fails even though it
+    // is holding a perfectly good one from seconds ago — the exact shape of the
+    // "location is on but sharing says it is off" reports. Accept that cached
+    // fix when it is recent enough to still be true, and only then give up.
+    const lastResortCachedFix = async (): Promise<WebFix> => {
+      try {
+        return await readOnce(false, LAST_RESORT_MAX_AGE_MS);
+      } catch (cachedRaw) {
+        const cachedError = cachedRaw as
+          | Partial<GeolocationPositionError>
+          | undefined;
+        if (cachedError?.code === 1) {
+          const denied = new Error(
+            "Location permission is blocked for this site. Allow location access in your browser's site settings, then try again.",
+          );
+          denied.name = "LocationPermissionDeniedError";
+          throw denied;
+        }
+        throw new Error(
+          "Could not get your location. Turn on Location for your device/browser and try again.",
+        );
+      }
+    };
+
     // The browser GeolocationPositionError codes: 1 = PERMISSION_DENIED,
     // 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT. Many desktops have no GPS, so a
     // high-accuracy request can fail with POSITION_UNAVAILABLE/TIMEOUT even when
@@ -243,14 +275,10 @@ export class HushhLocationWeb implements HushhLocationPlugin {
               denied.name = "LocationPermissionDeniedError";
               throw denied;
             }
-            throw new Error(
-              "Could not get your location. Turn on Location for your device/browser and try again.",
-            );
+            return await lastResortCachedFix();
           }
         }
-        throw new Error(
-          "Could not get your location. Turn on Location for your device/browser and try again.",
-        );
+        return await lastResortCachedFix();
       }
 
       throw new Error(

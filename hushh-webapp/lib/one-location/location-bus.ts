@@ -233,8 +233,15 @@ export const LocationBus = {
           }
           if (!error) return;
           const denied = error.code === 1;
+          if (!denied && state.snapshot) {
+            // A live watch reports POSITION_UNAVAILABLE/TIMEOUT routinely
+            // between fixes. We already hold a position, so this is noise, not
+            // a failure — surfacing its message here previously left "Could not
+            // get your location" on screen while location was working fine.
+            return;
+          }
           emit({
-            status: denied ? "denied" : state.snapshot ? "ready" : "error",
+            status: denied ? "denied" : "error",
             permission: denied ? "denied" : state.permission,
             error: error.message,
           });
