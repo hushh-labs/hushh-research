@@ -87,7 +87,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    expect(screen.getByText("Hushh managed Gemini")).toBeTruthy();
+    expect(screen.getByText("Hussh managed Gemini")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Gemini" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Coming soon" })).toBeTruthy();
     for (const provider of [
@@ -122,7 +122,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("button", { name: /Hushh managed Gemini/i }),
+      screen.getByRole("button", { name: /Hussh managed Gemini/i }),
     );
 
     await waitFor(() => expect(onSelectionReadyChange).toHaveBeenCalledTimes(1));
@@ -221,7 +221,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       ).toHaveAttribute("aria-pressed", "true"),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /Hushh managed Gemini/i }),
+      screen.getByRole("button", { name: /Hussh managed Gemini/i }),
     );
 
     await waitFor(() =>

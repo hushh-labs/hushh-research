@@ -11474,7 +11474,7 @@
         "key",
         "setup"
       ],
-      "meaning": "Opens AI access setup so the person can choose Hushh managed Gemini or validate and protect their own Gemini access.",
+      "meaning": "Opens AI access setup so the person can choose Hussh managed Gemini or validate and protect their own Gemini access.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

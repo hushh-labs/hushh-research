@@ -567,7 +567,7 @@ export default function ConnectPageClient() {
               </div>
               <SettingsGroup
                 title="People"
-                description="Find people on Hushh and send a connection request."
+                description="Find people on Hussh and send a connection request."
                 separatorInset
               >
                 {loading ? (

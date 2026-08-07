@@ -87,7 +87,7 @@ class _FakeAgentChatService:
                 error_code="AGENT_RUNTIME_CREDENTIAL_MISSING",
                 message=(
                     "Kai needs your Gemini key to continue. Add or update it in "
-                    "Profile > Runtime keys, or switch Kai to Hushh managed Gemini."
+                    "Profile > Runtime keys, or switch Kai to Hussh managed Gemini."
                 ),
             )
         if runtime_credential_mode not in {None, "byok", "hushh_managed_vertex"}:
@@ -446,7 +446,7 @@ def test_agent_chat_stream_rejects_byok_without_runtime_credential(monkeypatch):
         "code": "AGENT_RUNTIME_CREDENTIAL_MISSING",
         "message": (
             "Kai needs your Gemini key to continue. Add or update it in "
-            "Profile > Runtime keys, or switch Kai to Hushh managed Gemini."
+            "Profile > Runtime keys, or switch Kai to Hussh managed Gemini."
         ),
     }
     assert service.prepared_turns == 0
@@ -597,7 +597,7 @@ def test_agent_chat_stream_saves_safe_runtime_provider_error(monkeypatch):
         error_code="AGENT_RUNTIME_CREDENTIAL_INVALID",
         message=(
             "Your saved Gemini key could not be used. Update it in Profile > Runtime keys "
-            "or switch Kai to Hushh managed Gemini."
+            "or switch Kai to Hussh managed Gemini."
         ),
         detail={"likely_issue": "invalid_or_unauthorized_api_key"},
     )
@@ -625,7 +625,7 @@ def test_agent_chat_stream_saves_safe_runtime_provider_error(monkeypatch):
             "role": "assistant",
             "content": (
                 "Your saved Gemini key could not be used. Update it in Profile > Runtime keys "
-                "or switch Kai to Hushh managed Gemini."
+                "or switch Kai to Hussh managed Gemini."
             ),
             "status": "error",
             "model": "gemini-3.5-flash",

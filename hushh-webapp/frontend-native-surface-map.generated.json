@@ -6272,7 +6272,7 @@
           "playbook_id": "route.one.setup.connections",
           "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.",
           "screen": "one_setup_connections",
-          "entry_cue": "Choose Hushh managed Gemini now, or record BYOK and add the encrypted key after setup.",
+          "entry_cue": "Choose Hussh managed Gemini now, or record BYOK and add the encrypted key after setup.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.finish_connections",
           "happy_path_action_ids": [
@@ -8047,5 +8047,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "ced8e00e602a46c23e961f90381eae81808d8ab76352034a5562eb02283d29c6"
+  "content_sha256": "19f043f5cc5034b2034e72bb40fac51fc0047e1b2fb0eac54f6eef5568f28002"
 }
