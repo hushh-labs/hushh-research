@@ -268,6 +268,8 @@ export function LocationImmersiveMap() {
   const topControlsRef = useRef<HTMLDivElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
   const markerIdsRef = useRef<string[]>([]);
+  const markerGenerationRef = useRef(0);
+  const markerCommandRef = useRef<Promise<void>>(Promise.resolve());
   const nearbyCircleIdsRef = useRef<string[]>([]);
   const nearbyConnectorIdsRef = useRef<string[]>([]);
   const nearbyCircleGenerationRef = useRef(0);
@@ -1078,35 +1080,73 @@ export function LocationImmersiveMap() {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
+    // Marker writes must be serialized. Two overlapping runs could each remove
+    // the ids they captured on entry and then add their own, so a batch added
+    // by the slower run stayed on the map with nothing tracking its ids --
+    // ghost pins that no later pass could remove. That showed up as a second
+    // "Your location" sitting where the device used to be. The check-in place
+    // pin made it routine: `visibleMarkers` now also changes on every place
+    // selection and presence poll, not just on a position update.
+    const generation = ++markerGenerationRef.current;
     let cancelled = false;
-    void (async () => {
-      if (markerIdsRef.current.length)
-        await map.removeMarkers(markerIdsRef.current);
-      const mapMarkers: Marker[] = visibleMarkers.map((marker) => ({
-        coordinate: { lat: marker.point.latitude, lng: marker.point.longitude },
+    const enqueue = (command: () => Promise<void>): Promise<void> => {
+      const next = markerCommandRef.current.catch(() => undefined).then(command);
+      markerCommandRef.current = next.catch(() => undefined);
+      return next;
+    };
+    void enqueue(async () => {
+      if (markerIdsRef.current.length) {
+        const stale = markerIdsRef.current;
+        markerIdsRef.current = [];
+        await map.removeMarkers(stale).catch(() => undefined);
+      }
+      if (generation !== markerGenerationRef.current) return;
+      const mapMarkers: Marker[] = visibleMarkers.map((marker) => {
         // Labels stay in the local HTML tray/search index. The native Google
         // renderer receives coordinates and a generic accessibility title,
         // never the private recipient name.
-        title:
+        const title =
           marker.kind === "self"
             ? "Your location"
             : marker.kind === "place"
               ? // A public venue the owner picked, so its name may reach the
                 // renderer -- unlike a private recipient's label.
                 marker.label
-              : "Private location",
-        snippet:
-          marker.kind === "self"
-            ? "Your current location"
-            : marker.kind === "place"
-              ? "Your check-in place"
-              : "Sharing privately now",
-        tintColor: marker.tint,
-        zIndex:
-          marker.kind === "self" ? 10 : marker.kind === "place" ? 9 : 1,
-      }));
+              : "Private location";
+        return {
+          coordinate: {
+            lat: marker.point.latitude,
+            lng: marker.point.longitude,
+          },
+          // `title` is only safe to send on native, where it fills the info
+          // window that opens on tap. The web renderer feeds it to the pin's
+          // *glyph* instead -- a slot meant for one character -- so any real
+          // title is painted across the map beside the pin. A place name plus
+          // its full postal address made a banner of it. Web keeps the plain
+          // coloured pin; the drawer already names both points in HTML.
+          ...(isNative()
+            ? {
+                title,
+                snippet:
+                  marker.kind === "self"
+                    ? "Your current location"
+                    : marker.kind === "place"
+                      ? "Your check-in place"
+                      : "Sharing privately now",
+              }
+            : {}),
+          tintColor: marker.tint,
+          zIndex:
+            marker.kind === "self" ? 10 : marker.kind === "place" ? 9 : 1,
+        };
+      });
       const ids = mapMarkers.length ? await map.addMarkers(mapMarkers) : [];
-      if (cancelled) return;
+      // A superseded run must take its own markers back off the map. Returning
+      // early here is what stranded them.
+      if (generation !== markerGenerationRef.current || cancelled) {
+        if (ids.length) await map.removeMarkers(ids).catch(() => undefined);
+        return;
+      }
       markerIdsRef.current = ids;
       markerByMapIdRef.current = new Map(
         ids.flatMap((id, index) => {
@@ -1127,7 +1167,7 @@ export function LocationImmersiveMap() {
         framedInitialMarkersRef.current = true;
         await frameMarkers(map, visibleMarkers);
       }
-    })().catch(() => {
+    }).catch(() => {
       if (!cancelled) setStatus("error");
     });
     return () => {

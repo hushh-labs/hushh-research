@@ -43,11 +43,15 @@ NearbyPlaceCategory = Literal[
     "transit",
 ]
 
-# One foreground request is used for the default list. Category filters are
-# explicit follow-up requests so opening the drawer never fans out into several
-# billable provider calls. These are broad Table A types from Places API (New):
-# Google includes matching specialized subtypes (for example an Indian
-# restaurant when `restaurant` is requested).
+# "All" issues one request per bucket here, concurrently, and merges the
+# results. That costs more provider calls per drawer open than the single
+# unfiltered request it replaced, and buys the only thing that makes the picker
+# trustworthy: each category gets its own slice of the provider's 20-result cap,
+# so a hotel cannot be buried by twenty nearer cafes. The client filters chips
+# from that one merged sweep, so browsing categories now costs nothing extra.
+# These are broad Table A types from Places API (New): Google includes matching
+# specialized subtypes (for example an Indian restaurant when `restaurant` is
+# requested).
 _NEARBY_PLACE_CATEGORY_TYPES: dict[str, tuple[str, ...]] = {
     "food_drink": ("restaurant", "cafe", "bakery", "bar", "meal_takeaway"),
     "health": ("hospital", "medical_clinic", "doctor", "dentist", "pharmacy"),
@@ -141,6 +145,7 @@ _NON_CHECK_IN_PRIMARY_TYPE_PREFIXES = (
 # Types that prove a record is a real venue rather than a geocoded address, but
 # are too vague to display as its category.
 _GENERIC_ESTABLISHMENT_TYPES = frozenset({"establishment", "point_of_interest"})
+
 
 def _build_category_index() -> dict[str, tuple[str, ...]]:
     """Reverse index from a Places type to the drawer's category chips.
@@ -343,16 +348,13 @@ def _check_in_place_identity(
     descriptive = [
         place_type
         for place_type in place_types
-        if not _is_non_check_in_type(place_type)
-        and place_type not in _GENERIC_ESTABLISHMENT_TYPES
+        if not _is_non_check_in_type(place_type) and place_type not in _GENERIC_ESTABLISHMENT_TYPES
     ]
     if descriptive:
         return display, descriptive[0], place_types
     # No descriptive type left. Keep it only when Google still calls it a venue,
     # so a named business survives while an address record does not.
-    if any(
-        place_type in _GENERIC_ESTABLISHMENT_TYPES for place_type in place_types
-    ):
+    if any(place_type in _GENERIC_ESTABLISHMENT_TYPES for place_type in place_types):
         return display, "establishment", place_types
     return None
 
@@ -662,10 +664,7 @@ class GoogleMapsService:
         if category == "all":
             requests = [
                 (None, None),
-                *(
-                    (chip, types)
-                    for chip, types in _NEARBY_PLACE_CATEGORY_TYPES.items()
-                ),
+                *((chip, types) for chip, types in _NEARBY_PLACE_CATEGORY_TYPES.items()),
             ]
         else:
             requests = [(category, _NEARBY_PLACE_CATEGORY_TYPES.get(category))]
@@ -719,9 +718,7 @@ class GoogleMapsService:
             # independent hotel is the common case. File it under the filters
             # that found it so tapping "Hotels" cannot hide it.
             matched = chips.get(place_id) or fallback_chips.get(place_id, set())
-            place["categories"] = [
-                chip for chip in _NEARBY_PLACE_CATEGORY_TYPES if chip in matched
-            ]
+            place["categories"] = [chip for chip in _NEARBY_PLACE_CATEGORY_TYPES if chip in matched]
 
         if not merged and failures == len(batches):
             raise GoogleMapsError("Nearby places lookup failed.", status_code=502)
@@ -735,9 +732,7 @@ class GoogleMapsService:
             ),
         )
         limit = (
-            _NEARBY_CHECK_IN_MERGED_LIMIT
-            if category == "all"
-            else _NEARBY_CHECK_IN_RESULT_LIMIT
+            _NEARBY_CHECK_IN_MERGED_LIMIT if category == "all" else _NEARBY_CHECK_IN_RESULT_LIMIT
         )
         return results[:limit]
 

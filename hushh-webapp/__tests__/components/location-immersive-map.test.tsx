@@ -662,6 +662,57 @@ describe("LocationImmersiveMap demo experience", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("never strands markers when the set changes mid-write", async () => {
+    // Regression: a second "Your location" pin sat on the map where the device
+    // used to be. `addMarkers` is awaited, and a run superseded during that
+    // await returned without recording its ids -- so its markers stayed on the
+    // map with nothing able to remove them. Every place selection and presence
+    // poll changes the marker set, so this accumulated.
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+
+    const added: string[][] = [];
+    const removed: string[][] = [];
+    let seq = 0;
+    mapHarness.map.addMarkers.mockImplementation(async (markers: unknown[]) => {
+      // Stall so the next render supersedes this call while it is in flight.
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const ids = (markers as unknown[]).map(() => `m-${seq++}`);
+      added.push(ids);
+      return ids;
+    });
+    mapHarness.map.removeMarkers.mockImplementation(async (ids: string[]) => {
+      removed.push(ids);
+    });
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    // Churn the marker set faster than addMarkers resolves.
+    fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+    fireEvent.click(screen.getByTestId("clear-nearby-place-focus"));
+    fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+
+    await waitFor(() => {
+      expect(added.length).toBeGreaterThan(1);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    const live = new Set(added.flat());
+    for (const id of removed.flat()) live.delete(id);
+    // Exactly one batch may remain on the map: the current one.
+    expect(live.size).toBe(added.at(-1)?.length ?? 0);
+  });
+
   it("pins the check-in place alongside the owner and names both", async () => {
     // The owner's position and the venue they check in to are routinely a
     // street apart. Showing only one of them left the map unable to say where
@@ -685,16 +736,30 @@ describe("LocationImmersiveMap demo experience", () => {
     fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
 
     await waitFor(() => {
-      const drawn = mapHarness.map.addMarkers.mock.calls.flat(2) as Array<{
+      const drawn = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as Array<{
         coordinate: { lat: number; lng: number };
-        snippet?: string;
+        title?: string;
+        zIndex?: number;
       }>;
+      // The place pin and the owner's pin are separate coordinates.
       expect(
-        drawn.some((marker) => marker.snippet === "Your check-in place"),
+        drawn.some(
+          (marker) =>
+            marker.coordinate.lat === 37.7775 &&
+            marker.coordinate.lng === -122.4172,
+        ),
       ).toBe(true);
       expect(
-        drawn.some((marker) => marker.snippet === "Your current location"),
+        drawn.some(
+          (marker) =>
+            marker.coordinate.lat === 37.776 &&
+            marker.coordinate.lng === -122.418,
+        ),
       ).toBe(true);
+      // On web the renderer paints `title` as the pin's glyph, so a title here
+      // becomes a caption smeared across the map -- a place name plus its full
+      // postal address in the worst case. Titles belong to native info windows.
+      expect(drawn.every((marker) => marker.title === undefined)).toBe(true);
     });
 
     // A connector makes the gap readable rather than leaving two loose pins.
