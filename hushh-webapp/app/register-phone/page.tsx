@@ -29,6 +29,8 @@ import {
 } from "@/lib/services/onboarding-route-cookie";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { RiaService } from "@/lib/services/ria-service";
+import { buildRiaClaimRoute, isClaimableLookupOutcome } from "@/lib/ria/ria-claim-entry";
 import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-mandate-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { resolvePostPhoneOnboardingPhase } from "@/lib/onboarding/onboarding-journey-phase";
@@ -106,7 +108,32 @@ export function PhoneMandatePageContent() {
           return false;
         });
       const idToken = await activeUser.getIdToken().catch(() => undefined);
-      const nextPath = setupResolved
+
+      // The number they just verified is the trigger for claiming: if the SEC
+      // lists a firm or advisers at it, show that instead of the generic next
+      // screen. Fails open — any error, timeout or miss continues as normal.
+      const claimRoute = await (async () => {
+        const verifiedPhone = activeUser.phoneNumber;
+        if (!idToken || !verifiedPhone) return null;
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 12_000);
+          const lookup = await RiaService.claimLookup(
+            idToken,
+            { phone: verifiedPhone },
+            { signal: controller.signal },
+          ).finally(() => clearTimeout(timer));
+          return isClaimableLookupOutcome(lookup)
+            ? buildRiaClaimRoute(verifiedPhone, { returnTo: redirectPath })
+            : null;
+        } catch {
+          return null;
+        }
+      })();
+
+      const nextPath = claimRoute
+        ? claimRoute
+        : setupResolved
         ? await PostAuthRouteService.resolveAfterLogin({
             userId: activeUser.uid,
             redirectPath,

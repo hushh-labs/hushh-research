@@ -1,0 +1,285 @@
+# Cloud Build replication of the GitHub Actions CI surface.
+#
+# WHY THIS EXISTS: when GitHub's hosted runners are unavailable, `PR Validation`
+# and `Main Post-Merge Smoke` sit queued indefinitely. Because
+# scripts/ci/require-deploy-sha-on-main.sh runs with REQUIRE_CI_SUCCESS=1 and
+# REQUIRED_CHECK_NAME="Main Post-Merge Smoke Gate", a queued smoke run fails the
+# deploy workflow's SHA gate and blocks every release lane. This config runs the
+# same checks on Cloud Build so the code still gets a verdict.
+#
+# SOURCE IS CLONED, NOT UPLOADED. The repo's .gcloudignore excludes .git/, *.sh,
+# *.md, docs/ and tests/ because it is tuned for the Docker deploy builds. A CI
+# run against that upload would be missing every scripts/ci/*.sh and would have
+# no git history for merge-base/rev-list. Step 0 therefore clones
+# hushh-labs/hushh-research (public, no credentials) at _SHA with full history.
+# Submit with an empty source so the upload stays trivial:
+#   gcloud builds submit --no-source --config=deploy/ci.cloudbuild.yaml \
+#     --substitutions=_SHA=<sha>,_STAGE=smoke
+#
+# STAGES map 1:1 onto scripts/ci/orchestrate.sh, the same entrypoint GitHub
+# Actions calls, so the checks cannot drift from CI:
+#   smoke        -> main-post-merge-smoke.yml's blocking surface (release gate)
+#   governance   -> ci.yml repo-governance
+#   web-core     -> ci.yml web-core-check
+#   protocol     -> ci.yml protocol-check
+#   mcp-package  -> ci.yml mcp-package-check
+#   integration  -> ci.yml integration-check
+#   all          -> the full blocking CI surface
+#
+# NOT REPLICATED (documented rather than silently dropped):
+#   secret-scan's GitHub security-alert half, dco-check, pr-base-policy and
+#   main-freshness-gate are pull-request-shaped and read the GitHub event
+#   payload. gitleaks itself still runs under the `secret` stage.
+
+steps:
+  # Step 0: full-history clone at the exact SHA under test.
+  - name: "gcr.io/cloud-builders/git"
+    id: "clone-source"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        rm -rf /workspace/repo
+        git clone --no-single-branch https://github.com/hushh-labs/hushh-research.git /workspace/repo
+        cd /workspace/repo
+        git fetch --no-tags origin "${_SHA}" 2>/dev/null || true
+        git checkout --detach "${_SHA}"
+        echo "Checked out $(git rev-parse HEAD)"
+
+  # Step 1: stage a toolchain into /workspace so later steps share it.
+  #
+  # Cloud Build steps share /workspace but NOT installed system packages, so
+  # apt-installing per step would pay the cost repeatedly. Node and uv ship as
+  # relocatable tarballs/binaries, so they live in /workspace/tools and every
+  # later step just prepends them to PATH. Python 3.13 comes from the step image
+  # itself, which is why all subsequent steps use the same python:3.13 image.
+  #
+  # VARIABLE NAMING IS LOad-BEARING: Cloud Build resolves $VAR/${VAR} before bash
+  # runs, and an unmatched UPPERCASE name fails the build (no ALLOW_LOOSE here).
+  # Shell locals are therefore lowercase, and genuine environment variables are
+  # escaped as $$VAR. Do not "tidy" these into caps.
+  - name: "python:3.13-bookworm"
+    id: "stage-toolchain"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        mkdir -p /workspace/tools/bin
+
+        # Node: the version CI pins (ci.yml env NODE_VERSION: "24").
+        node_version="24.9.0"
+        curl -fsSL "https://nodejs.org/dist/v${node_version}/node-v${node_version}-linux-x64.tar.xz" \
+          -o /tmp/node.tar.xz
+        tar -xJf /tmp/node.tar.xz -C /workspace/tools
+        mv "/workspace/tools/node-v${node_version}-linux-x64" /workspace/tools/node
+
+        # uv: pinned to match consent-protocol/.github/actions/setup-python-uv.
+        uv_version="0.10.10"
+        curl -fsSL "https://github.com/astral-sh/uv/releases/download/${uv_version}/uv-x86_64-unknown-linux-gnu.tar.gz" \
+          -o /tmp/uv.tar.gz
+        tar -xzf /tmp/uv.tar.gz -C /tmp
+        mv /tmp/uv-x86_64-unknown-linux-gnu/uv /workspace/tools/bin/uv
+        mv /tmp/uv-x86_64-unknown-linux-gnu/uvx /workspace/tools/bin/uvx
+        chmod +x /workspace/tools/bin/uv /workspace/tools/bin/uvx
+
+        # ripgrep: scripts/ci/no-ria-feature-flags.sh hard-requires `rg`.
+        rg_version="14.1.1"
+        curl -fsSL "https://github.com/BurntSushi/ripgrep/releases/download/${rg_version}/ripgrep-${rg_version}-x86_64-unknown-linux-musl.tar.gz" \
+          -o /tmp/rg.tar.gz
+        tar -xzf /tmp/rg.tar.gz -C /tmp
+        mv "/tmp/ripgrep-${rg_version}-x86_64-unknown-linux-musl/rg" /workspace/tools/bin/rg
+        chmod +x /workspace/tools/bin/rg
+
+        export PATH="/workspace/tools/node/bin:/workspace/tools/bin:$$PATH"
+        node --version && npm --version && uv --version && rg --version | head -1
+
+  # Step 2: gitleaks, only for the `secret` and `all` stages.
+  #
+  # This covers the OSS-binary half of ci.yml's secret-scan. The other half
+  # (scripts/ci/github-security-alerts.sh) queries the GitHub secret-scanning and
+  # dependabot APIs and fails open without an authenticated `gh`, so it is
+  # deliberately not simulated here -- a silent pass would be worse than a
+  # documented gap.
+  - name: "python:3.13-bookworm"
+    id: "secret-scan"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        if [[ "${_STAGE}" != "secret" && "${_STAGE}" != "all" ]]; then
+          echo "Stage ${_STAGE} does not include the secret lane; skipping."
+          exit 0
+        fi
+        gitleaks_version="8.24.2"
+        curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${gitleaks_version}/gitleaks_${gitleaks_version}_linux_x64.tar.gz" \
+          | tar -xz -C /workspace/tools/bin gitleaks
+        chmod +x /workspace/tools/bin/gitleaks
+        cd /workspace/repo
+        config_arg=()
+        [[ -f .gitleaks.toml ]] && config_arg=(--config .gitleaks.toml)
+        /workspace/tools/bin/gitleaks git --redact --no-banner --exit-code 1 \
+          "${config_arg[@]}" --log-opts="${_GITLEAKS_LOG_OPTS}"
+        echo "NOTE: GitHub secret-scanning/dependabot alert checks were NOT run (no authenticated gh)."
+
+  # Step 3: the CI stage itself, via the canonical orchestrator.
+  #
+  # The env block reproduces ci.yml and main-post-merge-smoke.yml verbatim. These
+  # are deliberately fake, CI-only values -- the checks assert wiring and types,
+  # never real credentials, so nothing here needs Secret Manager.
+  - name: "python:3.13-bookworm"
+    id: "run-ci-stage"
+    entrypoint: "bash"
+    env:
+      - "TESTING=true"
+      - "APP_SIGNING_KEY=test_secret_key_for_ci_only_32chars_min"
+      - "VAULT_DATA_KEY=0000000000000000000000000000000000000000000000000000000000000000"
+      - "HUSHH_DEVELOPER_TOKEN=test_hushh_developer_token_for_ci"
+      - "NEXT_PUBLIC_BACKEND_URL=https://api.example.com"
+      - "NEXT_PUBLIC_DEVELOPER_API_URL=https://api.example.com"
+      - "NEXT_PUBLIC_APP_ENV=development"
+      - "NEXT_PUBLIC_FIREBASE_API_KEY=test-api-key"
+      - "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=dummy-project.firebaseapp.com"
+      - "NEXT_PUBLIC_FIREBASE_PROJECT_ID=dummy-project"
+      - "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=dummy-project.appspot.com"
+      - "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=123456789"
+      - "NEXT_PUBLIC_FIREBASE_APP_ID=1:123456789:web:abcdef123456"
+      - "CI_NATIVE_PARITY_REQUIRED=0"
+      - "CI_DOCS_PARITY_REQUIRED=0"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        export PATH="/workspace/tools/node/bin:/workspace/tools/bin:$$PATH"
+        cd /workspace/repo
+
+        if [[ "${_STAGE}" == "secret" ]]; then
+          echo "Secret stage completed in the previous step."
+          exit 0
+        fi
+
+        # setup-python-uv's composite action, inlined: it is what creates the
+        # consent-protocol/.venv that protocol, mcp-package, integration and
+        # smoke all resolve PROTOCOL_PYTHON against.
+        (
+          cd consent-protocol
+          uv sync --frozen --group dev
+        )
+
+        # The change-aware plan normally arrives from a workflow step. Resolve it
+        # here so integration/smoke gate the PKM upgrade lane on the same signal
+        # instead of silently running or skipping it.
+        python3 scripts/ci/resolve-uat-verification-plan.py \
+          --target-sha "${_SHA}" \
+          --base-sha "${_BASE_SHA}" \
+          --json-output /workspace/ci-verification-plan.json || true
+        export CI_VERIFICATION_PLAN_FILE=/workspace/ci-verification-plan.json
+
+        bash scripts/ci/orchestrate.sh "${_STAGE}"
+
+  # Step 4: publish the verdict back to GitHub as a check-run.
+  #
+  # Every deploy and release workflow gates on a check named exactly
+  # "Main Post-Merge Smoke Gate" via scripts/ci/require-deploy-sha-on-main.sh,
+  # which reads /commits/<sha>/check-runs. A green Cloud Build that is never
+  # reported to GitHub therefore unblocks nothing.
+  #
+  # IMPORTANT LIMITATION, PROVEN 2026-08-06: the create-check-run API is
+  # GitHub-App-only. A personal access token returns
+  #   403 "You must authenticate via a GitHub App."
+  # no matter its scopes. The commit-status API does accept a PAT, but the
+  # deploy gate does not read statuses, so a status will not satisfy it.
+  #
+  # So _GITHUB_TOKEN_SECRET must hold an INSTALLATION token for a GitHub App
+  # with checks:write. If you do not have one, do not fight this step -- the
+  # supported recovery is to dispatch main-post-merge-smoke.yml for the SHA,
+  # which publishes the real check under the real name.
+  - name: "python:3.13-bookworm"
+    id: "publish-github-check"
+    entrypoint: "bash"
+    secretEnv: ["GITHUB_TOKEN"]
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        if [[ "${_PUBLISH_CHECK}" != "true" ]]; then
+          echo "_PUBLISH_CHECK is not true; not reporting a check-run to GitHub."
+          exit 0
+        fi
+        if [[ -z "$${GITHUB_TOKEN:-}" ]]; then
+          echo "No GITHUB_TOKEN available; cannot publish the check-run." >&2
+          exit 1
+        fi
+        python3 - <<'PY'
+        import json, os, urllib.request
+
+        name = os.environ["_CHECK_NAME"]
+        sha = os.environ["_SHA"]
+        build = os.environ.get("BUILD_ID", "")
+        payload = {
+            "name": name,
+            "head_sha": sha,
+            "status": "completed",
+            "conclusion": "success",
+            "output": {
+                "title": f"{name} (Cloud Build fallback)",
+                "summary": (
+                    "Verified on GCP Cloud Build because GitHub-hosted runners were "
+                    f"unavailable. Build id: {build}"
+                ),
+            },
+        }
+        req = urllib.request.Request(
+            "https://api.github.com/repos/hushh-labs/hushh-research/check-runs",
+            data=json.dumps(payload).encode(),
+            headers={
+                "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                "Accept": "application/vnd.github+json",
+                "Content-Type": "application/json",
+                "User-Agent": "hushh-cloudbuild-ci-fallback",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                print(f"Published check-run '{name}' for {sha}: HTTP {resp.status}")
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", "replace")
+            print(f"Could not publish the check-run: HTTP {exc.code} {body}", flush=True)
+            if exc.code == 403 and "GitHub App" in body:
+                print(
+                    "The token is not a GitHub App installation token. Check-runs "
+                    "cannot be created with a personal access token at any scope.\n"
+                    "Recover instead by dispatching the smoke workflow for this SHA:\n"
+                    f"  gh workflow run main-post-merge-smoke.yml --ref main -f sha={sha}",
+                    flush=True,
+                )
+            raise SystemExit(1)
+        PY
+    env:
+      - "_CHECK_NAME=${_CHECK_NAME}"
+      - "_SHA=${_SHA}"
+      - "_PUBLISH_CHECK=${_PUBLISH_CHECK}"
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/${PROJECT_ID}/secrets/${_GITHUB_TOKEN_SECRET}/versions/latest
+      env: "GITHUB_TOKEN"
+
+substitutions:
+  _SHA: "main"
+  _BASE_SHA: ""
+  _STAGE: "smoke"
+  _GITLEAKS_LOG_OPTS: "--all"
+  _PUBLISH_CHECK: "false"
+  _CHECK_NAME: "Main Post-Merge Smoke Gate"
+  _GITHUB_TOKEN_SECRET: "CI_FALLBACK_GITHUB_TOKEN"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+  dynamicSubstitutions: true
+
+timeout: 3600s

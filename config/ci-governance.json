@@ -6,7 +6,8 @@
       "integration/pr-train",
       "maintainer/promote-damria-one-location-to-main",
       "maintainer/promote-damria-one-location-consent",
-      "maintainer/promote-uat-summary-hardening"
+      "maintainer/promote-uat-summary-hardening",
+      "maintainer/promote-android-playstore-pipeline"
     ]
   },
   "repository": {

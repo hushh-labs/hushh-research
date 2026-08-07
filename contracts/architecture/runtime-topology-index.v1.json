@@ -4122,6 +4122,32 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "ria_workspace",
+          "consent_list"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-ria-claim",
+      "page_file": "app/ria/claim/page.tsx",
+      "pathname": "/ria/claim",
+      "route_mode": "flow",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.ria_claim"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.ria.claim"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "device-resource",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
@@ -4443,27 +4469,27 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "504402b13d46d3db9cd7f209f4b45f2bd8a8518e69dbf9bf0d9954df7d695d6e",
+    "action_gateway": "a1ce3147cc7acd484e0302e62d8324fa617d524263b80d63153999cc6e979c81",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
-    "cache_manifest": "e939f772b53a77b36b5be73a4a4e9c3e36562cc5e078ac35950582855b21f9c5",
+    "cache_manifest": "5991c2da1921c773a3a557e3650aa3315d6b201f4cdc82037eec42d8caad40da",
     "data_plane": "bf2f449b4dcf1072a3c7478418822ee37c6fb9230c1351e92f5acb1dd46a9b55",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",
-    "route_index": "a9aa3bdab7af5e90ba1b58e246d53d89425eb29f9e46eab33064204ae1cc6c7c",
-    "route_layout": "bc33f99445d51fd79b22a7d42f364a87509b9b5c90699c5a86566ac8b9e67a64",
-    "surface_map": "ec77c5fc41b64c11ed0a40fe1ddb97591c245b6f8bfff161a125761111a92bbb",
+    "route_index": "e31efa1b6d0291f4864ab2c4ec63f8bffe21360081e2b39872ff2f0c6ce22849",
+    "route_layout": "42beba310638c222030373c44fecbe1cef473ea4472952790d6d853d0a1837cc",
+    "surface_map": "fc237ce856f30841f52e8a67de9fe99f9f731bf6a1212043641221c3090d1b7d",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 116,
+    "actions": 117,
     "agents": 18,
     "aliases": 3,
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 118,
+    "physical_routes": 119,
     "semantic_routes": 14,
     "table_families": 42
   }

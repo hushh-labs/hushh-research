@@ -19,7 +19,7 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
@@ -27,9 +27,11 @@ import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { useAuth } from "@/hooks/use-auth";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { toNanpDigits } from "@/lib/ria/ria-claim-entry";
 import { Button } from "@/lib/morphy-ux/button";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
   RiaApiError,
   RiaService,
@@ -173,8 +175,16 @@ function CodeCells({
 
 export default function RiaClaimPage() {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const searchParams = useSearchParams();
+  const { user, phoneNumber: accountPhone, loading: authLoading } = useAuth();
   const { refresh: refreshPersonaState } = usePersonaState();
+  // Arrives pre-filled when the sign-up phone screen recognised this number.
+  // Someone who verified their phone on an earlier visit never sees that
+  // screen again, so fall back to the number already on their account — they
+  // should be recognised whenever they reach here, not only on first sign-up.
+  const seededPhone =
+    toNanpDigits(searchParams.get("phone")) ||
+    toNanpDigits(accountPhone || user?.phoneNumber);
 
   const [step, setStep] = useState<ClaimStep>("phone");
   const [phoneDigits, setPhoneDigits] = useState("");
@@ -224,13 +234,14 @@ export default function RiaClaimPage() {
     return "Something went wrong. Try again.";
   };
 
-  const handleLookup = useCallback(async () => {
-    if (phoneDigits.length !== 10 || busy) return;
+  const handleLookup = useCallback(async (phoneOverride?: string) => {
+    const phone = phoneOverride ?? phoneDigits;
+    if (phone.length !== 10 || busy) return;
     setBusy(true);
     setError(null);
     try {
       const idToken = await getIdToken();
-      const result = await RiaService.claimLookup(idToken, { phone: phoneDigits });
+      const result = await RiaService.claimLookup(idToken, { phone });
       if (result.outcome === "invalid_phone") {
         setError("Enter a valid US phone number.");
         return;
@@ -254,6 +265,16 @@ export default function RiaClaimPage() {
       setBusy(false);
     }
   }, [phoneDigits, busy, getIdToken]);
+
+  // Recognised at sign-up: run the lookup immediately so the person lands on
+  // their firm instead of retyping the number they just verified.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || !seededPhone || !user || authLoading) return;
+    seededRef.current = true;
+    setPhoneDigits(seededPhone);
+    void handleLookup(seededPhone);
+  }, [seededPhone, user, authLoading, handleLookup]);
 
   const beginClaim = useCallback(
     async (type: ClaimType, candidateCrd: number | null) => {
@@ -303,6 +324,20 @@ export default function RiaClaimPage() {
       // adviser back into the onboarding wizard off a 30-min-TTL cache hit.
       if (user) {
         CacheSyncService.onPersonaStateChanged(user.uid);
+        // Claiming completes RIA setup just as the wizard does, so the Setup
+        // hub must stop listing it as remaining. syncSetupCapabilities REPLACES
+        // the stored set, so pass the union.
+        try {
+          const current = await PreVaultUserStateService.bootstrapState(user.uid);
+          if (!current.setupCapabilityIds.includes("ria")) {
+            await PreVaultUserStateService.syncSetupCapabilities(
+              user.uid,
+              Array.from(new Set([...current.setupCapabilityIds, "ria"])).sort(),
+            );
+          }
+        } catch {
+          // best-effort; the dashboard reconciles the count on next load.
+        }
       }
       await refreshPersonaState({ force: true });
     },
