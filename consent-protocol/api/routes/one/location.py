@@ -298,29 +298,67 @@ def _retention_auth_enabled() -> bool:
     return True
 
 
-def _nearby_presence_simulation_enabled() -> bool:
-    """Expose the spoofable radius simulation only in non-production lanes."""
+def _nearby_presence_cohort() -> set[str] | None:
+    """Production allowlist. `None` means "no cohort configured"."""
+
+    raw = str(os.getenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT") or "").strip()
+    if not raw:
+        return None
+    if raw.lower() == "all":
+        return set()
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _nearby_presence_enabled(user_id: str | None = None) -> bool:
+    """Whether nearby check-in is reachable for this caller.
+
+    Non-production lanes are unchanged: the flow is on unless
+    `ONE_LOCATION_NEARBY_PRESENCE_MODE` names something other than the UAT
+    simulation.
+
+    Production is off unless deliberately opted into, because the reported
+    point is client-supplied and unattestable -- see the continuity guard in
+    `one_location_nearby_presence_service`, which bounds a roaming attack but
+    cannot prove any single check-in. Opting in therefore takes two steps, not
+    one: `ONE_LOCATION_NEARBY_PRESENCE_MODE=production` *and* a cohort. A
+    production rollout with no cohort configured stays closed, so forgetting
+    the second variable fails safe rather than opening the flow to everyone.
+    """
 
     environment = (
         str(os.getenv("ENVIRONMENT") or os.getenv("HUSHH_DEPLOY_ENV") or "").strip().lower()
     )
     safe_environments = {"development", "dev", "local", "test", "uat", "staging"}
-    if environment not in safe_environments:
-        return False
     mode = str(os.getenv("ONE_LOCATION_NEARBY_PRESENCE_MODE") or "").strip().lower()
-    if mode:
-        return mode == "uat_simulation" and environment in safe_environments
-    return True
+
+    if environment in safe_environments:
+        if mode:
+            return mode in {"uat_simulation", "production"}
+        return True
+
+    if mode != "production":
+        return False
+    cohort = _nearby_presence_cohort()
+    if cohort is None:
+        return False
+    if not cohort:
+        return True
+    return bool(user_id) and str(user_id) in cohort
 
 
-def _require_nearby_presence_simulation() -> None:
-    if _nearby_presence_simulation_enabled():
+# Retained under the old name because the surface map and existing tests
+# reference it; production admission is what it now decides.
+_nearby_presence_simulation_enabled = _nearby_presence_enabled
+
+
+def _require_nearby_presence_simulation(user_id: str | None = None) -> None:
+    if _nearby_presence_enabled(user_id):
         return
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail={
             "code": "NEARBY_PRESENCE_UNAVAILABLE",
-            "message": "Nearby check-in simulation is not available in this environment.",
+            "message": "Nearby check-in is not available on this account yet.",
         },
     )
 
@@ -986,8 +1024,7 @@ async def maps_nearby_places(
     payload: MapsNearbyPlacesRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    _require_nearby_presence_simulation()
-    _user_id(token_data)
+    _require_nearby_presence_simulation(_user_id(token_data))
     _set_private_no_store(response)
     try:
         suggestions = await _maps_service().nearby_places(
@@ -1013,7 +1050,7 @@ async def check_in_nearby(
 ):
     """Publish a short-lived presence after verifying a fresh nearby-place fix."""
 
-    _require_nearby_presence_simulation()
+    _require_nearby_presence_simulation(_user_id(token_data))
     _set_private_no_store(response)
     try:
         place = await _maps_service().place_details(
@@ -1061,7 +1098,7 @@ def get_nearby_presence(
     response: Response,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    _require_nearby_presence_simulation()
+    _require_nearby_presence_simulation(_user_id(token_data))
     _set_private_no_store(response)
     try:
         return _nearby_presence_service().get_state(user_id=_user_id(token_data))
@@ -1091,7 +1128,7 @@ def request_nearby_connection(
     payload: NearbyConnectionRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    _require_nearby_presence_simulation()
+    _require_nearby_presence_simulation(_user_id(token_data))
     _set_private_no_store(response)
     try:
         return _nearby_presence_service().request_connection(

@@ -11,7 +11,6 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { AdvisorsNearby } from "@/components/connect/advisors-nearby";
-import { InsuranceAgentsNearby } from "@/components/connect/insurance-agents-nearby";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
@@ -41,17 +40,10 @@ import {
 import { relationshipCta } from "@/lib/connections/relationship-label";
 
 type ConnectTab = "people" | "nearby";
-/** Which directory "Around you" is showing. Both are location-anchored. */
-type NearbyDirectory = "advisors" | "insurance";
 
 const CONNECT_TABS = [
   { value: "people", label: "People" },
   { value: "nearby", label: "Around you" },
-];
-
-const NEARBY_DIRECTORY_TABS = [
-  { value: "advisors", label: "Advisors" },
-  { value: "insurance", label: "Insurance" },
 ];
 
 export default function ConnectPageClient() {
@@ -59,8 +51,6 @@ export default function ConnectPageClient() {
   const router = useRouter();
 
   const [tab, setTab] = useState<ConnectTab>("people");
-  const [nearbyDirectory, setNearbyDirectory] =
-    useState<NearbyDirectory>("advisors");
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, 300);
 
@@ -85,6 +75,9 @@ export default function ConnectPageClient() {
     requestedHandles: string[];
     offeredHandles: string[];
   } | null>(null);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
+  const [isConnectingMultiple, setIsConnectingMultiple] = useState(false);
 
   const getIdToken = useCallback(
     async () => (user ? await user.getIdToken() : null),
@@ -374,6 +367,57 @@ export default function ConnectPageClient() {
     },
   );
 
+  const handleConnectMultiple = useCallback(async () => {
+    if (!user || selectedUserIds.size === 0) return;
+    setIsConnectingMultiple(true);
+    let successCount = 0;
+    const selectedPeople = people.filter((p) => selectedUserIds.has(p.userId));
+    
+    try {
+      const idToken = await user.getIdToken();
+      for (const person of selectedPeople) {
+        if (person.relationship === "none") {
+          try {
+            const request = await ConnectionsService.sendRequest({
+              idToken,
+              addresseeUserId: person.userId,
+              requestedScopeHandles: [],
+              offeredScopeHandles: [],
+            });
+            setOutgoingRequestIds((current) => ({
+              ...current,
+              [person.userId]: request.id,
+            }));
+            successCount++;
+          } catch (_err) {
+            console.error(`Failed to send request to ${person.userId}`, _err);
+          }
+        }
+      }
+      
+      setPeople((prev) =>
+        prev.map((p) =>
+          selectedUserIds.has(p.userId) && p.relationship === "none"
+            ? { ...p, relationship: "pending_outgoing" }
+            : p,
+        ),
+      );
+      
+      if (successCount > 0) {
+        CacheSyncService.onConnectionCapabilityMutated(user.uid);
+        toast.success(`Sent ${successCount} connection request${successCount !== 1 ? 's' : ''}`);
+      } else {
+        toast.error("Failed to send requests or they were already sent.");
+      }
+    } catch (_err) {
+      toast.error("An error occurred while sending requests.");
+    } finally {
+      setIsConnectingMultiple(false);
+      setIsSelectionMode(false);
+      setSelectedUserIds(new Set());
+    }
+  }, [user, selectedUserIds, people]);
+
   const cancelConnectionRequest = useCallback(
     async (person: DirectoryPerson) => {
       if (!user) return;
@@ -457,20 +501,7 @@ export default function ConnectPageClient() {
             />
 
             {tab === "nearby" ? (
-              <div className="space-y-4">
-                <SegmentedTabs
-                  value={nearbyDirectory}
-                  onValueChange={(value) =>
-                    setNearbyDirectory(value as NearbyDirectory)
-                  }
-                  options={NEARBY_DIRECTORY_TABS}
-                />
-                {nearbyDirectory === "insurance" ? (
-                  <InsuranceAgentsNearby getIdToken={getIdToken} />
-                ) : (
-                  <AdvisorsNearby getIdToken={getIdToken} />
-                )}
-              </div>
+              <AdvisorsNearby getIdToken={getIdToken} />
             ) : (
               <div className="space-y-4 sm:space-y-5">
             <SettingsGroup
@@ -552,18 +583,53 @@ export default function ConnectPageClient() {
             </SettingsGroup>
 
             <div className="space-y-4">
-              <div className="relative w-full">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
-                  <SearchIcon className="h-4.5 w-4.5" />
-                </span>
-                <Input
-                  type="search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search people by name"
-                  aria-label="Search people"
-                  className="h-10 pl-11"
-                />
+              <div className="flex w-full items-center gap-2">
+                <div className="relative flex-1">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted-foreground/80">
+                    <SearchIcon className="h-4.5 w-4.5" />
+                  </span>
+                  <Input
+                    type="search"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search people by name"
+                    aria-label="Search people"
+                    className="h-10 pl-11"
+                  />
+                </div>
+                {people.length > 0 && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    {isSelectionMode && (
+                      <Button
+                        type="button"
+                        variant="none"
+                        effect="fade"
+                        onClick={() => {
+                          if (selectedUserIds.size === people.length) {
+                            setSelectedUserIds(new Set());
+                          } else {
+                            setSelectedUserIds(
+                              new Set(people.map((p) => p.userId)),
+                            );
+                          }
+                        }}
+                      >
+                        {selectedUserIds.size === people.length ? "Deselect All" : "Select All"}
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="none"
+                      effect="fade"
+                      onClick={() => {
+                        setIsSelectionMode(!isSelectionMode);
+                        if (isSelectionMode) setSelectedUserIds(new Set());
+                      }}
+                    >
+                      {isSelectionMode ? "Cancel" : "Select"}
+                    </Button>
+                  </div>
+                )}
               </div>
               <SettingsGroup
                 title="People"
@@ -607,7 +673,19 @@ export default function ConnectPageClient() {
                         description={description}
                         density="compact"
                         trailing={
-                          person.relationship === "pending_outgoing" ? (
+                          isSelectionMode ? (
+                            <Checkbox
+                              checked={selectedUserIds.has(person.userId)}
+                              disabled={person.relationship !== "none"}
+                              onCheckedChange={(checked) => {
+                                const next = new Set(selectedUserIds);
+                                if (checked) next.add(person.userId);
+                                else next.delete(person.userId);
+                                setSelectedUserIds(next);
+                              }}
+                              aria-label={`Select ${title}`}
+                            />
+                          ) : person.relationship === "pending_outgoing" ? (
                             <Button
                               type="button"
                               variant="none"
@@ -651,6 +729,21 @@ export default function ConnectPageClient() {
                     </Button>
                   </div>
                 ) : null}
+                {isSelectionMode && selectedUserIds.size > 0 && (
+                  <div className="flex justify-center border-t border-[color:var(--app-card-border-standard)] px-3 py-4">
+                    <Button
+                      type="button"
+                      variant="blue"
+                      effect="fill"
+                      disabled={isConnectingMultiple}
+                      onClick={() => void handleConnectMultiple()}
+                    >
+                      {isConnectingMultiple
+                        ? "Sending requests…"
+                        : `Connect to Selected (${selectedUserIds.size})`}
+                    </Button>
+                  </div>
+                )}
               </SettingsGroup>
                 </div>
               </div>
