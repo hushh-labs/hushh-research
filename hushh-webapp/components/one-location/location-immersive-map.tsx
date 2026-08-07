@@ -23,7 +23,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { NearbyCheckInSheet } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
+import {
+  NearbyCheckInSheet,
+  type NearbyCheckInPlaceFocus,
+} from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useRequireAuth } from "@/hooks/use-auth";
@@ -77,7 +80,12 @@ type RenderMarker = {
   key: string;
   point: PlainLocationPoint;
   label: string;
-  kind: "person" | "self";
+  /**
+   * `place` is the venue the owner is checking in to. It is deliberately
+   * distinct from `self`: the two are frequently a street apart, and collapsing
+   * them is what made the map unable to explain where a check-in actually is.
+   */
+  kind: "person" | "self" | "place";
   grantId?: string;
   tint?: { r: number; g: number; b: number; a: number };
 };
@@ -171,7 +179,10 @@ function wrappedLongitude(longitude: number): number {
   return ((((longitude + 180) % 360) + 360) % 360) - 180;
 }
 
-function radiusBounds(point: PlainLocationPoint, radiusMeters: number) {
+function radiusBounds(
+  point: { latitude: number; longitude: number },
+  radiusMeters: number,
+) {
   const latitudeDelta = radiusMeters / 111_320;
   const longitudeScale = Math.abs(
     Math.cos((point.latitude * Math.PI) / 180),
@@ -202,6 +213,42 @@ function radiusBounds(point: PlainLocationPoint, radiusMeters: number) {
 }
 
 /**
+ * Bounds that contain two points with breathing room around them.
+ *
+ * Used to frame the owner and the place they are checking in to together: if
+ * either falls off-screen, the gap between them stops being legible, which is
+ * the one thing this view exists to show.
+ */
+function pairBounds(
+  first: { lat: number; lng: number },
+  second: { lat: number; lng: number },
+) {
+  const minimumSpanDegrees = 400 / 111_320;
+  const latitudePad = Math.max(
+    minimumSpanDegrees,
+    Math.abs(first.lat - second.lat) * 0.35,
+  );
+  const longitudePad = Math.max(
+    minimumSpanDegrees,
+    Math.abs(first.lng - second.lng) * 0.35,
+  );
+  return new LatLngBounds({
+    southwest: {
+      lat: Math.max(-90, Math.min(first.lat, second.lat) - latitudePad),
+      lng: wrappedLongitude(Math.min(first.lng, second.lng) - longitudePad),
+    },
+    northeast: {
+      lat: Math.min(90, Math.max(first.lat, second.lat) + latitudePad),
+      lng: wrappedLongitude(Math.max(first.lng, second.lng) + longitudePad),
+    },
+    center: {
+      lat: (first.lat + second.lat) / 2,
+      lng: (first.lng + second.lng) / 2,
+    },
+  });
+}
+
+/**
  * Full-screen private-map surface. It only receives ciphertext for active
  * recipient-scoped grants, decrypts it in foreground memory, and destroys both
  * renderer and coordinates on unmount. Opening this route requests one
@@ -222,6 +269,7 @@ export function LocationImmersiveMap() {
   const peopleTrayRef = useRef<HTMLElement | null>(null);
   const markerIdsRef = useRef<string[]>([]);
   const nearbyCircleIdsRef = useRef<string[]>([]);
+  const nearbyConnectorIdsRef = useRef<string[]>([]);
   const nearbyCircleGenerationRef = useRef(0);
   const nearbyCircleCommandRef = useRef<Promise<void>>(Promise.resolve());
   const markerByMapIdRef = useRef<Map<string, RenderMarker>>(new Map());
@@ -268,6 +316,8 @@ export function LocationImmersiveMap() {
   const [nearbyCheckInOpen, setNearbyCheckInOpen] = useState(false);
   const [nearbySearchPoint, setNearbySearchPoint] =
     useState<PlainLocationPoint | null>(null);
+  const [nearbyPlaceFocus, setNearbyPlaceFocus] =
+    useState<NearbyCheckInPlaceFocus | null>(null);
   const [nearbyPresenceState, setNearbyPresenceState] =
     useState<OneLocationNearbyPresenceState>({
       presence: null,
@@ -755,10 +805,65 @@ export function LocationImmersiveMap() {
     rendererReady,
   ]);
 
-  const visibleMarkers = useMemo(
-    () => (selfMarker ? [...markers, selfMarker] : markers),
-    [markers, selfMarker],
+  /**
+   * Accept a new focus only when something actually changed.
+   *
+   * The drawer republishes on every presence poll (every 15 s while checked
+   * in). Storing each fresh object would retear and redraw the circle, the
+   * connector and the pin on a timer, which reads as a flicker on the map.
+   */
+  const handlePlaceFocusChange = useCallback(
+    (focus: NearbyCheckInPlaceFocus | null) => {
+      setNearbyPlaceFocus((current) => {
+        if (current === focus) return current;
+        if (!current || !focus) return focus;
+        const unchanged =
+          current.placeId === focus.placeId &&
+          current.label === focus.label &&
+          current.latitude === focus.latitude &&
+          current.longitude === focus.longitude &&
+          current.distanceMeters === focus.distanceMeters &&
+          current.active === focus.active;
+        return unchanged ? current : focus;
+      });
+    },
+    [],
   );
+
+  /**
+   * The check-in venue as its own pin.
+   *
+   * Shown while the drawer is open (the place being chosen) and for as long as
+   * a check-in is live (the anchor). Kept separate from the "you" dot on
+   * purpose: the whole point is that the owner can see the gap between where
+   * they are standing and the place they are visible at.
+   */
+  const nearbyPlaceMarker = useMemo<RenderMarker | null>(() => {
+    if (!nearbyPlaceFocus) return null;
+    if (!nearbyCheckInOpen && !nearbyPlaceFocus.active) return null;
+    return {
+      key: `nearby-place:${nearbyPlaceFocus.placeId || "active"}`,
+      kind: "place",
+      label: nearbyPlaceFocus.label,
+      point: {
+        latitude: nearbyPlaceFocus.latitude,
+        longitude: nearbyPlaceFocus.longitude,
+        // A published venue location, not a reading from any receiver.
+        capturedAt: new Date(0).toISOString(),
+        sourcePlatform: "unknown",
+      },
+      tint: nearbyPlaceFocus.active
+        ? { r: 16, g: 185, b: 129, a: 255 }
+        : { r: 139, g: 92, b: 246, a: 255 },
+    };
+  }, [nearbyCheckInOpen, nearbyPlaceFocus]);
+
+  const visibleMarkers = useMemo(() => {
+    const next = [...markers];
+    if (selfMarker) next.push(selfMarker);
+    if (nearbyPlaceMarker) next.push(nearbyPlaceMarker);
+    return next;
+  }, [markers, nearbyPlaceMarker, selfMarker]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -835,7 +940,22 @@ export function LocationImmersiveMap() {
     if (!map || !mapReady) return;
     const generation = ++nearbyCircleGenerationRef.current;
     const searchPoint = nearbyCheckInOpen ? nearbySearchPoint : null;
+    const placeFocus =
+      nearbyCheckInOpen || nearbyPlaceFocus?.active ? nearbyPlaceFocus : null;
+    const placeCenter = placeFocus
+      ? { lat: placeFocus.latitude, lng: placeFocus.longitude }
+      : null;
+    // Discovery is anchored on the *place* once a check-in is live -- that is
+    // what the backend matches people against. While the owner is still
+    // choosing, it is anchored on them, because that is what bounds the search.
+    const circleCenter =
+      placeFocus?.active && placeCenter
+        ? placeCenter
+        : searchPoint
+          ? { lat: searchPoint.latitude, lng: searchPoint.longitude }
+          : placeCenter;
     let addedIds: string[] = [];
+    let addedLineIds: string[] = [];
 
     const enqueue = (command: () => Promise<void>): Promise<void> => {
       const next = nearbyCircleCommandRef.current
@@ -844,27 +964,25 @@ export function LocationImmersiveMap() {
       nearbyCircleCommandRef.current = next.catch(() => undefined);
       return next;
     };
-    const removeSafely = async (ids: string[]) => {
-      if (!ids.length) return;
-      await map.removeCircles(ids).catch(() => undefined);
+    const removeSafely = async (ids: string[], lineIds: string[]) => {
+      if (ids.length) await map.removeCircles(ids).catch(() => undefined);
+      if (lineIds.length)
+        await map.removePolylines(lineIds).catch(() => undefined);
     };
 
     void enqueue(async () => {
       const previousIds = nearbyCircleIdsRef.current;
+      const previousLineIds = nearbyConnectorIdsRef.current;
       nearbyCircleIdsRef.current = [];
-      await removeSafely(previousIds);
-      if (
-        generation !== nearbyCircleGenerationRef.current ||
-        !searchPoint
-      ) {
+      nearbyConnectorIdsRef.current = [];
+      await removeSafely(previousIds, previousLineIds);
+      if (generation !== nearbyCircleGenerationRef.current || !circleCenter) {
         return;
       }
 
+      const active = Boolean(placeFocus?.active);
       const circle: Circle = {
-        center: {
-          lat: searchPoint.latitude,
-          lng: searchPoint.longitude,
-        },
+        center: circleCenter,
         radius: NEARBY_CHECK_IN_RADIUS_METERS,
         fillColor: "var(--app-accent-surface)",
         fillOpacity: 0.1,
@@ -872,19 +990,64 @@ export function LocationImmersiveMap() {
         strokeOpacity: 0.85,
         strokeWeight: 2,
         clickable: false,
-        title: "500 m check-in search area",
+        title: active
+          ? "500 m check-in area around your place"
+          : "500 m check-in search area",
       };
       addedIds = await map.addCircles([circle]);
       if (generation !== nearbyCircleGenerationRef.current) {
-        await removeSafely(addedIds);
+        await removeSafely(addedIds, []);
         addedIds = [];
         return;
       }
       nearbyCircleIdsRef.current = addedIds;
-      await map.fitBounds(
-        radiusBounds(searchPoint, NEARBY_CHECK_IN_RADIUS_METERS),
-        32,
-      );
+
+      // Draw the gap the owner is being asked to confirm. Below ~25 m the two
+      // pins overlap and a line is just noise.
+      const connectorWorthDrawing =
+        searchPoint &&
+        placeCenter &&
+        (placeFocus?.distanceMeters ?? Number.POSITIVE_INFINITY) >= 25;
+      if (connectorWorthDrawing && searchPoint && placeCenter) {
+        addedLineIds = await map
+          .addPolylines([
+            {
+              path: [
+                { lat: searchPoint.latitude, lng: searchPoint.longitude },
+                placeCenter,
+              ],
+              strokeColor: "var(--app-accent)",
+              strokeOpacity: 0.65,
+              strokeWeight: 3,
+              geodesic: true,
+              clickable: false,
+            },
+          ])
+          .catch(() => [] as string[]);
+        if (generation !== nearbyCircleGenerationRef.current) {
+          await removeSafely([], addedLineIds);
+          addedLineIds = [];
+        } else {
+          nearbyConnectorIdsRef.current = addedLineIds;
+        }
+      }
+
+      // Frame both points when they differ, so the owner never has to hunt for
+      // the pin that is off-screen.
+      const bounds =
+        searchPoint && placeCenter
+          ? pairBounds(
+              { lat: searchPoint.latitude, lng: searchPoint.longitude },
+              placeCenter,
+            )
+          : radiusBounds(
+              {
+                latitude: circleCenter.lat,
+                longitude: circleCenter.lng,
+              },
+              NEARBY_CHECK_IN_RADIUS_METERS,
+            );
+      await map.fitBounds(bounds, 48);
     }).catch(() => {
       // Place discovery remains usable from the drawer if an older renderer
       // cannot draw the visual boundary. Never convert this into map data.
@@ -899,11 +1062,18 @@ export function LocationImmersiveMap() {
           addedIds.length > 0 &&
           addedIds.every((id) => nearbyCircleIdsRef.current.includes(id));
         if (ownsCurrentIds) nearbyCircleIdsRef.current = [];
-        await removeSafely(addedIds);
+        const ownsCurrentLineIds =
+          addedLineIds.length > 0 &&
+          addedLineIds.every((id) =>
+            nearbyConnectorIdsRef.current.includes(id),
+          );
+        if (ownsCurrentLineIds) nearbyConnectorIdsRef.current = [];
+        await removeSafely(addedIds, addedLineIds);
         addedIds = [];
+        addedLineIds = [];
       }).catch(() => undefined);
     };
-  }, [mapReady, nearbyCheckInOpen, nearbySearchPoint]);
+  }, [mapReady, nearbyCheckInOpen, nearbyPlaceFocus, nearbySearchPoint]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -917,13 +1087,23 @@ export function LocationImmersiveMap() {
         // Labels stay in the local HTML tray/search index. The native Google
         // renderer receives coordinates and a generic accessibility title,
         // never the private recipient name.
-        title: marker.kind === "self" ? "Your location" : "Private location",
+        title:
+          marker.kind === "self"
+            ? "Your location"
+            : marker.kind === "place"
+              ? // A public venue the owner picked, so its name may reach the
+                // renderer -- unlike a private recipient's label.
+                marker.label
+              : "Private location",
         snippet:
           marker.kind === "self"
             ? "Your current location"
-            : "Sharing privately now",
+            : marker.kind === "place"
+              ? "Your check-in place"
+              : "Sharing privately now",
         tintColor: marker.tint,
-        zIndex: marker.kind === "self" ? 10 : 1,
+        zIndex:
+          marker.kind === "self" ? 10 : marker.kind === "place" ? 9 : 1,
       }));
       const ids = mapMarkers.length ? await map.addMarkers(mapMarkers) : [];
       if (cancelled) return;
@@ -1356,19 +1536,61 @@ export function LocationImmersiveMap() {
           </ShellActionSurface>
         ) : null}
       </div>
-      {rendererReady && nearbyCheckInOpen && nearbySearchPoint ? (
+      {/*
+        Two pins on one map need naming, or the owner cannot tell which is
+        "me" and which is "the place I'm checking in to" -- and those are
+        routinely a street apart.
+      */}
+      {rendererReady &&
+      (nearbyCheckInOpen || nearbyPlaceFocus?.active) &&
+      (nearbySearchPoint || nearbyPlaceFocus) ? (
         <div
-          className="pointer-events-none absolute left-4 z-20 inline-flex items-center gap-2 rounded-full border border-[var(--app-accent-border)] bg-background/90 px-3 py-1.5 text-xs font-semibold text-[var(--app-accent-deep)] shadow-lg backdrop-blur-md dark:text-[var(--app-accent-bright)]"
+          className="pointer-events-none absolute left-4 right-4 z-20 flex max-w-[18rem] flex-col gap-1.5 rounded-2xl border border-[var(--app-accent-border)] bg-background/90 px-3 py-2 text-xs font-semibold shadow-lg backdrop-blur-md md:right-auto"
           style={{
             top: "calc(max(1rem, env(safe-area-inset-top)) + 4.5rem)",
           }}
           data-testid="one-location-nearby-search-area-legend"
         >
-          <span
-            className="h-2.5 w-2.5 rounded-full border-2 border-[var(--app-accent)] bg-[var(--app-accent-surface)]"
-            aria-hidden="true"
-          />
-          500 m search area
+          {nearbySearchPoint ? (
+            <span className="flex items-center gap-2">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full bg-[rgb(0,122,255)]"
+                aria-hidden="true"
+              />
+              <span className="truncate text-foreground">You are here</span>
+            </span>
+          ) : null}
+          {nearbyPlaceFocus ? (
+            <span
+              className="flex items-center gap-2"
+              data-testid="one-location-nearby-place-legend"
+            >
+              <span
+                className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                  nearbyPlaceFocus.active
+                    ? "bg-emerald-500"
+                    : "bg-violet-500"
+                }`}
+                aria-hidden="true"
+              />
+              <span className="truncate text-foreground">
+                {nearbyPlaceFocus.active ? "Checked in at " : "Checking in at "}
+                {nearbyPlaceFocus.label}
+              </span>
+            </span>
+          ) : null}
+          {nearbyPlaceFocus?.distanceMeters != null &&
+          nearbyPlaceFocus.distanceMeters >= 25 ? (
+            <span className="pl-[1.125rem] font-normal text-muted-foreground">
+              {nearbyPlaceFocus.distanceMeters < 1_000
+                ? `${nearbyPlaceFocus.distanceMeters} m`
+                : `${(nearbyPlaceFocus.distanceMeters / 1_000).toFixed(1)} km`}{" "}
+              from you
+            </span>
+          ) : null}
+          <span className="pl-[1.125rem] font-normal text-muted-foreground">
+            500 m {nearbyPlaceFocus?.active ? "match" : "search"} area
+          </span>
         </div>
       ) : null}
       {!rendererReady ? (
@@ -1816,6 +2038,7 @@ export function LocationImmersiveMap() {
           }}
           onStateChange={handleNearbyStateChange}
           onSearchAreaChange={setNearbySearchPoint}
+          onPlaceFocusChange={handlePlaceFocusChange}
         />
       ) : null}
     </main>

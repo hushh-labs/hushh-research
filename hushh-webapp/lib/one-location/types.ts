@@ -357,6 +357,18 @@ export type OneLocationNearbyPlaceSuggestion = {
   category?: string | null;
   /** Present for strict nearby results; generic autocomplete does not return it. */
   distanceMeters?: number | null;
+  /**
+   * The venue's public point. Present on nearby results so the map can pin the
+   * place the owner is choosing separately from where they are standing.
+   * Autocomplete does not return it; the sheet resolves it on selection.
+   */
+  latitude?: number | null;
+  longitude?: number | null;
+  /**
+   * Category chips this place belongs to. Lets the drawer filter the merged
+   * nearby sweep locally instead of re-querying per chip and re-truncating.
+   */
+  categories?: OneLocationNearbyPlaceCategory[] | null;
 };
 
 export type OneLocationNearbyRelationship =
@@ -383,6 +395,14 @@ export type OneLocationNearbyPresence = {
   checkedInAt: string;
   expiresAt: string;
   placeLabel?: string | null;
+  /**
+   * The owner's own check-in anchor — the public venue they picked, not their
+   * live position. Returned only to the owner so the map can keep showing where
+   * they checked in after a reload, and how far they have since drifted from
+   * it. No other participant's anchor is ever exposed.
+   */
+  placeLat?: number | null;
+  placeLng?: number | null;
 };
 
 export type OneLocationNearbyPresenceState = {

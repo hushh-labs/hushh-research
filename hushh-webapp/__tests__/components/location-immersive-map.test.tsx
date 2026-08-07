@@ -14,6 +14,8 @@ const mapHarness = vi.hoisted(() => {
     addMarkers: vi.fn(async (markers: unknown[]) =>
       markers.map((_, index) => `marker-${index}`),
     ),
+    addPolylines: vi.fn(async (_lines: unknown[]) => ["polyline-0"]),
+    removePolylines: vi.fn(async () => undefined),
     destroy: vi.fn(async () => undefined),
     disableTouch: vi.fn(async () => undefined),
     disableClustering: vi.fn(async () => undefined),
@@ -65,6 +67,23 @@ const experienceHarness = vi.hoisted(() => ({
     accuracyM: 12,
     capturedAt: "2026-07-23T00:00:00.000Z",
     sourcePlatform: "web" as const,
+  },
+  placeFocus: {
+    placeId: "hotel-two",
+    label: "Hotel Two",
+    // ~180 m north-east of the search point: the everyday case where the
+    // owner's position and their check-in place are not the same spot.
+    latitude: 37.7775,
+    longitude: -122.4172,
+    distanceMeters: 180,
+    active: false,
+  } as {
+    placeId: string;
+    label: string;
+    latitude: number;
+    longitude: number;
+    distanceMeters: number | null;
+    active: boolean;
   },
 }));
 
@@ -160,10 +179,12 @@ vi.mock(
       open,
       onStateChange,
       onSearchAreaChange,
+      onPlaceFocusChange,
     }: {
       open: boolean;
       onStateChange: (state: unknown) => void;
       onSearchAreaChange: (point: unknown) => void;
+      onPlaceFocusChange: (focus: unknown) => void;
     }) => (
       <div
         data-testid="nearby-check-in-sheet-mock"
@@ -218,6 +239,20 @@ vi.mock(
         >
           Clear search area
         </button>
+        <button
+          type="button"
+          data-testid="publish-nearby-place-focus"
+          onClick={() => onPlaceFocusChange(experienceHarness.placeFocus)}
+        >
+          Publish place focus
+        </button>
+        <button
+          type="button"
+          data-testid="clear-nearby-place-focus"
+          onClick={() => onPlaceFocusChange(null)}
+        >
+          Clear place focus
+        </button>
       </div>
     ),
   }),
@@ -239,7 +274,10 @@ import {
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
 
+const DEFAULT_PLACE_FOCUS = { ...experienceHarness.placeFocus };
+
 beforeEach(() => {
+  experienceHarness.placeFocus = { ...DEFAULT_PLACE_FOCUS };
   forgetOneLocationControlPreference("test-user");
   window.sessionStorage.clear();
   window.history.replaceState({}, "", "/one/location/map");
@@ -622,6 +660,108 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(
       screen.queryByTestId("one-location-nearby-search-area-legend"),
     ).not.toBeInTheDocument();
+  });
+
+  it("pins the check-in place alongside the owner and names both", async () => {
+    // The owner's position and the venue they check in to are routinely a
+    // street apart. Showing only one of them left the map unable to say where
+    // a check-in actually was.
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+
+    await waitFor(() => {
+      const drawn = mapHarness.map.addMarkers.mock.calls.flat(2) as Array<{
+        coordinate: { lat: number; lng: number };
+        snippet?: string;
+      }>;
+      expect(
+        drawn.some((marker) => marker.snippet === "Your check-in place"),
+      ).toBe(true);
+      expect(
+        drawn.some((marker) => marker.snippet === "Your current location"),
+      ).toBe(true);
+    });
+
+    // A connector makes the gap readable rather than leaving two loose pins.
+    await waitFor(() => {
+      expect(mapHarness.map.addPolylines).toHaveBeenCalledWith([
+        expect.objectContaining({
+          path: [
+            { lat: 37.776, lng: -122.418 },
+            { lat: 37.7775, lng: -122.4172 },
+          ],
+        }),
+      ]);
+    });
+
+    const legend = screen.getByTestId("one-location-nearby-search-area-legend");
+    expect(legend).toHaveTextContent("You are here");
+    expect(legend).toHaveTextContent("Checking in at Hotel Two");
+    expect(legend).toHaveTextContent("180 m from you");
+
+    fireEvent.click(screen.getByTestId("clear-nearby-place-focus"));
+    await waitFor(() => {
+      expect(mapHarness.map.removePolylines).toHaveBeenCalledWith([
+        "polyline-0",
+      ]);
+    });
+    expect(
+      screen.queryByTestId("one-location-nearby-place-legend"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("anchors the match circle on the place once a check-in is live", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+    experienceHarness.placeFocus = {
+      ...experienceHarness.placeFocus,
+      active: true,
+    };
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    mapHarness.map.addCircles.mockClear();
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+
+    // Co-presence is matched against the place, so that is what the 500 m ring
+    // has to describe -- not wherever the owner has since wandered.
+    await waitFor(() => {
+      expect(mapHarness.map.addCircles).toHaveBeenLastCalledWith([
+        expect.objectContaining({
+          center: { lat: 37.7775, lng: -122.4172 },
+          radius: 500,
+        }),
+      ]);
+    });
+    expect(
+      screen.getByTestId("one-location-nearby-search-area-legend"),
+    ).toHaveTextContent("Checked in at Hotel Two");
   });
 
   it("keeps the full search circle in the visible mobile viewport above the sheet", async () => {
