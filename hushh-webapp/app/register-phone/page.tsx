@@ -30,7 +30,11 @@ import {
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { RiaService } from "@/lib/services/ria-service";
-import { buildRiaClaimRoute, isClaimableLookupOutcome } from "@/lib/ria/ria-claim-entry";
+import {
+  buildRiaClaimRoute,
+  isClaimableLookupOutcome,
+  resolveVerifiedPhone,
+} from "@/lib/ria/ria-claim-entry";
 import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-mandate-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { resolvePostPhoneOnboardingPhase } from "@/lib/onboarding/onboarding-journey-phase";
@@ -113,7 +117,17 @@ export function PhoneMandatePageContent() {
       // lists a firm or advisers at it, show that instead of the generic next
       // screen. Fails open — any error, timeout or miss continues as normal.
       const claimRoute = await (async () => {
-        const verifiedPhone = activeUser.phoneNumber;
+        // identity.phone_number is the authoritative verified number. The
+        // Firebase user object is null here whenever the phone was confirmed
+        // through the backend test-code path or any non-Firebase channel --
+        // that path returns the unchanged user and only records the phone
+        // server-side, so reading activeUser.phoneNumber skips recognition
+        // exactly when it is needed.
+        const verifiedPhone = resolveVerifiedPhone({
+          identityPhone: identity?.phone_number,
+          contextPhone: phoneNumber,
+          firebasePhone: activeUser.phoneNumber,
+        });
         if (!idToken || !verifiedPhone) return null;
         try {
           const controller = new AbortController();
@@ -158,7 +172,7 @@ export function PhoneMandatePageContent() {
       });
       router.replace(nextPath);
     },
-    [redirectPath, refreshUser, router, user],
+    [redirectPath, refreshUser, router, user, phoneNumber],
   );
 
   const [shouldBypassLocalPhoneMandate, setShouldBypassLocalPhoneMandate] =
