@@ -277,7 +277,14 @@ class GcpBackend:
             # loaded and before any model call, so it is a floor and not a ceiling. An
             # OOM restart destroys the always-alive property the warm floor is paid for,
             # and memory is the cheapest axis to buy safety on.
-            "resources": {"limits": {"cpu": self._cpu, "memory": self._memory}},
+            "resources": {
+                "limits": {
+                    "cpu": _cpu_for_allocation(
+                        self._cpu, always_allocated=self._min_instances >= 1
+                    ),
+                    "memory": self._memory,
+                }
+            },
             # Identity + pins only. No secrets: BYOK keys and consent tokens
             # arrive per-turn at runtime.
             "env": [
@@ -553,6 +560,12 @@ class GcpBackend:
                 "ready": ready,
                 "tier": spec.tier,
                 "ingress": self._ingress,
+                # Which image this pod is actually running. The plan path recorded
+                # it and the live path did not, so a real pod's registry row could
+                # not answer "is this pod stale?" -- which is the whole input to an
+                # upgrade sweep. Found by provisioning a pod and reading the handle
+                # it returned.
+                "image": self._image,
                 # Same contract as the plan path: the live handle must carry the
                 # liveness rule too, or a pod created live would fall back to the
                 # column default instead of recording what it was really given.
@@ -570,6 +583,53 @@ def _liveness_mode(min_instances: int) -> str:
     ``pod_liveness_service`` and migration 905.
     """
     return "warm" if int(min_instances) >= 1 else "economy"
+
+
+def _cpu_millis(cpu: str) -> int:
+    """Parse a Kubernetes-style CPU quantity into millicores. '500m' -> 500, '1' -> 1000."""
+    text = str(cpu or "").strip()
+    if not text:
+        return 0
+    if text.endswith("m"):
+        try:
+            return int(float(text[:-1]))
+        except ValueError:
+            return 0
+    try:
+        return int(float(text) * 1000)
+    except ValueError:
+        return 0
+
+
+def _cpu_for_allocation(cpu: str, *, always_allocated: bool) -> str:
+    """The CPU limit Cloud Run will actually accept for this allocation mode.
+
+    Cloud Run refuses to create a service with less than one full vCPU when CPU is
+    always allocated:
+
+        spec.template.spec.containers.resources.limits.cpu: Invalid value specified
+        for cpu. Total cpu < 1 is not supported with cpu always allocated
+        (unthrottled).
+
+    The warm tier needs always-allocated CPU because the pod's heartbeat is a
+    background asyncio loop -- throttled, it stalls between beats and the hub reads
+    a healthy pod's silence as a fault. The default 500m was chosen for a
+    network-bound workload, and on its own that reasoning is sound. The two are
+    simply not combinable on this platform, and the combination is what the
+    renderer emitted: every warm-tier provision was rejected with HTTP 400 before
+    a container ever started. Observed live in hushh-pda-dev, 2026-08-07 -- the
+    first time provision() was run against real Cloud Run rather than a fake.
+
+    No test caught it because the tests assert on the rendered dict and never POST
+    it, so the config was verified against our expectations instead of against the
+    platform that has to accept it.
+
+    The economy tier is untouched: min=0 means throttled, where 500m is valid and
+    is the cheaper, correct choice.
+    """
+    if always_allocated and _cpu_millis(cpu) < 1000:
+        return "1"
+    return cpu
 
 
 def _resolve_pod_project() -> tuple[Optional[str], str]:

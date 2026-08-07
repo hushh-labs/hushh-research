@@ -33,6 +33,7 @@ tests/test_export_projection.py
 tests/test_firebase_auth_contract.py
 tests/test_gcp_backend.py
 tests/test_gcp_backend_cost_labels.py
+tests/test_gcp_backend_cpu_allocation.py
 tests/test_gcp_backend_pod_project.py
 tests/test_gcp_run_client.py
 tests/test_gcp_run_invoker_binding.py

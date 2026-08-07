@@ -264,15 +264,40 @@ def test_a_pod_never_scales_past_one_writer():
 
 
 def test_both_backends_size_the_pod_from_one_profile():
+    """The profile is the source; a platform floor is a derivation from it, not a rival.
+
+    Read on the ECONOMY tier, where the profile passes through untouched. The warm
+    tier is asserted separately below because Cloud Run refuses cpu < 1 when CPU is
+    always allocated -- so on that tier the profile is raised to the platform's
+    minimum rather than emitted verbatim. Reading parity off the warm tier would
+    mean asserting a config Cloud Run rejects with HTTP 400, which is what this
+    test did until a real provision proved it (2026-08-07).
+    """
     from hushh_mcp.services.compute_backend import POD_CPU, POD_MEMORY, pod_vcores
 
-    gcp = GcpBackend(project="p", image="i", live=False).render_deploy_config(_spec())
+    gcp = GcpBackend(
+        project="p", image="i", live=False, min_instances=0, max_instances=1
+    ).render_deploy_config(_spec())
     limits = gcp["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]
     anypoint = AnypointBackend(live=False).render_deploy_config(_spec())
 
     assert limits["cpu"] == POD_CPU
     assert limits["memory"] == POD_MEMORY
     assert anypoint["application"]["vCores"] == pod_vcores()
+
+
+def test_the_warm_tier_derives_its_cpu_from_the_same_profile():
+    """Still one source: the warm render is the profile put through the platform floor."""
+    from hushh_mcp.services.compute_backend import POD_CPU, POD_MEMORY
+    from hushh_mcp.services.gcp_backend import _cpu_for_allocation
+
+    gcp = GcpBackend(
+        project="p", image="i", live=False, min_instances=1, max_instances=1
+    ).render_deploy_config(_spec())
+    limits = gcp["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]
+
+    assert limits["cpu"] == _cpu_for_allocation(POD_CPU, always_allocated=True)
+    assert limits["memory"] == POD_MEMORY
 
 
 def test_the_vcore_conversion_is_a_unit_change_not_a_policy():
@@ -301,9 +326,13 @@ def test_changing_the_profile_moves_BOTH_backends(monkeypatch):
     importlib.reload(gcp_backend)
     importlib.reload(anypoint_backend)
     try:
-        limits = gcp_backend.GcpBackend(project="p", image="i", live=False).render_deploy_config(
-            _spec()
-        )["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]
+        # Economy tier: throttled, so the profile reaches the artifact verbatim and
+        # the single-source property is visible without the platform floor in the way.
+        limits = gcp_backend.GcpBackend(
+            project="p", image="i", live=False, min_instances=0, max_instances=1
+        ).render_deploy_config(_spec())["spec"]["template"]["spec"]["containers"][0]["resources"][
+            "limits"
+        ]
         vcores = anypoint_backend.AnypointBackend(live=False).render_deploy_config(_spec())[
             "application"
         ]["vCores"]
