@@ -1,7 +1,7 @@
 {
   "id": "hushh-one-mcp",
-  "name": "Hushh One MCP",
-  "description": "Codex bundle metadata for publishing the Hushh One private agent consent MCP bundle on ClawHub.",
+  "name": "Hussh One MCP",
+  "description": "Codex bundle metadata for publishing the Hussh One private agent consent MCP bundle on ClawHub.",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

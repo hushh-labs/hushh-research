@@ -164,7 +164,7 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
               That preserves discoverable navigation on small screens without
               letting the longest label push its siblings out of rhythm. */}
           <nav
-            aria-label="Explore Hushh"
+            aria-label="Explore Hussh"
             className={styles.links}
           >
             <Link

@@ -236,7 +236,7 @@ export function RuntimeSecretSettingsCard({
       toast.success(
         nextMode === "byok"
           ? "Your saved Gemini key is selected."
-          : "Hushh managed Gemini is selected."
+          : "Hussh managed Gemini is selected."
       );
     } catch (error) {
       const message =
@@ -382,7 +382,7 @@ export function RuntimeSecretSettingsCard({
         <div className="flex min-h-12 items-center justify-between gap-4 rounded-[var(--app-card-radius-compact)] border border-border/60 bg-background/45 px-3 py-2">
           <div className="min-w-0">
             <p className="text-[13px] font-medium text-foreground">
-              Use Hushh managed Gemini
+              Use Hussh managed Gemini
             </p>
             <p className="text-[12px] leading-[1.4] text-muted-foreground">
               Turn off to use your saved Gemini key.
@@ -392,7 +392,7 @@ export function RuntimeSecretSettingsCard({
             checked={credentialMode === "hushh_managed_vertex"}
             onCheckedChange={(checked) => void handleModeChange(checked)}
             disabled={savingMode || needsVaultCreation || needsUnlock}
-            aria-label="Use Hushh managed Gemini"
+            aria-label="Use Hussh managed Gemini"
           />
         </div>
 

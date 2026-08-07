@@ -17,7 +17,7 @@
     {
       "action_id": "setup.open_connections",
       "label": "Set up AI access",
-      "meaning": "Opens AI access setup so the person can choose Hushh managed Gemini or validate and protect their own Gemini access.",
+      "meaning": "Opens AI access setup so the person can choose Hussh managed Gemini or validate and protect their own Gemini access.",
       "aliases": [
         "set up AI access",
         "choose gemini",

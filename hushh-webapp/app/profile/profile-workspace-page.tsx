@@ -3099,7 +3099,7 @@ function ProfilePageContent() {
         <SettingsRow
           leading={<GeminiLogo className="h-8 w-8" />}
           title="Gemini"
-          description="Choose Hushh managed Gemini or keep your own key in your encrypted vault."
+          description="Choose Hussh managed Gemini or keep your own key in your encrypted vault."
           chevron
           onClick={() =>
             updateProfileView(

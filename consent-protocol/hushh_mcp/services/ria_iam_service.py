@@ -9166,7 +9166,7 @@ class RIAIAMService:
             normalized_user_id,
         )
         if row is None:
-            raise RIAIAMPolicyError("Qualified Hushh investor profile not found", status_code=404)
+            raise RIAIAMPolicyError("Qualified Hussh investor profile not found", status_code=404)
         profile = self._marketplace_hushh_investor_row(row)
         return {
             "source_type": "hushh_user",

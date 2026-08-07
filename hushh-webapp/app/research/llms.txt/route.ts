@@ -7,16 +7,16 @@ import {
 export const dynamic = "force-static";
 
 /**
- * llms.txt — machine-readable index of the Hushh Research surface, in the
+ * llms.txt — machine-readable index of the Hussh Research surface, in the
  * emerging convention MCP's docs popularized. Ease of adoption applies to
  * agents as much as to humans: an agent should be able to discover and read
  * the PCHP specification as easily as a developer can.
  */
 export function GET() {
   const lines: string[] = [
-    "# Hushh Research & Papers",
+    "# Hussh Research & Papers",
     "",
-    "> Open protocols from Hushh, donated to the commons. Flagship: PCHP — the",
+    "> Open protocols from Hussh, donated to the commons. Flagship: PCHP — the",
     "> Personal Consent Handshake Protocol, an open standard for sharing personal",
     "> data with consent and control built into every transaction.",
     "",
