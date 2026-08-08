@@ -729,7 +729,13 @@ class RIAClaimService:
             "has_disclosures": advisor_record.get("has_disclosures"),
         }
         await self._record_claim_enrichment(user_id, facts)
-        return {
+        dossier_status = await self._dispatch_dossier(
+            user_id=user_id,
+            ria_profile_id=str(profile.get("ria_profile_id") or ""),
+            claim_type=claim_type,
+            reference_metadata=reference_metadata,
+        )
+        result = {
             "status": "claimed",
             "claim_type": claim_type,
             "verification_level": verification_level,
@@ -738,6 +744,31 @@ class RIAClaimService:
             "profile": profile,
             "facts": facts,
         }
+        if dossier_status is not None:
+            result["dossier"] = dossier_status
+        return result
+
+    @staticmethod
+    async def _dispatch_dossier(
+        *,
+        user_id: str,
+        ria_profile_id: str,
+        claim_type: str,
+        reference_metadata: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Fire the background dossier. Best-effort: the claim always stands."""
+        try:
+            from hushh_mcp.services.ria_dossier_service import RIADossierService
+
+            return await RIADossierService().dispatch_after_claim(
+                user_id=user_id,
+                ria_profile_id=ria_profile_id,
+                claim_type=claim_type,
+                reference_metadata=reference_metadata,
+            )
+        except Exception:  # noqa: BLE001 - dossier is best-effort; the claim stands
+            logger.warning("ria.dossier_dispatch_failed", exc_info=True)
+            return None
 
     async def _load_claim_context(self, user_id: str) -> dict[str, Any] | None:
         """Latest persisted claim snapshot plus the profile row it belongs to."""
@@ -984,6 +1015,14 @@ class RIAClaimService:
                     "firm_crd": firm_crd,
                 }
             )
+        )
+        # A provisional→verified upgrade is the first verified moment for this
+        # identity; the dossier row's unique key makes double-dispatch harmless.
+        await self._dispatch_dossier(
+            user_id=user_id,
+            ria_profile_id=str(profile.get("ria_profile_id") or ""),
+            claim_type=claim_type,
+            reference_metadata=reference_metadata,
         )
         return {
             "verified": True,
