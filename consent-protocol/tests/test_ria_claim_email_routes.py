@@ -215,7 +215,7 @@ def test_email_start_alias_owned_elsewhere(monkeypatch):
 
 
 def test_email_confirm_upgrades_when_evaluator_verifies(monkeypatch):
-    async def _mock_confirm(self, *, user_id, email, verification_code):
+    async def _mock_confirm(self, *, user_id, email, verification_code, accept_without_code=False):
         assert user_id == _TEST_UID
         assert verification_code == _PLAINTEXT_CODE
         return {"email_normalized": email, "verification_status": "verified"}
@@ -244,7 +244,7 @@ def test_email_confirm_upgrades_when_evaluator_verifies(monkeypatch):
 
 
 def test_email_confirm_reports_unverified_without_writing(monkeypatch):
-    async def _mock_confirm(self, *, user_id, email, verification_code):
+    async def _mock_confirm(self, *, user_id, email, verification_code, accept_without_code=False):
         return {"email_normalized": email, "verification_status": "verified"}
 
     monkeypatch.setattr(
@@ -271,7 +271,7 @@ def test_email_confirm_reports_unverified_without_writing(monkeypatch):
 
 
 def test_email_confirm_rejects_a_bad_code(monkeypatch):
-    async def _mock_confirm(self, *, user_id, email, verification_code):
+    async def _mock_confirm(self, *, user_id, email, verification_code, accept_without_code=False):
         raise ActorIdentityAliasError(
             "Email alias verification code is invalid.",
             code="EMAIL_ALIAS_CODE_INVALID",

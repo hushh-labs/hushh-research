@@ -855,6 +855,12 @@ class RIAClaimService:
                 code="EMAIL_INVALID",
                 status_code=422,
             )
+        if is_claim_test_email(email):
+            # Demo allowlist, never enabled in production: the demo claim
+            # targets are real firms whose mailboxes nobody here owns, so
+            # without this the badge journey cannot be walked at all.
+            logger.info("ria.claim_email_test_allowlisted")
+            return
         if is_free_mail_domain(domain):
             raise RIAClaimEmailError(
                 "Use your work email at the firm.",

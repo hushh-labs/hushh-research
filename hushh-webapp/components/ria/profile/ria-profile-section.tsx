@@ -927,6 +927,23 @@ export function RiaProfileSection({
 
   return (
     <div className="space-y-6">
+      {/* Verification state is its own row, always visible. It used to ride as
+          an accessory of the SEC-record card, which self-suppresses when it has
+          no rows — so an adviser with a thin record saw no verification state at
+          all. */}
+      <div
+        className="flex items-center justify-between gap-3 rounded-[18px] border border-[color:var(--border)] bg-[color:var(--card)] px-4 py-3"
+        data-testid="ria-profile-verification-row"
+      >
+        <div className="min-w-0">
+          <p className="text-[15px] font-semibold">Verification</p>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">
+            {verified ? "Your profile is verified." : "Verify to get your badge."}
+          </p>
+        </div>
+        <RiaVerificationChip verified={verified} />
+      </div>
+
       <RiaRegulatoryProfileSummary
         reviewProps={reviewProps}
         onEditSection={handleEditSection}
@@ -939,7 +956,6 @@ export function RiaProfileSection({
             secRecordMetadata.advisor_record,
           )}
           firmRecord={asRecord<RiaSecFirmRecord>(secRecordMetadata.firm_record)}
-          headerAccessory={<RiaVerificationChip verified={verified} />}
         />
       ) : null}
 

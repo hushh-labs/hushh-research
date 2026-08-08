@@ -22,6 +22,10 @@ _IDENTITY_SYNC_TASKS: dict[str, asyncio.Task[dict[str, Any] | None]] = {}
 _IDENTITY_SYNC_COOLDOWN_UNTIL: dict[str, datetime] = {}
 _ALIAS_CODE_PATTERN = re.compile(r"\s+")
 
+# A verification code must not outlive the sitting; same 15 minutes the claim
+# ticket uses. Codes were previously valid forever.
+_ALIAS_VERIFICATION_TTL_SECONDS = 15 * 60
+
 
 class ActorIdentityAliasError(RuntimeError):
     def __init__(
@@ -927,7 +931,14 @@ class ActorIdentityService:
         user_id: str,
         email: str,
         verification_code: str,
+        accept_without_code: bool = False,
     ) -> dict[str, Any]:
+        """Verify a pending alias.
+
+        ``accept_without_code`` is the caller's assertion that it has already
+        authorised this confirmation by another means (the non-production claim
+        test allowlist). Callers must never derive it from request input.
+        """
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
             raise ActorIdentityAliasError(
@@ -977,7 +988,23 @@ class ActorIdentityService:
                     )
                 if row["verification_status"] == "verified" and row["revoked_at"] is None:
                     return self._normalize_alias_row(row)
-                if row["verification_code_hash"] != expected_hash:
+                # A code with no lifetime is a permanent credential sitting in
+                # an inbox. Expire it on the same 15-minute clock the claim
+                # ticket uses; the caller can always request a fresh one.
+                requested_at = row["verification_requested_at"]
+                if requested_at is not None and not accept_without_code:
+                    age_seconds = (datetime.now(timezone.utc) - requested_at).total_seconds()
+                    if age_seconds > _ALIAS_VERIFICATION_TTL_SECONDS:
+                        raise ActorIdentityAliasError(
+                            "That code expired. Send a new one.",
+                            code="EMAIL_ALIAS_CODE_EXPIRED",
+                            status_code=400,
+                        )
+                stored_hash = str(row["verification_code_hash"] or "")
+                code_matches = bool(stored_hash) and secrets.compare_digest(
+                    stored_hash, expected_hash
+                )
+                if not code_matches and not accept_without_code:
                     raise ActorIdentityAliasError(
                         "Email alias verification code is invalid.",
                         code="EMAIL_ALIAS_CODE_INVALID",
