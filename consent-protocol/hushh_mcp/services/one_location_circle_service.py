@@ -1189,7 +1189,14 @@ class OneLocationCircleService:
         actor_user_id: str,
         circle_id: str,
     ) -> list[dict[str, Any]]:
-        """List an active member's own direct connections eligible to invite."""
+        """List an active member's own connections eligible to invite.
+
+        "Eligible" means an active connection of any provenance. Someone the
+        member met through a Circle is a connection — they already appear in
+        the connections list and can receive a location share — so excluding
+        them here left the member unable to invite the very people a Circle
+        introduced them to.
+        """
 
         cleaned_circle_id = _clean_circle_id(circle_id)
         try:
@@ -1238,9 +1245,12 @@ class OneLocationCircleService:
                    connection.user_a_id = :actor_user_id
                    OR connection.user_b_id = :actor_user_id
                   )
+                -- Any live provenance makes someone invitable. A Circle
+                -- co-member is a connection — they already appear in the
+                -- connections list — so requiring `direct_request` here hid
+                -- exactly the people a Circle was meant to introduce.
                 JOIN connection_origins origin
                   ON origin.connection_id = connection.id
-                 AND origin.origin_kind = 'direct_request'
                  AND origin.status = 'active'
                 LEFT JOIN actor_identity_cache identity
                   ON identity.user_id = CASE
@@ -1694,11 +1704,15 @@ class OneLocationCircleService:
                 if missing_connection:
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_DIRECT_CONNECTION_REQUIRED",
-                        "Every selected person must still be a direct connection.",
+                        "Every selected person must still be a connection.",
                         status_code=409,
                     )
                 connection_ids = [str(row.get("connection_id") or "") for row in connection_rows]
-                direct_origin_rows = _all(
+                # Lock whatever provenance keeps each connection alive, of any
+                # kind, so a concurrent revoke or Circle-leave cannot slip
+                # between this check and the invite write. The kind no longer
+                # matters: an active connection is an invitable connection.
+                live_origin_rows = _all(
                     conn.execute(
                         text(
                             """
@@ -1706,7 +1720,6 @@ class OneLocationCircleService:
                             FROM connection_origins
                             WHERE connection_id =
                                   ANY(CAST(:connection_ids AS UUID[]))
-                              AND origin_kind = 'direct_request'
                               AND status = 'active'
                             ORDER BY connection_id
                             FOR UPDATE
@@ -1715,16 +1728,16 @@ class OneLocationCircleService:
                         {"connection_ids": connection_ids},
                     )
                 )
-                direct_origin_connection_ids = {
-                    str(row.get("connection_id") or "") for row in direct_origin_rows
+                live_origin_connection_ids = {
+                    str(row.get("connection_id") or "") for row in live_origin_rows
                 }
                 if any(
-                    connection_id not in direct_origin_connection_ids
+                    connection_id not in live_origin_connection_ids
                     for connection_id in connection_ids
                 ):
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_DIRECT_CONNECTION_REQUIRED",
-                        "Every selected person must still be a direct connection.",
+                        "Every selected person must still be a connection.",
                         status_code=409,
                     )
                 existing_rows = _all(
@@ -2153,10 +2166,13 @@ class OneLocationCircleService:
                             status_code=409,
                         )
                     # Transaction lock order is Circle/invite (above), exact
-                    # canonical connection, direct origin, then membership.
+                    # canonical connection, its live origin, then membership.
                     # The origin check runs after the connection lock in a new
-                    # statement/snapshot so a concurrent direct removal cannot
-                    # be masked by another active Circle origin.
+                    # statement/snapshot so a relationship revoked concurrently
+                    # is observed rather than masked. Any active origin counts:
+                    # a Circle co-member is a connection, so a Circle-sourced
+                    # provenance is as valid an invitation basis as a direct
+                    # request.
                     connection_row = _first(
                         conn.execute(
                             text(
@@ -2189,7 +2205,7 @@ class OneLocationCircleService:
                             "Reconnect before accepting this Circle invitation.",
                             status_code=409,
                         )
-                    direct_origin = _first(
+                    live_origin = _first(
                         conn.execute(
                             text(
                                 """
@@ -2197,7 +2213,6 @@ class OneLocationCircleService:
                                 FROM connection_origins
                                 WHERE connection_id =
                                       CAST(:connection_id AS UUID)
-                                  AND origin_kind = 'direct_request'
                                   AND status = 'active'
                                 FOR UPDATE
                                 """
@@ -2205,7 +2220,7 @@ class OneLocationCircleService:
                             {"connection_id": str(connection_row.get("id") or "")},
                         )
                     )
-                    if not direct_origin:
+                    if not live_origin:
                         raise OneLocationCircleError(
                             "LOCATION_CIRCLE_DIRECT_CONNECTION_REQUIRED",
                             "Reconnect before accepting this Circle invitation.",
