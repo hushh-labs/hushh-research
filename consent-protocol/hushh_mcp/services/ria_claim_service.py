@@ -212,6 +212,31 @@ def claim_test_enabled() -> bool:
     return bool(claim_test_numbers() and claim_test_code())
 
 
+def claim_test_emails() -> set[str]:
+    """Addresses allowed to stand in for a firm-domain work email off production.
+
+    The demo claim targets are real firms whose mailboxes we do not own, so the
+    firm-domain rule makes the badge journey untestable without this. Mirrors
+    the RIA_CLAIM_TEST_NUMBERS design exactly.
+    """
+    raw = _clean_env("RIA_CLAIM_TEST_EMAILS")
+    if not raw:
+        return set()
+    return {part.strip().lower() for part in re.split(r"[,;\n]+", raw) if part.strip()}
+
+
+def claim_test_email_enabled() -> bool:
+    if _is_production_environment():
+        return False
+    return bool(claim_test_emails())
+
+
+def is_claim_test_email(email: str) -> bool:
+    if not claim_test_email_enabled():
+        return False
+    return str(email or "").strip().lower() in claim_test_emails()
+
+
 def _challenge_key() -> str:
     return (
         _clean_env("RIA_CLAIM_TEST_CHALLENGE_SECRET")
@@ -830,6 +855,12 @@ class RIAClaimService:
                 code="EMAIL_INVALID",
                 status_code=422,
             )
+        if is_claim_test_email(email):
+            # Demo allowlist, never enabled in production: the demo claim
+            # targets are real firms whose mailboxes nobody here owns, so
+            # without this the badge journey cannot be walked at all.
+            logger.info("ria.claim_email_test_allowlisted")
+            return
         if is_free_mail_domain(domain):
             raise RIAClaimEmailError(
                 "Use your work email at the firm.",

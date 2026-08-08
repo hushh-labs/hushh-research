@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 from typing import Annotated, Any, Literal
 
 import asyncpg
@@ -23,6 +24,8 @@ from hushh_mcp.services.ria_claim_email_service import queue_claim_verification_
 from hushh_mcp.services.ria_claim_service import (
     RIAClaimEmailError,
     RIAClaimService,
+    claim_test_code,
+    is_claim_test_email,
     mask_email,
     normalize_nanp_phone,
     validate_claim_ticket,
@@ -982,11 +985,21 @@ async def ria_claim_email_confirm(
     request: Request,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
+    # Demo fallback (never production): an allowlisted address may also confirm
+    # with the fixed claim test code, so the badge journey stays walkable when
+    # mail delivery is unavailable. The real emailed code always works too.
+    test_code = claim_test_code()
+    test_code_accepted = bool(
+        test_code
+        and is_claim_test_email(payload.email)
+        and secrets.compare_digest(str(payload.code or "").strip(), test_code)
+    )
     try:
         await ActorIdentityService().confirm_email_alias_verification(
             user_id=firebase_uid,
             email=payload.email,
             verification_code=payload.code,
+            accept_without_code=test_code_accepted,
         )
     except ActorIdentityAliasError as exc:
         raise HTTPException(
