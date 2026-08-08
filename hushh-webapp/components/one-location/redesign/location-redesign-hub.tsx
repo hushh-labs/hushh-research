@@ -414,6 +414,57 @@ const LEGACY_ACTION_TO_FLOW: Readonly<Partial<Record<string, FlowKind>>> = {
   privacy: "settings",
 };
 
+/**
+ * Focus a One-Location notification "Open" deep link resolves to. `detailAction`
+ * opens a focused flow (e.g. Shared with me / Needs my review); `nextTab`
+ * selects a hub tab.
+ */
+export type LocationDeepLinkFocus = {
+  detailAction: Extract<FlowKind, "needs-review" | "shared-with-me"> | null;
+  nextTab: LocationHubTab | null;
+};
+
+/**
+ * Resolve where a location deep link should land. An explicit `section` (set by
+ * the notification "Open" action) ALWAYS wins over the id-presence heuristics:
+ * an approval notification carries BOTH the newly created grantId and the
+ * originating requestId, so only the section separates "Shared with me"
+ * (section=shared) from "Needs my review" (section=approvals). Checking
+ * `hasRequest` before the section — as the previous inline logic did — stranded
+ * an approved requester on "Needs my review". The id checks remain as fallbacks
+ * for legacy links that omit the section.
+ */
+export function resolveLocationDeepLinkFocus(input: {
+  section: string;
+  hasRequest: boolean;
+  hasGrant: boolean;
+  hasSubmission: boolean;
+}): LocationDeepLinkFocus {
+  const { section, hasRequest, hasGrant, hasSubmission } = input;
+  if (section === "approvals" || section === "my_requests") {
+    return { detailAction: "needs-review", nextTab: null };
+  }
+  if (section === "shared") {
+    return { detailAction: "shared-with-me", nextTab: null };
+  }
+  if (section === "public_responses") {
+    return { detailAction: null, nextTab: "links" };
+  }
+  if (section === "people") {
+    return { detailAction: null, nextTab: "people" };
+  }
+  if (hasRequest) {
+    return { detailAction: "needs-review", nextTab: null };
+  }
+  if (hasGrant) {
+    return { detailAction: "shared-with-me", nextTab: null };
+  }
+  if (hasSubmission) {
+    return { detailAction: null, nextTab: "links" };
+  }
+  return { detailAction: null, nextTab: null };
+}
+
 const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
 
 function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
@@ -541,17 +592,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     const hasSubmission = Boolean(
       String(searchParams.get("submissionId") || "").trim(),
     );
-    let nextTab: LocationHubTab | null = null;
-    let detailAction: FlowKind | null = null;
-    if (section === "approvals" || section === "my_requests" || hasRequest) {
-      detailAction = "needs-review";
-    } else if (section === "shared" || hasGrant) {
-      detailAction = "shared-with-me";
-    } else if (section === "public_responses" || hasSubmission) {
-      nextTab = "links";
-    } else if (section === "people") {
-      nextTab = "people";
-    }
+    const { detailAction, nextTab } = resolveLocationDeepLinkFocus({
+      section,
+      hasRequest,
+      hasGrant,
+      hasSubmission,
+    });
     const legacyInbox = searchParams.get(LOCATION_HUB_TAB_PARAM) === "inbox";
     if (detailAction || nextTab || legacyInbox) {
       setFlow("none");
