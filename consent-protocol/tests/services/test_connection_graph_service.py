@@ -5,8 +5,11 @@ from unittest.mock import patch
 import pytest
 
 from hushh_mcp.services.connection_graph_service import (
+    ORIGIN_CIRCLE_MEMBER,
     ORIGIN_DIRECT_REQUEST,
+    ORIGIN_KINDS,
     ORIGIN_NAMED_CIRCLE,
+    USER_MANAGEABLE_ORIGIN_KINDS,
     ConnectionGraphService,
     ensure_connection_origin,
     revoke_circle_origins,
@@ -204,13 +207,13 @@ def test_ensure_origins_sorts_and_deduplicates_pairs():
 
 
 def test_migration_backfills_existing_active_circle_member_pairs():
-    migration_path = (
-        Path(__file__).resolve().parents[2]
-        / "db"
-        / "migrations"
-        / "126_one_location_circle_connection_origins.sql"
-    )
-    sql = migration_path.read_text(encoding="utf-8")
+    # Located by name, not by number: this migration has already been
+    # renumbered once (126 -> 135) and the hard-coded path silently rotted into
+    # a FileNotFoundError, so the assertions below stopped guarding anything.
+    migrations_dir = Path(__file__).resolve().parents[2] / "db" / "migrations"
+    matches = sorted(migrations_dir.glob("*_one_location_circle_connection_origins.sql"))
+    assert len(matches) == 1, f"expected exactly one origins migration, found {matches}"
+    sql = matches[0].read_text(encoding="utf-8")
 
     assert "WITH active_circle_pairs AS" in sql
     assert "first_member.user_id < second_member.user_id" in sql
@@ -259,3 +262,35 @@ def test_recompute_uses_one_ordered_circle_mapping():
         {"id": circle_a, "name": "Same name"},
         {"id": circle_b, "name": "Same name"},
     ]
+
+
+def test_circle_member_origin_is_a_durable_pair_not_circle_scoped() -> None:
+    """The kind that records an accepted Circle invitation.
+
+    It must key like a pair-level origin, not a Circle-scoped one, so a person
+    carries exactly one of these however many Circles they later share — and so
+    leaving a Circle cannot take it with them.
+    """
+    assert ORIGIN_CIRCLE_MEMBER in ORIGIN_KINDS
+    assert ConnectionGraphService.origin_key(ORIGIN_CIRCLE_MEMBER) == "circle_member"
+
+    with pytest.raises(ValueError):
+        ConnectionGraphService.origin_key(
+            ORIGIN_CIRCLE_MEMBER,
+            source_circle_id="550e8400-e29b-41d4-a716-446655440000",
+        )
+
+
+def test_circle_member_origin_is_removable_by_the_people_in_it() -> None:
+    """A connection you gained by accepting an invitation is yours to drop.
+
+    Circle-scoped provenance is managed by the Circle's lifecycle instead, so
+    it stays out of the user-manageable set.
+    """
+    assert ORIGIN_CIRCLE_MEMBER in USER_MANAGEABLE_ORIGIN_KINDS
+    assert ORIGIN_NAMED_CIRCLE not in USER_MANAGEABLE_ORIGIN_KINDS
+
+
+def test_circle_member_projects_onto_the_existing_compatibility_source() -> None:
+    """`connections.source` predates the ledger and cannot learn a new value."""
+    assert ConnectionGraphService._compatibility_source(ORIGIN_CIRCLE_MEMBER) == "circle_invite"

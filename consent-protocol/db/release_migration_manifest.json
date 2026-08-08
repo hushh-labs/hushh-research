@@ -115,7 +115,8 @@
     "134_one_location_named_circles.sql",
     "135_one_location_circle_connection_origins.sql",
     "136_one_location_circle_member_invites.sql",
-    "137_ria_claim_dossiers.sql"
+    "137_ria_claim_dossiers.sql",
+    "138_circle_member_connection_origin.sql"
   ],
   "groups": {
     "iam": [
@@ -185,7 +186,8 @@
       "134_one_location_named_circles.sql",
       "135_one_location_circle_connection_origins.sql",
       "136_one_location_circle_member_invites.sql",
-      "137_ria_claim_dossiers.sql"
+      "137_ria_claim_dossiers.sql",
+      "138_circle_member_connection_origin.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
