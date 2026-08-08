@@ -7483,6 +7483,8 @@ export function OneLocationAgentPageContent({
     ),
     mapLocationHref: googleMapsLocationUrl,
     decryptedPoints,
+    reverseGeocodePoint: (point) =>
+      reverseGeocodeForSavedLocation(point.latitude, point.longitude),
     sosRecipients: sosActionRecipients,
     smsRecipients: smsActionRecipients,
     smsContactCandidates: sosActionRecipients,
