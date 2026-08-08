@@ -1607,7 +1607,7 @@ class PKMAgentLabService:
         strict_small_model: bool,
     ) -> str:
         header = (
-            "You are the Memory Segmentation Agent for Hushh Kai.\n"
+            "You are the Memory Segmentation Agent for Hussh Kai.\n"
             "Return JSON only with segments, source_agent, contract_version.\n"
             "Split a single natural-language prompt into 1 to 4 meaningful memory candidates.\n"
         )
@@ -4057,7 +4057,7 @@ class PKMAgentLabService:
             registry_payload = self._compact_registry_choices(registry_choices)
             return (
                 f"{self._kernel_prompt('Memory Intent Agent')}"
-                "You are the Memory Intent Agent for Hushh Kai.\n"  # nosec B608 - prompt template, not SQL.
+                "You are the Memory Intent Agent for Hussh Kai.\n"  # nosec B608 - prompt template, not SQL.
                 "Return JSON only with save_class, intent_class, mutation_intent, requires_confirmation, confirmation_reason, candidate_domain_choices, confidence, source_agent, contract_version.\n"
                 "Allowed save_class: durable, ephemeral, ambiguous.\n"
                 "Allowed intent_class: preference, profile_fact, routine, task_or_reminder, plan_or_goal, relationship, health, travel, shopping_need, financial_event, correction, deletion, note, ambiguous.\n"
@@ -4135,7 +4135,7 @@ class PKMAgentLabService:
             else self._build_state_summary(simulated_state)
         )
         header = (
-            "You are the Memory Merge Agent for Hushh Kai.\n"
+            "You are the Memory Merge Agent for Hussh Kai.\n"
             "Return JSON only with merge_mode, target_domain, target_entity_id, target_entity_path, match_confidence, match_reason, source_agent, contract_version.\n"
             "Allowed merge_mode values: create_entity, extend_entity, correct_entity, delete_entity, no_op.\n"
         )
@@ -4196,7 +4196,7 @@ class PKMAgentLabService:
             compact_registry_choices = self._compact_registry_choices(registry_choices)
             return (
                 f"{self._kernel_prompt('PKM Structure Agent')}"
-                "You are the PKM Structure Agent for Hushh Kai.\n"
+                "You are the PKM Structure Agent for Hussh Kai.\n"
                 "Return JSON only with candidate_payload, structure_decision, write_mode, primary_json_path, target_entity_scope, validation_hints.\n"
                 "Allowed actions: match_existing_domain, create_domain, extend_domain.\n"
                 "Allowed write_mode: can_save, confirm_first, do_not_save.\n"

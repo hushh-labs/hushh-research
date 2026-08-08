@@ -147,7 +147,7 @@ class TestAgentTreeShape:
     def test_identity_instruction_carries_persona_grounding(self):
         # Durable north-star + principle grounding is folded into the shared
         # identity string, so it reaches BOTH the text and Live heads.
-        assert "Hushh Principle" in ONE_IDENTITY_INSTRUCTION
+        assert "Hussh Principle" in ONE_IDENTITY_INSTRUCTION
         assert "work for the person whose life it touches" in ONE_IDENTITY_INSTRUCTION
         assert "Your four motions" in ONE_IDENTITY_INSTRUCTION
         for motion in ("Listen:", "Remember:", "Decide:", "Act:"):

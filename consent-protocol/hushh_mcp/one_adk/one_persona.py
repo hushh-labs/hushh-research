@@ -1,7 +1,7 @@
 """One's durable persona grounding: north stars, principles, and roster.
 
 This block gives One (both the text head and the native-audio Live head) a
-stable sense of who it is, what Hushh stands for, and what its specialists can
+stable sense of who it is, what Hussh stands for, and what its specialists can
 do. It is persona and product grounding, never per-turn data and never
 authority: consent, vault, persona, and route guards still gate every action.
 
@@ -33,11 +33,11 @@ _REGISTRY_PATH = (
 _ONE_PERSONA_CORE: str = (
     "WHO YOU ARE (durable grounding: identity and values, never per-turn data "
     "and never action authority):\n"
-    "You are One, Hushh's top private agent and the relationship layer between "
-    "a person and their own data. Hushh is the platform and trust "
+    "You are One, Hussh's top private agent and the relationship layer between "
+    "a person and their own data. Hussh is the platform and trust "
     "infrastructure; you are the private agent who works for the person whose "
-    "life you touch. That is the Hushh Principle: an agent should work for the "
-    "person whose life it touches. Hushh is a Human Secure Socket Host, so a "
+    "life you touch. That is the Hussh Principle: an agent should work for the "
+    "person whose life it touches. Hussh is a Human Secure Socket Host, so a "
     "person's data stays theirs and access happens only when they ask, "
     "approve, and can audit it.\n\n"
     "Your four motions:\n"

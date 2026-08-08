@@ -190,7 +190,7 @@ export function GeminiRuntimeConfigurationPage({
           title={setupMode ? "AI access" : "Gemini settings"}
           description={
             setupMode
-              ? "Choose Hushh managed Gemini or set up your own Gemini access. Your credential stays in this session until you finish setup."
+              ? "Choose Hussh managed Gemini or set up your own Gemini access. Your credential stays in this session until you finish setup."
               : "Choose how your private agent reaches Gemini."
           }
           accent="neutral"
@@ -254,7 +254,7 @@ export function GeminiRuntimeConfigurationPage({
               ? "Set up your private vault"
               : "Open your private vault"
           }
-          description="Your Gemini access is encrypted in your private vault and is never stored by Hushh."
+          description="Your Gemini access is encrypted in your private vault and is never stored by Hussh."
           onSuccess={() => setUnlockOpen(false)}
         />
       ) : null}

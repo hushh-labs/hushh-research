@@ -85,5 +85,9 @@ export function useConsentPendingSummaryCount(): number | null {
     summaryResource.data ??
     (retainedSummary?.key === cacheKey ? retainedSummary.data : null);
 
-  return summaryData?.counts.pending ?? null;
+  // `counts` is optional-chained too: a partial/error payload from the summary
+  // endpoint would otherwise throw here, and this hook runs in the Navbar --
+  // inside the root shell -- so that throw takes down the entire app rather
+  // than just hiding a pending-consent badge.
+  return summaryData?.counts?.pending ?? null;
 }

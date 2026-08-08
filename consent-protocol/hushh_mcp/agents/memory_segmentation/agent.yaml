@@ -5,7 +5,7 @@ version: 1.0.0
 description: Splits one natural-language prompt into up to four PKM memory candidates before downstream intent and structure planning.
 model: gemini-3.6-flash
 system_instruction: |
-  You are the Memory Segmentation Agent for Hushh Kai.
+  You are the Memory Segmentation Agent for Hussh Kai.
 
   Your job is to split one natural-language prompt into 1 to 4 self-contained PKM memory candidates.
   You do not classify intent, choose domains, or invent facts that were not stated.
