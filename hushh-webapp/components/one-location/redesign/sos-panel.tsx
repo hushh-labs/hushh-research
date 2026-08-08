@@ -303,7 +303,7 @@ export function SosPanel({
       data-ambient-chrome-ignore
       data-testid="sms-safety-screen"
     >
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(52px,env(safe-area-inset-top))]">
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(52px,env(safe-area-inset-top))] lg:max-w-5xl lg:px-8">
         <button
           type="button"
           onClick={onClose}
@@ -323,7 +323,13 @@ export function SosPanel({
           </p>
         </header>
 
-        <div className="flex min-h-[310px] flex-1 items-center justify-center py-6">
+        {/* On wide viewports (lg+) the primary press ring and the
+            message/controls column sit side by side so the safety screen fills
+            the space instead of a single narrow strip. Below lg it stays the
+            original stacked column, untouched. The <style> block inside is
+            display:none and never participates in the flex row. */}
+        <div className="flex flex-1 flex-col lg:flex-row lg:items-center lg:justify-center lg:gap-12 xl:gap-16">
+          <div className="flex min-h-[310px] flex-1 items-center justify-center py-6">
           <div className="relative flex h-[252px] w-[252px] items-center justify-center">
             <span className="absolute inset-0 rounded-full border border-white/10" />
             <span className="absolute inset-[24px] rounded-full border border-white/15" />
@@ -414,7 +420,7 @@ export function SosPanel({
         `}</style>
 
 
-        <div className="mt-auto">
+        <div className="mt-auto w-full lg:mt-0 lg:max-w-md lg:flex-shrink-0">
           {/* While an SMS/SOS session is live, the primary action becomes
               stopping it. Cancelling here revokes the location grants created by
               the alert AND clears the incident, so "SENT · Live now" resets and
@@ -654,6 +660,7 @@ export function SosPanel({
               Cancel
             </button>
           </div>
+        </div>
         </div>
       </div>
     </section>
