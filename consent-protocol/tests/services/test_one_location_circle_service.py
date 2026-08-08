@@ -723,8 +723,12 @@ def test_targeted_invite_accept_rechecks_direct_connection_and_creates_origins(
     origin_lock_index = next(
         index
         for index, sql in enumerate(conn.sql)
-        if "FROM connection_origins" in sql and "origin_kind = 'direct_request'" in sql
+        if "FROM connection_origins" in sql and "FOR UPDATE" in sql
     )
+    # The lock must not narrow to one provenance: a Circle co-member is a
+    # connection, so the origin that keeps them connected is lockable whatever
+    # kind it is.
+    assert "origin_kind" not in conn.sql[origin_lock_index]
     membership_insert_index = next(
         index
         for index, sql in enumerate(conn.sql)
@@ -1521,3 +1525,55 @@ def test_targeted_circle_invite_push_is_metadata_only_and_deep_links_to_people(
         "inviter_user_id": "owner-user",
     }
     assert captured["body"] == "You have a new Circle invitation."
+
+
+class _RecordingDb:
+    """Capture the SQL a read path emits and replay canned rows in order."""
+
+    def __init__(self, *results: list[dict]) -> None:
+        self.results = list(results)
+        self.sql: list[str] = []
+        self.params: list[dict] = []
+
+    def execute_raw(self, sql: str, params: dict | None = None):
+        self.sql.append(str(sql))
+        self.params.append(dict(params or {}))
+        rows = self.results.pop(0) if self.results else []
+        return SimpleNamespace(data=rows)
+
+
+def test_invitable_connections_are_not_narrowed_to_directly_requested_ones() -> None:
+    """A Circle co-member is a connection, so they can be invited elsewhere.
+
+    Requiring `origin_kind = 'direct_request'` here meant someone you met
+    through a Circle — already in your connections list, already able to
+    receive your location — could never be invited into another Circle.
+    """
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    db = _RecordingDb(
+        [{"user_id": "actor-user"}],
+        [
+            {
+                "connection_id": "conn-1",
+                "user_id": "circle-only-peer",
+                "connected_at": datetime.now(timezone.utc),
+                "display_name": "Circle Only Peer",
+                "photo_url": None,
+                "custom_photo_url": None,
+            }
+        ],
+    )
+    service = OneLocationCircleService(db=db, hmac_key="a" * 32)  # type: ignore[arg-type]
+
+    eligible = service.list_eligible_direct_connections(
+        actor_user_id="actor-user",
+        circle_id=circle_id,
+    )
+
+    assert [row["userId"] for row in eligible] == ["circle-only-peer"]
+    listing_sql = next(
+        sql for sql in db.sql if "FROM connection_origins" in sql or "connection_origins" in sql
+    )
+    assert "origin.status = 'active'" in listing_sql
+    # The guard: provenance must not be filtered down to direct requests.
+    assert "origin_kind = 'direct_request'" not in listing_sql

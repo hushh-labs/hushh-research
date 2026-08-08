@@ -197,5 +197,26 @@ describe("LocationBus.watch", () => {
 
     expect(LocationBus.getState().status).toBe("ready");
     expect(LocationBus.getState().snapshot).not.toBeNull();
+    // A watch reports unavailable/timeout routinely between fixes. Publishing
+    // that message alongside a healthy snapshot is what put "Could not get your
+    // location" on screen while location was working.
+    expect(LocationBus.getState().error).toBeNull();
+  });
+
+  it("reports a permission denial even while a fix is still held", async () => {
+    let emit: ((point: unknown, error: unknown) => void) | null = null;
+    mockLocation.watchPosition.mockImplementation(
+      async (_options: unknown, callback: (p: unknown, e: unknown) => void) => {
+        emit = callback;
+        return "watch-1";
+      },
+    );
+
+    await LocationBus.watch();
+    emit?.(POINT, null);
+    emit?.(null, { message: "blocked for this site", code: 1 });
+
+    expect(LocationBus.getState().status).toBe("denied");
+    expect(LocationBus.getState().error).toBe("blocked for this site");
   });
 });
