@@ -268,21 +268,27 @@ describe("RiaProfileSection dossier row", () => {
     },
   );
 
-  it.each(["scan_failed", "send_failed", "send_blocked_test_unset"])(
-    "shows the failure grammar with Retry for status %s",
-    async (status) => {
-      await renderWithDossier({ status });
-      await waitFor(() =>
-        expect(screen.getByText("Couldn't send.")).toBeTruthy(),
-      );
-      expect(screen.getByTestId("ria-dossier-retry")).toBeTruthy();
-      expect(screen.queryByTestId("ria-dossier-toggle")).toBeNull();
-    },
-  );
+  // The label names the lane that actually failed. "Couldn't send" on a scan
+  // that never started reads as a mail problem and sends anyone debugging it
+  // to the wrong place — which is exactly what happened on UAT.
+  it.each([
+    ["scan_failed", "Couldn't build it."],
+    ["send_failed", "Couldn't send."],
+    ["send_blocked_test_unset", "Couldn't send."],
+  ])("shows the failure grammar with Retry for status %s", async (status, label) => {
+    await renderWithDossier({ status });
+    await waitFor(() => expect(screen.getByText(label)).toBeTruthy());
+    expect(screen.getByTestId("ria-dossier-retry")).toBeTruthy();
+    expect(screen.queryByTestId("ria-dossier-toggle")).toBeNull();
+  });
 
   it("shows blocked_no_email as a visible failure without Retry", async () => {
     await renderWithDossier({ status: "blocked_no_email" });
-    await waitFor(() => expect(screen.getByText("Couldn't send.")).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        screen.getByText("No email on your account to send it to."),
+      ).toBeTruthy(),
+    );
     expect(screen.queryByTestId("ria-dossier-retry")).toBeNull();
   });
 
@@ -301,7 +307,43 @@ describe("RiaProfileSection dossier row", () => {
     await waitFor(() =>
       expect(screen.getByText("Preparing your dossier…")).toBeTruthy(),
     );
-    expect(screen.queryByText("Couldn't send.")).toBeNull();
+    expect(screen.queryByText("Couldn't build it.")).toBeNull();
+  });
+
+  // The read is also what revives a poll the backend lost when its Cloud Run
+  // instance went idle, so a card left on "Preparing…" must keep reading.
+  it("keeps reading while the scan is in flight, and stops once it lands", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.riaService.getDossier
+        .mockResolvedValueOnce({ status: "scanning" })
+        .mockResolvedValueOnce({ status: "scanning" })
+        .mockResolvedValue({ status: "sent", markdown: DOSSIER_MARKDOWN });
+
+      renderSection();
+      await vi.waitFor(() =>
+        expect(mocks.riaService.getDossier).toHaveBeenCalledTimes(1),
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(mocks.riaService.getDossier).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(mocks.riaService.getDossier).toHaveBeenCalledTimes(3);
+
+      // Terminal status: no further reads are scheduled.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(mocks.riaService.getDossier).toHaveBeenCalledTimes(3);
+      expect(screen.getByText("Your dossier")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the failed row and Retry when the retry call itself fails", async () => {

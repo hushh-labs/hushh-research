@@ -53,6 +53,7 @@ def _row(**overrides: Any) -> dict[str, Any]:
         "id": 1,
         "user_id": _TEST_UID,
         "status": "sent",
+        "scan_id": None,
         "result_summary": "One-line summary.",
         "result_markdown": "# Dossier\n\nBody.",
         "requested_at": datetime(2026, 8, 8, 12, 0, 0, tzinfo=UTC),
@@ -91,7 +92,7 @@ class _FakeConn:
 
     async def fetchrow(self, query: str, *args: Any):
         normalized = " ".join(query.split())
-        assert normalized.startswith("SELECT id, status, result_summary"), normalized
+        assert normalized.startswith("SELECT id, status, scan_id, result_summary"), normalized
         assert "WHERE user_id = $1" in normalized
         if normalized.endswith("FOR UPDATE"):
             self._db.for_update_selects += 1
@@ -340,3 +341,120 @@ async def test_redispatch_spawns_worker_with_claim_snapshot(monkeypatch):
             "reference_metadata": context["metadata"],
         }
     ]
+
+
+# ---------------------------------------------------------------------------
+# Reviving a stranded scan
+#
+# The worker is an in-process task on a CPU-throttled Cloud Run service: when
+# an instance stops receiving requests its CPU is withdrawn and the poll
+# freezes mid-flight, leaving the row in `scanning` while the scan itself
+# finishes upstream. The read that renders the card is a request, so it is
+# also what can resume the poll.
+# ---------------------------------------------------------------------------
+
+
+def _install_resume_recorder(monkeypatch) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+
+    async def _fake_resume(row: Any, user_id: str) -> None:
+        calls.append({"id": row["id"], "status": row["status"], "user_id": user_id})
+
+    monkeypatch.setattr(ria_module, "_resume_stalled_dossier", _fake_resume)
+    return calls
+
+
+def test_reading_a_scanning_row_resumes_its_poll(monkeypatch):
+    _install_db(monkeypatch, [_row(status="scanning", scan_id="scan-1", completed_at=None)])
+    _install_claim_context(monkeypatch, _claim_context())
+    workers: list[dict[str, Any]] = []
+
+    async def _fake_worker(self, **kwargs: Any) -> None:
+        workers.append(kwargs)
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.ria_dossier_service.RIADossierService._run_worker", _fake_worker
+    )
+    ria_module._DOSSIER_RESUMING.clear()
+
+    response = TestClient(_build_app()).get("/api/ria/dossier")
+    assert response.status_code == 200
+    assert response.json()["status"] == "scanning"
+    assert len(workers) == 1
+    # Resumed against the stored scan, so no second scan is ever started.
+    assert workers[0]["resume_scan_id"] == "scan-1"
+    assert workers[0]["dossier_id"] == 1
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"status": "sent"},
+        {"status": "scan_failed"},
+        {"status": "queued", "scan_id": None},
+        {"status": "scanning", "scan_id": None},
+        {
+            "status": "scanning",
+            "scan_id": "scan-1",
+            "completed_at": datetime(2026, 8, 8, 12, 30, 0, tzinfo=UTC),
+        },
+    ],
+    ids=["sent", "failed", "queued-no-scan", "scanning-no-scan-id", "already-completed"],
+)
+def test_a_row_that_is_not_mid_scan_is_never_resumed(monkeypatch, overrides):
+    _install_db(monkeypatch, [_row(**overrides)])
+    _install_claim_context(monkeypatch, _claim_context())
+    workers: list[dict[str, Any]] = []
+
+    async def _fake_worker(self, **kwargs: Any) -> None:
+        workers.append(kwargs)
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.ria_dossier_service.RIADossierService._run_worker", _fake_worker
+    )
+    ria_module._DOSSIER_RESUMING.clear()
+
+    assert TestClient(_build_app()).get("/api/ria/dossier").status_code == 200
+    assert workers == []
+
+
+def test_a_failing_resume_never_fails_the_read(monkeypatch):
+    _install_db(monkeypatch, [_row(status="scanning", scan_id="scan-1", completed_at=None)])
+
+    async def _boom(row: Any, user_id: str) -> None:
+        raise RuntimeError("resume exploded")
+
+    monkeypatch.setattr(ria_module, "_resume_stalled_dossier", _boom)
+    response = TestClient(_build_app()).get("/api/ria/dossier")
+    assert response.status_code == 200
+    assert response.json()["status"] == "scanning"
+
+
+@pytest.mark.asyncio
+async def test_a_second_read_does_not_stack_a_second_worker(monkeypatch):
+    """A page that reloads while the poll runs must not double the workers."""
+    _install_claim_context(monkeypatch, _claim_context())
+    starts = 0
+    release = asyncio.Event()
+
+    async def _hanging_worker(self, **kwargs: Any) -> None:
+        nonlocal starts
+        starts += 1
+        await release.wait()
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.ria_dossier_service.RIADossierService._run_worker", _hanging_worker
+    )
+    ria_module._DOSSIER_RESUMING.clear()
+    row = _row(status="scanning", scan_id="scan-1", completed_at=None)
+
+    await ria_module._resume_stalled_dossier(row, _TEST_UID)
+    await ria_module._resume_stalled_dossier(row, _TEST_UID)
+    await asyncio.sleep(0)  # let the spawned workers reach their first await
+
+    assert ria_module._DOSSIER_RESUMING == {1}
+    assert starts == 1
+
+    release.set()
+    await asyncio.sleep(0)
+    assert ria_module._DOSSIER_RESUMING == set()  # released for a later resume

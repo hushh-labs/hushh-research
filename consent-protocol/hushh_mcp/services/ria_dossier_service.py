@@ -168,48 +168,61 @@ class RIADossierService:
         ria_profile_id: str,
         claim_type: str,
         reference_metadata: dict[str, Any],
+        resume_scan_id: str = "",
     ) -> None:
         try:
             email = await self._resolve_email(user_id)
             if not email:
                 # Visible on the profile row, not silent.
+                logger.warning("ria.dossier_blocked reason=no_email")
                 await self._update_row(dossier_id, completed=True, status="blocked_no_email")
                 return
 
-            display_name = await self._profile_display_name(ria_profile_id, reference_metadata)
-            payload, payload_error = self._build_scan_payload(
-                claim_type=claim_type,
-                reference_metadata=reference_metadata,
-                email=email,
-                display_name=display_name,
-            )
-            if payload is None:
-                await self._update_row(
-                    dossier_id, completed=True, status="scan_failed", error=payload_error
-                )
-                return
-
-            scan_id, scan_error = await self._start_scan(payload)
+            scan_id = _clean_text(resume_scan_id)
             if not scan_id:
-                await self._update_row(
-                    dossier_id, completed=True, status="scan_failed", error=scan_error
+                display_name = await self._profile_display_name(ria_profile_id, reference_metadata)
+                zip_code, zip_source = await self._resolve_scan_zip(reference_metadata)
+                payload, payload_error = self._build_scan_payload(
+                    claim_type=claim_type,
+                    reference_metadata=reference_metadata,
+                    email=email,
+                    display_name=display_name,
+                    zip_code=zip_code,
                 )
-                return
-            await self._update_row(dossier_id, status="scanning", scan_id=scan_id)
+                if payload is None:
+                    # Every abandoned dossier used to end here with no log line
+                    # at all, which is why a dead lane looked like a quiet one.
+                    logger.warning("ria.dossier_blocked reason=%s", payload_error)
+                    await self._update_row(
+                        dossier_id, completed=True, status="scan_failed", error=payload_error
+                    )
+                    return
+                logger.info("ria.dossier_scan_starting zip_source=%s", zip_source)
+
+                scan_id, scan_error = await self._start_scan(payload)
+                if not scan_id:
+                    logger.warning("ria.dossier_blocked reason=%s", scan_error)
+                    await self._update_row(
+                        dossier_id, completed=True, status="scan_failed", error=scan_error
+                    )
+                    return
+                await self._update_row(dossier_id, status="scanning", scan_id=scan_id)
+            else:
+                display_name = await self._profile_display_name(ria_profile_id, reference_metadata)
 
             scan_result = await self._poll_scan(scan_id)
             if scan_result is None:
+                logger.warning("ria.dossier_blocked reason=scan_did_not_complete")
                 await self._update_row(
                     dossier_id, completed=True, status="scan_failed", error="scan_did_not_complete"
                 )
                 return
             markdown, summary = scan_result
-            await self._update_row(
-                dossier_id,
-                status="generated",
-                result_markdown=markdown,
-                result_summary=summary,
-            )
+            if not await self._claim_generated(dossier_id, markdown=markdown, summary=summary):
+                # A concurrent worker (a resume racing the original) already
+                # took this row past `scanning`; exactly one of us may mail.
+                logger.info("ria.dossier_generate_lost_race")
+                return
 
             await self._queue_mail(
                 dossier_id=dossier_id,
@@ -264,6 +277,75 @@ class RIADossierService:
     # Scan payload (redaction boundary)
     # ------------------------------------------------------------------
 
+    async def _resolve_scan_zip(self, reference_metadata: dict[str, Any]) -> tuple[str, str]:
+        """The scan's required coarse location, as ``(zip, source)``.
+
+        The scan API takes ``zipCode`` OR lat/lng and rejects the body without
+        one, so a missing zip is not a degraded dossier — it is no dossier at
+        all. IAPD publishes plenty of records with a city and state but a null
+        zip (street/zip simply absent), which stranded every such adviser at
+        ``no_location``; the place lookups below recover the zip from the city
+        and state that ARE published.
+
+        Privacy is unchanged from the payload contract: a branch flagged
+        ``private_residence`` is never a location source, at any precision —
+        the firm's own public address stands in. A city-level lookup is used
+        rather than lat/lng on purpose, so the scan records this as the coarse
+        location it actually is instead of a precise one.
+        """
+        firm_raw = reference_metadata.get("firm_record")
+        firm = firm_raw if isinstance(firm_raw, dict) else {}
+        advisor_raw = reference_metadata.get("advisor_record")
+        advisor = advisor_raw if isinstance(advisor_raw, dict) else {}
+        branch_raw = advisor.get("branch")
+        branch = branch_raw if isinstance(branch_raw, dict) else {}
+        branch_is_public = bool(branch) and not branch.get("private_residence")
+
+        if branch_is_public and _clean_text(branch.get("zip")):
+            return _clean_text(branch.get("zip")), "branch"
+        if _clean_text(firm.get("zip")):
+            return _clean_text(firm.get("zip")), "firm"
+
+        # Nothing published. Recover it from the public city/state, firm
+        # listing first (an exact business address) then the city itself.
+        candidates: list[tuple[str, str]] = []
+        firm_name = _clean_text(firm.get("name"))
+        firm_place = ", ".join(
+            part
+            for part in (firm_name, _clean_text(firm.get("city")), _clean_text(firm.get("state")))
+            if part
+        )
+        if firm_name and _clean_text(firm.get("city")):
+            candidates.append((firm_place, "firm_place"))
+        firm_city = ", ".join(
+            part for part in (_clean_text(firm.get("city")), _clean_text(firm.get("state"))) if part
+        )
+        if _clean_text(firm.get("city")):
+            candidates.append((f"{firm_city}, USA", "firm_city"))
+        if branch_is_public and _clean_text(branch.get("city")):
+            branch_city = ", ".join(
+                part
+                for part in (_clean_text(branch.get("city")), _clean_text(branch.get("state")))
+                if part
+            )
+            candidates.append((f"{branch_city}, USA", "branch_city"))
+
+        for query, source in candidates:
+            try:
+                resolved = await self._maps_postal_code(query)
+            except Exception:  # noqa: BLE001 - enrichment never breaks the worker
+                logger.info("ria.dossier_zip_lookup_failed", exc_info=True)
+                continue
+            if resolved:
+                return resolved, source
+        return "", ""
+
+    async def _maps_postal_code(self, query: str) -> str:
+        """Seam for the place lookup so tests never reach the network."""
+        from hushh_mcp.services.google_maps_service import GoogleMapsService
+
+        return await GoogleMapsService().resolve_postal_code(query=query)
+
     @staticmethod
     def _build_scan_payload(
         *,
@@ -271,6 +353,7 @@ class RIADossierService:
         reference_metadata: dict[str, Any],
         email: str,
         display_name: str,
+        zip_code: str,
     ) -> tuple[dict[str, Any] | None, str]:
         """Build the redacted scan body from the claim snapshot.
 
@@ -284,17 +367,9 @@ class RIADossierService:
         firm_record = firm_record_raw if isinstance(firm_record_raw, dict) else {}
         advisor_record_raw = reference_metadata.get("advisor_record")
         advisor_record = advisor_record_raw if isinstance(advisor_record_raw, dict) else {}
-        branch_raw = advisor_record.get("branch")
-        branch = branch_raw if isinstance(branch_raw, dict) else {}
 
         if not display_name:
             return None, "no_name"
-
-        zip_code = ""
-        if branch and not branch.get("private_residence"):
-            zip_code = _clean_text(branch.get("zip"))
-        if not zip_code:
-            zip_code = _clean_text(firm_record.get("zip"))
         if not zip_code:
             return None, "no_location"
 
@@ -503,6 +578,36 @@ class RIADossierService:
             "mail_delivery_mode",
         }
     )
+
+    async def _claim_generated(self, dossier_id: int, *, markdown: str, summary: str) -> bool:
+        """Move `scanning` → `generated`, returning whether THIS worker won.
+
+        A resumed poll can run alongside the original worker, and both would
+        otherwise mail the same dossier. The transition is the lock: only a row
+        still in `scanning` flips, so the loser mails nothing.
+        """
+        pool = await get_pool()
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    UPDATE ria_claim_dossiers
+                       SET status = 'generated',
+                           result_markdown = $2,
+                           result_summary = $3
+                     WHERE id = $1
+                       AND status = 'scanning'
+                       AND completed_at IS NULL
+                 RETURNING id
+                    """,
+                    dossier_id,
+                    markdown,
+                    summary,
+                )
+        except asyncpg.UndefinedTableError:
+            logger.warning("ria.dossier_table_missing")
+            return False
+        return row is not None
 
     async def _update_row(self, dossier_id: int, *, completed: bool = False, **fields: Any) -> None:
         assignments: list[str] = []
