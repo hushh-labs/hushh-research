@@ -19,6 +19,15 @@ describe.sequential("native passkey domain association routes", () => {
     expect(response.status).toBe(503);
   });
 
+  it("fails closed when the Android package id is absent, instead of falling back to a stale default", async () => {
+    delete process.env.NEXT_PUBLIC_ANDROID_APP_ID;
+    process.env.ANDROID_SHA256_CERT_FINGERPRINTS = "AA:BB:CC:DD:EE:FF";
+
+    const response = await getAssetLinks();
+
+    expect(response.status).toBe(503);
+  });
+
   it("publishes the configured iOS and Android associations", async () => {
     process.env.APPLE_TEAM_ID = "ABCDEFGHIJ";
     process.env.NEXT_PUBLIC_IOS_BUNDLE_ID = "com.hushh.app";
