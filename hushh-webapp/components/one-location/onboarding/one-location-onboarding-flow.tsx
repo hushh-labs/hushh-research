@@ -2108,6 +2108,10 @@ export function OneLocationOnboardingFlow({
   };
 
   const backFromFeatures = () => {
+    // A dismissed location picker is reversible. When the owner goes back and
+    // returns to Features, prepare Location again; the parent still suppresses
+    // duplicate work after a confirmed save.
+    locationPreparationCompleteRef.current = false;
     if (startAt === "permissions") {
       void runBack();
       return;

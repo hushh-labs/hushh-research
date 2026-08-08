@@ -2247,6 +2247,54 @@ describe("OneLocationAgentPage", () => {
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(2);
   });
 
+  it("reopens the location picker after dismissing it and returning to the feature step", async () => {
+    window.localStorage.removeItem(
+      "one_location_saved_location_prompt_v1:user_a",
+    );
+    window.localStorage.removeItem(
+      "one_location_saved_location_prompt_v2:user_a",
+    );
+
+    mockLoadSavedLocations.mockResolvedValue([]);
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+    mockGetPermissionState.mockResolvedValue({
+      state: "granted",
+      precise: true,
+      background: "foreground-only",
+      locationServicesEnabled: true,
+    });
+
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    await openLocationPermissionsStep();
+
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("save-location-modal")).toBeNull(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Share your location easily with anyone.",
+      }),
+    ).toBeTruthy();
+
+    await openLocationPermissionsStep();
+
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(2);
+  });
   it("retires a legacy skipped outcome and still opens the onboarding picker", async () => {
     window.localStorage.setItem(
       "one_location_saved_location_prompt_v2:user_a",
