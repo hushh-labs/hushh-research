@@ -20,6 +20,12 @@ from sqlalchemy.engine import Connection
 
 ORIGIN_DIRECT_REQUEST = "direct_request"
 ORIGIN_NAMED_CIRCLE = "named_circle"
+# The invitation two people accepted to become Circle co-members. Distinct from
+# `named_circle`, which is Circle-scoped provenance revoked with the membership:
+# this one records the pair and outlives the Circle, the way an accepted
+# connection request does. Distinct from `direct_request` so Circle lifecycle
+# code can still tell the two apart.
+ORIGIN_CIRCLE_MEMBER = "circle_member"
 ORIGIN_LEGACY_INVITE = "legacy_invite"
 ORIGIN_IMPORT = "import"
 
@@ -27,12 +33,18 @@ ORIGIN_KINDS = frozenset(
     {
         ORIGIN_DIRECT_REQUEST,
         ORIGIN_NAMED_CIRCLE,
+        ORIGIN_CIRCLE_MEMBER,
         ORIGIN_LEGACY_INVITE,
         ORIGIN_IMPORT,
     }
 )
 USER_MANAGEABLE_ORIGIN_KINDS = frozenset(
-    {ORIGIN_DIRECT_REQUEST, ORIGIN_LEGACY_INVITE, ORIGIN_IMPORT}
+    {
+        ORIGIN_DIRECT_REQUEST,
+        ORIGIN_CIRCLE_MEMBER,
+        ORIGIN_LEGACY_INVITE,
+        ORIGIN_IMPORT,
+    }
 )
 
 
@@ -83,6 +95,10 @@ class ConnectionGraphService:
         return {
             ORIGIN_DIRECT_REQUEST: "request",
             ORIGIN_NAMED_CIRCLE: "named_circle",
+            # `connections.source` predates this ledger and its CHECK does not
+            # know `circle_member`. Both invite-shaped kinds project onto the
+            # existing `circle_invite` value; the ledger keeps them distinct.
+            ORIGIN_CIRCLE_MEMBER: "circle_invite",
             ORIGIN_LEGACY_INVITE: "circle_invite",
             ORIGIN_IMPORT: "import",
         }[origin_kind]
@@ -415,7 +431,9 @@ class ConnectionGraphService:
                         ) THEN 'request'
                         WHEN BOOL_OR(
                           origin.status = 'active'
-                          AND origin.origin_kind = 'legacy_invite'
+                          AND origin.origin_kind IN (
+                            'circle_member', 'legacy_invite'
+                          )
                         ) THEN 'circle_invite'
                         WHEN BOOL_OR(
                           origin.status = 'active'
