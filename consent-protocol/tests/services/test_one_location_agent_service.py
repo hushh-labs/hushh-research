@@ -1224,8 +1224,13 @@ class FourUserMemoryService(OneLocationAgentService):
             ][:100]
         if (
             "FROM advisor_investor_relationships rel" in sql
-            and "LEFT JOIN relationship_share_grants share" in sql
+            and "rel.investor_user_id = :owner_user_id" in sql
         ):
+            # The owner-scoped professional-network query. Keyed on its WHERE
+            # clause rather than its join keyword: the production query changed
+            # from LEFT JOIN to JOIN, and matching the keyword let this fall
+            # through to the graph-wide branch below, handing the owner other
+            # people's relationships unfiltered.
             owner = params["owner_user_id"]
             return [
                 row
@@ -1233,7 +1238,13 @@ class FourUserMemoryService(OneLocationAgentService):
                 if row.get("investor_user_id") == owner or row.get("ria_user_id") == owner
             ][:100]
         if "FROM advisor_investor_relationships rel" in sql:
-            return self.professional_relationships[:500]
+            # The graph-wide mutual-KAI query, which selects approved
+            # relationships only.
+            return [
+                row
+                for row in self.professional_relationships
+                if str(row.get("status") or "").lower() == "approved"
+            ][:500]
         if "FROM ria_profiles owner_rp" in sql:
             owner = params["owner_user_id"]
             return [
@@ -2117,6 +2128,28 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
             "relationship_share_granted_at": now - timedelta(days=1),
         }
     )
+    # A shared, approved advisor both the owner and User G work with. Mutual-KAI
+    # adjacency is built from approved relationships only, so the owner needs one
+    # of its own to have any neighbour in common with User G. This advisor is not
+    # a connection of the owner, so it never enters the recipient directory and
+    # cannot shift anyone else's category.
+    shared_advisor = "user_shared_advisor"
+    for investor in (user_a, user_g):
+        service.professional_relationships.append(
+            {
+                "investor_user_id": investor,
+                "ria_user_id": shared_advisor,
+                "status": "approved",
+                "granted_scope": "attr.financial.*",
+                "consent_granted_at": now - timedelta(days=2),
+                "created_at": now - timedelta(days=3),
+                "updated_at": now - timedelta(days=1),
+                "ria_display_name": "Shared Advisor",
+                "ria_verification_status": "verified",
+                "relationship_share_status": "active",
+                "relationship_share_granted_at": now - timedelta(days=1),
+            }
+        )
     service.organization_memberships.append(
         {
             "owner_user_id": user_a,
@@ -2190,7 +2223,17 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
         for reason in by_id[user_c]["recommendationReasons"]
     )
     assert by_id[user_d]["recommendationCategory"] == "professional_network"
-    assert by_id[user_d]["relationshipType"] == "Advisor relationship"
+    # The owner's advisor relationship with User D is only `discovered`, with no
+    # active relationship share, so the service fail-closes and declines to call
+    # it an advisor relationship — it falls back to what User D published. This
+    # is also the only reachable state for a `professional_network` label: an
+    # approved relationship marks the signal trusted, which outranks
+    # professional and would read as Trusted Circle instead.
+    assert by_id[user_d]["relationshipType"] == "Marketplace profile"
+    assert not any(
+        reason["code"] == "approved_professional_relationship"
+        for reason in by_id[user_d]["recommendationReasons"]
+    )
     assert by_id[user_d]["profileHeadline"] == "Retirement planning specialist"
     assert by_id[user_f]["recommendationCategory"] == "professional_network"
     assert any(
