@@ -1,20 +1,32 @@
 # Pod backup and recovery — what exists, what runs, and what a person would lose
 
-**Dated 2026-08-07.** The operational half of
+**Dated 2026-08-07; materially updated 2026-08-08.** The operational half of
 [the north star](../architecture/private-agent-north-star.md): if a person's private agent
 is defined by memory that accumulates, then losing that memory is the product's worst
 failure, and this is the record of how close we are to being able to prevent it.
 
-**Stated once, up front, because everything below depends on it:** the durability stack is
-designed, tested, and **never constructed**. `resolve_pod_storage()` is referenced from
-its own definition and from tests — nowhere else in `consent-protocol/`. `PodCommitLog` is
-constructed in exactly three places: that unreachable resolver, the multi-pod simulation
-script, and the test suite. So no deployed pod on any target has ever written a durable
-record, and no pod has ever needed to be recovered because no pod has ever had state to
-lose.
+**What was true on 2026-08-07, and is worth keeping because it explains the shape of
+everything below:** the durability stack was designed, tested, and **never constructed**.
+`resolve_pod_storage()` was referenced from its own definition and from tests — nowhere
+else in `consent-protocol/`. `PodCommitLog` was constructed in exactly three places: that
+unreachable resolver, the multi-pod simulation script, and the test suite. No deployed pod
+on any target had ever written a durable record.
 
-That makes this a **design review with a working prototype**, not a runbook. Treating it as
-a runbook is the specific error this page exists to prevent.
+**What is true on 2026-08-08.** The stack is constructed and reached, for **agent memory
+only**:
+
+| | Written from a pod? | Survives a cold boot? |
+|---|---|---|
+| Agent memory (`PodMemoryService`) | yes — appended to the sealed commit log | yes — replayed on first use after boot |
+| PKM (`PodPkmStore`) | **no** — no production caller | n/a; nothing is written to survive |
+| Session history | **no** — `InMemorySessionService` | no |
+| Per-pod identity key | **no** — ephemeral (task #114) | no |
+
+So this is now a **runbook for the memory path and still a design review for the rest**.
+Read §1 and §4 for exactly what moved. The distinction matters operationally: a pod today
+resumes its conversation and learned preferences and starts every turn ungrounded in the
+owner's holdings, because `api/routes/one/pod_turn.py` is deliberately ungrounded and says
+so in its own docstring.
 
 ## Visual Map
 
@@ -38,15 +50,23 @@ flowchart TB
 
 ## The five things that are true today
 
-### 1. The whole stack is unreachable, not merely off
+### 1. The whole stack is unreachable, not merely off — ✅ HALF CLOSED (2026-08-08)
 
-The usual shape of an unfinished feature is a flag defaulting to off. This is one step
-further back: `POD_STORAGE_BACKEND` selects `commit_log` correctly and fails loud on a
-missing bucket or key — and **nothing calls the function that reads it**. Turning the flag
-on changes nothing, because the code that would honour it never runs.
+The usual shape of an unfinished feature is a flag defaulting to off. This was one step
+further back: `POD_STORAGE_BACKEND` selected `commit_log` correctly and failed loud on a
+missing bucket or key — and **nothing called the function that read it**. Turning the flag
+on changed nothing, because the code that would honour it never ran.
 
-Consequence: `NullPodStorage` is not the default that a deployment overrides. It is the
-only implementation the system has ever instantiated outside a test.
+**What changed.** `resolve_pod_storage()` now has a production caller:
+`pod_memory_service._resolve_log()`, reached from `resolve_pod_memory_service()` when the
+process is a pod. So `CommitLogPodStorage` is instantiated for real, and agent memory is
+appended to the sealed log as it is made and replayed on first use after a boot.
+
+**What has not changed.** PKM. `api/routes/one/pod_turn.py` is deliberately ungrounded
+(`pkm_context=None`, `grounded: false`, `InMemorySessionService`), so no PKM read or write
+happens in a pod turn at all; `PodPkmStore` is rebuild-capable and still has no production
+caller. Read every claim below about "the pod's holdings" with that split in mind:
+**agent memory is durable, PKM is not yet written from a pod.**
 
 ### 2. `backup()` records a pointer; nothing writes what it points at
 
@@ -67,13 +87,37 @@ distinguish it from a completed backup. This is the same failure mode as a `200`
 empty page, and it is worth fixing before anything calls `backup()` in earnest: the moment
 a caller exists, "did the backup work?" must not be answerable only by string comparison.
 
-### 4. Neither renderer emits any of the four variables the stack needs
+### 4. Neither renderer emits any of the four variables the stack needs — ✅ CLOSED for hushh-managed GCP (2026-08-08)
 
 `POD_STORAGE_BACKEND`, `POD_STORAGE_GCS_BUCKET`, `HUSSH_POD_LOG_KEY`,
-`HUSSH_POD_MEMORY_KEY` and `HUSSH_POD_PRIVATE_KEY` appear in **no** deploy renderer, on
-either target, and in no file under `deploy/` or `scripts/deploy/`. On every pod ever
-deployed: the log key is absent, so the commit log cannot be constructed; memory is off;
-storage resolves to Null; the pod identity key is ephemeral.
+`HUSSH_POD_MEMORY_KEY` and `HUSSH_POD_PRIVATE_KEY` appeared in **no** deploy renderer, on
+either target, and in no file under `deploy/` or `scripts/deploy/`. On every pod deployed
+before this: the log key was absent, so the commit log could not be constructed; memory
+was off; storage resolved to Null; the pod identity key was ephemeral.
+
+**What changed.** `gcp_backend._durable_state_env` emits `POD_STORAGE_BACKEND`,
+`POD_STORAGE_GCS_BUCKET`, `POD_STORAGE_GCS_PREFIX` (one prefix per owner — this is what
+keeps one pod's log out of another's replay), `HUSSH_POD_LOG_KEY`, `HUSSH_POD_MEMORY_KEY`
+and `POD_AGENT_MEMORY_ENABLED`. All six or none: `resolve_pod_storage` fails loud on a
+partial config, so half a setting would turn a missing value into a pod that refuses to
+boot. `scripts/deploy/backend-deploy.sh` supplies the two inputs in the dev block —
+`${PROJECT_ID}-pod-state` and the `HUSSH_POD_KEY_MASTER` secret.
+
+`POD_AGENT_MEMORY_ENABLED` is in that list for a reason worth remembering: it defaults OFF
+and was set by nothing anywhere, so shipping the memory key alone would have handed every
+pod a sealing key it never used — durability that reads as configured and behaves as
+amnesia. The flag and the key are now emitted together or not at all.
+
+**Verified live, not inferred.** A pod provisioned through `GcpBackend` had all six read
+back *from Cloud Run* and reached `live`. (A first attempt failed its startup probe on
+`APP_SIGNING_KEY must be set` — the harness had not mirrored the hub's
+`HUSSH_POD_SIGNING_KEY_SECRET`. Recorded because it looks exactly like the new env block
+breaking boot, and is not. It also shows the startup probe is genuinely HTTP: a TCP probe
+would have been satisfied by gunicorn's bind before the worker died.)
+
+**Still open:** `HUSSH_POD_PRIVATE_KEY` (per-pod identity, task #114), the Anypoint
+renderer, and BYOC — where the log key must come from the person's own KMS key rather than
+any hushh-held master. See §5.
 
 ### 5. The user-owned GCP bootstrap designs the substrate and never connects it
 
