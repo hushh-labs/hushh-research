@@ -757,7 +757,16 @@ class ActorIdentityService:
         email: str,
         verification_source: str = "user_verified",
         source_ref: str | None = None,
+        include_plaintext_code: bool = False,
     ) -> dict[str, Any]:
+        """Start (or restart) the alias ceremony for one account-owned email.
+
+        ``include_plaintext_code=True`` adds a route-internal
+        ``verification_code_plaintext`` key so the caller can hand the code to
+        a mail sender. It stays opt-in because at least one existing route
+        serializes this result verbatim; the plaintext must never be added to
+        any HTTP response.
+        """
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
             raise ActorIdentityAliasError(
@@ -820,11 +829,15 @@ class ActorIdentityService:
                 and existing["verification_status"] == "verified"
                 and existing["revoked_at"] is None
             ):
-                return {
+                already_verified: dict[str, Any] = {
                     "alias": self._normalize_alias_row(existing),
                     "already_verified": True,
                     "review_verification_code": None,
                 }
+                if include_plaintext_code:
+                    # Already verified, so there is no code to send.
+                    already_verified["verification_code_plaintext"] = None
+                return already_verified
 
             verification_code = f"{secrets.randbelow(1_000_000):06d}"
             code_hash = self._hash_alias_verification_code(
@@ -895,13 +908,18 @@ class ActorIdentityService:
                 code_hash,
             )
 
-        return {
+        result: dict[str, Any] = {
             "alias": self._normalize_alias_row(row),
             "already_verified": False,
             "review_verification_code": (
                 verification_code if self._may_return_review_alias_code() else None
             ),
         }
+        if include_plaintext_code:
+            # Route-internal only: the caller pops this and hands it to the
+            # mail sender. It must never be serialized into an HTTP response.
+            result["verification_code_plaintext"] = verification_code
+        return result
 
     async def confirm_email_alias_verification(
         self,

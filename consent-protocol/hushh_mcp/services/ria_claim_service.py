@@ -25,7 +25,12 @@ import re
 import secrets
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
+import asyncpg
+
+from db.connection import get_pool
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.ria_iam_service import RIAIAMPolicyError, RIAIAMService
 from hushh_mcp.services.ria_identity_client import (
     RIAIdentityClient,
@@ -68,6 +73,121 @@ def mask_phone_digits(digits10: str) -> str:
     if len(digits10) != 10:
         return "•••"
     return f"••• ••• {digits10[-4:]}"
+
+
+class RIAClaimEmailError(RIAIAMPolicyError):
+    """A claim email-verification precondition failed; carries a stable code."""
+
+    def __init__(self, message: str, *, code: str, status_code: int = 409) -> None:
+        super().__init__(message, status_code=status_code)
+        self.code = code
+
+
+# Consumer mailbox providers can never prove firm affiliation.
+FREE_MAIL_DOMAINS = frozenset(
+    {
+        "gmail.com",
+        "googlemail.com",
+        "outlook.com",
+        "hotmail.com",
+        "live.com",
+        "msn.com",
+        "yahoo.com",
+        "ymail.com",
+        "icloud.com",
+        "me.com",
+        "mac.com",
+        "proton.me",
+        "protonmail.com",
+        "pm.me",
+        "aol.com",
+        "zoho.com",
+        "gmx.com",
+        "mail.com",
+    }
+)
+
+# Common two-label public suffixes so "firm.co.uk" is not reduced to "co.uk".
+_MULTI_PART_SUFFIXES = frozenset(
+    {
+        "co.uk",
+        "org.uk",
+        "ac.uk",
+        "gov.uk",
+        "com.au",
+        "net.au",
+        "org.au",
+        "co.nz",
+        "co.in",
+        "com.sg",
+        "com.hk",
+        "co.jp",
+        "com.br",
+        "com.mx",
+        "co.za",
+    }
+)
+
+
+def registrable_domain(host: str) -> str:
+    """Reduce a hostname to its registrable domain (small-suffix heuristic)."""
+    labels = [label for label in str(host or "").strip().lower().strip(".").split(".") if label]
+    if len(labels) < 2:
+        return ".".join(labels)
+    if len(labels) >= 3 and ".".join(labels[-2:]) in _MULTI_PART_SUFFIXES:
+        return ".".join(labels[-3:])
+    return ".".join(labels[-2:])
+
+
+def firm_website_host(website: str | None) -> str:
+    """Extract the bare host from a Form ADV website value ('' when unusable)."""
+    value = str(website or "").strip().lower()
+    if not value:
+        return ""
+    if "://" not in value:
+        value = f"https://{value}"
+    try:
+        host = urlsplit(value).hostname or ""
+    except ValueError:
+        return ""
+    if host.startswith("www."):
+        host = host[len("www.") :]
+    return host
+
+
+def email_domain(email: str) -> str:
+    value = str(email or "").strip().lower()
+    if "@" not in value:
+        return ""
+    return value.rsplit("@", 1)[1]
+
+
+def is_free_mail_domain(domain: str) -> bool:
+    return registrable_domain(domain) in FREE_MAIL_DOMAINS
+
+
+def email_matches_firm_domain(email: str, website: str | None) -> bool:
+    """True when the address's registrable domain is the firm website's.
+
+    Server-side gate that must pass BEFORE any email evidence is asserted
+    upstream, even though the evaluator also checks the domain itself.
+    """
+    alias_domain = email_domain(email)
+    host = firm_website_host(website)
+    if not alias_domain or not host:
+        return False
+    if is_free_mail_domain(alias_domain):
+        return False
+    return registrable_domain(alias_domain) == registrable_domain(host)
+
+
+def mask_email(email: str) -> str:
+    value = str(email or "").strip().lower()
+    if "@" not in value:
+        return "•••"
+    local, domain = value.rsplit("@", 1)
+    lead = local[0] if local else "•"
+    return f"{lead}•••@{domain}"
 
 
 def claim_test_numbers() -> set[str]:
@@ -330,9 +450,11 @@ class RIAClaimService:
         *,
         client: RIAIdentityClient | None = None,
         iam_service: RIAIAMService | None = None,
+        identity_service: ActorIdentityService | None = None,
     ) -> None:
         self._client = client or RIAIdentityClient()
         self._iam_service = iam_service or RIAIAMService()
+        self._identity_service = identity_service or ActorIdentityService()
 
     @staticmethod
     def _map_upstream_error(exc: Exception) -> RIAIAMPolicyError:
@@ -615,6 +737,259 @@ class RIAClaimService:
             "provisional": provisional,
             "profile": profile,
             "facts": facts,
+        }
+
+    async def _load_claim_context(self, user_id: str) -> dict[str, Any] | None:
+        """Latest persisted claim snapshot plus the profile row it belongs to."""
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return None
+        pool = await get_pool()
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                      p.id AS ria_profile_id,
+                      p.display_name,
+                      p.legal_name,
+                      p.finra_crd,
+                      p.verification_status,
+                      e.reference_metadata
+                    FROM ria_verification_events e
+                    JOIN ria_profiles p ON p.id = e.ria_profile_id
+                    WHERE p.user_id = $1
+                      AND e.provider = $2
+                    ORDER BY e.checked_at DESC
+                    LIMIT 1
+                    """,
+                    normalized_user_id,
+                    CLAIM_PROVIDER_LABEL,
+                )
+        except asyncpg.UndefinedTableError:
+            return None
+        if row is None:
+            return None
+        metadata_raw = row["reference_metadata"]
+        metadata: dict[str, Any] = {}
+        if isinstance(metadata_raw, dict):
+            metadata = metadata_raw
+        elif isinstance(metadata_raw, str):
+            try:
+                parsed = json.loads(metadata_raw)
+                metadata = parsed if isinstance(parsed, dict) else {}
+            except ValueError:
+                metadata = {}
+        return {
+            "ria_profile_id": str(row["ria_profile_id"]),
+            "display_name": str(row["display_name"] or ""),
+            "legal_name": str(row["legal_name"] or ""),
+            "crd_number": str(row["finra_crd"] or ""),
+            "verification_status": str(row["verification_status"] or ""),
+            "metadata": metadata,
+        }
+
+    @staticmethod
+    def _check_claim_email_domain(email: str, firm_record: dict[str, Any]) -> None:
+        """Fail closed unless the address sits on the claimed firm's own domain."""
+        domain = email_domain(email)
+        if not domain:
+            raise RIAClaimEmailError(
+                "Enter a valid work email.",
+                code="EMAIL_INVALID",
+                status_code=422,
+            )
+        if is_free_mail_domain(domain):
+            raise RIAClaimEmailError(
+                "Use your work email at the firm.",
+                code="EMAIL_DOMAIN_MISMATCH",
+            )
+        if not email_matches_firm_domain(email, firm_record.get("website")):
+            raise RIAClaimEmailError(
+                "This email doesn't match your firm's website domain.",
+                code="EMAIL_DOMAIN_MISMATCH",
+            )
+
+    async def prepare_email_verification(self, user_id: str, email: str) -> dict[str, Any]:
+        """Server-side domain gate for /claim/email/start.
+
+        Validates the address against the *persisted* firm record before any
+        alias ceremony begins; nothing the browser asserts is trusted.
+        """
+        context = await self._load_claim_context(user_id)
+        if context is None or not context["metadata"]:
+            raise RIAClaimEmailError(
+                "Claim your profile before verifying a work email.",
+                code="CLAIM_CONTEXT_MISSING",
+            )
+        email_normalized = str(email or "").strip().lower()
+        firm_record_raw = context["metadata"].get("firm_record")
+        firm_record: dict[str, Any] = firm_record_raw if isinstance(firm_record_raw, dict) else {}
+        self._check_claim_email_domain(email_normalized, firm_record)
+        return {
+            "email": email_normalized,
+            "email_masked": mask_email(email_normalized),
+            "firm_name": title_case_name(firm_record.get("name")) or None,
+        }
+
+    async def upgrade_with_email_evidence(self, user_id: str, *, email: str) -> dict[str, Any]:
+        """Re-evaluate the persisted claim with a verified work-email alias.
+
+        The profile is only ever upgraded through
+        ``claim_ria_profile_from_identity`` (same-identity re-claim, which
+        never downgrades), and only when the evaluator itself answers
+        ``verificationLevel == "verified"``. On any other outcome nothing is
+        written and the stored status stays exactly as it was.
+        """
+        context = await self._load_claim_context(user_id)
+        if context is None or not context["metadata"]:
+            raise RIAClaimEmailError(
+                "Claim your profile before verifying a work email.",
+                code="CLAIM_CONTEXT_MISSING",
+            )
+        metadata = context["metadata"]
+        firm_record_raw = metadata.get("firm_record")
+        firm_record: dict[str, Any] = firm_record_raw if isinstance(firm_record_raw, dict) else {}
+        email_normalized = str(email or "").strip().lower()
+        self._check_claim_email_domain(email_normalized, firm_record)
+
+        verified_alias: str | None = None
+        for alias in await self._identity_service.list_verified_email_aliases(user_id):
+            if str(alias.get("verification_status") or "").strip().lower() != "verified":
+                continue
+            if alias.get("revoked_at") is not None:
+                continue
+            alias_email = str(alias.get("email_normalized") or alias.get("email") or "").lower()
+            if alias_email == email_normalized:
+                verified_alias = alias_email
+                break
+        if not verified_alias:
+            raise RIAClaimEmailError(
+                "Verify this email before it can be used as claim evidence.",
+                code="EMAIL_ALIAS_NOT_VERIFIED",
+            )
+
+        phone_digits = normalize_nanp_phone(str(metadata.get("phone") or ""))
+        claim_type = str(metadata.get("claim_type") or "")
+        try:
+            firm_crd = int(metadata.get("firm_crd") or 0)
+        except (TypeError, ValueError):
+            firm_crd = 0
+        individual_crd_raw = metadata.get("individual_crd")
+        try:
+            individual_crd = int(individual_crd_raw) if individual_crd_raw is not None else None
+        except (TypeError, ValueError):
+            individual_crd = None
+        display_name = context["display_name"] or title_case_name(context["legal_name"])
+        if not phone_digits or claim_type not in {"individual", "firm"} or firm_crd <= 0:
+            raise RIAClaimEmailError(
+                "The stored claim snapshot is incomplete. Re-claim your profile first.",
+                code="CLAIM_CONTEXT_MISSING",
+            )
+        if not display_name:
+            raise RIAClaimEmailError(
+                "The stored claim snapshot is incomplete. Re-claim your profile first.",
+                code="CLAIM_CONTEXT_MISSING",
+            )
+
+        try:
+            payload = await self._client.claim_evaluate(
+                phone=phone_digits,
+                claim_type=claim_type,
+                firm_crd=firm_crd,
+                individual_crd=individual_crd,
+                # Possession of the filed number was proven at original claim
+                # time and lives in the persisted evidence ledger.
+                assert_phone_otp=True,
+                extra_evidence=[{"signal": "domain_email", "email": verified_alias}],
+            )
+        except (
+            RIAIdentityNotConfiguredError,
+            RIAIdentityUnavailableError,
+            RIAIdentityRequestError,
+        ) as exc:
+            raise self._map_upstream_error(exc) from exc
+
+        verification_level = str(payload.get("verificationLevel") or "none")
+        current_status = context["verification_status"]
+        if verification_level != "verified":
+            # No status write without the evaluator's verified answer.
+            return {
+                "verified": current_status in {"verified", "active", "finra_verified"},
+                "verification_status": current_status,
+                "verification_level": verification_level,
+                "satisfied": payload.get("satisfied") or [],
+                "missing": payload.get("missing") or [],
+            }
+
+        fresh_firm = _shape_firm(payload.get("firm")) or {}
+        firm = {
+            **firm_record,
+            **{key: value for key, value in fresh_firm.items() if value not in (None, "", [])},
+        }
+        advisor_record_raw = metadata.get("advisor_record")
+        advisor_record: dict[str, Any] = (
+            advisor_record_raw if isinstance(advisor_record_raw, dict) else {}
+        )
+        reference_metadata = {
+            "provider": CLAIM_PROVIDER_LABEL,
+            "claim_type": claim_type,
+            "phone": phone_digits,
+            "firm_crd": firm_crd,
+            "individual_crd": individual_crd,
+            "verification_level": verification_level,
+            "satisfied": payload.get("satisfied") or [],
+            "missing": payload.get("missing") or [],
+            "evidence_ledger": payload.get("evidenceLedger") or [],
+            "scope_note": payload.get("scopeNote"),
+            "evidence_upgrade": "domain_email",
+            "firm_record": firm,
+            "advisor_record": advisor_record,
+        }
+
+        legal_name = context["legal_name"] or display_name
+        crd_number = context["crd_number"] or (
+            str(individual_crd) if claim_type == "individual" and individual_crd else str(firm_crd)
+        )
+        firm_name = str(firm.get("name") or "").strip() or None
+
+        profile = await self._iam_service.claim_ria_profile_from_identity(
+            user_id,
+            claim_type=claim_type,
+            verification_level=verification_level,
+            phone_e164=f"+1{phone_digits}",
+            display_name=display_name,
+            legal_name=legal_name,
+            crd_number=crd_number,
+            firm_name=firm_name,
+            firm_crd=str(firm_crd),
+            firm_website=firm.get("website"),
+            firm_sec_number=firm.get("sec_number"),
+            reference_metadata=reference_metadata,
+            regulator="SEC" if firm.get("registration_type") == "sec" else "State",
+            regulator_status=firm.get("registration_status"),
+            disclosures_url=(advisor_record.get("report_url") or firm.get("report_url")),
+            certifications=[
+                str(exam.get("code"))
+                for exam in advisor_record.get("exams", [])
+                if isinstance(exam, dict) and exam.get("code")
+            ],
+        )
+        logger.info(
+            json.dumps(
+                {
+                    "event": "ria.claim_email_upgrade",
+                    "claim_type": claim_type,
+                    "verification_level": verification_level,
+                    "firm_crd": firm_crd,
+                }
+            )
+        )
+        return {
+            "verified": True,
+            "verification_status": str(profile.get("verification_status") or "verified"),
+            "verification_level": verification_level,
+            "profile": profile,
         }
 
     async def _record_claim_enrichment(self, user_id: str, facts: dict[str, Any]) -> None:

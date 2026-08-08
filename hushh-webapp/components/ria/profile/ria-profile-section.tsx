@@ -4,15 +4,25 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
+  CheckCircle2,
   ClipboardCheck,
   Loader2,
   MessageCircle,
   Pencil,
   RotateCcw,
+  ShieldCheck,
   Trash2,
 } from "lucide-react";
 
-import { RiaCompatibilityState } from "@/components/ria/ria-page-shell";
+import {
+  RiaCompatibilityState,
+  isRiaVerified,
+} from "@/components/ria/ria-page-shell";
+import {
+  RiaSecRecordSection,
+  type RiaSecAdvisorRecord,
+  type RiaSecFirmRecord,
+} from "@/components/ria/profile/ria-sec-record-section";
 import { OnboardingStepServices } from "@/components/ria/onboarding/onboarding-step-services";
 import {
   SettingsDetailPanel,
@@ -260,6 +270,190 @@ function RiaRegulatoryProfileSummary({
   );
 }
 
+function asRecord<T>(value: unknown): T | null {
+  return value && typeof value === "object" ? (value as T) : null;
+}
+
+function hasSecRecords(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return Boolean(metadata && (metadata.firm_record || metadata.advisor_record));
+}
+
+/**
+ * The metadata snapshot the SEC record section renders from. The durable claim
+ * event wins; the generic verification event only qualifies when it actually
+ * carries the firm/adviser records (older rows can be a bare license check).
+ */
+function resolveSecRecordMetadata(
+  status: RiaOnboardingStatus | null,
+): Record<string, unknown> | null {
+  const claimMetadata = status?.latest_claim_event?.reference_metadata;
+  if (hasSecRecords(claimMetadata)) return claimMetadata ?? null;
+  const verificationMetadata =
+    status?.latest_verification_event?.reference_metadata;
+  if (hasSecRecords(verificationMetadata)) return verificationMetadata ?? null;
+  return null;
+}
+
+function RiaVerificationChip({ verified }: { verified: boolean }) {
+  return (
+    <span
+      data-testid="ria-profile-verification-chip"
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-[12px] font-medium",
+        verified
+          ? "border-[rgba(18,161,80,0.35)] bg-[rgba(18,161,80,0.08)] text-[#12A150]"
+          : "border-[rgba(201,139,46,0.3)] bg-[rgba(201,139,46,0.08)] text-[color:var(--ria-gold,#C8923A)]",
+      )}
+    >
+      {verified ? (
+        <CheckCircle2 className="h-3.5 w-3.5" />
+      ) : (
+        <ShieldCheck className="h-3.5 w-3.5" />
+      )}
+      {verified ? "Verified" : "Not verified"}
+    </span>
+  );
+}
+
+/**
+ * The "finish verification" nudge: type the work email once, get a code, type
+ * the code. Success flips the chip via the host refresh; a mail-queue failure
+ * is retryable (best-effort transport never blocks); a profile without a claim
+ * snapshot (409 CLAIM_CONTEXT_MISSING) hides the card entirely.
+ */
+function RiaEmailVerifyCard({ onVerified }: { onVerified: () => Promise<void> }) {
+  const { user } = useAuth();
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [phase, setPhase] = useState<"email" | "code">("email");
+  const [busy, setBusy] = useState(false);
+  const [sendFailed, setSendFailed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hidden, setHidden] = useState(false);
+
+  const handleSend = useCallback(async () => {
+    if (!user || busy) return;
+    const address = email.trim();
+    if (!address) return;
+    setBusy(true);
+    setError(null);
+    setSendFailed(false);
+    try {
+      const idToken = await user.getIdToken();
+      const result = await RiaService.claimEmailStart(idToken, {
+        email: address,
+      });
+      if (result.status === "send_failed") {
+        setSendFailed(true);
+        return;
+      }
+      setPhase("code");
+    } catch (err) {
+      if ((err as { code?: unknown })?.code === "CLAIM_CONTEXT_MISSING") {
+        setHidden(true);
+        return;
+      }
+      setError(err instanceof Error ? err.message : "Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, email, user]);
+
+  const handleVerify = useCallback(async () => {
+    if (!user || busy) return;
+    const trimmed = code.trim();
+    if (trimmed.length !== 6) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const idToken = await user.getIdToken();
+      const result = await RiaService.claimEmailConfirm(idToken, {
+        email: email.trim(),
+        code: trimmed,
+      });
+      if (result.verified) {
+        toast.success("Email verified");
+        await onVerified();
+        return;
+      }
+      setError("Not verified yet.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, code, email, onVerified, user]);
+
+  if (hidden) return null;
+
+  return (
+    <div
+      data-testid="ria-email-verify-card"
+      className="space-y-3 rounded-[22px] border border-[color:var(--border)] bg-[color:var(--card)] p-4 shadow-[0_8px_24px_rgba(62,48,30,0.05)]"
+    >
+      <div>
+        <p className="text-[15px] font-semibold">Verify with your work email</p>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">
+          We&apos;ll send a code.
+        </p>
+      </div>
+      {phase === "email" ? (
+        <div className="flex items-center gap-2">
+          <Input
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            placeholder="you@yourfirm.com"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            data-testid="ria-email-verify-input"
+          />
+          <Button
+            disabled={busy || !email.trim()}
+            onClick={() => void handleSend()}
+            data-testid="ria-email-verify-send"
+          >
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : sendFailed ? (
+              "Retry"
+            ) : (
+              "Send code"
+            )}
+          </Button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <Input
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            placeholder="6-digit code"
+            value={code}
+            onChange={(event) =>
+              setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+            }
+            data-testid="ria-email-verify-code"
+          />
+          <Button
+            disabled={busy || code.trim().length !== 6}
+            onClick={() => void handleVerify()}
+            data-testid="ria-email-verify-confirm"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}
+          </Button>
+        </div>
+      )}
+      {sendFailed ? (
+        <p className="text-[13px] text-destructive">Couldn&apos;t send.</p>
+      ) : null}
+      {error ? <p className="text-[13px] text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
 /**
  * The unified RIA profile management section. Re-homed verbatim from the former
  * `/ria/profile` page so the SAME view / edit / re-initiate / delete / license
@@ -476,6 +670,20 @@ export function RiaProfileSection({
   }, [licenseNumber, licenseRegulator, onRefresh, refresh, refreshingLicense, user]);
 
   const currentLicenseNumber = getProfileRiaRefreshLicenseNumber(status);
+  const verified = isRiaVerified(status?.verification_status);
+  const secRecordMetadata = useMemo(
+    () => resolveSecRecordMetadata(status),
+    [status],
+  );
+  const claimMetadata = status?.latest_claim_event?.reference_metadata;
+  // Email upgrade needs a claim snapshot; v1 gates firm claims out (no adviser
+  // name to match an email against).
+  const showEmailVerify =
+    !verified && Boolean(claimMetadata) && claimMetadata?.claim_type !== "firm";
+  const handleEmailVerified = useCallback(async () => {
+    await onRefresh(true);
+    await refresh({ force: true });
+  }, [onRefresh, refresh]);
   const verificationProvider =
     status?.latest_verification_event?.reference_metadata?.provider;
   const currentRegulator =
@@ -557,6 +765,20 @@ export function RiaProfileSection({
         onEditSection={handleEditSection}
         onAskKaiUpdateAnything={handleAskKai}
       />
+
+      {secRecordMetadata ? (
+        <RiaSecRecordSection
+          advisorRecord={asRecord<RiaSecAdvisorRecord>(
+            secRecordMetadata.advisor_record,
+          )}
+          firmRecord={asRecord<RiaSecFirmRecord>(secRecordMetadata.firm_record)}
+          headerAccessory={<RiaVerificationChip verified={verified} />}
+        />
+      ) : null}
+
+      {showEmailVerify ? (
+        <RiaEmailVerifyCard onVerified={handleEmailVerified} />
+      ) : null}
 
       <SettingsGroup eyebrow="Manage" title="RIA profile" testId="ria-profile-manage">
         <SettingsRow

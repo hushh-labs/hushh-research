@@ -161,7 +161,14 @@ async function proxyRequest(
 
     const result = await load;
 
-    if (method === "POST" && path === "profile/refresh-license" && authHeader) {
+    // Mutations that change onboarding/status upstream must drop the hot GET
+    // cache so the next status read reflects them (license refresh updates the
+    // official fields; claim email verify can flip verification_status).
+    if (
+      method === "POST" &&
+      authHeader &&
+      (path === "profile/refresh-license" || path.startsWith("claim/email/"))
+    ) {
       hotGetCache.delete(`onboarding/status:${authHeader}`);
     }
 
