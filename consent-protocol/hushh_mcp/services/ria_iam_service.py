@@ -4302,6 +4302,7 @@ class RIAIAMService:
         firm_website: str | None = None,
         firm_sec_number: str | None = None,
         reference_metadata: dict[str, Any] | None = None,
+        business_location: dict[str, str] | None = None,
         regulator: str | None = None,
         regulator_status: str | None = None,
         disclosures_url: str | None = None,
@@ -4313,6 +4314,11 @@ class RIAIAMService:
         service, so the claim is CRD-backed by construction. A claim that only
         reached ``provisional`` is stored as ``submitted`` — it opens the RIA
         surface but no verified-only gate.
+
+        ``business_location`` is the caller's already-derived
+        ``{city, area, address, pin_zip}`` (see
+        ``ria_claim_service.derive_business_location``) — the claim snapshot is
+        parsed there, not here, and every value only ever fills a blank.
         """
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
@@ -4550,20 +4556,41 @@ class RIAIAMService:
                     "verified" if verified else "pending",
                 )
 
+                # The claimed profile's contact block. The phone is the number
+                # possession was proven on; the address comes from the same SEC
+                # snapshot the rest of the profile was built from. Every address
+                # column only ever fills a blank — a value the adviser typed
+                # themselves always survives a re-claim.
+                location = business_location or {}
                 try:
                     await conn.execute(
                         """
-                        INSERT INTO ria_business_contacts (user_id, phone)
-                        VALUES ($1, NULLIF($2, ''))
+                        INSERT INTO ria_business_contacts (
+                          user_id, phone, city, area_locality, full_street_address, pin_zip
+                        )
+                        VALUES (
+                          $1, NULLIF($2, ''), NULLIF($3, ''),
+                          NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, '')
+                        )
                         ON CONFLICT (user_id) DO UPDATE
-                        SET phone = EXCLUDED.phone, updated_at = NOW()
+                        SET
+                          phone = EXCLUDED.phone,
+                          city = COALESCE(NULLIF(EXCLUDED.city, ''), ria_business_contacts.city),
+                          area_locality = COALESCE(NULLIF(EXCLUDED.area_locality, ''), ria_business_contacts.area_locality),
+                          full_street_address = COALESCE(NULLIF(EXCLUDED.full_street_address, ''), ria_business_contacts.full_street_address),
+                          pin_zip = COALESCE(NULLIF(EXCLUDED.pin_zip, ''), ria_business_contacts.pin_zip),
+                          updated_at = NOW()
                         """,
                         normalized_user_id,
                         phone_e164 or "",
+                        str(location.get("city") or "").strip(),
+                        str(location.get("area") or "").strip(),
+                        str(location.get("address") or "").strip(),
+                        str(location.get("pin_zip") or "").strip(),
                     )
                 except asyncpg.exceptions.UndefinedTableError:
                     logger.warning(
-                        "ria_business_contacts unavailable during claim write; skipping phone persistence"
+                        "ria_business_contacts unavailable during claim write; skipping contact persistence"
                     )
 
                 self._invalidate_cached_persona_state(normalized_user_id)
@@ -4593,6 +4620,55 @@ class RIAIAMService:
             "Dev bypass onboarding is no longer available. All RIAs must complete CRD-backed verification.",
             status_code=410,
         )
+
+    @staticmethod
+    def _resolve_business_location(
+        business_contact: dict[str, Any],
+        claim_event: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], str | None]:
+        """The LOCATION block, with the claim's SEC address filling any blank.
+
+        Advisers who claimed their profile by phone never typed an address, so
+        an empty contact row would read "Not provided" forever even though the
+        claim snapshot carries the filed address. This is a pure read — nothing
+        is written on a GET — and a value the adviser stored always wins.
+
+        Returns ``(values, source)`` where source is ``"sec_record"`` when any
+        shown value came from the claim snapshot, ``"profile"`` when everything
+        shown was stored, and ``None`` when there is nothing to show.
+        """
+        # Imported here, not at module scope: ria_claim_service imports this
+        # module, so a top-level import would be circular.
+        from hushh_mcp.services.ria_claim_service import derive_business_location
+
+        columns = {
+            "city": "city",
+            "area": "area_locality",
+            "address": "full_street_address",
+            "pin_zip": "pin_zip",
+        }
+        metadata = (claim_event or {}).get("reference_metadata")
+        derived = derive_business_location(metadata if isinstance(metadata, dict) else {})
+
+        resolved: dict[str, Any] = {}
+        used_stored = False
+        used_derived = False
+        for key, column in columns.items():
+            stored = business_contact.get(column)
+            if str(stored or "").strip():
+                resolved[key] = stored
+                used_stored = True
+                continue
+            if derived.get(key, ""):
+                resolved[key] = derived[key]
+                used_derived = True
+                continue
+            # Nothing either way: keep whatever the row held (NULL stays NULL)
+            # so the payload's shape does not change for empty profiles.
+            resolved[key] = stored
+        if used_derived:
+            return resolved, "sec_record"
+        return resolved, ("profile" if used_stored else None)
 
     async def get_ria_onboarding_status(self, user_id: str) -> dict[str, Any]:
         conn = await self._conn()
@@ -4749,6 +4825,10 @@ class RIAIAMService:
             ):
                 logger.warning("ria_business_contacts unavailable during onboarding status")
 
+            business_location, business_location_source = self._resolve_business_location(
+                business_contact, claim_event
+            )
+
             if used_legacy_capabilities_fallback:
                 requested_capabilities = ["advisory"]
                 individual_legal_name = ria["legal_name"]
@@ -4811,10 +4891,11 @@ class RIAIAMService:
                 "fee_structure": list(v2_profile.get("fee_structure") or []),
                 "min_engagement_amount": v2_profile.get("min_engagement_amount"),
                 "min_engagement_currency": v2_profile.get("min_engagement_currency"),
-                "business_city": business_contact.get("city"),
-                "business_area": business_contact.get("area_locality"),
-                "business_address": business_contact.get("full_street_address"),
-                "business_pin_zip": business_contact.get("pin_zip"),
+                "business_city": business_location["city"],
+                "business_area": business_location["area"],
+                "business_address": business_location["address"],
+                "business_pin_zip": business_location["pin_zip"],
+                "business_location_source": business_location_source,
                 "business_latitude": business_contact.get("latitude"),
                 "business_longitude": business_contact.get("longitude"),
                 "contact_email": business_contact.get("email"),

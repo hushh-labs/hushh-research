@@ -37,6 +37,10 @@ vi.mock("lucide-react", () => ({
   Trash2: () => <span />,
 }));
 
+vi.mock("@/components/ria/profile/ria-location-map", () => ({
+  RiaLocationMap: () => <div data-testid="ria-location-map" />,
+}));
+
 vi.mock("@/components/ria/onboarding/onboarding-step-services", () => ({
   OnboardingStepServices: () => <div data-testid="step-services" />,
 }));
@@ -240,6 +244,15 @@ describe("RiaProfileSection verification chip + email nudge", () => {
     ).toContain("Not verified");
     expect(screen.getByTestId("ria-email-verify-card")).toBeTruthy();
     expect(screen.getByText("Verify with your work email")).toBeTruthy();
+  });
+
+  it("mounts the location map inside the Location group", () => {
+    renderSection({ ...BASE_STATUS });
+
+    const locationGroup = screen.getByTestId("ria-profile-location-summary");
+    expect(
+      locationGroup.querySelector('[data-testid="ria-location-map"]'),
+    ).toBeTruthy();
   });
 
   it("renders the Verified chip and no nudge when verified", async () => {

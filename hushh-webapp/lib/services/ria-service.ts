@@ -171,6 +171,12 @@ export interface RiaOnboardingStatus {
   business_pin_zip?: string | null;
   business_latitude?: number | null;
   business_longitude?: number | null;
+  /**
+   * Where the shown address came from: "profile" when the adviser entered it,
+   * "sec_record" when any shown value was derived from their claimed SEC
+   * filing, null when there is no address at all.
+   */
+  business_location_source?: "profile" | "sec_record" | null;
   bio?: string | null;
   strategy?: string | null;
   disclosures_url?: string | null;

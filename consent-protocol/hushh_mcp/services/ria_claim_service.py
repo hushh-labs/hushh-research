@@ -440,6 +440,85 @@ def _shape_advisor_record(raw: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _clean_text(value: Any) -> str:
+    """Trim any scalar to text; None and blanks collapse to ''."""
+    return str(value or "").strip()
+
+
+def _location_from_address(
+    *,
+    street1: Any,
+    street2: Any = None,
+    city: Any,
+    zip_code: Any,
+) -> dict[str, str]:
+    """One filed address rendered in the shape ria_business_contacts stores."""
+    line1 = _clean_text(street1)
+    line2 = _clean_text(street2)
+    address = ", ".join(part for part in (line1, line2) if part)
+    return {
+        "city": _clean_text(city),
+        # The SEC feed has no locality/neighbourhood concept. Inventing one
+        # would put words on a profile no regulator filed; the row honestly
+        # reads "Not provided" instead.
+        "area": "",
+        "address": address,
+        "pin_zip": _clean_text(zip_code),
+    }
+
+
+def derive_business_location(reference_metadata: dict[str, Any]) -> dict[str, str]:
+    """Business address from the claim's SEC snapshot: {city, area, address, pin_zip}.
+
+    A claimed adviser never typed an address, so the only honest source is the
+    record they claimed against. Order of preference:
+
+    1. The adviser's branch office — but ONLY when the SEC did not flag it as a
+       private residence. A private-residence branch is somebody's home; no
+       part of it (not the street, not the city, not the zip) is ever returned.
+    2. The firm's filed address.
+
+    A source is taken whole — never a branch street beside a firm zip, which
+    would publish an address that appears on no filing. Every key is always a
+    trimmed string; missing values are '' rather than None.
+    """
+    metadata = reference_metadata if isinstance(reference_metadata, dict) else {}
+    firm_raw = metadata.get("firm_record")
+    firm = firm_raw if isinstance(firm_raw, dict) else {}
+    advisor_raw = metadata.get("advisor_record")
+    advisor = advisor_raw if isinstance(advisor_raw, dict) else {}
+    branch_raw = advisor.get("branch")
+    branch = branch_raw if isinstance(branch_raw, dict) else {}
+
+    candidates: list[dict[str, str]] = []
+    if branch and not branch.get("private_residence"):
+        candidates.append(
+            _location_from_address(
+                street1=branch.get("street1"),
+                city=branch.get("city"),
+                zip_code=branch.get("zip"),
+            )
+        )
+    candidates.append(
+        _location_from_address(
+            street1=firm.get("street1"),
+            street2=firm.get("street2"),
+            city=firm.get("city"),
+            zip_code=firm.get("zip"),
+        )
+    )
+
+    # A street line is what the profile's map needs, so a source that has one
+    # wins; otherwise the first source carrying anything at all stands in.
+    for candidate in candidates:
+        if candidate["address"]:
+            return candidate
+    for candidate in candidates:
+        if any(candidate.values()):
+            return candidate
+    return _location_from_address(street1="", city="", zip_code="")
+
+
 def _shape_candidate(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "individual_crd": raw.get("individualCrd"),
@@ -713,6 +792,9 @@ class RIAClaimService:
             firm_website=firm.get("website"),
             firm_sec_number=firm.get("sec_number"),
             reference_metadata=reference_metadata,
+            # The claimed profile's LOCATION section, filled from the same
+            # snapshot rather than left blank for the adviser to retype.
+            business_location=derive_business_location(reference_metadata),
             # Regulator facts, straight from the public record.
             regulator="SEC" if firm.get("registration_type") == "sec" else "State",
             regulator_status=firm.get("registration_status"),
@@ -1028,6 +1110,7 @@ class RIAClaimService:
             firm_website=firm.get("website"),
             firm_sec_number=firm.get("sec_number"),
             reference_metadata=reference_metadata,
+            business_location=derive_business_location(reference_metadata),
             regulator="SEC" if firm.get("registration_type") == "sec" else "State",
             regulator_status=firm.get("registration_status"),
             disclosures_url=(advisor_record.get("report_url") or firm.get("report_url")),

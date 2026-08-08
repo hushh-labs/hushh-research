@@ -52,3 +52,4 @@ tests/test_ria_dossier_email_service.py
 tests/test_ria_dossier_routes.py
 tests/test_ria_claim_email_test_path.py
 tests/test_ria_dossier_mail_contract.py
+tests/test_ria_claim_location.py
