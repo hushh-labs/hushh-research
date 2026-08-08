@@ -322,7 +322,9 @@ describe("RiaProfileSection verification chip + email nudge", () => {
     expect(screen.getByText("424242")).toBeTruthy();
   });
 
-  it("omits the section when neither event carries records", () => {
+  it("omits the SEC section when neither event carries records, but still shows verification", () => {
+    // The chip used to ride inside the SEC card, so an adviser with a thin
+    // record saw no verification state at all. Verification is its own row now.
     renderSection({
       ...BASE_STATUS,
       latest_verification_event: {
@@ -333,7 +335,10 @@ describe("RiaProfileSection verification chip + email nudge", () => {
     });
 
     expect(screen.queryByText("From your SEC record.")).toBeNull();
-    expect(screen.queryByTestId("ria-profile-verification-chip")).toBeNull();
+    expect(screen.getByTestId("ria-profile-verification-row")).toBeTruthy();
+    expect(
+      screen.getByTestId("ria-profile-verification-chip").textContent,
+    ).toContain("Not verified");
   });
 
   it("never renders the raw phone digits persisted in the claim metadata", async () => {

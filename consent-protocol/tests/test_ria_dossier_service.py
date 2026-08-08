@@ -426,7 +426,7 @@ async def test_worker_happy_path_persists_markdown_and_mails(monkeypatch):
     assert len(mail_calls) == 1
     assert mail_calls[0]["user_id"] == _TEST_UID
     assert mail_calls[0]["to_email"] == "reg@gmail.com"
-    assert mail_calls[0]["display_name"] == "Reginald Troy Maxfield"
+    assert mail_calls[0]["first_name"] == "Reginald Troy Maxfield"
     assert [request.method for request in http_calls] == ["POST", "GET"]
 
 
