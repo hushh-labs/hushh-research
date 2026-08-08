@@ -20,6 +20,7 @@ tests/test_campaign_context_tool.py
 tests/test_cloudbuild_step_arg_limit.py
 tests/test_compute_backend.py
 tests/test_compute_backend_contract.py
+tests/test_byoc_bootstrap_and_custody.py
 tests/test_compute_backend_parity.py
 tests/test_consent_audit_chain.py
 tests/test_consent_token_asymmetric.py

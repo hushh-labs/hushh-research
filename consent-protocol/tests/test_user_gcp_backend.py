@@ -45,9 +45,17 @@ def test_bootstrap_plan_is_least_privilege_and_keyless():
     assert plan["target"]["project"] == "acme-user-proj"
     kinds = {r["type"] for r in plan["resources"]}
     assert {"kms_key", "gcs_bucket", "service_account", "cloud_run_service"} <= kinds
-    # Federation is keyless WIF — no SA key leaves the user's project.
-    assert plan["federation"]["type"] == "workload_identity_federation"
-    assert plan["federation"]["pool"] == "hushh-pool"
+    # Keyless, but by the mechanism that actually fits a GCP-hosted hub. A Google
+    # identity reaching another project is GRANTED, not federated -- WIF exists to give
+    # Google credentials to non-Google workloads, so a pool here would be a component
+    # that carries no weight. Short-lived impersonation of one authorized account is the
+    # real thing: no key is exported either way, and revocation is one binding.
+    assert plan["federation"]["type"] == "impersonation"
+    assert plan["federation"]["impersonation"]["role"] == "roles/iam.serviceAccountTokenCreator"
+    assert plan["federation"]["impersonation"]["token_lifetime"] == "900s"
+    # WIF is kept, and labelled for the deployment it does serve: a CloudHub control
+    # plane has no Google identity to grant and must exchange one.
+    assert plan["federation"]["workload_identity_federation"]["pool"] == "hushh-pool"
     # Hushh gets ONLY run.invoker on the pod — no broad standing grant.
     invoker = [b for b in plan["iam"] if b["role"] == "roles/run.invoker"]
     assert len(invoker) == 1
@@ -92,9 +100,18 @@ async def test_provision_plan_mode_is_user_owned_and_keyless():
     assert handle.backend_metadata["bootstrap"] == "pending"
 
 
-async def test_live_provision_raises_until_wif_bootstrap():
+async def test_live_provision_requires_the_authorized_bootstrap_account(monkeypatch):
+    """Live BYOC provisioning is implemented now; what it still refuses is guessing.
+
+    This test used to assert ``NotImplementedError``. That was the honest guard while
+    nothing was wired. The guard that matters once it IS wired is different and
+    stronger: hushh must not reach into a user's project on an identity the user never
+    authorized. An inferred bootstrap account that happened to exist would be used
+    silently, and the whole consent story rests on the grant having been made.
+    """
+    monkeypatch.delenv("HUSSH_USER_GCP_BOOTSTRAP_SA", raising=False)
     live = UserGcpBackend(user_project="acme", live=True)
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(RuntimeError, match="never inferred"):
         await live.provision(_spec())
 
 

@@ -58,6 +58,23 @@ def _slug(hushh_id: str) -> str:
     return _SLUG.sub("-", str(hushh_id or "").lower()).strip("-")[:40]
 
 
+class _StaticToken:
+    """Adapts an already-minted access token to what ``GcpRunClient`` expects.
+
+    The client refreshes google-auth credentials; a borrowed impersonation token cannot
+    be refreshed from inside the pod's own identity, and it does not need to be — it is
+    minted per bootstrap session and outlives the work it was minted for. ``refresh`` is
+    a no-op rather than an error so the client's normal flow is untouched.
+    """
+
+    def __init__(self, token: str) -> None:
+        self.token = token
+        self.valid = True
+
+    def refresh(self, _request: Any) -> None:  # noqa: D401 - deliberate no-op
+        return None
+
+
 class UserGcpBackend:
     """Provision a user's agent in the USER's own GCP project (BYOC), keyless."""
 
@@ -94,6 +111,10 @@ class UserGcpBackend:
             hushh_invoker_sa if hushh_invoker_sa is not None else _env("HUSSH_CONSENT_PLANE_SA")
         )
         self._live = bool(live) if live is not None else _flag("HUSSH_USER_GCP_LIVE")
+        # The account in the USER's project that hushh was authorized to impersonate.
+        # Never derived from the project name: a guessed identity that happens to exist
+        # would be used silently, and the point of the grant is that it was made.
+        self._bootstrap_sa = _env("HUSSH_USER_GCP_BOOTSTRAP_SA")
         # Reuse the GCP renderer, pinned to the USER's project/region (never live here;
         # the inner backend only renders — this class owns provisioning semantics).
         self._inner = GcpBackend(
@@ -205,10 +226,34 @@ class UserGcpBackend:
                 },
             ],
             "federation": {
-                "type": "workload_identity_federation",
-                "pool": self._wif_pool or "<wif-pool>",
-                "provider": self._wif_provider or "<wif-provider>",
-                "note": "keyless — Hushh's consent-plane identity is federated in; no SA key leaves the user's project",
+                # Two mechanisms, chosen by WHERE the hushh control plane runs. Both are
+                # keyless in the sense that matters -- no service-account key is ever
+                # created or exported -- and neither removes standing *authorization*,
+                # which persists under either until the binding is revoked.
+                #
+                # `impersonation` is correct for the GCP-hosted hub, which is already a
+                # Google identity: a Google principal reaching another project is granted,
+                # not federated, and a WIF pool would add a component that buys nothing.
+                # `workload_identity_federation` is correct for a control plane running
+                # OUTSIDE Google (the Anypoint / CloudHub deployment), which has no Google
+                # identity to grant and must exchange one.
+                "type": "impersonation" if self._hushh_invoker_sa else "workload_identity_federation",
+                "impersonation": {
+                    "bootstrap_service_account": f"one-bootstrap-{slug}@{project}.iam.gserviceaccount.com",
+                    "granted_to": invoker,
+                    "role": "roles/iam.serviceAccountTokenCreator",
+                    "scope": "that ONE service account — never a project-level role",
+                    "token_lifetime": "900s",
+                    "note": (
+                        "hushh mints a 15-minute token per bootstrap session and holds "
+                        "nothing afterwards; revocation is removing this single binding"
+                    ),
+                },
+                "workload_identity_federation": {
+                    "pool": self._wif_pool or "<wif-pool>",
+                    "provider": self._wif_provider or "<wif-provider>",
+                    "applies_to": "a non-Google control plane (CloudHub); unused by the GCP hub",
+                },
             },
             "tunnel": {
                 "inbound": "Hushh A2A gateway -> pod (run.invoker, private ingress)",
@@ -248,17 +293,15 @@ class UserGcpBackend:
         }
 
     async def provision(self, spec: PodSpec) -> BackendHandle:
-        """Plan mode: describe the planned user-owned pod (no call into any project).
+        """Create the pod in the USER's project, or describe it when not live.
 
-        Live provisioning is gated on ``HUSSH_USER_GCP_LIVE`` + a completed WIF
-        bootstrap; it raises until that external setup exists (a real user project +
-        federation cannot be mocked)."""
+        Live provisioning needs ``HUSSH_USER_GCP_LIVE`` **and** a completed bootstrap:
+        the pod's service account, its CMEK bucket and its wrapped log key all come
+        from ``UserGcpBootstrap``, and a pod created without them would boot into a
+        project with nowhere to write and no key to write with.
+        """
         if self._live:
-            raise NotImplementedError(
-                "user-GCP live provisioning requires a completed Workload Identity "
-                "Federation bootstrap in the user's project (see render_bootstrap_plan); "
-                "not yet wired"
-            )
+            return await self._execute_live(spec)
         name = _service_name(spec.hushh_id)
         return BackendHandle(
             external_agent_id=name,
@@ -276,18 +319,106 @@ class UserGcpBackend:
             },
         )
 
+    # -- live execution ----------------------------------------------------------------
+
+    def _client(self) -> Any:
+        """A Cloud Run client pointed at the USER's project, on a borrowed token.
+
+        Deliberately the same ``GcpRunClient`` the managed tier uses, constructed with a
+        different project and a different credential. Two clients would drift, and the
+        whole value of the managed tier is that behaviour observed there transfers.
+        """
+        from hushh_mcp.services.gcp_run_client import GcpRunClient  # noqa: PLC0415
+        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token  # noqa: PLC0415
+
+        if not self._bootstrap_sa:
+            raise RuntimeError(
+                "BYOC provisioning needs HUSSH_USER_GCP_BOOTSTRAP_SA — the account the "
+                "user authorized hushh to impersonate. It is never inferred."
+            )
+        token = mint_bootstrap_token(bootstrap_sa=self._bootstrap_sa)
+        return GcpRunClient(
+            project=self._user_project, region=self._user_region, credentials=_StaticToken(token)
+        )
+
+    async def _execute_live(self, spec: PodSpec) -> BackendHandle:
+        import asyncio  # noqa: PLC0415
+
+        name = _service_name(spec.hushh_id)
+        config = self.render_deploy_config(spec)
+        client = await asyncio.to_thread(self._client)
+
+        existing = await asyncio.to_thread(client.get_service, name)
+        if existing is None:
+            await asyncio.to_thread(client.create_service, config)
+        else:
+            await asyncio.to_thread(
+                client.replace_service, name, client.merge_for_replace(existing, config)
+            )
+
+        ready = await asyncio.to_thread(client.wait_ready, name)
+        # The hushh gateway is invited onto this ONE service. Without it the pod exists
+        # and is reachable by nobody, which reads as a provisioning success and behaves
+        # as a dead agent -- the same failure the managed tier hit and logged for.
+        if self._hushh_invoker_sa:
+            await asyncio.to_thread(
+                client.set_invoker_binding, name, f"serviceAccount:{self._hushh_invoker_sa}"
+            )
+        else:
+            logger.warning(
+                "user_gcp_backend.no_invoker_member service=%s -- HUSSH_CONSENT_PLANE_SA is "
+                "unset, so the hub cannot reach this pod and key collection will fail",
+                name,
+            )
+
+        url = client.service_url(ready)
+        return BackendHandle(
+            external_agent_id=name,
+            a2a_route=f"{A2A_ADDRESS_BASE}/{spec.hushh_id}",
+            status="live" if ready else "deploying",
+            backend=self.backend_id,
+            backend_metadata={
+                "tenancy": "user-owned",
+                "project": self._user_project,
+                "region": spec.region or self._user_region,
+                "service": name,
+                "url": url or "",
+                "ingress": "internal",
+                "image": self._image,
+                "keyless": True,
+                "credential": "impersonated bootstrap SA, 15-minute token",
+            },
+        )
+
     async def deprovision(self, external_agent_id: str) -> None:
         if self._live:
-            raise NotImplementedError(
-                "user-GCP live teardown requires the WIF bootstrap; not yet wired"
-            )
+            import asyncio  # noqa: PLC0415
+
+            client = await asyncio.to_thread(self._client)
+            await asyncio.to_thread(client.delete_service, external_agent_id)
+            logger.info("user_gcp_backend.deprovisioned service=%s", external_agent_id)
+            return None
         logger.info("user_gcp_backend.plan_deprovision service=%s", external_agent_id)
         return None
 
     async def get(self, external_agent_id: str) -> BackendStatus:
         if self._live:
-            raise NotImplementedError(
-                "user-GCP live status requires the WIF bootstrap; not yet wired"
+            import asyncio  # noqa: PLC0415
+
+            client = await asyncio.to_thread(self._client)
+            svc = await asyncio.to_thread(client.get_service, external_agent_id)
+            if svc is None:
+                return BackendStatus(
+                    external_agent_id=(external_agent_id or None), status="missing", healthy=False
+                )
+            conditions = {
+                c.get("type"): c.get("status") for c in svc.get("status", {}).get("conditions", [])
+            }
+            ready = conditions.get("Ready") == "True"
+            return BackendStatus(
+                external_agent_id=(external_agent_id or None),
+                status="live" if ready else "deploying",
+                healthy=ready,
             )
         return BackendStatus(
             external_agent_id=(external_agent_id or None), status="planned", healthy=True
