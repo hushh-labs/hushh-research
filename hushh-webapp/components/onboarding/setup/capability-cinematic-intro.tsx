@@ -96,11 +96,14 @@ export function CapabilityCinematicIntroGate({
   capabilityId,
   children,
   embedded = false,
+  routeOwnsTopOffset = false,
 }: {
   capabilityId: CapabilityCinematicIntroId;
   children: ReactNode;
   /** The owning flow already provides its canonical FullscreenFlowShell. */
   embedded?: boolean;
+  /** The standard route shell already contributes the fixed-header clearance. */
+  routeOwnsTopOffset?: boolean;
 }) {
   const [showIntro, setShowIntro] = useState(true);
   const [shouldFocusCapabilityBody, setShouldFocusCapabilityBody] =
@@ -228,7 +231,10 @@ export function CapabilityCinematicIntroGate({
   if (embedded) return content;
 
   return (
-    <FullscreenFlowShell width="reading">
+    <FullscreenFlowShell
+      width="reading"
+      className={routeOwnsTopOffset ? "!pt-0" : undefined}
+    >
       {content}
     </FullscreenFlowShell>
   );
