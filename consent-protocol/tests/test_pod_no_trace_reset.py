@@ -52,12 +52,32 @@ IDENTITY_SPINE_TABLES = (
 )
 
 
+class _Mappings:
+    """The row-dict view SQLAlchemy returns from ``.mappings()``.
+
+    The cascade reads circle membership through ``.mappings().first()`` /
+    ``.all()``; this double had only ``.scalar()``, so every test here failed with
+    AttributeError rather than exercising the cascade. Empty is the right answer for
+    this fixture -- it owns no rows, and the assertions below are about which
+    statements the cascade ISSUES, which is unaffected by how many rows come back.
+    """
+
+    def first(self) -> Any:
+        return None
+
+    def all(self) -> list:
+        return []
+
+
 class _Result:
     def __init__(self, value: Any) -> None:
         self._value = value
 
     def scalar(self) -> Any:
         return self._value
+
+    def mappings(self) -> _Mappings:
+        return _Mappings()
 
 
 class _RecordingConn:
