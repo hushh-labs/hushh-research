@@ -6909,6 +6909,9 @@ export function OneLocationAgentPageContent({
   );
 
   const handleSkipSaveOnboardingLocation = useCallback(() => {
+    // Dismissing the saved-place picker must stay reversible during onboarding.
+    // Going back and continuing again should offer the picker again.
+    savedLocationPromptedRef.current = false;
     if (auth.userId) {
       PreVaultSensitiveDraftService.clearSavedLocation(auth.userId);
     }
