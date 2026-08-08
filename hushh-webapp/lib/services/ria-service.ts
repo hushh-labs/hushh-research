@@ -177,6 +177,17 @@ export interface RiaOnboardingStatus {
    * filing, null when there is no address at all.
    */
   business_location_source?: "profile" | "sec_record" | null;
+  /**
+   * Where the narrative fields (services, fees, min engagement, bio) came from
+   * when the adviser left them blank: "form_adv_part2" when the claimed Form
+   * ADV Part 2 brochure supplied at least one of them, empty/absent when the
+   * adviser wrote everything shown.
+   */
+  profile_source?: string | null;
+  /** The exact brochure PDF the values were read from. */
+  profile_source_url?: string | null;
+  /** The filing date as the SEC states it (e.g. "1/13/2026") — never reparsed. */
+  profile_source_filed_on?: string | null;
   bio?: string | null;
   strategy?: string | null;
   disclosures_url?: string | null;

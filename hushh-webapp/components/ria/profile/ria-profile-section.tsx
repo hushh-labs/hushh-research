@@ -142,12 +142,63 @@ function RiaProfileSummaryRow({
   );
 }
 
+/**
+ * Provenance for the Services group: the claim reads the adviser's Form ADV
+ * Part 2 brochure and fills only what they left blank, so the caption belongs
+ * to the group and claims no more than "these came from the brochure". The
+ * backend stamps a source ONLY when the brochure actually supplied a value, so
+ * an absent source renders nothing at all — no empty caption, no placeholder.
+ */
+function RiaBrochureSourceCaption({
+  source,
+  url,
+  filedOn,
+}: {
+  source?: string | null;
+  url?: string | null;
+  filedOn?: string | null;
+}) {
+  if (!String(source ?? "").trim()) return null;
+  // The SEC's own date string — shown as filed, never reformatted or reparsed.
+  const filedOnLabel = String(filedOn ?? "").trim();
+  const caption = filedOnLabel
+    ? `From your Form ADV brochure, filed ${filedOnLabel}.`
+    : "From your Form ADV brochure.";
+  const href = String(url ?? "").trim();
+
+  return (
+    <p
+      className="px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-[13px] text-muted-foreground"
+      data-testid="ria-profile-brochure-source"
+    >
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-[color:var(--app-accent)]"
+        >
+          {caption}
+        </a>
+      ) : (
+        caption
+      )}
+    </p>
+  );
+}
+
 function RiaRegulatoryProfileSummary({
   reviewProps,
+  profileSource,
+  profileSourceUrl,
+  profileSourceFiledOn,
   onEditSection,
   onAskKaiUpdateAnything,
 }: {
   reviewProps: RiaProfileReviewSummary;
+  profileSource?: string | null;
+  profileSourceUrl?: string | null;
+  profileSourceFiledOn?: string | null;
   onEditSection: (section: "license" | "services") => void;
   onAskKaiUpdateAnything: () => void;
 }) {
@@ -239,6 +290,11 @@ function RiaRegulatoryProfileSummary({
           onClick={() => onEditSection("services")}
           chevron
           testId="ria-profile-edit-services"
+        />
+        <RiaBrochureSourceCaption
+          source={profileSource}
+          url={profileSourceUrl}
+          filedOn={profileSourceFiledOn}
         />
       </SettingsGroup>
 
@@ -953,6 +1009,9 @@ export function RiaProfileSection({
 
       <RiaRegulatoryProfileSummary
         reviewProps={reviewProps}
+        profileSource={status?.profile_source}
+        profileSourceUrl={status?.profile_source_url}
+        profileSourceFiledOn={status?.profile_source_filed_on}
         onEditSection={handleEditSection}
         onAskKaiUpdateAnything={handleAskKai}
       />
