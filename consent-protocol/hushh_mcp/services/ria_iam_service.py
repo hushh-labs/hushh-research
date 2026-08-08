@@ -4680,6 +4680,23 @@ class RIAIAMService:
             if event and "reference_metadata" in event:
                 event["reference_metadata"] = self._parse_metadata(event["reference_metadata"])
 
+            latest_claim = await conn.fetchrow(
+                """
+                SELECT outcome, checked_at, expires_at, reference_metadata
+                FROM ria_verification_events
+                WHERE ria_profile_id = $1
+                  AND provider = 'ria_identity_claim'
+                ORDER BY checked_at DESC
+                LIMIT 1
+                """,
+                ria["id"],
+            )
+            claim_event = dict(latest_claim) if latest_claim else None
+            if claim_event and "reference_metadata" in claim_event:
+                claim_event["reference_metadata"] = self._parse_metadata(
+                    claim_event["reference_metadata"]
+                )
+
             v2_profile: dict[str, Any] = {}
             try:
                 v2_row = await conn.fetchrow(
@@ -4806,6 +4823,7 @@ class RIAIAMService:
                 "strategy": v2_profile.get("strategy"),
                 "disclosures_url": v2_profile.get("disclosures_url"),
                 "latest_verification_event": event,
+                "latest_claim_event": claim_event,
             }
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc

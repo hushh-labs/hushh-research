@@ -124,6 +124,19 @@ export interface MarketplaceContactMatch {
   profile: MarketplaceRia | MarketplaceInvestor;
 }
 
+/** Parsed claim snapshot persisted in `ria_verification_events.reference_metadata`. */
+export interface RiaClaimEventMetadata {
+  provider?: string;
+  claim_type?: string;
+  firm_record?: Record<string, unknown> | null;
+  advisor_record?: Record<string, unknown> | null;
+  satisfied?: string[];
+  missing?: string[];
+  evidence_ledger?: unknown;
+  verification_level?: string | null;
+  [key: string]: unknown;
+}
+
 export interface RiaOnboardingStatus {
   exists: boolean;
   ria_profile_id?: string;
@@ -168,6 +181,18 @@ export interface RiaOnboardingStatus {
     checked_at: string;
     expires_at?: string | null;
     reference_metadata?: Record<string, unknown>;
+  } | null;
+  /**
+   * The durable `ria_identity_claim` snapshot (provider-filtered server-side so
+   * later refresh-license / onboarding events can't shadow it). Null when the
+   * profile was never claimed by phone. `reference_metadata` also carries raw
+   * phone digits — render selected keys only, never the whole object.
+   */
+  latest_claim_event?: {
+    outcome: string;
+    checked_at: string;
+    expires_at?: string | null;
+    reference_metadata?: RiaClaimEventMetadata;
   } | null;
   latest_advisory_event?: {
     outcome: string;
@@ -320,6 +345,17 @@ export interface RiaClaimCompleteResult {
   provisional: boolean;
   profile: RiaClaimProfileSummary;
   facts?: RiaClaimProfileFacts | null;
+}
+
+export interface RiaClaimEmailStartResult {
+  status: "sent" | "already_verified" | "send_failed" | (string & {});
+  email_masked?: string | null;
+}
+
+export interface RiaClaimEmailConfirmResult {
+  verified: boolean;
+  verification_status: string;
+  verification_level?: string | null;
 }
 
 export interface RiaLicenseVerificationResult {
@@ -1684,6 +1720,40 @@ export class RiaService {
       body: payload,
     });
     return toJsonOrThrow<RiaClaimCompleteResult>(response);
+  }
+
+  static async claimEmailStart(
+    idToken: string,
+    payload: { email: string },
+  ): Promise<RiaClaimEmailStartResult> {
+    const response = await authFetch("/api/ria/claim/email/start", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    // Mail is best-effort upstream: a queue failure comes back as a 502 with
+    // {status:"send_failed"} and the alias ceremony still stands. Surface it as
+    // a result so the UI can offer Retry instead of a thrown error.
+    if (response.status === 502) {
+      const body = (await response
+        .json()
+        .catch(() => null)) as RiaClaimEmailStartResult | null;
+      if (body?.status === "send_failed") return body;
+      throw new RiaApiError("Couldn't send the code.", 502);
+    }
+    return toJsonOrThrow<RiaClaimEmailStartResult>(response);
+  }
+
+  static async claimEmailConfirm(
+    idToken: string,
+    payload: { email: string; code: string },
+  ): Promise<RiaClaimEmailConfirmResult> {
+    const response = await authFetch("/api/ria/claim/email/confirm", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    return toJsonOrThrow<RiaClaimEmailConfirmResult>(response);
   }
 
   static async verifyOnboardingLicense(
