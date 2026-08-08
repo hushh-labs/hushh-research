@@ -32,7 +32,9 @@ import {
 import {
   CONSENT_ACTION_COMPLETE_EVENT,
   CONSENT_STATE_CHANGED_EVENT,
+  dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
+import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import {
@@ -131,6 +133,11 @@ export function isIncomingLocationRequestActionable(
     request.ownerUserId === userId &&
     request.requesterUserId !== userId
   );
+}
+
+export function notifyFeedActionResolved(): void {
+  dispatchConsentStateChanged({ source: "feed_actionable" });
+  dispatchFeedStateChanged();
 }
 
 export function useFeedActionables(): UseFeedActionablesResult {
@@ -336,6 +343,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                 requestId: request.id,
               });
               if (userId) OneLocationStateResource.invalidate(userId);
+              notifyFeedActionResolved();
               await locationRefresh({ force: true });
             },
           },
@@ -352,6 +360,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                 durationHours: 1,
               });
               if (userId) OneLocationStateResource.invalidate(userId);
+              notifyFeedActionResolved();
               await locationRefresh({ force: true });
             },
           },
@@ -404,6 +413,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                     requestId: request.id,
                   });
                   CacheSyncService.onConnectionCapabilityMutated(userId);
+                  notifyFeedActionResolved();
                   await connectionsRefresh({ force: true });
                 },
               },
@@ -420,6 +430,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                     requestId: request.id,
                   });
                   CacheSyncService.onConnectionCapabilityMutated(userId);
+                  notifyFeedActionResolved();
                   await connectionsRefresh({ force: true });
                 },
               },
