@@ -323,6 +323,8 @@ pod_invoker_member=""
 pod_turn_enabled=""
 dev_simulation_enabled=""
 dev_phone_test_numbers=""
+dev_pod_state_bucket=""
+dev_pod_key_master_secret=""
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   # The simulation opt-in. hussh-managed pods are the SIMULATION tier under
   # docs/reference/architecture/private-agent-north-star.md, so GcpBackend now
@@ -344,6 +346,20 @@ if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   # HUSHH_DEV_PHONE_TEST_CODE the lane is dark, because _phone_test_enabled()
   # needs both. Numbers without a code is the correct fail-closed default.
   dev_phone_test_numbers="+15550100,+15550101,+15550102,+15550103,+15550104"
+  # Durable pod state. Both halves or neither: `gcp_backend._durable_state_env`
+  # emits the storage block only when a bucket AND a key master are present,
+  # because `resolve_pod_storage` fails LOUD on a partial config -- so half a
+  # config would turn a missing setting into a pod that refuses to boot.
+  #
+  # Without these a pod runs storage=Null with memory off and forgets everything
+  # the moment it stops. That is merely lossy on the warm tier and fatal on the
+  # economy tier, where going cold and waking again is the design.
+  #
+  # The bucket is hushh-owned because this is the SIMULATION tier. On BYO GCP the
+  # bucket is the user's own CMEK bucket from `render_bootstrap_plan`, and the
+  # log key comes from their own KMS key rather than from any hushh master.
+  dev_pod_state_bucket="${PROJECT_ID}-pod-state"
+  dev_pod_key_master_secret="HUSSH_POD_KEY_MASTER"
   personal_agent_enabled="true"
   personal_agent_backend="gcp"
   # Creating a pod is a BILLABLE act, which is why this is a separate switch from
@@ -381,6 +397,15 @@ append_optional_env "HUSSH_POD_INVOKER_MEMBER" "${pod_invoker_member}"
 append_optional_env "HUSSH_POD_TURN_ENABLED" "${pod_turn_enabled}"
 append_optional_env "HUSHH_DEV_SIMULATION_ENABLED" "${dev_simulation_enabled}"
 append_optional_env "HUSHH_DEV_PHONE_TEST_NUMBERS" "${dev_phone_test_numbers}"
+append_optional_env "POD_STORAGE_GCS_BUCKET" "${dev_pod_state_bucket}"
+# The other half of durable state. A SECRET, not an env literal: it derives every
+# managed pod's sealing keys, so it is the one value that must never appear in a
+# deploy log or a service description. append_optional_secret probes Secret Manager
+# and, when the secret is absent, logs "Skipping optional secret" and moves on --
+# which pairs with `custody_configured()` returning False, so the hub renders pods
+# without durability rather than failing the deploy. Read that line in the build log
+# before concluding durability is on.
+append_optional_secret "${dev_pod_key_master_secret}" "HUSSH_POD_KEY_MASTER"
 
 # Join with '|' (not ',') so env VALUES may themselves contain commas.
 # Paired with gcloud's alternate-delimiter syntax on --set-env-vars below.

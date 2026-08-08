@@ -60,6 +60,15 @@ REQUIRED_ENV = (
     ("HUSSH_POD_SIGNING_KEY_SECRET", "a pod cannot boot without APP_SIGNING_KEY"),
     ("HUSSH_POD_INVOKER_MEMBER", "unset means the pod is invokable by nobody"),
     ("HUSSH_POD_TURN_ENABLED", "whether a pod may run a turn at all"),
+    # Durable state. Checked on the HUB because that is where they live: the hub
+    # reads both at construction and `_durable_state_env` emits a pod's storage
+    # block only when BOTH are present -- so a hub missing either renders
+    # EPHEMERAL pods while every other check on this page still passes. That
+    # silence is the whole reason they are listed. The failure mode is a pod that
+    # works perfectly until it stops, which on the economy tier (min-instances 0)
+    # is not an incident but the design.
+    ("POD_STORAGE_GCS_BUCKET", "where a pod's sealed commit log persists"),
+    ("HUSSH_POD_KEY_MASTER", "derives each pod's own sealing keys; a secret, never a literal"),
 )
 
 
