@@ -760,7 +760,7 @@ export class PkmUpgradeOrchestrator {
     stepPlan: PkmUpgradeStepPlan;
     mode: PkmUpgradeMode;
     runId: string | null;
-  }): Promise<{
+  }): Promise<{ skippedMissingBlob: true } | {
     domainBlobDataVersion: number | undefined;
     domainManifestRevision: number;
     upgradedDomainData: Record<string, unknown>;
@@ -792,7 +792,11 @@ export class PkmUpgradeOrchestrator {
     });
     const domainSnapshot = loadedSnapshot.snapshot;
     if (!domainSnapshot) {
-      throw new Error(`No encrypted PKM domain blob found for ${params.stepDomain}.`);
+      // A domain can be listed by discovery flags alone (a server-side
+      // summary written before any encrypted blob exists). Nothing to
+      // upgrade — skip the step instead of failing the run on every
+      // app entry against a stale server status.
+      return { skippedMissingBlob: true } as const;
     }
     const domainData = loadedSnapshot.data;
     if (!domainData) {
@@ -1129,6 +1133,20 @@ export class PkmUpgradeOrchestrator {
         mode: run.mode || "real",
         runId: run.runId,
       });
+      if ("skippedMissingBlob" in prepared) {
+        return await PkmUpgradeService.updateStep({
+          runId: run.runId,
+          domain: params.stepDomain,
+          userId: params.userId,
+          status: "completed",
+          checkpointPayload: {
+            stage: "skipped_missing_blob",
+            current_domain: params.stepDomain,
+          },
+          attemptCount: attempt,
+          vaultOwnerToken: params.vaultOwnerToken,
+        });
+      }
       const upgradeClaim = await PkmUpgradeService.issueClaim({
         runId: run.runId,
         domain: params.stepDomain,
@@ -1282,6 +1300,16 @@ export class PkmUpgradeOrchestrator {
       mode: params.mode,
       runId: null,
     });
+    if ("skippedMissingBlob" in prepared) {
+      return {
+        manifestReadMs: 0,
+        decryptLoadMs: 0,
+        transformMs: 0,
+        structureRebuildMs: 0,
+        validationMs: 0,
+        totalMs: 0,
+      };
+    }
 
     AppBackgroundTaskService.updateTask(params.taskId, {
       metadata: {

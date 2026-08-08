@@ -284,6 +284,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const activeRuntimeModeRef = useRef<"hushh_managed_vertex" | "byok" | null>(null);
   const lastTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
   const prewarmedRelayRef = useRef<PrewarmedGeminiRelay | null>(null);
+  const relayMintInFlightRef = useRef(false);
+  const relayMintCooldownUntilRef = useRef(0);
+  const relayMintBackoffMsRef = useRef(5_000);
   // Idle-close precaution: any live-session activity (speech, thinking, tool
   // results, navigation) reschedules this timer; if it ever fires, the
   // session has been silent for AGENT_BAR_VOICE_IDLE_TIMEOUT_MS and is closed
@@ -1221,10 +1224,26 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
 
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      // Context (screen, consent token) rides in post-connect app_context
-      // frames, so the prewarmed URL only carries the opaque relay ticket.
+      // The snapshot identity churns on every navigation and cache event, so
+      // this effect re-fires constantly. The ticket is context-free (context
+      // rides in post-connect app_context frames) — reuse an unexpired one,
+      // never mint concurrently, and back off after a rate limit instead of
+      // hammering the relay endpoint on every snapshot change.
+      const existing = prewarmedRelayRef.current;
+      if (
+        existing &&
+        existing.accessTier === accessTier &&
+        existing.expiresAtMs > Date.now()
+      ) {
+        return;
+      }
+      if (relayMintInFlightRef.current) return;
+      if (Date.now() < relayMintCooldownUntilRef.current) return;
+      relayMintInFlightRef.current = true;
       void ApiService.getOneAdkLiveRelayUrl({ signal: controller.signal })
         .then((relayUrl) => {
+          relayMintInFlightRef.current = false;
+          relayMintBackoffMsRef.current = 5_000;
           if (controller.signal.aborted) return;
           prewarmedRelayRef.current = {
             relayUrl,
@@ -1233,7 +1252,20 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             accessTier,
           };
         })
-        .catch(() => {
+        .catch((error: unknown) => {
+          relayMintInFlightRef.current = false;
+          const status =
+            typeof error === "object" && error !== null
+              ? Number((error as { status?: unknown }).status)
+              : NaN;
+          if (status === 429) {
+            relayMintCooldownUntilRef.current =
+              Date.now() + relayMintBackoffMsRef.current;
+            relayMintBackoffMsRef.current = Math.min(
+              relayMintBackoffMsRef.current * 2,
+              60_000,
+            );
+          }
           if (!controller.signal.aborted) {
             prewarmedRelayRef.current = null;
           }
