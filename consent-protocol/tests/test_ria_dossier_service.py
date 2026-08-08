@@ -37,6 +37,7 @@ class _FakeDossierDb:
         self.claimed: dict[tuple[str, str], int] = {}
         self.rows: dict[int, dict[str, Any]] = {}
         self.insert_attempts = 0
+        self.generate_attempts = 0
         self.next_id = 1
         self.display_name = display_name
 
@@ -61,6 +62,14 @@ class _FakeConn:
             if self._db.display_name is None:
                 return None
             return {"display_name": self._db.display_name}
+        if normalized.startswith("UPDATE ria_claim_dossiers SET status = 'generated'"):
+            # The single-winner transition: only a row still `scanning` flips.
+            row = self._db.rows.setdefault(int(args[0]), {})
+            self._db.generate_attempts += 1
+            if row.get("status") != "scanning" or row.get("completed_at") is not None:
+                return None
+            row.update(status="generated", result_markdown=args[1], result_summary=args[2])
+            return {"id": int(args[0])}
         raise AssertionError(f"unexpected fetchrow: {normalized}")
 
     async def execute(self, query: str, *args: Any) -> str:
@@ -299,6 +308,7 @@ def test_scan_payload_forwards_only_public_facts():
         reference_metadata=_reference_metadata(claim_ticket="ria-claim-ticket.v1:1:abc"),
         email="reg@gmail.com",
         display_name="Reginald Troy Maxfield",
+        zip_code="84094",
     )
     assert error == ""
     assert payload is not None
@@ -327,30 +337,13 @@ def test_scan_payload_forwards_only_public_facts():
     assert payload["socialPreferenceConsent"] is False
 
 
-def test_scan_payload_private_residence_uses_firm_zip():
-    metadata = _reference_metadata()
-    metadata["advisor_record"]["branch"]["private_residence"] = True
+def test_scan_payload_without_a_zip_is_no_location():
     payload, error = RIADossierService._build_scan_payload(
         claim_type="individual",
-        reference_metadata=metadata,
+        reference_metadata=_reference_metadata(),
         email="reg@gmail.com",
         display_name="Reginald Troy Maxfield",
-    )
-    assert error == ""
-    assert payload is not None
-    assert payload["zipCode"] == "84070"
-    assert "84094" not in json.dumps(payload)
-
-
-def test_scan_payload_without_any_zip_is_no_location():
-    metadata = _reference_metadata()
-    metadata["advisor_record"]["branch"]["zip"] = None
-    metadata["firm_record"]["zip"] = None
-    payload, error = RIADossierService._build_scan_payload(
-        claim_type="individual",
-        reference_metadata=metadata,
-        email="reg@gmail.com",
-        display_name="Reginald Troy Maxfield",
+        zip_code="",
     )
     assert payload is None
     assert error == "no_location"
@@ -364,6 +357,7 @@ def test_scan_payload_firm_claim_anchors_on_firm_record():
         reference_metadata=metadata,
         email="reg@gmail.com",
         display_name="Olympus Peaks Financial, LLC",
+        zip_code="84070",
     )
     assert error == ""
     assert payload is not None
@@ -372,6 +366,95 @@ def test_scan_payload_firm_claim_anchors_on_firm_record():
         "https://adviserinfo.sec.gov/firm/summary/283040"
     )
     assert payload["zipCode"] == "84070"
+
+
+# ---------------------------------------------------------------------------
+# Scan location — the scan API rejects a body with neither zipCode nor lat/lng,
+# so this chain is the difference between a dossier and no dossier at all.
+# ---------------------------------------------------------------------------
+
+
+def _zip_service(lookups: dict[str, str] | None = None) -> tuple[RIADossierService, list[str]]:
+    """A service whose place lookup is a recorded dictionary, never the network."""
+    service = RIADossierService()
+    asked: list[str] = []
+    table = lookups or {}
+
+    async def _fake_lookup(query: str) -> str:
+        asked.append(query)
+        return table.get(query, "")
+
+    service._maps_postal_code = _fake_lookup  # type: ignore[method-assign]
+    return service, asked
+
+
+async def test_zip_prefers_the_published_branch_zip():
+    service, asked = _zip_service()
+    zip_code, source = await service._resolve_scan_zip(_reference_metadata())
+    assert (zip_code, source) == ("84094", "branch")
+    assert asked == []  # published data needs no lookup
+
+
+async def test_zip_falls_back_to_the_firm_when_the_branch_is_a_residence():
+    metadata = _reference_metadata()
+    metadata["advisor_record"]["branch"]["private_residence"] = True
+    service, asked = _zip_service()
+    zip_code, source = await service._resolve_scan_zip(metadata)
+    assert (zip_code, source) == ("84070", "firm")
+    assert asked == []
+
+
+def _zipless_metadata() -> dict[str, Any]:
+    """The live failure shape: a published city and state, but a null zip.
+
+    Copied from the record that stranded a real claim at ``no_location`` —
+    CRD 1139833 at CYPRESS POINT CAPITAL MANAGEMENT, whose firm and branch
+    both carry a city and state with street1/street2/zip all null.
+    """
+    metadata = _reference_metadata()
+    metadata["firm_record"].update(
+        name="CYPRESS POINT CAPITAL MANAGEMENT, LLC", city="MENDOCINO", state="CA", zip=None
+    )
+    metadata["advisor_record"]["branch"].update(zip=None)
+    return metadata
+
+
+async def test_zip_is_recovered_from_the_firm_listing_when_iapd_publishes_none():
+    service, asked = _zip_service(
+        {"CYPRESS POINT CAPITAL MANAGEMENT, LLC, MENDOCINO, CA": "95460"},
+    )
+    zip_code, source = await service._resolve_scan_zip(_zipless_metadata())
+    assert (zip_code, source) == ("95460", "firm_place")
+    assert asked == ["CYPRESS POINT CAPITAL MANAGEMENT, LLC, MENDOCINO, CA"]
+
+
+async def test_zip_falls_back_to_the_firm_city_when_the_firm_is_unlisted():
+    service, asked = _zip_service({"MENDOCINO, CA, USA": "95460"})
+    zip_code, source = await service._resolve_scan_zip(_zipless_metadata())
+    assert (zip_code, source) == ("95460", "firm_city")
+    assert len(asked) == 2  # the firm listing was tried first and missed
+
+
+async def test_zip_never_looks_up_a_private_residence_city():
+    """Privacy holds at every precision: a home is not a location source."""
+    metadata = _zipless_metadata()
+    metadata["firm_record"].update(city=None, name=None)
+    metadata["advisor_record"]["branch"].update(city="PARK CITY", private_residence=True)
+    service, asked = _zip_service()
+    zip_code, source = await service._resolve_scan_zip(metadata)
+    assert (zip_code, source) == ("", "")
+    assert not any("PARK CITY" in query for query in asked)
+
+
+async def test_zip_lookup_failure_is_not_a_worker_failure():
+    metadata = _zipless_metadata()
+    service, _asked = _zip_service()
+
+    async def _boom(query: str) -> str:
+        raise RuntimeError("maps down")
+
+    service._maps_postal_code = _boom  # type: ignore[method-assign]
+    assert await service._resolve_scan_zip(metadata) == ("", "")
 
 
 # ---------------------------------------------------------------------------
@@ -428,6 +511,51 @@ async def test_worker_happy_path_persists_markdown_and_mails(monkeypatch):
     assert mail_calls[0]["to_email"] == "reg@gmail.com"
     assert mail_calls[0]["first_name"] == "Reginald Troy Maxfield"
     assert [request.method for request in http_calls] == ["POST", "GET"]
+
+
+async def test_a_resumed_worker_polls_the_existing_scan_instead_of_starting_one(monkeypatch):
+    """Reviving a stranded row must cost one poll, never a second scan."""
+    mail_calls = _install_mail_stub(monkeypatch)
+    _set_scan_env(monkeypatch)
+    http_calls: list[httpx.Request] = []
+    service, db, _identity = _make_service(monkeypatch, handler=_happy_scan_handler(http_calls))
+    db.rows[7] = {"status": "scanning", "user_id": _TEST_UID}
+
+    await service._run_worker(
+        dossier_id=7,
+        user_id=_TEST_UID,
+        ria_profile_id=_PROFILE_ID,
+        claim_type="individual",
+        reference_metadata=_reference_metadata(),
+        resume_scan_id="scan-1",
+    )
+
+    assert [request.method for request in http_calls] == ["GET"]  # no POST: no new scan
+    assert db.rows[7]["status"] == "sent"
+    assert len(mail_calls) == 1
+
+
+async def test_the_worker_that_loses_the_generate_race_mails_nothing(monkeypatch):
+    """Two workers on one row (a resume beside the original) send one email."""
+    mail_calls = _install_mail_stub(monkeypatch)
+    _set_scan_env(monkeypatch)
+    http_calls: list[httpx.Request] = []
+    service, db, _identity = _make_service(monkeypatch, handler=_happy_scan_handler(http_calls))
+    # Already past `scanning` — exactly the state the winner leaves behind.
+    db.rows[7] = {"status": "generated", "user_id": _TEST_UID}
+
+    await service._run_worker(
+        dossier_id=7,
+        user_id=_TEST_UID,
+        ria_profile_id=_PROFILE_ID,
+        claim_type="individual",
+        reference_metadata=_reference_metadata(),
+        resume_scan_id="scan-1",
+    )
+
+    assert db.generate_attempts == 1
+    assert db.rows[7]["status"] == "generated"  # untouched by the loser
+    assert mail_calls == []
 
 
 async def test_worker_blocked_without_email_makes_no_http_call(monkeypatch):

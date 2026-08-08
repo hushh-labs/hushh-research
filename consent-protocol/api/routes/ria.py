@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets
 from typing import Annotated, Any, Literal
 
@@ -36,6 +37,8 @@ from hushh_mcp.services.ria_iam_service import (
     RIAIAMPolicyError,
     RIAIAMService,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ria", tags=["RIA"])
 
@@ -1044,7 +1047,7 @@ _DOSSIER_MAIL_STATUSES = {
 async def _fetch_own_dossier_row(conn: Any, user_id: str, *, for_update: bool = False) -> Any:
     """Latest dossier row belonging to the caller — never anyone else's."""
     query = """
-        SELECT id, status, result_summary, result_markdown, requested_at,
+        SELECT id, status, scan_id, result_summary, result_markdown, requested_at,
                completed_at, mail_recipient, mail_intended_recipient
         FROM ria_claim_dossiers
         WHERE user_id = $1
@@ -1104,6 +1107,55 @@ def _redispatch_dossier(*, dossier_id: int, user_id: str, context: dict[str, Any
     ria_dossier_service._track_background_task(task)
 
 
+# Dossier rows whose poll this instance is already resuming, so a page that
+# reloads twice does not stack workers on one row.
+_DOSSIER_RESUMING: set[int] = set()
+
+
+async def _resume_stalled_dossier(row: Any, user_id: str) -> None:
+    """Re-enter the poll for a row left mid-scan, if one is stalled.
+
+    The worker is an in-process background task on a CPU-throttled Cloud Run
+    service: once an instance stops receiving requests its CPU is withdrawn,
+    the poll freezes mid-flight, and the row is stranded in `scanning` forever
+    with the scan itself finishing perfectly well upstream. The read that
+    renders the card is a request, so it is also the thing that can revive the
+    poll — the scan id is already durable on the row, so resuming costs one
+    poll rather than a new scan.
+    """
+    if str(row["status"] or "") != "scanning" or row["completed_at"] is not None:
+        return
+    scan_id = str(row["scan_id"] or "").strip()
+    dossier_id = int(row["id"])
+    if not scan_id or dossier_id in _DOSSIER_RESUMING:
+        return
+    context = await _load_dossier_claim_context(user_id)
+    if context is None:
+        return
+
+    from hushh_mcp.services import ria_dossier_service
+
+    metadata_raw = context.get("metadata")
+    metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
+    service = ria_dossier_service.RIADossierService()
+    _DOSSIER_RESUMING.add(dossier_id)
+
+    async def _run() -> None:
+        try:
+            await service._run_worker(
+                dossier_id=dossier_id,
+                user_id=user_id,
+                ria_profile_id=str(context.get("ria_profile_id") or ""),
+                claim_type=str(metadata.get("claim_type") or ""),
+                reference_metadata=metadata,
+                resume_scan_id=scan_id,
+            )
+        finally:
+            _DOSSIER_RESUMING.discard(dossier_id)
+
+    ria_dossier_service._track_background_task(asyncio.create_task(_run()))
+
+
 @router.get("/dossier")
 @limiter.limit("20/minute")
 async def ria_dossier_status(
@@ -1120,6 +1172,10 @@ async def ria_dossier_status(
         row = None
     if row is None:
         raise HTTPException(status_code=404, detail="No dossier yet.")
+    try:
+        await _resume_stalled_dossier(row, firebase_uid)
+    except Exception:  # noqa: BLE001 - reviving the poll never fails the read
+        logger.warning("ria.dossier_resume_failed", exc_info=True)
     return _shape_dossier_row(row)
 
 

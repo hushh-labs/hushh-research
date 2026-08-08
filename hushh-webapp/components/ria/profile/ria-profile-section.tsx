@@ -533,6 +533,21 @@ function RiaEmailVerifyCard({ onVerified }: { onVerified: () => Promise<void> })
  * above. `blocked_no_email` is visible but not retryable (there is no address
  * to retry against until the user signs in with one).
  */
+/** Scan cadence while the dossier is in flight, and the ceiling for it. */
+const DOSSIER_POLL_INTERVAL_MS = 10_000;
+const DOSSIER_POLL_LIMIT_MS = 35 * 60_000;
+
+/**
+ * What actually failed, in the user's words. "Couldn't send" used to cover a
+ * scan that never started, which reads as a mail problem and sends anyone
+ * debugging it to the wrong lane.
+ */
+function dossierFailureLabel(status: string): string {
+  if (status === "scan_failed") return "Couldn't build it.";
+  if (status === "blocked_no_email") return "No email on your account to send it to.";
+  return "Couldn't send.";
+}
+
 function RiaDossierCard() {
   const { user } = useAuth();
   const [dossier, setDossier] = useState<RiaDossier | null>(null);
@@ -542,17 +557,32 @@ function RiaDossierCard() {
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    void (async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let elapsedMs = 0;
+
+    const read = async (): Promise<void> => {
       try {
         const idToken = await user.getIdToken();
         const row = await RiaService.getDossier(idToken);
-        if (!cancelled) setDossier(row);
+        if (cancelled) return;
+        setDossier(row);
+        // Keep reading while the scan is still in flight. The read is also
+        // what revives a poll the backend lost, so stopping early would leave
+        // "Preparing…" on screen forever with nothing driving it.
+        const inFlight = row?.status === "queued" || row?.status === "scanning";
+        if (inFlight && elapsedMs < DOSSIER_POLL_LIMIT_MS) {
+          elapsedMs += DOSSIER_POLL_INTERVAL_MS;
+          timer = setTimeout(() => void read(), DOSSIER_POLL_INTERVAL_MS);
+        }
       } catch {
         // Best-effort surface: an unreadable row renders nothing.
       }
-    })();
+    };
+
+    void read();
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [user]);
 
@@ -616,7 +646,7 @@ function RiaDossierCard() {
           <div className="min-w-0">
             <p className="text-[15px] font-semibold">Your dossier</p>
             <p className="mt-0.5 text-[13px] text-destructive">
-              Couldn&apos;t send.
+              {dossierFailureLabel(dossier.status)}
             </p>
           </div>
           {retryable ? (
