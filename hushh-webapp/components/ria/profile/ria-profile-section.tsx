@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -611,11 +611,24 @@ export function RiaProfileSection({
   // Covers "setup" (never onboarded) AND the split-brain case where the persona
   // still reports 'ria' but the profile row is gone (exists:false). Skipped while
   // a delete is in flight (that navigates to One home itself) and while loading.
+  //
+  // ONE attempt only. The onboarding page redirects an established adviser
+  // straight back here, so when the two disagree — a stale cached status against
+  // a correct persona — an unbounded redirect becomes an infinite bounce that
+  // renders as a permanent "Loading profile..." with no network traffic and no
+  // console error. After one try we stop redirecting and show the real screen.
+  const onboardingRedirectAttemptedRef = useRef(false);
+  const [redirectSettled, setRedirectSettled] = useState(false);
   useEffect(() => {
     if (personaLoading || personaRefreshing || deleting || loading) return;
-    if (riaCapability === "setup" || status?.exists === false) {
-      router.replace(ROUTES.RIA_ONBOARDING);
-    }
+    if (riaCapability !== "setup" && status?.exists !== false) return;
+    if (onboardingRedirectAttemptedRef.current) return;
+    onboardingRedirectAttemptedRef.current = true;
+    router.replace(ROUTES.RIA_ONBOARDING);
+    // If the navigation lands, this component unmounts and the timer dies with
+    // it. If it bounces back, this fires and the screen stops waiting.
+    const timer = window.setTimeout(() => setRedirectSettled(true), 1500);
+    return () => window.clearTimeout(timer);
   }, [
     personaLoading,
     personaRefreshing,
@@ -852,8 +865,11 @@ export function RiaProfileSection({
   // When the profile resolves to "setup / no profile", the effect above redirects
   // to onboarding. Render the neutral skeleton (not the empty profile body) until
   // that navigation lands, so the profile never flashes empty before redirecting.
+  // `redirectSettled` ends the wait when the navigation never lands, so this is a
+  // brief skeleton rather than a dead end.
   const pendingOnboardingRedirect =
     !deleting &&
+    !redirectSettled &&
     riaCapability !== "disabled" &&
     (riaCapability === "setup" || status?.exists === false);
 
@@ -872,6 +888,40 @@ export function RiaProfileSection({
         title="RIA profile is waiting on the IAM rollout"
         description="This environment needs the IAM schema before your advisor profile can load."
       />
+    );
+  }
+
+  // The redirect to onboarding did not land (the two screens disagree about
+  // whether this adviser exists). Say so and offer the way out, instead of
+  // spinning forever or rendering an empty profile body.
+  if (riaCapability === "setup" || status?.exists === false) {
+    return (
+      <div className="space-y-4 rounded-[22px] border border-[color:var(--border)] bg-[color:var(--card)] p-5">
+        <div>
+          <p className="text-[16px] font-semibold">We couldn&apos;t load your profile</p>
+          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+            Your adviser profile didn&apos;t come back. Try again, or set it up.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            onClick={() => {
+              void onRefresh(true);
+              void refresh({ force: true });
+            }}
+            data-testid="ria-profile-missing-retry"
+          >
+            Try again
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => router.push(ROUTES.RIA_ONBOARDING)}
+            data-testid="ria-profile-missing-setup"
+          >
+            Set up profile
+          </Button>
+        </div>
+      </div>
     );
   }
 
