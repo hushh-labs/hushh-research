@@ -68,6 +68,10 @@ steps:
   # --max/--min: service-level limits bound aggregate database fan-out across
   # traffic splits. Revision min-instances=0 prevents no-traffic/retired
   # revisions from pinning their own warm database pools.
+  # Step 3a: Validate the runtime identity + managed-Vertex IAM prerequisites.
+  # Split out of the deploy step: Cloud Build caps one step arg at 10,000 chars
+  # and the deploy body was 142 over after the INTELLIGENCE_* secret wiring.
+  # A separate step gets its own budget; failure here stops the build the same way.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
     args:
@@ -121,6 +125,25 @@ steps:
             exit 1
           fi
         fi
+    id: "verify-runtime-iam"
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        genai_project_id="${_GENAI_PROJECT_ID}"
+        if [[ -z "${genai_project_id}" ]]; then
+          genai_project_id="$PROJECT_ID"
+          if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+            genai_project_id="hushh-pda-uat"
+          fi
+        fi
+        if [[ "${genai_project_id}" != "$PROJECT_ID" && "${_DEPLOY_ENV}" != "dev" ]]; then
+          echo "Cross-project managed Vertex is allowed only for the isolated dev lane." >&2
+          exit 1
+        fi
         add_secret() {
           local secret_name="$1"
           local env_name="$2"
@@ -170,6 +193,8 @@ steps:
         add_secret "${_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET}" "RIA_INTELLIGENCE_VERIFY_BASE_URL"
         add_secret "${_RIA_IDENTITY_BASE_URL_SECRET}" "RIA_IDENTITY_BASE_URL"
         add_secret "${_RIA_IDENTITY_API_KEY_SECRET}" "RIA_IDENTITY_API_KEY"
+        add_secret "${_INTELLIGENCE_API_BASE_URL_SECRET}" "INTELLIGENCE_API_BASE_URL"
+        add_secret "${_INTELLIGENCE_API_KEY_SECRET}" "INTELLIGENCE_API_KEY"
         add_secret "${_RIA_CLAIM_TEST_NUMBERS_SECRET}" "RIA_CLAIM_TEST_NUMBERS"
         add_secret "${_RIA_CLAIM_TEST_CODE_SECRET}" "RIA_CLAIM_TEST_CODE"
         add_secret "${_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET}" "ONE_EMAIL_WATCH_RENEW_TOKEN"
@@ -370,6 +395,8 @@ substitutions:
   _RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET: ""
   _RIA_IDENTITY_BASE_URL_SECRET: ""
   _RIA_IDENTITY_API_KEY_SECRET: ""
+  _INTELLIGENCE_API_BASE_URL_SECRET: ""
+  _INTELLIGENCE_API_KEY_SECRET: ""
   # Claim demo passcode allowlist. Never pass these in production lanes; the
   # regulated runtime guard refuses boot if they are set there.
   _RIA_CLAIM_TEST_NUMBERS_SECRET: ""

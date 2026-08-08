@@ -47,10 +47,15 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ProseMarkdown } from "@/components/research/prose-markdown";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePersonaState } from "@/lib/persona/persona-context";
-import { RiaService, type RiaOnboardingStatus } from "@/lib/services/ria-service";
+import {
+  RiaService,
+  type RiaDossier,
+  type RiaOnboardingStatus,
+} from "@/lib/services/ria-service";
 import { RiaOnboardingDraftLocalService } from "@/lib/services/ria-onboarding-draft-local-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
@@ -455,6 +460,118 @@ function RiaEmailVerifyCard({ onVerified }: { onVerified: () => Promise<void> })
 }
 
 /**
+ * The background-dossier row. Claiming dispatches a fire-and-forget scan+mail
+ * pipeline whose outcome lands in one durable row (`GET /ria/dossier`); this
+ * card renders that row's state machine: preparing → open-in-app markdown →
+ * retryable failure. The in-app artifact is the record and the mail is a copy
+ * ("sent" only means handed to Gmail), so `generated` and `sent` render the
+ * same. No row (404) or an unreadable row ⇒ nothing renders; a failed send is
+ * always visible with Retry, never silent — same contract as the email card
+ * above. `blocked_no_email` is visible but not retryable (there is no address
+ * to retry against until the user signs in with one).
+ */
+function RiaDossierCard() {
+  const { user } = useAuth();
+  const [dossier, setDossier] = useState<RiaDossier | null>(null);
+  const [open, setOpen] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        const row = await RiaService.getDossier(idToken);
+        if (!cancelled) setDossier(row);
+      } catch {
+        // Best-effort surface: an unreadable row renders nothing.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  const handleRetry = useCallback(async () => {
+    if (!user || retrying) return;
+    setRetrying(true);
+    try {
+      const idToken = await user.getIdToken();
+      setDossier(await RiaService.retryDossier(idToken));
+    } catch {
+      // The row keeps its failed status; Retry stays available.
+    } finally {
+      setRetrying(false);
+    }
+  }, [retrying, user]);
+
+  if (!dossier) return null;
+
+  const preparing =
+    dossier.status === "queued" || dossier.status === "scanning";
+  const ready = dossier.status === "generated" || dossier.status === "sent";
+  const retryable =
+    dossier.status === "scan_failed" ||
+    dossier.status === "send_failed" ||
+    dossier.status === "send_blocked_test_unset";
+  const blocked = dossier.status === "blocked_no_email";
+  if (!preparing && !ready && !retryable && !blocked) return null;
+
+  return (
+    <div
+      data-testid="ria-dossier-card"
+      className="space-y-3 rounded-[22px] border border-[color:var(--border)] bg-[color:var(--card)] p-4 shadow-[0_8px_24px_rgba(62,48,30,0.05)]"
+    >
+      {preparing ? (
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          <p className="text-[15px] font-semibold">Preparing your dossier…</p>
+        </div>
+      ) : null}
+      {ready ? (
+        <>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[15px] font-semibold">Your dossier</p>
+            <Button
+              disabled={!dossier.markdown}
+              onClick={() => setOpen((current) => !current)}
+              data-testid="ria-dossier-toggle"
+            >
+              {open ? "Close" : "Open"}
+            </Button>
+          </div>
+          {open && dossier.markdown ? (
+            <ProseMarkdown className="text-[14px]">
+              {dossier.markdown}
+            </ProseMarkdown>
+          ) : null}
+        </>
+      ) : null}
+      {retryable || blocked ? (
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[15px] font-semibold">Your dossier</p>
+            <p className="mt-0.5 text-[13px] text-destructive">
+              Couldn&apos;t send.
+            </p>
+          </div>
+          {retryable ? (
+            <Button
+              disabled={retrying}
+              onClick={() => void handleRetry()}
+              data-testid="ria-dossier-retry"
+            >
+              {retrying ? <Loader2 className="h-4 w-4 animate-spin" /> : "Retry"}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * The unified RIA profile management section. Re-homed verbatim from the former
  * `/ria/profile` page so the SAME view / edit / re-initiate / delete / license
  * logic renders inside the main `/one/profile` "Regulatory profile" panel. The host
@@ -775,6 +892,8 @@ export function RiaProfileSection({
           headerAccessory={<RiaVerificationChip verified={verified} />}
         />
       ) : null}
+
+      <RiaDossierCard />
 
       {showEmailVerify ? (
         <RiaEmailVerifyCard onVerified={handleEmailVerified} />

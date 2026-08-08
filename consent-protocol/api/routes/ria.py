@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+import asyncio
+from typing import Annotated, Any, Literal
 
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
@@ -11,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import limiter
 from api.routes.account import _verify_phone_claim_id_token
+from db.connection import get_pool
 from hushh_mcp.services.actor_identity_service import (
     ActorIdentityAliasError,
     ActorIdentityService,
@@ -20,6 +23,7 @@ from hushh_mcp.services.ria_claim_email_service import queue_claim_verification_
 from hushh_mcp.services.ria_claim_service import (
     RIAClaimEmailError,
     RIAClaimService,
+    mask_email,
     normalize_nanp_phone,
     validate_claim_ticket,
     verify_test_possession,
@@ -1007,3 +1011,155 @@ async def ria_claim_email_confirm(
         "verification_status": str(result.get("verification_status") or ""),
         "verification_level": result.get("verification_level"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Claim dossier: the background scan row a verified claim dispatched. Own row
+# only; a failed scan or send is visible and retryable, never silent.
+# ---------------------------------------------------------------------------
+
+
+_DOSSIER_RETRYABLE_STATUSES = ("scan_failed", "send_failed", "send_blocked_test_unset")
+_DOSSIER_MAIL_STATUSES = {
+    "sent": "sent",
+    "send_failed": "failed",
+    "send_blocked_test_unset": "blocked",
+    "blocked_no_email": "blocked",
+}
+
+
+async def _fetch_own_dossier_row(conn: Any, user_id: str, *, for_update: bool = False) -> Any:
+    """Latest dossier row belonging to the caller — never anyone else's."""
+    query = """
+        SELECT id, status, result_summary, result_markdown, requested_at,
+               completed_at, mail_recipient, mail_intended_recipient
+        FROM ria_claim_dossiers
+        WHERE user_id = $1
+        ORDER BY requested_at DESC, id DESC
+        LIMIT 1
+    """
+    if for_update:
+        query += " FOR UPDATE"
+    return await conn.fetchrow(query, user_id)
+
+
+def _shape_dossier_row(row: Any) -> dict[str, Any]:
+    """Own-row projection: status, result, and the mail outcome — no internals."""
+    status = str(row["status"] or "")
+    recipient = str(row["mail_intended_recipient"] or row["mail_recipient"] or "")
+    requested_at = row["requested_at"]
+    completed_at = row["completed_at"]
+    return {
+        "status": status,
+        "summary": row["result_summary"],
+        "markdown": row["result_markdown"],
+        "requested_at": requested_at.isoformat() if requested_at else None,
+        "completed_at": completed_at.isoformat() if completed_at else None,
+        "mail": {
+            "status": _DOSSIER_MAIL_STATUSES.get(status, "pending"),
+            "recipient_masked": mask_email(recipient) if recipient else None,
+        },
+    }
+
+
+async def _load_dossier_claim_context(user_id: str) -> dict[str, Any] | None:
+    """Latest persisted claim snapshot — the worker's re-dispatch input."""
+    try:
+        # Route-internal reuse of the claim service's own snapshot loader.
+        context = await RIAClaimService()._load_claim_context(user_id)
+    except Exception:  # noqa: BLE001 - a missing snapshot is a 409, never a 500
+        return None
+    return context if isinstance(context, dict) else None
+
+
+def _redispatch_dossier(*, dossier_id: int, user_id: str, context: dict[str, Any]) -> None:
+    """Spawn the dossier worker again for an already-claimed row."""
+    from hushh_mcp.services import ria_dossier_service
+
+    metadata_raw = context.get("metadata")
+    metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
+    service = ria_dossier_service.RIADossierService()
+    task = asyncio.create_task(
+        service._run_worker(
+            dossier_id=dossier_id,
+            user_id=user_id,
+            ria_profile_id=str(context.get("ria_profile_id") or ""),
+            claim_type=str(metadata.get("claim_type") or ""),
+            reference_metadata=metadata,
+        )
+    )
+    ria_dossier_service._track_background_task(task)
+
+
+@router.get("/dossier")
+@limiter.limit("20/minute")
+async def ria_dossier_status(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """The caller's own dossier row; 404 until a verified claim creates one."""
+    _ = request
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            row = await _fetch_own_dossier_row(conn, firebase_uid)
+    except asyncpg.UndefinedTableError:
+        row = None
+    if row is None:
+        raise HTTPException(status_code=404, detail="No dossier yet.")
+    return _shape_dossier_row(row)
+
+
+@router.post("/dossier/retry")
+@limiter.limit("20/minute")
+async def ria_dossier_retry(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Flip a failed dossier back to queued and re-run the worker.
+
+    Allowed only from the visible failure states; the flip happens under
+    FOR UPDATE so a double-tap re-dispatches exactly once.
+    """
+    _ = request
+    context = await _load_dossier_claim_context(firebase_uid)
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await _fetch_own_dossier_row(conn, firebase_uid, for_update=True)
+                if row is None:
+                    raise HTTPException(status_code=404, detail="No dossier yet.")
+                status = str(row["status"] or "")
+                if status not in _DOSSIER_RETRYABLE_STATUSES:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "DOSSIER_NOT_RETRYABLE",
+                            "message": "Only a failed dossier can be retried.",
+                        },
+                    )
+                if context is None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "CLAIM_CONTEXT_MISSING",
+                            "message": "Claim your profile before retrying the dossier.",
+                        },
+                    )
+                await conn.execute(
+                    """
+                    UPDATE ria_claim_dossiers
+                    SET status = 'queued', error = NULL, completed_at = NULL
+                    WHERE id = $1
+                    """,
+                    row["id"],
+                )
+    except asyncpg.UndefinedTableError:
+        raise HTTPException(status_code=404, detail="No dossier yet.") from None
+    _redispatch_dossier(dossier_id=int(row["id"]), user_id=firebase_uid, context=context)
+    shaped = _shape_dossier_row(row)
+    shaped["status"] = "queued"
+    shaped["completed_at"] = None
+    shaped["mail"]["status"] = "pending"
+    return shaped
