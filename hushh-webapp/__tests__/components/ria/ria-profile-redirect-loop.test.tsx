@@ -53,6 +53,10 @@ vi.mock("lucide-react", () => ({
   Trash2: () => <span />,
 }));
 
+vi.mock("@/components/ria/profile/ria-location-map", () => ({
+  RiaLocationMap: () => <div data-testid="ria-location-map" />,
+}));
+
 vi.mock("@/components/ria/onboarding/onboarding-step-services", () => ({
   OnboardingStepServices: () => <div data-testid="step-services" />,
 }));

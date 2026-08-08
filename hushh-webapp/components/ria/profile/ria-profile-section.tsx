@@ -23,6 +23,7 @@ import {
   type RiaSecAdvisorRecord,
   type RiaSecFirmRecord,
 } from "@/components/ria/profile/ria-sec-record-section";
+import { RiaLocationMap } from "@/components/ria/profile/ria-location-map";
 import { OnboardingStepServices } from "@/components/ria/onboarding/onboarding-step-services";
 import {
   SettingsDetailPanel,
@@ -261,6 +262,12 @@ function RiaRegulatoryProfileSummary({
           title="PIN / ZIP"
           value={reviewProps.pinZip}
           testId="ria-profile-summary-pin-zip"
+        />
+        <RiaLocationMap
+          city={reviewProps.city}
+          areaLocality={reviewProps.areaLocality}
+          fullStreetAddress={reviewProps.fullStreetAddress}
+          pinZip={reviewProps.pinZip}
         />
         <SettingsRow
           icon={Pencil}
