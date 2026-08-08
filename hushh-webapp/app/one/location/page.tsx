@@ -194,6 +194,9 @@ import {
 } from "@/lib/one-location/sos-trigger";
 import {
   emergencyInfoForCountryCode,
+  readCachedEmergencyInfo,
+  writeCachedEmergencyInfo,
+  EMERGENCY_LOOKUP_TIMEOUT_MS,
   type EmergencyInfo,
   type EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
@@ -3374,11 +3377,22 @@ export function OneLocationAgentPageContent({
         }
         // Country lookup continues independently so a slow Maps response never
         // delays the actual Save My Soul SMS after the user completes the hold.
-        void OneLocationService.reverseGeocode({
+        // Cap the authoritative lookup: past EMERGENCY_LOOKUP_TIMEOUT_MS we stop
+        // waiting and fall back to the last cached local number, so the Call
+        // button is never stranded on a spinner during a safety-critical flow.
+        let lookupTimer: ReturnType<typeof setTimeout> | null = null;
+        const lookup = OneLocationService.reverseGeocode({
           vaultOwnerToken,
           lat: result.point.latitude,
           lng: result.point.longitude,
-        })
+        });
+        const lookupDeadline = new Promise<never>((_, reject) => {
+          lookupTimer = setTimeout(
+            () => reject(new Error("emergency-lookup-timeout")),
+            EMERGENCY_LOOKUP_TIMEOUT_MS,
+          );
+        });
+        void Promise.race([lookup, lookupDeadline])
           .then((place) => {
             if (sosEmergencyLookupIdRef.current !== emergencyLookupId) return;
             const emergency = emergencyInfoForCountryCode(place.countryCode);
@@ -3386,13 +3400,26 @@ export function OneLocationAgentPageContent({
               setSosEmergencyStatus("unavailable");
               return;
             }
+            // Warm the cache so a later slow/failed lookup can reuse this
+            // verified local number instantly instead of a dead spinner.
+            writeCachedEmergencyInfo(emergency);
             setSosEmergency(emergency);
             setSosEmergencyStatus("resolved");
           })
           .catch(() => {
-            if (sosEmergencyLookupIdRef.current === emergencyLookupId) {
+            if (sosEmergencyLookupIdRef.current !== emergencyLookupId) return;
+            // Slow or failed authoritative lookup: fall back to the last cached
+            // local number when we have one, else surface the retry state.
+            const cached = readCachedEmergencyInfo();
+            if (cached) {
+              setSosEmergency(cached);
+              setSosEmergencyStatus("resolved");
+            } else {
               setSosEmergencyStatus("unavailable");
             }
+          })
+          .finally(() => {
+            if (lookupTimer) clearTimeout(lookupTimer);
           });
         return result.point;
       } catch {
