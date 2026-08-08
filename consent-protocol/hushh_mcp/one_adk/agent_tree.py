@@ -925,6 +925,18 @@ async def ask_connected_systems_agent(request: str, tool_context: ToolContext) -
     return await _specialist_turn("agent_connected_systems", request, tool_context)
 
 
+async def ask_compute_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Ask the Compute specialist where a heavy workload should run — the person's own
+    machine or their own cloud — and what a burst would cost.
+
+    The specialist explains placement; it does not measure the machine. Measurement
+    and the decision itself happen in Hermes, on the person's device, because this
+    pod cannot see their hardware. Until that device channel is wired, dispatch
+    reports this specialist as unavailable rather than answering from a guess.
+    """
+    return await _specialist_turn("agent_compute", request, tool_context)
+
+
 async def ask_consent_agent(
     request: str,
     tool_context: ToolContext,
@@ -1177,6 +1189,7 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         ask_location_agent,
         ask_connected_systems_agent,
         ask_consent_agent,
+        ask_compute_agent,
     ]
 
 

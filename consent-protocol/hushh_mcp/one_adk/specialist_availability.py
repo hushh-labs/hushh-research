@@ -28,6 +28,7 @@ SpecialistAvailabilityState = Literal[
 
 
 _SPECIALIST_LABELS = {
+    "agent_compute": "Compute",
     "agent_connected_systems": "Connected Systems",
     "agent_connections": "Connections",
     "agent_email": "Email",
