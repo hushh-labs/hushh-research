@@ -1273,6 +1273,46 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("keeps the selected people and count in sync during one batched share interaction", async () => {
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openSharePersonStep();
+
+    const trustedButton = screen.getByRole("button", {
+      name: /Select Trusted B for private sharing/i,
+    });
+    const investorButton = screen.getByRole("button", {
+      name: /Select Investor D for private sharing/i,
+    });
+
+    act(() => {
+      fireEvent.click(trustedButton);
+      fireEvent.click(investorButton);
+    });
+
+    expect(
+      screen.getByRole("button", {
+        name: /Deselect Trusted B for private sharing/i,
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: /Deselect Investor D for private sharing/i,
+      }),
+    ).toBeTruthy();
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      "one_location_recommendation_selected",
+      expect.objectContaining({
+        action: "share",
+        selection_surface: "section_list",
+        selected_count: 2,
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("resets every abandoned share field and ignores a late review preflight", async () => {
     const { rerender } = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
