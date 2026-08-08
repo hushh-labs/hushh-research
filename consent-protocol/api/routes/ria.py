@@ -11,9 +11,14 @@ from pydantic import BaseModel, Field, field_validator
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import limiter
 from api.routes.account import _verify_phone_claim_id_token
-from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityAliasError,
+    ActorIdentityService,
+)
 from hushh_mcp.services.consent_center_service import ConsentCenterService
+from hushh_mcp.services.ria_claim_email_service import queue_claim_verification_email
 from hushh_mcp.services.ria_claim_service import (
+    RIAClaimEmailError,
     RIAClaimService,
     normalize_nanp_phone,
     validate_claim_ticket,
@@ -895,3 +900,110 @@ async def ria_claim_complete(
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Claim email upgrade: verify a work-email alias on the claimed firm's own
+# domain, then re-run the upstream evaluation with the extra evidence. The
+# plaintext code travels only from the identity service to the mail queue —
+# it never appears in any HTTP response.
+# ---------------------------------------------------------------------------
+
+
+class RIAClaimEmailStartRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+
+class RIAClaimEmailConfirmRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    code: str = Field(min_length=1, max_length=16)
+
+
+@router.post("/claim/email/start")
+@limiter.limit("20/minute")
+async def ria_claim_email_start(
+    payload: RIAClaimEmailStartRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = RIAClaimService()
+    try:
+        prepared = await service.prepare_email_verification(firebase_uid, payload.email)
+    except RIAClaimEmailError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    try:
+        alias_result = await ActorIdentityService().request_email_alias_verification(
+            user_id=firebase_uid,
+            email=prepared["email"],
+            verification_source="user_verified",
+            source_ref="ria_claim_email",
+            include_plaintext_code=True,
+        )
+    except ActorIdentityAliasError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+    # Route-internal handoff: pop the plaintext so it cannot leak into the
+    # response, and give it only to the mail sender.
+    code_plaintext = alias_result.pop("verification_code_plaintext", None)
+    if alias_result.get("already_verified"):
+        return {"status": "already_verified", "email_masked": prepared["email_masked"]}
+
+    delivery = await queue_claim_verification_email(
+        target_email=prepared["email"],
+        verification_code=str(code_plaintext or ""),
+        firm_name=prepared.get("firm_name"),
+    )
+    if delivery.get("delivery_status") != "queued":
+        # Best-effort mail: the alias ceremony stands, the client may retry.
+        return JSONResponse(
+            status_code=502,
+            content={"status": "send_failed", "email_masked": prepared["email_masked"]},
+        )
+    return {"status": "sent", "email_masked": prepared["email_masked"]}
+
+
+@router.post("/claim/email/confirm")
+@limiter.limit("20/minute")
+async def ria_claim_email_confirm(
+    payload: RIAClaimEmailConfirmRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        await ActorIdentityService().confirm_email_alias_verification(
+            user_id=firebase_uid,
+            email=payload.email,
+            verification_code=payload.code,
+        )
+    except ActorIdentityAliasError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+    service = RIAClaimService()
+    try:
+        result = await service.upgrade_with_email_evidence(firebase_uid, email=payload.email)
+    except RIAClaimEmailError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    except IAMSchemaNotReadyError:
+        return _iam_schema_not_ready_response()
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return {
+        "verified": bool(result.get("verified")),
+        "verification_status": str(result.get("verification_status") or ""),
+        "verification_level": result.get("verification_level"),
+    }

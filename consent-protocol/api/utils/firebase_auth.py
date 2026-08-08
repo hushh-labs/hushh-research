@@ -84,6 +84,9 @@ def verify_firebase_bearer(authorization: Optional[str]) -> str:
         firebase_auth.ExpiredIdTokenError,
         firebase_auth.RevokedIdTokenError,
         firebase_auth.UserDisabledError,
+        # check_revoked=True looks the user up, so a just-deleted account's
+        # replayed token raises this. It is a 401 (sign in again), not a 500.
+        firebase_auth.UserNotFoundError,
     ):
         raise HTTPException(status_code=401, detail="Invalid Firebase ID token") from None
     except firebase_auth.CertificateFetchError as exc:

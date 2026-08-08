@@ -22,9 +22,11 @@ class _FakePkmService:
         manifest: dict | None = None,
         model_version: int = 2,
         last_upgraded_at: datetime | None = None,
+        has_blob: bool = True,
     ):
         self._domain_summaries = domain_summaries or {}
         self._manifest = manifest
+        self._has_blob = has_blob
         self._index = type(
             "_Index",
             (),
@@ -43,6 +45,9 @@ class _FakePkmService:
 
     async def get_domain_manifest(self, user_id: str, domain: str):
         return self._manifest
+
+    async def get_domain_snapshot(self, user_id: str, domain: str):
+        return {"ciphertext": "blob"} if self._has_blob else None
 
     async def upsert_index_v2(self, index):
         self._index = index

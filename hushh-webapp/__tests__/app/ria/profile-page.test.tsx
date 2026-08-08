@@ -27,11 +27,14 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("lucide-react", () => ({
   ArrowRight: () => <span />,
+  CheckCircle2: () => <span />,
   ClipboardCheck: () => <span />,
+  ExternalLink: () => <span />,
   Loader2: () => <span />,
   MessageCircle: () => <span />,
   Pencil: () => <span />,
   RotateCcw: () => <span />,
+  ShieldCheck: () => <span />,
   Trash2: () => <span />,
 }));
 
@@ -40,6 +43,10 @@ vi.mock("@/components/ria/ria-page-shell", () => ({
     <div data-testid="ria-page-shell">{children}</div>
   ),
   RiaCompatibilityState: () => <div data-testid="ria-compat" />,
+  isRiaVerified: (status?: string | null) =>
+    ["active", "verified", "finra_verified"].includes(
+      String(status || "").toLowerCase(),
+    ),
 }));
 
 vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({

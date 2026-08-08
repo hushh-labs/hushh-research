@@ -113,6 +113,26 @@ function consentSummary(entry: ConsentCenterEntry): string {
   );
 }
 
+/**
+ * A pending location access request is actionable in the viewer's "Needs you"
+ * feed only when the viewer OWNS the request (their location is being asked for)
+ * and did NOT send it themselves. `state.requests` carries BOTH directions, so
+ * without this guard a user's own OUTGOING request leaks back onto their feed as
+ * an incoming "wants to see your location" card labelled with their own name.
+ * Mirrors the `pendingOwnerRequests` predicate in the Location page, plus an
+ * explicit sender-≠-recipient check so a self-request never becomes actionable.
+ */
+export function isIncomingLocationRequestActionable(
+  request: OneLocationAccessRequest,
+  userId: string,
+): boolean {
+  return (
+    request.status === "pending" &&
+    request.ownerUserId === userId &&
+    request.requesterUserId !== userId
+  );
+}
+
 export function useFeedActionables(): UseFeedActionablesResult {
   const router = useRouter();
   const { user } = useAuth();
@@ -287,9 +307,12 @@ export function useFeedActionables(): UseFeedActionablesResult {
       }
     }
 
-    // Location access requests — inline Approve (1h) / Deny.
+    // Location access requests — inline Approve (1h) / Deny. Only requests the
+    // viewer owns (and did not send) are actionable; outgoing requests must not
+    // surface here as a self-addressed "wants to see your location" card.
     const pendingLocation = (locationRequests ?? []).filter(
-      (request: OneLocationAccessRequest) => request.status === "pending",
+      (request: OneLocationAccessRequest) =>
+        isIncomingLocationRequestActionable(request, userId),
     );
     for (const request of pendingLocation) {
       const label = request.requesterDisplayName?.trim() || "Someone";
