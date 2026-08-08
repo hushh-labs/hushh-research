@@ -401,8 +401,28 @@ class OneLocationCircleService:
         *,
         circle_id: str,
         user_id: str,
+        inviter_user_id: str | None = None,
     ) -> None:
-        """Create bounded, source-aware Circle origins in the same transaction."""
+        """Connect a joiner to whoever invited them, and to nobody else.
+
+        Redeeming an invitation is the same consent shape as a connection
+        request: one person offered, one accepted. So it produces exactly one
+        connection, between exactly those two.
+
+        This used to connect the joiner to every existing member, which meant a
+        single join could connect people who had never chosen each other — one
+        join into a full 20-person Circle created 19 connections, 18 of them
+        between strangers. Restricting who may invite does not fix that; the
+        fan-out does. Co-members who were never introduced can still share
+        location with each other through the Circle itself, which is a sharing
+        scope rather than a claim that everyone is connected.
+
+        Two origins are written for the one pair: `circle_member`, which
+        records the accepted invitation and outlives the Circle, and
+        `named_circle`, which is Circle-scoped provenance revoked with the
+        membership. Together they let the connection persist after someone
+        leaves while the Circle still governs what it authorized.
+        """
 
         member_rows = _all(
             conn.execute(
@@ -419,26 +439,28 @@ class OneLocationCircleService:
                 {"circle_id": circle_id},
             )
         )
-        if user_id not in {str(row.get("user_id") or "").strip() for row in member_rows}:
+        active_member_ids = {str(row.get("user_id") or "").strip() for row in member_rows}
+        if user_id not in active_member_ids:
             raise OneLocationCircleError(
                 "LOCATION_CIRCLE_MEMBERSHIP_NOT_ACTIVE",
                 "Circle membership is no longer active.",
                 status_code=409,
             )
-        for member_user_id in sorted(
-            {
-                str(row.get("user_id") or "").strip()
-                for row in member_rows
-                if str(row.get("user_id") or "").strip()
-                and str(row.get("user_id") or "").strip() != user_id
-            }
+        inviter_id = str(inviter_user_id or "").strip()
+        # An inviter who has since left introduces nobody: the joiner is in the
+        # Circle and can share through it, but there is no live pair to record.
+        if not inviter_id or inviter_id == user_id or inviter_id not in active_member_ids:
+            return
+        for kind, source_circle in (
+            ("circle_member", None),
+            ("named_circle", circle_id),
         ):
             ensure_connection_origin(
                 conn,
                 user_a_id=user_id,
-                user_b_id=member_user_id,
-                kind="named_circle",
-                source_circle_id=circle_id,
+                user_b_id=inviter_id,
+                kind=kind,
+                source_circle_id=source_circle,
             )
 
     def list_circles(self, *, user_id: str) -> list[dict[str, Any]]:
@@ -976,7 +998,7 @@ class OneLocationCircleService:
                             """
                             SELECT
                               id, circle_id, status, expires_at,
-                              max_uses, use_count
+                              max_uses, use_count, created_by_user_id
                             FROM one_location_circle_invite_codes
                             WHERE id = CAST(:invite_id AS UUID)
                               AND circle_id = CAST(:circle_id AS UUID)
@@ -1119,6 +1141,9 @@ class OneLocationCircleService:
                     conn,
                     circle_id=circle_id,
                     user_id=user_id,
+                    # Whoever generated this code did the inviting, so they are
+                    # the one person the joiner becomes connected to.
+                    inviter_user_id=str(invite_row.get("created_by_user_id") or ""),
                 )
                 conn.execute(
                     text(
@@ -2108,6 +2133,7 @@ class OneLocationCircleService:
                         conn,
                         circle_id=circle_id,
                         user_id=user_id,
+                        inviter_user_id=str(invite_row.get("inviter_user_id") or ""),
                     )
                 else:
                     expires_at = invite_row.get("expires_at")
@@ -2300,6 +2326,7 @@ class OneLocationCircleService:
                         conn,
                         circle_id=circle_id,
                         user_id=user_id,
+                        inviter_user_id=str(invite_row.get("inviter_user_id") or ""),
                     )
                     conn.execute(
                         text(
@@ -2489,7 +2516,19 @@ class OneLocationCircleService:
         circle_id: str,
         member_user_id: str | None = None,
     ) -> None:
-        """Preserve grants when another active relationship origin still supports them."""
+        """Preserve grants when an independent relationship still supports them.
+
+        "Independent" excludes `circle_member`. That origin exists *because of*
+        a Circle invitation, so it cannot be the reason a Circle-authorized
+        grant outlives the Circle — if it were, removing someone from your
+        Circle would silently keep their live location running, reattached as a
+        connection-scoped share. Removal has one obvious meaning and this keeps
+        it: the pair stays connected, the share the Circle authorized ends.
+
+        A `direct_request` (or import/legacy invite) is independent: those two
+        people connected on their own terms, so their share survives losing a
+        Circle they happened to share.
+        """
 
         params = {
             "circle_id": circle_id,
@@ -2513,7 +2552,9 @@ class OneLocationCircleService:
                     JOIN connection_origins origin
                       ON origin.connection_id = connection.id
                      AND origin.status = 'active'
-                     AND origin.origin_kind <> 'named_circle'
+                     AND origin.origin_kind NOT IN (
+                       'named_circle', 'circle_member'
+                     )
                     WHERE connection.status = 'active'
                       AND (
                         (

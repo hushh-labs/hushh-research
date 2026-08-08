@@ -337,6 +337,43 @@ export interface RiaClaimProfileFacts {
   has_disclosures?: boolean | null;
 }
 
+/** Durable statuses persisted on the background-dossier row. */
+export type RiaDossierStatus =
+  | "queued"
+  | "scanning"
+  | "generated"
+  | "sent"
+  | "scan_failed"
+  | "send_failed"
+  | "blocked_no_email"
+  | "send_blocked_test_unset"
+  | (string & {});
+
+/**
+ * Fire-and-forget dispatch receipt attached to the claim-complete response.
+ * Best-effort by contract: absent on older backends and whenever the dispatch
+ * itself failed — the claim always stands.
+ */
+export interface RiaClaimDossierDispatch {
+  status: "queued" | "skipped" | (string & {});
+  email_masked?: string | null;
+}
+
+export interface RiaDossierMail {
+  status?: string | null;
+  recipient_masked?: string | null;
+}
+
+/** The own-row dossier snapshot served by `GET /ria/dossier` (404 ⇒ none). */
+export interface RiaDossier {
+  status: RiaDossierStatus;
+  summary?: string | null;
+  markdown?: string | null;
+  requested_at?: string | null;
+  completed_at?: string | null;
+  mail?: RiaDossierMail | null;
+}
+
 export interface RiaClaimCompleteResult {
   status: string;
   claim_type: string;
@@ -345,6 +382,7 @@ export interface RiaClaimCompleteResult {
   provisional: boolean;
   profile: RiaClaimProfileSummary;
   facts?: RiaClaimProfileFacts | null;
+  dossier?: RiaClaimDossierDispatch | null;
 }
 
 export interface RiaClaimEmailStartResult {
@@ -1754,6 +1792,25 @@ export class RiaService {
       body: payload,
     });
     return toJsonOrThrow<RiaClaimEmailConfirmResult>(response);
+  }
+
+  static async getDossier(idToken: string): Promise<RiaDossier | null> {
+    const response = await authFetch("/api/ria/dossier", {
+      method: "GET",
+      idToken,
+    });
+    // 404 = no dossier row for this profile (never dispatched) — a normal
+    // state, not an error, so the profile row simply doesn't render.
+    if (response.status === 404) return null;
+    return toJsonOrThrow<RiaDossier>(response);
+  }
+
+  static async retryDossier(idToken: string): Promise<RiaDossier> {
+    const response = await authFetch("/api/ria/dossier/retry", {
+      method: "POST",
+      idToken,
+    });
+    return toJsonOrThrow<RiaDossier>(response);
   }
 
   static async verifyOnboardingLicense(

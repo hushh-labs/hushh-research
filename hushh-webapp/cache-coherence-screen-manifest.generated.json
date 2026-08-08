@@ -2495,16 +2495,14 @@
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": false,
-        "resource_wrapper": false,
+        "resource_wrapper": true,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/location",
@@ -5341,5 +5339,5 @@
       ]
     }
   ],
-  "content_sha256": "308acdad07ac9e0d64a71f4d4e35438a074d888ef43a710ba921e1f05008b561"
+  "content_sha256": "eced63115b24b5d4401ad450fcfaea2991cb6a8f80155fed42ae32ada063a858"
 }

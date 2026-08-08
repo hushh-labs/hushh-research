@@ -871,6 +871,15 @@ export default function RiaClaimPage() {
                   </div>
                 </div>
               </div>
+              {completeResult.dossier?.status === "queued" ? (
+                <p
+                  className="text-[13px] text-muted-foreground"
+                  data-testid="ria-claim-dossier-line"
+                >
+                  Your dossier is on its way to{" "}
+                  {completeResult.dossier.email_masked || "your email"}
+                </p>
+              ) : null}
               {completeResult.facts ? (
                 <RiaSecRecordSection facts={completeResult.facts} />
               ) : null}
