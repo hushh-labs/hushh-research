@@ -96,11 +96,14 @@ export function CapabilityCinematicIntroGate({
   capabilityId,
   children,
   embedded = false,
+  routeOwnsTopOffset = false,
 }: {
   capabilityId: CapabilityCinematicIntroId;
   children: ReactNode;
   /** The owning flow already provides its canonical FullscreenFlowShell. */
   embedded?: boolean;
+  /** The standard route shell already contributes the fixed-header clearance. */
+  routeOwnsTopOffset?: boolean;
 }) {
   const [showIntro, setShowIntro] = useState(true);
   const [shouldFocusCapabilityBody, setShouldFocusCapabilityBody] =
@@ -160,11 +163,7 @@ export function CapabilityCinematicIntroGate({
 
   const content = (
     <section
-      className={`motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-col items-start my-auto ${
-        embedded
-          ? "min-h-[calc(100dvh-var(--top-shell-reserved-height,4rem)-var(--app-scroll-bottom-pad,2rem))] justify-center"
-          : ""
-      }`}
+      className="motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-col items-start"
       aria-labelledby={`capability-intro-${capabilityId}`}
       data-capability-cinematic-intro={capabilityId}
     >
@@ -234,7 +233,7 @@ export function CapabilityCinematicIntroGate({
   return (
     <FullscreenFlowShell
       width="reading"
-      className="justify-center"
+      className={routeOwnsTopOffset ? "!pt-0" : undefined}
     >
       {content}
     </FullscreenFlowShell>

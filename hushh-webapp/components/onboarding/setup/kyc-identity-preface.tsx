@@ -78,7 +78,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
   };
 
   return (
-    <CapabilityCinematicIntroGate capabilityId="email">
+    <CapabilityCinematicIntroGate capabilityId="email" routeOwnsTopOffset>
       <div className="mx-auto flex min-h-0 w-full max-w-[32rem] my-auto flex-col justify-center px-4 py-8">
         <div className="w-full space-y-8">
           <div className="flex items-center justify-between">
