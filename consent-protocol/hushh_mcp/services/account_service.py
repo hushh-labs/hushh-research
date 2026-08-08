@@ -217,6 +217,38 @@ class AccountService:
             "one_location_circle_memberships": text(
                 "DELETE FROM one_location_circle_memberships WHERE user_id = :user_id"
             ),
+            # Scope proposals hold plain (no ON DELETE) foreign keys into
+            # connection_requests, so they must be cleared first — including
+            # rows owned by OTHER users that reference this user's requests,
+            # or the request delete below fails the whole account deletion.
+            "connection_scope_proposal_events": text(
+                """
+                DELETE FROM connection_scope_proposal_events
+                WHERE actor_user_id = :user_id
+                   OR connection_scope_proposal_id IN (
+                        SELECT id FROM connection_scope_proposals
+                        WHERE owner_user_id = :user_id
+                           OR receiver_user_id = :user_id
+                           OR connection_request_id IN (
+                                SELECT id FROM connection_requests
+                                WHERE requester_user_id = :user_id
+                                   OR addressee_user_id = :user_id
+                           )
+                   )
+                """
+            ),
+            "connection_scope_proposals": text(
+                """
+                DELETE FROM connection_scope_proposals
+                WHERE owner_user_id = :user_id
+                   OR receiver_user_id = :user_id
+                   OR connection_request_id IN (
+                        SELECT id FROM connection_requests
+                        WHERE requester_user_id = :user_id
+                           OR addressee_user_id = :user_id
+                   )
+                """
+            ),
             "connection_requests": text(
                 """
                 DELETE FROM connection_requests
@@ -975,6 +1007,8 @@ class AccountService:
             "one_location_circle_invites",
             "one_location_circle_member_invites",
             "one_location_circle_memberships",
+            "connection_scope_proposal_events",
+            "connection_scope_proposals",
             "connection_requests",
             "connections",
             "trusted_connections",
@@ -1370,6 +1404,8 @@ class AccountService:
                     "one_location_circle_invites",
                     "one_location_circle_member_invites",
                     "one_location_circle_memberships",
+                    "connection_scope_proposal_events",
+                    "connection_scope_proposals",
                     "connection_requests",
                     "connections",
                     "trusted_connections",
