@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 136,
+  "expected_migration_version": 139,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -101,6 +101,9 @@
       "fee_structure",
       "min_engagement_amount",
       "min_engagement_currency",
+      "profile_source",
+      "profile_source_url",
+      "profile_source_filed_on",
       "created_at",
       "updated_at"
     ],
@@ -129,6 +132,23 @@
       "raw_response",
       "status",
       "created_at"
+    ],
+    "ria_claim_dossiers": [
+      "id",
+      "ria_profile_id",
+      "crd_number",
+      "user_id",
+      "status",
+      "scan_id",
+      "result_markdown",
+      "result_summary",
+      "mail_message_id",
+      "mail_recipient",
+      "mail_intended_recipient",
+      "mail_delivery_mode",
+      "error",
+      "requested_at",
+      "completed_at"
     ],
     "advisor_investor_relationships": [
       "id",

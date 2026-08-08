@@ -573,18 +573,15 @@ def test_code_join_revalidates_revocation_after_locking_the_circle() -> None:
     assert not any("SET use_count = use_count + 1" in sql for sql in conn.sql)
 
 
-def test_join_origin_sync_connects_every_other_active_member_once(
+def _join_connection_calls(
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+    *,
+    members: list[str],
+    user_id: str,
+    inviter_user_id: str | None,
+) -> list[dict]:
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
-    conn = _CapacityConnection(
-        [
-            {"user_id": "member-user"},
-            {"user_id": "owner-user"},
-            {"user_id": "friend-user"},
-            {"user_id": "friend-user"},
-        ]
-    )
+    conn = _CapacityConnection([{"user_id": member} for member in members])
     calls: list[dict] = []
     monkeypatch.setattr(
         circle_service_module,
@@ -595,16 +592,39 @@ def test_join_origin_sync_connects_every_other_active_member_once(
     OneLocationCircleService._connect_member_to_circle(
         conn,
         circle_id=circle_id,
+        user_id=user_id,
+        inviter_user_id=inviter_user_id,
+    )
+    return calls
+
+
+def test_join_connects_the_joiner_to_their_inviter_and_to_nobody_else(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One invitation accepted is one connection, exactly like a request.
+
+    The mesh this replaces connected a joiner to every existing member, so a
+    single join into a full Circle produced 19 connections between people who
+    had never chosen each other.
+    """
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+
+    calls = _join_connection_calls(
+        monkeypatch,
+        members=["member-user", "owner-user", "friend-user"],
         user_id="member-user",
+        inviter_user_id="owner-user",
     )
 
     assert calls == [
+        # Outlives the Circle: the pair accepted an invitation.
         {
             "user_a_id": "member-user",
-            "user_b_id": "friend-user",
-            "kind": "named_circle",
-            "source_circle_id": circle_id,
+            "user_b_id": "owner-user",
+            "kind": "circle_member",
+            "source_circle_id": None,
         },
+        # Circle-scoped provenance, revoked when the membership ends.
         {
             "user_a_id": "member-user",
             "user_b_id": "owner-user",
@@ -612,6 +632,45 @@ def test_join_origin_sync_connects_every_other_active_member_once(
             "source_circle_id": circle_id,
         },
     ]
+    assert not any(call["user_b_id"] == "friend-user" for call in calls)
+
+
+def test_join_connects_nobody_when_the_inviter_is_no_longer_a_member(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An inviter who has left introduces no one.
+
+    The joiner is still in the Circle and can share through it; there is simply
+    no live pair to record, and the remaining members must not be swept in.
+    """
+    assert (
+        _join_connection_calls(
+            monkeypatch,
+            members=["member-user", "owner-user", "friend-user"],
+            user_id="member-user",
+            inviter_user_id="departed-user",
+        )
+        == []
+    )
+    assert (
+        _join_connection_calls(
+            monkeypatch,
+            members=["member-user", "owner-user"],
+            user_id="member-user",
+            inviter_user_id=None,
+        )
+        == []
+    )
+    # Self-invitation is not a relationship.
+    assert (
+        _join_connection_calls(
+            monkeypatch,
+            members=["member-user", "owner-user"],
+            user_id="member-user",
+            inviter_user_id="member-user",
+        )
+        == []
+    )
 
 
 def test_member_invite_payload_is_metadata_only() -> None:
@@ -701,20 +760,23 @@ def test_targeted_invite_accept_rechecks_direct_connection_and_creates_origins(
     assert result["accepted"] is True
     assert result["joined"] is True
     assert result["invite"]["status"] == "accepted"
+    # Accepting a targeted invitation connects the joiner to the member who
+    # sent it. The Circle's owner did not invite them and is not swept in.
     assert origin_calls == [
+        {
+            "user_a_id": "member-user",
+            "user_b_id": "inviter-member",
+            "kind": "circle_member",
+            "source_circle_id": None,
+        },
         {
             "user_a_id": "member-user",
             "user_b_id": "inviter-member",
             "kind": "named_circle",
             "source_circle_id": circle_id,
         },
-        {
-            "user_a_id": "member-user",
-            "user_b_id": "owner-user",
-            "kind": "named_circle",
-            "source_circle_id": circle_id,
-        },
     ]
+    assert not any(call["user_b_id"] == "owner-user" for call in origin_calls)
     connection_lock_index = next(
         index
         for index, sql in enumerate(conn.sql)
@@ -1443,7 +1505,12 @@ def test_circle_grant_reconciliation_preserves_other_relationship_origins() -> N
     )
 
     assert len(conn.sql) == 3
-    assert "origin.origin_kind <> 'named_circle'" in conn.sql[0]
+    # Only an independent relationship keeps a Circle-authorized grant alive.
+    # `circle_member` is not independent — it exists because of a Circle
+    # invitation — so counting it would mean removing someone from your Circle
+    # silently kept their live location running as a connection-scoped share.
+    preserve_sql = " ".join(conn.sql[0].split())
+    assert "origin.origin_kind NOT IN ( 'named_circle', 'circle_member' )" in preserve_sql
     assert "SET source_circle_id = NULL" in conn.sql[0]
     assert "origin.origin_kind = 'named_circle'" in conn.sql[1]
     assert "replacement_circle_id" in conn.sql[1]

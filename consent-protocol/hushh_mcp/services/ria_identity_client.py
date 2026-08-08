@@ -141,9 +141,13 @@ class RIAIdentityClient:
         firm_crd: int,
         individual_crd: int | None = None,
         assert_phone_otp: bool = False,
+        extra_evidence: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Score a claim. ``assert_phone_otp`` must only ever be set after this
-        backend has itself verified possession of the filed number."""
+        backend has itself verified possession of the filed number, and every
+        entry in ``extra_evidence`` only after this backend has itself verified
+        the signal it asserts (e.g. a ``domain_email`` alias the user proved
+        they control)."""
         body: dict[str, Any] = {
             "phone": phone,
             "claimType": claim_type,
@@ -153,4 +157,6 @@ class RIAIdentityClient:
             body["individualCrd"] = individual_crd
         if assert_phone_otp:
             body["evidence"] = [{"signal": "phone_otp"}]
+        if extra_evidence:
+            body.setdefault("evidence", []).extend(extra_evidence)
         return await self._request("POST", "/v1/claim/evaluate", json_body=body)

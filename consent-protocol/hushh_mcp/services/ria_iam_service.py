@@ -4302,6 +4302,7 @@ class RIAIAMService:
         firm_website: str | None = None,
         firm_sec_number: str | None = None,
         reference_metadata: dict[str, Any] | None = None,
+        business_location: dict[str, str] | None = None,
         regulator: str | None = None,
         regulator_status: str | None = None,
         disclosures_url: str | None = None,
@@ -4313,6 +4314,11 @@ class RIAIAMService:
         service, so the claim is CRD-backed by construction. A claim that only
         reached ``provisional`` is stored as ``submitted`` — it opens the RIA
         surface but no verified-only gate.
+
+        ``business_location`` is the caller's already-derived
+        ``{city, area, address, pin_zip}`` (see
+        ``ria_claim_service.derive_business_location``) — the claim snapshot is
+        parsed there, not here, and every value only ever fills a blank.
         """
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
@@ -4550,20 +4556,41 @@ class RIAIAMService:
                     "verified" if verified else "pending",
                 )
 
+                # The claimed profile's contact block. The phone is the number
+                # possession was proven on; the address comes from the same SEC
+                # snapshot the rest of the profile was built from. Every address
+                # column only ever fills a blank — a value the adviser typed
+                # themselves always survives a re-claim.
+                location = business_location or {}
                 try:
                     await conn.execute(
                         """
-                        INSERT INTO ria_business_contacts (user_id, phone)
-                        VALUES ($1, NULLIF($2, ''))
+                        INSERT INTO ria_business_contacts (
+                          user_id, phone, city, area_locality, full_street_address, pin_zip
+                        )
+                        VALUES (
+                          $1, NULLIF($2, ''), NULLIF($3, ''),
+                          NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, '')
+                        )
                         ON CONFLICT (user_id) DO UPDATE
-                        SET phone = EXCLUDED.phone, updated_at = NOW()
+                        SET
+                          phone = EXCLUDED.phone,
+                          city = COALESCE(NULLIF(EXCLUDED.city, ''), ria_business_contacts.city),
+                          area_locality = COALESCE(NULLIF(EXCLUDED.area_locality, ''), ria_business_contacts.area_locality),
+                          full_street_address = COALESCE(NULLIF(EXCLUDED.full_street_address, ''), ria_business_contacts.full_street_address),
+                          pin_zip = COALESCE(NULLIF(EXCLUDED.pin_zip, ''), ria_business_contacts.pin_zip),
+                          updated_at = NOW()
                         """,
                         normalized_user_id,
                         phone_e164 or "",
+                        str(location.get("city") or "").strip(),
+                        str(location.get("area") or "").strip(),
+                        str(location.get("address") or "").strip(),
+                        str(location.get("pin_zip") or "").strip(),
                     )
                 except asyncpg.exceptions.UndefinedTableError:
                     logger.warning(
-                        "ria_business_contacts unavailable during claim write; skipping phone persistence"
+                        "ria_business_contacts unavailable during claim write; skipping contact persistence"
                     )
 
                 self._invalidate_cached_persona_state(normalized_user_id)
@@ -4583,6 +4610,124 @@ class RIAIAMService:
         finally:
             await conn.close()
 
+    # Blanks-only fill of the narrative profile fields from the firm's own
+    # Form ADV Part 2A brochure. Every assignment reads the OLD row, so a
+    # value the adviser typed always wins; this can only fill a hole.
+    _BROCHURE_PROFILE_SQL = """
+        WITH target AS (
+          SELECT
+            id,
+            COALESCE(array_length(services_offered, 1), 0) = 0 AS services_blank,
+            COALESCE(array_length(fee_structure, 1), 0) = 0 AS fees_blank,
+            min_engagement_amount IS NULL AS minimum_blank,
+            COALESCE(NULLIF(bio, ''), '') = '' AS bio_blank,
+            (
+              (COALESCE(array_length(services_offered, 1), 0) = 0
+                 AND COALESCE(array_length($2::text[], 1), 0) > 0)
+              OR (COALESCE(array_length(fee_structure, 1), 0) = 0
+                 AND COALESCE(array_length($3::text[], 1), 0) > 0)
+              OR (min_engagement_amount IS NULL AND $4::numeric IS NOT NULL)
+              OR (COALESCE(NULLIF(bio, ''), '') = '' AND NULLIF($6, '') IS NOT NULL)
+            ) AS fills_blank
+          FROM ria_profiles
+          WHERE id = $1
+        )
+        UPDATE ria_profiles p
+        SET
+          services_offered = CASE WHEN t.services_blank
+            THEN COALESCE(NULLIF($2::text[], '{{}}'::text[]), p.services_offered)
+            ELSE p.services_offered END,
+          fee_structure = CASE WHEN t.fees_blank
+            THEN COALESCE(NULLIF($3::text[], '{{}}'::text[]), p.fee_structure)
+            ELSE p.fee_structure END,
+          min_engagement_amount = CASE WHEN t.minimum_blank
+            THEN COALESCE($4::numeric, p.min_engagement_amount)
+            ELSE p.min_engagement_amount END,
+          min_engagement_currency = COALESCE(
+            NULLIF(p.min_engagement_currency, ''), NULLIF($5, ''), p.min_engagement_currency),
+          bio = CASE WHEN t.bio_blank
+            THEN COALESCE(NULLIF($6, ''), p.bio)
+            ELSE p.bio END,
+          {provenance}
+          updated_at = NOW()
+        FROM target t
+        WHERE p.id = t.id
+        RETURNING t.fills_blank AS filled
+    """
+
+    # Provenance is only stamped when something was actually filled: labelling
+    # an adviser's own typed profile "from the SEC filing" would be a lie.
+    _BROCHURE_PROVENANCE_SQL = """
+          profile_source = CASE WHEN t.fills_blank
+            THEN COALESCE(NULLIF(p.profile_source, ''), NULLIF($7, ''))
+            ELSE p.profile_source END,
+          profile_source_url = CASE WHEN t.fills_blank
+            THEN COALESCE(NULLIF(p.profile_source_url, ''), NULLIF($8, ''))
+            ELSE p.profile_source_url END,
+          profile_source_filed_on = CASE WHEN t.fills_blank
+            THEN COALESCE(NULLIF(p.profile_source_filed_on, ''), NULLIF($9, ''))
+            ELSE p.profile_source_filed_on END,
+    """
+
+    async def apply_brochure_profile_fields(
+        self,
+        ria_profile_id: str,
+        *,
+        services_offered: list[str] | None = None,
+        fee_structure: list[str] | None = None,
+        min_engagement_amount: float | None = None,
+        min_engagement_currency: str = "USD",
+        bio: str = "",
+        profile_source: str = "",
+        profile_source_url: str = "",
+        profile_source_filed_on: str = "",
+    ) -> bool:
+        """Fill only the blank narrative fields on a claimed RIA profile.
+
+        Written by the post-claim brochure worker, never by a person. The
+        adviser is the author of their own profile: anything they typed is
+        left exactly as it is, and this returns ``True`` only when at least
+        one genuinely empty field was filled.
+        """
+        profile_id = str(ria_profile_id or "").strip()
+        if not profile_id:
+            return False
+        params: list[Any] = [
+            profile_id,
+            [str(item) for item in (services_offered or []) if str(item).strip()],
+            [str(item) for item in (fee_structure or []) if str(item).strip()],
+            min_engagement_amount,
+            str(min_engagement_currency or ""),
+            str(bio or "").strip(),
+            str(profile_source or "").strip(),
+            str(profile_source_url or "").strip(),
+            str(profile_source_filed_on or "").strip(),
+        ]
+        conn = await self._conn()
+        try:
+            try:
+                row = await conn.fetchrow(
+                    self._BROCHURE_PROFILE_SQL.format(
+                        provenance=self._BROCHURE_PROVENANCE_SQL.strip() + "\n"
+                    ),
+                    *params,
+                )
+            except asyncpg.exceptions.UndefinedColumnError:
+                # A deploy can land ahead of its migration; the values still
+                # belong on the profile, only their label has to wait.
+                logger.warning(
+                    "ria_profiles provenance columns unavailable; "
+                    "writing brochure fields without provenance"
+                )
+                row = await conn.fetchrow(
+                    self._BROCHURE_PROFILE_SQL.format(provenance=""), *params[:6]
+                )
+            return bool(row and row["filled"])
+        except asyncpg.exceptions.UndefinedTableError as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
     async def _removed_activate_ria_dev_onboarding(self) -> None:
         """Dev bypass onboarding has been permanently removed.
 
@@ -4593,6 +4738,55 @@ class RIAIAMService:
             "Dev bypass onboarding is no longer available. All RIAs must complete CRD-backed verification.",
             status_code=410,
         )
+
+    @staticmethod
+    def _resolve_business_location(
+        business_contact: dict[str, Any],
+        claim_event: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], str | None]:
+        """The LOCATION block, with the claim's SEC address filling any blank.
+
+        Advisers who claimed their profile by phone never typed an address, so
+        an empty contact row would read "Not provided" forever even though the
+        claim snapshot carries the filed address. This is a pure read — nothing
+        is written on a GET — and a value the adviser stored always wins.
+
+        Returns ``(values, source)`` where source is ``"sec_record"`` when any
+        shown value came from the claim snapshot, ``"profile"`` when everything
+        shown was stored, and ``None`` when there is nothing to show.
+        """
+        # Imported here, not at module scope: ria_claim_service imports this
+        # module, so a top-level import would be circular.
+        from hushh_mcp.services.ria_claim_service import derive_business_location
+
+        columns = {
+            "city": "city",
+            "area": "area_locality",
+            "address": "full_street_address",
+            "pin_zip": "pin_zip",
+        }
+        metadata = (claim_event or {}).get("reference_metadata")
+        derived = derive_business_location(metadata if isinstance(metadata, dict) else {})
+
+        resolved: dict[str, Any] = {}
+        used_stored = False
+        used_derived = False
+        for key, column in columns.items():
+            stored = business_contact.get(column)
+            if str(stored or "").strip():
+                resolved[key] = stored
+                used_stored = True
+                continue
+            if derived.get(key, ""):
+                resolved[key] = derived[key]
+                used_derived = True
+                continue
+            # Nothing either way: keep whatever the row held (NULL stays NULL)
+            # so the payload's shape does not change for empty profiles.
+            resolved[key] = stored
+        if used_derived:
+            return resolved, "sec_record"
+        return resolved, ("profile" if used_stored else None)
 
     async def get_ria_onboarding_status(self, user_id: str) -> dict[str, Any]:
         conn = await self._conn()
@@ -4680,6 +4874,23 @@ class RIAIAMService:
             if event and "reference_metadata" in event:
                 event["reference_metadata"] = self._parse_metadata(event["reference_metadata"])
 
+            latest_claim = await conn.fetchrow(
+                """
+                SELECT outcome, checked_at, expires_at, reference_metadata
+                FROM ria_verification_events
+                WHERE ria_profile_id = $1
+                  AND provider = 'ria_identity_claim'
+                ORDER BY checked_at DESC
+                LIMIT 1
+                """,
+                ria["id"],
+            )
+            claim_event = dict(latest_claim) if latest_claim else None
+            if claim_event and "reference_metadata" in claim_event:
+                claim_event["reference_metadata"] = self._parse_metadata(
+                    claim_event["reference_metadata"]
+                )
+
             v2_profile: dict[str, Any] = {}
             try:
                 v2_row = await conn.fetchrow(
@@ -4707,6 +4918,27 @@ class RIAIAMService:
             except asyncpg.exceptions.UndefinedColumnError:
                 logger.warning("ria_profiles v2 columns unavailable during onboarding status")
 
+            # Read in its own statement, not folded into the v2 SELECT above:
+            # on an environment where the provenance migration has not landed
+            # yet, a combined query would take the whole v2 block down with it
+            # and the profile would lose services/fees it already had.
+            profile_provenance: dict[str, Any] = {}
+            try:
+                provenance_row = await conn.fetchrow(
+                    """
+                    SELECT
+                      profile_source,
+                      profile_source_url,
+                      profile_source_filed_on
+                    FROM ria_profiles
+                    WHERE id = $1
+                    """,
+                    ria["id"],
+                )
+                profile_provenance = dict(provenance_row) if provenance_row else {}
+            except asyncpg.exceptions.UndefinedColumnError:
+                logger.warning("ria_profiles provenance columns unavailable during status")
+
             business_contact: dict[str, Any] = {}
             try:
                 contact_row = await conn.fetchrow(
@@ -4731,6 +4963,10 @@ class RIAIAMService:
                 asyncpg.exceptions.UndefinedColumnError,
             ):
                 logger.warning("ria_business_contacts unavailable during onboarding status")
+
+            business_location, business_location_source = self._resolve_business_location(
+                business_contact, claim_event
+            )
 
             if used_legacy_capabilities_fallback:
                 requested_capabilities = ["advisory"]
@@ -4794,10 +5030,11 @@ class RIAIAMService:
                 "fee_structure": list(v2_profile.get("fee_structure") or []),
                 "min_engagement_amount": v2_profile.get("min_engagement_amount"),
                 "min_engagement_currency": v2_profile.get("min_engagement_currency"),
-                "business_city": business_contact.get("city"),
-                "business_area": business_contact.get("area_locality"),
-                "business_address": business_contact.get("full_street_address"),
-                "business_pin_zip": business_contact.get("pin_zip"),
+                "business_city": business_location["city"],
+                "business_area": business_location["area"],
+                "business_address": business_location["address"],
+                "business_pin_zip": business_location["pin_zip"],
+                "business_location_source": business_location_source,
                 "business_latitude": business_contact.get("latitude"),
                 "business_longitude": business_contact.get("longitude"),
                 "contact_email": business_contact.get("email"),
@@ -4805,7 +5042,13 @@ class RIAIAMService:
                 "bio": v2_profile.get("bio"),
                 "strategy": v2_profile.get("strategy"),
                 "disclosures_url": v2_profile.get("disclosures_url"),
+                # Where the narrative fields came from, so the UI can say so
+                # instead of presenting a filing's words as the adviser's.
+                "profile_source": profile_provenance.get("profile_source"),
+                "profile_source_url": profile_provenance.get("profile_source_url"),
+                "profile_source_filed_on": profile_provenance.get("profile_source_filed_on"),
                 "latest_verification_event": event,
+                "latest_claim_event": claim_event,
             }
         except asyncpg.exceptions.UndefinedTableError as exc:
             raise IAMSchemaNotReadyError() from exc

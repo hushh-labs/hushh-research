@@ -257,6 +257,9 @@ export function SharedWithMeCard({
   previewExpanded,
   children,
   message,
+  address,
+  addressLoading,
+  coordinatesFallback,
 }: {
   name: string;
   statusLine: string;
@@ -268,6 +271,12 @@ export function SharedWithMeCard({
   previewExpanded?: boolean;
   children?: ReactNode;
   message?: string;
+  /** Reverse-geocoded street address for the shared location, if resolved. */
+  address?: string | null;
+  /** True while the street address is being reverse-geocoded. */
+  addressLoading?: boolean;
+  /** "lat, lng" shown when no street address is available. */
+  coordinatesFallback?: string;
 }) {
   const canOpenMap = Boolean(previewExpanded && mapHref);
   const previewRegionId = useId();
@@ -334,6 +343,24 @@ export function SharedWithMeCard({
           ) : null}
         </div>
       </div>
+      {address || addressLoading || coordinatesFallback ? (
+        <div className="flex items-start gap-1.5">
+          <MapPin
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+          {addressLoading && !address ? (
+            <span
+              className="mt-0.5 h-3.5 w-40 max-w-full animate-pulse rounded bg-muted"
+              aria-hidden="true"
+            />
+          ) : (
+            <p className={cn(MUTED_TEXT, "min-w-0 break-words text-sm")}>
+              {address ?? coordinatesFallback}
+            </p>
+          )}
+        </div>
+      ) : null}
       <div id={previewRegionId} hidden={!isPreviewExpanded}>
         {children}
       </div>

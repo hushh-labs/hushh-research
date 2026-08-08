@@ -161,7 +161,22 @@ async function proxyRequest(
 
     const result = await load;
 
-    if (method === "POST" && path === "profile/refresh-license" && authHeader) {
+    // Mutations that change onboarding/status upstream must drop the hot GET
+    // cache so the next status read reflects them (license refresh updates the
+    // official fields; every claim step can create the profile or flip
+    // verification_status).
+    //
+    // claim/complete is the load-bearing one: the claim screen reads
+    // onboarding/status BEFORE the claim (answer: exists=false), that answer is
+    // cached here for 30s, and the post-claim force-refresh was then served the
+    // stale exists=false with a 200 and persisted client-side for 30 minutes.
+    // The profile screen believed the adviser had no profile and bounced to
+    // onboarding forever.
+    if (
+      method === "POST" &&
+      authHeader &&
+      (path === "profile/refresh-license" || path.startsWith("claim/"))
+    ) {
       hotGetCache.delete(`onboarding/status:${authHeader}`);
     }
 

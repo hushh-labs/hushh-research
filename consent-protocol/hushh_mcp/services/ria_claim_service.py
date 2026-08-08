@@ -25,7 +25,12 @@ import re
 import secrets
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
+import asyncpg
+
+from db.connection import get_pool
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.ria_iam_service import RIAIAMPolicyError, RIAIAMService
 from hushh_mcp.services.ria_identity_client import (
     RIAIdentityClient,
@@ -70,6 +75,121 @@ def mask_phone_digits(digits10: str) -> str:
     return f"••• ••• {digits10[-4:]}"
 
 
+class RIAClaimEmailError(RIAIAMPolicyError):
+    """A claim email-verification precondition failed; carries a stable code."""
+
+    def __init__(self, message: str, *, code: str, status_code: int = 409) -> None:
+        super().__init__(message, status_code=status_code)
+        self.code = code
+
+
+# Consumer mailbox providers can never prove firm affiliation.
+FREE_MAIL_DOMAINS = frozenset(
+    {
+        "gmail.com",
+        "googlemail.com",
+        "outlook.com",
+        "hotmail.com",
+        "live.com",
+        "msn.com",
+        "yahoo.com",
+        "ymail.com",
+        "icloud.com",
+        "me.com",
+        "mac.com",
+        "proton.me",
+        "protonmail.com",
+        "pm.me",
+        "aol.com",
+        "zoho.com",
+        "gmx.com",
+        "mail.com",
+    }
+)
+
+# Common two-label public suffixes so "firm.co.uk" is not reduced to "co.uk".
+_MULTI_PART_SUFFIXES = frozenset(
+    {
+        "co.uk",
+        "org.uk",
+        "ac.uk",
+        "gov.uk",
+        "com.au",
+        "net.au",
+        "org.au",
+        "co.nz",
+        "co.in",
+        "com.sg",
+        "com.hk",
+        "co.jp",
+        "com.br",
+        "com.mx",
+        "co.za",
+    }
+)
+
+
+def registrable_domain(host: str) -> str:
+    """Reduce a hostname to its registrable domain (small-suffix heuristic)."""
+    labels = [label for label in str(host or "").strip().lower().strip(".").split(".") if label]
+    if len(labels) < 2:
+        return ".".join(labels)
+    if len(labels) >= 3 and ".".join(labels[-2:]) in _MULTI_PART_SUFFIXES:
+        return ".".join(labels[-3:])
+    return ".".join(labels[-2:])
+
+
+def firm_website_host(website: str | None) -> str:
+    """Extract the bare host from a Form ADV website value ('' when unusable)."""
+    value = str(website or "").strip().lower()
+    if not value:
+        return ""
+    if "://" not in value:
+        value = f"https://{value}"
+    try:
+        host = urlsplit(value).hostname or ""
+    except ValueError:
+        return ""
+    if host.startswith("www."):
+        host = host[len("www.") :]
+    return host
+
+
+def email_domain(email: str) -> str:
+    value = str(email or "").strip().lower()
+    if "@" not in value:
+        return ""
+    return value.rsplit("@", 1)[1]
+
+
+def is_free_mail_domain(domain: str) -> bool:
+    return registrable_domain(domain) in FREE_MAIL_DOMAINS
+
+
+def email_matches_firm_domain(email: str, website: str | None) -> bool:
+    """True when the address's registrable domain is the firm website's.
+
+    Server-side gate that must pass BEFORE any email evidence is asserted
+    upstream, even though the evaluator also checks the domain itself.
+    """
+    alias_domain = email_domain(email)
+    host = firm_website_host(website)
+    if not alias_domain or not host:
+        return False
+    if is_free_mail_domain(alias_domain):
+        return False
+    return registrable_domain(alias_domain) == registrable_domain(host)
+
+
+def mask_email(email: str) -> str:
+    value = str(email or "").strip().lower()
+    if "@" not in value:
+        return "•••"
+    local, domain = value.rsplit("@", 1)
+    lead = local[0] if local else "•"
+    return f"{lead}•••@{domain}"
+
+
 def claim_test_numbers() -> set[str]:
     raw = _clean_env("RIA_CLAIM_TEST_NUMBERS")
     if not raw:
@@ -90,6 +210,31 @@ def claim_test_enabled() -> bool:
     if _is_production_environment():
         return False
     return bool(claim_test_numbers() and claim_test_code())
+
+
+def claim_test_emails() -> set[str]:
+    """Addresses allowed to stand in for a firm-domain work email off production.
+
+    The demo claim targets are real firms whose mailboxes we do not own, so the
+    firm-domain rule makes the badge journey untestable without this. Mirrors
+    the RIA_CLAIM_TEST_NUMBERS design exactly.
+    """
+    raw = _clean_env("RIA_CLAIM_TEST_EMAILS")
+    if not raw:
+        return set()
+    return {part.strip().lower() for part in re.split(r"[,;\n]+", raw) if part.strip()}
+
+
+def claim_test_email_enabled() -> bool:
+    if _is_production_environment():
+        return False
+    return bool(claim_test_emails())
+
+
+def is_claim_test_email(email: str) -> bool:
+    if not claim_test_email_enabled():
+        return False
+    return str(email or "").strip().lower() in claim_test_emails()
 
 
 def _challenge_key() -> str:
@@ -295,6 +440,85 @@ def _shape_advisor_record(raw: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _clean_text(value: Any) -> str:
+    """Trim any scalar to text; None and blanks collapse to ''."""
+    return str(value or "").strip()
+
+
+def _location_from_address(
+    *,
+    street1: Any,
+    street2: Any = None,
+    city: Any,
+    zip_code: Any,
+) -> dict[str, str]:
+    """One filed address rendered in the shape ria_business_contacts stores."""
+    line1 = _clean_text(street1)
+    line2 = _clean_text(street2)
+    address = ", ".join(part for part in (line1, line2) if part)
+    return {
+        "city": _clean_text(city),
+        # The SEC feed has no locality/neighbourhood concept. Inventing one
+        # would put words on a profile no regulator filed; the row honestly
+        # reads "Not provided" instead.
+        "area": "",
+        "address": address,
+        "pin_zip": _clean_text(zip_code),
+    }
+
+
+def derive_business_location(reference_metadata: dict[str, Any]) -> dict[str, str]:
+    """Business address from the claim's SEC snapshot: {city, area, address, pin_zip}.
+
+    A claimed adviser never typed an address, so the only honest source is the
+    record they claimed against. Order of preference:
+
+    1. The adviser's branch office — but ONLY when the SEC did not flag it as a
+       private residence. A private-residence branch is somebody's home; no
+       part of it (not the street, not the city, not the zip) is ever returned.
+    2. The firm's filed address.
+
+    A source is taken whole — never a branch street beside a firm zip, which
+    would publish an address that appears on no filing. Every key is always a
+    trimmed string; missing values are '' rather than None.
+    """
+    metadata = reference_metadata if isinstance(reference_metadata, dict) else {}
+    firm_raw = metadata.get("firm_record")
+    firm = firm_raw if isinstance(firm_raw, dict) else {}
+    advisor_raw = metadata.get("advisor_record")
+    advisor = advisor_raw if isinstance(advisor_raw, dict) else {}
+    branch_raw = advisor.get("branch")
+    branch = branch_raw if isinstance(branch_raw, dict) else {}
+
+    candidates: list[dict[str, str]] = []
+    if branch and not branch.get("private_residence"):
+        candidates.append(
+            _location_from_address(
+                street1=branch.get("street1"),
+                city=branch.get("city"),
+                zip_code=branch.get("zip"),
+            )
+        )
+    candidates.append(
+        _location_from_address(
+            street1=firm.get("street1"),
+            street2=firm.get("street2"),
+            city=firm.get("city"),
+            zip_code=firm.get("zip"),
+        )
+    )
+
+    # A street line is what the profile's map needs, so a source that has one
+    # wins; otherwise the first source carrying anything at all stands in.
+    for candidate in candidates:
+        if candidate["address"]:
+            return candidate
+    for candidate in candidates:
+        if any(candidate.values()):
+            return candidate
+    return _location_from_address(street1="", city="", zip_code="")
+
+
 def _shape_candidate(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "individual_crd": raw.get("individualCrd"),
@@ -330,9 +554,11 @@ class RIAClaimService:
         *,
         client: RIAIdentityClient | None = None,
         iam_service: RIAIAMService | None = None,
+        identity_service: ActorIdentityService | None = None,
     ) -> None:
         self._client = client or RIAIdentityClient()
         self._iam_service = iam_service or RIAIAMService()
+        self._identity_service = identity_service or ActorIdentityService()
 
     @staticmethod
     def _map_upstream_error(exc: Exception) -> RIAIAMPolicyError:
@@ -548,6 +774,9 @@ class RIAClaimService:
             "missing": payload.get("missing") or [],
             "evidence_ledger": payload.get("evidenceLedger") or [],
             "scope_note": payload.get("scopeNote"),
+            # The name the profile was built from, so a later reader (the
+            # factual bio) never has to guess who this snapshot describes.
+            "display_name": display_name,
             # The snapshot the profile was built from, kept for provenance.
             "firm_record": firm,
             "advisor_record": advisor_record,
@@ -566,6 +795,9 @@ class RIAClaimService:
             firm_website=firm.get("website"),
             firm_sec_number=firm.get("sec_number"),
             reference_metadata=reference_metadata,
+            # The claimed profile's LOCATION section, filled from the same
+            # snapshot rather than left blank for the adviser to retype.
+            business_location=derive_business_location(reference_metadata),
             # Regulator facts, straight from the public record.
             regulator="SEC" if firm.get("registration_type") == "sec" else "State",
             regulator_status=firm.get("registration_status"),
@@ -606,8 +838,19 @@ class RIAClaimService:
             "report_url": advisor_record.get("report_url") or firm.get("report_url"),
             "has_disclosures": advisor_record.get("has_disclosures"),
         }
-        await self._record_claim_enrichment(user_id, facts)
-        return {
+        await self._record_claim_enrichment(
+            user_id,
+            facts,
+            ria_profile_id=str(profile.get("ria_profile_id") or ""),
+            reference_metadata=reference_metadata,
+        )
+        dossier_status = await self._dispatch_dossier(
+            user_id=user_id,
+            ria_profile_id=str(profile.get("ria_profile_id") or ""),
+            claim_type=claim_type,
+            reference_metadata=reference_metadata,
+        )
+        result = {
             "status": "claimed",
             "claim_type": claim_type,
             "verification_level": verification_level,
@@ -616,17 +859,318 @@ class RIAClaimService:
             "profile": profile,
             "facts": facts,
         }
+        if dossier_status is not None:
+            result["dossier"] = dossier_status
+        return result
 
-    async def _record_claim_enrichment(self, user_id: str, facts: dict[str, Any]) -> None:
+    @staticmethod
+    async def _dispatch_dossier(
+        *,
+        user_id: str,
+        ria_profile_id: str,
+        claim_type: str,
+        reference_metadata: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Fire the background dossier. Best-effort: the claim always stands."""
+        try:
+            from hushh_mcp.services.ria_dossier_service import RIADossierService
+
+            return await RIADossierService().dispatch_after_claim(
+                user_id=user_id,
+                ria_profile_id=ria_profile_id,
+                claim_type=claim_type,
+                reference_metadata=reference_metadata,
+            )
+        except Exception:  # noqa: BLE001 - dossier is best-effort; the claim stands
+            logger.warning("ria.dossier_dispatch_failed", exc_info=True)
+            return None
+
+    async def _load_claim_context(self, user_id: str) -> dict[str, Any] | None:
+        """Latest persisted claim snapshot plus the profile row it belongs to."""
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return None
+        pool = await get_pool()
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                      p.id AS ria_profile_id,
+                      p.display_name,
+                      p.legal_name,
+                      p.finra_crd,
+                      p.verification_status,
+                      e.reference_metadata
+                    FROM ria_verification_events e
+                    JOIN ria_profiles p ON p.id = e.ria_profile_id
+                    WHERE p.user_id = $1
+                      AND e.provider = $2
+                    ORDER BY e.checked_at DESC
+                    LIMIT 1
+                    """,
+                    normalized_user_id,
+                    CLAIM_PROVIDER_LABEL,
+                )
+        except asyncpg.UndefinedTableError:
+            return None
+        if row is None:
+            return None
+        metadata_raw = row["reference_metadata"]
+        metadata: dict[str, Any] = {}
+        if isinstance(metadata_raw, dict):
+            metadata = metadata_raw
+        elif isinstance(metadata_raw, str):
+            try:
+                parsed = json.loads(metadata_raw)
+                metadata = parsed if isinstance(parsed, dict) else {}
+            except ValueError:
+                metadata = {}
+        return {
+            "ria_profile_id": str(row["ria_profile_id"]),
+            "display_name": str(row["display_name"] or ""),
+            "legal_name": str(row["legal_name"] or ""),
+            "crd_number": str(row["finra_crd"] or ""),
+            "verification_status": str(row["verification_status"] or ""),
+            "metadata": metadata,
+        }
+
+    @staticmethod
+    def _check_claim_email_domain(email: str, firm_record: dict[str, Any]) -> None:
+        """Fail closed unless the address sits on the claimed firm's own domain."""
+        domain = email_domain(email)
+        if not domain:
+            raise RIAClaimEmailError(
+                "Enter a valid work email.",
+                code="EMAIL_INVALID",
+                status_code=422,
+            )
+        if is_claim_test_email(email):
+            # Demo allowlist, never enabled in production: the demo claim
+            # targets are real firms whose mailboxes nobody here owns, so
+            # without this the badge journey cannot be walked at all.
+            logger.info("ria.claim_email_test_allowlisted")
+            return
+        if is_free_mail_domain(domain):
+            raise RIAClaimEmailError(
+                "Use your work email at the firm.",
+                code="EMAIL_DOMAIN_MISMATCH",
+            )
+        if not email_matches_firm_domain(email, firm_record.get("website")):
+            raise RIAClaimEmailError(
+                "This email doesn't match your firm's website domain.",
+                code="EMAIL_DOMAIN_MISMATCH",
+            )
+
+    async def prepare_email_verification(self, user_id: str, email: str) -> dict[str, Any]:
+        """Server-side domain gate for /claim/email/start.
+
+        Validates the address against the *persisted* firm record before any
+        alias ceremony begins; nothing the browser asserts is trusted.
+        """
+        context = await self._load_claim_context(user_id)
+        if context is None or not context["metadata"]:
+            raise RIAClaimEmailError(
+                "Claim your profile before verifying a work email.",
+                code="CLAIM_CONTEXT_MISSING",
+            )
+        email_normalized = str(email or "").strip().lower()
+        firm_record_raw = context["metadata"].get("firm_record")
+        firm_record: dict[str, Any] = firm_record_raw if isinstance(firm_record_raw, dict) else {}
+        self._check_claim_email_domain(email_normalized, firm_record)
+        return {
+            "email": email_normalized,
+            "email_masked": mask_email(email_normalized),
+            "firm_name": title_case_name(firm_record.get("name")) or None,
+        }
+
+    async def upgrade_with_email_evidence(self, user_id: str, *, email: str) -> dict[str, Any]:
+        """Re-evaluate the persisted claim with a verified work-email alias.
+
+        The profile is only ever upgraded through
+        ``claim_ria_profile_from_identity`` (same-identity re-claim, which
+        never downgrades), and only when the evaluator itself answers
+        ``verificationLevel == "verified"``. On any other outcome nothing is
+        written and the stored status stays exactly as it was.
+        """
+        context = await self._load_claim_context(user_id)
+        if context is None or not context["metadata"]:
+            raise RIAClaimEmailError(
+                "Claim your profile before verifying a work email.",
+                code="CLAIM_CONTEXT_MISSING",
+            )
+        metadata = context["metadata"]
+        firm_record_raw = metadata.get("firm_record")
+        firm_record: dict[str, Any] = firm_record_raw if isinstance(firm_record_raw, dict) else {}
+        email_normalized = str(email or "").strip().lower()
+        self._check_claim_email_domain(email_normalized, firm_record)
+
+        verified_alias: str | None = None
+        for alias in await self._identity_service.list_verified_email_aliases(user_id):
+            if str(alias.get("verification_status") or "").strip().lower() != "verified":
+                continue
+            if alias.get("revoked_at") is not None:
+                continue
+            alias_email = str(alias.get("email_normalized") or alias.get("email") or "").lower()
+            if alias_email == email_normalized:
+                verified_alias = alias_email
+                break
+        if not verified_alias:
+            raise RIAClaimEmailError(
+                "Verify this email before it can be used as claim evidence.",
+                code="EMAIL_ALIAS_NOT_VERIFIED",
+            )
+
+        phone_digits = normalize_nanp_phone(str(metadata.get("phone") or ""))
+        claim_type = str(metadata.get("claim_type") or "")
+        try:
+            firm_crd = int(metadata.get("firm_crd") or 0)
+        except (TypeError, ValueError):
+            firm_crd = 0
+        individual_crd_raw = metadata.get("individual_crd")
+        try:
+            individual_crd = int(individual_crd_raw) if individual_crd_raw is not None else None
+        except (TypeError, ValueError):
+            individual_crd = None
+        display_name = context["display_name"] or title_case_name(context["legal_name"])
+        if not phone_digits or claim_type not in {"individual", "firm"} or firm_crd <= 0:
+            raise RIAClaimEmailError(
+                "The stored claim snapshot is incomplete. Re-claim your profile first.",
+                code="CLAIM_CONTEXT_MISSING",
+            )
+        if not display_name:
+            raise RIAClaimEmailError(
+                "The stored claim snapshot is incomplete. Re-claim your profile first.",
+                code="CLAIM_CONTEXT_MISSING",
+            )
+
+        try:
+            payload = await self._client.claim_evaluate(
+                phone=phone_digits,
+                claim_type=claim_type,
+                firm_crd=firm_crd,
+                individual_crd=individual_crd,
+                # Possession of the filed number was proven at original claim
+                # time and lives in the persisted evidence ledger.
+                assert_phone_otp=True,
+                extra_evidence=[{"signal": "domain_email", "email": verified_alias}],
+            )
+        except (
+            RIAIdentityNotConfiguredError,
+            RIAIdentityUnavailableError,
+            RIAIdentityRequestError,
+        ) as exc:
+            raise self._map_upstream_error(exc) from exc
+
+        verification_level = str(payload.get("verificationLevel") or "none")
+        current_status = context["verification_status"]
+        if verification_level != "verified":
+            # No status write without the evaluator's verified answer.
+            return {
+                "verified": current_status in {"verified", "active", "finra_verified"},
+                "verification_status": current_status,
+                "verification_level": verification_level,
+                "satisfied": payload.get("satisfied") or [],
+                "missing": payload.get("missing") or [],
+            }
+
+        fresh_firm = _shape_firm(payload.get("firm")) or {}
+        firm = {
+            **firm_record,
+            **{key: value for key, value in fresh_firm.items() if value not in (None, "", [])},
+        }
+        advisor_record_raw = metadata.get("advisor_record")
+        advisor_record: dict[str, Any] = (
+            advisor_record_raw if isinstance(advisor_record_raw, dict) else {}
+        )
+        reference_metadata = {
+            "provider": CLAIM_PROVIDER_LABEL,
+            "claim_type": claim_type,
+            "phone": phone_digits,
+            "firm_crd": firm_crd,
+            "individual_crd": individual_crd,
+            "verification_level": verification_level,
+            "satisfied": payload.get("satisfied") or [],
+            "missing": payload.get("missing") or [],
+            "evidence_ledger": payload.get("evidenceLedger") or [],
+            "scope_note": payload.get("scopeNote"),
+            "evidence_upgrade": "domain_email",
+            "firm_record": firm,
+            "advisor_record": advisor_record,
+        }
+
+        legal_name = context["legal_name"] or display_name
+        crd_number = context["crd_number"] or (
+            str(individual_crd) if claim_type == "individual" and individual_crd else str(firm_crd)
+        )
+        firm_name = str(firm.get("name") or "").strip() or None
+
+        profile = await self._iam_service.claim_ria_profile_from_identity(
+            user_id,
+            claim_type=claim_type,
+            verification_level=verification_level,
+            phone_e164=f"+1{phone_digits}",
+            display_name=display_name,
+            legal_name=legal_name,
+            crd_number=crd_number,
+            firm_name=firm_name,
+            firm_crd=str(firm_crd),
+            firm_website=firm.get("website"),
+            firm_sec_number=firm.get("sec_number"),
+            reference_metadata=reference_metadata,
+            business_location=derive_business_location(reference_metadata),
+            regulator="SEC" if firm.get("registration_type") == "sec" else "State",
+            regulator_status=firm.get("registration_status"),
+            disclosures_url=(advisor_record.get("report_url") or firm.get("report_url")),
+            certifications=[
+                str(exam.get("code"))
+                for exam in advisor_record.get("exams", [])
+                if isinstance(exam, dict) and exam.get("code")
+            ],
+        )
+        logger.info(
+            json.dumps(
+                {
+                    "event": "ria.claim_email_upgrade",
+                    "claim_type": claim_type,
+                    "verification_level": verification_level,
+                    "firm_crd": firm_crd,
+                }
+            )
+        )
+        # A provisional→verified upgrade is the first verified moment for this
+        # identity; the dossier row's unique key makes double-dispatch harmless.
+        await self._dispatch_dossier(
+            user_id=user_id,
+            ria_profile_id=str(profile.get("ria_profile_id") or ""),
+            claim_type=claim_type,
+            reference_metadata=reference_metadata,
+        )
+        return {
+            "verified": True,
+            "verification_status": str(profile.get("verification_status") or "verified"),
+            "verification_level": verification_level,
+            "profile": profile,
+        }
+
+    async def _record_claim_enrichment(
+        self,
+        user_id: str,
+        facts: dict[str, Any],
+        *,
+        ria_profile_id: str = "",
+        reference_metadata: dict[str, Any] | None = None,
+    ) -> None:
         """Stage the claim's regulator facts in the user's knowledge planes.
 
         The encrypted PKM blob is BYOK — only the owner's unlocked vault can
         write it, so the client does that from the done screen. Here the server
         writes the planes it legitimately owns: the append-only audit event
         (the staged facts a vault session can materialize), the sanitized
-        discovery flag, and the durable setup mirror that marks the RIA
-        capability finished. Each block is best-effort in isolation: a claim
-        must never fail, and one plane must never block another.
+        discovery flag, the durable setup mirror that marks the RIA capability
+        finished, and the background read of the firm's own Form ADV Part 2
+        brochure. Each block is best-effort in isolation: a claim must never
+        fail, and one plane must never block another.
         """
         try:
             from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
@@ -665,3 +1209,19 @@ class RIAClaimService:
                 )
         except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
             logger.info("ria.claim_setup_mirror_skipped error=%s", type(exc).__name__)
+
+        try:
+            # Services, fees, the engagement minimum and a factual bio are not
+            # in the identity API; they live in the firm's filed brochure. This
+            # is fire-and-forget for the same reason the dossier is: fetching
+            # and reading a 20-page PDF must never sit inside a claim response.
+            from hushh_mcp.services.ria_brochure_profile_service import (
+                dispatch_profile_enrichment,
+            )
+
+            dispatch_profile_enrichment(
+                ria_profile_id=ria_profile_id,
+                reference_metadata=reference_metadata or {},
+            )
+        except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
+            logger.info("ria.claim_brochure_dispatch_skipped error=%s", type(exc).__name__)

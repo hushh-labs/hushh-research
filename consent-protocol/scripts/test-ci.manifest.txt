@@ -41,3 +41,16 @@ tests/test_deploy_sha_gate_payload_size.py
 tests/services/test_advisor_directory_service.py
 tests/test_advisors_runtime_config_wiring.py
 tests/test_advisors_coordinate_privacy.py
+tests/test_ria_claim_email_evidence.py
+tests/test_ria_claim_email_routes.py
+tests/test_ria_onboarding_status_claim_event.py
+tests/test_account_delete_scope_proposals.py
+tests/test_console_triage_regressions.py
+tests/test_ria_claim_dossiers_migration.py
+tests/test_ria_dossier_service.py
+tests/test_ria_dossier_email_service.py
+tests/test_ria_dossier_routes.py
+tests/test_ria_claim_email_test_path.py
+tests/test_ria_dossier_mail_contract.py
+tests/test_ria_claim_location.py
+tests/test_ria_brochure_profile.py

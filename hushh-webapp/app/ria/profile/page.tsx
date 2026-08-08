@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { InlineLoadingState } from "@/components/app-ui/inline-loading-state";
 import { RiaProfileSection } from "@/components/ria/profile/ria-profile-section";
 import { RiaPageShell } from "@/components/ria/ria-page-shell";
+import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { RiaService, type RiaOnboardingStatus } from "@/lib/services/ria-service";
 
@@ -16,6 +17,7 @@ export default function RiaProfilePage() {
   const { user, loading: authLoading } = useAuth();
   const [status, setStatus] = useState<RiaOnboardingStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const refreshStatus = useCallback(
     async (force = false) => {
@@ -33,7 +35,13 @@ export default function RiaProfilePage() {
           force,
         });
         setStatus(nextStatus);
+        setLoadError(false);
         return nextStatus;
+      } catch {
+        // A failed status read left `status` null with no error surface and an
+        // unhandled rejection. Say it failed and offer the retry instead.
+        setLoadError(true);
+        return null;
       } finally {
         setLoading(false);
       }
@@ -60,8 +68,27 @@ export default function RiaProfilePage() {
     >
       {authLoading || loading ? (
         <InlineLoadingState label="Loading profile…" />
+      ) : loadError && !status ? (
+        <div className="space-y-4 rounded-[22px] border border-[color:var(--border)] bg-[color:var(--card)] p-5">
+          <div>
+            <p className="text-[16px] font-semibold">We couldn&apos;t load your profile</p>
+            <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+              Check your connection and try again.
+            </p>
+          </div>
+          <Button
+            onClick={() => void refreshStatus(true)}
+            data-testid="ria-profile-load-retry"
+          >
+            Try again
+          </Button>
+        </div>
       ) : (
-        <RiaProfileSection status={status} onRefresh={refreshStatus} />
+        <RiaProfileSection
+          status={status}
+          loading={loading}
+          onRefresh={refreshStatus}
+        />
       )}
     </RiaPageShell>
   );

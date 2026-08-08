@@ -4515,7 +4515,7 @@
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "0ea5a55102d495e2486fa7314657b96af58f5bf439939403371873d9bf94955a",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
-    "cache_manifest": "5991c2da1921c773a3a557e3650aa3315d6b201f4cdc82037eec42d8caad40da",
+    "cache_manifest": "e2a60c9182ecd0503088c3c38fddc7f3890e9c9b54d207699c47583830c8f8ff",
     "data_plane": "270affce3a97bcbde752a465927f065005176f0ddc69aeb9419e6605bbc4f94d",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "95be4db6c1c4b999a3e542711c6b902fce7639ca5c166a3dd7cfeb39e3b57a14",

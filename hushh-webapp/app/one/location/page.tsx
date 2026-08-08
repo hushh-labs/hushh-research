@@ -194,6 +194,9 @@ import {
 } from "@/lib/one-location/sos-trigger";
 import {
   emergencyInfoForCountryCode,
+  readCachedEmergencyInfo,
+  writeCachedEmergencyInfo,
+  EMERGENCY_LOOKUP_TIMEOUT_MS,
   type EmergencyInfo,
   type EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
@@ -622,6 +625,28 @@ function toggleSelectedId(
     return selectedIds.filter((selectedId) => selectedId !== recipientId);
   }
   return [...selectedIds, recipientId];
+}
+
+function useShareRecipientSelectionState(): readonly [
+  string[],
+  (next: SetStateAction<string[]>) => string[],
+] {
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // React can batch multiple share actions before rerendering. This cursor lets
+  // each action compose from the latest queued selection while state remains
+  // the rendered source of truth.
+  const latestSelectedIdsRef = useRef<string[]>([]);
+  const updateSelectedIds = useCallback(
+    (next: SetStateAction<string[]>): string[] => {
+      const resolvedIds =
+        typeof next === "function" ? next(latestSelectedIdsRef.current) : next;
+      latestSelectedIdsRef.current = resolvedIds;
+      setSelectedIds(resolvedIds);
+      return resolvedIds;
+    },
+    [],
+  );
+  return [selectedIds, updateSelectedIds] as const;
 }
 
 type ShareReadyRecipient = OneLocationRecipient & {
@@ -1847,9 +1872,8 @@ export function OneLocationAgentPageContent({
   const [oneNetworkListExpanded, setOneNetworkListExpanded] = useState(false);
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [selectedRequestOwnerId, setSelectedRequestOwnerId] = useState("");
-  const [selectedRecipientIds, setSelectedRecipientIds] = useState<string[]>(
-    [],
-  );
+  const [selectedRecipientIds, setSelectedRecipientIds] =
+    useShareRecipientSelectionState();
   const [selectedRequestOwnerIds, setSelectedRequestOwnerIds] = useState<
     string[]
   >([]);
@@ -2631,6 +2655,7 @@ export function OneLocationAgentPageContent({
       auth.user,
       auth.userId,
       contactMatchedUserIds,
+      setSelectedRecipientIds,
       stateEntry?.userId,
       vaultOwnerToken,
     ],
@@ -3232,7 +3257,7 @@ export function OneLocationAgentPageContent({
     setSelectedShareCircleSelection(null);
     setShareDurationHours(ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS);
     setShareMessage("");
-  }, []);
+  }, [setSelectedRecipientIds]);
   const resetRequestComposer = useCallback(() => {
     suppressAutoRecipientSelectionRef.current = true;
     setSelectedRequestOwnerId("");
@@ -3374,11 +3399,22 @@ export function OneLocationAgentPageContent({
         }
         // Country lookup continues independently so a slow Maps response never
         // delays the actual Save My Soul SMS after the user completes the hold.
-        void OneLocationService.reverseGeocode({
+        // Cap the authoritative lookup: past EMERGENCY_LOOKUP_TIMEOUT_MS we stop
+        // waiting and fall back to the last cached local number, so the Call
+        // button is never stranded on a spinner during a safety-critical flow.
+        let lookupTimer: ReturnType<typeof setTimeout> | null = null;
+        const lookup = OneLocationService.reverseGeocode({
           vaultOwnerToken,
           lat: result.point.latitude,
           lng: result.point.longitude,
-        })
+        });
+        const lookupDeadline = new Promise<never>((_, reject) => {
+          lookupTimer = setTimeout(
+            () => reject(new Error("emergency-lookup-timeout")),
+            EMERGENCY_LOOKUP_TIMEOUT_MS,
+          );
+        });
+        void Promise.race([lookup, lookupDeadline])
           .then((place) => {
             if (sosEmergencyLookupIdRef.current !== emergencyLookupId) return;
             const emergency = emergencyInfoForCountryCode(place.countryCode);
@@ -3386,13 +3422,26 @@ export function OneLocationAgentPageContent({
               setSosEmergencyStatus("unavailable");
               return;
             }
+            // Warm the cache so a later slow/failed lookup can reuse this
+            // verified local number instantly instead of a dead spinner.
+            writeCachedEmergencyInfo(emergency);
             setSosEmergency(emergency);
             setSosEmergencyStatus("resolved");
           })
           .catch(() => {
-            if (sosEmergencyLookupIdRef.current === emergencyLookupId) {
+            if (sosEmergencyLookupIdRef.current !== emergencyLookupId) return;
+            // Slow or failed authoritative lookup: fall back to the last cached
+            // local number when we have one, else surface the retry state.
+            const cached = readCachedEmergencyInfo();
+            if (cached) {
+              setSosEmergency(cached);
+              setSosEmergencyStatus("resolved");
+            } else {
               setSosEmergencyStatus("unavailable");
             }
+          })
+          .finally(() => {
+            if (lookupTimer) clearTimeout(lookupTimer);
           });
         return result.point;
       } catch {
@@ -4864,6 +4913,7 @@ export function OneLocationAgentPageContent({
     [
       handleResolveNamedCircleRecipients,
       selectedShareCircleSelection?.circle.id,
+      setSelectedRecipientIds,
     ],
   );
 
@@ -5379,7 +5429,7 @@ export function OneLocationAgentPageContent({
       setSelectedRecipientIds([recipientUserId]);
       setShareReviewOpen(false);
     },
-    [namedCircles],
+    [namedCircles, setSelectedRecipientIds],
   );
 
   const clearNamedCircleShareContext = useCallback(() => {
@@ -5543,9 +5593,10 @@ export function OneLocationAgentPageContent({
       selectionSurface: OneLocationSelectionSurface = "select_menu",
     ) => {
       const recipient = recipients.find((item) => item.userId === recipientId);
-      const nextSelectedIds = addSelectedId(selectedRecipientIds, recipientId);
+      const nextSelectedIds = setSelectedRecipientIds((current) =>
+        addSelectedId(current, recipientId),
+      );
       setSelectedRecipientId(recipientId);
-      setSelectedRecipientIds(nextSelectedIds);
       setShareReviewOpen(false);
       if (recipient) {
         trackRecommendationSelection(
@@ -5556,7 +5607,7 @@ export function OneLocationAgentPageContent({
         );
       }
     },
-    [recipients, selectedRecipientIds, trackRecommendationSelection],
+    [recipients, setSelectedRecipientIds, trackRecommendationSelection],
   );
   const toggleShareRecipient = useCallback(
     (
@@ -5564,12 +5615,10 @@ export function OneLocationAgentPageContent({
       selectionSurface: OneLocationSelectionSurface = "quick_circle",
     ) => {
       const recipient = recipients.find((item) => item.userId === recipientId);
-      const nextSelectedIds = toggleSelectedId(
-        selectedRecipientIds,
-        recipientId,
+      const nextSelectedIds = setSelectedRecipientIds((current) =>
+        toggleSelectedId(current, recipientId),
       );
       setSelectedRecipientId(recipientId);
-      setSelectedRecipientIds(nextSelectedIds);
       setShareReviewOpen(false);
       if (recipient) {
         trackRecommendationSelection(
@@ -5580,20 +5629,19 @@ export function OneLocationAgentPageContent({
         );
       }
     },
-    [recipients, selectedRecipientIds, trackRecommendationSelection],
+    [recipients, setSelectedRecipientIds, trackRecommendationSelection],
   );
   const removeShareRecipient = useCallback(
     (recipientId: string) => {
-      const nextSelectedIds = selectedRecipientIds.filter(
-        (selectedId) => selectedId !== recipientId,
+      const nextSelectedIds = setSelectedRecipientIds((current) =>
+        current.filter((selectedId) => selectedId !== recipientId),
       );
-      setSelectedRecipientIds(nextSelectedIds);
       setSelectedRecipientId((current) =>
         current === recipientId ? nextSelectedIds[0] || "" : current,
       );
       setShareReviewOpen(false);
     },
-    [selectedRecipientIds],
+    [setSelectedRecipientIds],
   );
   const addRequestOwner = useCallback(
     (
@@ -6861,6 +6909,9 @@ export function OneLocationAgentPageContent({
   );
 
   const handleSkipSaveOnboardingLocation = useCallback(() => {
+    // Dismissing the saved-place picker must stay reversible during onboarding.
+    // Going back and continuing again should offer the picker again.
+    savedLocationPromptedRef.current = false;
     if (auth.userId) {
       PreVaultSensitiveDraftService.clearSavedLocation(auth.userId);
     }
@@ -7483,6 +7534,8 @@ export function OneLocationAgentPageContent({
     ),
     mapLocationHref: googleMapsLocationUrl,
     decryptedPoints,
+    reverseGeocodePoint: (point) =>
+      reverseGeocodeForSavedLocation(point.latitude, point.longitude),
     sosRecipients: sosActionRecipients,
     smsRecipients: smsActionRecipients,
     smsContactCandidates: sosActionRecipients,
