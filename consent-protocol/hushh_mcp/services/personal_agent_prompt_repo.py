@@ -85,9 +85,7 @@ class HubPromptRepo:
         from hushh_mcp.services.pod_hub_client import PodHubUnavailable
 
         hub = self._hub()
-        response = await asyncio.to_thread(
-            hub.get, _HUB_PROMPT_PATH, params={"channel": channel}
-        )
+        response = await asyncio.to_thread(hub.get, _HUB_PROMPT_PATH, params={"channel": channel})
         status = getattr(response, "status_code", 0)
         if status == 404:
             return None
@@ -100,9 +98,7 @@ class HubPromptRepo:
         recomputed = compute_prompt_sha256(prompt_text)
         if not hmac.compare_digest(recomputed, claimed_sha):
             # Fail safe: refuse a prompt whose body does not match what the hub signed.
-            logger.error(
-                "hub_prompt.integrity_mismatch agent_id=%s channel=%s", agent_id, channel
-            )
+            logger.error("hub_prompt.integrity_mismatch agent_id=%s channel=%s", agent_id, channel)
             return None
 
         # Shaped like the stored row, plus the hub's signature for pass-through.

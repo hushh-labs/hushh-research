@@ -39,7 +39,7 @@ describe("marketplace investor discovery helpers", () => {
     expect(marketplaceInvestorCurationLabel(investor)).toBe("Showcase");
   });
 
-  it("allows qualified Hushh investors to be connection subjects", () => {
+  it("allows qualified Hussh investors to be connection subjects", () => {
     const investor: MarketplaceInvestor = {
       source_type: "hushh_user",
       user_id: "hushh_investor_1",
@@ -60,7 +60,7 @@ describe("marketplace investor discovery helpers", () => {
       public_profile_id: null,
       target_user_id: "hushh_investor_1",
     });
-    expect(marketplaceInvestorSourceLabel(investor)).toBe("Qualified Hushh investor");
+    expect(marketplaceInvestorSourceLabel(investor)).toBe("Qualified Hussh investor");
     expect(marketplaceInvestorCurationLabel(investor)).toBe("Qualified");
   });
 

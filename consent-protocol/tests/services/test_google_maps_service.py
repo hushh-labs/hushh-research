@@ -64,11 +64,58 @@ async def test_autocomplete_applies_location_bias_without_restricting_search(
 
 
 @pytest.mark.asyncio
+async def test_autocomplete_can_restrict_check_in_search_to_500_m(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        assert body["locationRestriction"]["circle"] == {
+            "center": {"latitude": 37.4275, "longitude": -122.1697},
+            "radius": 500.0,
+        }
+        assert body["origin"] == {
+            "latitude": 37.4275,
+            "longitude": -122.1697,
+        }
+        assert "locationBias" not in body
+        return httpx.Response(
+            200,
+            json={
+                "suggestions": [
+                    {
+                        "placePrediction": {
+                            "placeId": "clinic-1",
+                            "text": {"text": "Campus Clinic"},
+                            "distanceMeters": 72,
+                        }
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    result = await gms.GoogleMapsService().autocomplete(
+        "clinic",
+        lat=37.4275,
+        lng=-122.1697,
+        nearby_only=True,
+    )
+
+    assert result == [
+        {
+            "placeId": "clinic-1",
+            "text": "Campus Clinic",
+            "distanceMeters": 72,
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_nearby_places_returns_bounded_distance_ranked_picker(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith("/v1/places:searchNearby")
         body = json.loads(request.content.decode())
-        assert body["maxResultCount"] == 8
+        assert body["maxResultCount"] == 20
         assert body["rankPreference"] == "DISTANCE"
         assert body["locationRestriction"]["circle"]["radius"] == 500.0
         return httpx.Response(
@@ -78,7 +125,10 @@ async def test_nearby_places_returns_bounded_distance_ranked_picker(monkeypatch)
                     {
                         "id": "spot-a",
                         "displayName": {"text": "Spot A"},
-                        "formattedAddress": "Stanford, CA",
+                        "shortFormattedAddress": "Stanford, CA",
+                        "primaryType": "university",
+                        "primaryTypeDisplayName": {"text": "University"},
+                        "businessStatus": "OPERATIONAL",
                         "location": {
                             "latitude": 37.4276,
                             "longitude": -122.1697,
@@ -99,10 +149,292 @@ async def test_nearby_places_returns_bounded_distance_ranked_picker(monkeypatch)
     assert result == [
         {
             "placeId": "spot-a",
+            "name": "Spot A",
+            "address": "Stanford, CA",
             "text": "Spot A, Stanford, CA",
             "distanceMeters": 11,
+            "latitude": 37.4276,
+            "longitude": -122.1697,
+            "primaryType": "university",
+            "category": "University",
+            "categories": ["education"],
         }
     ]
+
+
+def _hotel(place_id: str, *, name: str, lat: float, **extra):
+    return {
+        "id": place_id,
+        "displayName": {"text": name},
+        "shortFormattedAddress": "1 Main St",
+        "businessStatus": "OPERATIONAL",
+        "location": {"latitude": lat, "longitude": -122.1697},
+        **extra,
+    }
+
+
+@pytest.mark.asyncio
+async def test_nearby_places_all_sweeps_every_category_bucket(monkeypatch):
+    """The 20-result provider cap must not let one category bury another.
+
+    Regression: twenty cafes inside 40 m consumed the whole unfiltered response,
+    so the hotel one street back never reached the picker and the drawer looked
+    like it had skipped it.
+    """
+
+    seen_included_types: list[list[str] | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        included = body.get("includedTypes")
+        seen_included_types.append(included)
+        if included is None:
+            # The unfiltered sweep is saturated by nearer cafes.
+            return httpx.Response(
+                200,
+                json={
+                    "places": [
+                        _hotel(
+                            f"cafe-{index}",
+                            name=f"Cafe {index}",
+                            lat=37.42751,
+                            primaryType="cafe",
+                        )
+                        for index in range(20)
+                    ]
+                },
+            )
+        if "hotel" in included:
+            return httpx.Response(
+                200,
+                json={
+                    "places": [
+                        _hotel(
+                            "hotel-1",
+                            name="Hotel One",
+                            lat=37.4276,
+                            primaryType="hotel",
+                        ),
+                        # No primaryType at all -- exactly the shape Google
+                        # returns for many independent hotels.
+                        _hotel(
+                            "hotel-2",
+                            name="Hotel Two",
+                            lat=37.4278,
+                            types=["lodging", "establishment"],
+                        ),
+                    ]
+                },
+            )
+        return httpx.Response(200, json={"places": []})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    result = await gms.GoogleMapsService().nearby_places(lat=37.4275, lng=-122.1697)
+    place_ids = [place["placeId"] for place in result]
+
+    assert None in seen_included_types
+    assert len(seen_included_types) == len(gms._NEARBY_PLACE_CATEGORY_TYPES) + 1
+    # Both hotels survive the cafe flood, and the one with no primaryType does
+    # not get silently dropped.
+    assert "hotel-1" in place_ids
+    assert "hotel-2" in place_ids
+    assert len(place_ids) == len(set(place_ids)), "merged sweep must de-duplicate"
+    distances = [place["distanceMeters"] for place in result]
+    assert distances == sorted(distances)
+    hotel_two = next(place for place in result if place["placeId"] == "hotel-2")
+    assert hotel_two["categories"] == ["hotels_stays"]
+    assert hotel_two["latitude"] == 37.4278
+
+
+@pytest.mark.asyncio
+async def test_nearby_places_files_a_generic_venue_under_the_chip_that_found_it(
+    monkeypatch,
+):
+    """An `establishment`-only venue must still be reachable from its chip.
+
+    Google reports many independent businesses with no descriptive type. Such a
+    place maps to no category of its own, so without this it would appear under
+    "All" and then vanish the moment the owner tapped "Hotels".
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        included = body.get("includedTypes")
+        if included and "hotel" in included:
+            return httpx.Response(
+                200,
+                json={
+                    "places": [
+                        _hotel(
+                            "generic-hotel",
+                            name="Blue Pearl Lodge",
+                            lat=37.4276,
+                            types=["establishment", "point_of_interest"],
+                        )
+                    ]
+                },
+            )
+        return httpx.Response(200, json={"places": []})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    result = await gms.GoogleMapsService().nearby_places(lat=37.4275, lng=-122.1697)
+
+    assert [place["placeId"] for place in result] == ["generic-hotel"]
+    assert result[0]["categories"] == ["hotels_stays"]
+
+
+@pytest.mark.asyncio
+async def test_nearby_places_survives_a_partial_bucket_failure(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        if body.get("includedTypes") is None:
+            return httpx.Response(500, json={})
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    _hotel(
+                        "hotel-1",
+                        name="Hotel One",
+                        lat=37.4276,
+                        primaryType="hotel",
+                    )
+                ]
+            },
+        )
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    result = await gms.GoogleMapsService().nearby_places(lat=37.4275, lng=-122.1697)
+
+    assert [place["placeId"] for place in result] == ["hotel-1"]
+
+
+@pytest.mark.asyncio
+async def test_nearby_places_all_buckets_failing_raises(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    with pytest.raises(gms.GoogleMapsError):
+        await gms.GoogleMapsService().nearby_places(lat=37.4275, lng=-122.1697)
+
+
+@pytest.mark.asyncio
+async def test_nearby_places_still_rejects_address_records_without_primary_type(
+    monkeypatch,
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        if body.get("includedTypes") is not None:
+            return httpx.Response(200, json={"places": []})
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    _hotel(
+                        "address-record",
+                        name="12 Main Street",
+                        lat=37.4276,
+                        types=["street_address", "geocode"],
+                    ),
+                    _hotel("no-types", name="Unknown", lat=37.4276),
+                    _hotel(
+                        "named-venue",
+                        name="Corner Shop",
+                        lat=37.4276,
+                        types=["establishment", "point_of_interest"],
+                    ),
+                ]
+            },
+        )
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    result = await gms.GoogleMapsService().nearby_places(lat=37.4275, lng=-122.1697)
+
+    assert [place["placeId"] for place in result] == ["named-venue"]
+    assert result[0]["categories"] == []
+
+
+@pytest.mark.asyncio
+async def test_nearby_places_filters_category_closed_duplicate_and_outside_results(
+    monkeypatch,
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        assert body["includedTypes"] == [
+            "hospital",
+            "medical_clinic",
+            "doctor",
+            "dentist",
+            "pharmacy",
+        ]
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    {
+                        "id": "clinic-open",
+                        "displayName": {"text": "Open Clinic"},
+                        "formattedAddress": "1 Main St",
+                        "primaryType": "medical_clinic",
+                        "businessStatus": "OPERATIONAL",
+                        "location": {"latitude": 37.4277, "longitude": -122.1697},
+                    },
+                    {
+                        "id": "clinic-open",
+                        "displayName": {"text": "Duplicate Clinic"},
+                        "location": {"latitude": 37.4278, "longitude": -122.1697},
+                    },
+                    {
+                        "id": "clinic-closed",
+                        "displayName": {"text": "Closed Clinic"},
+                        "businessStatus": "CLOSED_PERMANENTLY",
+                        "location": {"latitude": 37.4276, "longitude": -122.1697},
+                    },
+                    {
+                        "id": "street-record",
+                        "displayName": {"text": "Main Street"},
+                        "primaryType": "route",
+                        "location": {"latitude": 37.4276, "longitude": -122.1697},
+                    },
+                    {
+                        "id": "mobile-service",
+                        "displayName": {"text": "Mobile Repair Service"},
+                        "primaryType": "service",
+                        "pureServiceAreaBusiness": True,
+                        "location": {"latitude": 37.4276, "longitude": -122.1697},
+                    },
+                    {
+                        "id": "outside",
+                        "displayName": {"text": "Far Clinic"},
+                        "primaryType": "medical_clinic",
+                        "location": {"latitude": 37.4375, "longitude": -122.1697},
+                    },
+                ]
+            },
+        )
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    result = await gms.GoogleMapsService().nearby_places(
+        lat=37.4275,
+        lng=-122.1697,
+        category="health",
+    )
+
+    assert [place["placeId"] for place in result] == ["clinic-open"]
+    assert result[0]["category"] == "Medical Clinic"
 
 
 @pytest.mark.asyncio
@@ -129,6 +461,52 @@ async def test_place_details_parses_location(monkeypatch):
         "latitude": 37.79,
         "longitude": -122.4,
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid_metadata",
+    [
+        {"primaryType": "route"},
+        {"primaryType": "restaurant", "businessStatus": "CLOSED_PERMANENTLY"},
+        {"primaryType": "plumber", "pureServiceAreaBusiness": True},
+        {"primaryType": "administrative_area_level_4"},
+        {"primaryType": "postal_town"},
+        {"primaryType": "plus_code"},
+        {"primaryType": ""},
+        {"primaryType": {"unexpected": "restaurant"}},
+        {"primaryType": "restaurant", "displayName": {"text": ""}},
+        {"primaryType": "restaurant", "displayName": {"text": ["Cafe"]}},
+    ],
+)
+async def test_place_details_rejects_non_check_in_places(
+    monkeypatch,
+    invalid_metadata,
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = {
+            "id": "invalid-place",
+            "displayName": {"text": "Invalid place"},
+            "formattedAddress": "1 Main St",
+            "primaryType": "restaurant",
+            "businessStatus": "OPERATIONAL",
+            "location": {"latitude": 37.79, "longitude": -122.4},
+        }
+        payload.update(invalid_metadata)
+        return httpx.Response(200, json=payload)
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+
+    with pytest.raises(gms.GoogleMapsError) as raised:
+        await gms.GoogleMapsService().place_details(
+            "invalid-place",
+            require_check_inable=True,
+        )
+
+    assert raised.value.status_code == 422
+    assert raised.value.code == "ONE_LOCATION_PLACE_NOT_CHECK_INABLE"
+    assert str(raised.value) == "The selected place is not available for check-in."
 
 
 @pytest.mark.asyncio

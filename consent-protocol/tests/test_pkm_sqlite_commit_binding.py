@@ -120,7 +120,9 @@ async def test_same_owner_identical_replay_is_still_idempotent(engine) -> None:
         ),
         pytest.param(
             "request_fingerprint",
-            lambda cid: _params(OWNER, commit_id=cid, expected=0, next_revision=1, fingerprint="fp-2"),
+            lambda cid: _params(
+                OWNER, commit_id=cid, expected=0, next_revision=1, fingerprint="fp-2"
+            ),
             id="different-fingerprint",
         ),
     ],

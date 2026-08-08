@@ -32,6 +32,4 @@ def backend_deploy_script() -> str:
 
 def backend_deploy_surface() -> str:
     """YAML + script, for assertions that do not care which file carries the line."""
-    return (
-        BACKEND_CLOUDBUILD.read_text(encoding="utf-8") + "\n" + backend_deploy_script()
-    )
+    return BACKEND_CLOUDBUILD.read_text(encoding="utf-8") + "\n" + backend_deploy_script()

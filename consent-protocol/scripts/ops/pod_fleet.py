@@ -52,9 +52,9 @@ def _condition(obj: dict[str, Any], name: str) -> Optional[str]:
 
 def _probe_kind(svc: dict[str, Any]) -> str:
     """What the startup probe actually checks -- 'http', 'tcp (default)', or 'none'."""
-    containers = (
-        ((svc.get("spec") or {}).get("template") or {}).get("spec") or {}
-    ).get("containers") or []
+    containers = (((svc.get("spec") or {}).get("template") or {}).get("spec") or {}).get(
+        "containers"
+    ) or []
     if not containers:
         return "none"
     probe = containers[0].get("startupProbe") or {}

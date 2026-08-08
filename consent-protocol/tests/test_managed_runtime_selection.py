@@ -145,7 +145,7 @@ async def test_a_cached_probe_still_reaches_the_gate(monkeypatch):
 
 
 async def test_the_response_states_whether_an_agent_was_actually_started(monkeypatch):
-    """"We are building your private agent" and "you are on the shared runtime" are
+    """ "We are building your private agent" and "you are on the shared runtime" are
     different promises. The UI can only tell them apart if the response does."""
     gate = _Gate({"scheduled": False, "reason": "pod cannot serve this connection mode"})
     monkeypatch.setattr(runtime_route, "_probe_managed_gemini", _ready())
@@ -189,9 +189,9 @@ def test_the_webapp_actually_calls_it():
 
     webapp = Path(__file__).resolve().parents[2] / "hushh-webapp"
     api_service = (webapp / "lib" / "services" / "api-service.ts").read_text(encoding="utf-8")
-    card = (
-        webapp / "components" / "connections" / "gemini-runtime-settings-card.tsx"
-    ).read_text(encoding="utf-8")
+    card = (webapp / "components" / "connections" / "gemini-runtime-settings-card.tsx").read_text(
+        encoding="utf-8"
+    )
 
     assert "/api/one/runtime/managed/select" in api_service
     assert "selectManagedGeminiRuntime" in card

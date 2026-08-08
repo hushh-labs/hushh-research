@@ -61,7 +61,12 @@ class JourneyResult:
 #: Tools whose execution means the consent surface was genuinely reached.
 _CONSENT_TOOLS = {"ask_consent_agent"}
 #: Tools that are agent-to-agent delegation rather than a local function call.
-_A2A_TOOLS = {"ask_email_agent", "ask_location_agent", "ask_connected_systems_agent", "ask_consent_agent"}
+_A2A_TOOLS = {
+    "ask_email_agent",
+    "ask_location_agent",
+    "ask_connected_systems_agent",
+    "ask_consent_agent",
+}
 #: AgentTool-wrapped LLM specialists — delegation into a real sub-agent.
 _DELEGATION_TOOLS = {"finance", "google_search"}
 
@@ -112,11 +117,7 @@ async def run_journey(journey: Journey, *, build_agent: Any) -> JourneyResult:
     #   * it failed in a way the production path converts into a typed,
     #     actionable error rather than an opaque 500.
     # Anything else is a genuine unhandled failure.
-    ok = (
-        failure is None
-        or bool(journey.expect_failure)
-        or failure_class == "typed_degradation"
-    )
+    ok = failure is None or bool(journey.expect_failure) or failure_class == "typed_degradation"
 
     session = await session_service.get_session(
         app_name=APP_NAME, user_id=user_id, session_id=session_id
@@ -134,7 +135,9 @@ async def run_journey(journey: Journey, *, build_agent: Any) -> JourneyResult:
         orchestration={
             "entry_point": "one",
             "root_agent": getattr(events[0], "author", None) if events else None,
-            "authors": sorted({str(getattr(e, "author", "")) for e in events if getattr(e, "author", None)}),
+            "authors": sorted(
+                {str(getattr(e, "author", "")) for e in events if getattr(e, "author", None)}
+            ),
             "model_calls": len(calls),
             "event_count": len(events),
             "tools_offered": list(calls[0].tools_offered) if calls else [],
@@ -324,18 +327,20 @@ def summarize(results: list[JourneyResult]) -> dict[str, Any]:
         "a2a_delegations_refused": sum(
             len(r.a2a.get("delegations_refused") or []) for r in results
         ),
-        "agent_tool_delegations": sum(len(r.a2a.get("agent_tool_delegations") or []) for r in results),
+        "agent_tool_delegations": sum(
+            len(r.a2a.get("agent_tool_delegations") or []) for r in results
+        ),
         "memory_state_written": sum(1 for r in results if r.memory.get("state_written")),
-        "recovered_after_error": sum(1 for r in results if r.recovery.get("completed_despite_failure")),
+        "recovered_after_error": sum(
+            1 for r in results if r.recovery.get("completed_despite_failure")
+        ),
         "tools_exercised": dict(tools_called.most_common()),
         # Reported separately from tool_errors on purpose. A tool that declines is
         # behaving correctly, but a run where MOST tools decline is not evidence
         # the platform works -- and the two look identical in a pass rate.
         "tool_statuses": dict(
             Counter(
-                status
-                for r in results
-                for status in (r.tool_execution.get("statuses") or [])
+                status for r in results for status in (r.tool_execution.get("statuses") or [])
             ).most_common(15)
         ),
         "declined_calls": sum(len(r.tool_execution.get("declined") or []) for r in results),

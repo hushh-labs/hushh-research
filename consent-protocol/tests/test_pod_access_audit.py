@@ -86,7 +86,9 @@ async def test_owner_read_allowed_without_explicit_hushh_id():
     # hushh_id is optional; when omitted it is resolved (and receipted) from the row.
     ledger = FakeLedger()
     svc = PodAccessAuditService(registry=FakeRegistry(_provisioned_row()), ledger=ledger)
-    out = await svc.authorize_owner_read(user_id=_UID, agent_id=PERSONAL_AGENT_ID, scope="attr.identity.email")
+    out = await svc.authorize_owner_read(
+        user_id=_UID, agent_id=PERSONAL_AGENT_ID, scope="attr.identity.email"
+    )
     assert out["authorized"] is True and out["hushhId"] == _HUSHH
     assert ledger.events[0]["metadata"]["hushh_id"] == _HUSHH
 
@@ -104,7 +106,9 @@ async def test_non_read_scope_denied():
     ledger = FakeLedger()
     svc = PodAccessAuditService(registry=FakeRegistry(_provisioned_row()), ledger=ledger)
     with pytest.raises(PodAccessDenied):
-        await svc.authorize_owner_read(user_id=_UID, agent_id=PERSONAL_AGENT_ID, scope="vault.owner")
+        await svc.authorize_owner_read(
+            user_id=_UID, agent_id=PERSONAL_AGENT_ID, scope="vault.owner"
+        )
     assert "scope_not_read" in ledger.events[0]["metadata"]["reasons"]
 
 

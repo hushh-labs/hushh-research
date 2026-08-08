@@ -100,9 +100,7 @@ async def resolve_grounding(
     key, or an environment.
     """
     enabled = (
-        pod_native_enabled
-        if pod_native_enabled is not None
-        else _pod_native_grounding_enabled()
+        pod_native_enabled if pod_native_enabled is not None else _pod_native_grounding_enabled()
     )
     client_text = _truncate(client_context or "")
 

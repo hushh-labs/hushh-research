@@ -31,7 +31,7 @@ class _FakeMarketplaceConn:
                     "display_name": "Avery Stone",
                     "headline": "Qualified founder liquidity planning",
                     "location_hint": "Austin, TX",
-                    "strategy_summary": "Qualified Hushh investor profile.",
+                    "strategy_summary": "Qualified Hussh investor profile.",
                     "metadata": {
                         "admission_status": "qualified",
                         "curation_tier": "qualified",

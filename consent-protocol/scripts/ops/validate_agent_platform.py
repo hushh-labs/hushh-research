@@ -117,7 +117,9 @@ async def main() -> int:
     summary = harness.summarize(results)
 
     print("\n" + "=" * 66)
-    print(f"  journeys {summary['journeys']}  passed {summary['passed']}  failed {summary['failed']}")
+    print(
+        f"  journeys {summary['journeys']}  passed {summary['passed']}  failed {summary['failed']}"
+    )
     print(f"  pass rate                 {summary['pass_rate']}%")
     print(f"  orchestration reliability {summary['orchestration_reliability']}%")
     print(f"  response quality          {summary['response_quality']}%")
@@ -126,24 +128,26 @@ async def main() -> int:
     print(f"  latency p50/p95           {summary['p50_ms']}ms / {summary['p95_ms']}ms")
     print("=" * 66)
     print(f"  consent surface reached   {summary['consent_reached']}")
-    print(f"  a2a attempted / succeeded {summary['a2a_delegations_attempted']}"
-          f" / {summary['a2a_delegations_succeeded']}"
-          f"  (refused {summary['a2a_delegations_refused']})")
+    print(
+        f"  a2a attempted / succeeded {summary['a2a_delegations_attempted']}"
+        f" / {summary['a2a_delegations_succeeded']}"
+        f"  (refused {summary['a2a_delegations_refused']})"
+    )
     print(f"  AgentTool delegations     {summary['agent_tool_delegations']}")
     print(f"  memory state written      {summary['memory_state_written']}")
     print(f"  recovered after error     {summary['recovered_after_error']}")
 
     if summary["failure_patterns"]:
         print("\nfailure patterns:")
-        for pattern, count in sorted(
-            summary["failure_patterns"].items(), key=lambda kv: -kv[1]
-        ):
+        for pattern, count in sorted(summary["failure_patterns"].items(), key=lambda kv: -kv[1]):
             print(f"  {count:3}  {pattern}")
 
     if not args.quiet:
         for detail in harness.failures_detail(results, limit=6):
-            print(f"\n--- {detail['journey_id']} [{detail['kind']}/{detail['surface']}] "
-                  f"{detail['failure_class']}")
+            print(
+                f"\n--- {detail['journey_id']} [{detail['kind']}/{detail['surface']}] "
+                f"{detail['failure_class']}"
+            )
             print(f"    prompt: {detail['prompt']}")
             print(f"    tools called: {detail['tool_execution']['called']}")
             print(f"    {(detail['failure'] or '')[:400]}")

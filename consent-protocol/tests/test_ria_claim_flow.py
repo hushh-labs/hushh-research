@@ -281,10 +281,12 @@ async def test_identity_client_error_mapping(monkeypatch):
 
 
 class _FakeIdentityClient:
-    def __init__(self, *, lookup_payload=None, evaluate_payload=None):
+    def __init__(self, *, lookup_payload=None, evaluate_payload=None, advisor_payload=None):
         self.lookup_payload = lookup_payload or {}
         self.evaluate_payload = evaluate_payload or {}
         self.evaluate_calls: list[dict[str, Any]] = []
+        self.advisor_calls: list[int] = []
+        self.advisor_payload: dict[str, Any] | None = advisor_payload
 
     async def claim_lookup(self, phone, **_kwargs):
         return self.lookup_payload
@@ -292,6 +294,12 @@ class _FakeIdentityClient:
     async def claim_evaluate(self, **kwargs):
         self.evaluate_calls.append(kwargs)
         return self.evaluate_payload
+
+    async def advisor_record(self, individual_crd):
+        self.advisor_calls.append(individual_crd)
+        if self.advisor_payload is None:
+            raise RIAIdentityUnavailableError("no record")
+        return self.advisor_payload
 
 
 class _FakeIamService:
@@ -646,3 +654,211 @@ def test_claim_complete_route_happy_path(monkeypatch):
     )
     assert response.status_code == 200
     assert response.json()["status"] == "claimed"
+
+
+# ---------------------------------------------------------------------------
+# Possession via the account's already-verified phone (removes the second OTP)
+# ---------------------------------------------------------------------------
+
+
+def _identity(phone: str | None, verified: bool) -> dict[str, Any]:
+    return {"phone_number": phone, "phone_verified": verified}
+
+
+def test_claim_verify_accepts_the_accounts_own_verified_phone(monkeypatch):
+    """An adviser who just verified this number must not be asked again."""
+    _enable_test_code(monkeypatch)
+
+    async def _mock_get_many(self, user_ids):
+        return {_TEST_UID: _identity("+18015663510", True)}
+
+    monkeypatch.setattr(ria_module.ActorIdentityService, "get_many", _mock_get_many)
+
+    async def _mock_evaluate(self, **kwargs):
+        return {"claim_ticket": "ticket", "roster_unlocked": True}
+
+    monkeypatch.setattr(RIAClaimService, "evaluate_with_possession", _mock_evaluate)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/ria/claim/verify",
+        json={
+            "phone": "(801) 566-3510",
+            "claim_type": "individual",
+            "firm_crd": 283040,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["proof_channel"] == "verified_account_phone"
+
+
+def test_claim_verify_rejects_a_different_number_than_the_account_holds(monkeypatch):
+    """Possession of MY number never proves possession of someone else's."""
+    _enable_test_code(monkeypatch)
+
+    async def _mock_get_many(self, user_ids):
+        return {_TEST_UID: _identity("+12125550000", True)}
+
+    monkeypatch.setattr(ria_module.ActorIdentityService, "get_many", _mock_get_many)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/ria/claim/verify",
+        json={"phone": "8015663510", "claim_type": "individual", "firm_crd": 283040},
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "CLAIM_PROOF_REQUIRED"
+
+
+def test_claim_verify_rejects_an_unverified_account_phone(monkeypatch):
+    """A stored-but-unverified number is not proof of anything."""
+    _enable_test_code(monkeypatch)
+
+    async def _mock_get_many(self, user_ids):
+        return {_TEST_UID: _identity("+18015663510", False)}
+
+    monkeypatch.setattr(ria_module.ActorIdentityService, "get_many", _mock_get_many)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/ria/claim/verify",
+        json={"phone": "8015663510", "claim_type": "individual", "firm_crd": 283040},
+    )
+    assert response.status_code == 422
+
+
+def test_claim_verify_survives_an_identity_lookup_failure(monkeypatch):
+    """The identity cache is advisory: if it errors, fail closed to the passcode."""
+    _enable_test_code(monkeypatch)
+
+    async def _boom(self, user_ids):
+        raise RuntimeError("identity cache unavailable")
+
+    monkeypatch.setattr(ria_module.ActorIdentityService, "get_many", _boom)
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/ria/claim/verify",
+        json={"phone": "8015663510", "claim_type": "individual", "firm_crd": 283040},
+    )
+    assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Agentic enrichment: the profile is built from the regulator's record
+# ---------------------------------------------------------------------------
+
+_ADVISOR_RECORD = {
+    "ok": True,
+    "individual": {
+        "crd": 5308823,
+        "otherNames": ["REGINALD MAXFIELD"],
+        "currentEmployments": [
+            {
+                "firmCrd": 283040,
+                "firmName": "OLYMPUS PEAKS FINANCIAL, LLC",
+                "registrationBeginDate": "5/20/2016",
+                "branches": [
+                    {
+                        "city": "SANDY",
+                        "state": "UT",
+                        "street1": "9035 S 1300 E STE 120",
+                        "zip": "84094",
+                        "privateResidence": False,
+                    }
+                ],
+            }
+        ],
+        "previousEmployments": [
+            {
+                "firmCrd": 6413,
+                "firmName": "LPL FINANCIAL LLC",
+                "from": "5/1/2007",
+                "to": "6/2/2016",
+            }
+        ],
+        "exams": [
+            {"code": "Series 66", "name": "Uniform Combined State Law", "date": "4/28/2007"},
+            {"code": "SIE", "name": "Securities Industry Essentials", "date": "6/2/2016"},
+        ],
+        "registeredStates": [
+            {"state": "Utah", "regScope": "IA", "status": "APPROVED", "regDate": "5/20/2016"}
+        ],
+        "hasDisclosures": False,
+        "disclosures": [],
+        "reportUrl": "https://adviserinfo.sec.gov/individual/summary/5308823",
+    },
+}
+
+
+async def test_claim_enriches_the_profile_from_the_public_record(monkeypatch):
+    """Nothing is asked: exams, regulator and the SEC link come from the record."""
+    monkeypatch.setenv("APP_SIGNING_KEY", "test_secret_key_for_ci_only_32chars_min")
+    iam = _FakeIamService()
+    payload = dict(_EVALUATE_VERIFIED)
+    payload["firm"] = dict(_EVALUATE_VERIFIED["firm"])
+    fake = _FakeIdentityClient(evaluate_payload=payload, advisor_payload=_ADVISOR_RECORD)
+    service = RIAClaimService(client=fake, iam_service=iam)
+
+    await service.complete(
+        user_id=_TEST_UID,
+        phone_digits="8015663510",
+        claim_type="individual",
+        firm_crd=283040,
+        individual_crd=5308823,
+    )
+
+    assert fake.advisor_calls == [5308823]
+    call = iam.calls[0]
+    # Exam codes become certifications — real credentials, not invented ones.
+    assert call["certifications"] == ["Series 66", "SIE"]
+    # The profile links to the regulator's own page rather than nothing.
+    assert "adviserinfo.sec.gov" in (call["disclosures_url"] or "")
+    # The full snapshot is kept for provenance.
+    record = call["reference_metadata"]["advisor_record"]
+    assert record["registered_states"][0]["state"] == "Utah"
+    assert record["previous_firms"][0]["firm_name"] == "LPL FINANCIAL LLC"
+    assert record["branch"]["city"] == "SANDY"
+    assert record["has_disclosures"] is False
+
+
+async def test_claim_still_succeeds_when_enrichment_fails(monkeypatch):
+    """Enrichment is a bonus, never a gate: a claim must not depend on it."""
+    monkeypatch.setenv("APP_SIGNING_KEY", "test_secret_key_for_ci_only_32chars_min")
+    iam = _FakeIamService()
+    # advisor_payload=None makes the fake raise, as a dead upstream would.
+    service = RIAClaimService(
+        client=_FakeIdentityClient(evaluate_payload=_EVALUATE_VERIFIED),
+        iam_service=iam,
+    )
+
+    result = await service.complete(
+        user_id=_TEST_UID,
+        phone_digits="8015663510",
+        claim_type="individual",
+        firm_crd=283040,
+        individual_crd=5308823,
+    )
+
+    assert result["status"] == "claimed"
+    assert iam.calls[0]["certifications"] == []
+
+
+async def test_firm_claim_does_not_fetch_an_advisor_record(monkeypatch):
+    """A firm claim has no individual to enrich; no wasted upstream call."""
+    monkeypatch.setenv("APP_SIGNING_KEY", "test_secret_key_for_ci_only_32chars_min")
+    payload = dict(_EVALUATE_VERIFIED)
+    payload.update(
+        {"claimType": "firm", "verificationLevel": "provisional", "profileVerified": False}
+    )
+    fake = _FakeIdentityClient(evaluate_payload=payload, advisor_payload=_ADVISOR_RECORD)
+    service = RIAClaimService(client=fake, iam_service=_FakeIamService())
+
+    await service.complete(
+        user_id=_TEST_UID,
+        phone_digits="8015663510",
+        claim_type="firm",
+        firm_crd=283040,
+    )
+
+    assert fake.advisor_calls == []

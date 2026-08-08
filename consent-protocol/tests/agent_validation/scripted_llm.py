@@ -54,7 +54,9 @@ class ScriptedLlm(BaseLlm):
 
     model: str = "scripted"
 
-    def __init__(self, script: list[Step] | None = None, *, tail: str = "Done.", **kwargs: Any) -> None:
+    def __init__(
+        self, script: list[Step] | None = None, *, tail: str = "Done.", **kwargs: Any
+    ) -> None:
         super().__init__(**kwargs)
         # BaseLlm is a pydantic model; bypass field validation for harness state.
         object.__setattr__(self, "_script", list(script or []))
@@ -113,7 +115,9 @@ class ScriptedLlm(BaseLlm):
             yield LlmResponse(
                 content=types.Content(
                     role="model",
-                    parts=[types.Part(function_call=types.FunctionCall(name=name, args=dict(args)))],
+                    parts=[
+                        types.Part(function_call=types.FunctionCall(name=name, args=dict(args)))
+                    ],
                 )
             )
             return
@@ -159,7 +163,8 @@ class ScriptedLlm(BaseLlm):
                 tools_offered=_tool_names(llm_request),
                 content_count=len(getattr(llm_request, "contents", None) or []),
                 roles=tuple(
-                    getattr(c, "role", "") or "" for c in (getattr(llm_request, "contents", None) or [])
+                    getattr(c, "role", "") or ""
+                    for c in (getattr(llm_request, "contents", None) or [])
                 ),
                 system_instruction_len=len(
                     getattr(getattr(llm_request, "config", None), "system_instruction", "") or ""

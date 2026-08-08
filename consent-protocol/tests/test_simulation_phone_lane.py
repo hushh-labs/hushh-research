@@ -314,7 +314,10 @@ def _resolve_runtime_environment(deploy_env: str, runtime_env: str = "uat") -> s
     script = backend_deploy_script()
     start = script.index('runtime_environment="${_RUNTIME_ENVIRONMENT}"')
     end = script.index('if [[ "${_DEPLOY_ENV}" == "dev" ]]; then\n  runtime_environment="dev"\nfi')
-    slice_ = script[start : end + len('if [[ "${_DEPLOY_ENV}" == "dev" ]]; then\n  runtime_environment="dev"\nfi')]
+    slice_ = script[
+        start : end
+        + len('if [[ "${_DEPLOY_ENV}" == "dev" ]]; then\n  runtime_environment="dev"\nfi')
+    ]
     slice_ = slice_.replace("${_RUNTIME_ENVIRONMENT}", runtime_env).replace(
         "${_DEPLOY_ENV}", deploy_env
     )

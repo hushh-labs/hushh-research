@@ -220,7 +220,7 @@ def test_the_attached_identity_is_used_when_no_key_is_set(monkeypatch):
 
 
 def test_no_credentials_at_all_names_both_paths(monkeypatch):
-    """"No credentials" with no hint of where they should come from is how this
+    """ "No credentials" with no hint of where they should come from is how this
     stayed broken."""
     from hushh_mcp.services import gcp_run_client
 

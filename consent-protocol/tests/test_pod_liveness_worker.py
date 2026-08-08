@@ -114,7 +114,10 @@ async def test_an_economy_pod_is_never_probed_and_never_healed():
     it, which is the bill the tier exists to avoid."""
     spy = _Spy(probe_result=False)
 
-    await _run([_row(liveness_mode="economy", last_heartbeat_at=(NOW - timedelta(days=9)).isoformat())], spy)
+    await _run(
+        [_row(liveness_mode="economy", last_heartbeat_at=(NOW - timedelta(days=9)).isoformat())],
+        spy,
+    )
 
     assert spy.probed == []
     assert spy.healed == []

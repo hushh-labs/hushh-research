@@ -3,7 +3,7 @@ name: hushh-one-pkm
 description: Use when an OpenClaw agent needs to access a Hussh One user's Personal Knowledge Model through the Hussh MCP bridge. This covers developer-token setup, dynamic scope discovery, explicit user consent in One/Kai, consent polling, scoped export retrieval, and the privacy boundary for external agents.
 ---
 
-# Hushh One PKM Consent MCP
+# Hussh One PKM Consent MCP
 
 Use Hussh One through the MCP server `hushh-one`. OpenClaw exposes the tools as `hushh-one__<toolName>`.
 

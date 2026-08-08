@@ -13,7 +13,9 @@ from hushh_mcp.services.webauthn_aal import (
 )
 
 # A built-in, publicly-documented hardware-key AAGUID (YubiKey 5 NFC).
-_HW_KEY = "2fc0579f-8113-47ea-b116-bb5a8db9202a"  # gitleaks:allow -- public FIDO AAGUID, not a secret
+_HW_KEY = (
+    "2fc0579f-8113-47ea-b116-bb5a8db9202a"  # gitleaks:allow -- public FIDO AAGUID, not a secret
+)
 
 
 def test_platform_authenticator_with_uv_is_aal2():

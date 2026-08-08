@@ -33,11 +33,15 @@ POD_URL = "https://one-pod-abc-uc.a.run.app"
 
 class _Registry:
     def __init__(self, row: dict | None = None) -> None:
-        self.row = row if row is not None else {
-            "user_id": "u1",
-            "status": "provisioned",
-            "backend_metadata": {"url": POD_URL},
-        }
+        self.row = (
+            row
+            if row is not None
+            else {
+                "user_id": "u1",
+                "status": "provisioned",
+                "backend_metadata": {"url": POD_URL},
+            }
+        )
 
     async def get(self, _user_id):
         return self.row
@@ -298,8 +302,7 @@ def test_the_webapp_can_actually_call_this():
     from pathlib import Path
 
     api_service = (
-        Path(__file__).resolve().parents[2]
-        / "hushh-webapp" / "lib" / "services" / "api-service.ts"
+        Path(__file__).resolve().parents[2] / "hushh-webapp" / "lib" / "services" / "api-service.ts"
     ).read_text(encoding="utf-8")
 
     assert "/api/one/u/" in api_service
@@ -314,8 +317,7 @@ def test_the_client_never_sends_a_consent_token():
     from pathlib import Path
 
     api_service = (
-        Path(__file__).resolve().parents[2]
-        / "hushh-webapp" / "lib" / "services" / "api-service.ts"
+        Path(__file__).resolve().parents[2] / "hushh-webapp" / "lib" / "services" / "api-service.ts"
     ).read_text(encoding="utf-8")
     body = re.search(r"static async runPodTurn\(.*?\n  \}\n", api_service, re.S)
     assert body, "runPodTurn not found"
@@ -329,8 +331,7 @@ def test_the_client_surfaces_the_typed_not_ready_state():
     from pathlib import Path
 
     api_service = (
-        Path(__file__).resolve().parents[2]
-        / "hushh-webapp" / "lib" / "services" / "api-service.ts"
+        Path(__file__).resolve().parents[2] / "hushh-webapp" / "lib" / "services" / "api-service.ts"
     ).read_text(encoding="utf-8")
 
     assert "AGENT_NOT_READY" in api_service

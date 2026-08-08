@@ -63,9 +63,7 @@ def evaluate_entry(entry: Optional[dict[str, Any]]) -> dict[str, Any]:
     if not entry:
         return {"verified": False, "reason": "not_found", "status": None}
     reports = entry.get("statusReports") or []
-    statuses = [
-        str(r.get("status", "")).strip().upper() for r in reports if isinstance(r, dict)
-    ]
+    statuses = [str(r.get("status", "")).strip().upper() for r in reports if isinstance(r, dict)]
     bad = next((s for s in statuses if s in _BAD_STATUSES), None)
     if bad:
         return {"verified": False, "reason": "compromised", "status": bad}

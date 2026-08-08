@@ -176,9 +176,9 @@ def _seal_key(pod_key: bytes) -> bytes:
     from cryptography.hazmat.primitives import hashes  # noqa: PLC0415
     from cryptography.hazmat.primitives.kdf.hkdf import HKDF  # noqa: PLC0415
 
-    return HKDF(
-        algorithm=hashes.SHA256(), length=32, salt=None, info=_SEAL_KEY_INFO
-    ).derive(pod_key)
+    return HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=_SEAL_KEY_INFO).derive(
+        pod_key
+    )
 
 
 def _seal(pod_key: bytes, plaintext: str, *, owner: str = "") -> str:
@@ -224,9 +224,7 @@ def _seal(pod_key: bytes, plaintext: str, *, owner: str = "") -> str:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: PLC0415
 
     nonce = os.urandom(_AES_GCM_NONCE_BYTES)
-    ciphertext = AESGCM(_seal_key(pod_key)).encrypt(
-        nonce, plaintext.encode("utf-8"), _aad(owner)
-    )
+    ciphertext = AESGCM(_seal_key(pod_key)).encrypt(nonce, plaintext.encode("utf-8"), _aad(owner))
     return f"{_SEAL_V2}.{base64.b64encode(nonce + ciphertext).decode('ascii')}"
 
 
@@ -299,8 +297,13 @@ class PodMemoryStore:
     def role(self) -> str:
         return self._role
 
-    def add(self, *, text: str, author: Optional[str] = None,
-            custom_metadata: Optional[dict[str, Any]] = None) -> Optional[SealedMemory]:
+    def add(
+        self,
+        *,
+        text: str,
+        author: Optional[str] = None,
+        custom_metadata: Optional[dict[str, Any]] = None,
+    ) -> Optional[SealedMemory]:
         text = (text or "").strip()
         if not text:
             return None
@@ -348,7 +351,9 @@ class PodMemoryStore:
             self._records = self._records[-_MAX_ENTRIES_PER_OWNER:]
         return loaded
 
-    def search(self, *, hushh_id: str, query: str, limit: int = 10) -> list[tuple[SealedMemory, str]]:
+    def search(
+        self, *, hushh_id: str, query: str, limit: int = 10
+    ) -> list[tuple[SealedMemory, str]]:
         """Return (record, plaintext) for matches. Raises if the owner does not match.
 
         The owner check is not defensive politeness — it is invariant 1. A pod that can be
@@ -530,8 +535,9 @@ def build_pod_memory_service(*, hushh_id: str, pod_key: bytes, log: Any = None) 
         async def search_memory(self, *, app_name: str, user_id: str, query: str) -> Any:
             await self._ensure_hydrated()
             # user_id carries the pod owner; a mismatch is an isolation breach, not a miss.
-            hits = store.search(hushh_id=self.hushh_id if user_id in ("", self.hushh_id) else user_id,
-                                query=query)
+            hits = store.search(
+                hushh_id=self.hushh_id if user_id in ("", self.hushh_id) else user_id, query=query
+            )
             return SearchMemoryResponse(
                 memories=[
                     MemoryEntry(

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 const androidPlugin = readFileSync(
   join(
     process.cwd(),
-    "android/app/src/main/java/com/hushh/app/plugins/HushhNotifications/HushhNotificationsPlugin.kt",
+    "android/app/src/main/java/com/hussh/app/plugins/HushhNotifications/HushhNotificationsPlugin.kt",
   ),
   "utf8",
 );

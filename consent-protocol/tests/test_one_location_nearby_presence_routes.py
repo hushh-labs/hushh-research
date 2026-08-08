@@ -17,6 +17,7 @@ from hushh_mcp.services.one_location_nearby_presence_service import (
 def client(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.delenv("ONE_LOCATION_NEARBY_PRESENCE_MODE", raising=False)
+    monkeypatch.delenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT", raising=False)
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "u1"}
@@ -27,7 +28,8 @@ def test_nearby_check_in_uses_token_identity_and_server_resolved_place(
     client,
     monkeypatch,
 ):
-    async def place_details(self, place_id):
+    async def place_details(self, place_id, *, require_check_inable=False):
+        assert require_check_inable is True
         return {
             "placeId": place_id,
             "label": "Demo Hall",
@@ -76,6 +78,61 @@ def test_nearby_check_in_uses_token_identity_and_server_resolved_place(
     assert response.status_code == 200
     assert response.json()["presence"]["placeLabel"] == "Demo Hall"
     assert response.headers["cache-control"] == "private, no-store"
+
+
+def test_nearby_check_in_rejects_a_non_check_in_place_before_persistence(
+    client,
+    monkeypatch,
+):
+    async def place_details(self, place_id, *, require_check_inable=False):
+        assert place_id == "closed-venue"
+        assert require_check_inable is True
+        raise gms.GoogleMapsError(
+            "The selected place is not available for check-in.",
+            status_code=422,
+            code="ONE_LOCATION_PLACE_NOT_CHECK_INABLE",
+        )
+
+    class FailIfCalledPresenceService:
+        def check_in(self, **kwargs):
+            raise AssertionError("invalid places must not reach persistence")
+
+    monkeypatch.setattr(gms.GoogleMapsService, "place_details", place_details)
+    monkeypatch.setattr(
+        location_routes,
+        "_nearby_presence_service",
+        lambda: FailIfCalledPresenceService(),
+    )
+
+    response = client.post(
+        "/api/one/location/nearby-presence/check-in",
+        json={
+            "placeId": "closed-venue",
+            "currentLat": 12.9716,
+            "currentLng": 77.5946,
+            "accuracyM": 12,
+            "capturedAt": datetime.now(timezone.utc).isoformat(),
+            "durationMinutes": 60,
+            "consentAccepted": True,
+            "allowConnectionRequests": False,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "code": "ONE_LOCATION_PLACE_NOT_CHECK_INABLE",
+        "message": "The selected place is not available for check-in.",
+    }
+
+
+def test_nearby_place_picker_uses_the_maps_provider_rate_bucket():
+    route_key = (
+        f"{location_routes.maps_nearby_places.__module__}."
+        f"{location_routes.maps_nearby_places.__name__}"
+    )
+    configured_limits = location_routes.limiter._route_limits[route_key]
+
+    assert [str(item.limit) for item in configured_limits] == ["30 per 1 minute"]
 
 
 def test_roster_never_returns_peer_location_or_stable_identity(client, monkeypatch):
@@ -186,6 +243,75 @@ def test_simulation_fails_closed_without_environment_identity(client, monkeypatc
     assert response.json()["detail"]["code"] == "NEARBY_PRESENCE_UNAVAILABLE"
 
 
+def _stub_presence_state(monkeypatch):
+    class FakePresenceService:
+        def get_state(self, *, user_id):
+            assert user_id == "u1"
+            return {"presence": None, "attendees": []}
+
+    monkeypatch.setattr(
+        location_routes,
+        "_nearby_presence_service",
+        lambda: FakePresenceService(),
+    )
+
+
+def test_production_stays_closed_without_an_explicit_mode(client, monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("ONE_LOCATION_NEARBY_PRESENCE_MODE", raising=False)
+    monkeypatch.setenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT", "all")
+
+    response = client.get("/api/one/location/nearby-presence")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "NEARBY_PRESENCE_UNAVAILABLE"
+
+
+def test_production_stays_closed_when_the_cohort_is_missing(client, monkeypatch):
+    """Forgetting the cohort must fail safe, not open the flow to everyone.
+
+    Production admission deliberately needs two variables. If setting the mode
+    alone were enough, a half-finished rollout would silently expose a
+    stranger-discovery surface to the whole user base.
+    """
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("ONE_LOCATION_NEARBY_PRESENCE_MODE", "production")
+    monkeypatch.delenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT", raising=False)
+
+    response = client.get("/api/one/location/nearby-presence")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "NEARBY_PRESENCE_UNAVAILABLE"
+
+
+def test_production_admits_only_the_named_cohort(client, monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("ONE_LOCATION_NEARBY_PRESENCE_MODE", "production")
+    monkeypatch.setenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT", "someone-else,u2")
+
+    assert client.get("/api/one/location/nearby-presence").status_code == 404
+
+    monkeypatch.setenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT", "u1,u2")
+    _stub_presence_state(monkeypatch)
+
+    response = client.get("/api/one/location/nearby-presence")
+
+    assert response.status_code == 200
+    assert response.json()["presence"] is None
+
+
+def test_production_cohort_all_admits_everyone(client, monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("ONE_LOCATION_NEARBY_PRESENCE_MODE", "production")
+    monkeypatch.setenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT", "all")
+    _stub_presence_state(monkeypatch)
+
+    response = client.get("/api/one/location/nearby-presence")
+
+    assert response.status_code == 200
+
+
 def test_checkout_remains_available_when_simulation_is_disabled(client, monkeypatch):
     class FakePresenceService:
         def checkout(self, *, user_id):
@@ -251,8 +377,9 @@ def test_presence_errors_keep_stable_code_and_message(client, monkeypatch):
 
 
 def test_nearby_place_picker_is_bounded_and_authenticated(client, monkeypatch):
-    async def nearby_places(self, *, lat, lng):
+    async def nearby_places(self, *, lat, lng, category):
         assert (lat, lng) == (12.9716, 77.5946)
+        assert category == "health"
         return [
             {
                 "placeId": "place-a",
@@ -264,7 +391,7 @@ def test_nearby_place_picker_is_bounded_and_authenticated(client, monkeypatch):
     monkeypatch.setattr(gms.GoogleMapsService, "nearby_places", nearby_places)
     response = client.post(
         "/api/one/location/maps/nearby-places",
-        json={"lat": 12.9716, "lng": 77.5946},
+        json={"lat": 12.9716, "lng": 77.5946, "category": "health"},
     )
 
     assert response.status_code == 200
@@ -272,10 +399,33 @@ def test_nearby_place_picker_is_bounded_and_authenticated(client, monkeypatch):
     assert response.json()["suggestions"][0]["placeId"] == "place-a"
 
 
+def test_nearby_place_picker_rejects_unknown_category(client):
+    response = client.post(
+        "/api/one/location/maps/nearby-places",
+        json={
+            "lat": 12.9716,
+            "lng": 77.5946,
+            "category": "random_recommendations",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_nearby_autocomplete_requires_a_current_point(client):
+    response = client.post(
+        "/api/one/location/maps/autocomplete",
+        json={"input": "clinic", "nearbyOnly": True},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "ONE_LOCATION_NEARBY_POINT_REQUIRED"
+
+
 def test_nearby_place_picker_fails_closed_in_production(client, monkeypatch):
     called = False
 
-    async def nearby_places(self, *, lat, lng):
+    async def nearby_places(self, *, lat, lng, category):
         nonlocal called
         called = True
         return []

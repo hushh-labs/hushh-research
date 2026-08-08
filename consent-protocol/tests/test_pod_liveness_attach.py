@@ -28,9 +28,7 @@ async def test_startup_schedules_the_liveness_sweep(monkeypatch):
     async def _fake_loop(**kwargs):
         started.update(kwargs)
 
-    monkeypatch.setattr(
-        "hushh_mcp.services.pod_liveness_worker.start_liveness_loop", _fake_loop
-    )
+    monkeypatch.setattr("hushh_mcp.services.pod_liveness_worker.start_liveness_loop", _fake_loop)
     monkeypatch.setattr("hushh_mcp.runtime_settings.pod_mode", lambda: False)
 
     import server as server_module

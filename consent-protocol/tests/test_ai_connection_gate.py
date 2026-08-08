@@ -37,8 +37,7 @@ class _Identity:
 
     async def get_many(self, user_ids):
         return {
-            uid: {"phone_verified": self._verified, "phone_number": self._phone}
-            for uid in user_ids
+            uid: {"phone_verified": self._verified, "phone_number": self._phone} for uid in user_ids
         }
 
     def schedule_provision_personal_agent(self, user_id, phone, *, via_ai_connection=False):
@@ -237,9 +236,7 @@ async def test_byok_never_depends_on_the_managed_switch(monkeypatch):
 
 
 @pytest.mark.parametrize("provider", ["HUSHH_MANAGED_VERTEX", "  hushh_managed_vertex  "])
-async def test_the_managed_provider_is_matched_case_and_space_insensitively(
-    monkeypatch, provider
-):
+async def test_the_managed_provider_is_matched_case_and_space_insensitively(monkeypatch, provider):
     """A near-miss on this string silently reverts to "provision anything", which is
     the failure mode that costs money rather than the one that shows an error.
 

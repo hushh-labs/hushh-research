@@ -86,6 +86,18 @@ function stateFixture(): OneLocationState {
       },
     ],
     publicInvites: [],
+    circleMemberInvites: [
+      {
+        id: "circle-invite-1",
+        circleId: "circle-1",
+        circleName: "Family",
+        circleKind: "family",
+        inviterUserId: "owner-1",
+        inviterDisplayName: "Alex",
+        inviteeUserId: USER_ID,
+        status: "pending",
+      },
+    ],
     networkConnections: [
       {
         id: "connection-1",
@@ -158,6 +170,7 @@ describe("One Location global notification reconciliation", () => {
         "location_access_denied",
         "location_referral_invite",
         "location_public_invite_submitted",
+        "location_circle_member_invite",
         "location_one_network_joined",
       ]),
     );
@@ -176,6 +189,18 @@ describe("One Location global notification reconciliation", () => {
     ).toMatchObject({
       connection_id: "connection-1",
       network_display_label: "Alex",
+    });
+    expect(
+      payloads.find(
+        (payload) => payload.type === "location_circle_member_invite",
+      ),
+    ).toMatchObject({
+      invite_id: "circle-invite-1",
+      circle_id: "circle-1",
+      circle_name: "Family",
+      inviter_display_label: "Alex",
+      deep_link:
+        "/one/location?circleInviteId=circle-invite-1&section=people",
     });
     expect(
       payloads.find((payload) => payload.type === "location_access_approved"),

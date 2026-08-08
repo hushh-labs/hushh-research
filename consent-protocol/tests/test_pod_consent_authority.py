@@ -78,7 +78,7 @@ async def test_a_revoked_token_is_denied(hub_enabled):
 
 
 async def test_a_database_failure_is_503_not_a_denial(hub_enabled):
-    """"I could not check" is not "no". Returning False here would let a pod treat
+    """ "I could not check" is not "no". Returning False here would let a pod treat
     a database outage as every user's consent being withdrawn."""
 
     def _validator(_token, expected_scope=None):
@@ -258,7 +258,8 @@ async def test_the_audience_is_verified_not_merely_the_signature(monkeypatch):
 
     monkeypatch.setattr(pod_identity_auth, "pod_hub_identity_auth_enabled", lambda: True)
     monkeypatch.setattr(
-        pod_identity_auth, "pod_hub_allowed_service_account",
+        pod_identity_auth,
+        "pod_hub_allowed_service_account",
         lambda: "pod@proj.iam.gserviceaccount.com",
     )
     monkeypatch.setattr(
@@ -284,7 +285,8 @@ async def test_no_configured_audience_refuses_rather_than_guessing(monkeypatch):
 
     monkeypatch.setattr(pod_identity_auth, "pod_hub_identity_auth_enabled", lambda: True)
     monkeypatch.setattr(
-        pod_identity_auth, "pod_hub_allowed_service_account",
+        pod_identity_auth,
+        "pod_hub_allowed_service_account",
         lambda: "pod@proj.iam.gserviceaccount.com",
     )
     monkeypatch.setattr(pod_identity_auth, "pod_hub_expected_audience", lambda: "")
@@ -351,8 +353,11 @@ async def test_the_hub_returns_the_owner_binding(hub_enabled):
         return True, "ok", _Parsed()
 
     result = await verify_consent_for_pod(
-        _Request(), "Bearer t", PodConsentVerifyRequest(token="tok"),
-        validator=_validator, registry=_Repo(),
+        _Request(),
+        "Bearer t",
+        PodConsentVerifyRequest(token="tok"),
+        validator=_validator,
+        registry=_Repo(),
     )
     assert result["hushhId"] == "hushh-owner-1"
 
@@ -366,8 +371,11 @@ async def test_an_unresolvable_binding_returns_empty_not_a_guess(hub_enabled):
         return True, "ok", _Parsed()
 
     result = await verify_consent_for_pod(
-        _Request(), "Bearer t", PodConsentVerifyRequest(token="tok"),
-        validator=_validator, registry=_Broken(),
+        _Request(),
+        "Bearer t",
+        PodConsentVerifyRequest(token="tok"),
+        validator=_validator,
+        registry=_Broken(),
     )
     # Empty, and the POD refuses on empty. Never a fabricated binding.
     assert result["hushhId"] == ""

@@ -11,7 +11,9 @@ import pytest
 from hushh_mcp.runtime_settings import pod_mode
 
 
-@pytest.mark.parametrize("value,expected", [("1", True), ("true", True), ("on", True), ("YES", True)])
+@pytest.mark.parametrize(
+    "value,expected", [("1", True), ("true", True), ("on", True), ("YES", True)]
+)
 def test_pod_mode_on(monkeypatch, value, expected):
     monkeypatch.setenv("HUSSH_POD_MODE", value)
     assert pod_mode() is expected

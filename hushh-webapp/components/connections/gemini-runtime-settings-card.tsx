@@ -235,8 +235,8 @@ export function GeminiRuntimeSettingsCard({
       // and a single cheerful string for both is how a product starts lying.
       toast.success(
         selection.agentScheduled
-          ? "Hushh managed Gemini is selected. Your private agent is being built."
-          : "Hushh managed Gemini is selected.",
+          ? "Hussh managed Gemini is selected. Your private agent is being built."
+          : "Hussh managed Gemini is selected.",
       );
     } catch (error) {
       setMode(previousMode);
@@ -512,8 +512,8 @@ export function GeminiRuntimeSettingsCard({
         <SettingsRow
         asChild
         leading={<GeminiLogo className="h-8 w-8" />}
-        title="Hushh managed Gemini"
-        description="Ready now with Hushh-managed Gemini. No personal key is needed."
+        title="Hussh managed Gemini"
+        description="Ready now with Hussh-managed Gemini. No personal key is needed."
         trailing={
           mode === "hushh_managed_vertex" && hasExplicitSelection ? (
             <Badge variant="secondary">Selected</Badge>

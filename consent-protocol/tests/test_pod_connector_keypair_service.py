@@ -30,7 +30,9 @@ class TestGenerate:
         assert len(raw) == 32
 
     def test_unique_per_call(self):
-        assert pod.generate_pod_keypair().public_key_b64 != pod.generate_pod_keypair().public_key_b64
+        assert (
+            pod.generate_pod_keypair().public_key_b64 != pod.generate_pod_keypair().public_key_b64
+        )
 
     def test_public_projection_matches(self):
         kp = pod.generate_pod_keypair()

@@ -70,9 +70,12 @@ def test_the_index_key_is_the_manifest_id_not_the_directory_name():
         "together rather than one of them quietly relaxed"
     )
     for directory, agent_id in differing:
-        assert agent_id == yaml.safe_load(
-            (_AGENTS_ROOT / directory / "agent.yaml").read_text(encoding="utf-8")
-        )["id"]
+        assert (
+            agent_id
+            == yaml.safe_load(
+                (_AGENTS_ROOT / directory / "agent.yaml").read_text(encoding="utf-8")
+            )["id"]
+        )
 
 
 def test_the_two_product_manifests_one_actually_loads_are_present():

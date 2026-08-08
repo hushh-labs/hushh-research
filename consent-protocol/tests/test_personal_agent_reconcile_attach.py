@@ -202,7 +202,9 @@ async def test_the_retry_refuses_an_unverified_phone(wired, monkeypatch):
 
     class _Identity:
         async def get_many(self, user_ids):
-            return {uid: {"phone_verified": False, "phone_number": "+15551234567"} for uid in user_ids}
+            return {
+                uid: {"phone_verified": False, "phone_number": "+15551234567"} for uid in user_ids
+            }
 
     class _Provisioning:
         # The REAL signature: `registry` is a required keyword-only constructor
@@ -216,12 +218,9 @@ async def test_the_retry_refuses_an_unverified_phone(wired, monkeypatch):
         async def provision(self, *, user_id, phone_e164, **_):
             provisioned.append((user_id, phone_e164))
 
+    monkeypatch.setattr("hushh_mcp.services.actor_identity_service.ActorIdentityService", _Identity)
     monkeypatch.setattr(
-        "hushh_mcp.services.actor_identity_service.ActorIdentityService", _Identity
-    )
-    monkeypatch.setattr(
-        "hushh_mcp.services.personal_agent_provisioning_service."
-        "PersonalAgentProvisioningService",
+        "hushh_mcp.services.personal_agent_provisioning_service.PersonalAgentProvisioningService",
         _Provisioning,
     )
 
@@ -234,7 +233,9 @@ async def test_the_retry_provisions_for_a_verified_owner(wired, monkeypatch):
 
     class _Identity:
         async def get_many(self, user_ids):
-            return {uid: {"phone_verified": True, "phone_number": "+15551234567"} for uid in user_ids}
+            return {
+                uid: {"phone_verified": True, "phone_number": "+15551234567"} for uid in user_ids
+            }
 
     class _Provisioning:
         # The REAL signature: `registry` is a required keyword-only constructor
@@ -248,12 +249,9 @@ async def test_the_retry_provisions_for_a_verified_owner(wired, monkeypatch):
         async def provision(self, *, user_id, phone_e164, **_):
             provisioned.append((user_id, phone_e164))
 
+    monkeypatch.setattr("hushh_mcp.services.actor_identity_service.ActorIdentityService", _Identity)
     monkeypatch.setattr(
-        "hushh_mcp.services.actor_identity_service.ActorIdentityService", _Identity
-    )
-    monkeypatch.setattr(
-        "hushh_mcp.services.personal_agent_provisioning_service."
-        "PersonalAgentProvisioningService",
+        "hushh_mcp.services.personal_agent_provisioning_service.PersonalAgentProvisioningService",
         _Provisioning,
     )
 

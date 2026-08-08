@@ -37,6 +37,13 @@ export function isLocationConsent(
   );
 }
 
+export function isCircleMemberInviteConsent(metadata: MetadataLike): boolean {
+  return (
+    readString(metadata, "request_source") ===
+    "one_location_circle_member_invite"
+  );
+}
+
 /**
  * Deep link back to the One Location surface, optionally focused on the
  * relevant section (mirrors the in-app notification deep links).
@@ -45,6 +52,7 @@ export function locationConsentWorkflowHref(metadata: MetadataLike): string {
   const section = readString(metadata, "section");
   const grantId = readString(metadata, "grant_id");
   const requestId = readString(metadata, "request_id");
+  const circleInviteId = readString(metadata, "invite_id");
   // Use the canonical One Location query params (section / grantId / requestId)
   // so the consent-manager deep link drives the exact same tab-switch + scroll
   // behavior as in-app notifications. A "shared" grant link also marks the
@@ -53,6 +61,7 @@ export function locationConsentWorkflowHref(metadata: MetadataLike): string {
   return buildOneLocationWorkflowHref({
     grantId: grantId || null,
     requestId: requestId || null,
+    circleInviteId: circleInviteId || null,
     section:
       (section as
         | "people"
@@ -93,6 +102,10 @@ export function locationConsentSummary(metadata: MetadataLike): string {
   const who = requesterLabel || "Someone in your One Network";
   const shareKind = readString(metadata, "share_kind").toLowerCase();
   const shareMessage = readString(metadata, "share_message");
+  if (isCircleMemberInviteConsent(metadata)) {
+    const circleName = readString(metadata, "circle_name") || "a Circle";
+    return `${who} invited you to join ${circleName}. Membership connects the group, while location and SMS stay private until you choose to share.`;
+  }
   const durationSuffix = durationLabel ? ` for ${durationLabel}` : "";
   if (shareKind === "sos") {
     return shareMessage
@@ -127,6 +140,7 @@ export type LocationConsentRecordKind =
   | "share_grant"
   | "public_invite"
   | "circle_invite"
+  | "circle_member_invite"
   | "unknown";
 
 export interface LocationConsentEntryRef {
@@ -149,6 +163,7 @@ const _LOCATION_ID_PREFIXES: Record<string, LocationConsentRecordKind> = {
   one_location_grant: "share_grant",
   one_location_public: "public_invite",
   one_location_circle: "circle_invite",
+  one_location_circle_member_invite: "circle_member_invite",
 };
 
 const _LOCATION_SOURCE_KINDS: Record<string, LocationConsentRecordKind> = {
@@ -156,6 +171,7 @@ const _LOCATION_SOURCE_KINDS: Record<string, LocationConsentRecordKind> = {
   one_location_share_grant: "share_grant",
   one_location_public_invite: "public_invite",
   one_location_circle_invite: "circle_invite",
+  one_location_circle_member_invite: "circle_member_invite",
 };
 
 /**
@@ -182,6 +198,7 @@ export function parseLocationConsentEntry(
   const metadataRequestId =
     readString(entry.metadata, "request_id") ||
     String(entry.request_id || "").trim();
+  const metadataInviteId = readString(entry.metadata, "invite_id");
 
   let id = suffix.trim();
   if (!id) {
@@ -190,6 +207,8 @@ export function parseLocationConsentEntry(
         ? metadataGrantId
         : kind === "access_request"
           ? metadataRequestId
+          : kind === "circle_member_invite"
+            ? metadataInviteId
           : "";
   }
 

@@ -196,9 +196,7 @@ class PersonalAgentGrantService:
         # grant is not treated as stale the moment it is minted.
         floor_ms = min(60 * 60 * 1000, expires_in_ms // 4)
         try:
-            rows = await lookup(
-                user_id, agent_id=pod_agent_id, scope=ConsentScope.PKM_READ.value
-            )
+            rows = await lookup(user_id, agent_id=pod_agent_id, scope=ConsentScope.PKM_READ.value)
         except Exception as exc:  # noqa: BLE001 - a lookup failure means mint, never fail
             logger.info("personal_agent.standing_read_lookup_failed %s", type(exc).__name__)
             rows = []

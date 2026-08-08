@@ -101,9 +101,7 @@ async def verify_consent_for_pod(
         # "I do not know", NOT "valid" -- so this is a 503 the pod surfaces rather
         # than a False the pod would read as a clean denial.
         logger.warning("pod_consent.authority_unavailable %s", type(exc).__name__)
-        raise HTTPException(
-            status_code=503, detail="consent authority is unavailable"
-        ) from exc
+        raise HTTPException(status_code=503, detail="consent authority is unavailable") from exc
 
     if not valid or parsed is None:
         logger.info("pod_consent.denied pod=%s reason=%s", asserted, str(reason or "")[:120])

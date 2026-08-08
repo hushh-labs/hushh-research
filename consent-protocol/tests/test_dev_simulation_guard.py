@@ -26,8 +26,14 @@ from hushh_mcp.services.dev_simulation_guard import (
     simulation_permitted,
 )
 
-_ALL_SIGNALS = ("HUSHH_DEV_SIMULATION_ENABLED", "ENVIRONMENT", "APP_ENV", "HUSHH_DEPLOY_ENV",
-                "DEPLOY_ENV", "_DEPLOY_ENV")
+_ALL_SIGNALS = (
+    "HUSHH_DEV_SIMULATION_ENABLED",
+    "ENVIRONMENT",
+    "APP_ENV",
+    "HUSHH_DEPLOY_ENV",
+    "DEPLOY_ENV",
+    "_DEPLOY_ENV",
+)
 
 
 @pytest.fixture(autouse=True)

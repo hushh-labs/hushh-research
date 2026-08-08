@@ -210,7 +210,7 @@ def test_the_route_is_mounted_in_the_pod():
 
 
 async def test_a_turn_runs_on_the_owners_key(enabled, monkeypatch):
-    """"Own your AI" is a cost boundary, not a slogan: the person's key, their
+    """ "Own your AI" is a cost boundary, not a slogan: the person's key, their
     quota, their spend."""
     _consent_ok(monkeypatch)
     seen: dict = {}
@@ -219,9 +219,7 @@ async def test_a_turn_runs_on_the_owners_key(enabled, monkeypatch):
         seen.update(kwargs)
         yield _Event("token", "ok")
 
-    result = await pod_turn.run_pod_turn(
-        payload=_payload(), consent_token="t", stream_fn=_run
-    )
+    result = await pod_turn.run_pod_turn(payload=_payload(), consent_token="t", stream_fn=_run)
 
     assert seen["runtime_credential"] == "owner-key"
     assert result["runtimeMode"] == "byok"
@@ -269,9 +267,7 @@ async def test_no_key_and_no_managed_fallback_is_a_clear_400(enabled, monkeypatc
     assert "AI key" in str(exc.value.detail)
 
 
-async def test_the_managed_fallback_is_only_reached_when_explicitly_enabled(
-    enabled, monkeypatch
-):
+async def test_the_managed_fallback_is_only_reached_when_explicitly_enabled(enabled, monkeypatch):
     _consent_ok(monkeypatch)
     import hushh_mcp.runtime_settings as settings
 
@@ -318,7 +314,9 @@ async def test_a_turn_for_this_pods_owner_is_allowed(enabled, monkeypatch):
         return _verdict()
 
     result = await pod_turn.run_pod_turn(
-        payload=_payload(), consent_token="t", verifier=_v,
+        payload=_payload(),
+        consent_token="t",
+        verifier=_v,
         stream_fn=_stream([_Event("token", "hi")]),
     )
     assert result["text"] == "hi"

@@ -170,8 +170,7 @@ class GcsObjectStore:
     # The GCE metadata endpoint that mints the pod's OWN access credential -- an
     # address, not a secret. (Named to make that plain to scanners and readers.)
     _METADATA_ACCESS_ENDPOINT = (
-        "http://metadata.google.internal/computeMetadata/v1/instance"
-        "/service-accounts/default/token"
+        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
     )
 
     def __init__(self, bucket: str, prefix: str = "", *, session: Any = None) -> None:

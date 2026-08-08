@@ -81,9 +81,7 @@ def test_memory_survives_the_death_of_the_pod(tmp_path: Path) -> None:
 
         second = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
         hits = await second.search_memory(app_name="one", user_id=OWNER, query="radiator")
-        assert [m.content.parts[0].text for m in hits.memories] == [
-            "the guest room radiator leaks"
-        ]
+        assert [m.content.parts[0].text for m in hits.memories] == ["the guest room radiator leaks"]
 
     asyncio.run(run())
 
@@ -254,9 +252,7 @@ def test_a_failed_replay_stays_retryable(tmp_path: Path) -> None:
             await svc.search_memory(app_name="one", user_id=OWNER, query="radiator")
         # The second attempt must actually replay rather than report an empty history.
         hits = await svc.search_memory(app_name="one", user_id=OWNER, query="radiator")
-        assert [m.content.parts[0].text for m in hits.memories] == [
-            "the guest room radiator leaks"
-        ]
+        assert [m.content.parts[0].text for m in hits.memories] == ["the guest room radiator leaks"]
 
     asyncio.run(run())
 

@@ -47,9 +47,7 @@ def _row(**overrides) -> dict:
 
 
 async def _status(row: dict | None) -> dict:
-    return await personal_agent.resolve_personal_agent_status(
-        user_id="u1", registry=_Registry(row)
-    )
+    return await personal_agent.resolve_personal_agent_status(user_id="u1", registry=_Registry(row))
 
 
 @pytest.mark.parametrize(

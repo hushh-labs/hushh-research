@@ -74,12 +74,12 @@ _INTENT_PHRASES: dict[str, tuple[str, ...]] = {
 
 #: Journeys that exist to break things rather than to succeed.
 EDGE_KINDS = (
-    "unknown_tool",       # the model names a tool that does not exist
-    "malformed_args",     # right tool, wrong argument shape
-    "model_fails_late",   # model raises AFTER a tool already ran
-    "empty_response",     # model returns nothing at all
-    "tool_storm",         # many tools in one turn
-    "deep_delegation",    # specialist chain, not a single hop
+    "unknown_tool",  # the model names a tool that does not exist
+    "malformed_args",  # right tool, wrong argument shape
+    "model_fails_late",  # model raises AFTER a tool already ran
+    "empty_response",  # model returns nothing at all
+    "tool_storm",  # many tools in one turn
+    "deep_delegation",  # specialist chain, not a single hop
 )
 
 #: Where a request enters the platform. Agent One is the entry point for all of
@@ -167,7 +167,9 @@ def generate(
     rng = random.Random(seed)  # noqa: S311
     names = sorted(surface_tools)
     if not names:
-        raise ValueError("no tools on the surface — the tree failed to build, which is itself the finding")
+        raise ValueError(
+            "no tools on the surface — the tree failed to build, which is itself the finding"
+        )
 
     journeys: list[Journey] = []
     # Round-robin the tool list so every tool is hit before any repeats.
@@ -186,8 +188,13 @@ def generate(
         if is_edge:
             journeys.append(
                 _edge_journey(
-                    index=index, seed=jseed, rng=jrng, surface=surface,
-                    primary=primary, prompt=prompt, surface_tools=surface_tools,
+                    index=index,
+                    seed=jseed,
+                    rng=jrng,
+                    surface=surface,
+                    primary=primary,
+                    prompt=prompt,
+                    surface_tools=surface_tools,
                 )
             )
             continue
@@ -240,11 +247,16 @@ def _edge_journey(
         notes = "silent completion; the runtime rejects this deliberately"
     elif kind == "tool_storm":
         names = sorted(surface_tools)
-        plan = [(rng.choice(names), _args_for(surface_tools[rng.choice(names)], rng)) for _ in range(6)]
+        plan = [
+            (rng.choice(names), _args_for(surface_tools[rng.choice(names)], rng)) for _ in range(6)
+        ]
         plan.append("Finished a long chain.")
         notes = "six hops in one turn — bounds and budget behaviour"
     else:  # deep_delegation
-        plan = [("finance", {"request": prompt}) if "finance" in surface_tools else good, "Delegated."]
+        plan = [
+            ("finance", {"request": prompt}) if "finance" in surface_tools else good,
+            "Delegated.",
+        ]
         notes = "AgentTool delegation into a sub-agent, not a flat function call"
 
     return Journey(

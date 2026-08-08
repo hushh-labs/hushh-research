@@ -532,7 +532,7 @@ def create_runtime_client(
 
 
 def create_managed_runtime_client(runtime_provider: str, managed_credential: str = ""):
-    """Hushh-managed runtime client for the chosen provider."""
+    """Hussh-managed runtime client for the chosen provider."""
 
     return build_managed_runtime_client(runtime_provider, managed_credential)
 
@@ -592,7 +592,7 @@ def _classify_gemini_error(error: Exception) -> dict[str, Any]:
     }
     if error.__class__.__name__ in {"DefaultCredentialsError", "RefreshError"}:
         detail["likely_issue"] = "managed_google_credentials_unavailable"
-        detail["operator_hint"] = "Check Hushh managed Gemini credentials for this runtime."
+        detail["operator_hint"] = "Check Hussh managed Gemini credentials for this runtime."
         return detail
     status_code = getattr(error, "code", None) or getattr(error, "status_code", None)
     if status_code is not None:
@@ -624,7 +624,7 @@ def _classify_gemini_error(error: Exception) -> dict[str, Any]:
         "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
     }:
         detail["likely_issue"] = "managed_google_credentials_unavailable"
-        detail["operator_hint"] = "Check Hushh managed Gemini credentials for this runtime."
+        detail["operator_hint"] = "Check Hussh managed Gemini credentials for this runtime."
     elif status_code in {401, 403}:
         detail["likely_issue"] = "credential_not_authorized"
         detail["operator_hint"] = "Check the runtime credential and model access."
@@ -747,10 +747,10 @@ def _runtime_provider_user_message(error_code: str) -> str:
     if error_code == "AGENT_RUNTIME_CREDENTIAL_INVALID":
         return (
             "Your saved Gemini key could not be used. Update it in Connections settings "
-            "or switch to Hushh managed Gemini."
+            "or switch to Hussh managed Gemini."
         )
     if error_code == "AGENT_RUNTIME_MANAGED_CREDENTIALS_UNAVAILABLE":
-        return "Hushh managed Gemini is not available in this environment."
+        return "Hussh managed Gemini is not available in this environment."
     if error_code == "AGENT_RUNTIME_MODEL_UNAVAILABLE":
         return "One's configured Gemini model is not available for this runtime."
     return "One could not reach the configured Gemini runtime."
@@ -1098,7 +1098,7 @@ class AgentChatService:
                 error_code="AGENT_RUNTIME_CREDENTIAL_MISSING",
                 message=(
                     "One needs your Gemini key to continue. Add or update it in "
-                    "Connections settings, or switch to Hushh managed Gemini."
+                    "Connections settings, or switch to Hussh managed Gemini."
                 ),
             )
         if mode == "byok" and transport == "vertex_api_key":
@@ -1201,7 +1201,7 @@ class AgentChatService:
                 error_code="AGENT_RUNTIME_CREDENTIAL_MISSING",
                 message=(
                     "One needs your Gemini key to continue. Add or update it in "
-                    "Connections settings, or switch to Hushh managed Gemini."
+                    "Connections settings, or switch to Hussh managed Gemini."
                 ),
             )
 

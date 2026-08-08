@@ -55,6 +55,7 @@ steps:
           --build-arg NEXT_PUBLIC_APP_ENV=${_APP_ENV} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_ENABLED=true \
           --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
+          --build-arg NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=${_ONE_LOCATION_NEARBY_CHECK_IN} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=1 \
           --build-arg NEXT_PUBLIC_GTM_ID=$$NEXT_PUBLIC_GTM_ID_VAL \
@@ -137,6 +138,11 @@ substitutions:
   # Wallet Profile owner entry point. Empty/false keeps the Profile row hidden;
   # the backend ONE_WALLET_CARD_ENABLED flag still decides whether it works.
   _ONE_WALLET_CARD_ENABLED: "false"
+  # Offers nearby check-in in a production build. Default off: the check-in
+  # point is client-supplied and unattestable, so the backend admits production
+  # callers by cohort and this only avoids collecting a location for a flow that
+  # would then be refused. Turning this on alone changes nothing server-side.
+  _ONE_LOCATION_NEARBY_CHECK_IN: "false"
   # `hushh-mail-api` in hushh-tech-prod. One key per consuming project, so this
   # single endpoint serves UAT and production.
   _MAIL_API_ENDPOINT: "https://hushh-mail-api-646258530541.us-central1.run.app"

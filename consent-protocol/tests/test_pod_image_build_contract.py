@@ -153,8 +153,7 @@ def test_pod_env_vars_are_set_in_dev():
         'echo "image=${pod_image} sa=${pod_sa}"'
     )
     assert out.strip() == (
-        "image=gcr.io/proj/consent-protocol-pod:tag "
-        "sa=hussh-one-pod@proj.iam.gserviceaccount.com"
+        "image=gcr.io/proj/consent-protocol-pod:tag sa=hussh-one-pod@proj.iam.gserviceaccount.com"
     )
 
 
@@ -366,9 +365,7 @@ def test_the_extracted_deploy_script_receives_every_variable_it_reads():
     script = backend_deploy_script()
 
     passed = {entry.split("=", 1)[0] for entry in (step.get("env") or [])}
-    body = "\n".join(
-        line for line in script.splitlines() if not line.lstrip().startswith("#")
-    )
+    body = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
     referenced = set(re.findall(r"\$\{(_[A-Z0-9_]+)\}", body))
     referenced |= set(re.findall(r"\$\{?(PROJECT_ID)\}?", body))
 

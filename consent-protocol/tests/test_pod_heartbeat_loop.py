@@ -159,7 +159,9 @@ def _render(min_instances):
     backend = GcpBackend(
         project="proj", region="us-central1", min_instances=min_instances, live=False
     )
-    config = backend.render_deploy_config(PodSpec(hushh_id="hushh-abc", phone_e164_hash="h", pod_pubkey=""))
+    config = backend.render_deploy_config(
+        PodSpec(hushh_id="hushh-abc", phone_e164_hash="h", pod_pubkey="")
+    )
     return config["spec"]["template"]["metadata"]["annotations"]
 
 

@@ -519,7 +519,10 @@ def test_the_shard_threshold_is_recorded_where_an_operator_will_look():
 
     doc = (
         Path(__file__).resolve().parents[2]
-        / "docs" / "future" / "personal-agent" / "POD-AUTOPROVISION.md"
+        / "docs"
+        / "future"
+        / "personal-agent"
+        / "POD-AUTOPROVISION.md"
     ).read_text(encoding="utf-8")
 
     assert str(CLOUD_RUN_SERVICES_PER_PROJECT_PER_REGION) in doc

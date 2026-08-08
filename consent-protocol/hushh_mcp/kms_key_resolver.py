@@ -80,7 +80,5 @@ def resolve_key(
     except Exception as exc:  # noqa: BLE001 -- surface as fail-closed or fail-safe per `strict`
         if strict:
             raise RuntimeError(f"KMS unwrap failed for {label}: {exc}") from exc
-        logger.warning(
-            "KMS unwrap failed for %s (%s); falling back to plaintext env", label, exc
-        )
+        logger.warning("KMS unwrap failed for %s (%s); falling back to plaintext env", label, exc)
         return plaintext

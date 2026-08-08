@@ -60,9 +60,7 @@ def test_resolution_failure_degrades_to_none(monkeypatch):
     def _boom() -> None:
         raise RuntimeError("resolver exploded")
 
-    monkeypatch.setattr(
-        "hushh_mcp.services.pod_memory_service.resolve_pod_memory_service", _boom
-    )
+    monkeypatch.setattr("hushh_mcp.services.pod_memory_service.resolve_pod_memory_service", _boom)
     _pod_env(monkeypatch)
     monkeypatch.setenv("POD_AGENT_MEMORY_ENABLED", "1")
     assert _build_one_memory_service() is None

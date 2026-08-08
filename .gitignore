@@ -151,6 +151,17 @@ docs/reference/operations/mulesoft-managed-omni-private-space.md
 test_kai_endpoints.py
 /consent-protocol/test_kai_endpoints.py
 
+# Pod simulation artifacts. Written by the local multi-pod simulation into the
+# working tree: sealed .bin commit-log records, per-pod pkm.sqlite3 files, and a
+# consent log that reaches tens of thousands of lines. They are regenerated on
+# every run and are never inputs to anything.
+#
+# This rule existed only on the feature branch that created the simulation, so a
+# branch cut from main did not ignore them, and a `git add -A` there swept 5,952
+# of them onto main (merge bc4d18dbb, reverted immediately after). The rule
+# belongs on main, where every branch inherits it.
+consent-protocol/.sim/
+
 # OS generated files
 .DS_Store*
 ._*

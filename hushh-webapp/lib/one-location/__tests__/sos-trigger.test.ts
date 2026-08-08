@@ -307,6 +307,51 @@ describe("runSosPanic", () => {
     });
   });
 
+  it("reports per-recipient delivery so an unreached contact can be named", async () => {
+    // A contact with notifications off, or whose push token was reaped after an
+    // uninstall, used to be indistinguishable from one whose phone lit up.
+    const alice = makeRecipient("userA");
+    const bob = makeRecipient("userB");
+    createGrantMock
+      .mockResolvedValueOnce(makeGrant("g1", "userA"))
+      .mockResolvedValueOnce(makeGrant("g2", "userB"));
+
+    const result = await runSosPanic({
+      vaultOwnerToken: "tok",
+      recipients: [alice, bob],
+      point: makePoint(),
+      publish: vi
+        .fn()
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false),
+    });
+
+    expect(result.delivery).toEqual([
+      { userId: "userA", displayName: alice.displayName, alerted: true },
+      { userId: "userB", displayName: bob.displayName, alerted: false },
+    ]);
+    // Still a valid incident — the grants exist and must stay revocable.
+    expect(result.grantIds).toEqual(["g1", "g2"]);
+  });
+
+  it("treats an unreported delivery as unknown rather than a failure", async () => {
+    // Non-SOS share kinds do not notify from the envelope route, and older
+    // backends omit the field. Neither is evidence that nobody was alerted.
+    const selected = makeRecipient("userA");
+    createGrantMock.mockResolvedValueOnce(makeGrant("g1", "userA"));
+
+    const result = await runSosPanic({
+      vaultOwnerToken: "tok",
+      recipients: [selected],
+      point: makePoint(),
+      publish: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(result.delivery).toEqual([
+      { userId: "userA", displayName: selected.displayName, alerted: null },
+    ]);
+  });
+
   it("sends a selected fixed message while preserving the SOS share kind", async () => {
     const selected = makeRecipient("userA");
     createGrantMock.mockResolvedValueOnce(makeGrant("g1", "userA"));

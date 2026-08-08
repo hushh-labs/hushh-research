@@ -98,6 +98,11 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "plaid_redirect_uri": "PLAID_REDIRECT_URI",
     "plaid_tx_history_days": "PLAID_TX_HISTORY_DAYS",
     "one_location_read_only_state_enabled": "ONE_LOCATION_READ_ONLY_STATE_ENABLED",
+    # Nearby check-in admission. Both are required to open the flow in
+    # production -- the mode alone leaves it closed -- so that a half-finished
+    # rollout fails safe. See `_nearby_presence_enabled` in the location routes.
+    "one_location_nearby_presence_mode": "ONE_LOCATION_NEARBY_PRESENCE_MODE",
+    "one_location_nearby_presence_cohort": "ONE_LOCATION_NEARBY_PRESENCE_COHORT",
     "consent_center_summary_v2_enabled": "CONSENT_CENTER_SUMMARY_V2_ENABLED",
     "db_bulk_batching_enabled": "DB_BULK_BATCHING_ENABLED",
     "hushh_trusted_device_enabled": "HUSSH_TRUSTED_DEVICE_ENABLED",

@@ -14,11 +14,11 @@ describe("setup warm-transition contract", () => {
     );
     const admission = coordinator.slice(0, coordinator.indexOf("const settle"));
 
-    expect(admission).toContain("getCachedBootstrapState?.(user.uid)");
+    expect(admission).toContain("getCachedBootstrapState?.(userId)");
     expect(admission).toContain(
-      "cachedJourney ??\n          (await PreVaultUserStateService.bootstrapState(user.uid))",
+      "cachedJourney ??\n          (await PreVaultUserStateService.bootstrapState(userId))",
     );
-    expect(admission).toContain("await PreVaultUserStateService.bootstrapState(user.uid)");
+    expect(admission).toContain("await PreVaultUserStateService.bootstrapState(userId)");
   });
 
   it("does not block every route change on a forced onboarding admission check", () => {

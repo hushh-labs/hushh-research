@@ -378,9 +378,7 @@ async def test_a_rebuild_materialises_only_its_own_owner(tmp_path: Path):
     # engine and the rebuild completes. If it does not run, the engine is handed a
     # payload missing `p_expected_content_revision` and raises. The assertion is
     # "this did not explode", and the reason it does not explode is the guard.
-    store = await PodPkmStore.rebuild(
-        log, str(tmp_path / "c.sqlite3"), owner_user_id="owner-c"
-    )
+    store = await PodPkmStore.rebuild(log, str(tmp_path / "c.sqlite3"), owner_user_id="owner-c")
 
     assert store is not None
 

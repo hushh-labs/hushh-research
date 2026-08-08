@@ -135,9 +135,7 @@ def test_the_route_is_registered_under_the_one_router():
 # `connecting` forever and the person's agent was never finished.
 
 
-async def test_a_connecting_row_gets_its_key_collected_on_the_first_beat(
-    monkeypatch, enabled
-):
+async def test_a_connecting_row_gets_its_key_collected_on_the_first_beat(monkeypatch, enabled):
     _verifies_as(monkeypatch, "hushh-abc")
     collected: list = []
 
@@ -146,8 +144,10 @@ async def test_a_connecting_row_gets_its_key_collected_on_the_first_beat(
         return "provisioned"
 
     result = await pod_heartbeat.record_pod_heartbeat(
-        _FakeRequest(), "Bearer t",
-        registry=_FakeRegistry(status="connecting"), collector=_collect,
+        _FakeRequest(),
+        "Bearer t",
+        registry=_FakeRegistry(status="connecting"),
+        collector=_collect,
     )
 
     assert result["status"] == "provisioned"
@@ -166,8 +166,10 @@ async def test_a_provisioned_pod_does_no_extra_work_on_every_beat(monkeypatch, e
         return "provisioned"
 
     await pod_heartbeat.record_pod_heartbeat(
-        _FakeRequest(), "Bearer t",
-        registry=_FakeRegistry(status="provisioned"), collector=_collect,
+        _FakeRequest(),
+        "Bearer t",
+        registry=_FakeRegistry(status="provisioned"),
+        collector=_collect,
     )
 
     assert called["yes"] is False
@@ -183,8 +185,10 @@ async def test_a_provisioning_row_is_not_collected_either(monkeypatch, enabled):
         return None
 
     await pod_heartbeat.record_pod_heartbeat(
-        _FakeRequest(), "Bearer t",
-        registry=_FakeRegistry(status="provisioning"), collector=_collect,
+        _FakeRequest(),
+        "Bearer t",
+        registry=_FakeRegistry(status="provisioning"),
+        collector=_collect,
     )
 
     assert called["yes"] is False
@@ -199,8 +203,10 @@ async def test_a_failed_collection_never_fails_the_beat(monkeypatch, enabled):
         raise RuntimeError("pod refused the fetch")
 
     result = await pod_heartbeat.record_pod_heartbeat(
-        _FakeRequest(), "Bearer t",
-        registry=_FakeRegistry(status="connecting"), collector=_collect,
+        _FakeRequest(),
+        "Bearer t",
+        registry=_FakeRegistry(status="connecting"),
+        collector=_collect,
     )
 
     assert result["recorded"] is True
@@ -217,8 +223,10 @@ async def test_an_unadoptable_pod_stays_connecting(monkeypatch, enabled):
         return None
 
     result = await pod_heartbeat.record_pod_heartbeat(
-        _FakeRequest(), "Bearer t",
-        registry=_FakeRegistry(status="connecting"), collector=_collect,
+        _FakeRequest(),
+        "Bearer t",
+        registry=_FakeRegistry(status="connecting"),
+        collector=_collect,
     )
 
     assert result["status"] == "connecting"
@@ -243,8 +251,10 @@ async def test_the_beat_never_carries_key_material(monkeypatch, enabled):
     request = _FakeRequest()
     request.headers = {"X-Hushh-Pod-Id": "hushh-abc"}
     await pod_heartbeat.record_pod_heartbeat(
-        request, "Bearer t",
-        registry=_FakeRegistry(status="connecting"), collector=_collect,
+        request,
+        "Bearer t",
+        registry=_FakeRegistry(status="connecting"),
+        collector=_collect,
     )
 
     assert set(seen[0]) <= {"hushh_id", "user_id", "status"}

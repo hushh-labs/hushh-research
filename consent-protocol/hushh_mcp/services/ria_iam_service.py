@@ -4302,6 +4302,10 @@ class RIAIAMService:
         firm_website: str | None = None,
         firm_sec_number: str | None = None,
         reference_metadata: dict[str, Any] | None = None,
+        regulator: str | None = None,
+        regulator_status: str | None = None,
+        disclosures_url: str | None = None,
+        certifications: list[str] | None = None,
     ) -> dict[str, Any]:
         """Auto-build an RIA profile from a possession-proven SEC claim.
 
@@ -4435,6 +4439,42 @@ class RIAIAMService:
                             "Advisor" if claim_type == "individual" else "Firm representative",
                         )
 
+                # Regulator facts from the public record: written best-effort so
+                # a profile is populated without asking, and a missing column on
+                # an older schema never fails the claim.
+                try:
+                    await conn.execute(
+                        """
+                        UPDATE ria_profiles
+                        SET
+                          license_number = NULLIF($2, ''),
+                          regulator = NULLIF($3, ''),
+                          regulator_status = NULLIF($4, ''),
+                          certifications = $5::text[],
+                          onboarding_type = $6,
+                          updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        ria["id"],
+                        crd_number or "",
+                        regulator or "",
+                        regulator_status or "",
+                        list(certifications or []),
+                        claim_type,
+                    )
+                except asyncpg.exceptions.UndefinedColumnError:
+                    logger.warning("ria_profiles regulator columns unavailable during claim write")
+
+                if disclosures_url:
+                    try:
+                        await conn.execute(
+                            "UPDATE ria_profiles SET disclosures_url = $2, updated_at = NOW() WHERE id = $1",
+                            ria["id"],
+                            disclosures_url,
+                        )
+                    except asyncpg.exceptions.UndefinedColumnError:
+                        pass
+
                 try:
                     await conn.execute(
                         """
@@ -4447,6 +4487,7 @@ class RIAIAMService:
                           advisory_firm_iapd_number = NULLIF($6, ''),
                           advisory_status = $7,
                           advisory_provider = $8,
+                          brokerage_status = 'draft',
                           updated_at = NOW()
                         WHERE id = $1
                         """,
@@ -9125,7 +9166,7 @@ class RIAIAMService:
             normalized_user_id,
         )
         if row is None:
-            raise RIAIAMPolicyError("Qualified Hushh investor profile not found", status_code=404)
+            raise RIAIAMPolicyError("Qualified Hussh investor profile not found", status_code=404)
         profile = self._marketplace_hushh_investor_row(row)
         return {
             "source_type": "hushh_user",

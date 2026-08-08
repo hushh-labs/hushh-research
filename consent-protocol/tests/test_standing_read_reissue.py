@@ -44,9 +44,7 @@ class _Ledger:
 def _rows(*, expires_in_ms: int, token_id: str = "live-token"):
     async def _lookup(_user_id, agent_id=None, scope=None):
         _lookup.calls.append({"agent_id": agent_id, "scope": scope})
-        return [
-            {"token_id": token_id, "expires_at": int(time.time() * 1000) + expires_in_ms}
-        ]
+        return [{"token_id": token_id, "expires_at": int(time.time() * 1000) + expires_in_ms}]
 
     _lookup.calls = []
     return _lookup
@@ -77,9 +75,7 @@ async def _reissue(**kwargs):
         "ledger": _Ledger(),
     }
     defaults.update(kwargs)
-    return await PersonalAgentGrantService().issue_or_reuse_standing_pkm_read(
-        "u1", **defaults
-    )
+    return await PersonalAgentGrantService().issue_or_reuse_standing_pkm_read("u1", **defaults)
 
 
 # -- the scope is the whole point --------------------------------------------------

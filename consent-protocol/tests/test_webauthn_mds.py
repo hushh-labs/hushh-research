@@ -97,5 +97,7 @@ def test_hardware_key_with_uv_but_mds_unverified_stays_candidate():
 
 
 def test_platform_authenticator_is_aal2_regardless_of_mds():
-    out = classify(user_verified=True, aaguid="00000000-0000-0000-0000-000000000000", mds_verified=True)
+    out = classify(
+        user_verified=True, aaguid="00000000-0000-0000-0000-000000000000", mds_verified=True
+    )
     assert out["aal"] == AAL2

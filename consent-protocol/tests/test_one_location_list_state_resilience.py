@@ -61,6 +61,7 @@ def test_list_state_degrades_when_one_section_fails():
         "referrals",
         "publicInvites",
         "circleInvites",
+        "circleMemberInvites",
         "networkConnections",
         "smsContactUserIds",
         "publicInviteSubmissions",

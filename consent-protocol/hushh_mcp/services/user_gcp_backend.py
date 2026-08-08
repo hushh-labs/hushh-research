@@ -75,9 +75,13 @@ class UserGcpBackend:
         min_instances: Optional[int] = None,
         live: Optional[bool] = None,
     ) -> None:
-        self._user_project = user_project if user_project is not None else _env("HUSSH_USER_GCP_PROJECT")
+        self._user_project = (
+            user_project if user_project is not None else _env("HUSSH_USER_GCP_PROJECT")
+        )
         self._user_region = (
-            user_region if user_region is not None else (_env("HUSSH_USER_GCP_REGION") or "us-central1")
+            user_region
+            if user_region is not None
+            else (_env("HUSSH_USER_GCP_REGION") or "us-central1")
         )
         self._image = image if image is not None else _env("HUSSH_ONE_POD_IMAGE")
         # Workload Identity Federation coordinates (keyless trust into the project).
@@ -132,7 +136,11 @@ class UserGcpBackend:
             "tenancy": "user-owned",
             "target": {"project": project, "region": self._user_region},
             "resources": [
-                {"type": "kms_key", "id": kms_key, "purpose": "per-user CMEK for PKM cache + blobs"},
+                {
+                    "type": "kms_key",
+                    "id": kms_key,
+                    "purpose": "per-user CMEK for PKM cache + blobs",
+                },
                 {
                     "type": "gcs_bucket",
                     "id": bucket,
@@ -270,13 +278,17 @@ class UserGcpBackend:
 
     async def deprovision(self, external_agent_id: str) -> None:
         if self._live:
-            raise NotImplementedError("user-GCP live teardown requires the WIF bootstrap; not yet wired")
+            raise NotImplementedError(
+                "user-GCP live teardown requires the WIF bootstrap; not yet wired"
+            )
         logger.info("user_gcp_backend.plan_deprovision service=%s", external_agent_id)
         return None
 
     async def get(self, external_agent_id: str) -> BackendStatus:
         if self._live:
-            raise NotImplementedError("user-GCP live status requires the WIF bootstrap; not yet wired")
+            raise NotImplementedError(
+                "user-GCP live status requires the WIF bootstrap; not yet wired"
+            )
         return BackendStatus(
             external_agent_id=(external_agent_id or None), status="planned", healthy=True
         )

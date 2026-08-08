@@ -15,6 +15,17 @@ const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   overrideEnvKey: "HUSHH_ONE_API_TIMEOUT_MS",
 });
 
+function privateResponseHeaders(upstream?: Response): Headers {
+  const headers = new Headers({
+    "Cache-Control": "private, no-store",
+    Pragma: "no-cache",
+  });
+  if (!upstream) return headers;
+  const retryAfter = upstream.headers.get("retry-after");
+  if (retryAfter) headers.set("Retry-After", retryAfter);
+  return headers;
+}
+
 function isUpstreamTimeoutError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const causeCode =
@@ -61,7 +72,10 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       signal: AbortSignal.timeout(ONE_API_TIMEOUT_MS),
     });
     const data = await response.json().catch(() => ({}));
-    return withRequestIdJson(requestId, data, { status: response.status });
+    return withRequestIdJson(requestId, data, {
+      status: response.status,
+      headers: privateResponseHeaders(response),
+    });
   } catch (error) {
     const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
     return withRequestIdJson(
@@ -70,7 +84,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
         error: "One API unavailable",
         message: "The request could not be completed right now. Please try again.",
       },
-      { status: statusCode }
+      { status: statusCode, headers: privateResponseHeaders() }
     );
   }
 }
