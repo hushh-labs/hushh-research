@@ -44,3 +44,4 @@ tests/test_advisors_coordinate_privacy.py
 tests/test_ria_claim_email_evidence.py
 tests/test_ria_claim_email_routes.py
 tests/test_ria_onboarding_status_claim_event.py
+tests/test_account_delete_scope_proposals.py

@@ -346,7 +346,11 @@ export const CAPABILITY_ONBOARDING_ROUTE_PREFIXES: Readonly<
   // RIA_CLAIM belongs to the ria capability: recognising an adviser from their
   // filed number routes here from setup, and the journey guard must admit it
   // or the redirect is bounced straight back to the hub.
-  ria: [ROUTES.ONE_SETUP_RIA, ROUTES.RIA_CLAIM],
+  // RIA_PROFILE too: the claim done screen offers "View profile", and the RIA
+  // onboarding page redirects established advisers there. Without admission the
+  // guard bounces that redirect to the onboarding page, which redirects back to
+  // the profile — an infinite loop while setup is unresolved.
+  ria: [ROUTES.ONE_SETUP_RIA, ROUTES.RIA_CLAIM, ROUTES.RIA_PROFILE],
   "connected-systems": [ROUTES.ONE_SETUP_CONNECTED_SYSTEMS],
 };
 
