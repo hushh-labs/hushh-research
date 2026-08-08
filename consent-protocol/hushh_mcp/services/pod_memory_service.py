@@ -35,6 +35,10 @@ INVARIANTS (each asserted by a test in ``tests/test_pod_memory_service.py``)
    constructed and the runner keeps ``memory_service=None`` — today's exact behaviour.
 4. Recall is explicit. Search is invoked by a tool call, so it can be receipted through
    ``pod_access_audit`` like any other access to the owner's information.
+5. Memory survives the pod. Records are appended to the pod's sealed commit log as they
+   are made and replayed on first use after a boot, so an economy-tier pod that goes
+   cold between turns resumes rather than restarts. Without durable state configured
+   the store is in-process and lossy -- working, but forgetful.
 
 Ship-dark: default OFF. Nothing here runs until the flag is set in a pod.
 """
@@ -49,6 +53,7 @@ import logging
 import os
 import re
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -59,6 +64,11 @@ from hushh_mcp.services.pod_storage import ROLE_POD_CACHE  # noqa: E402
 
 _WORD_RE = re.compile(r"[a-z0-9']+")
 _MAX_ENTRIES_PER_OWNER = 5000  # bound the working set; oldest evicted first.
+
+# The commit-log ``kind`` under which one sealed memory record is stored. The log is
+# shared with the PKM path, so replay filters on this rather than assuming every
+# record is memory.
+_MEMORY_RECORD_KIND = "agent_memory"
 
 
 class PodMemoryError(RuntimeError):
@@ -82,6 +92,59 @@ class SealedMemory:
     token_digests: tuple[str, ...]
     author: Optional[str] = None
     custom_metadata: dict[str, Any] = field(default_factory=dict)
+
+    def as_payload(self, pod_key: bytes) -> dict[str, Any]:
+        """The form written to the commit log. Nothing readable survives this call.
+
+        ``author`` and ``custom_metadata`` are sealed rather than stored beside the
+        ciphertext. They look like harmless labels, but ``custom_metadata`` is
+        caller-supplied and invariant 2 is stated without exception -- the backend
+        receives an opaque blob, never plaintext. Persisting them in the clear
+        would make the invariant true of the message and false of the envelope,
+        which is the kind of gap that is only ever found afterwards.
+
+        ``token_digests`` stay outside the seal because search has to match them
+        without opening every record; they are keyed HMACs and reveal nothing
+        without the pod key. ``created_at_ms`` stays outside for ordering, and is
+        no more than the log's own sequence already exposes.
+        """
+        return {
+            "memory_id": self.memory_id,
+            "hushh_id": self.hushh_id,
+            "created_at_ms": self.created_at_ms,
+            "ciphertext": self.ciphertext,
+            "token_digests": list(self.token_digests),
+            "envelope": _seal(
+                pod_key,
+                json.dumps(
+                    {"author": self.author, "custom_metadata": self.custom_metadata},
+                    sort_keys=True,
+                ),
+                owner=self.hushh_id,
+            ),
+        }
+
+    @classmethod
+    def from_payload(cls, pod_key: bytes, payload: dict[str, Any]) -> "SealedMemory":
+        """Rebuild a record read back from the log. Raises if it is not this owner's.
+
+        The envelope is opened with the owner bound as AAD, so a record lifted from
+        another pod's log fails here rather than being served as this owner's memory.
+        """
+        owner = str(payload.get("hushh_id") or "")
+        envelope = payload.get("envelope")
+        meta: dict[str, Any] = {}
+        if envelope:
+            meta = json.loads(_unseal(pod_key, str(envelope), owner=owner))
+        return cls(
+            memory_id=str(payload.get("memory_id") or ""),
+            hushh_id=owner,
+            created_at_ms=int(payload.get("created_at_ms") or 0),
+            ciphertext=str(payload.get("ciphertext") or ""),
+            token_digests=tuple(payload.get("token_digests") or ()),
+            author=meta.get("author"),
+            custom_metadata=dict(meta.get("custom_metadata") or {}),
+        )
 
 
 def _tokens(text: str) -> set[str]:
@@ -148,12 +211,15 @@ def _seal(pod_key: bytes, plaintext: str, *, owner: str = "") -> str:
     to open there even under an identical key. The record is bound to whose it is,
     not merely to the key that happened to seal it.
 
-    **No migration is required**, and that is a fact rather than a hope:
-    ``PodMemoryStore._records`` is an in-process list that nothing persists, and
-    ``pod_storage``'s default backend is Null, so no sealed record has ever
-    survived a restart anywhere. There is nothing written in the old format to
-    read. ``_unseal`` refuses unversioned blobs outright rather than attempting a
-    fallback, because a silent fallback would quietly reinstate the malleability.
+    **No migration was required**, and that was a fact rather than a hope: when v2
+    replaced the XOR format, ``PodMemoryStore._records`` was an in-process list that
+    nothing persisted and ``pod_storage``'s default backend was Null, so no sealed
+    record had ever survived a restart anywhere and there was nothing written in the
+    old format to read. Records DO persist now (``as_payload`` / ``from_payload``
+    over the commit log), so that window is closed and a future format change will
+    need a real migration -- v2 is the oldest thing on disk. ``_unseal`` refuses
+    unversioned blobs outright rather than attempting a fallback, because a silent
+    fallback would quietly reinstate the malleability.
     """
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: PLC0415
 
@@ -255,6 +321,33 @@ class PodMemoryStore:
             self._records = self._records[-_MAX_ENTRIES_PER_OWNER:]
         return rec
 
+    def hydrate(self, records: "Iterable[SealedMemory]") -> int:
+        """Load records replayed from durable storage. Pure -- the caller does the I/O.
+
+        This is what makes a pod resume rather than restart. Records are appended
+        oldest-first and then bounded exactly as ``add`` bounds them, so a pod that
+        wakes with more history than it can hold keeps the newest, not a random
+        window.
+
+        A record belonging to someone else is REFUSED, not skipped. Invariant 1 says
+        memory never crosses a pod boundary; a foreign record arriving here means the
+        log or the prefix is wrong, and quietly dropping it would let a
+        misconfiguration look like an empty history -- indistinguishable from a
+        first boot, and therefore silent for as long as nobody counts.
+        """
+        loaded = 0
+        for rec in records:
+            if rec.hushh_id != self._hushh_id:
+                raise PodMemoryError(
+                    f"pod memory is owner-scoped: this pod serves {self._hushh_id!r}, "
+                    f"replayed a record for {rec.hushh_id!r}"
+                )
+            self._records.append(rec)
+            loaded += 1
+        if len(self._records) > _MAX_ENTRIES_PER_OWNER:
+            self._records = self._records[-_MAX_ENTRIES_PER_OWNER:]
+        return loaded
+
     def search(self, *, hushh_id: str, query: str, limit: int = 10) -> list[tuple[SealedMemory, str]]:
         """Return (record, plaintext) for matches. Raises if the owner does not match.
 
@@ -337,13 +430,32 @@ def resolve_pod_memory_service() -> Optional[Any]:
         return None
     try:
         pod_key = base64.b64decode(pod_key_b64)
-        return build_pod_memory_service(hushh_id=hushh_id, pod_key=pod_key)
+        return build_pod_memory_service(hushh_id=hushh_id, pod_key=pod_key, log=_resolve_log())
     except Exception:  # noqa: BLE001 -- fail-safe: never block pod startup on memory
         logger.exception("pod_memory.build_failed hushh_id=%s", hushh_id)
         return None
 
 
-def build_pod_memory_service(*, hushh_id: str, pod_key: bytes) -> Any:
+def _resolve_log() -> Optional[Any]:
+    """The pod's commit log, or ``None`` when durable state is not configured.
+
+    Returning ``None`` gives an in-process store that forgets on restart -- lossy but
+    working, which is the right shape for a tier where durability is genuinely absent.
+    It is emphatically NOT the right shape for a misconfiguration, and the difference
+    is upstream: ``resolve_pod_storage`` raises on a partial config rather than
+    returning a Null backend, so a half-set environment reaches this function as an
+    exception and disables memory loudly instead of degrading to amnesia that looks
+    deliberate.
+    """
+    from hushh_mcp.services.pod_storage import resolve_pod_storage
+
+    storage = resolve_pod_storage()
+    # Duck-typed rather than isinstance: NullPodStorage holds no log, the commit-log
+    # backend does, and nothing else should be guessed at.
+    return getattr(storage, "_log", None)
+
+
+def build_pod_memory_service(*, hushh_id: str, pod_key: bytes, log: Any = None) -> Any:
     """Construct the ADK-facing memory service for THIS pod.
 
     Imports ADK lazily so the module stays importable (and unit-testable) in environments
@@ -351,6 +463,18 @@ def build_pod_memory_service(*, hushh_id: str, pod_key: bytes) -> Any:
 
     Returns an object satisfying ``BaseMemoryService``: ``add_session_to_memory`` and
     ``search_memory``.
+
+    ``log`` is the pod's :class:`PodCommitLog`. With it, memory survives the pod:
+    every record is appended to the sealed log as it is made, and replayed the first
+    time the agent uses memory after a boot. Without it the store is an in-process
+    list -- the previous behaviour exactly, and still the behaviour whenever durable
+    state is unconfigured.
+
+    **Hydration is lazy, and that is deliberate.** Replay walks the chain backward one
+    serial read per record (each key comes from the previous decrypted record, so it
+    cannot be parallelised). Doing that at construction would put it on the boot path
+    of every cold wake, where it is paid whether or not the turn touches memory. On
+    first async use it is paid only when it is about to be worth something.
     """
     from google.adk.memory.base_memory_service import BaseMemoryService, SearchMemoryResponse
     from google.adk.memory.memory_entry import MemoryEntry
@@ -364,14 +488,47 @@ def build_pod_memory_service(*, hushh_id: str, pod_key: bytes) -> Any:
         def __init__(self) -> None:
             self.store = store
             self.hushh_id = hushh_id
+            self.log = log
+            self._hydrated = log is None
+
+        async def _ensure_hydrated(self) -> None:
+            """Replay this owner's memory once, on first use after a boot.
+
+            Failure is NOT fail-safe here, unlike building the service at all. A pod
+            that cannot read its own history must not answer as though it had none:
+            silently continuing would let the agent contradict what its owner told it
+            yesterday and call that a fresh start. ``PodMemoryError`` from a foreign or
+            tampered record is exactly the signal that something is wrong with custody.
+            """
+            if self._hydrated:
+                return
+            # Set before awaiting: a second concurrent turn must not replay in parallel.
+            self._hydrated = True
+            try:
+                replayed = [
+                    SealedMemory.from_payload(pod_key, record["payload"])
+                    for record in await self.log.replay()
+                    if record.get("kind") == _MEMORY_RECORD_KIND
+                    and (record.get("payload") or {}).get("hushh_id") == hushh_id
+                ]
+            except Exception:
+                self._hydrated = False  # a transient read failure must stay retryable
+                raise
+            loaded = store.hydrate(replayed)
+            logger.info("pod_memory.hydrated hushh_id=%s records=%d", hushh_id, loaded)
 
         async def add_session_to_memory(self, session: Any) -> None:
+            await self._ensure_hydrated()
             for event in getattr(session, "events", None) or []:
                 text = _content_text(getattr(event, "content", None))
-                if text:
-                    store.add(text=text, author=getattr(event, "author", None))
+                if not text:
+                    continue
+                rec = store.add(text=text, author=getattr(event, "author", None))
+                if rec is not None and self.log is not None:
+                    await self.log.append(_MEMORY_RECORD_KIND, rec.as_payload(pod_key))
 
         async def search_memory(self, *, app_name: str, user_id: str, query: str) -> Any:
+            await self._ensure_hydrated()
             # user_id carries the pod owner; a mismatch is an isolation breach, not a miss.
             hits = store.search(hushh_id=self.hushh_id if user_id in ("", self.hushh_id) else user_id,
                                 query=query)

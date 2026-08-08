@@ -647,6 +647,16 @@ def _durable_state_env(hushh_id: str, bucket: str) -> list[dict[str, str]]:
         {"name": "POD_STORAGE_GCS_PREFIX", "value": f"pods/{hushh_id}"},
         {"name": "HUSSH_POD_LOG_KEY", "value": pod_log_key_b64(hushh_id)},
         {"name": "HUSSH_POD_MEMORY_KEY", "value": pod_memory_key_b64(hushh_id)},
+        # The switch that makes the memory key mean anything. It belongs in this
+        # block and nowhere else: `pod_agent_memory_enabled` defaults OFF, so
+        # shipping the key without it would hand every pod a sealing key it never
+        # uses -- durability that reads as configured and behaves as amnesia.
+        # Paired here, the two are on together or absent together.
+        #
+        # Safe to set unconditionally because `resolve_pod_memory_service` checks
+        # `pod_mode()` FIRST: the shared hub would refuse memory even if this leaked
+        # into its environment, so isolation does not rest on this line being right.
+        {"name": "POD_AGENT_MEMORY_ENABLED", "value": "true"},
     ]
 
 
