@@ -454,4 +454,16 @@ describe("SosPanel", () => {
     expect(screen.queryByText("Live now")).toBeNull();
     expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
   });
+
+  it("keeps the mobile strip but widens into a two-column layout on large screens", () => {
+    const { container } = render(<SosPanel {...baseProps} />);
+    const screenEl = screen.getByTestId("sms-safety-screen");
+    // Mobile behavior preserved: still the full-screen black overlay.
+    expect(screenEl).toHaveClass("fixed", "inset-0", "bg-black");
+    // The inner container keeps the mobile 407px strip and widens on lg.
+    const inner = screenEl.firstElementChild as HTMLElement;
+    expect(inner).toHaveClass("max-w-[407px]", "lg:max-w-5xl");
+    // The press ring + controls become side-by-side columns on lg.
+    expect(container.querySelector('[class*="lg:flex-row"]')).not.toBeNull();
+  });
 });
