@@ -29,12 +29,20 @@ describe("the journey guard must admit the claim screen", () => {
     expect(isOnboardingAdmissionExemptRoute(ROUTES.RIA_CLAIM)).toBe(true);
   });
 
+  it("admits the claimed profile while the ria capability is being set up", () => {
+    // The claim done screen offers "View profile", and the RIA onboarding page
+    // redirects established advisers to it. Bouncing either one creates a
+    // profile -> onboarding -> profile loop that never settles.
+    expect(isCapabilityOnboardingRoute("ria", ROUTES.RIA_PROFILE)).toBe(true);
+  });
+
   it("does not widen admission to the rest of the RIA workspace", () => {
-    // Only the claim screen is reachable mid-setup; clients/picks/profile must
-    // still be gated behind completed onboarding.
+    // Only the claim screen and the claimed profile are reachable mid-setup;
+    // clients/picks must still be gated behind completed onboarding.
     expect(isOnboardingAdmissionExemptRoute(ROUTES.RIA_CLIENTS)).toBe(false);
     expect(isOnboardingAdmissionExemptRoute(ROUTES.RIA_PICKS)).toBe(false);
     expect(isCapabilityOnboardingRoute("ria", ROUTES.RIA_CLIENTS)).toBe(false);
+    expect(isCapabilityOnboardingRoute("ria", ROUTES.RIA_PICKS)).toBe(false);
   });
 
   it("does not admit the claim screen under an unrelated capability", () => {
