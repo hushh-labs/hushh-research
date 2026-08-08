@@ -455,7 +455,7 @@ class RIADossierService:
             outcome = await queue_dossier_email(
                 user_id=user_id,
                 to_email=to_email,
-                display_name=display_name,
+                first_name=display_name,
                 on_success=_mark_sent,
                 on_failure=_mark_send_failed,
             )
