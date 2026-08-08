@@ -148,8 +148,13 @@ class AtomicPrivateShareProbe(OneLocationAgentService):
         self.notifications: list[dict] = []
         self.expiry_normalizations: list[str | None] = []
 
-    def _is_active_connection(self, **_kwargs) -> bool:
-        return True
+    # This probe exercises the atomic private-share SQL, not the relationship
+    # graph, so eligibility is stubbed open. It stubs the single canonical
+    # predicate: stubbing a narrower helper here is what previously let the
+    # production connection gate drift away from what the picker offered
+    # without a single test noticing.
+    def _resolve_location_peer_eligibility(self, **_kwargs) -> tuple[bool, str | None]:
+        return True, None
 
     def _recipient_key_row(self, **_kwargs) -> dict:
         return {
@@ -1219,8 +1224,13 @@ class FourUserMemoryService(OneLocationAgentService):
             ][:100]
         if (
             "FROM advisor_investor_relationships rel" in sql
-            and "LEFT JOIN relationship_share_grants share" in sql
+            and "rel.investor_user_id = :owner_user_id" in sql
         ):
+            # The owner-scoped professional-network query. Keyed on its WHERE
+            # clause rather than its join keyword: the production query changed
+            # from LEFT JOIN to JOIN, and matching the keyword let this fall
+            # through to the graph-wide branch below, handing the owner other
+            # people's relationships unfiltered.
             owner = params["owner_user_id"]
             return [
                 row
@@ -1228,7 +1238,13 @@ class FourUserMemoryService(OneLocationAgentService):
                 if row.get("investor_user_id") == owner or row.get("ria_user_id") == owner
             ][:100]
         if "FROM advisor_investor_relationships rel" in sql:
-            return self.professional_relationships[:500]
+            # The graph-wide mutual-KAI query, which selects approved
+            # relationships only.
+            return [
+                row
+                for row in self.professional_relationships
+                if str(row.get("status") or "").lower() == "approved"
+            ][:500]
         if "FROM ria_profiles owner_rp" in sql:
             owner = params["owner_user_id"]
             return [
@@ -2112,6 +2128,28 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
             "relationship_share_granted_at": now - timedelta(days=1),
         }
     )
+    # A shared, approved advisor both the owner and User G work with. Mutual-KAI
+    # adjacency is built from approved relationships only, so the owner needs one
+    # of its own to have any neighbour in common with User G. This advisor is not
+    # a connection of the owner, so it never enters the recipient directory and
+    # cannot shift anyone else's category.
+    shared_advisor = "user_shared_advisor"
+    for investor in (user_a, user_g):
+        service.professional_relationships.append(
+            {
+                "investor_user_id": investor,
+                "ria_user_id": shared_advisor,
+                "status": "approved",
+                "granted_scope": "attr.financial.*",
+                "consent_granted_at": now - timedelta(days=2),
+                "created_at": now - timedelta(days=3),
+                "updated_at": now - timedelta(days=1),
+                "ria_display_name": "Shared Advisor",
+                "ria_verification_status": "verified",
+                "relationship_share_status": "active",
+                "relationship_share_granted_at": now - timedelta(days=1),
+            }
+        )
     service.organization_memberships.append(
         {
             "owner_user_id": user_a,
@@ -2185,7 +2223,17 @@ def test_kai_circle_recipient_directory_uses_safe_recommendation_signals() -> No
         for reason in by_id[user_c]["recommendationReasons"]
     )
     assert by_id[user_d]["recommendationCategory"] == "professional_network"
-    assert by_id[user_d]["relationshipType"] == "Advisor relationship"
+    # The owner's advisor relationship with User D is only `discovered`, with no
+    # active relationship share, so the service fail-closes and declines to call
+    # it an advisor relationship — it falls back to what User D published. This
+    # is also the only reachable state for a `professional_network` label: an
+    # approved relationship marks the signal trusted, which outranks
+    # professional and would read as Trusted Circle instead.
+    assert by_id[user_d]["relationshipType"] == "Marketplace profile"
+    assert not any(
+        reason["code"] == "approved_professional_relationship"
+        for reason in by_id[user_d]["recommendationReasons"]
+    )
     assert by_id[user_d]["profileHeadline"] == "Retirement planning specialist"
     assert by_id[user_f]["recommendationCategory"] == "professional_network"
     assert any(
@@ -3502,6 +3550,111 @@ def test_create_grant_rejects_an_unshared_explicit_circle() -> None:
         )
 
     assert error.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+
+
+def test_recipient_picker_offers_exactly_what_a_share_will_accept() -> None:
+    """Every offered recipient must be shareable, and vice versa.
+
+    The UAT regression this guards: the picker listed Circle-only peers while
+    the share gate accepted direct connections only, so people were shown an
+    "Add"/"Share" button that always answered "you can only share with your
+    connections" — a dead end with nothing the user could do about it.
+    """
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    service = FourUserMemoryService()
+    for user_id in ("user_b", "user_c", "user_d"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+    # user_b: direct connection only. user_c: Circle co-member only.
+    # user_d: neither, and must stay out of both sets.
+    service._seed_connection("user_a", "user_b")
+    service._seed_named_circle(circle_id, "user_a", "user_c")
+
+    offered = {
+        recipient["userId"]
+        for recipient in service.list_verified_recipients(owner_user_id="user_a")
+    }
+    assert offered == {"user_b", "user_c"}
+
+    for user_id in sorted(offered):
+        grant = service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id=user_id,
+            recipient_key_id=f"key-{user_id}",
+            duration_hours=1,
+            enforce_connection=True,
+        )
+        assert grant["status"] == "active"
+        service.add_sms_contact(owner_user_id="user_a", contact_user_id=user_id)
+
+    assert service.list_sms_contact_ids(owner_user_id="user_a") == ["user_b", "user_c"]
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id="user_d",
+            recipient_key_id="key-user_d",
+            duration_hours=1,
+            enforce_connection=True,
+        )
+    assert error.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+
+
+def test_create_grant_forwards_the_requested_circle_through_the_writer_guard() -> None:
+    """An explicitly requested Circle must survive the outer create_grant call.
+
+    `create_grant` re-enters itself once to take the key-writer guard. That
+    inner call used to drop `source_circle_id`, so a caller naming a Circle it
+    did not share had the constraint silently discarded and the share was
+    authorized as a plain connection instead of being refused.
+    """
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_connection("user_a", "user_b")
+
+    with pytest.raises(OneLocationAgentError) as error:
+        service.create_grant(
+            owner_user_id="user_a",
+            recipient_user_id="user_b",
+            recipient_key_id="key-user_b",
+            duration_hours=1,
+            source_circle_id="550e8400-e29b-41d4-a716-446655440000",
+            enforce_connection=True,
+            _key_writer_guarded=False,
+        )
+
+    assert error.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+    assert not service.grants
+
+
+def test_create_grant_stamps_the_circle_that_authorized_a_circle_only_share() -> None:
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user_b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "user_b", "y": "user_b"},
+    )
+    service._seed_named_circle(circle_id, "user_a", "user_b")
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+        enforce_connection=True,
+        _key_writer_guarded=False,
+    )
+
+    # Provenance is what makes the grant revocable with the Circle later.
+    assert grant["sourceCircleId"] == circle_id
 
 
 def test_enforced_circle_grant_locks_relationship_before_mutation(monkeypatch) -> None:

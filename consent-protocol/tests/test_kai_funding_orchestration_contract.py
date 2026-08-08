@@ -239,7 +239,7 @@ async def test_exchange_funding_public_token_defers_relationship_when_alpaca_unm
         secret="plaid_secret",  # noqa: S106 - test fixture value only
         country_codes=["US"],
         language="en",
-        client_name="Hushh Kai",
+        client_name="Hussh Kai",
         webhook_url=None,
         frontend_url="https://one.hushh.ai",
         redirect_path="/kai/plaid/oauth/return",

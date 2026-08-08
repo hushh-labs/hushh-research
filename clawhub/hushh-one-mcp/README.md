@@ -1,6 +1,6 @@
-# Hushh One MCP for OpenClaw
+# Hussh One MCP for OpenClaw
 
-OpenClaw bundle plugin for the Hushh One private agent consent MCP. It lets OpenClaw agents search a user's available Personal Knowledge Model scopes, request explicit consent in the One private agent or Kai, poll approval status, and retrieve a scoped export through the Hushh MCP bridge.
+OpenClaw bundle plugin for the Hussh One private agent consent MCP. It lets OpenClaw agents search a user's available Personal Knowledge Model scopes, request explicit consent in the One private agent or Kai, poll approval status, and retrieve a scoped export through the Hussh MCP bridge.
 
 This bundle does not grant direct access to personal information. The developer token identifies the external app, and the user still approves each scoped request in Hussh.
 
@@ -88,7 +88,7 @@ clawhub login
 clawhub package validate ./clawhub/hushh-one-mcp
 clawhub package publish ./clawhub/hushh-one-mcp --family bundle-plugin --owner hushh --bundle-format codex --host-targets openclaw --dry-run
 clawhub package publish ./clawhub/hushh-one-mcp --family bundle-plugin --owner hushh --bundle-format codex --host-targets openclaw
-clawhub skill publish ./clawhub/hushh-one-mcp/skills/hushh-one-pkm --slug hushh-one-pkm --name "Hushh One PKM" --owner hushh
+clawhub skill publish ./clawhub/hushh-one-mcp/skills/hushh-one-pkm --slug hushh-one-pkm --name "Hussh One PKM" --owner hushh
 ```
 
 The package name is `@hushh/one-mcp`, so the ClawHub publisher owner must be `hushh`. If publishing under a different owner, rename `package.json` before publishing.

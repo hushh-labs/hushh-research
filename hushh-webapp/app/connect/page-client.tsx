@@ -521,6 +521,7 @@ export default function ConnectPageClient() {
                     key={connection.connectionId}
                     icon={Users}
                     iconTone="blue"
+                    stackTrailingOnMobile
                     title={connection.displayName || connection.userId}
                     density="compact"
                     trailing={
@@ -633,7 +634,7 @@ export default function ConnectPageClient() {
               </div>
               <SettingsGroup
                 title="People"
-                description="Find people on Hushh and send a connection request."
+                description="Find people on Hussh and send a connection request."
                 separatorInset
               >
                 {loading ? (

@@ -36,7 +36,7 @@ def _configured_service() -> PlaidPortfolioService:
         secret="unit-test-plaid-config-value",  # noqa: S106 - non-secret test fixture
         country_codes=["US"],
         language="en",
-        client_name="Hushh Kai",
+        client_name="Hussh Kai",
         webhook_url=None,
         frontend_url="https://one.hushh.ai",
         redirect_path="/one/kai/plaid/oauth/return",

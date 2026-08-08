@@ -1,11 +1,11 @@
 {
   "name": "@hushh/one-mcp",
   "version": "0.1.3",
-  "description": "OpenClaw bundle for the Hushh One private agent consent MCP and scoped PKM access flow.",
+  "description": "OpenClaw bundle for the Hussh One private agent consent MCP and scoped PKM access flow.",
   "license": "Apache-2.0",
   "type": "module",
   "author": {
-    "name": "Hushh",
+    "name": "Hussh",
     "email": "partners@hushh.ai",
     "url": "https://hushh.ai"
   },

@@ -497,7 +497,7 @@ export function OneSetupHub() {
                   <SetupNavigationTile
                     id="connections"
                     title="AI access"
-                    description="Choose Hushh managed Gemini or your own Gemini access."
+                    description="Choose Hussh managed Gemini or your own Gemini access."
                     href={ROUTES.ONE_SETUP_CONNECTIONS}
                     voiceControlId="one_setup_tile_connections"
                     icon={lucideCapabilityIcon(PlugZap)}
