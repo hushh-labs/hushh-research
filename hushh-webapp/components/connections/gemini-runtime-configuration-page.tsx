@@ -196,7 +196,10 @@ export function GeminiRuntimeConfigurationPage({
           accent="neutral"
         />
       </AppPageHeaderRegion>
-      <AppPageContentRegion>
+      {/* space-y-6 gives the Gemini and "Coming soon" groups the standard
+          surface rhythm; without it the two SettingsGroups render flush and the
+          "Coming soon" heading looks cramped against the Gemini card (#1940). */}
+      <AppPageContentRegion className="space-y-6">
         <GeminiRuntimeSettingsCard
           userId={user?.uid}
           vaultKey={vaultKey}
