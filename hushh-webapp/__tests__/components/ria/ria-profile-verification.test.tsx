@@ -431,3 +431,111 @@ describe("RiaProfileSection verification chip + email nudge", () => {
     expect(screen.queryByTestId("ria-email-verify-code")).toBeNull();
   });
 });
+
+const BROCHURE_URL =
+  "https://reports.adviserinfo.sec.gov/reports/ADV/800001/PDF/800001-Brochure.pdf";
+const BROCHURE_CAPTION = "From your Form ADV brochure, filed 1/13/2026.";
+
+describe("RiaProfileSection Form ADV brochure provenance", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.useAuth.mockReturnValue({
+      user: { uid: "u1", getIdToken: vi.fn().mockResolvedValue("tok") },
+    });
+    mocks.usePersonaState.mockReturnValue({
+      riaCapability: "switch",
+      loading: false,
+      refreshing: false,
+      refresh: mocks.refresh,
+      switchPersona: mocks.switchPersona,
+    });
+    mocks.refresh.mockResolvedValue(undefined);
+  });
+
+  it("captions the Services group with the filing date the SEC states", () => {
+    renderSection({
+      ...BASE_STATUS,
+      profile_source: "form_adv_part2",
+      profile_source_url: BROCHURE_URL,
+      profile_source_filed_on: "1/13/2026",
+    });
+
+    const caption = screen.getByTestId("ria-profile-brochure-source");
+    // The SEC's own date string, rendered as filed — not reformatted.
+    expect(caption.textContent).toBe(BROCHURE_CAPTION);
+  });
+
+  it("links the caption to the brochure PDF when the url is present", () => {
+    renderSection({
+      ...BASE_STATUS,
+      profile_source: "form_adv_part2",
+      profile_source_url: BROCHURE_URL,
+      profile_source_filed_on: "1/13/2026",
+    });
+
+    const link = screen
+      .getByTestId("ria-profile-brochure-source")
+      .querySelector("a");
+    expect(link).toBeTruthy();
+    expect(link?.getAttribute("href")).toBe(BROCHURE_URL);
+    expect(link?.getAttribute("target")).toBe("_blank");
+    expect(link?.getAttribute("rel")).toBe("noreferrer");
+    expect(link?.textContent).toBe(BROCHURE_CAPTION);
+  });
+
+  it("renders plain text when the brochure url is absent", () => {
+    renderSection({
+      ...BASE_STATUS,
+      profile_source: "form_adv_part2",
+      profile_source_filed_on: "1/13/2026",
+    });
+
+    const caption = screen.getByTestId("ria-profile-brochure-source");
+    expect(caption.textContent).toBe(BROCHURE_CAPTION);
+    expect(caption.querySelector("a")).toBeNull();
+  });
+
+  it("renders nothing when no brochure supplied a value", () => {
+    // Absent source: the adviser wrote everything shown.
+    renderSection({ ...BASE_STATUS }).unmount();
+    expect(screen.queryByTestId("ria-profile-brochure-source")).toBeNull();
+
+    // Empty source with a stray url: still nothing — no caption, no placeholder.
+    renderSection({
+      ...BASE_STATUS,
+      profile_source: "",
+      profile_source_url: BROCHURE_URL,
+      profile_source_filed_on: "1/13/2026",
+    });
+    expect(screen.queryByTestId("ria-profile-brochure-source")).toBeNull();
+    expect(screen.queryByText(BROCHURE_CAPTION)).toBeNull();
+  });
+
+  it("belongs to the Services group and to no other group", () => {
+    renderSection({
+      ...BASE_STATUS,
+      profile_source: "form_adv_part2",
+      profile_source_url: BROCHURE_URL,
+      profile_source_filed_on: "1/13/2026",
+    });
+
+    expect(screen.getAllByTestId("ria-profile-brochure-source")).toHaveLength(1);
+    expect(
+      screen
+        .getByTestId("ria-profile-services-summary")
+        .querySelector('[data-testid="ria-profile-brochure-source"]'),
+    ).toBeTruthy();
+    for (const groupTestId of [
+      "ria-profile-assistant",
+      "ria-profile-licence-summary",
+      "ria-profile-location-summary",
+      "ria-profile-manage",
+    ]) {
+      expect(
+        screen
+          .getByTestId(groupTestId)
+          .querySelector('[data-testid="ria-profile-brochure-source"]'),
+      ).toBeNull();
+    }
+  });
+});

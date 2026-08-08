@@ -774,6 +774,9 @@ class RIAClaimService:
             "missing": payload.get("missing") or [],
             "evidence_ledger": payload.get("evidenceLedger") or [],
             "scope_note": payload.get("scopeNote"),
+            # The name the profile was built from, so a later reader (the
+            # factual bio) never has to guess who this snapshot describes.
+            "display_name": display_name,
             # The snapshot the profile was built from, kept for provenance.
             "firm_record": firm,
             "advisor_record": advisor_record,
@@ -835,7 +838,12 @@ class RIAClaimService:
             "report_url": advisor_record.get("report_url") or firm.get("report_url"),
             "has_disclosures": advisor_record.get("has_disclosures"),
         }
-        await self._record_claim_enrichment(user_id, facts)
+        await self._record_claim_enrichment(
+            user_id,
+            facts,
+            ria_profile_id=str(profile.get("ria_profile_id") or ""),
+            reference_metadata=reference_metadata,
+        )
         dossier_status = await self._dispatch_dossier(
             user_id=user_id,
             ria_profile_id=str(profile.get("ria_profile_id") or ""),
@@ -1145,16 +1153,24 @@ class RIAClaimService:
             "profile": profile,
         }
 
-    async def _record_claim_enrichment(self, user_id: str, facts: dict[str, Any]) -> None:
+    async def _record_claim_enrichment(
+        self,
+        user_id: str,
+        facts: dict[str, Any],
+        *,
+        ria_profile_id: str = "",
+        reference_metadata: dict[str, Any] | None = None,
+    ) -> None:
         """Stage the claim's regulator facts in the user's knowledge planes.
 
         The encrypted PKM blob is BYOK — only the owner's unlocked vault can
         write it, so the client does that from the done screen. Here the server
         writes the planes it legitimately owns: the append-only audit event
         (the staged facts a vault session can materialize), the sanitized
-        discovery flag, and the durable setup mirror that marks the RIA
-        capability finished. Each block is best-effort in isolation: a claim
-        must never fail, and one plane must never block another.
+        discovery flag, the durable setup mirror that marks the RIA capability
+        finished, and the background read of the firm's own Form ADV Part 2
+        brochure. Each block is best-effort in isolation: a claim must never
+        fail, and one plane must never block another.
         """
         try:
             from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
@@ -1193,3 +1209,19 @@ class RIAClaimService:
                 )
         except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
             logger.info("ria.claim_setup_mirror_skipped error=%s", type(exc).__name__)
+
+        try:
+            # Services, fees, the engagement minimum and a factual bio are not
+            # in the identity API; they live in the firm's filed brochure. This
+            # is fire-and-forget for the same reason the dossier is: fetching
+            # and reading a 20-page PDF must never sit inside a claim response.
+            from hushh_mcp.services.ria_brochure_profile_service import (
+                dispatch_profile_enrichment,
+            )
+
+            dispatch_profile_enrichment(
+                ria_profile_id=ria_profile_id,
+                reference_metadata=reference_metadata or {},
+            )
+        except Exception as exc:  # noqa: BLE001 - enrichment is best-effort
+            logger.info("ria.claim_brochure_dispatch_skipped error=%s", type(exc).__name__)
