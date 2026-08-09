@@ -82,4 +82,46 @@ describe("Circle code sharing parity", () => {
     expect(copyToClipboard).toHaveBeenCalledWith(payload.text);
     expect(payload.text).not.toContain("http");
   });
+
+  const payloadWithUrl = {
+    ...payload,
+    url: "https://uat.one.hushh.ai/circle/join?code=2345-6789-ABCD",
+  };
+
+  it("passes the join link to the native share sheet when provided", async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+
+    await expect(shareNamedCircleCode(payloadWithUrl)).resolves.toBe(
+      "native-share",
+    );
+    expect(Share.share).toHaveBeenCalledWith(payloadWithUrl);
+  });
+
+  it("passes the join link to Web Share when provided", async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
+    const webShare = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: webShare,
+    });
+
+    await expect(shareNamedCircleCode(payloadWithUrl)).resolves.toBe(
+      "web-share",
+    );
+    expect(webShare).toHaveBeenCalledWith({
+      title: payload.title,
+      text: payload.text,
+      url: payloadWithUrl.url,
+    });
+  });
+
+  it("appends the join link to the clipboard fallback when provided", async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
+    vi.mocked(copyToClipboard).mockResolvedValue(true);
+
+    await expect(shareNamedCircleCode(payloadWithUrl)).resolves.toBe("copied");
+    expect(copyToClipboard).toHaveBeenCalledWith(
+      `${payload.text}\n${payloadWithUrl.url}`,
+    );
+  });
 });
