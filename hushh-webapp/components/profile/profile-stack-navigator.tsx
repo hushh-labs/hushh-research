@@ -11,6 +11,7 @@ export type ProfileStackEntry = {
   title: ReactNode;
   description?: ReactNode;
   content: ReactNode;
+  presentation?: "default" | "account";
 };
 
 function screensMatch(left: ProfileStackEntry[], right: ProfileStackEntry[]) {
@@ -50,7 +51,7 @@ function StackHeader({
 }) {
   return (
     <div
-      className="mx-auto w-full max-w-[54rem] px-[var(--page-inline-gutter-standard)] pt-[var(--page-header-section-gap)]"
+      className="mx-auto w-full max-w-[47.5rem] px-[var(--page-inline-gutter-standard)] pt-[var(--page-header-section-gap)]"
       data-profile-stack-header="true"
     >
       <PageHeader
@@ -179,10 +180,31 @@ export function ProfileStackNavigator({
           <section
             key={entry.key}
             className="flex min-h-full min-w-full w-full shrink-0 flex-col overflow-x-hidden"
+            data-profile-stack-screen={entry.key}
           >
             {entry.isRoot ? (
               <div className="flex min-h-full flex-1 flex-col">
                 {entry.content}
+              </div>
+            ) : entry.presentation === "account" ? (
+              <div
+                ref={(node) => {
+                  scrollRegionRefs.current[index] = node;
+                }}
+                data-profile-stack-scroll="true"
+                className="flex-1 overflow-y-auto overflow-x-hidden"
+              >
+                <div
+                  className="mx-auto flex w-full max-w-[720px] flex-col px-[var(--page-inline-gutter-standard)] pb-[calc(env(safe-area-inset-bottom)+12rem)] pt-0 sm:pb-14"
+                  data-profile-stack-content="true"
+                >
+                  <SettingsPresentationProvider
+                    separatorInset
+                    density="compact"
+                  >
+                    {entry.content}
+                  </SettingsPresentationProvider>
+                </div>
               </div>
             ) : (
               <>
@@ -198,7 +220,7 @@ export function ProfileStackNavigator({
                   className="flex-1 overflow-y-auto overflow-x-hidden"
                 >
                   <div
-                    className="mx-auto flex w-full max-w-[54rem] flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-4 sm:pb-10"
+                    className="mx-auto flex w-full max-w-[47.5rem] flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-4 sm:pb-10"
                     data-profile-stack-content="true"
                   >
                     <SettingsPresentationProvider

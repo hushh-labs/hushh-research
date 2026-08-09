@@ -6,6 +6,10 @@ import {
   type OneCapabilityIcon,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
+import {
+  AGENT_PROFILE_LAUNCHER_PALETTE,
+  AGENT_THEME_BY_TONE,
+} from "@/lib/design/agent-theme-registry";
 import { cn } from "@/lib/utils";
 
 // Fallback chip for sections with no tone (the "agents" root switcher and the
@@ -58,150 +62,19 @@ const ICON_SIZE_CLASS = {
 } as const;
 
 type AgentSectionIconSize = keyof typeof ICON_SIZE_CLASS;
-type ProfileIconStyle = CSSProperties & Record<`--${string}`, string>;
-
-const CAPABILITY_ICON_STYLE_BY_TONE: Partial<
-  Record<OneCapabilityTone, CSSProperties>
-> = {
-  finance: { backgroundColor: "#B85CF6" }, // Lavender Mist
-  ria: { backgroundColor: "#60A5FA" }, // Sky Blue
-  gmail: { backgroundColor: "#ffffff" }, // Cloud White (multicolor logo)
-  email: { backgroundColor: "#14B8A6" }, // Mint Teal
-  location: { backgroundColor: "#A7D7A1" }, // Sage Green
-  pkm: { backgroundColor: "#B85CF6" }, // Lavender Mist (Memory + Information)
-  consent: { backgroundColor: "#C8923A" }, // Warm Gold
-  connected: { backgroundColor: "#94A3B8" }, // Slate Blue-Gray
-};
-
-// Profile's settings wells are opaque, full-bleed squircles with a quiet tint
-// and high-contrast outline glyph. One's home roster uses this same treatment
-// so its launcher icons do not regress into inset glass chips.
-const PROFILE_CAPABILITY_ICON_STYLE_BY_TONE: Partial<
-  Record<OneCapabilityTone, CSSProperties>
-> = {
-  finance: {
-    "--agent-icon-profile-bg": "#b9ecff",
-    "--agent-icon-profile-fg": "#153d52",
-    "--agent-icon-profile-bg-dark": "#334f62",
-    "--agent-icon-profile-fg-dark": "#b9ecff",
-  } as CSSProperties,
-  ria: {
-    "--agent-icon-profile-bg": "#dfd4ff",
-    "--agent-icon-profile-fg": "#37304d",
-    "--agent-icon-profile-bg-dark": "#514a68",
-    "--agent-icon-profile-fg-dark": "#dfd4ff",
-  } as CSSProperties,
-  gmail: {
-    "--agent-icon-profile-bg": "#dfd4ff",
-    "--agent-icon-profile-fg": "#37304d",
-    "--agent-icon-profile-bg-dark": "#514a68",
-    "--agent-icon-profile-fg-dark": "#dfd4ff",
-  } as CSSProperties,
-  email: {
-    "--agent-icon-profile-bg": "#c0f5dd",
-    "--agent-icon-profile-fg": "#164536",
-    "--agent-icon-profile-bg-dark": "#28594a",
-    "--agent-icon-profile-fg-dark": "#c0f5dd",
-  } as CSSProperties,
-  location: {
-    "--agent-icon-profile-bg": "#c0f5dd",
-    "--agent-icon-profile-fg": "#164536",
-    "--agent-icon-profile-bg-dark": "#28594a",
-    "--agent-icon-profile-fg-dark": "#c0f5dd",
-  } as CSSProperties,
-  pkm: {
-    "--agent-icon-profile-bg": "#dfd4ff",
-    "--agent-icon-profile-fg": "#37304d",
-    "--agent-icon-profile-bg-dark": "#514a68",
-    "--agent-icon-profile-fg-dark": "#dfd4ff",
-  } as CSSProperties,
-  consent: {
-    "--agent-icon-profile-bg": "#ffe0b8",
-    "--agent-icon-profile-fg": "#4d2f1a",
-    "--agent-icon-profile-bg-dark": "#694a31",
-    "--agent-icon-profile-fg-dark": "#ffe0b8",
-  } as CSSProperties,
-  connected: {
-    "--agent-icon-profile-bg": "#c5e6f2",
-    "--agent-icon-profile-fg": "#284451",
-    "--agent-icon-profile-bg-dark": "#3d5360",
-    "--agent-icon-profile-fg-dark": "#c5e6f2",
-  } as CSSProperties,
-};
-
-// One's roster is a launcher, not a status legend. Give its first nine cells
-// a stable visual identity, then repeat that exact sequence as specialists are
-// added. The roster passes its authored order, so filtering does not reshuffle
-// an agent's icon color.
-const PROFILE_LAUNCHER_PALETTE: readonly ProfileIconStyle[] = [
-  {
-    "--agent-icon-profile-bg": "#b9ecff",
-    "--agent-icon-profile-fg": "#153d52",
-    "--agent-icon-profile-bg-dark": "#334f62",
-    "--agent-icon-profile-fg-dark": "#b9ecff",
-  },
-  {
-    "--agent-icon-profile-bg": "#dfd4ff",
-    "--agent-icon-profile-fg": "#37304d",
-    "--agent-icon-profile-bg-dark": "#514a68",
-    "--agent-icon-profile-fg-dark": "#dfd4ff",
-  },
-  {
-    "--agent-icon-profile-bg": "#c0f5dd",
-    "--agent-icon-profile-fg": "#164536",
-    "--agent-icon-profile-bg-dark": "#28594a",
-    "--agent-icon-profile-fg-dark": "#c0f5dd",
-  },
-  {
-    "--agent-icon-profile-bg": "#ffe0b8",
-    "--agent-icon-profile-fg": "#4d2f1a",
-    "--agent-icon-profile-bg-dark": "#694a31",
-    "--agent-icon-profile-fg-dark": "#ffe0b8",
-  },
-  {
-    "--agent-icon-profile-bg": "#d7dfff",
-    "--agent-icon-profile-fg": "#303a62",
-    "--agent-icon-profile-bg-dark": "#46547c",
-    "--agent-icon-profile-fg-dark": "#dce4ff",
-  },
-  {
-    "--agent-icon-profile-bg": "#ffe0e8",
-    "--agent-icon-profile-fg": "#642b42",
-    "--agent-icon-profile-bg-dark": "#6c3c50",
-    "--agent-icon-profile-fg-dark": "#ffe0e8",
-  },
-  {
-    "--agent-icon-profile-bg": "#bdeee9",
-    "--agent-icon-profile-fg": "#194a47",
-    "--agent-icon-profile-bg-dark": "#2d5a58",
-    "--agent-icon-profile-fg-dark": "#c4f2ed",
-  },
-  {
-    "--agent-icon-profile-bg": "#f8edaf",
-    "--agent-icon-profile-fg": "#504919",
-    "--agent-icon-profile-bg-dark": "#5b5328",
-    "--agent-icon-profile-fg-dark": "#fbf1bf",
-  },
-  {
-    "--agent-icon-profile-bg": "#d7e7ee",
-    "--agent-icon-profile-fg": "#294650",
-    "--agent-icon-profile-bg-dark": "#405963",
-    "--agent-icon-profile-fg-dark": "#e0eff6",
-  },
-] as const;
 
 function resolveProfileIconStyle(
   tone: OneCapabilityTone | null | undefined,
   paletteIndex: number | undefined,
 ): CSSProperties | undefined {
   if (paletteIndex !== undefined && Number.isInteger(paletteIndex)) {
-    return PROFILE_LAUNCHER_PALETTE[
-      ((paletteIndex % PROFILE_LAUNCHER_PALETTE.length) +
-        PROFILE_LAUNCHER_PALETTE.length) %
-        PROFILE_LAUNCHER_PALETTE.length
+    return AGENT_PROFILE_LAUNCHER_PALETTE[
+      ((paletteIndex % AGENT_PROFILE_LAUNCHER_PALETTE.length) +
+        AGENT_PROFILE_LAUNCHER_PALETTE.length) %
+        AGENT_PROFILE_LAUNCHER_PALETTE.length
     ];
   }
-  return tone ? PROFILE_CAPABILITY_ICON_STYLE_BY_TONE[tone] : undefined;
+  return tone ? AGENT_THEME_BY_TONE[tone]?.profileIconStyle : undefined;
 }
 
 export function AgentSectionIcon({
@@ -235,7 +108,7 @@ export function AgentSectionIcon({
     : AGENT_ICON_SURFACE_FALLBACK_CLASSNAME;
   const toneStyle =
     icon.kind === "lucide" && tone
-      ? CAPABILITY_ICON_STYLE_BY_TONE[tone]
+      ? AGENT_THEME_BY_TONE[tone]?.iconStyle
       : undefined;
   const Icon = icon.kind === "lucide" ? icon.icon : null;
 

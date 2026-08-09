@@ -543,7 +543,7 @@ function ProfilePageContent() {
   useEffect(() => {
     setCanShowPkmAgentLab(
       process.env.NODE_ENV === "development" &&
-        isPkmDeveloperHost(window.location.hostname)
+        isPkmDeveloperHost(window.location.hostname),
     );
   }, []);
 
@@ -557,10 +557,7 @@ function ProfilePageContent() {
     startPhoneReplacement,
     confirmPhoneReplacement,
   } = useAuth();
-  const {
-    personaState,
-    refresh: refreshPersonaState,
-  } = usePersonaState();
+  const { personaState, refresh: refreshPersonaState } = usePersonaState();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const pendingConsents = useConsentPendingSummaryCount();
   const { registerSteps, completeStep, reset } = useStepProgress();
@@ -908,7 +905,6 @@ function ProfilePageContent() {
           detail?: ProfileDetail | null;
         },
         mode: "push" | "replace" = "push",
-
       ) => {
         // Preserve only the `from` origin marker (not transient vault/return
         // keys, which must not re-fire while drilling panels) so the shared
@@ -932,7 +928,6 @@ function ProfilePageContent() {
       },
     [activeDetail, activePanel, router, searchParams],
   );
-
 
   useEffect(() => {
     let cancelled = false;
@@ -1032,7 +1027,6 @@ function ProfilePageContent() {
     setMarketplaceOptIn(Boolean(personaState.investor_marketplace_opt_in));
     setLoadingMarketplaceOptIn(false);
   }, [personaState, user]);
-
 
   const refreshPkmMetadata = useCallback(
     async (force = false) => {
@@ -2979,7 +2973,7 @@ function ProfilePageContent() {
   };
 
   const accountContent = (
-    <div className="space-y-4">
+    <div className="profile-account-content space-y-4">
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={User}
@@ -3013,6 +3007,7 @@ function ProfilePageContent() {
         {walletCardEntryEnabled ? (
           <SettingsRow
             icon={Wallet}
+            className="profile-account-service-row"
             title={WALLET_CARD_COPY.profileEntry.title}
             description={WALLET_CARD_COPY.profileEntry.description}
             chevron
@@ -3023,6 +3018,7 @@ function ProfilePageContent() {
       <SettingsGroup title="Account actions">
         <SettingsRow
           icon={RefreshCw}
+          className="profile-account-reset-row"
           title="Reset account"
           description={resetRowDescription}
           tone="destructive"
@@ -3031,6 +3027,7 @@ function ProfilePageContent() {
         />
         <SettingsRow
           icon={Trash2}
+          className="profile-account-delete-row"
           title={deleteButtonLabel}
           description={deleteRowDescription}
           tone="destructive"
@@ -3049,7 +3046,10 @@ function ProfilePageContent() {
           title="Appearance"
           description="Light, dark, or system."
           trailing={
-            <ThemeToggleLean size="expanded" className="w-full sm:w-60 min-w-0" />
+            <ThemeToggleLean
+              size="expanded"
+              className="w-full sm:w-60 min-w-0"
+            />
           }
           stackTrailingOnMobile
         />
@@ -3896,20 +3896,20 @@ function ProfilePageContent() {
   }
 
   const profileRootContent = (
-    <>
+    <div className="profile-home-screen">
       <AppPageHeaderRegion>
         <header
-          className="flex w-full min-w-0 flex-col items-center gap-2.5 px-4 text-center sm:px-6"
+          className="profile-home-hero flex w-full min-w-0 flex-col items-center gap-2.5 px-4 text-center sm:px-6"
           data-slot="page-header"
           data-page-primary="true"
         >
           <ProfileAvatarEditor />
-          <div className="min-w-0 max-w-full space-y-1.5">
-            <h1 className="text-[28px] font-medium leading-[1.08] tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
+          <div className="profile-home-copy min-w-0 max-w-full space-y-1.5">
+            <h1 className="profile-home-name text-[28px] font-medium leading-[1.08] tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
               {user.displayName || "User"}
             </h1>
             <div
-              className="inline-flex max-w-full items-center justify-center gap-2 text-sm text-muted-foreground"
+              className="profile-home-meta inline-flex max-w-full items-center justify-center gap-2 text-sm text-muted-foreground"
               title={provider.name}
             >
               <ProviderIcon providerId={provider.id} />
@@ -3923,7 +3923,7 @@ function ProfilePageContent() {
 
       <AppPageContentRegion>
         <SurfaceStack compact>
-          <div className="space-y-4 sm:space-y-5">
+          <div className="profile-home-content space-y-4 sm:space-y-5">
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
                 icon={UserRound}
@@ -3989,7 +3989,7 @@ function ProfilePageContent() {
           </div>
         </SurfaceStack>
       </AppPageContentRegion>
-    </>
+    </div>
   );
 
   if (legacyProfileRedirectHref) {
