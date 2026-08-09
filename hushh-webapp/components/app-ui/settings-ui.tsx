@@ -130,16 +130,20 @@ export function SettingsPresentationProvider({
 }
 
 const SETTINGS_ICON_TONE_CLASSNAME = {
-  accent: "bg-accent/12 text-accent-strong dark:bg-accent/20",
-  blue: "bg-sky-500/12 text-sky-700 dark:bg-sky-400/20 dark:text-sky-200",
+  accent:
+    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
+  blue:
+    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
   purple:
-    "bg-violet-500/12 text-violet-700 dark:bg-violet-400/20 dark:text-violet-200",
+    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
   green:
-    "bg-emerald-500/12 text-emerald-700 dark:bg-emerald-400/20 dark:text-emerald-200",
+    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
   orange:
-    "bg-orange-500/12 text-orange-700 dark:bg-orange-400/20 dark:text-orange-200",
-  red: "bg-destructive/10 text-destructive dark:bg-destructive/20",
-  gray: "bg-muted/65 text-muted-foreground",
+    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
+  red:
+    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
+  gray:
+    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
 } as const;
 
 type SettingsIconTone = keyof typeof SETTINGS_ICON_TONE_CLASSNAME;
@@ -181,12 +185,11 @@ export function SettingsGroup({
     <div
       data-slot="settings-group-shell"
       className={cn(
-        // Inset settings groups use the compact card radius. The smaller
-        // generic `--app-radius-lg` is for controls, and made full groups
-        // read needlessly sharp next to One's app-icon surfaces.
-        "relative isolate [--settings-group-radius:var(--app-card-radius-compact)] overflow-hidden rounded-[var(--app-card-radius-compact)]",
-        "border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]",
-        !embedded && "sm:rounded-[var(--app-card-radius-compact)]",
+        // Inset settings groups use the compact card radius and flat grouped
+        // Apple surfaces; separators inside the card carry the structure.
+        "relative isolate [--settings-group-radius:var(--app-card-radius-compact)] overflow-hidden rounded-[var(--settings-group-radius)]",
+        "bg-[color:var(--app-card-surface-default-solid)] shadow-none ring-0",
+        !embedded && "sm:rounded-[var(--settings-group-radius)]",
         shellClassName,
       )}
     >
@@ -220,10 +223,10 @@ export function SettingsGroup({
               data-slot="settings-group-heading"
               role="heading"
               aria-level={embedded ? 3 : 2}
-              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty text-[12px] font-medium uppercase leading-tight tracking-[0.14em] text-muted-foreground [overflow-wrap:anywhere]"
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground [overflow-wrap:anywhere]"
             >
               {eyebrow ? (
-                <span className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted-foreground sm:text-[11px]">
+                <span className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                   {eyebrow}
                 </span>
               ) : null}
@@ -231,7 +234,7 @@ export function SettingsGroup({
             </div>
           ) : null}
           {description ? (
-            <p className="max-w-2xl text-[11px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[12px]">
+            <p className="max-w-2xl text-[13px] leading-[18px] text-muted-foreground [overflow-wrap:anywhere]">
               {description}
             </p>
           ) : null}
@@ -316,11 +319,11 @@ export function SettingsRow({
       : "group-data-[inset-separators=true]/settings-list:after:left-0";
   const rowShellClassName = cn(
     "group/settings-row relative isolate overflow-hidden bg-[color:var(--app-list-row-surface)] sm:bg-transparent",
-    resolvedDensity === "compact" && "[--settings-row-py:0.5rem]",
+    resolvedDensity === "compact" && "[--settings-row-py:11px]",
     // iOS-style separator — active only inside SettingsGroup with
     // separatorInset and hidden on the final row. Its start is derived from
     // whether this row actually has a leading visual.
-    "group-data-[inset-separators=true]/settings-list:after:pointer-events-none group-data-[inset-separators=true]/settings-list:after:absolute group-data-[inset-separators=true]/settings-list:after:bottom-0 group-data-[inset-separators=true]/settings-list:after:right-0 group-data-[inset-separators=true]/settings-list:after:h-px group-data-[inset-separators=true]/settings-list:after:bg-[color:var(--foundation-hairline)] group-data-[inset-separators=true]/settings-list:after:content-[''] last:after:hidden",
+    "group-data-[inset-separators=true]/settings-list:after:pointer-events-none group-data-[inset-separators=true]/settings-list:after:absolute group-data-[inset-separators=true]/settings-list:after:bottom-0 group-data-[inset-separators=true]/settings-list:after:right-0 group-data-[inset-separators=true]/settings-list:after:h-px group-data-[inset-separators=true]/settings-list:after:bg-[color:var(--app-separator)] group-data-[inset-separators=true]/settings-list:after:content-[''] last:after:hidden",
     separatorInsetClassName,
     rowRadiusClassName,
     disabled && "cursor-not-allowed opacity-60",
@@ -342,12 +345,12 @@ export function SettingsRow({
           data-slot="settings-row-icon"
           data-icon-tone={resolvedIconTone}
           className={cn(
-            // Keep settings icons as compact iOS-style wells, not circles.
+            // Keep settings icons as iOS-style rounded-square utility wells.
             // Agent artwork continues to use AgentSectionIcon, which owns the
             // larger launcher/menu geometry separately.
-            "inline-flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-[10px]",
+            "inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center self-center rounded-[8px]",
             resolvedDensity !== "compact" &&
-              "sm:h-10 sm:w-10 sm:rounded-[12px]",
+              "sm:h-[34px] sm:w-[34px] sm:rounded-[8px]",
             SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
           )}
         >
@@ -358,7 +361,7 @@ export function SettingsRow({
         <div
           data-slot="settings-row-title"
           className={cn(
-            "text-[15px] font-normal leading-tight tracking-normal text-foreground [overflow-wrap:anywhere]",
+            "text-[17px] font-normal leading-[22px] tracking-normal text-foreground [overflow-wrap:anywhere]",
             tone === "destructive" && "text-destructive",
           )}
         >
@@ -367,7 +370,7 @@ export function SettingsRow({
         {description ? (
           <div
             data-slot="settings-row-description"
-            className="text-[12px] leading-[1.45] text-muted-foreground [overflow-wrap:anywhere] sm:text-[13px]"
+            className="text-[15px] leading-[20px] text-muted-foreground [overflow-wrap:anywhere]"
           >
             {description}
           </div>
@@ -388,7 +391,7 @@ export function SettingsRow({
         {chevron ? (
           <ChevronRight
             className={cn(
-              "h-4 w-4 shrink-0 text-muted-foreground/90 transition-transform",
+              "h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform",
               isInteractive && "group-hover:translate-x-0.5",
             )}
           />
@@ -615,7 +618,7 @@ export function AdaptiveDetailSurface({
                 {leading ? <div className="shrink-0">{leading}</div> : null}
                 <div className="min-w-0">
                   {eyebrow ? (
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                    <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                       {eyebrow}
                     </p>
                   ) : null}
@@ -672,7 +675,7 @@ export function AdaptiveDetailSurface({
               {leading ? <div className="shrink-0">{leading}</div> : null}
               <div className="min-w-0">
                 {eyebrow ? (
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                     {eyebrow}
                   </p>
                 ) : null}
@@ -731,7 +734,7 @@ export function AdaptiveDetailSurface({
             {leading ? <div className="shrink-0">{leading}</div> : null}
             <div className="min-w-0">
               {eyebrow ? (
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                   {eyebrow}
                 </p>
               ) : null}
