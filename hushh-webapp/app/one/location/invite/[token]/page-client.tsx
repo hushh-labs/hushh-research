@@ -17,7 +17,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
-import { buildPhoneMandateRoute, buildProfileVaultRoute } from "@/lib/navigation/routes";
+import {
+  buildPhoneMandateRoute,
+  buildProfileVaultRoute,
+} from "@/lib/navigation/routes";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleInvite } from "@/lib/one-location/types";
@@ -217,26 +220,26 @@ export default function OneLocationCircleInvitePageClient() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center px-5 py-10">
-        <div className="space-y-6 rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--shadow-xs)] sm:p-7">
+      <div className="mx-auto flex min-h-screen w-full max-w-[720px] flex-col px-5 pb-10 pt-[max(48px,calc(env(safe-area-inset-top)+28px))] sm:px-6 sm:pt-[max(64px,calc(env(safe-area-inset-top)+40px))]">
+        <div className="space-y-6 rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-none sm:p-6">
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
+            <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
               {error ? (
-                <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+                <AlertTriangle className="h-[17px] w-[17px]" aria-hidden="true" />
               ) : claimed ? (
-                <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
+                <CheckCircle2 className="h-[17px] w-[17px]" aria-hidden="true" />
               ) : (
-                <MapPin className="h-5 w-5" aria-hidden="true" />
+                <MapPin className="h-[17px] w-[17px]" aria-hidden="true" />
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--app-accent)]">
+              <div className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                 Location
               </div>
-              <h1 className="mt-2 text-[28px] font-medium leading-[1.12] tracking-normal sm:text-[32px]">
+              <h1 className="mt-1 text-[32px] font-bold leading-[1.08] tracking-normal sm:text-[34px]">
                 Join One
               </h1>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              <p className="mt-3 text-[17px] leading-[24px] text-muted-foreground">
                 {loading
                   ? "Checking Invite to One link."
                   : error
@@ -258,7 +261,7 @@ export default function OneLocationCircleInvitePageClient() {
 
           {!loading && invite ? (
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2 text-sm">
+              <div className="flex flex-wrap items-center gap-2 text-[13px]">
                 <Badge variant="secondary">
                   Expires {formatDateTime(invite.expiresAt)}
                 </Badge>
@@ -268,19 +271,19 @@ export default function OneLocationCircleInvitePageClient() {
               </div>
 
               {invite.message ? (
-                <div className="rounded-[var(--app-card-radius-standard)] border border-border/70 bg-background p-4 text-sm leading-6 text-muted-foreground">
+                <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-compact)] p-4 text-[15px] leading-5 text-muted-foreground">
                   {invite.message}
                 </div>
               ) : null}
 
-              <div className="rounded-[var(--app-card-radius-standard)] border border-accent-border bg-accent-surface p-4 text-sm leading-6 text-foreground">
+              <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-accent)]/10 p-4 text-[15px] leading-5 text-foreground">
                 Accepting connects both of you on One. Live location still starts only
                 when someone taps Share Location, confirms permission, and sends an
                 encrypted share from Location.
               </div>
 
               {claimError ? (
-                <div className="rounded-[var(--app-card-radius-standard)] border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-6 text-amber-950 dark:text-amber-100">
+                <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-warning)]/10 p-4 text-[15px] leading-5 text-[color:var(--app-warning)]">
                   {claimError}
                 </div>
               ) : null}

@@ -59,7 +59,7 @@ const PRIVATE_CONFIRMATION_MAX_AGE_MS = 10 * 60_000;
 
 /** White surface card — design radius 12px, with a dark-mode variant. */
 const CARD =
-  "rounded-[12px] border border-black/[0.06] bg-white dark:border-white/[0.08] dark:bg-white/[0.05]";
+  "rounded-[var(--app-card-radius-compact)] border border-border/60 bg-[color:var(--app-card-surface-default-solid)]";
 
 // Contact list cap: trusted circles can be long, so show ~4 rows then scroll.
 // A thin, touch-friendly scrollbar keeps it unobtrusive on mobile.
@@ -452,7 +452,7 @@ export function CheckInFlow({
     <div>
       {/* Header — title + Cancel link (no back arrow; Cancel dismisses). */}
       <div className="flex items-start justify-between gap-3">
-        <h1 className="max-w-[250px] text-[23px] font-bold leading-[1.2] tracking-[-0.4px] text-foreground">
+        <h1 className="max-w-[310px] text-[28px] font-bold leading-[1.12] tracking-normal text-foreground">
           Let trusted people know you&apos;re here
         </h1>
         <button
@@ -466,12 +466,12 @@ export function CheckInFlow({
 
       {entrySource === "nearby" ? (
         <section
-          className="mt-4 flex gap-3 rounded-[12px] border border-[var(--app-accent-border)] bg-[var(--app-accent-surface)] p-4"
+          className="mt-4 flex gap-3 rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-accent)]/10 p-4"
           data-testid="nearby-private-share-disclosure"
         >
           <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
           <div>
-            <p className="text-sm font-semibold text-foreground">
+            <p className="text-[15px] font-semibold leading-5 text-foreground">
               Nearby and private sharing are separate
             </p>
             <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
@@ -579,20 +579,20 @@ export function CheckInFlow({
                     "bg-[color:var(--app-accent-soft)]",
                 )}
               >
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
-                  <UsersRound className="h-4 w-4" />
+                <span className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+                  <UsersRound className="h-[17px] w-[17px]" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15px] font-semibold text-foreground">
+                  <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
                     {circle.name}
                   </span>
-                  <span className="block text-[12px] text-muted-foreground">
+                  <span className="block text-[15px] leading-5 text-muted-foreground">
                     {selected
                       ? `${circleSelection.ready.length} ready now`
                       : `${circle.memberCount} members`}
                   </span>
                 </span>
-                <span className="text-[12px] font-semibold text-[color:var(--app-accent)]">
+                <span className="text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)]">
                   {circleLoadingId === circle.id
                     ? "Loading…"
                     : selected
@@ -604,7 +604,7 @@ export function CheckInFlow({
           })}
           {circleSelection ? (
             <>
-              <p className="border-t border-black/[0.06] px-4 py-2.5 text-[12px] leading-5 text-muted-foreground dark:border-white/[0.08]">
+              <p className="border-t border-[color:var(--app-separator)] px-4 py-2.5 text-[13px] leading-[18px] text-muted-foreground">
                 Current ready members only. Future members are not added to this
                 check-in.
                 {circleSelection.excluded.filter(
@@ -620,7 +620,7 @@ export function CheckInFlow({
               {/* Grow this Circle in-context: invite an existing connection or
                   share the invite code, so a user can pull loved ones in right
                   before they check in — especially when few members are ready. */}
-              <div className="border-t border-black/[0.06] px-4 py-3 dark:border-white/[0.08]">
+              <div className="border-t border-[color:var(--app-separator)] px-4 py-3">
                 <CircleGrowActions
                   circleId={circleSelection.circle.id}
                   circleName={circleSelection.circle.name}
@@ -647,14 +647,14 @@ export function CheckInFlow({
       <div
         className={cn(CARD, "mb-2 flex items-center gap-2 px-[14px] py-[11px]")}
       >
-        <Search className="h-3.5 w-3.5 shrink-0 text-black/35 dark:text-white/40" />
+        <Search className="h-3.5 w-3.5 shrink-0 text-[color:var(--app-tertiary-label)]" />
         <input
           type="text"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           disabled={retryLocked}
           placeholder="Search contacts…"
-          className="min-w-0 flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-black/35 disabled:cursor-not-allowed dark:placeholder:text-white/40"
+          className="min-w-0 flex-1 bg-transparent text-[15px] leading-5 text-foreground outline-none placeholder:text-[color:var(--app-tertiary-label)] disabled:cursor-not-allowed"
         />
       </div>
       {filtered.length ? (
@@ -702,7 +702,7 @@ export function CheckInFlow({
 
       {/* DURATION — gray segmented control incl. "Until I stop". */}
       <SectionLabel>DURATION</SectionLabel>
-      <div className="flex rounded-[9px] bg-[#ededf2] p-0.5 dark:bg-white/[0.08]">
+      <div className="flex rounded-[10px] bg-[color:var(--app-neutral-fill-strong)] p-0.5">
         {durationOptions.map((option) => (
           <button
             key={option.key}
@@ -713,7 +713,7 @@ export function CheckInFlow({
             className={cn(
               "whitespace-nowrap rounded-[7px] py-[9px] text-center text-[13px] transition-colors",
               option.active
-                ? "bg-white font-bold text-foreground shadow-sm dark:bg-white/[0.16]"
+                ? "bg-[color:var(--app-card-surface-default-solid)] font-semibold text-foreground shadow-none"
                 : "font-normal text-foreground/80",
               retryLocked && "cursor-not-allowed opacity-60",
             )}
@@ -722,7 +722,7 @@ export function CheckInFlow({
           </button>
         ))}
       </div>
-      <p className="mt-2 flex items-center gap-1.5 px-1 text-[12px] text-black/45 dark:text-white/45">
+      <p className="mt-2 flex items-center gap-1.5 px-1 text-[13px] leading-[18px] text-muted-foreground">
         <Shield className="h-3 w-3 shrink-0" strokeWidth={1.5} />
         Sharing stops automatically — no manual revoke needed.
       </p>
@@ -738,13 +738,13 @@ export function CheckInFlow({
           disabled={retryLocked}
           rows={2}
           placeholder={DEFAULT_CHECK_IN_MESSAGE}
-          className="w-full resize-none bg-transparent text-[15px] leading-[1.4] text-foreground outline-none placeholder:text-black/35 disabled:cursor-not-allowed dark:placeholder:text-white/40"
+          className="w-full resize-none bg-transparent text-[15px] leading-5 text-foreground outline-none placeholder:text-[color:var(--app-tertiary-label)] disabled:cursor-not-allowed"
         />
-        <p className="mt-2 text-right text-[12px] text-black/30 dark:text-white/30">
+        <p className="mt-2 text-right text-[12px] text-[color:var(--app-tertiary-label)]">
           {message.length}/{CHECK_IN_MESSAGE_MAX_LENGTH}
         </p>
       </div>
-      <p className="mb-[18px] mt-2 px-1 text-[12px] leading-[1.45] text-black/45 dark:text-white/45">
+      <p className="mb-[18px] mt-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
         {retryLocked
           ? "Retry keeps the same duration, encrypted message, and reviewed location, and sends only to people who still failed."
           : "This message is encrypted with your location. The notification only says that you shared a check-in."}

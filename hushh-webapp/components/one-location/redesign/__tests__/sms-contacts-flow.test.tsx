@@ -107,21 +107,20 @@ describe("SmsContactsFlow", () => {
 
     const removeButton = screen.getByRole("button", { name: "Remove" });
     expect(removeButton).toHaveClass(
-      "bg-[#ffe9e9]",
-      "text-[#d70015]",
-      "border-[#ff3b30]/35",
+      "bg-[color:var(--app-destructive)]/10",
+      "text-[color:var(--app-destructive)]",
     );
     fireEvent.click(removeButton);
     expect(onRemove).not.toHaveBeenCalled();
     expect(screen.getByText("Remove Kushal?")).toBeInTheDocument();
 
     const title = screen.getByRole("heading", { name: /Remove Kushal\?/i });
-    expect(title.querySelector("span")).toHaveClass("text-[#17171c]");
+    expect(title.querySelector("span")).toHaveClass("text-foreground");
     expect(
       screen.getByText(
         "They'll no longer be alerted with your live location when you trigger SMS.",
       ),
-    ).toHaveClass("!text-[#17171c]");
+    ).toHaveClass("!text-muted-foreground");
 
     const removeButtons = screen.getAllByRole("button", {
       name: "Remove",
@@ -160,7 +159,7 @@ describe("SmsContactsFlow", () => {
     expect(screen.getByTestId("sms-contacts-screen")).toHaveClass(
       "fixed",
       "inset-0",
-      "bg-[#f2f3f7]",
+      "bg-background",
     );
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     expect(screen.getByRole("alertdialog")).toHaveClass(

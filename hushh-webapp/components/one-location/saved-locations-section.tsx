@@ -44,25 +44,26 @@ import type { PlainLocationPoint } from "@/lib/one-location/types";
 import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
+import { SUBCARD_SURFACE } from "@/components/one-location/redesign/tokens";
 
 function CategoryIcon({ category }: { category: SavedLocationCategory }) {
   const Icon =
     category === "home" ? Home : category === "work" ? Briefcase : MapPin;
   const tone =
     category === "home"
-      ? "bg-[#e7f0fd] text-[#087ff5] dark:bg-[#087ff5]/15"
+      ? "bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]/15"
       : category === "work"
-        ? "bg-[#eef1f5] text-[#5b6472] dark:bg-white/10 dark:text-white/70"
-        : "bg-[#e5f4ea] text-[#2ea44f] dark:bg-emerald-400/15";
+        ? "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]"
+        : "bg-[color:var(--app-success)]/12 text-[color:var(--app-success)] dark:bg-[color:var(--app-success)]/15";
   return (
     <span
       className={cn(
-        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
+        "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px]",
         tone,
       )}
       aria-hidden="true"
     >
-      <Icon className="h-5 w-5" strokeWidth={2.1} />
+      <Icon className="h-[17px] w-[17px]" strokeWidth={1.9} />
     </span>
   );
 }
@@ -549,14 +550,14 @@ export function SavedLocationsSection() {
         data-testid="settings-saved-locations"
       >
         <div className="mb-2.5 flex items-center justify-between gap-3 px-1">
-          <p className="text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
+          <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
             Saved Locations
           </p>
           <button
             type="button"
             onClick={() => void handleAdd()}
             disabled={!hasVaultAccess || locationControl.paused || capturing}
-            className="press-scale inline-flex h-8 items-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint,#e7f0fd)] px-3 text-[12px] font-bold text-[color:var(--app-accent-deep,#0b62c4)] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
+            className="press-scale inline-flex h-8 items-center gap-1.5 rounded-full bg-[color:var(--app-accent)]/12 px-3 text-[13px] font-semibold text-[color:var(--app-accent)] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
           >
             {capturing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -567,17 +568,17 @@ export function SavedLocationsSection() {
           </button>
         </div>
 
-        <div className="overflow-hidden rounded-2xl bg-white shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
+        <div className={cn("overflow-hidden", SUBCARD_SURFACE)}>
           {!hasVaultAccess ? (
-            <div className="flex items-center gap-3.5 p-4">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#eef1f5] text-[#8b93a1] dark:bg-white/10">
-                <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+            <div className="flex min-h-[60px] items-center gap-3.5 p-3.5">
+              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]">
+                <ShieldCheck className="h-[17px] w-[17px]" aria-hidden="true" />
               </span>
               <div className="min-w-0">
-                <p className="text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
+                <p className="text-[17px] font-normal leading-[22px] text-foreground">
                   Unlock your vault to view saved places
                 </p>
-                <p className="mt-0.5 text-[13px] leading-[1.4] text-black/50 dark:text-muted-foreground">
+                <p className="mt-0.5 text-[15px] leading-5 text-muted-foreground">
                   Exact locations stay encrypted and are available only while
                   your vault is unlocked.
                 </p>
@@ -585,35 +586,35 @@ export function SavedLocationsSection() {
             </div>
           ) : loading ? (
             <div
-              className="flex items-center gap-3 p-4 text-[13px] text-black/50 dark:text-muted-foreground"
+              className="flex min-h-[58px] items-center gap-3 p-3.5 text-[15px] leading-5 text-muted-foreground"
               role="status"
             >
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               Loading saved places…
             </div>
           ) : loadError ? (
-            <div className="flex items-center justify-between gap-3 p-4">
-              <p className="text-[13px] text-[#b42318] dark:text-red-300">
+            <div className="flex min-h-[58px] items-center justify-between gap-3 p-3.5">
+              <p className="text-[15px] leading-5 text-[color:var(--app-destructive)]">
                 {loadError}
               </p>
               <button
                 type="button"
                 onClick={() => void reload()}
-                className="rounded-full px-3 py-1.5 text-[12px] font-bold text-[color:var(--app-accent,#087ff5)]"
+                className="rounded-full px-3 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)]"
               >
                 Retry
               </button>
             </div>
           ) : locations.length === 0 ? (
-            <div className="flex items-center gap-3.5 p-4">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#eef1f5] text-[#8b93a1] dark:bg-white/10">
-                <MapPin className="h-5 w-5" aria-hidden="true" />
+            <div className="flex min-h-[60px] items-center gap-3.5 p-3.5">
+              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]">
+                <MapPin className="h-[17px] w-[17px]" aria-hidden="true" />
               </span>
               <div className="min-w-0">
-                <p className="text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
+                <p className="text-[17px] font-normal leading-[22px] text-foreground">
                   No saved places yet
                 </p>
-                <p className="mt-0.5 text-[13px] leading-[1.4] text-black/50 dark:text-muted-foreground">
+                <p className="mt-0.5 text-[15px] leading-5 text-muted-foreground">
                   Add Home, Work, or another place to see it here.
                 </p>
               </div>
@@ -623,17 +624,17 @@ export function SavedLocationsSection() {
               <div
                 key={location.id}
                 className={cn(
-                  "flex items-center gap-3.5 p-4",
+                  "flex min-h-[60px] items-center gap-3.5 p-3.5",
                   index > 0 &&
-                    "border-t border-black/[0.06] dark:border-white/10",
+                    "border-t border-[color:var(--app-separator)]",
                 )}
               >
                 <CategoryIcon category={location.category} />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-semibold text-[#1c1c2e] dark:text-foreground">
+                  <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
                     {location.label}
                   </p>
-                  <p className="mt-0.5 truncate text-[13px] text-black/50 dark:text-muted-foreground">
+                  <p className="mt-0.5 truncate text-[15px] leading-5 text-muted-foreground">
                     {location.address || "Address unavailable"}
                   </p>
                 </div>
@@ -644,7 +645,7 @@ export function SavedLocationsSection() {
                     title="Find address"
                     onClick={() => void handleRepairAddress(location)}
                     disabled={repairingId !== null}
-                    className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#8b93a1] transition-colors hover:bg-black/[0.05] hover:text-[#087ff5] disabled:opacity-45 dark:text-muted-foreground"
+                    className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[color:var(--app-tertiary-label)] transition-colors hover:bg-foreground/[0.05] hover:text-[color:var(--app-accent)] disabled:opacity-45"
                   >
                     <RefreshCw
                       className={cn(
@@ -666,7 +667,7 @@ export function SavedLocationsSection() {
                     capturing ||
                     locationControl.paused
                   }
-                  className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#8b93a1] transition-colors hover:bg-black/[0.05] hover:text-[#087ff5] disabled:opacity-45 dark:text-muted-foreground"
+                  className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[color:var(--app-tertiary-label)] transition-colors hover:bg-foreground/[0.05] hover:text-[color:var(--app-accent)] disabled:opacity-45"
                 >
                   <Pencil className="h-[17px] w-[17px]" strokeWidth={2} />
                 </button>
@@ -675,7 +676,7 @@ export function SavedLocationsSection() {
                   aria-label={`Remove ${location.label}`}
                   onClick={() => void handleRemove(location.id)}
                   disabled={removingId !== null}
-                  className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#8b93a1] transition-colors hover:bg-[#ff3b30]/10 hover:text-[#ff3b30] disabled:opacity-45 dark:text-muted-foreground"
+                  className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[color:var(--app-tertiary-label)] transition-colors hover:bg-[color:var(--app-destructive)]/10 hover:text-[color:var(--app-destructive)] disabled:opacity-45"
                 >
 
                   {removingId === location.id ? (
@@ -689,7 +690,7 @@ export function SavedLocationsSection() {
           )}
         </div>
         {hasVaultAccess ? (
-          <p className="mt-2 px-1 text-[11px] leading-[1.45] text-black/40 dark:text-muted-foreground">
+          <p className="mt-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
             {locationControl.paused
               ? "Resume Location before capturing another saved place."
               : "Saved places are encrypted in your vault and shared only when you explicitly approve location access."}
