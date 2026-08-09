@@ -2,7 +2,11 @@
 
 import pytest
 
-from api.routes.one.adk_live import _InitialGreetingGate, _receive_runtime_bootstrap
+from api.routes.one.adk_live import (
+    _close_quietly,
+    _InitialGreetingGate,
+    _receive_runtime_bootstrap,
+)
 from api.routes.one.live_context import (
     compose_route_context_note as _compose_route_context_note,
 )
@@ -43,6 +47,47 @@ class _BootstrapSocket:
         import json
 
         return json.dumps(self._frame)
+
+
+class _CloseSocket:
+    """Stand-in for the real websocket's close(), optionally raising to
+    simulate the known websockets/uvicorn legacy-protocol bug where close()
+    throws AttributeError on a connection whose transfer_data_task never got
+    set (client gone before the handshake finished)."""
+
+    def __init__(self, close_error: Exception | None = None):
+        self._close_error = close_error
+        self.close_calls: list[tuple[int, str]] = []
+
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        self.close_calls.append((code, reason))
+        if self._close_error is not None:
+            raise self._close_error
+
+
+@pytest.mark.asyncio
+async def test_close_quietly_closes_with_the_given_code_and_reason():
+    socket = _CloseSocket()
+
+    await _close_quietly(socket, code=1008, reason="Voice relay ticket is expired.")
+
+    assert socket.close_calls == [(1008, "Voice relay ticket is expired.")]
+
+
+@pytest.mark.asyncio
+async def test_close_quietly_swallows_a_close_failure_on_an_already_gone_client():
+    socket = _CloseSocket(
+        close_error=AttributeError(
+            "'WebSocketProtocol' object has no attribute 'transfer_data_task'"
+        )
+    )
+
+    # Must not raise: the client is already gone, so there is no one left to
+    # notify, and a rejection path failing to send its close frame must not
+    # itself become an unhandled server exception.
+    await _close_quietly(socket, code=1008, reason="Voice session configuration was not accepted.")
+
+    assert socket.close_calls == [(1008, "Voice session configuration was not accepted.")]
 
 
 @pytest.mark.asyncio

@@ -212,6 +212,8 @@ export type OneVoiceContextSnapshot = {
     playbook_id: string;
     subview?: string | null;
     route_family: string;
+    /** Sorted, allowlisted structural query that selects among same-path screens. */
+    route_query: string;
     nav_stack: string[];
   };
   ui: {
@@ -380,6 +382,43 @@ function sanitizeRouteFamily(pathname: string): string {
       return decoded.toLowerCase();
     });
   return segments.length ? `/${segments.join("/")}` : "/";
+}
+
+/**
+ * Query parameters that select WHICH screen a shared path is showing.
+ *
+ * Deliberately an allowlist, not a passthrough: route_family redacts
+ * identifiers, so sending a raw query alongside it would reopen exactly the
+ * leak that redaction closes. Every key here is structural navigation state
+ * declared by the generated contracts (tab/view/focus/source/category);
+ * identifier-bearing params such as clientId are excluded on purpose.
+ */
+const STRUCTURAL_ROUTE_QUERY_KEYS = [
+  "tab",
+  "view",
+  "focus",
+  "source",
+  "category",
+] as const;
+
+/**
+ * Sorted `key=value` pairs for the structural params present in `pathname`.
+ *
+ * Sorted so the value is stable across navigations that differ only in
+ * parameter order; the relay matches on pairs, never on the literal string.
+ */
+function sanitizeRouteQuery(pathname: string): string {
+  const rawQuery = pathname.split("?")[1];
+  if (!rawQuery) return "";
+  const params = new URLSearchParams(rawQuery);
+  const pairs: string[] = [];
+  for (const key of STRUCTURAL_ROUTE_QUERY_KEYS) {
+    const value = params.get(key);
+    if (!value) continue;
+    const clean = value.trim().slice(0, 40);
+    if (clean) pairs.push(`${key}=${clean}`);
+  }
+  return pairs.sort().join("&");
 }
 
 function readStringArray(value: unknown): string[] {
@@ -810,9 +849,10 @@ export function buildOneVoiceContextSnapshot(args: {
       ? "fresh_or_stale_safe"
       : "missing"
     : "locked";
-  const routeFamily = sanitizeRouteFamily(
-    args.appRuntimeState?.route.pathname || structured.route.pathname,
-  );
+  const routePathname =
+    args.appRuntimeState?.route.pathname || structured.route.pathname;
+  const routeFamily = sanitizeRouteFamily(routePathname);
+  const routeQuery = sanitizeRouteQuery(routePathname);
   const routeLayout = resolveAppRouteLayout(routeFamily);
   const routePlaybook = routeLayout.voicePlaybook;
   const publishedInteractionLayer =
@@ -860,6 +900,12 @@ export function buildOneVoiceContextSnapshot(args: {
   const transitionSeq = args.lastTransition?.transitionSeq ?? 0;
   const routeRevision = stableRevision([
     routeFamily,
+    // The structural query is part of route identity, not decoration: two tabs
+    // on one path are different screens. Including it here is what makes a tab
+    // change -- by a voice action OR by the person tapping the tab themselves --
+    // produce a new revision, which is the signal that republishes context.
+    // Without it, a query-only navigation left the relay on a stale screen.
+    routeQuery,
     structured.route.screen,
     structured.route.subview ?? null,
     navStack,
@@ -924,6 +970,7 @@ export function buildOneVoiceContextSnapshot(args: {
       playbook_id: routePlaybook.playbookId,
       subview: structured.route.subview ?? null,
       route_family: routeFamily,
+      route_query: routeQuery,
       nav_stack: navStack,
     },
     ui: {

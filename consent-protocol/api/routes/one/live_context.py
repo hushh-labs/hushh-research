@@ -179,6 +179,7 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
             "context_id": payload.get("context_id") or snapshot_map.get("snapshot_id"),
             "screen": payload.get("screen") or route.get("screen"),
             "route_family": payload.get("route_family") or route.get("route_family"),
+            "route_query": payload.get("route_query") or route.get("route_query"),
             "context_revision": payload.get("context_revision")
             or f"{revisions.get('route', '')}:{revisions.get('ui', '')}",
             "signed_in": payload.get("signed_in") is True or auth.get("signed_in") is True,
@@ -201,7 +202,12 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         }
     cache_freshness = bounded_text(payload.get("cache_freshness"), 32)
     route_family = bounded_text(payload.get("route_family"))
-    route_entry = resolve_route_orchestration_entry(route_family)
+    # Structural query only (tab/view/focus/...), allowlisted and bounded by the
+    # browser before it is sent. It selects between screens that share a single
+    # path, so it must not ride inside route_family: that value is
+    # redaction-sensitive and also feeds layout resolution.
+    route_query = bounded_text(payload.get("route_query"), 128)
+    route_entry = resolve_route_orchestration_entry(route_family, route_query)
     route_action_ids = {
         action_id
         for action_id in (

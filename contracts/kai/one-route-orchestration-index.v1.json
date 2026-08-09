@@ -1743,6 +1743,235 @@
       "native_surface_id": "native-route-kai-home"
     },
     {
+      "route_pattern": "/one/kai?tab=analysis",
+      "page_file": "app/one/kai/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.kai",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.kai",
+        "purpose": "Help the person understand and use the kai screen through its generated controls.",
+        "screen": "kai_market",
+        "entry_cue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
+        "proactivity": "on_entry",
+        "primary_action_id": "route.kai_home",
+        "happy_path_action_ids": [
+          "route.kai_home"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the selected Finance view settles in the browser.",
+        "next_route": "/one/kai?tab=market",
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "kai_analysis",
+      "voice_contract_file": null,
+      "action_ids": [
+        "analysis.back_to_history",
+        "analysis.cancel_active",
+        "analysis.confirm_preview",
+        "analysis.open_debate_tab",
+        "analysis.open_detailed_tab",
+        "analysis.open_summary_tab",
+        "analysis.resume_active",
+        "analysis.start",
+        "route.analysis_history",
+        "route.back",
+        "route.kai_analysis",
+        "route.kai_home"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "vault",
+      "native_surface_id": "native-route-kai-home"
+    },
+    {
+      "route_pattern": "/one/kai?tab=analysis&focus=active",
+      "page_file": "app/one/kai/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.kai",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.kai",
+        "purpose": "Help the person understand and use the kai screen through its generated controls.",
+        "screen": "kai_market",
+        "entry_cue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
+        "proactivity": "on_entry",
+        "primary_action_id": "route.kai_home",
+        "happy_path_action_ids": [
+          "route.kai_home"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the selected Finance view settles in the browser.",
+        "next_route": "/one/kai?tab=market",
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "kai_analysis",
+      "voice_contract_file": null,
+      "action_ids": [
+        "analysis.back_to_history",
+        "analysis.cancel_active",
+        "analysis.confirm_preview",
+        "analysis.open_debate_tab",
+        "analysis.open_detailed_tab",
+        "analysis.open_summary_tab",
+        "analysis.resume_active",
+        "analysis.start",
+        "route.analysis_history",
+        "route.back",
+        "route.kai_analysis",
+        "route.kai_home"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "vault",
+      "native_surface_id": "native-route-kai-home"
+    },
+    {
+      "route_pattern": "/one/kai?tab=analysis&view=history",
+      "page_file": "app/one/kai/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.kai",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.kai",
+        "purpose": "Help the person understand and use the kai screen through its generated controls.",
+        "screen": "kai_market",
+        "entry_cue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
+        "proactivity": "on_entry",
+        "primary_action_id": "route.kai_home",
+        "happy_path_action_ids": [
+          "route.kai_home"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the selected Finance view settles in the browser.",
+        "next_route": "/one/kai?tab=market",
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "kai_analysis",
+      "voice_contract_file": null,
+      "action_ids": [
+        "analysis.back_to_history",
+        "analysis.cancel_active",
+        "analysis.confirm_preview",
+        "analysis.open_debate_tab",
+        "analysis.open_detailed_tab",
+        "analysis.open_summary_tab",
+        "analysis.resume_active",
+        "analysis.start",
+        "route.analysis_history",
+        "route.back",
+        "route.kai_analysis",
+        "route.kai_home"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "vault",
+      "native_surface_id": "native-route-kai-home"
+    },
+    {
+      "route_pattern": "/one/kai?tab=portfolio",
+      "page_file": "app/one/kai/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.kai",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.kai",
+        "purpose": "Help the person understand and use the kai screen through its generated controls.",
+        "screen": "kai_market",
+        "entry_cue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
+        "proactivity": "on_entry",
+        "primary_action_id": "route.kai_home",
+        "happy_path_action_ids": [
+          "route.kai_home"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the selected Finance view settles in the browser.",
+        "next_route": "/one/kai?tab=market",
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "kai_portfolio_dashboard",
+      "voice_contract_file": null,
+      "action_ids": [
+        "analysis.back_to_history",
+        "analysis.cancel_active",
+        "analysis.confirm_preview",
+        "analysis.open_debate_tab",
+        "analysis.open_detailed_tab",
+        "analysis.open_summary_tab",
+        "analysis.resume_active",
+        "route.back",
+        "route.kai_home"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "vault",
+      "native_surface_id": "native-route-kai-home"
+    },
+    {
       "route_pattern": "/one/kai/alpaca/oauth/return",
       "page_file": "app/one/kai/alpaca/oauth/return/page.tsx",
       "route_mode": "standard",
@@ -2862,7 +3091,7 @@
       "route_pattern": "/one/profile/account",
       "page_file": "app/one/profile/account/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.account",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -2892,7 +3121,15 @@
       },
       "canonical_screen": "profile_account",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.back",
+        "route.profile",
+        "route.profile_connected_systems",
+        "route.profile_pkm_agent_lab",
+        "route.profile_security_panel",
+        "route.profile_support_panel",
+        "route.ria_settings_compat"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -2905,7 +3142,7 @@
       "route_pattern": "/one/profile/account/phone",
       "page_file": "app/one/profile/account/phone/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.account.phone",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -2935,7 +3172,15 @@
       },
       "canonical_screen": "profile_account",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.back",
+        "route.profile",
+        "route.profile_connected_systems",
+        "route.profile_pkm_agent_lab",
+        "route.profile_security_panel",
+        "route.profile_support_panel",
+        "route.ria_settings_compat"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -2948,7 +3193,7 @@
       "route_pattern": "/one/profile/connected-systems",
       "page_file": "app/one/profile/connected-systems/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.connected.systems",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -2978,7 +3223,9 @@
       },
       "canonical_screen": "connected_systems",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.profile_connected_systems"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -3726,7 +3973,7 @@
       "route_pattern": "/one/profile/security/session",
       "page_file": "app/one/profile/security/session/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.security.session",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -3756,7 +4003,9 @@
       },
       "canonical_screen": "profile_security_panel",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.profile_security_panel"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -3769,7 +4018,7 @@
       "route_pattern": "/one/profile/security/vault",
       "page_file": "app/one/profile/security/vault/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.security.vault",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -3799,7 +4048,9 @@
       },
       "canonical_screen": "profile_security_panel",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.profile_security_panel"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -3859,7 +4110,7 @@
       "route_pattern": "/one/profile/support/compose",
       "page_file": "app/one/profile/support/compose/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.support.compose",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -3889,7 +4140,9 @@
       },
       "canonical_screen": "profile_support_panel",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.profile_support_panel"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",
@@ -3902,7 +4155,7 @@
       "route_pattern": "/one/profile/support/routing",
       "page_file": "app/one/profile/support/routing/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.profile.support.routing",
       "context_policy": "minimal",
       "voice_playbook": {
@@ -3932,7 +4185,9 @@
       },
       "canonical_screen": "profile_support_panel",
       "voice_contract_file": null,
-      "action_ids": [],
+      "action_ids": [
+        "route.profile_support_panel"
+      ],
       "action_coverage": "none",
       "delegation_policy": {
         "mode": "no_delegation",

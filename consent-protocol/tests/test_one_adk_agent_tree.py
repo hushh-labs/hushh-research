@@ -631,13 +631,30 @@ class TestRunAppAction:
 
     @pytest.mark.asyncio
     async def test_live_context_refuses_action_not_declared_available(self):
+        # A non-journey control that is not on the current screen stays a hard
+        # refusal: run_app_action must never execute an unmounted control.
+        state = {
+            "hussh:voice_context": {
+                "available_action_ids": ["route.profile"],
+            }
+        }
+        result = await run_app_action("analysis.open_debate_tab", {}, _tool_context(state))
+        assert result["status"] == "action_unavailable"
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
+
+    @pytest.mark.asyncio
+    async def test_offscreen_journey_entry_redirects_to_start_app_goal(self):
+        # A journey entry action is off-screen but NOT out of reach:
+        # start_app_goal navigates to its authored destination first. It still
+        # must not execute anything here -- only name the tool that can.
         state = {
             "hussh:voice_context": {
                 "available_action_ids": ["route.profile"],
             }
         }
         result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
-        assert result["status"] == "action_unavailable"
+        assert result["status"] == "use_start_app_goal"
+        assert "start_app_goal" in result["message"]
         assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio

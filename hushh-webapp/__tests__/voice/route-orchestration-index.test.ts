@@ -37,8 +37,14 @@ describe("One route orchestration index", () => {
   it("keeps every generated executable route action aligned with a canonical screen", () => {
     const mismatches: string[] = [];
     for (const route of index.routes) {
+      // Query-qualified entries exist so that tabs sharing one path resolve to
+      // their own screen, so the query has to be handed to the derivation
+      // separately -- folding it into the path argument silently resolves the
+      // base screen and hides exactly the distinction being asserted.
+      const [routePath, routeQuery] = route.route_pattern.split("?");
       const canonicalScreen = deriveVoiceRouteScreen(
-        route.route_pattern,
+        routePath,
+        routeQuery,
       ).screen;
       for (const actionId of route.action_ids) {
         const action = getKaiActionById(actionId);

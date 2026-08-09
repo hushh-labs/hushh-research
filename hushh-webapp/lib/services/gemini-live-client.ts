@@ -221,6 +221,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private runtimeVertexLocation: string | null = null;
   private playheadTime = 0;
   private activeSources = new Set<AudioBufferSourceNode>();
+  private activeGains = new Map<AudioBufferSourceNode, GainNode>();
   private outputLevelTimer: ReturnType<typeof setInterval> | null = null;
   private state: GeminiLiveVoiceState = "idle";
   private sessionId: string | null = null;
@@ -934,6 +935,11 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       context_id: context.snapshot_id,
       screen: context.route.screen,
       route_family: context.route.route_family,
+      // route_family is the path alone, so tabs sharing a path are
+      // indistinguishable without this. The relay derives the authoritative
+      // screen from both; dropping it here silently pins every tab to the
+      // path's default screen.
+      route_query: context.route.route_query,
       route_playbook_id: context.route.playbook_id,
       context_revision: `${context.revisions.route}:${context.revisions.ui}`,
       signed_in: context.auth?.signed_in === true,
@@ -1158,7 +1164,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
     const node = context.createBufferSource();
     node.buffer = buffer;
-    node.connect(context.destination);
+    const gain = context.createGain();
+    node.connect(gain);
+    gain.connect(context.destination);
     const startAt = Math.max(context.currentTime, this.playheadTime);
     node.start(startAt);
     this.playheadTime = startAt + buffer.duration;
@@ -1166,8 +1174,10 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.modelTurnOpen = true;
     this.setState("speaking");
     this.activeSources.add(node);
+    this.activeGains.set(node, gain);
     node.onended = () => {
       this.activeSources.delete(node);
+      this.activeGains.delete(node);
       if (this.activeSources.size === 0 && !this.closed) {
         if (this.modelTurnOpen) {
           // Transient buffer underrun mid-turn: more chunks are coming
@@ -1198,14 +1208,26 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   private stopPlayback(): void {
+    const context = this.outputContext;
+    const FADE_SECONDS = 0.015;
     for (const node of this.activeSources) {
       try {
-        node.stop();
+        const gain = this.activeGains.get(node);
+        if (context && gain) {
+          const now = context.currentTime;
+          gain.gain.cancelScheduledValues(now);
+          gain.gain.setValueAtTime(gain.gain.value, now);
+          gain.gain.linearRampToValueAtTime(0, now + FADE_SECONDS);
+          node.stop(now + FADE_SECONDS);
+        } else {
+          node.stop();
+        }
       } catch {
         // ignore
       }
     }
     this.activeSources.clear();
+    this.activeGains.clear();
     if (this.outputContext) this.playheadTime = this.outputContext.currentTime;
     this.handlers.onOutputLevel?.(0);
   }

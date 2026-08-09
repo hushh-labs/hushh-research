@@ -174,6 +174,18 @@ async def run_app_action(
             "message": (
                 f"{label} must be done by the user in the app; I cannot trigger it.{where}"
             ),
+            # Guide mode: manual_only is not a dead end. State the guidance once
+            # and hand off -- the next [App route context] note (already
+            # re-injected on any visible_modules/interaction_layer change,
+            # regardless of action) is the existing, generic signal that the
+            # person acted; resume narrating from there.
+            "next_step": (
+                "Tell the person exactly what to do, then wait silently. Do not "
+                "repeat this guidance and do not propose an alternate action. "
+                "When a fresh [App route context] note arrives, that is your "
+                "signal the person acted -- resume narrating the next step from "
+                "its available action inventory."
+            ),
         }
 
     execution_target = entry.get("execution_target") or {}
@@ -201,6 +213,20 @@ async def run_app_action(
         and clean_id not in available_action_ids
         and not is_navigation_action(entry)
     ):
+        # A journey entry action is legitimately off-screen right now, but it is
+        # not out of reach: start_app_goal navigates to its authored destination
+        # first. Say so, instead of reporting a dead end the model can only
+        # answer by falling back to plain navigation.
+        if _is_journey_startable(entry):
+            logger.info("one_adk_action_decision action=%s status=use_start_app_goal", clean_id)
+            return {
+                "status": "use_start_app_goal",
+                "message": (
+                    f"'{clean_id}' is not on this screen, but it is a journey. "
+                    "Call start_app_goal with this exact action id and its "
+                    "required slots; it will open the right screen first."
+                ),
+            }
         logger.info("one_adk_action_decision action=%s status=action_unavailable", clean_id)
         return {
             "status": "action_unavailable",
@@ -366,6 +392,28 @@ def _settled_journey_definition(entry: dict[str, Any], action_id: str) -> dict[s
     }
 
 
+def _is_journey_startable(entry: dict[str, Any]) -> bool:
+    """True when ``start_app_goal`` can begin this action from ANY screen.
+
+    This deliberately mirrors ``start_app_goal``'s own two accepted paths so
+    discovery can never advertise an action the runtime would then refuse: an
+    authored two-stage journey, or the analysis goal's navigation fast-path.
+    Every other action still falls through to ``run_app_action``, which
+    correctly requires the control to be mounted on the current screen.
+
+    Without this, a journey's own entry action was unlistable from anywhere
+    except the screen it already lives on -- so One could never discover that
+    "analyze Nvidia" had a real cross-screen path, and settled for the plain
+    route.* navigation it could see instead.
+    """
+    action_id = str(entry.get("action_id") or "").strip()
+    if not action_id:
+        return False
+    if _settled_journey_definition(entry, action_id) is not None:
+        return True
+    return str((entry.get("goal") or {}).get("goal_id") or "") == _ANALYSIS_GOAL_ID
+
+
 def _deferred_choice(
     slots: dict[str, Any], journey: dict[str, Any]
 ) -> tuple[dict[str, Any], str | None]:
@@ -401,6 +449,18 @@ async def _start_settled_journey(
         }
 
     result = await run_app_action(action_id, action_slots, tool_context)
+    if result.get("status") == "use_start_app_goal":
+        # We ARE start_app_goal. Forwarding its "call start_app_goal" redirect
+        # would bounce the model straight back here forever, so collapse it to
+        # the honest terminal status: this journey's own first step is not
+        # mounted on the current screen, so the journey cannot begin.
+        return {
+            "status": "action_unavailable",
+            "message": (
+                f"'{action_id}' cannot start from this screen. "
+                "Call list_app_actions for the controls currently available."
+            ),
+        }
     if result.get("status") not in {"ok", "confirm_pending"}:
         return result
 
@@ -485,6 +545,9 @@ async def start_app_goal(
         }
 
     current_screen = str(context.get("screen") or "")
+    # Asking for analysis while already ON Analysis needs no navigation, so
+    # there is no incoming context to wait for.
+    already_on_destination = current_screen == "kai_analysis"
     run = {
         "schema_version": "one.goal_run.v1",
         "goal_id": _ANALYSIS_GOAL_ID,
@@ -496,11 +559,20 @@ async def start_app_goal(
         },
         "step_cursor": 0,
         "expected_screen": "kai_analysis",
-        "expected_context_revision": _context_revision(tool_context),
+        # This revision exists so continue_app_goal refuses to act on the
+        # OUTGOING screen's context after a navigation. With no navigation,
+        # stamping the current revision made that guard compare the value
+        # against itself and settle forever -- "analyse Nvidia" from the
+        # Analysis tab could never start, and retrying could never clear it
+        # because nothing was coming to change the revision. Leaving it empty
+        # stands the guard down for exactly the case it does not police.
+        "expected_context_revision": (
+            "" if already_on_destination else _context_revision(tool_context)
+        ),
         "status": "awaiting_analysis_context",
     }
     tool_context.state[_STATE_GOAL_RUN] = run
-    if current_screen == "kai_analysis":
+    if already_on_destination:
         return await continue_app_goal(tool_context)
 
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:goal:{_ANALYSIS_GOAL_ID}"] = {
@@ -512,6 +584,15 @@ async def start_app_goal(
             "goalRun": run,
         },
     }
+    # This navigation is indistinguishable from a bare route.* directive in the
+    # relay log -- both surface as route.kai_analysis. Without this line there
+    # is no way to tell "One started the analysis journey" from "One just
+    # navigated and gave up", which is exactly the failure being chased.
+    logger.info(
+        "one_adk_goal_decision goal=%s action=%s status=navigation_started",
+        _ANALYSIS_GOAL_ID,
+        clean_id,
+    )
     return {
         "status": "navigation_started",
         "message": "Opening Analysis, then I will prepare the stock preview.",
@@ -573,15 +654,26 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
     run = tool_context.state.get(_STATE_GOAL_RUN)
     if isinstance(run, dict) and run.get("schema_version") == "one.settled_action_journey.v1":
         return await _continue_settled_journey(run, tool_context)
+    # Every outcome below is logged with a distinct reason. A stalled journey
+    # ("it opened Analysis and then nothing happened") is indistinguishable
+    # from a never-started one in the relay log, because both end at the same
+    # route.kai_analysis settlement. The reason tag is what separates "One
+    # never continued" from "One continued but the screen was not ready yet".
     if not isinstance(run, dict) or run.get("goal_id") != _ANALYSIS_GOAL_ID:
+        logger.info("one_adk_goal_decision status=no_active_goal")
         return {"status": "no_active_goal", "message": "There is no app goal waiting to continue."}
     context = tool_context.state.get(_STATE_VOICE_CONTEXT)
     if not isinstance(context, dict) or context.get("context_pending") is True:
+        logger.info("one_adk_goal_decision status=settling reason=context_pending")
         return {"status": "settling", "message": "Waiting for fresh Analysis context."}
     if (
         context.get("pending_settlement") is True
         or str(context.get("screen") or "") != "kai_analysis"
     ):
+        logger.info(
+            "one_adk_goal_decision status=settling reason=screen_not_settled screen=%s",
+            str(context.get("screen") or "")[:64],
+        )
         return {"status": "settling", "message": "Waiting for the Analysis screen to settle."}
     expected_revision = str(run.get("expected_context_revision") or "")
     current_revision = _context_revision(tool_context)
@@ -591,7 +683,26 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
         and expected_revision == current_revision
         and run.get("step_cursor") == 0
     ):
+        logger.info("one_adk_goal_decision status=settling reason=stale_context_revision")
         return {"status": "settling", "message": "Waiting for a fresh Analysis context."}
+
+    # The preview is minted exactly once per goal. Without this, every later
+    # continue_app_goal call re-minted a fresh analysis.start directive: the
+    # staleness guard above only inspects step_cursor 0, so once the preview
+    # had started there was nothing left to stop the loop, and the person got
+    # a new confirmation card every turn while none of them could complete.
+    if run.get("step_cursor", 0) >= 1:
+        logger.info(
+            "one_adk_goal_decision goal=%s status=preview_already_open", _ANALYSIS_GOAL_ID
+        )
+        return {
+            "status": "preview_already_open",
+            "message": (
+                "The stock preview is already open. Ask the person to confirm it "
+                "from the screen; do not start another one."
+            ),
+            "goal_id": _ANALYSIS_GOAL_ID,
+        }
 
     slots = run.get("slots") if isinstance(run.get("slots"), dict) else {}
     next_run = {
@@ -610,6 +721,10 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
             "goalRun": next_run,
         },
     }
+    logger.info(
+        "one_adk_goal_decision goal=%s action=analysis.start status=preview_started",
+        _ANALYSIS_GOAL_ID,
+    )
     return {
         "status": "preview_started",
         "message": "Opening the stock preview. The debate will wait for your confirmation.",
@@ -631,23 +746,35 @@ async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, A
         # Navigation actions stay listable from any screen (matching the
         # run_app_action acceptance rule) so "where can I go" and "go to X"
         # remain answerable even on surfaces with no local controls.
+        # Journey entry actions join them: start_app_goal can begin those from
+        # any screen, so hiding them here left One unable to discover the only
+        # cross-screen path it had and pushed it onto bare navigation instead.
         ranked = [
             entry
             for entry in ranked
-            if entry["action_id"] in available_action_ids or is_navigation_action(entry)
+            if entry["action_id"] in available_action_ids
+            or is_navigation_action(entry)
+            or _is_journey_startable(entry)
         ]
     results = []
     for entry in ranked:
         if (entry.get("execution_target") or {}).get("status") != "wired":
             continue
         delegate_tool = _DELEGATE_TOOL_BY_AGENT_ID.get(str(entry.get("delegate_agent_id") or ""))
+        # A delegate still wins: it names the specialist that owns the turn.
+        # Otherwise, naming start_app_goal here is what turns discovery into a
+        # chain -- listing a journey entry without saying which tool starts it
+        # would just reproduce the failure in a different place.
+        use_tool = delegate_tool or (
+            "start_app_goal" if _is_journey_startable(entry) else None
+        )
         results.append(
             {
                 "action_id": entry["action_id"],
                 "label": str(entry.get("label") or ""),
                 "meaning": str(entry.get("meaning") or ""),
                 "policy": str((entry.get("risk") or {}).get("execution_policy") or "allow_direct"),
-                **({"use_tool": delegate_tool} if delegate_tool else {}),
+                **({"use_tool": use_tool} if use_tool else {}),
             }
         )
     return {
