@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { isIncomingLocationRequestActionable } from "@/lib/feed/use-feed-actionables";
-import type { OneLocationAccessRequest } from "@/lib/one-location/types";
+import {
+  isActiveSmsEmergencyGrant,
+  isIncomingLocationRequestActionable,
+} from "@/lib/feed/use-feed-actionables";
+import type {
+  OneLocationAccessRequest,
+  OneLocationGrant,
+} from "@/lib/one-location/types";
 
 const ME = "user-me";
 const CONTACT = "user-contact";
@@ -66,6 +72,46 @@ describe("isIncomingLocationRequestActionable", () => {
         request({ ownerUserId: "user-other", requesterUserId: CONTACT }),
         ME,
       ),
+    ).toBe(false);
+  });
+});
+
+function grant(overrides: Partial<OneLocationGrant>): OneLocationGrant {
+  return {
+    id: "grant-1",
+    ownerUserId: CONTACT,
+    recipientUserId: ME,
+    recipientKeyId: "key-1",
+    status: "active",
+    consentScope: "cap.location.live",
+    capabilityScopes: ["cap.location.live"],
+    durationHours: 1,
+    shareKind: "sos",
+    ...overrides,
+  };
+}
+
+describe("isActiveSmsEmergencyGrant", () => {
+  it("surfaces a live SOS share as an emergency alert", () => {
+    expect(isActiveSmsEmergencyGrant(grant({ shareKind: "sos" }))).toBe(true);
+  });
+
+  it("does NOT surface a plain (non-SOS) share", () => {
+    expect(isActiveSmsEmergencyGrant(grant({ shareKind: "share" }))).toBe(false);
+  });
+
+  it("does NOT surface a friendly check-in", () => {
+    expect(isActiveSmsEmergencyGrant(grant({ shareKind: "check_in" }))).toBe(
+      false,
+    );
+  });
+
+  it("does NOT surface an expired or revoked SOS share", () => {
+    expect(
+      isActiveSmsEmergencyGrant(grant({ shareKind: "sos", status: "expired" })),
+    ).toBe(false);
+    expect(
+      isActiveSmsEmergencyGrant(grant({ shareKind: "sos", status: "revoked" })),
     ).toBe(false);
   });
 });
