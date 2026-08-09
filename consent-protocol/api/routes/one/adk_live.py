@@ -1148,6 +1148,27 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             # Legacy/context-free clients still start; tools see an absent
             # voice context and report context_not_ready instead of refusing.
             logger.info("one_adk_live_started_without_initial_context")
+        # A model naming a tool that does not exist is ordinary LLM behaviour,
+        # not an exceptional condition. ADK raises ValueError from _get_tool,
+        # it escapes the live flow, and the whole pump dies -- so one bad guess
+        # ended the call. Observed: One called the action id
+        # 'analysis.open_summary_tab' as if it were a tool.
+        #
+        # Contain it here so a bad tool name costs a turn instead of a session.
+        # The browser is told the reason so it can resume rather than treating
+        # this as an ordinary close.
+        try:
+            await _pump_live_events()
+        except ValueError as tool_error:
+            logger.warning(
+                "one_adk_live_unknown_tool_call error=%s", str(tool_error)[:160]
+            )
+            await websocket.send_text(
+                json.dumps({"sessionEnded": {"reason": "unknown_tool_call", "resumable": True}})
+            )
+            return
+
+    async def _pump_live_events() -> None:
         async for event in runner.run_live(
             user_id=session_user,
             session_id=session_id,

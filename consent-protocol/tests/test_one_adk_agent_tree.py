@@ -1138,3 +1138,27 @@ class TestLiveContextFreshness:
         clear_live_voice_context("voice_test_session")
 
         assert read_live_voice_context("voice_test_session") is None
+
+
+class TestDiscoveryNamesItsTool:
+    @pytest.mark.asyncio
+    async def test_every_result_says_which_tool_runs_it(self):
+        # An action id is not a tool name. Leaving use_tool unset let One guess
+        # the id WAS the tool; ADK then raised "Tool 'x' not found", which
+        # escaped the live flow and killed the relay pump -- one bad guess
+        # ended the call. Every result now names the tool that runs it.
+        state = _screen_context("kai_market", ["route.kai_home"])
+
+        for query in ["", "analyse nvidia stock", "open my portfolio"]:
+            result = await list_app_actions(query, _tool_context(state))
+            assert result["results"], f"no results for {query!r}"
+            for item in result["results"]:
+                assert item.get("use_tool"), f"{item['action_id']} does not name a tool"
+                assert item["use_tool"] in {
+                    "run_app_action",
+                    "start_app_goal",
+                    "ask_email_agent",
+                    "ask_location_agent",
+                    "ask_consent_agent",
+                    "ask_connected_systems_agent",
+                }

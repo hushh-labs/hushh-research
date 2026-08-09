@@ -1037,12 +1037,18 @@ async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, A
     results = []
     for _, _, _, entry, availability, open_first in selected:
         delegate_tool = _DELEGATE_TOOL_BY_AGENT_ID.get(str(entry.get("delegate_agent_id") or ""))
-        # A delegate still wins: it names the specialist that owns the turn.
-        # Otherwise, naming start_app_goal here is what turns discovery into a
-        # chain -- listing a journey entry without saying which tool starts it
-        # would just reproduce the failure in a different place.
+        # Always name the tool; never leave it to be inferred. A delegate wins
+        # (it owns the turn), then a journey (start_app_goal opens the right
+        # screen first), and everything else runs through run_app_action.
+        #
+        # Leaving it unset for ordinary actions left One to guess, and it
+        # guessed the action id WAS the tool. ADK then raised "Tool
+        # 'analysis.open_summary_tab' not found", which escaped the live flow
+        # and killed the relay pump -- one bad guess dropped the whole call.
+        # An action id and a tool name are different kinds of thing, so every
+        # result now says which one it is holding.
         use_tool = delegate_tool or (
-            "start_app_goal" if _is_journey_startable(entry) else None
+            "start_app_goal" if _is_journey_startable(entry) else "run_app_action"
         )
         results.append(
             {
