@@ -2298,6 +2298,22 @@ def test_directory_candidates_query_targets_actor_identity_cache() -> None:
     assert "a.user_id <> :owner_user_id" in service.sql
 
 
+def test_recipient_payload_masks_email_for_directory_disambiguation() -> None:
+    payload = OneLocationAgentService._recipient_payload(
+        {
+            "user_id": "user-b",
+            "display_name": "Abdul Zalil",
+            "email": "abdul.secondary@example.com",
+            "phone_number": "+15550104455",
+            "phone_verified": True,
+        }
+    )
+
+    assert payload is not None
+    assert payload["maskedEmail"] == "a***y@example.com"
+    assert "abdul.secondary@example.com" not in json.dumps(payload)
+
+
 def test_directory_candidate_search_filters_before_pagination(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2317,6 +2333,7 @@ def test_directory_candidate_search_filters_before_pagination(
 
     assert result == {"items": [], "page": 3, "hasMore": False}
     assert "LOWER(COALESCE(a.display_name, '')) LIKE '%' || :query || '%'" in service.sql
+    assert "a.user_id, a.display_name, a.email" in service.sql
     assert "LIMIT :fetch_limit OFFSET :offset" in service.sql
     assert service.params == {
         "owner_user_id": "owner",
