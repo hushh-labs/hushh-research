@@ -2740,7 +2740,18 @@ export function OneLocationAgentPageContent({
     }): Promise<{ ready: boolean; point?: PlainLocationPoint }> => {
       const shouldCapturePoint = Boolean(options?.capturePoint);
       const shouldOpenSettings = options?.autoOpenSettings !== false;
-      const currentPermission = await refreshLocationPermission();
+
+      // A user gesture must reach the device before anything else awaits.
+      // Browsers only show the location prompt while the activation window
+      // opened by the tap is still alive, and every `await` before the
+      // geolocation call spends it. Reading permission first — even just to
+      // decide whether to bother — is enough: the capture is then refused with
+      // no prompt ever appearing, which is indistinguishable from a denial.
+      // That is why the toggle still dead-ended after the early return was
+      // removed. The pre-flight below now guards only the non-gesture callers,
+      // which have no activation window to protect.
+      if (!shouldCapturePoint) {
+        const currentPermission = await refreshLocationPermission();
 
       // Only two things stop us before we have tried, and neither can be fixed
       // by asking: the OS location service is off, or the platform forbids the
@@ -2751,21 +2762,21 @@ export function OneLocationAgentPageContent({
       // only from `getCurrentPosition()`, so returning early guarantees the user
       // is never asked, and a stale or unreadable value traps them for good. We
       // attempt, and let a real PERMISSION_DENIED be the thing that blocks.
-      const blockReason = locationBlockReason(currentPermission);
-      if (blockReason) {
-        toast.error(LOCATION_BLOCK_MESSAGE[blockReason]);
-        if (shouldOpenSettings) {
-          await OneLocationService.openLocationSettings().catch(() => null);
+        const blockReason = locationBlockReason(currentPermission);
+        if (blockReason) {
+          toast.error(LOCATION_BLOCK_MESSAGE[blockReason]);
+          if (shouldOpenSettings) {
+            await OneLocationService.openLocationSettings().catch(() => null);
+          }
+          return { ready: false };
         }
-        return { ready: false };
-      }
 
-      if (
-        currentPermission.state === "granted" &&
-        !shouldCapturePoint &&
-        !observedLocationDenialRef.current
-      ) {
-        return { ready: true };
+        if (
+          currentPermission.state === "granted" &&
+          !observedLocationDenialRef.current
+        ) {
+          return { ready: true };
+        }
       }
 
       try {
