@@ -1855,7 +1855,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         <div
           role="dialog"
           aria-label="Confirm voice action"
-          className="pointer-events-auto w-full max-w-[min(calc(100vw-3rem),392px)] rounded-3xl border border-black/10 bg-white/95 p-4 text-[#1d1d1f] shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1c1c1e]/95 dark:text-[#f5f5f7]"
+          className="agent-approval-glass pointer-events-auto w-full max-w-[min(calc(100vw-3rem),392px)] rounded-3xl p-4 text-[#1d1d1f] dark:text-[#f5f5f7]"
         >
           <p className="text-[13px] font-medium text-muted-foreground">
             {pendingActionNeedsTrustedActivation
@@ -1924,7 +1924,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             <button
               type="button"
               onClick={() => settlePendingConfirmation(false)}
-              className="h-10 rounded-full bg-black/[0.05] text-[14px] font-semibold dark:bg-white/[0.08]"
+              // A 5% tint reads as a control on a solid card and as nothing on
+              // a translucent one, so the fill carries a hairline edge now.
+              className="h-10 rounded-full bg-black/[0.05] text-[14px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
             >
               Cancel
             </button>
@@ -1935,7 +1937,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 !pendingActionNeedsTrustedActivation &&
                 (!pendingConfirmation.receipt || voiceConsentRequesting)
               }
-              className="h-10 rounded-full bg-primary text-[14px] font-semibold text-primary-foreground disabled:opacity-40"
+              className="h-10 rounded-full bg-primary text-[14px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:opacity-40 disabled:hover:opacity-40"
             >
               {pendingActionNeedsTrustedActivation
                 ? pendingConfirmation.receipt
