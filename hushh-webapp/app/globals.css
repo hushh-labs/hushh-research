@@ -595,6 +595,13 @@ textarea {
   --border: oklch(0.92 0.004 264);
   --input: oklch(0.87 0.006 264);
   --ring: var(--app-accent-ring);
+  /* Switch track — the iOS system palette, not a brand colour. A toggle is a
+     platform control before it is ours: users read green-means-on from the OS,
+     so every Switch shares these rather than each surface picking its own
+     approximation (this replaced a one-off emerald on the Location toggle). */
+  --switch-on: #34c759; /* iOS systemGreen, light */
+  --switch-off: #e9e9ea; /* iOS off-track, light */
+  --switch-thumb: #ffffff;
   --chart-1: oklch(0.663 0.096 71.6);
   --chart-2: oklch(0.754 0.085 67.1);
   --chart-3: oklch(0.62 0.19 155);
@@ -2308,6 +2315,11 @@ html.native-ios [data-testid="one-location-onboarding"] {
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: var(--app-accent-ring);
+  /* iOS shifts systemGreen brighter in dark mode and darkens the off-track;
+     the thumb stays white in both appearances. */
+  --switch-on: #30d158; /* iOS systemGreen, dark */
+  --switch-off: #39393d; /* iOS off-track, dark */
+  --switch-thumb: #ffffff;
   /* Chart colors - higher lightness for contrast on dark card */
   --chart-1: oklch(0.797 0.112 76.3);
   --chart-2: oklch(0.663 0.096 71.6);
