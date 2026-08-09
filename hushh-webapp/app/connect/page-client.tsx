@@ -24,6 +24,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
@@ -770,23 +777,33 @@ export default function ConnectPageClient() {
                 )}
                 {people.length > 0 || currentPage > 1 ? (
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3">
-                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>Per page</span>
-                      <select
-                        value={pageSize}
-                        onChange={(event) =>
-                          setPageSize(Number(event.target.value))
-                        }
-                        aria-label="People per page"
-                        className="h-8 rounded-md border border-[color:var(--app-card-border-standard)] bg-transparent px-2 text-xs"
+                    <div className="flex items-center gap-2">
+                      <span
+                        id="connect-people-per-page-label"
+                        className="text-xs text-muted-foreground"
                       >
-                        {PAGE_SIZE_OPTIONS.map((size) => (
-                          <option key={size} value={size}>
-                            {size}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                        Per page
+                      </span>
+                      <Select
+                        value={String(pageSize)}
+                        onValueChange={(value) => setPageSize(Number(value))}
+                      >
+                        <SelectTrigger
+                          size="sm"
+                          aria-label="People per page"
+                          className="w-[78px]"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PAGE_SIZE_OPTIONS.map((size) => (
+                            <SelectItem key={size} value={String(size)}>
+                              {size}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div className="flex items-center gap-2">
                       <Button
                         type="button"
