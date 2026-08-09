@@ -192,6 +192,9 @@ function RiaRegulatoryProfileSummary({
   profileSource,
   profileSourceUrl,
   profileSourceFiledOn,
+  officeLatitude,
+  officeLongitude,
+  officeCountryCode,
   onEditSection,
   onAskKaiUpdateAnything,
 }: {
@@ -199,6 +202,9 @@ function RiaRegulatoryProfileSummary({
   profileSource?: string | null;
   profileSourceUrl?: string | null;
   profileSourceFiledOn?: string | null;
+  officeLatitude?: number | null;
+  officeLongitude?: number | null;
+  officeCountryCode?: string | null;
   onEditSection: (section: "license" | "services") => void;
   onAskKaiUpdateAnything: () => void;
 }) {
@@ -324,6 +330,9 @@ function RiaRegulatoryProfileSummary({
           areaLocality={reviewProps.areaLocality}
           fullStreetAddress={reviewProps.fullStreetAddress}
           pinZip={reviewProps.pinZip}
+          latitude={officeLatitude}
+          longitude={officeLongitude}
+          countryCode={officeCountryCode}
         />
         <SettingsRow
           icon={Pencil}
@@ -336,6 +345,11 @@ function RiaRegulatoryProfileSummary({
       </SettingsGroup>
     </div>
   );
+}
+
+/** A usable coordinate, or null — the map must never plot NaN at 0,0. */
+function coerceCoordinate(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function asRecord<T>(value: unknown): T | null {
@@ -1042,6 +1056,9 @@ export function RiaProfileSection({
         profileSource={status?.profile_source}
         profileSourceUrl={status?.profile_source_url}
         profileSourceFiledOn={status?.profile_source_filed_on}
+        officeLatitude={coerceCoordinate(status?.business_latitude)}
+        officeLongitude={coerceCoordinate(status?.business_longitude)}
+        officeCountryCode={status?.business_country_code ?? null}
         onEditSection={handleEditSection}
         onAskKaiUpdateAnything={handleAskKai}
       />

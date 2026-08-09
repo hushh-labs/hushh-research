@@ -192,3 +192,95 @@ describe("RiaLocationMap", () => {
     expect(screen.queryByTestId("ria-location-map-denied")).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// A geocoded office, and a route that would cross an ocean.
+//
+// "MENDOCINO" is a bare city name that exists on four continents, so the
+// embed's own geocoder cannot know which one we mean — and asking Google for
+// driving directions from India to California returns no route at all, which
+// renders as two pins on a whole-world map.
+// ---------------------------------------------------------------------------
+
+const MENDOCINO = {
+  fullStreetAddress: "",
+  areaLocality: "",
+  city: "MENDOCINO",
+  pinZip: "",
+  latitude: 39.3076744,
+  longitude: -123.7994591,
+  countryCode: "US",
+};
+
+/** Bengaluru — ~13,000 km from the Mendocino office. */
+const FAR_AWAY = {
+  status: "ready",
+  permission: "granted",
+  snapshot: {
+    latitude: 12.9716,
+    longitude: 77.5946,
+    accuracyM: 12,
+    capturedAt: "2026-08-08T00:00:00.000Z",
+  },
+};
+
+/** Ukiah — ~50 km from the Mendocino office, an ordinary drive. */
+const NEARBY = {
+  status: "ready",
+  permission: "granted",
+  snapshot: {
+    latitude: 39.1502,
+    longitude: -123.2078,
+    accuracyM: 12,
+    capturedAt: "2026-08-08T00:00:00.000Z",
+  },
+};
+
+describe("RiaLocationMap — geocoded office", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setLocation();
+  });
+
+  it("places the office by its coordinates, not its ambiguous name", () => {
+    render(<RiaLocationMap {...MENDOCINO} />);
+
+    const src = screen.getByTestId("ria-location-map-office").getAttribute("src") ?? "";
+    expect(src).toContain(encodeURIComponent("39.307674,-123.799459"));
+    expect(src).toContain("z=16");
+    expect(src).not.toContain("MENDOCINO");
+  });
+
+  it("falls back to the address plus its country when no position is stored", () => {
+    render(<RiaLocationMap {...MENDOCINO} latitude={null} longitude={null} />);
+
+    const src = screen.getByTestId("ria-location-map-office").getAttribute("src") ?? "";
+    expect(src).toContain(encodeURIComponent("MENDOCINO, US"));
+  });
+
+  it("shows the office and the real distance instead of a world-spanning route", () => {
+    setLocation(FAR_AWAY);
+    render(<RiaLocationMap {...MENDOCINO} />);
+
+    expect(screen.queryByTestId("ria-location-map-route")).toBeNull();
+    expect(screen.getByTestId("ria-location-map-office")).toBeTruthy();
+    expect(screen.getByTestId("ria-location-map-too-far").textContent).toContain("km from you");
+  });
+
+  it("still draws the route for a viewer who could actually drive there", () => {
+    setLocation(NEARBY);
+    render(<RiaLocationMap {...MENDOCINO} />);
+
+    expect(screen.getByTestId("ria-location-map-route")).toBeTruthy();
+    expect(screen.queryByTestId("ria-location-map-too-far")).toBeNull();
+  });
+
+  it("keeps drawing the route when the office position is unknown", () => {
+    // Unmeasurable distance must never suppress behaviour that already worked.
+    setLocation(FAR_AWAY);
+    render(<RiaLocationMap {...MENDOCINO} latitude={null} longitude={null} />);
+
+    expect(screen.getByTestId("ria-location-map-route")).toBeTruthy();
+    expect(screen.queryByTestId("ria-location-map-too-far")).toBeNull();
+  });
+});
