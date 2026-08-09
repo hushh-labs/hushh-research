@@ -390,23 +390,54 @@ export function SwipeViews({
 
   useEffect(() => {
     if (!emblaApi) return;
-    let lastWidth = window.innerWidth;
-    const onResize = () => {
+    const root = emblaApi.rootNode();
+    const measure = () =>
+      root ? root.getBoundingClientRect().width : window.innerWidth;
+    let lastWidth = measure();
+
+    const scheduleReInit = (nextWidth: number) => {
       if (resizeFrameRef.current !== null) {
         window.cancelAnimationFrame(resizeFrameRef.current);
       }
       resizeFrameRef.current = window.requestAnimationFrame(() => {
         resizeFrameRef.current = null;
-        const nextWidth = window.innerWidth;
+        // Width is the only dimension the horizontal engine measures. Ignoring
+        // height is what keeps streaming pane content from re-initialising the
+        // engine — the Finance hitch `watchResize: false` was set to avoid.
         if (Math.abs(nextWidth - lastWidth) < 1) return;
         lastWidth = nextWidth;
         emblaApi.reInit();
         syncTabIndicator(false);
       });
     };
-    window.addEventListener("resize", onResize, { passive: true });
+
+    // Observe the viewport, not the window. The container can narrow while
+    // `window.innerWidth` never changes — a vertical scrollbar appearing as
+    // pane content streams in, or a parent transform settling. Embla then
+    // keeps a stale width and translates by the wrong distance, leaving the
+    // previous pane clipped beside the selected one (Memory /one/pkm).
+    const observer =
+      root && typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (!entry) return;
+            scheduleReInit(entry.contentRect?.width ?? measure());
+          })
+        : null;
+    observer?.observe(root as Element);
+
+    // Only needed where ResizeObserver is unavailable; the observer already
+    // catches window resizes, since they resize the container too.
+    const onWindowResize = observer ? null : () => scheduleReInit(measure());
+    if (onWindowResize) {
+      window.addEventListener("resize", onWindowResize, { passive: true });
+    }
+
     return () => {
-      window.removeEventListener("resize", onResize);
+      observer?.disconnect();
+      if (onWindowResize) {
+        window.removeEventListener("resize", onWindowResize);
+      }
       if (resizeFrameRef.current !== null) {
         window.cancelAnimationFrame(resizeFrameRef.current);
         resizeFrameRef.current = null;
