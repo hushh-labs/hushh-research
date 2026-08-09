@@ -256,10 +256,16 @@ export function useFeedActionables(): UseFeedActionablesResult {
   });
 
   // ── Incoming connection requests ──
+  // Keyed on the same tick as the consent lanes: a connection request can be
+  // answered from the Consent Center rather than here, and that surface only
+  // announces itself through CONSENT_ACTION_COMPLETE_EVENT. Without the key
+  // this resource never re-runs, so an accepted request stays on the feed as
+  // though it were still waiting.
   const connectionsResource = useStaleResource({
     cacheKey: userId
       ? CACHE_KEYS.CONNECTIONS_INCOMING(userId)
       : "connections_incoming_guest",
+    refreshKey: `connections:${consentTick}`,
     enabled: Boolean(userId),
     load: async () => {
       const idToken = await user?.getIdToken();
