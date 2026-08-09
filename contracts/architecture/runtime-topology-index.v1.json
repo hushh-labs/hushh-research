@@ -2882,6 +2882,9 @@
       "voice": {
         "action_ids": [
           "location.chat.turn",
+          "location.open_activity",
+          "location.open_compose",
+          "location.refresh",
           "route.one_location"
         ],
         "delegate_agent_ids": [
@@ -3129,7 +3132,15 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.back",
+          "route.profile",
+          "route.profile_connected_systems",
+          "route.profile_pkm_agent_lab",
+          "route.profile_security_panel",
+          "route.profile_support_panel",
+          "route.ria_settings_compat"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.account"
       }
@@ -3152,7 +3163,15 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.back",
+          "route.profile",
+          "route.profile_connected_systems",
+          "route.profile_pkm_agent_lab",
+          "route.profile_security_panel",
+          "route.profile_support_panel",
+          "route.ria_settings_compat"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.account.phone"
       }
@@ -3176,7 +3195,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.profile_connected_systems"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.connected.systems"
       }
@@ -3600,7 +3621,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.profile_security_panel"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.security.session"
       }
@@ -3623,7 +3646,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.profile_security_panel"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.security.vault"
       }
@@ -3671,7 +3696,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.profile_support_panel"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.support.compose"
       }
@@ -3694,7 +3721,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.profile_support_panel"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.support.routing"
       }
@@ -4542,7 +4571,7 @@
     "data_plane": "270affce3a97bcbde752a465927f065005176f0ddc69aeb9419e6605bbc4f94d",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "f8b7af52c386933e41cfe0ff2755c54b2d39d2515326295348b40d93fea0a8a2",
-    "route_index": "467bed8dcd5b094487621fb61f3e049c5938a806ece35319c5ec01a2e4ab3598",
+    "route_index": "a2cb030ef8e86ffffff57879f67e497e767ceb688b41910a4d023ff3b81e5cda",
     "route_layout": "96347a79931c212dc9972c271642ab0ef38202492471e2f8469201d871a47787",
     "surface_map": "773978b66561ffb6c5b9ec76fa5862e6db357d4f05ad9e82a2e638b44419c92e",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
