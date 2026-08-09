@@ -487,6 +487,18 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     // backlog drains ~0ms apart, so it is still caught with room to spare.
     if (paced && now - this.lastRealtimeAudioSentAt < frameIntervalMs * 0.25) {
       this.droppedBacklogFrames += 1;
+      // Surfaced, not merely counted. This counter existed and was read by
+      // nothing, so the only observable symptom of a stall was the provider
+      // closing the socket with 1011 -- indistinguishable from the pacer not
+      // running at all, which made "is the fix live in this browser?"
+      // unanswerable. Logged on rising powers of two so a pathological stall
+      // is loud while ordinary jitter stays quiet.
+      if ((this.droppedBacklogFrames & (this.droppedBacklogFrames - 1)) === 0) {
+        console.info(
+          `[VOICE_AUDIO] paced out ${this.droppedBacklogFrames} backlog frame(s) ` +
+            `this session; the main thread is stalling and would otherwise trip 1011`,
+        );
+      }
       return;
     }
     this.lastRealtimeAudioSentAt = now;
