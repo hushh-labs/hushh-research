@@ -2708,6 +2708,9 @@
       "voice_contract_file": null,
       "action_ids": [
         "location.chat.turn",
+        "location.open_activity",
+        "location.open_compose",
+        "location.refresh",
         "route.one_location"
       ],
       "action_coverage": "inherited",

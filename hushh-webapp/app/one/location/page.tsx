@@ -72,6 +72,8 @@ import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitiv
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 
 import { useConsentNotificationState } from "@/components/consent/notification-provider";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -6396,6 +6398,98 @@ export function OneLocationAgentPageContent({
     : state
       ? "loaded"
       : "loading";
+  // Voice surface for the Location screen. Until this existed One could route
+  // here and delegate to the Location specialist, but arrived blind: it knew
+  // the screen's name and nothing about what was on it.
+  //
+  // Only the workspace instance publishes. `/one/setup/location` renders this
+  // same component and publishes its own metadata, and two publishers on one
+  // route is exactly the race that made One describe the wrong screen.
+  const locationVoiceSurfaceMetadata = useMemo(() => {
+    if (mode !== "workspace") return null;
+    const tabLabel = locationTab === "activity" ? "Activity" : "Compose";
+    const actions = [
+      locationTab === "activity"
+        ? { id: "location.open_compose", actionId: "location.open_compose", label: "Open location sharing", purpose: "Show the compose tab." }
+        : { id: "location.open_activity", actionId: "location.open_activity", label: "Open location activity", purpose: "Show shares, requests and grants." },
+      { id: "location.refresh", actionId: "location.refresh", label: "Refresh location", purpose: "Reload location sharing state." },
+    ];
+    return {
+      screenId: "one_location",
+      title: "Location",
+      purpose:
+        "This screen shares live location with chosen people and reviews who currently has access.",
+      // Deliberately null. The subjects here are people and places -- the
+      // recipients of a share, their names, an address. None of that crosses
+      // into what the model may say aloud, so this screen names only itself.
+      primaryEntity: null,
+      spokenSubject: `Location, ${tabLabel} tab`,
+      sections: [
+        { id: "compose", title: "Compose", purpose: "Choose people and a duration, then share location." },
+        { id: "activity", title: "Activity", purpose: "Review active shares, incoming requests, and granted access." },
+      ],
+      actions,
+      controls: [
+        { id: "one-location-tab-compose", label: "Compose tab", purpose: "Show the sharing composer.", actionId: "location.open_compose", role: "tab" },
+        { id: "one-location-tab-activity", label: "Activity tab", purpose: "Show location activity.", actionId: "location.open_activity", role: "tab" },
+        { id: "one-location-refresh", label: "Refresh", purpose: "Reload location state.", actionId: "location.refresh", role: "button" },
+      ],
+      concepts: [
+        {
+          id: "location_share",
+          label: "Location share",
+          explanation:
+            "A location share gives a chosen person time-limited access to your live location, and can be revoked at any time.",
+          aliases: ["location", "share location", "live location"],
+        },
+      ],
+      activeSection: tabLabel,
+      activeTab: locationTab,
+      selectedEntity: null,
+      visibleModules:
+        locationTab === "activity"
+          ? ["Location activity", "Incoming requests", "Granted access"]
+          : ["Share composer", "Recipient picker"],
+      focusedWidget: `${tabLabel} tab`,
+      availableActions: actions.map((action) => action.label),
+      activeControlId: null,
+      lastInteractedControlId: null,
+      busyOperations: [
+        ...(dataState === "loading" ? ["location_state_load"] : []),
+        ...(busy ? [`location_${busy}`] : []),
+      ],
+      // Counts only -- never who, never where.
+      screenMetadata: {
+        location_tab: locationTab,
+        data_state: dataState,
+        permission_state: permission?.state ?? null,
+        pending_request_count: pendingOwnerRequests.length,
+        has_load_error: Boolean(loadError),
+      },
+    };
+  }, [
+    busy,
+    dataState,
+    loadError,
+    locationTab,
+    mode,
+    pendingOwnerRequests.length,
+    permission?.state,
+  ]);
+  usePublishVoiceSurfaceMetadata(locationVoiceSurfaceMetadata);
+
+  useLocalOnboardingActionHandler("location.open_compose", () => {
+    setLocationTab("compose");
+    return { status: "succeeded", summary: "Location sharing opened." };
+  });
+  useLocalOnboardingActionHandler("location.open_activity", () => {
+    setLocationTab("activity");
+    return { status: "succeeded", summary: "Location activity opened." };
+  });
+  useLocalOnboardingActionHandler("location.refresh", () => {
+    void refresh();
+    return { status: "succeeded", summary: "Location refreshed." };
+  });
   const showInitialSkeleton =
     !loadError &&
     !state &&
@@ -7624,6 +7718,7 @@ export function OneLocationAgentPageContent({
               onClick={() => void refresh()}
               disabled={busy === "load"}
               className="h-9 rounded-full px-3"
+              data-voice-control-id="one-location-refresh"
             >
               {busy === "load" ? (
                 <Loader2
