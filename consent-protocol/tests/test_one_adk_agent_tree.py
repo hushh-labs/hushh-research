@@ -24,6 +24,9 @@ from hushh_mcp.adk_bridge.contract import A2ADirective, SpecialistTurnResult
 from hushh_mcp.one_adk import agent_tree as _tree
 from hushh_mcp.one_adk.action_tools import (
     _STATE_GOAL_RUN,
+    _is_journey_startable,
+    _journey_slots,
+    _navigation_journey_definition,
     _STATE_PENDING_DIRECTIVE,
     _STATE_SCREEN,
     continue_app_goal,
@@ -31,6 +34,7 @@ from hushh_mcp.one_adk.action_tools import (
     run_app_action,
     start_app_goal,
 )
+from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.one_adk.agent_tree import (
     APP_ROUTES,
     ONE_IDENTITY_INSTRUCTION,
@@ -893,3 +897,92 @@ class TestListAppActions:
         by_id = {r["action_id"]: r for r in result["results"]}
         if "email.chat.turn" in by_id:
             assert by_id["email.chat.turn"]["use_tool"] == "ask_email_agent"
+
+
+class TestContractDrivenNavigationJourneys:
+    """The navigate-then-execute journey must be authored, not hardcoded.
+
+    This path used to be a literal ``if action_id != "analysis.start"``, so the
+    app could hold exactly one cross-screen journey no matter how many the
+    contracts declared. These pin the shape that replaced it.
+    """
+
+    def test_analysis_journey_is_resolved_entirely_from_its_contract(self):
+        entry = get_action_gateway_action("analysis.start")
+        journey = _navigation_journey_definition(entry, "analysis.start")
+
+        assert journey == {
+            "goal_id": "goal.analysis.start_debate",
+            "destination_route": "/one/kai?tab=analysis",
+            "destination_screen": "kai_analysis",
+            "navigation_action_id": "route.kai_analysis",
+            "label": "Open stock analysis preview",
+        }
+
+    def test_a_second_journey_needs_no_code_change(self):
+        # Same authored shape, entirely different feature. Nothing about this
+        # action exists in the runtime -- if it resolves, the path is generic.
+        entry = {
+            "action_id": "pkm.capture_note",
+            "goal": {
+                "goal_id": "goal.pkm.capture_note",
+                "workflow_steps": [
+                    {
+                        "type": "action",
+                        "label": "Open the capture sheet",
+                        "action_id": "pkm.capture_note",
+                        "settlement_target": {"route": "/one/pkm", "screen": "pkm"},
+                    }
+                ],
+            },
+        }
+
+        journey = _navigation_journey_definition(entry, "pkm.capture_note")
+
+        assert journey is not None
+        assert journey["goal_id"] == "goal.pkm.capture_note"
+        assert journey["destination_screen"] == "pkm"
+        # Resolved from the gateway, never named in code.
+        assert journey["navigation_action_id"] == "route.one_pkm"
+        assert _is_journey_startable(entry) is True
+
+    def test_a_route_action_never_becomes_a_journey_to_itself(self):
+        entry = get_action_gateway_action("route.kai_analysis")
+
+        assert _navigation_journey_definition(entry, "route.kai_analysis") is None
+
+    def test_a_destination_with_no_navigation_action_is_not_a_journey(self):
+        entry = {
+            "action_id": "setup.open_email",
+            "goal": {
+                "goal_id": "goal.setup.open_email",
+                "workflow_steps": [
+                    {
+                        "type": "action",
+                        "action_id": "setup.open_email",
+                        "settlement_target": {
+                            "route": "/one/setup/email",
+                            "screen": "one_setup_hub",
+                        },
+                    }
+                ],
+            },
+        }
+
+        # No wired route.* action opens /one/setup/email, so One has no
+        # generated way to get there. Advertising a journey it cannot walk
+        # would strand the person mid-goal.
+        assert _navigation_journey_definition(entry, "setup.open_email") is None
+        assert _is_journey_startable(entry) is False
+
+    def test_journey_slots_keep_only_contract_declared_values(self):
+        entry = get_action_gateway_action("analysis.start")
+
+        resolved = _journey_slots(
+            entry,
+            {"symbol": " nvda ", "smuggled": "ignore me"},
+        )
+
+        # Normalized by the contract's own resolver, defaulted per the
+        # contract, and stripped of anything the contract never declared.
+        assert resolved == {"symbol": "NVDA", "pickSource": "default"}
