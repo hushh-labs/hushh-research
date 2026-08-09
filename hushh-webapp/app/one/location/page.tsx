@@ -1516,7 +1516,10 @@ async function shareOneLocationLink(params: {
   throw new Error("Sharing is not supported on this device.");
 }
 
-function readinessCopy(permission: HushhLocationPermissionState | null): {
+function readinessCopy(
+  permission: HushhLocationPermissionState | null,
+  observedDenial = false,
+): {
   title: string;
   description: string;
   tone: "ready" | "warning" | "blocked" | "checking";
@@ -1548,13 +1551,26 @@ function readinessCopy(permission: HushhLocationPermissionState | null): {
       actionLabel: "Allow Location",
     };
   }
-  if (permission.state === "denied" || permission.state === "restricted") {
+  // Only a refusal we actually observed proves the device is blocked. A
+  // read-back `denied` may be stale, and on Safari it cannot be read at all —
+  // so this offers to ask rather than declaring a dead end the user cannot act
+  // on. `restricted` is genuinely unaskable and stays blocked.
+  if (permission.state === "restricted" || (permission.state === "denied" && observedDenial)) {
     return {
       title: "Location permission blocked",
       description:
         "Allow location access from app settings before you share your location.",
       tone: "blocked",
       actionLabel: "Open Location Settings",
+    };
+  }
+  if (permission.state === "denied") {
+    return {
+      title: "Allow location permission",
+      description:
+        "One will ask this device for location access the moment you share.",
+      tone: "warning",
+      actionLabel: "Allow Location",
     };
   }
   if (permission.state === "unavailable") {
@@ -2275,8 +2291,7 @@ export function OneLocationAgentPageContent({
   // perfectly usable for picking the venue you are standing in.
   const locationAccuracyLimited =
     locationEnabled &&
-    (permission?.state !== "granted" ||
-      permission?.precise === false ||
+    (permission?.precise === false ||
       (typeof myLocationPoint?.accuracyM === "number" &&
         Number.isFinite(myLocationPoint.accuracyM) &&
         myLocationPoint.accuracyM > ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS));
@@ -6441,8 +6456,8 @@ export function OneLocationAgentPageContent({
       busy === "load" ||
       Boolean(auth.userId && vaultOwnerToken));
   const locationReadiness = useMemo(
-    () => readinessCopy(permission),
-    [permission],
+    () => readinessCopy(permission, locationDenialObserved),
+    [permission, locationDenialObserved],
   );
   const handleRequestLocationPermission = useCallback(async () => {
     setBusy("locationSettings");
@@ -7138,10 +7153,7 @@ export function OneLocationAgentPageContent({
         return;
       }
 
-      if (
-        permission?.state === "denied" ||
-        permission?.state === "restricted"
-      ) {
+      if (permission?.state === "restricted") {
         await openAppSettingsForOnboarding();
         return;
       }
@@ -7176,7 +7188,12 @@ export function OneLocationAgentPageContent({
         return;
       }
 
-      if (requestedPermission.state !== "granted") {
+      if (
+        requestedPermission.state !== "granted" &&
+        !(await OneLocationService.captureCurrentPosition()
+          .then(() => true)
+          .catch(() => false))
+      ) {
         await openAppSettingsForOnboarding();
         return;
       }
@@ -7200,28 +7217,32 @@ export function OneLocationAgentPageContent({
   ]);
 
   useEffect(() => {
+    // Onboarding's own retry, unchanged: it owns the flag and the ordering that
+    // the saved-place prompt depends on.
     const refreshIfPending = () => {
-      // Permission is changed outside the app — iOS Settings, Safari's site
-      // settings, the Android permission sheet — so coming back is exactly when
-      // our copy of it is most likely to be wrong. This used to re-read only
-      // when onboarding had armed a retry flag, which left everyone else
-      // looking at a stale verdict until a full reload.
-      const hadPendingRetry = locationOnboardingRetryOnResumeRef.current;
+      if (!locationOnboardingRetryOnResumeRef.current) return;
       locationOnboardingRetryOnResumeRef.current = false;
+      void refreshLocationPermission();
+    };
+    // Separately, and for everyone: permission is changed outside the app — iOS
+    // Settings, Safari's site settings, the Android sheet — so coming back is
+    // exactly when our copy of it is most likely to be stale. Re-reading only
+    // behind onboarding's flag left every other surface showing an old verdict
+    // until a full reload.
+    const refreshPermissionOnReturn = () => {
       void refreshLocationPermission().then((next) => {
-        // Returning with permission actually granted clears an old observed
-        // denial, so the UI stops claiming "blocked" the moment it stops being
-        // true.
+        // Once it is actually granted, an old observed denial is history, so
+        // the UI stops claiming "blocked" the moment that stops being true.
         if (next?.state === "granted") {
           observedLocationDenialRef.current = false;
           setLocationDenialObserved(false);
         }
       });
-      return hadPendingRetry;
     };
     const refreshWhenVisible = () => {
       if (document.visibilityState === "hidden") return;
       refreshIfPending();
+      refreshPermissionOnReturn();
     };
 
     window.addEventListener("focus", refreshWhenVisible);

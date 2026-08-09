@@ -1715,6 +1715,13 @@ describe("OneLocationAgentPage", () => {
       background: "restricted",
       locationServicesEnabled: true,
     });
+    // A genuinely denied device refuses the capture too. Setup now confirms by
+    // attempting rather than trusting the reported state, because that state is
+    // unreadable on Safari — so the refusal has to come from the attempt for
+    // this to still be a denial at all.
+    const denied = new Error("Location permission was not granted.");
+    denied.name = "LocationPermissionDeniedError";
+    mockCaptureCurrentPosition.mockRejectedValue(denied);
 
     render(
       <OneLocationAgentPage mode="setup" onSetupComplete={onSetupComplete} />,
@@ -1745,6 +1752,15 @@ describe("OneLocationAgentPage", () => {
       locationServicesEnabled: true,
     };
     mockGetPermissionState.mockResolvedValue(deniedPermission);
+    // The request reports the same refusal the read did — otherwise the device
+    // is not actually denied and routing to Settings would be wrong.
+    mockRequestLocationPermission.mockResolvedValue(deniedPermission);
+    // A genuinely denied device refuses the capture too. Setup now confirms a
+    // denial by attempting rather than trusting the reported state — that state
+    // is unreadable on Safari — so the refusal has to come from the attempt.
+    const refused = new Error("Location permission was not granted.");
+    refused.name = "LocationPermissionDeniedError";
+    mockCaptureCurrentPosition.mockRejectedValue(refused);
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -1754,16 +1770,27 @@ describe("OneLocationAgentPage", () => {
 
     await openLocationPermissionsStep();
     await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
-    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+    // Asked first, and only then routed to Settings once the device said no.
+    expect(mockCaptureCurrentPosition).toHaveBeenCalled();
 
+    const attemptsWhileDenied = mockCaptureCurrentPosition.mock.calls.length;
     mockGetPermissionState.mockResolvedValue(grantedPermission);
+    mockCaptureCurrentPosition.mockResolvedValue({
+      latitude: 28.6139,
+      longitude: 77.209,
+      accuracyM: 18,
+      capturedAt: "2026-05-20T07:30:00.000Z",
+      sourcePlatform: "web",
+    });
     act(() => {
       appInteractionCoordinator.handleLifecycle("background");
       appInteractionCoordinator.handleLifecycle("active");
     });
 
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(mockCaptureCurrentPosition.mock.calls.length).toBeGreaterThan(
+      attemptsWhileDenied,
+    );
   });
 
   it("keeps setup onboarding available when the workspace state fetch fails", async () => {
@@ -3232,7 +3259,12 @@ describe("OneLocationAgentPage", () => {
     expect(mockRevokeGrant).not.toHaveBeenCalled();
   });
 
-  it("blocks share actions when browser location permission is denied", async () => {
+  it("still offers to share when a permission read claims denied", async () => {
+    // A read-back "denied" is not proof. Safari cannot report the value at all,
+    // and browsers and Android both re-prompt, so disabling the control here is
+    // what left users staring at "Allow location permission before sharing" on
+    // a phone whose location worked. The share stays available; the capture
+    // attempt is what asks, and a real refusal is what stops it.
     mockGetPermissionState.mockResolvedValue({
       state: "denied",
       precise: false,
@@ -3252,10 +3284,31 @@ describe("OneLocationAgentPage", () => {
     const shareButton = screen.getByRole("button", {
       name: /Review share/i,
     }) as HTMLButtonElement;
+    expect(shareButton.disabled).toBe(false);
+  });
+
+  it("blocks share actions once the OS location switch is off", async () => {
+    // This one genuinely cannot be fixed by asking, so it must still block.
+    mockGetPermissionState.mockResolvedValue({
+      state: "denied",
+      precise: false,
+      background: "unavailable",
+      locationServicesEnabled: false,
+    });
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openShareDetailsStep();
+    const shareButton = screen.getByRole("button", {
+      name: /Review share/i,
+    }) as HTMLButtonElement;
     expect(shareButton.disabled).toBe(true);
-    await waitFor(() =>
-      expect(mockCaptureCurrentPosition).not.toHaveBeenCalled(),
-    );
     expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 

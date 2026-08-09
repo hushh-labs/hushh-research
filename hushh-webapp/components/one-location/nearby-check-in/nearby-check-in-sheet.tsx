@@ -35,6 +35,7 @@ import { Switch } from "@/components/ui/switch";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { locationBlockReason } from "@/lib/one-location/location-readiness";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
@@ -635,10 +636,13 @@ export function NearbyCheckInSheet({
           }
           return;
         }
-        if (
-          permission?.state === "denied" ||
-          permission?.state === "restricted"
-        ) {
+        // Only refuse what asking cannot fix. A read-back `denied` is not
+        // proof — Safari cannot report the value at all, and both browsers and
+        // Android re-prompt — so it falls through to the capture below, which
+        // is what actually surfaces the permission prompt. This comment's own
+        // promise, that "the one-shot capture remains authoritative", was not
+        // being kept: the check-in sheet refused here before ever attempting.
+        if (locationBlockReason(permission ?? null)) {
           setLocationRecovery(isNative() ? "app-settings" : null);
           if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
             setPoint(null);
