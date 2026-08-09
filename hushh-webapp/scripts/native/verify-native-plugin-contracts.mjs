@@ -13,9 +13,9 @@ const tsPluginFiles = [
 ];
 
 const iosPluginsDir = path.join(appRoot, "ios/App/App/Plugins");
-const androidPluginsDir = path.join(appRoot, "android/app/src/main/java/com/hushh/app/plugins");
+const androidPluginsDir = path.join(appRoot, "android/app/src/main/java/com/hussh/app/plugins");
 const iosControllerPath = path.join(appRoot, "ios/App/App/MyViewController.swift");
-const androidActivityPath = path.join(appRoot, "android/app/src/main/java/com/hushh/app/MainActivity.kt");
+const androidActivityPath = path.join(appRoot, "android/app/src/main/java/com/hussh/app/MainActivity.kt");
 const iosInfoPlistPath = path.join(appRoot, "ios/App/App/Info.plist");
 const iosEntitlementsPath = path.join(appRoot, "ios/App/App/App.entitlements");
 
