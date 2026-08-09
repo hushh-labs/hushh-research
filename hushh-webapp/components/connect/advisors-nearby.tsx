@@ -182,16 +182,32 @@ export function AdvisorsNearby({
       ) : null}
 
       {error && !loading ? (
-        <QuietBlock title={error} testId="advisors-error">
-          <Button
-            type="button"
-            variant="none"
-            effect="fill"
-            size="lg"
-            onClick={() => void runSearch(anchor, radiusMi, 0)}
-          >
-            Try again
-          </Button>
+        // A failed search must still offer the ZIP box. "Try again" only
+        // re-runs the anchor that just failed, so on its own it strands anyone
+        // whose ZIP was the problem — the only way out was to leave the tab and
+        // come back, which remounts this component and clears the anchor.
+        <QuietBlock
+          title={error}
+          subtitle="Try again, or search a different ZIP."
+          testId="advisors-error"
+        >
+          <div className="flex w-full flex-col items-center gap-4">
+            <Button
+              type="button"
+              variant="none"
+              effect="fill"
+              size="lg"
+              onClick={() => void runSearch(anchor, radiusMi, 0)}
+            >
+              Try again
+            </Button>
+            <PostalCodeForm
+              busy={loading}
+              initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
+              onSearch={handlePostalCode}
+              testId="advisors-postal-input"
+            />
+          </div>
         </QuietBlock>
       ) : null}
 

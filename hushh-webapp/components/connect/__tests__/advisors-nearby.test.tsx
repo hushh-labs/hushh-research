@@ -158,6 +158,41 @@ describe("AdvisorsNearby", () => {
     });
   });
 
+  it("still offers the ZIP box after a ZIP search fails", async () => {
+    // The reported dead end: a ZIP that errors leaves "Try again" as the only
+    // control, and that re-runs the ZIP that just failed. Switching tabs and
+    // back was the only way to get the input again, because that remounts the
+    // component and clears the anchor.
+    mocks.locationState = {
+      status: "denied",
+      permission: "denied",
+      snapshot: null,
+      error: "Location is off for Hussh.",
+    };
+    mocks.searchNearby.mockRejectedValueOnce(
+      new Error("That search could not be completed."),
+    );
+
+    render(<AdvisorsNearby getIdToken={getIdToken} />);
+
+    fireEvent.change(screen.getByTestId("advisors-postal-input"), {
+      target: { value: "00000" },
+    });
+    fireEvent.click(screen.getByText("Search"));
+
+    expect(await screen.findByTestId("advisors-error")).toBeTruthy();
+
+    const retryInput = screen.getByTestId("advisors-postal-input");
+    fireEvent.change(retryInput, { target: { value: "98033" } });
+    fireEvent.click(screen.getByText("Search"));
+
+    await waitFor(() => expect(mocks.searchNearby).toHaveBeenCalledTimes(2));
+    expect(mocks.searchNearby.mock.calls[1][0]).toMatchObject({
+      postalCode: "98033",
+    });
+    expect(await screen.findByText("Christine Cote")).toBeTruthy();
+  });
+
   it("re-searches when the radius changes", async () => {
     mocks.locationState = {
       status: "ready",
