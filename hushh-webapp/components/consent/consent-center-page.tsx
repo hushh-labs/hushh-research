@@ -22,6 +22,7 @@ import {
   Search,
   UserRound,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   AppPageContentRegion,
   AppPageShell,
@@ -1827,6 +1828,7 @@ export function ConsentCenterPage() {
               "[ConsentCenter] Couldn't accept the connection request:",
               error,
             );
+            toast.error("Could not accept the connection request. Try again.");
           }
         })();
         return;
@@ -1870,6 +1872,7 @@ export function ConsentCenterPage() {
               "[ConsentCenter] Couldn't decline the connection request:",
               error,
             );
+            toast.error("Could not decline the connection request. Try again.");
           }
         })();
         return;
