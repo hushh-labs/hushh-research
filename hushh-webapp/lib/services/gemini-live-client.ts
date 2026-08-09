@@ -38,6 +38,12 @@ const OUTPUT_SAMPLE_RATE = 24000;
 // This is intentionally a coarse barge-in signal, not speech recognition.
 // It needs sustained energy to avoid treating microphone silence/noise as a
 // visitor turn and cancelling the idle welcome cue on every connection.
+/**
+ * Mirrors FRAME_SIZE in public/audio/gemini-live-capture.worklet.js. Only used
+ * to derive the real-time frame interval for the outbound pacing guard, so a
+ * drift between the two costs pacing accuracy, never correctness.
+ */
+const CAPTURE_FRAME_SIZE = 2048;
 const VISITOR_ACTIVITY_LEVEL = 0.08;
 const VISITOR_ACTIVITY_FRAMES = 8;
 
@@ -239,6 +245,10 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   /** Consent token for One's specialist tools; rides only in app_context frames. */
   private consentToken: string | null = null;
   private visitorActivitySent = false;
+  /** Real-time pacing guard for outbound audio; see sendRealtimeAudio. */
+  private lastRealtimeAudioSentAt = 0;
+  /** Frames discarded as backlog. Non-zero means the main thread stalled. */
+  private droppedBacklogFrames = 0;
   private consecutiveSpeechFrames = 0;
   private bufferedVisitorSpeechFrames: Uint8Array[] = [];
   /**
@@ -313,6 +323,8 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.sessionId = createGeminiLiveSessionId();
     this.sourceSeq = 0;
     this.visitorActivitySent = false;
+    this.lastRealtimeAudioSentAt = 0;
+    this.droppedBacklogFrames = 0;
     this.consecutiveSpeechFrames = 0;
     this.bufferedVisitorSpeechFrames = [];
     this.initialContextReady = false;
@@ -438,13 +450,41 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     };
   }
 
-  private sendRealtimeAudio(pcm: Uint8Array): void {
+  private sendRealtimeAudio(pcm: Uint8Array, paced = true): void {
     if (
       !this.ws ||
       this.ws.readyState !== WebSocket.OPEN ||
       !this.setupComplete
     )
       return;
+    // Never stream faster than real time.
+    //
+    // The capture worklet runs on the audio thread and posts a frame every
+    // ~43ms no matter what the main thread is doing. When the main thread
+    // stalls -- a dev route compile blocks it for seconds -- those messages
+    // queue, then drain in one synchronous burst, and the provider kills the
+    // socket with 1011 "client sending data too fast". Steady state is ~23
+    // frames/sec, so anything arriving well inside a frame interval is backlog
+    // being flushed, not live speech.
+    //
+    // Dropping is the correct response, not buffering: audio that late is
+    // already history in a live conversation, and re-sending it would only
+    // push the burst further out. Compared against a single clock so this
+    // cannot drift against the worklet's own timebase.
+    const frameIntervalMs =
+      (CAPTURE_FRAME_SIZE /
+        (this.inputContext?.sampleRate || INPUT_SAMPLE_RATE)) *
+      1000;
+    const now = performance.now();
+    // `paced === false` is the speech-onset flush: a bounded, once-per-session
+    // catch-up of frames deliberately withheld until the activity signal could
+    // precede them. It is intentional and small, unlike a stall backlog, and
+    // dropping it would clip the first words of the first sentence.
+    if (paced && now - this.lastRealtimeAudioSentAt < frameIntervalMs * 0.5) {
+      this.droppedBacklogFrames += 1;
+      return;
+    }
+    this.lastRealtimeAudioSentAt = now;
     this.ws.send(
       JSON.stringify({
         realtimeInput: {
@@ -482,7 +522,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.visitorActivitySent = true;
     this.ws.send(JSON.stringify({ type: "voice_activity_start" }));
     for (const bufferedFrame of this.bufferedVisitorSpeechFrames) {
-      this.sendRealtimeAudio(bufferedFrame);
+      this.sendRealtimeAudio(bufferedFrame, false);
     }
     this.bufferedVisitorSpeechFrames = [];
     // A visitor who starts speaking should be able to barge in over an
