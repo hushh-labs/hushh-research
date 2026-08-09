@@ -92,7 +92,7 @@ async def test_close_quietly_swallows_a_close_failure_on_an_already_gone_client(
 
 @pytest.mark.asyncio
 async def test_runtime_bootstrap_accepts_only_the_authenticated_byok_frame():
-    mode, credential, transport, project, location = await _receive_runtime_bootstrap(
+    mode, credential, transport, project, location, _resume = await _receive_runtime_bootstrap(
         _BootstrapSocket(
             {
                 "type": "runtime_bootstrap",
@@ -113,7 +113,7 @@ async def test_runtime_bootstrap_accepts_only_the_authenticated_byok_frame():
 
 @pytest.mark.asyncio
 async def test_runtime_bootstrap_accepts_a_vertex_api_key_only_with_explicit_endpoint_metadata():
-    mode, credential, transport, project, location = await _receive_runtime_bootstrap(
+    mode, credential, transport, project, location, _resume = await _receive_runtime_bootstrap(
         _BootstrapSocket(
             {
                 "type": "runtime_bootstrap",

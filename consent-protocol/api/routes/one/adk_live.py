@@ -129,6 +129,7 @@ _INITIAL_GREETING_IDLE_SECONDS = 1.5
 _INITIAL_CONTEXT_WAIT_SECONDS = 2.5
 _RUNTIME_BOOTSTRAP_WAIT_SECONDS = 6.0
 _RUNTIME_BOOTSTRAP_CREDENTIAL_CAP = 12_000
+_RESUMPTION_HANDLE_CAP = 4_096
 _MAX_BROWSER_FRAME_CHARS = 1_000_000
 _MAX_REALTIME_AUDIO_BYTES = 512 * 1024
 _MAX_REALTIME_AUDIO_BASE64_CHARS = ((_MAX_REALTIME_AUDIO_BYTES + 2) // 3) * 4
@@ -181,6 +182,7 @@ async def _receive_runtime_bootstrap(
     Literal["developer_api", "vertex_api_key"],
     str | None,
     str | None,
+    str | None,
 ]:
     """Read the one non-model-visible startup frame.
 
@@ -197,13 +199,19 @@ async def _receive_runtime_bootstrap(
         raise ValueError("runtime_bootstrap_required") from None
     if not isinstance(message, dict) or message.get("type") != "runtime_bootstrap":
         raise ValueError("runtime_bootstrap_required")
+    # A resumption handle from a previous socket for this same person. It is
+    # an opaque provider token, not a credential and not model context: it
+    # only lets a dropped conversation continue instead of starting over.
+    resumption_handle = str(message.get("resumption_handle") or "").strip()
+    if len(resumption_handle) > _RESUMPTION_HANDLE_CAP:
+        resumption_handle = ""
     mode = message.get("runtime_credential_mode")
     if mode == "hushh_managed_vertex":
         # Never accept a credential in managed mode, even if a buggy client
         # supplied one. This keeps the startup contract unambiguous.
         if message.get("runtime_credential") not in (None, ""):
             raise ValueError("runtime_bootstrap_invalid")
-        return "hushh_managed_vertex", None, "developer_api", None, None
+        return "hushh_managed_vertex", None, "developer_api", None, None, resumption_handle or None
     if mode != "byok" or not uid:
         raise ValueError("runtime_bootstrap_invalid")
     credential = message.get("runtime_credential")
@@ -220,10 +228,10 @@ async def _receive_runtime_bootstrap(
     if transport == "vertex_api_key":
         if not _VERTEX_PROJECT_RE.fullmatch(project) or not _VERTEX_LOCATION_RE.fullmatch(location):
             raise ValueError("runtime_bootstrap_invalid")
-        return "byok", credential, "vertex_api_key", project, location
+        return "byok", credential, "vertex_api_key", project, location, resumption_handle or None
     if project or location:
         raise ValueError("runtime_bootstrap_invalid")
-    return "byok", credential, "developer_api", None, None
+    return "byok", credential, "developer_api", None, None, resumption_handle or None
 
 
 class _InitialGreetingGate:
@@ -343,6 +351,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             runtime_credential_transport,
             runtime_vertex_project,
             runtime_vertex_location,
+            resumption_handle,
         ) = await _receive_runtime_bootstrap(websocket, uid=uid)
         runner = build_one_live_runner(
             runtime_mode=runtime_mode,
@@ -403,6 +412,15 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         # documented "if not set" fallback on SlidingWindow.target_tokens.
         context_window_compression=genai_types.ContextWindowCompressionConfig(
             sliding_window=genai_types.SlidingWindow(),
+        ),
+        # Without this a dropped socket ends the conversation outright: a 1011,
+        # a network blip, or the provider's own scheduled disconnect all lost
+        # everything said so far. The provider issues a handle it will accept
+        # back, so a reconnect continues the same conversation instead of
+        # restarting it. Passing a handle from the browser resumes; passing
+        # none starts fresh and begins issuing handles for next time.
+        session_resumption=genai_types.SessionResumptionConfig(
+            handle=resumption_handle or None,
         ),
     )
 
@@ -1136,6 +1154,29 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             live_request_queue=queue,
             run_config=run_config,
         ):
+            # The provider hands out a token it will accept back on a new
+            # socket. Forward it so the browser can resume THIS conversation
+            # after a drop rather than starting a new one. It is opaque, and
+            # never becomes model context.
+            resumption_update = getattr(event, "live_session_resumption_update", None)
+            if resumption_update is not None and getattr(resumption_update, "resumable", False):
+                new_handle = _bounded_text(
+                    getattr(resumption_update, "new_handle", None), _RESUMPTION_HANDLE_CAP
+                )
+                if new_handle:
+                    await websocket.send_text(
+                        json.dumps({"sessionResumption": {"handle": new_handle}})
+                    )
+            # Advance warning that the provider is about to close. Telling the
+            # browser lets it reconnect on its own terms rather than
+            # discovering mid-sentence that the socket is gone.
+            go_away = getattr(event, "go_away", None)
+            if go_away is not None:
+                time_left = getattr(go_away, "time_left", None)
+                logger.info("one_adk_live_go_away time_left=%s", str(time_left)[:32])
+                await websocket.send_text(
+                    json.dumps({"goAway": {"timeLeft": str(time_left) if time_left else None}})
+                )
             if getattr(event, "interrupted", False):
                 await websocket.send_text(json.dumps({"serverContent": {"interrupted": True}}))
             input_tx = getattr(event, "input_transcription", None)
