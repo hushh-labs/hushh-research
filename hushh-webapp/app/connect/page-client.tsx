@@ -596,6 +596,34 @@ export default function ConnectPageClient() {
                     placeholder="Search people by name"
                     aria-label="Search people"
                     className="h-10 pl-11"
+                    enterKeyHint="search"
+                    onKeyDown={(event) => {
+                      // iOS soft-keyboard "return" must dismiss the keyboard;
+                      // blurring the field is what actually closes it in the
+                      // Capacitor webview (there is no form submit here).
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      }
+                    }}
+                    onFocus={(event) => {
+                      // Keyboard-dismiss "on drag": the first scroll/drag while
+                      // the field is focused blurs it, so an open keyboard never
+                      // locks the results out of view. Scoped to this field's
+                      // focus lifecycle and cleaned up on blur.
+                      const field = event.currentTarget;
+                      const dismiss = () => field.blur();
+                      window.addEventListener("touchmove", dismiss, {
+                        passive: true,
+                        once: true,
+                      });
+                      field.addEventListener(
+                        "blur",
+                        () =>
+                          window.removeEventListener("touchmove", dismiss),
+                        { once: true },
+                      );
+                    }}
                   />
                 </div>
                 {people.length > 0 && (
