@@ -173,6 +173,7 @@ import {
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
+import { buildOneLocationRequestMessage } from "@/lib/one-location/request-message";
 import {
   clearLocationWorkspaceMemory,
   readLocationWorkspaceMemory,
@@ -4500,7 +4501,7 @@ export function OneLocationAgentPageContent({
     }
   }, [auth.user, contactSignal]);
 
-  const handleRequestAccess = useCallback(async () => {
+  const handleRequestAccess = useCallback(async (reason?: string | null) => {
     if (!vaultOwnerToken || !selectedRequestOwners.length) return;
     if (!auth.user || !auth.userId) {
       toast.error("Refresh your session before sending a location request.");
@@ -4540,7 +4541,7 @@ export function OneLocationAgentPageContent({
         await OneLocationService.requestAccess({
           vaultOwnerToken: activeVaultOwnerToken,
           ownerUserId: owner.userId,
-          message: requestMessage.trim() || undefined,
+          message: buildOneLocationRequestMessage(reason, requestMessage),
         });
         successCount += 1;
       }
@@ -7648,7 +7649,7 @@ export function OneLocationAgentPageContent({
     onShareToContacts: () => void handleShareContactInvite(),
     onOpenShareReview: () => void handleOpenShareReview(),
     onConfirmShare: () => void handleShare(),
-    onSendRequest: () => void handleRequestAccess(),
+    onSendRequest: (reason) => void handleRequestAccess(reason),
     onApprove: (request) => void handleApprove(request),
     onDeny: (requestId) => void handleDeny(requestId),
     onViewGrant: (grant) => void handleView(grant),
