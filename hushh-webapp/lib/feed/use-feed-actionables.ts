@@ -42,6 +42,11 @@ import {
   locationConsentSummary,
 } from "@/lib/consent/location-consent";
 import { OneLocationService } from "@/lib/one-location/service";
+import {
+  RECIPIENT_KEY_UNAVAILABLE_MESSAGE,
+  decryptLocationEnvelope,
+  ensureVaultSyncedRecipientKey,
+} from "@/lib/one-location/encryption";
 import type {
   OneLocationAccessRequest,
   OneLocationGrant,
@@ -161,8 +166,11 @@ export function notifyFeedActionResolved(): void {
 export function useFeedActionables(): UseFeedActionablesResult {
   const router = useRouter();
   const { user } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultKey, vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
+  const [smsEmergencyAddresses, setSmsEmergencyAddresses] = useState<
+    Record<string, string>
+  >({});
   const cache = useMemo(() => CacheService.getInstance(), []);
 
   // ── Debate + background-task live stores (in-memory, synchronous) ──
@@ -300,10 +308,104 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // + the stable refresh callbacks, not the changing wrapper identity.
   const locationRequests = locationResource.data?.requests;
   const receivedGrants = locationResource.data?.receivedGrants;
+  const myRecipientKey = locationResource.data?.myRecipientKey;
   const locationRefresh = locationResource.refresh;
   const connectionRequests = connectionsResource.data;
   const connectionsRefresh = connectionsResource.refresh;
   const consentItems = consentListResource.data?.items;
+
+  // SOS location remains end-to-end encrypted at rest. Only active SOS
+  // grants are opened here, while the recipient vault is unlocked. The
+  // decrypted coordinate exists only long enough to reverse-geocode it;
+  // Feed state retains the resulting human-readable address, never the
+  // plaintext point.
+  useEffect(() => {
+    const emergencies = (receivedGrants ?? []).filter(
+      isActiveSmsEmergencyGrant,
+    );
+
+    if (!userId || !vaultOwnerToken || emergencies.length === 0) {
+      setSmsEmergencyAddresses((current) =>
+        Object.keys(current).length === 0 ? current : {},
+      );
+      return;
+    }
+
+    let cancelled = false;
+
+    void Promise.all(
+      emergencies.map(async (grant) => {
+        try {
+          const response = await OneLocationService.viewEnvelope({
+            vaultOwnerToken,
+            grantId: grant.id,
+          });
+
+          let point;
+          try {
+            point = await decryptLocationEnvelope({
+              userId,
+              envelope: response.envelope,
+            });
+          } catch (decryptError) {
+            // Match the Location workspace recovery path: a new device
+            // may need to restore the vault-synced recipient key once.
+            if (
+              decryptError instanceof Error &&
+              decryptError.message === RECIPIENT_KEY_UNAVAILABLE_MESSAGE &&
+              vaultKey &&
+              myRecipientKey?.encryptedPrivateKeyJwk
+            ) {
+              await ensureVaultSyncedRecipientKey({
+                userId,
+                vaultKey,
+                remoteBackup: myRecipientKey,
+              });
+              point = await decryptLocationEnvelope({
+                userId,
+                envelope: response.envelope,
+              });
+            } else {
+              throw decryptError;
+            }
+          }
+
+          const place = await OneLocationService.reverseGeocode({
+            vaultOwnerToken,
+            lat: point.latitude,
+            lng: point.longitude,
+          });
+
+          const address =
+            place.formattedAddress?.trim() || place.name?.trim() || "";
+
+          return [grant.id, address] as const;
+        } catch {
+          // The emergency card must remain useful even while an envelope,
+          // key, or geocoder is temporarily unavailable.
+          return [grant.id, ""] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+
+      setSmsEmergencyAddresses(
+        Object.fromEntries(
+          entries.filter(([, address]) => Boolean(address)),
+        ),
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    myRecipientKey,
+    receivedGrants,
+    userId,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
 
   const actionables = useMemo<FeedActionable[]>(() => {
     if (!userId) return [];
@@ -354,15 +456,19 @@ export function useFeedActionables(): UseFeedActionablesResult {
     );
     for (const grant of smsEmergencies) {
       const label = grant.ownerDisplayName?.trim() || "A contact";
+      const emergencyMessage =
+        grant.shareMessage?.trim() ||
+        "Emergency SMS — sharing live location with you now.";
+      const lastKnownAddress = smsEmergencyAddresses[grant.id]?.trim();
       items.push({
         id: `sms-emergency:${grant.id}`,
         icon: Siren,
         iconTone: "red",
         emphasis: "emergency",
         title: `${label} triggered an SOS`,
-        description:
-          grant.shareMessage?.trim() ||
-          "Emergency SMS — sharing live location with you now.",
+        description: lastKnownAddress
+          ? `${emergencyMessage} | Last known: ${lastKnownAddress}`
+          : emergencyMessage,
         href: buildOneLocationNotificationHref(grant.id),
         chevron: true,
         actions: [],
@@ -609,6 +715,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     debateState.tasks,
     locationRequests,
     receivedGrants,
+    smsEmergencyAddresses,
     locationRefresh,
     openAnalysis,
     pendingConsentCount,
