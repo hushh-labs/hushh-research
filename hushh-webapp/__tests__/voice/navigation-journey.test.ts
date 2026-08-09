@@ -4,6 +4,7 @@ import { getKaiActionById, listKaiActions } from "@/lib/voice/kai-action-gateway
 import {
   firstMissingRequiredSlot,
   resolveJourneyPlan,
+  resolveJourneyPlanForGoal,
   resolveJourneySlots,
   resolveNavigationJourney,
 } from "@/lib/voice/navigation-journey";
@@ -114,6 +115,27 @@ describe("journey approval plans", () => {
     risky.forEach((action) => {
       expect(preApproved.has(action.action_id)).toBe(false);
     });
+  });
+
+  it("finds the plan from the goal, not from the step it is currently on", () => {
+    // The relay's FIRST directive for a journey is its navigation step, so it
+    // arrives as goal.analysis.start_debate carrying route.kai_analysis. A
+    // route action is never a journey in its own right, so resolving by that
+    // action id found nothing and the card showed a single step instead of
+    // the plan -- the batch approval silently degraded to the old behaviour.
+    expect(resolveJourneyPlan("route.kai_analysis")).toBeNull();
+
+    const plan = resolveJourneyPlanForGoal("goal.analysis.start_debate");
+    expect(plan).toBeTruthy();
+    expect(plan!.steps.map((step) => step.actionId)).toEqual([
+      "route.kai_analysis",
+      "analysis.start",
+    ]);
+  });
+
+  it("has no plan for an unknown goal", () => {
+    expect(resolveJourneyPlanForGoal("goal.does.not.exist")).toBeNull();
+    expect(resolveJourneyPlanForGoal("")).toBeNull();
   });
 
   it("has no plan for an action that is not a journey", () => {

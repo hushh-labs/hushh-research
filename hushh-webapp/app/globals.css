@@ -3052,14 +3052,27 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    The rim is what reads as thickness; without it a blurred panel just looks
    out of focus. */
 .agent-approval-glass {
-  --agent-approval-tint: color-mix(in oklab, var(--background) 74%, transparent);
-  --agent-approval-blur: 22px;
-  --agent-approval-rim: rgba(255, 255, 255, 0.6);
-  --agent-approval-edge: rgba(0, 0, 0, 0.08);
-  --agent-approval-cast: rgba(0, 0, 0, 0.16);
+  /* Built on --popover, the elevated-surface token, NOT --background. The
+     chrome bars derive their tint from the page background because they sit
+     over scrolling content; a panel floating over the flat page ground would
+     become the exact colour behind it and vanish. It did. */
+  --agent-approval-tint: color-mix(in oklab, var(--popover) 84%, transparent);
+  --agent-approval-blur: 16px;
+  --agent-approval-rim: rgba(255, 255, 255, 0.55);
+  --agent-approval-edge: rgba(0, 0, 0, 0.1);
+  --agent-approval-cast: rgba(0, 0, 0, 0.18);
+  /* The colour the glass carries. Accent-derived, so it follows the theme
+     (blue by default, gold on the warm palette) rather than being painted on. */
+  --agent-approval-hue-strong: color-mix(in oklab, var(--app-accent) 16%, transparent);
+  --agent-approval-hue-soft: color-mix(in oklab, var(--app-accent) 8%, transparent);
   position: relative;
   isolation: isolate;
   background-color: var(--agent-approval-tint);
+  /* Two opposing washes: real glass picks up colour unevenly across its face,
+     and a single flat tint reads as coloured plastic instead. */
+  background-image:
+    linear-gradient(138deg, var(--agent-approval-hue-strong) 0%, transparent 46%),
+    linear-gradient(318deg, var(--agent-approval-hue-soft) 0%, transparent 40%);
   -webkit-backdrop-filter: blur(var(--agent-approval-blur)) saturate(180%);
   backdrop-filter: blur(var(--agent-approval-blur)) saturate(180%);
   border: 1px solid var(--agent-approval-edge);
@@ -3076,17 +3089,21 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .dark .agent-approval-glass {
-  --agent-approval-tint: color-mix(in oklab, var(--background) 68%, transparent);
-  --agent-approval-rim: rgba(255, 255, 255, 0.13);
-  --agent-approval-edge: rgba(255, 255, 255, 0.1);
-  --agent-approval-cast: rgba(0, 0, 0, 0.55);
+  --agent-approval-tint: color-mix(in oklab, var(--popover) 88%, transparent);
+  --agent-approval-rim: rgba(255, 255, 255, 0.16);
+  /* A dark panel on a dark page needs its edge lit, not merely outlined. */
+  --agent-approval-edge: rgba(255, 255, 255, 0.14);
+  --agent-approval-cast: rgba(0, 0, 0, 0.6);
+  --agent-approval-hue-strong: color-mix(in oklab, var(--app-accent) 22%, transparent);
+  --agent-approval-hue-soft: color-mix(in oklab, var(--app-accent) 12%, transparent);
 }
 
 /* A translucent panel is a readability risk, not just a style: if the person
    has asked for less transparency, honour it and fall back to a solid tint. */
 @media (prefers-reduced-transparency: reduce) {
   .agent-approval-glass {
-    --agent-approval-tint: var(--background);
+    --agent-approval-tint: var(--popover);
+    background-image: none;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

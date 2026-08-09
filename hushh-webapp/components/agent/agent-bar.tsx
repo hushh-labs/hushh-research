@@ -66,7 +66,7 @@ import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import {
-  resolveJourneyPlan,
+  resolveJourneyPlanForGoal,
   resolveNavigationJourney,
   type JourneyPlan,
 } from "@/lib/voice/navigation-journey";
@@ -716,7 +716,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               // When this directive opens an authored journey, show the whole
               // plan rather than its first step. Approving a named list is
               // what makes one tap honest instead of a blank cheque.
-              const journeyPlan = goalId ? resolveJourneyPlan(actionId) : null;
+              // Resolved from the GOAL: the first directive of a journey is
+              // its navigation step, and a route action is never a journey in
+              // its own right, so resolving by action id found nothing.
+              const journeyPlan = goalId
+                ? resolveJourneyPlanForGoal(goalId)
+                : null;
               const pending = {
                 directiveId,
                 actionId,

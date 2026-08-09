@@ -191,6 +191,28 @@ export function resolveJourneyPlan(actionId: string): JourneyPlan | null {
   };
 }
 
+/**
+ * The plan for a goal, found from the goal id alone.
+ *
+ * The relay's first directive for a journey is its NAVIGATION step, so the
+ * directive arrives carrying `goal.analysis.start_debate` with an action id of
+ * `route.kai_analysis`. Resolving the plan from that action id returns nothing
+ * -- a route action is never a journey in its own right -- so the card fell
+ * back to showing one step. The goal is the thing that identifies the journey;
+ * the step is just where it currently is.
+ */
+export function resolveJourneyPlanForGoal(goalId: string): JourneyPlan | null {
+  const cleanGoalId = String(goalId || "").trim();
+  if (!cleanGoalId) return null;
+  for (const action of listKaiActions()) {
+    const journey = resolveNavigationJourney(action.action_id, action);
+    if (journey?.goalId === cleanGoalId) {
+      return resolveJourneyPlan(action.action_id);
+    }
+  }
+  return null;
+}
+
 /** The first required slot the contract declares and `slots` does not fill. */
 export function firstMissingRequiredSlot(
   action: KaiActionDefinition,
