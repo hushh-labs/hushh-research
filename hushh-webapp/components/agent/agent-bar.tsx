@@ -588,6 +588,14 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               return;
             }
             let actionRunId: string | null = null;
+            // A step covered by a journey approval never arms a confirmation
+            // card, so there is no pendingConfirmation to carry its receipt.
+            // The ledger still requires one to settle: a receipt-less success
+            // is refused as "settlement receipt required", the directive never
+            // closes, and the goal loops. The approval was real -- it was given
+            // for the whole plan up front -- so this holds the receipt minted
+            // for it without a second card.
+            let journeyGrantReceipt: string | undefined;
             const reportDirectiveSettlement = (settlement: DirectiveSettlement) => {
               if (
                 voiceLeaseRef.current?.id !== directiveLeaseId
@@ -599,7 +607,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 actionId,
                 contextRevision,
                 ...settlement,
-                receipt: pendingConfirmationRef.current?.receipt,
+                receipt: pendingConfirmationRef.current?.receipt ?? journeyGrantReceipt,
               });
               appInteractionCoordinator.settleDirective(
                 directiveLedgerSessionId,
@@ -762,6 +770,29 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             }
             void (async () => {
               try {
+                // The person approved this whole plan at the batch card, so no
+                // second card is shown -- but the ledger still needs the
+                // one-time receipt that proves this directive was authorized.
+                // Minting it here is the mechanical half of an approval that
+                // already happened, not another ask.
+                if (coveredByJourneyGrant) {
+                  const confirmation =
+                    await directiveTransport?.confirmActionDirective?.({
+                      directiveId,
+                      actionId,
+                      contextRevision,
+                    });
+                  journeyGrantReceipt = confirmation?.receipt;
+                  if (!journeyGrantReceipt) {
+                    // Nothing runs without ledger authority, approval or not.
+                    reportDirectiveSettlement({
+                      status: "failed",
+                      summary: "The approved step could not be authorized.",
+                      reason: "journey_receipt_unavailable",
+                    });
+                    return;
+                  }
+                }
                 appInteractionCoordinator.updateActionRun(actionRun.id, {
                   phase: "executing",
                 });
