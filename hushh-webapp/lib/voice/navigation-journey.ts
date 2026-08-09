@@ -120,6 +120,77 @@ export function resolveJourneySlots(
   return resolved;
 }
 
+/** One step of a journey, as it will be shown to the person for approval. */
+export type JourneyPlanStep = {
+  actionId: string;
+  label: string;
+  meaning: string;
+  /** False when this step must be approved on its own, at the moment it runs. */
+  batchable: boolean;
+};
+
+export type JourneyPlan = {
+  goalId: string;
+  destinationScreen: string;
+  steps: JourneyPlanStep[];
+  /** Action ids one approval may cover. Never includes a non-batchable step. */
+  batchableActionIds: string[];
+};
+
+/**
+ * A step may be approved in advance only when nothing about it needs the
+ * person present at the moment it runs.
+ *
+ * `confirm_required` exists precisely to make someone look at that action, so
+ * batching it would delete the consent it was created to collect.
+ * `trusted_activation_required` is not a policy choice at all: those actions
+ * open a real provider window and the browser checks for a fresh gesture, so
+ * a promise made earlier cannot satisfy it.
+ */
+function isBatchable(action: KaiActionDefinition): boolean {
+  return (
+    action.execution_policy === "allow_direct" &&
+    action.activation_policy !== "trusted_activation_required"
+  );
+}
+
+function planStep(actionId: string): JourneyPlanStep | null {
+  const action = getKaiActionById(actionId);
+  if (!action) return null;
+  return {
+    actionId,
+    label: action.label,
+    meaning: action.meaning,
+    batchable: isBatchable(action),
+  };
+}
+
+/**
+ * The full, ordered set of steps a journey will take, known before it starts.
+ *
+ * This is what makes one approval honest rather than a blank cheque: every
+ * step is enumerated from the contract up front, so the person is agreeing to
+ * a named list instead of to a window of time. A step the contract marks as
+ * needing its own confirmation stays in the plan -- so the list is complete --
+ * but is excluded from what the approval covers.
+ */
+export function resolveJourneyPlan(actionId: string): JourneyPlan | null {
+  const journey = resolveNavigationJourney(actionId);
+  if (!journey) return null;
+  const steps = [journey.navigationActionId, actionId]
+    .map(planStep)
+    .filter((step): step is JourneyPlanStep => step !== null);
+  if (steps.length === 0) return null;
+  return {
+    goalId: journey.goalId,
+    destinationScreen: journey.destinationScreen,
+    steps,
+    batchableActionIds: steps
+      .filter((step) => step.batchable)
+      .map((step) => step.actionId),
+  };
+}
+
 /** The first required slot the contract declares and `slots` does not fill. */
 export function firstMissingRequiredSlot(
   action: KaiActionDefinition,

@@ -65,7 +65,11 @@ import {
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
-import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
+import {
+  resolveJourneyPlan,
+  resolveNavigationJourney,
+  type JourneyPlan,
+} from "@/lib/voice/navigation-journey";
 import { useAccent, writeAccent } from "@/lib/theme/accent";
 import {
   nextThemePreference,
@@ -103,7 +107,15 @@ type PendingVoiceConfirmation = {
   receipt?: string;
   /** Set once the person has gone quiet on this card past the nudge window. */
   nudgedAt?: number | null;
+  /**
+   * The journey this directive opens, when it opens one. Present means the
+   * card shows the whole plan and one approval covers its batchable steps.
+   */
+  plan?: JourneyPlan | null;
 };
+
+/** How long one journey approval stays good for. */
+const JOURNEY_GRANT_TTL_MS = 120_000;
 
 function readBrowserVoiceRoute() {
   if (typeof window === "undefined") return undefined;
@@ -273,6 +285,22 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // site so a stale checkbox state can never leak into the next card.
   const [voiceConsentChecked, setVoiceConsentCheckedState] = useState(false);
   const [voiceConsentRequesting, setVoiceConsentRequesting] = useState(false);
+  // A journey's steps are all known before it starts, so the person approves
+  // the named list once instead of tapping through it a step at a time. The
+  // grant covers exactly those action ids under exactly that goal run: it is
+  // an enumerated authorization, not a window during which anything may run.
+  // Held in a ref because the directive handler below reads it inside async
+  // closures that would otherwise see whatever it was when they started.
+  const journeyGrantRef = useRef<{
+    goalId: string;
+    actionIds: string[];
+    expiresAt: number;
+  } | null>(null);
+  const clearJourneyGrant = useCallback((reason: string) => {
+    if (!journeyGrantRef.current) return;
+    console.info("[AgentBar] Journey approval cleared:", reason);
+    journeyGrantRef.current = null;
+  }, []);
   // Mirrors voiceConsentChecked for reads inside the confirmActionDirective
   // .then()/.catch() closures below, which otherwise close over a stale
   // value from whenever the request started rather than the live checkbox.
@@ -447,6 +475,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       }
       if (event.type === "error") {
         actionAbortControllerRef.current?.abort();
+        clearJourneyGrant("transport_error");
         abandonPendingConfirmation(
           "transport_error",
           "The confirmation was cancelled because the voice session hit an error.",
@@ -466,6 +495,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       }
       if (event.type === "transcript_final") {
         actionAbortControllerRef.current?.abort();
+        // A fresh request supersedes the plan the person approved for the last
+        // one. Approval was for a named list, not for whatever One does next.
+        clearJourneyGrant("new_user_intent");
         // Mirror the user's transcript into the conversation session. One's
         // agent tree decides everything server-side; there is no client-side
         // planner to feed here.
@@ -659,13 +691,32 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 return;
               }
             }
-            if (needsConfirmation) {
+            // A step the person already approved as part of this journey's
+            // plan runs without asking again. The grant names the goal AND the
+            // action, so a directive that drifts to a different goal or a step
+            // outside the approved list still gets its own card.
+            const grant = journeyGrantRef.current;
+            const coveredByJourneyGrant = Boolean(
+              grant &&
+                goalId &&
+                grant.goalId === goalId &&
+                grant.actionIds.includes(actionId) &&
+                Date.now() < grant.expiresAt,
+            );
+            if (grant && Date.now() >= grant.expiresAt) {
+              clearJourneyGrant("expired");
+            }
+            if (needsConfirmation && !coveredByJourneyGrant) {
               // Keep sensitive arguments transient in component memory. The
               // confirmation card never renders slots (including OTP values).
               abandonPendingConfirmation(
                 "confirmation_superseded",
                 "A newer confirmation replaced the pending action.",
               );
+              // When this directive opens an authored journey, show the whole
+              // plan rather than its first step. Approving a named list is
+              // what makes one tap honest instead of a blank cheque.
+              const journeyPlan = goalId ? resolveJourneyPlan(actionId) : null;
               const pending = {
                 directiveId,
                 actionId,
@@ -676,6 +727,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 actionRunId: actionRun.id,
                 transport: directiveTransport,
                 contextRevision,
+                plan:
+                  journeyPlan && journeyPlan.goalId === goalId
+                    ? journeyPlan
+                    : null,
               };
               pendingConfirmationRef.current = pending;
               setPendingConfirmation(pending);
@@ -853,6 +908,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       if (event.type === "closed") {
         actionAbortControllerRef.current?.abort();
         clearVoiceIdleTimer();
+        clearJourneyGrant("session_closed");
         abandonPendingConfirmation(
           "session_closed",
           "The confirmation was cancelled when the voice session closed.",
@@ -869,6 +925,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       agentPopover,
       abandonPendingConfirmation,
       appendMirrorEvent,
+      clearJourneyGrant,
       setVoiceConsentChecked,
       busyOperations,
       clearPendingConfirmationNudgeTimer,
@@ -972,6 +1029,16 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       pendingConfirmationRef.current = null;
       clearPendingConfirmationNudgeTimer();
       setPendingConfirmation(null);
+      // Approving a plan authorizes its remaining batchable steps, so the
+      // person is not asked again for work they just agreed to. Only on a
+      // real approval, and only for the ids the plan enumerated.
+      if (confirmed && pending.plan?.batchableActionIds.length) {
+        journeyGrantRef.current = {
+          goalId: pending.plan.goalId,
+          actionIds: pending.plan.batchableActionIds,
+          expiresAt: Date.now() + JOURNEY_GRANT_TTL_MS,
+        };
+      }
       const reportPendingSettlement = (settlement: DirectiveSettlement) => {
         if (voiceLeaseRef.current?.id !== pending.leaseId) return;
         pending.transport?.reportActionSettlement?.({
@@ -1556,6 +1623,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const pendingAction = pendingConfirmation
     ? getKaiActionById(pendingConfirmation.actionId)
     : null;
+  const pendingConfirmationPlanSteps = pendingConfirmation?.plan?.steps ?? [];
   const pendingActionNeedsTrustedActivation =
     pendingAction?.activation_policy === "trusted_activation_required";
   const pendingActionLabel = pendingAction?.label || "Continue this action";
@@ -1798,8 +1866,34 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
             {pendingActionNeedsTrustedActivation
               ? "This tap opens the provider window and keeps One active here."
-              : "Sensitive values stay hidden. Allow access to run this."}
+              : pendingConfirmationPlanSteps.length > 1
+                ? "Sensitive values stay hidden. Allow access to run these steps."
+                : "Sensitive values stay hidden. Allow access to run this."}
           </p>
+          {/* Every step is named before anything runs, so one approval is a
+              list the person can read rather than an open-ended permission. */}
+          {pendingConfirmationPlanSteps.length > 1 ? (
+            <ol className="mt-3 flex flex-col gap-1.5">
+              {pendingConfirmationPlanSteps.map((step, index) => (
+                <li
+                  key={step.actionId}
+                  className="flex items-baseline gap-2 text-[13px] leading-relaxed"
+                >
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {index + 1}.
+                  </span>
+                  <span>
+                    {step.label}
+                    {step.batchable ? null : (
+                      <span className="ml-1.5 text-[12px] font-medium text-muted-foreground">
+                        (asks you again)
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : null}
           {!pendingActionNeedsTrustedActivation ? (
             <label className="mt-3 flex items-center gap-2.5 text-[13px] font-medium">
               <input

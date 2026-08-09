@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { getKaiActionById, listKaiActions } from "@/lib/voice/kai-action-gateway";
 import {
   firstMissingRequiredSlot,
+  resolveJourneyPlan,
   resolveJourneySlots,
   resolveNavigationJourney,
 } from "@/lib/voice/navigation-journey";
@@ -62,5 +63,61 @@ describe("navigation journeys", () => {
     });
     // pickSource declares a default, so it is never treated as missing.
     expect(firstMissingRequiredSlot(action!, { symbol: "NVDA" })).toBeNull();
+  });
+});
+
+/**
+ * Batch approval: a journey's steps are all known before it starts, so the
+ * person approves a named list once instead of tapping through it step by
+ * step. What the approval may cover is the part that has to stay honest.
+ */
+describe("journey approval plans", () => {
+  it("enumerates every step before anything runs", () => {
+    const plan = resolveJourneyPlan("analysis.start");
+
+    expect(plan).toBeTruthy();
+    expect(plan!.goalId).toBe("goal.analysis.start_debate");
+    expect(plan!.steps.map((step) => step.actionId)).toEqual([
+      "route.kai_analysis",
+      "analysis.start",
+    ]);
+    // Shown as labels, because a list nobody can read is worse security with
+    // better ergonomics.
+    expect(plan!.steps.every((step) => step.label.length > 0)).toBe(true);
+  });
+
+  it("covers only the steps that can honestly be approved in advance", () => {
+    const plan = resolveJourneyPlan("analysis.start");
+
+    expect(plan!.batchableActionIds).toEqual([
+      "route.kai_analysis",
+      "analysis.start",
+    ]);
+  });
+
+  it("never pre-approves an action that needs its own confirmation", () => {
+    // confirm_required exists to make someone look at that action, and
+    // trusted_activation_required needs a real gesture at the moment it runs.
+    // Neither can be satisfied by a promise made earlier.
+    const risky = listKaiActions().filter(
+      (action) =>
+        action.execution_policy !== "allow_direct" ||
+        action.activation_policy === "trusted_activation_required",
+    );
+    expect(risky.length).toBeGreaterThan(0);
+
+    const preApproved = new Set(
+      listKaiActions()
+        .flatMap((action) => resolveJourneyPlan(action.action_id)?.batchableActionIds ?? []),
+    );
+
+    risky.forEach((action) => {
+      expect(preApproved.has(action.action_id)).toBe(false);
+    });
+  });
+
+  it("has no plan for an action that is not a journey", () => {
+    expect(resolveJourneyPlan("route.kai_analysis")).toBeNull();
+    expect(resolveJourneyPlan("analysis.confirm_preview")).toBeNull();
   });
 });
