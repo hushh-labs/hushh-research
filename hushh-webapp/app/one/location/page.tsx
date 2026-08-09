@@ -149,6 +149,12 @@ import {
 } from "@/lib/one-location/notifications";
 import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
+import {
+  LOCATION_BLOCK_MESSAGE,
+  isLocationPermissionDeniedError,
+  locationBlockReason,
+  locationReadiness as resolveLocationReadiness,
+} from "@/lib/one-location/location-readiness";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   syncOneLocationContactSignals,
@@ -1419,15 +1425,19 @@ function isLocationServicesDisabled(
   return permission?.locationServicesEnabled === false;
 }
 
+/**
+ * Refuse a share only when no attempt could succeed.
+ *
+ * `denied` used to appear here, which meant a permission value we merely read
+ * could veto a share the device would have allowed — and on Safari, where the
+ * value is unreadable and arrived as `unavailable`, it vetoed every share on a
+ * perfectly working phone. The share paths now attempt and let a real denial
+ * stop them, so this only guards what genuinely cannot be attempted.
+ */
 function locationPermissionBlocksSharing(
   permission: HushhLocationPermissionState | null,
 ): boolean {
-  return (
-    isLocationServicesDisabled(permission) ||
-    permission?.state === "denied" ||
-    permission?.state === "restricted" ||
-    permission?.state === "unavailable"
-  );
+  return locationBlockReason(permission) !== null;
 }
 
 function locationServicesErrorMessage(error: unknown): string {
@@ -1752,6 +1762,12 @@ export function OneLocationAgentPageContent({
   }, [auth.userId]);
   const [permission, setPermission] =
     useState<HushhLocationPermissionState | null>(null);
+  // Set only by a capture attempt that came back with a real PERMISSION_DENIED.
+  // A denial we observed is trustworthy in a way a queried one is not, so this
+  // — not the permission API — is what lets the UI say "blocked" and route the
+  // user to settings. Cleared the moment any capture succeeds.
+  const observedLocationDenialRef = useRef(false);
+  const [locationDenialObserved, setLocationDenialObserved] = useState(false);
   useEffect(() => {
     onSetupReadinessChange?.(
       permission?.state === "granted" &&
@@ -2663,11 +2679,16 @@ export function OneLocationAgentPageContent({
   );
 
   const refreshLocationPermission = useCallback(async () => {
+    // A failed read means we do not know, which is a reason to ask the device
+    // rather than to declare it unusable. Reporting `unavailable` here used to
+    // block every share path and pin the toggle off whenever the platform could
+    // not introspect its own permission — which is every iPhone, since WebKit
+    // has no `geolocation` entry in the Permissions API.
     const nextPermission = await OneLocationService.getPermissionState().catch(
       () => ({
-        state: "unavailable" as const,
-        precise: false,
-        background: "unavailable" as const,
+        state: "prompt" as const,
+        precise: null,
+        background: "foreground-only" as const,
         locationServicesEnabled: null,
       }),
     );
@@ -2704,11 +2725,20 @@ export function OneLocationAgentPageContent({
     }): Promise<{ ready: boolean; point?: PlainLocationPoint }> => {
       const shouldCapturePoint = Boolean(options?.capturePoint);
       const shouldOpenSettings = options?.autoOpenSettings !== false;
-      const shouldRequestNativePrompt = options?.requestNativePrompt === true;
       const currentPermission = await refreshLocationPermission();
 
-      if (isLocationServicesDisabled(currentPermission)) {
-        toast.error("Turn on phone Location before sharing.");
+      // Only two things stop us before we have tried, and neither can be fixed
+      // by asking: the OS location service is off, or the platform forbids the
+      // prompt outright (iOS `restricted`, or no geolocation at all).
+      //
+      // A read-back "denied" is deliberately NOT one of them. Refusing on it is
+      // what made this unrecoverable: on the web the browser's prompt appears
+      // only from `getCurrentPosition()`, so returning early guarantees the user
+      // is never asked, and a stale or unreadable value traps them for good. We
+      // attempt, and let a real PERMISSION_DENIED be the thing that blocks.
+      const blockReason = locationBlockReason(currentPermission);
+      if (blockReason) {
+        toast.error(LOCATION_BLOCK_MESSAGE[blockReason]);
         if (shouldOpenSettings) {
           await OneLocationService.openLocationSettings().catch(() => null);
         }
@@ -2716,32 +2746,19 @@ export function OneLocationAgentPageContent({
       }
 
       if (
-        currentPermission.state === "restricted" ||
-        (currentPermission.state === "denied" && !shouldRequestNativePrompt)
+        currentPermission.state === "granted" &&
+        !shouldCapturePoint &&
+        !observedLocationDenialRef.current
       ) {
-        toast.error("Allow location permission before sharing.");
-        if (shouldOpenSettings) {
-          await OneLocationService.openLocationSettings().catch(() => null);
-        }
-        return { ready: false };
-      }
-
-      if (currentPermission.state === "unavailable") {
-        toast.error(
-          "Location is unavailable. Check your phone Location settings.",
-        );
-        if (shouldOpenSettings) {
-          await OneLocationService.openLocationSettings().catch(() => null);
-        }
-        return { ready: false };
-      }
-
-      if (currentPermission.state === "granted" && !shouldCapturePoint) {
         return { ready: true };
       }
 
       try {
         const point = await OneLocationService.captureCurrentPosition();
+        // A coordinate in hand outranks anything the permission API says. This
+        // is what keeps Safari honest, where the value is simply unreadable.
+        observedLocationDenialRef.current = false;
+        setLocationDenialObserved(false);
         const nextPermission =
           await OneLocationService.getPermissionState().catch(() => null);
         setPermission(
@@ -2762,11 +2779,17 @@ export function OneLocationAgentPageContent({
         if (nextPermission) {
           setPermission(nextPermission);
         }
+        // Only an attempt can prove a denial. Record it so the UI can say
+        // "blocked" and offer settings, instead of guessing from a query.
+        const denied = isLocationPermissionDeniedError(error);
+        observedLocationDenialRef.current = denied;
+        setLocationDenialObserved(denied);
         const message = locationServicesErrorMessage(error);
         toast.error(message);
         if (
           shouldOpenSettings &&
-          (isLocationServicesDisabled(nextPermission) ||
+          (denied ||
+            isLocationServicesDisabled(nextPermission) ||
             message.toLowerCase().includes("turn on location"))
         ) {
           await OneLocationService.openLocationSettings().catch(() => null);
@@ -7178,9 +7201,23 @@ export function OneLocationAgentPageContent({
 
   useEffect(() => {
     const refreshIfPending = () => {
-      if (!locationOnboardingRetryOnResumeRef.current) return;
+      // Permission is changed outside the app — iOS Settings, Safari's site
+      // settings, the Android permission sheet — so coming back is exactly when
+      // our copy of it is most likely to be wrong. This used to re-read only
+      // when onboarding had armed a retry flag, which left everyone else
+      // looking at a stale verdict until a full reload.
+      const hadPendingRetry = locationOnboardingRetryOnResumeRef.current;
       locationOnboardingRetryOnResumeRef.current = false;
-      void refreshLocationPermission();
+      void refreshLocationPermission().then((next) => {
+        // Returning with permission actually granted clears an old observed
+        // denial, so the UI stops claiming "blocked" the moment it stops being
+        // true.
+        if (next?.state === "granted") {
+          observedLocationDenialRef.current = false;
+          setLocationDenialObserved(false);
+        }
+      });
+      return hadPendingRetry;
     };
     const refreshWhenVisible = () => {
       if (document.visibilityState === "hidden") return;
@@ -7427,6 +7464,12 @@ export function OneLocationAgentPageContent({
     },
     permissionIsPrompt: permission?.state === "prompt",
     locationEnabled,
+    locationBlocked:
+      resolveLocationReadiness({
+        permission,
+        hasFix: Boolean(myLocationPoint),
+        observedDenial: locationDenialObserved,
+      }) === "blocked",
     autoShareEnabled: locationControl.autoShareEnabled,
     locationPaused: locationControl.paused,
     locationAccuracyLimited,
