@@ -110,8 +110,16 @@ def sanitize_route_playbook(route_entry: Any) -> dict[str, Any] | None:
     }
 
 
-def compose_route_context_note(context: dict[str, Any]) -> str | None:
-    """Build one bounded model note from server-resolved route intelligence."""
+def compose_route_context_note(
+    context: dict[str, Any], *, is_route_entry: bool = True
+) -> str | None:
+    """Build one bounded model note from server-resolved route intelligence.
+
+    ``is_route_entry`` separates arriving on a screen from the content
+    changing on the screen the person is already standing on. Both refresh
+    the action inventory; only an arrival may spend the playbook's on-entry
+    cue, or One narrates a navigation that never happened.
+    """
     playbook = context.get("route_playbook")
     if not isinstance(playbook, dict):
         return None
@@ -128,7 +136,7 @@ def compose_route_context_note(context: dict[str, Any]) -> str | None:
     layer_id = (
         str(interaction_layer.get("layer_id") or "") if isinstance(interaction_layer, dict) else ""
     )
-    proactive = playbook.get("proactivity") == "on_entry"
+    proactive = playbook.get("proactivity") == "on_entry" and is_route_entry
     return (
         "[App route context - not user speech] This note SUPERSEDES any action "
         "inventory from earlier notes or your initial instructions. The verified "

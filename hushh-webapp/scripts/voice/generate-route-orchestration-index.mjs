@@ -293,10 +293,21 @@ for (const [declared, screen] of variantScreens) {
   const mergedActionIds = [
     ...new Set([...(base.action_ids || []), ...((screenEntry || {}).action_ids || [])]),
   ].sort();
+  // The playbook is the spoken layer: purpose, entry cue, preferred action.
+  // Inheriting the base page's verbatim described the wrong screen -- the
+  // Analysis tab carried Finance's "choose the active finance view" cue, so
+  // One read it out as a navigation every time the note refired. Prefer the
+  // playbook authored for the screen actually being rendered, and pin its
+  // `screen` either way so it can never disagree with canonical_screen.
+  const variantPlaybook = {
+    ...((screenEntry || {}).voice_playbook || base.voice_playbook),
+    screen,
+  };
   routeVariants.push({
     ...base,
     route_pattern: declared,
     canonical_screen: screen,
+    voice_playbook: variantPlaybook,
     action_ids: mergedActionIds,
   });
 }

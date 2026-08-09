@@ -492,6 +492,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     # screen truly changed (never for the first frame; session state already
     # carries it for tools).
     last_injected_route_key: Optional[str] = None
+    last_injected_entry_key: Optional[str] = None
     first_app_context_seen = False
     # Action outcomes are accepted only when they match a directive forwarded
     # on this same authenticated WebSocket. This keeps arbitrary browser
@@ -573,7 +574,8 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 gc_task.cancel()
 
     async def pump_browser_to_queue() -> None:
-        nonlocal last_injected_route_key, first_app_context_seen, latest_context
+        nonlocal last_injected_route_key, last_injected_entry_key
+        nonlocal first_app_context_seen, latest_context
         while True:
             raw = await websocket.receive_text()
             if not _browser_frame_within_bounds(raw):
@@ -697,6 +699,21 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     )
                     changed = route_key != last_injected_route_key
                     last_injected_route_key = route_key
+                    # Arriving somewhere new is a different event from the
+                    # content changing where the person already is. Both
+                    # refresh One's inventory, but only the former is an
+                    # entry: without this split, opening a preview on the
+                    # current screen re-fired the route's on-entry cue and
+                    # One announced a screen change that never happened.
+                    entry_key = ":".join(
+                        [
+                            str(sanitized_context.get("route_pattern") or ""),
+                            clean_screen,
+                            str(sanitized_context.get("route_instruction_id") or ""),
+                        ]
+                    )
+                    route_entered = entry_key != last_injected_entry_key
+                    last_injected_entry_key = entry_key
                     journey_waiting_for_settlement = any(
                         isinstance(run, dict)
                         and run.get("schema_version") == "one.settled_action_journey.v1"
@@ -709,7 +726,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     # not settled yet. The correlated settlement below is the
                     # only event allowed to make its next choice eligible.
                     if changed and not is_first and not journey_waiting_for_settlement:
-                        note_text = _compose_route_context_note(sanitized_context)
+                        note_text = _compose_route_context_note(
+                            sanitized_context, is_route_entry=route_entered
+                        )
                         if note_text:
                             queue.send_content(
                                 genai_types.Content(

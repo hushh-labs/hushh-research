@@ -332,6 +332,37 @@ def test_route_note_surfaces_visible_content_for_active_screen_awareness():
     assert "watchlist" in note
 
 
+def _proactive_context():
+    context = _sanitize_live_context(
+        {"route_family": "/", "available_action_ids": ["onboarding.claim_one"]}
+    )
+    playbook = dict(context.get("route_playbook") or {})
+    playbook.update({"proactivity": "on_entry", "entry_cue": "Pick a finance view."})
+    context["route_playbook"] = playbook
+    return context
+
+
+def test_route_note_spends_the_entry_cue_when_the_person_actually_arrives():
+    note = _compose_route_context_note(_proactive_context(), is_route_entry=True)
+
+    assert note is not None
+    assert "orient once with this intent" in note
+    assert "Pick a finance view." in note
+
+
+def test_route_note_stays_silent_when_only_content_changed_on_the_same_screen():
+    # Opening a preview on the current screen refreshes the inventory but is
+    # not an arrival. Spending the on-entry cue here made One announce a
+    # navigation that never happened.
+    note = _compose_route_context_note(_proactive_context(), is_route_entry=False)
+
+    assert note is not None
+    assert "orient once with this intent" not in note
+    assert "Use this context silently until the person speaks." in note
+    # The refreshed inventory still reaches One; only the spoken cue is held.
+    assert "onboarding.claim_one" in note
+
+
 def test_action_settlement_requires_matching_issued_directive_and_can_retry_after_invalid():
     issued = {"directive-1": "analysis.start"}
 
