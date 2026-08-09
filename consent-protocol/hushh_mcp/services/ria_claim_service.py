@@ -519,6 +519,86 @@ def derive_business_location(reference_metadata: dict[str, Any]) -> dict[str, st
     return _location_from_address(street1="", city="", zip_code="")
 
 
+def public_place_queries(reference_metadata: dict[str, Any]) -> list[tuple[str, str]]:
+    """Free-text lookups for the adviser's PUBLIC office, best first.
+
+    IAPD publishes plenty of records with a city and state but a null street
+    and null zip, which leaves the profile's LOCATION block reading "Not
+    provided" and gives the map nothing to place. These queries recover the
+    rest from the city and state that ARE filed — the firm's own business
+    listing first (an exact address), then the city.
+
+    The privacy rule from :func:`derive_business_location` holds unchanged: a
+    branch the SEC flagged as a private residence is somebody's home and is
+    never a lookup source, at any precision. Returns ``(query, source)`` pairs.
+    """
+    metadata = reference_metadata if isinstance(reference_metadata, dict) else {}
+    firm_raw = metadata.get("firm_record")
+    firm = firm_raw if isinstance(firm_raw, dict) else {}
+    advisor_raw = metadata.get("advisor_record")
+    advisor = advisor_raw if isinstance(advisor_raw, dict) else {}
+    branch_raw = advisor.get("branch")
+    branch = branch_raw if isinstance(branch_raw, dict) else {}
+
+    def _text(value: Any) -> str:
+        return str(value or "").strip()
+
+    def _join(*parts: str) -> str:
+        return ", ".join(part for part in parts if part)
+
+    queries: list[tuple[str, str]] = []
+    firm_city, firm_state = _text(firm.get("city")), _text(firm.get("state"))
+    firm_name = _text(firm.get("name"))
+    if firm_name and firm_city:
+        queries.append((_join(firm_name, firm_city, firm_state), "firm_place"))
+    if firm_city:
+        queries.append((_join(firm_city, firm_state, "USA"), "firm_city"))
+    if branch and not branch.get("private_residence") and _text(branch.get("city")):
+        queries.append(
+            (_join(_text(branch.get("city")), _text(branch.get("state")), "USA"), "branch_city")
+        )
+    return queries
+
+
+async def enrich_business_location(
+    location: dict[str, str], reference_metadata: dict[str, Any]
+) -> dict[str, Any]:
+    """Fill a blank zip and the map's coordinates from the public listing.
+
+    ``derive_business_location`` can only return what the SEC filed, and for a
+    record with a null street and null zip that leaves PIN / ZIP reading "Not
+    provided" and the map with nothing but a bare city name to geocode. This
+    adds what :func:`public_place_queries` can recover, and nothing else: the
+    filed values are never overwritten, and a lookup failure simply leaves the
+    blanks blank.
+    """
+    resolved: dict[str, Any] = dict(location)
+    resolved.setdefault("latitude", None)
+    resolved.setdefault("longitude", None)
+    if str(resolved.get("pin_zip") or "").strip() and resolved.get("latitude") is not None:
+        return resolved
+
+    from hushh_mcp.services.google_maps_service import GoogleMapsService
+
+    service = GoogleMapsService()
+    for query, source in public_place_queries(reference_metadata):
+        try:
+            place = await service.resolve_place(query=query)
+        except Exception:  # noqa: BLE001 - enrichment never fails a claim
+            logger.info("ria.claim_place_lookup_failed", exc_info=True)
+            continue
+        postal = str(place.get("postal_code") or "").strip()
+        if not str(resolved.get("pin_zip") or "").strip() and postal:
+            resolved["pin_zip"] = postal
+        if resolved.get("latitude") is None and place.get("latitude") is not None:
+            resolved["latitude"] = place.get("latitude")
+            resolved["longitude"] = place.get("longitude")
+        if str(resolved.get("pin_zip") or "").strip() and resolved.get("latitude") is not None:
+            logger.info("ria.claim_place_resolved source=%s", source)
+            break
+    return resolved
+
+
 def _shape_candidate(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "individual_crd": raw.get("individualCrd"),
@@ -797,7 +877,9 @@ class RIAClaimService:
             reference_metadata=reference_metadata,
             # The claimed profile's LOCATION section, filled from the same
             # snapshot rather than left blank for the adviser to retype.
-            business_location=derive_business_location(reference_metadata),
+            business_location=await enrich_business_location(
+                derive_business_location(reference_metadata), reference_metadata
+            ),
             # Regulator facts, straight from the public record.
             regulator="SEC" if firm.get("registration_type") == "sec" else "State",
             regulator_status=firm.get("registration_status"),
@@ -1118,7 +1200,9 @@ class RIAClaimService:
             firm_website=firm.get("website"),
             firm_sec_number=firm.get("sec_number"),
             reference_metadata=reference_metadata,
-            business_location=derive_business_location(reference_metadata),
+            business_location=await enrich_business_location(
+                derive_business_location(reference_metadata), reference_metadata
+            ),
             regulator="SEC" if firm.get("registration_type") == "sec" else "State",
             regulator_status=firm.get("registration_status"),
             disclosures_url=(advisor_record.get("report_url") or firm.get("report_url")),

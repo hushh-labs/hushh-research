@@ -171,6 +171,8 @@ export interface RiaOnboardingStatus {
   business_pin_zip?: string | null;
   business_latitude?: number | null;
   business_longitude?: number | null;
+  /** ISO country of the office, so a bare city name is not globally ambiguous. */
+  business_country_code?: string | null;
   /**
    * Where the shown address came from: "profile" when the adviser entered it,
    * "sec_record" when any shown value was derived from their claimed SEC

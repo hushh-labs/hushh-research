@@ -378,18 +378,19 @@ def _check_in_place_identity(
 
 
 class GoogleMapsService:
-    async def resolve_postal_code(self, *, query: str) -> str:
-        """Best-effort postal code for a free-text place ("FIRM, CITY, STATE").
+    async def resolve_place(self, *, query: str) -> dict[str, Any]:
+        """Postal code and coordinates for a free-text place ("FIRM, CITY, ST").
 
         Text Search (New), not Geocoding: the Geocoding API is not enabled for
         this key, and Places already is — the same reason ``reverse_geocode``
         falls back to a nearby place. Enrichment only, so every failure path
-        (no key, transport, upstream error, no postal component) returns "" and
+        (no key, transport, upstream error, no match) returns empty values and
         never raises into the caller.
         """
+        empty: dict[str, Any] = {"postal_code": "", "latitude": None, "longitude": None}
         text = str(query or "").strip()
         if not text or not GOOGLE_MAPS_API_KEY:
-            return ""
+            return empty
         try:
             async with _async_client() as client:
                 response = await client.post(
@@ -397,23 +398,36 @@ class GoogleMapsService:
                     headers={
                         "Content-Type": "application/json",
                         "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
-                        "X-Goog-FieldMask": "places.addressComponents",
+                        "X-Goog-FieldMask": "places.addressComponents,places.location",
                     },
                     json={"textQuery": text, "maxResultCount": 1},
                 )
         except httpx.HTTPError as exc:
-            logger.info("maps.resolve_postal_code transport %s", type(exc).__name__)
-            return ""
+            logger.info("maps.resolve_place transport %s", type(exc).__name__)
+            return empty
         if response.status_code >= 400:
-            logger.info("maps.resolve_postal_code upstream %s", response.status_code)
-            return ""
+            logger.info("maps.resolve_place upstream %s", response.status_code)
+            return empty
         try:
             places = response.json().get("places") or []
         except ValueError:
-            return ""
+            return empty
         if not places or not isinstance(places[0], dict):
-            return ""
-        return _postal_code_from_components(places[0].get("addressComponents"))
+            return empty
+        place = places[0]
+        location = place.get("location")
+        location = location if isinstance(location, dict) else {}
+        latitude = location.get("latitude")
+        longitude = location.get("longitude")
+        return {
+            "postal_code": _postal_code_from_components(place.get("addressComponents")),
+            "latitude": float(latitude) if isinstance(latitude, int | float) else None,
+            "longitude": float(longitude) if isinstance(longitude, int | float) else None,
+        }
+
+    async def resolve_postal_code(self, *, query: str) -> str:
+        """Just the postal code — see :meth:`resolve_place`."""
+        return str((await self.resolve_place(query=query)).get("postal_code") or "")
 
     async def _nearest_place_address(
         self,
