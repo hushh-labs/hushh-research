@@ -8,11 +8,22 @@ export function EmergencySmsNotificationToast({
   title,
   description,
   onOpen,
+  address,
+  addressLoading,
+  coordinatesFallback,
 }: {
   title: string;
   description: string;
   onOpen: () => void;
+  /** Reverse-geocoded last-known address of the sender, if resolved. */
+  address?: string | null;
+  /** True while the last-known address is being resolved. */
+  addressLoading?: boolean;
+  /** "lat, lng" shown when no street address is available. */
+  coordinatesFallback?: string;
 }) {
+  const hasLocationLine = Boolean(address || addressLoading || coordinatesFallback);
+
   return (
     <div
       role="alert"
@@ -42,6 +53,31 @@ export function EmergencySmsNotificationToast({
           </p>
         </div>
       </div>
+
+      {/* Last-known location of the sender. Falls back to "Locating…" while a
+          reverse-geocode is pending and to raw coordinates when no street
+          address is available, so the card never depends on the lookup. */}
+      {hasLocationLine ? (
+        <div className="flex items-start gap-1.5 text-white/90">
+          <Icon
+            icon={MapPin}
+            size="sm"
+            className="mt-0.5 shrink-0 text-white/90"
+            aria-hidden="true"
+          />
+          <span className="sr-only">Last known location: </span>
+          {addressLoading && !address ? (
+            <span
+              className="mt-0.5 h-3.5 w-40 max-w-full animate-pulse rounded bg-white/25"
+              aria-hidden="true"
+            />
+          ) : (
+            <p className="min-w-0 break-words text-[13px] leading-5 text-white/90">
+              {address ?? coordinatesFallback}
+            </p>
+          )}
+        </div>
+      ) : null}
 
       <button
         type="button"
