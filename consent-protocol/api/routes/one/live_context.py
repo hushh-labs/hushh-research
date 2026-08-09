@@ -148,6 +148,13 @@ def compose_route_context_note(
         "and run the exact returned id before any identity or greeting response. "
         f"The currently visible generated action ids are: "
         f"{action_inventory or 'none on this screen (cross-screen navigation actions remain available)'}. "
+        # Capability honesty. Without a sanctioned way to say "I cannot do that
+        # yet", the model reissued the same directive until the person gave up,
+        # or narrated an outcome that nothing had actually performed.
+        "If no listed action covers what the person asks for, say plainly that "
+        "you cannot do that here yet and name what you can do instead. Do not "
+        "reissue a directive that has not settled, and never imply an "
+        "unavailable capability succeeded. "
         f"The content currently visible to the person is: {module_inventory or 'not reported'}. "
         + (
             f"The person is looking at: {context.get('spoken_subject')}. "
