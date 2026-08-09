@@ -47,6 +47,15 @@ const CONNECT_TABS = [
   { value: "nearby", label: "Around you" },
 ];
 
+/**
+ * How many people the unsearched People tab offers.
+ *
+ * Deliberately about a screen's worth. It exists so someone who has just joined
+ * and knows nobody's exact name is not staring at an empty surface — not so
+ * they can browse the register, which is the thing that stops scaling.
+ */
+const SUGGESTED_PEOPLE_LIMIT = 8;
+
 export default function ConnectPageClient() {
   const { user } = useRequireAuth();
   const router = useRouter();
@@ -130,6 +139,16 @@ export default function ConnectPageClient() {
     void loadOutgoingRequestIds();
   }, [loadOutgoingRequestIds]);
 
+  // The directory is every account on Hussh, so listing all of it unprompted
+  // stops being useful as soon as sign-ups outgrow a screen or two: the person
+  // you came to connect with is buried among strangers, and paging through them
+  // is the tedious part. Unsearched, this surface therefore shows a short
+  // suggested sample and nothing more — enough that someone who does not yet
+  // know a name has somewhere to start, small enough that it is never the thing
+  // you have to scroll past. Naming a name is what opens the full directory.
+  const trimmedQuery = debouncedQuery.trim();
+  const hasQuery = trimmedQuery.length > 0;
+
   useEffect(() => {
     let cancelled = false;
     async function run() {
@@ -142,13 +161,27 @@ export default function ConnectPageClient() {
         const idToken = await user.getIdToken();
         const page = await ConnectionsService.searchDirectory({
           idToken,
-          query: debouncedQuery,
+          query: trimmedQuery,
           page: 1,
+          ...(hasQuery ? {} : { limit: SUGGESTED_PEOPLE_LIMIT }),
         });
         if (!cancelled) {
           setPeople(page.items);
-          setHasMore(page.hasMore);
+          // A sample is not a directory: never offer to page deeper into it,
+          // whatever the server reports about what else it holds.
+          setHasMore(hasQuery ? page.hasMore : false);
           setCurrentPage(page.page);
+          // Selections are counted on the "Connect to Selected (N)" button, so
+          // drop any that this result set no longer shows — an N the reader
+          // cannot see is a promise the surface can't account for.
+          setSelectedUserIds((current) => {
+            if (current.size === 0) return current;
+            const visible = new Set(page.items.map((person) => person.userId));
+            const next = new Set(
+              [...current].filter((userId) => visible.has(userId)),
+            );
+            return next.size === current.size ? current : next;
+          });
         }
       } catch (loadError) {
         if (!cancelled)
@@ -165,16 +198,16 @@ export default function ConnectPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [user, debouncedQuery]);
+  }, [user, hasQuery, trimmedQuery]);
 
   const loadMorePeople = useCallback(async () => {
-    if (!user || loadingMore || !hasMore) return;
+    if (!user || loadingMore || !hasMore || !hasQuery) return;
     try {
       setLoadingMore(true);
       const idToken = await user.getIdToken();
       const page = await ConnectionsService.searchDirectory({
         idToken,
-        query: debouncedQuery,
+        query: trimmedQuery,
         page: currentPage + 1,
       });
       setPeople((current) => {
@@ -193,7 +226,7 @@ export default function ConnectPageClient() {
     } finally {
       setLoadingMore(false);
     }
-  }, [currentPage, debouncedQuery, hasMore, loadingMore, user]);
+  }, [currentPage, trimmedQuery, hasQuery, hasMore, loadingMore, user]);
 
   const sendConnectionRequest = useCallback(
     async (
@@ -662,8 +695,12 @@ export default function ConnectPageClient() {
                 )}
               </div>
               <SettingsGroup
-                title="People"
-                description="Find people on Hussh and send a connection request."
+                title={hasQuery ? "People" : "Suggested"}
+                description={
+                  hasQuery
+                    ? "Send a connection request to someone you know."
+                    : "A few people on Hussh. Search by name to find someone specific."
+                }
                 separatorInset
               >
                 {loading ? (
@@ -680,11 +717,21 @@ export default function ConnectPageClient() {
                     tone="destructive"
                   />
                 ) : people.length === 0 ? (
-                  <SettingsRow
-                    title="No people found"
-                    density="compact"
-                    disabled
-                  />
+                  hasQuery ? (
+                    <SettingsRow
+                      title={`No one matches "${trimmedQuery}"`}
+                      description="Check the spelling, or try their full name."
+                      density="compact"
+                      disabled
+                    />
+                  ) : (
+                    <SettingsRow
+                      title="No one to suggest yet"
+                      description="Search by name to find someone on Hussh."
+                      density="compact"
+                      disabled
+                    />
+                  )
                 ) : (
                   people.map((person) => {
                     const cta = relationshipCta(person.relationship);
