@@ -3898,8 +3898,12 @@
         "shared_loader": true,
         "back_button_pattern": "route-local-check-required"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/location/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "location.open_activity",
+        "location.open_compose",
+        "location.refresh"
+      ],
       "api_dependencies": [
         {
           "service_file": "lib/one-location/service.ts",
@@ -8096,5 +8100,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "e9349af4b2a9447e0b87cb0162d6c37634e3ae0c91a4fe3c5f422db819acaf70"
+  "content_sha256": "68186d0a8b8da194f16659c12b0801a6a8daae6c89c78a4b865ed886674760c0"
 }

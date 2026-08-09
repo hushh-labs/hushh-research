@@ -59,6 +59,7 @@ export const ROUTE_ID_VALUES = [
   "one_location_map",
   "one_location_public_request",
   "one_location_circle_invite",
+  "one_location_circle_join",
   "one_wallet_card",
   "wallet_card_public",
   "portfolio_shared",

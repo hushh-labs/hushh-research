@@ -2748,7 +2748,7 @@
         ]
       },
       "canonical_screen": "one_location",
-      "voice_contract_file": null,
+      "voice_contract_file": "app/one/location/page.voice-action-contract.json",
       "action_ids": [
         "location.chat.turn",
         "location.open_activity",
