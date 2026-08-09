@@ -98,6 +98,8 @@ export type StructuredScreenContext = {
     active_section?: string | null;
     visible_modules: string[];
     selected_entity?: string | null;
+    /** Opt-in, safe-to-speak subject of the screen (e.g. a ticker). */
+    spoken_subject?: string | null;
     active_tab?: string | null;
     modal_state?: string | null;
     focused_widget?: string | null;
@@ -222,6 +224,8 @@ export type OneVoiceContextSnapshot = {
     active_section?: string | null;
     active_tab?: string | null;
     selected_entity_present: boolean;
+    /** Opt-in and speakable; selected_entity itself stays redacted. */
+    spoken_subject?: string | null;
     modal_state?: string | null;
     focused_widget?: string | null;
     interaction_layer?: StructuredVoiceInteractionLayer | null;
@@ -741,6 +745,9 @@ export function buildStructuredScreenContext(args: {
       active_section: activeSection,
       visible_modules: visibleModules,
       selected_entity: selectedEntity,
+      // Opt-in and safe to say aloud, unlike selected_entity/primary_entity
+      // which several surfaces fill with an investor name or email.
+      spoken_subject: publishedSurface?.spokenSubject || null,
       active_tab: activeTab,
       modal_state:
         publishedSurface?.modalState ||
@@ -916,6 +923,10 @@ export function buildOneVoiceContextSnapshot(args: {
     structured.ui.active_section ?? null,
     structured.ui.active_tab ?? null,
     Boolean(structured.ui.selected_entity),
+    // The value, not its presence: moving from QCOM to AAPL is a different
+    // screen to a person, and presence-only left the revision unchanged so
+    // nothing republished and One kept describing the previous stock.
+    structured.ui.spoken_subject ?? null,
     structured.ui.modal_state ?? null,
     structured.ui.focused_widget ?? null,
     availableActionIds,
@@ -979,6 +990,7 @@ export function buildOneVoiceContextSnapshot(args: {
       active_section: structured.ui.active_section ?? null,
       active_tab: structured.ui.active_tab ?? null,
       selected_entity_present: Boolean(structured.ui.selected_entity),
+      spoken_subject: structured.ui.spoken_subject ?? null,
       modal_state: structured.ui.modal_state ?? null,
       focused_widget: structured.ui.focused_widget ?? null,
       interaction_layer: activeInteractionLayer,

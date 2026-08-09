@@ -149,8 +149,13 @@ def compose_route_context_note(
         f"The currently visible generated action ids are: "
         f"{action_inventory or 'none on this screen (cross-screen navigation actions remain available)'}. "
         f"The content currently visible to the person is: {module_inventory or 'not reported'}. "
-        f"The current top interaction layer is: {layer_id or 'none'}. "
-        f"The preferred action reference is '{primary or 'none'}'. "
+        + (
+            f"The person is looking at: {context.get('spoken_subject')}. "
+            if context.get("spoken_subject")
+            else ""
+        )
+        + f"The current top interaction layer is: {layer_id or 'none'}. "
+        + f"The preferred action reference is '{primary or 'none'}'. "
         + (
             f"After route settlement, orient once with this intent: {cue} "
             if proactive and cue
@@ -186,6 +191,7 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
             **payload,
             "context_id": payload.get("context_id") or snapshot_map.get("snapshot_id"),
             "screen": payload.get("screen") or route.get("screen"),
+            "spoken_subject": payload.get("spoken_subject") or ui.get("spoken_subject"),
             "route_family": payload.get("route_family") or route.get("route_family"),
             "route_query": payload.get("route_query") or route.get("route_query"),
             "context_revision": payload.get("context_revision")
@@ -282,6 +288,10 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         # stale render or forged frame from lending another route's actions to
         # the active page.
         "screen": canonical_screen or None,
+        # Opt-in and bounded. selected_entity / primary_entity stay redacted:
+        # several surfaces fill those with an investor name or email address.
+        # A surface sets this only when naming its subject is harmless.
+        "spoken_subject": bounded_text(payload.get("spoken_subject"), 64) or None,
         "context_revision": bounded_text(payload.get("context_revision"), 128) or None,
         "signed_in": payload.get("signed_in") is True,
         "persona": bounded_text(payload.get("persona")),

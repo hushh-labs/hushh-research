@@ -175,6 +175,10 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
         "route_context_policy": "suppress",
         "route_playbook": context["route_playbook"],
         "screen": "kai_market",
+        # Opt-in and absent unless a surface declares it. selected_entity and
+        # primary_entity stay out of the boundary entirely: several surfaces
+        # fill those with an investor name or email address.
+        "spoken_subject": None,
         "persona": "investor",
         "voice_state": "listening",
         "signed_in": False,
@@ -401,3 +405,35 @@ def test_action_settlement_requires_matching_issued_directive_and_can_retry_afte
     assert settlement["summary"] == "Portfolio access is locked."
     assert settlement["destination_context_id"] == "ctx-2"
     assert issued == {}
+
+
+def test_live_context_speaks_only_an_opt_in_subject_never_the_raw_entity():
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/kai",
+            "spoken_subject": "QCOM",
+            # Several surfaces set these to an investor's name or email, so
+            # they must not cross the boundary however useful they look.
+            "selected_entity": "investor@example.com",
+            "primary_entity": "Jane Investor",
+        }
+    )
+
+    assert context["spoken_subject"] == "QCOM"
+    assert "selected_entity" not in context
+    assert "primary_entity" not in context
+
+    note = _compose_route_context_note(context)
+    assert note is not None
+    assert "The person is looking at: QCOM." in note
+    assert "investor@example.com" not in note
+    assert "Jane Investor" not in note
+
+
+def test_live_context_note_omits_the_subject_line_when_none_is_declared():
+    context = _sanitize_live_context({"route_family": "/one/kai"})
+
+    note = _compose_route_context_note(context)
+
+    assert note is not None
+    assert "The person is looking at" not in note

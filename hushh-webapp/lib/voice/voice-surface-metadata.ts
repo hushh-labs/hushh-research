@@ -27,6 +27,15 @@ export type VoiceSurfaceMetadata = {
   title?: string | null;
   purpose?: string | null;
   primaryEntity?: string | null;
+  /**
+   * What the person is looking at, in words safe to say out loud.
+   *
+   * Deliberately separate from `primaryEntity`, which several surfaces set to
+   * an investor's display name or email address. That one stays redacted at
+   * the trust boundary; this one is opt-in, so a surface only names its
+   * subject when naming it is harmless -- a ticker, a document title.
+   */
+  spokenSubject?: string | null;
   sections?: VoiceSurfaceSectionDefinition[];
   actions?: VoiceSurfaceActionDefinition[];
   controls?: VoiceSurfaceControlDefinition[];
@@ -460,6 +469,7 @@ function normalizeSurfaceMetadata(
     actions: surfaceDefinition?.actions || [],
     controls: surfaceDefinition?.controls || [],
     concepts: surfaceDefinition?.concepts || [],
+    spokenSubject: cleanString(metadata.spokenSubject),
     activeSection: cleanString(metadata.activeSection),
     activeTab: cleanString(metadata.activeTab),
     visibleModules: uniqueStrings(metadata.visibleModules),
@@ -554,6 +564,7 @@ function mergeVoiceSurfaceMetadata(
   return normalizeSurfaceMetadata({
     ...base,
     ...effectiveOverlay,
+    spokenSubject: effectiveOverlay.spokenSubject || base.spokenSubject,
     surfaceDefinition,
     visibleModules: uniqueStrings(
       overlayFirst

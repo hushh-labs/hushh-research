@@ -715,6 +715,10 @@ export function KaiAnalysisPageContent() {
         ? "This workspace runs and reviews ticker analysis across debate, summary, and detailed views."
         : "This screen keeps saved analysis history, preview cards, and active-analysis return points in one place.",
       primaryEntity: activeTicker || previewTickerFromQuery || null,
+      // A ticker is public and is the whole subject of this screen, so it is
+      // safe to say aloud. Without it One knew it was on Analysis but not
+      // which stock -- it could not answer "what am I looking at".
+      spokenSubject: activeTicker || previewTickerFromQuery || null,
       sections,
       actions,
       controls,
