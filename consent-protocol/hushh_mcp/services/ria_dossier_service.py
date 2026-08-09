@@ -29,6 +29,7 @@ from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.ria_claim_service import (
     firm_website_host,
     mask_email,
+    public_place_queries,
     title_case_name,
 )
 
@@ -306,31 +307,10 @@ class RIADossierService:
         if _clean_text(firm.get("zip")):
             return _clean_text(firm.get("zip")), "firm"
 
-        # Nothing published. Recover it from the public city/state, firm
-        # listing first (an exact business address) then the city itself.
-        candidates: list[tuple[str, str]] = []
-        firm_name = _clean_text(firm.get("name"))
-        firm_place = ", ".join(
-            part
-            for part in (firm_name, _clean_text(firm.get("city")), _clean_text(firm.get("state")))
-            if part
-        )
-        if firm_name and _clean_text(firm.get("city")):
-            candidates.append((firm_place, "firm_place"))
-        firm_city = ", ".join(
-            part for part in (_clean_text(firm.get("city")), _clean_text(firm.get("state"))) if part
-        )
-        if _clean_text(firm.get("city")):
-            candidates.append((f"{firm_city}, USA", "firm_city"))
-        if branch_is_public and _clean_text(branch.get("city")):
-            branch_city = ", ".join(
-                part
-                for part in (_clean_text(branch.get("city")), _clean_text(branch.get("state")))
-                if part
-            )
-            candidates.append((f"{branch_city}, USA", "branch_city"))
-
-        for query, source in candidates:
+        # Nothing published. Recover it from the public city/state — the same
+        # queries (and the same private-residence rule) the profile's LOCATION
+        # block uses, so the two never disagree about where this adviser is.
+        for query, source in public_place_queries(reference_metadata):
             try:
                 resolved = await self._maps_postal_code(query)
             except Exception:  # noqa: BLE001 - enrichment never breaks the worker

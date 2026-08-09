@@ -4566,11 +4566,12 @@ class RIAIAMService:
                     await conn.execute(
                         """
                         INSERT INTO ria_business_contacts (
-                          user_id, phone, city, area_locality, full_street_address, pin_zip
+                          user_id, phone, city, area_locality, full_street_address, pin_zip,
+                          latitude, longitude
                         )
                         VALUES (
                           $1, NULLIF($2, ''), NULLIF($3, ''),
-                          NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, '')
+                          NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), $7, $8
                         )
                         ON CONFLICT (user_id) DO UPDATE
                         SET
@@ -4579,6 +4580,8 @@ class RIAIAMService:
                           area_locality = COALESCE(NULLIF(EXCLUDED.area_locality, ''), ria_business_contacts.area_locality),
                           full_street_address = COALESCE(NULLIF(EXCLUDED.full_street_address, ''), ria_business_contacts.full_street_address),
                           pin_zip = COALESCE(NULLIF(EXCLUDED.pin_zip, ''), ria_business_contacts.pin_zip),
+                          latitude = COALESCE(ria_business_contacts.latitude, EXCLUDED.latitude),
+                          longitude = COALESCE(ria_business_contacts.longitude, EXCLUDED.longitude),
                           updated_at = NOW()
                         """,
                         normalized_user_id,
@@ -4587,6 +4590,8 @@ class RIAIAMService:
                         str(location.get("area") or "").strip(),
                         str(location.get("address") or "").strip(),
                         str(location.get("pin_zip") or "").strip(),
+                        location.get("latitude"),
+                        location.get("longitude"),
                     )
                 except asyncpg.exceptions.UndefinedTableError:
                     logger.warning(
@@ -5035,6 +5040,7 @@ class RIAIAMService:
                 "business_address": business_location["address"],
                 "business_pin_zip": business_location["pin_zip"],
                 "business_location_source": business_location_source,
+                "business_country_code": business_contact.get("country_code"),
                 "business_latitude": business_contact.get("latitude"),
                 "business_longitude": business_contact.get("longitude"),
                 "contact_email": business_contact.get("email"),

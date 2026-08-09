@@ -301,9 +301,11 @@ async def test_claim_write_only_fills_blanks_and_never_typed_values(monkeypatch)
             f"{column} = COALESCE(NULLIF(EXCLUDED.{column}, ''), ria_business_contacts.{column})"
         )
         assert guard in normalized, f"{column} may overwrite an adviser-typed value"
-    # The SEC feed carries no coordinates; the claim must not touch them.
-    assert "latitude" not in normalized
-    assert "longitude" not in normalized
+    # Coordinates are recovered for the map when the filing has none, so the
+    # claim now writes them — under the same rule: a stored value always wins.
+    for column in ("latitude", "longitude"):
+        guard = f"{column} = COALESCE(ria_business_contacts.{column}, EXCLUDED.{column})"
+        assert guard in normalized, f"{column} may overwrite an adviser-typed value"
 
 
 async def test_claim_survives_a_missing_business_contacts_table(monkeypatch):
@@ -368,11 +370,15 @@ async def test_completing_a_claim_hands_the_derived_location_to_the_iam_service(
         firm_crd=283040,
     )
 
+    # The filing carries a zip, so nothing is looked up and the coordinate
+    # keys stay empty — enrichment only ever fills what the SEC left blank.
     assert calls[0]["business_location"] == {
         "city": "SANDY",
         "area": "",
         "address": "9539 S PROSPERITY RD, SUITE 200",
         "pin_zip": "84070",
+        "latitude": None,
+        "longitude": None,
     }
 
 
@@ -559,3 +565,127 @@ async def test_wizard_profile_without_a_claim_keeps_reporting_profile(monkeypatc
     assert result["business_city"] == "Draper"
     assert result["business_location_source"] == "profile"
     assert result["business_latitude"] is None
+
+
+# ---------------------------------------------------------------------------
+# enrich_business_location: recovering what the SEC left blank
+#
+# IAPD publishes plenty of records with a city and state but a null street and
+# null zip. That left PIN / ZIP reading "Not provided" and gave the profile map
+# nothing but a bare city name to place — "MENDOCINO" exists on four
+# continents, so the embed drew a whole-world view instead of an office.
+# ---------------------------------------------------------------------------
+
+
+def _zipless_metadata() -> dict[str, Any]:
+    """The live shape: CRD 1139833's firm, city and state only."""
+    return {
+        "firm_record": {
+            "name": "CYPRESS POINT CAPITAL MANAGEMENT, LLC",
+            "city": "MENDOCINO",
+            "state": "CA",
+            "zip": None,
+            "street1": None,
+        },
+        "advisor_record": {
+            "branch": {
+                "city": "NEW YORK",
+                "state": "NY",
+                "zip": None,
+                "street1": None,
+                "private_residence": True,
+            }
+        },
+    }
+
+
+def _install_place_lookup(monkeypatch, table: dict[str, dict[str, Any]]) -> list[str]:
+    from hushh_mcp.services import google_maps_service as gms
+
+    asked: list[str] = []
+
+    async def _fake(self, *, query: str) -> dict[str, Any]:
+        asked.append(query)
+        return table.get(query) or {"postal_code": "", "latitude": None, "longitude": None}
+
+    monkeypatch.setattr(gms.GoogleMapsService, "resolve_place", _fake)
+    return asked
+
+
+async def test_enrichment_recovers_the_zip_and_the_map_position(monkeypatch):
+    from hushh_mcp.services.ria_claim_service import (
+        derive_business_location,
+        enrich_business_location,
+    )
+
+    metadata = _zipless_metadata()
+    asked = _install_place_lookup(
+        monkeypatch,
+        {
+            "CYPRESS POINT CAPITAL MANAGEMENT, LLC, MENDOCINO, CA": {
+                "postal_code": "95460",
+                "latitude": 39.3076744,
+                "longitude": -123.7994591,
+            }
+        },
+    )
+
+    resolved = await enrich_business_location(derive_business_location(metadata), metadata)
+
+    assert resolved["pin_zip"] == "95460"
+    assert resolved["latitude"] == 39.3076744
+    assert resolved["longitude"] == -123.7994591
+    assert resolved["city"] == "MENDOCINO"
+    assert asked == ["CYPRESS POINT CAPITAL MANAGEMENT, LLC, MENDOCINO, CA"]
+
+
+async def test_enrichment_never_overwrites_a_filed_value(monkeypatch):
+    from hushh_mcp.services.ria_claim_service import enrich_business_location
+
+    asked = _install_place_lookup(monkeypatch, {"MENDOCINO, CA, USA": {"postal_code": "99999"}})
+    filed = {"city": "SANDY", "area": "", "address": "9980 S 300 W", "pin_zip": "84070"}
+
+    resolved = await enrich_business_location(filed, _zipless_metadata())
+
+    assert resolved["pin_zip"] == "84070"  # the filing wins, 99999 is discarded
+    assert resolved["address"] == "9980 S 300 W"
+    # The lookup still ran, because the map has no position yet — a filed zip
+    # settles the ZIP row, not where the pin goes.
+    assert asked
+
+
+async def test_enrichment_never_looks_up_a_private_residence(monkeypatch):
+    """Privacy holds at every precision — a home is not a lookup source."""
+    from hushh_mcp.services.ria_claim_service import (
+        derive_business_location,
+        enrich_business_location,
+    )
+
+    metadata = _zipless_metadata()
+    metadata["firm_record"].update(city=None, name=None)
+    asked = _install_place_lookup(monkeypatch, {})
+
+    resolved = await enrich_business_location(derive_business_location(metadata), metadata)
+
+    assert resolved["pin_zip"] == ""
+    assert resolved["latitude"] is None
+    assert not any("NEW YORK" in query for query in asked)
+
+
+async def test_enrichment_failure_never_fails_the_claim(monkeypatch):
+    from hushh_mcp.services import google_maps_service as gms
+    from hushh_mcp.services.ria_claim_service import (
+        derive_business_location,
+        enrich_business_location,
+    )
+
+    async def _boom(self, *, query: str):
+        raise RuntimeError("maps down")
+
+    monkeypatch.setattr(gms.GoogleMapsService, "resolve_place", _boom)
+    metadata = _zipless_metadata()
+
+    resolved = await enrich_business_location(derive_business_location(metadata), metadata)
+
+    assert resolved["pin_zip"] == ""
+    assert resolved["latitude"] is None
