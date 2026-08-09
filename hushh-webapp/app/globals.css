@@ -3061,18 +3061,24 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   --agent-approval-rim: rgba(255, 255, 255, 0.55);
   --agent-approval-edge: rgba(0, 0, 0, 0.1);
   --agent-approval-cast: rgba(0, 0, 0, 0.18);
-  /* The colour the glass carries. Accent-derived, so it follows the theme
-     (blue by default, gold on the warm palette) rather than being painted on. */
-  --agent-approval-hue-strong: color-mix(in oklab, var(--app-accent) 16%, transparent);
-  --agent-approval-hue-soft: color-mix(in oklab, var(--app-accent) 8%, transparent);
+  /* The colour the glass carries, taken from .one-bar-aurora--active -- the
+     gold/indigo/pink the voice bar already wears while a conversation is
+     live. The card belongs to that same moment, so it should read as the same
+     material rather than as a generic accent panel that happened to appear. */
+  --agent-approval-hue-gold: rgba(212, 175, 106, 0.18);
+  --agent-approval-hue-indigo: rgba(129, 140, 248, 0.14);
+  --agent-approval-hue-pink: rgba(236, 72, 153, 0.11);
   position: relative;
   isolation: isolate;
   background-color: var(--agent-approval-tint);
-  /* Two opposing washes: real glass picks up colour unevenly across its face,
-     and a single flat tint reads as coloured plastic instead. */
+  /* Three soft blooms from different corners rather than one flat wash: glass
+     picks up colour unevenly across its face, and an even tint reads as
+     coloured plastic. Stationary, unlike the bar's breathing aurora -- motion
+     on a dialog the person is being asked to read would fight the reading. */
   background-image:
-    linear-gradient(138deg, var(--agent-approval-hue-strong) 0%, transparent 46%),
-    linear-gradient(318deg, var(--agent-approval-hue-soft) 0%, transparent 40%);
+    radial-gradient(120% 100% at 6% 0%, var(--agent-approval-hue-gold), transparent 55%),
+    radial-gradient(110% 100% at 100% 18%, var(--agent-approval-hue-indigo), transparent 58%),
+    radial-gradient(130% 120% at 62% 108%, var(--agent-approval-hue-pink), transparent 62%);
   -webkit-backdrop-filter: blur(var(--agent-approval-blur)) saturate(180%);
   backdrop-filter: blur(var(--agent-approval-blur)) saturate(180%);
   border: 1px solid var(--agent-approval-edge);
@@ -3094,8 +3100,10 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   /* A dark panel on a dark page needs its edge lit, not merely outlined. */
   --agent-approval-edge: rgba(255, 255, 255, 0.14);
   --agent-approval-cast: rgba(0, 0, 0, 0.6);
-  --agent-approval-hue-strong: color-mix(in oklab, var(--app-accent) 22%, transparent);
-  --agent-approval-hue-soft: color-mix(in oklab, var(--app-accent) 12%, transparent);
+  /* A dark ground swallows tint, so the same hues sit stronger here. */
+  --agent-approval-hue-gold: rgba(212, 175, 106, 0.26);
+  --agent-approval-hue-indigo: rgba(129, 140, 248, 0.2);
+  --agent-approval-hue-pink: rgba(236, 72, 153, 0.16);
 }
 
 /* A translucent panel is a readability risk, not just a style: if the person
