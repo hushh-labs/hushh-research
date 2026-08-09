@@ -31,6 +31,7 @@ from hushh_mcp.services.action_gateway import (
     is_navigation_action,
     list_action_gateway_actions,
 )
+from hushh_mcp.services.live_voice_context import read_live_voice_context
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,26 @@ _AVAILABILITY_ORDER = {
 }
 
 
+def _voice_context(tool_context: ToolContext) -> Any:
+    """The freshest sanitized browser context available to this tool.
+
+    ``run_live`` opens one long invocation per socket, so ``tool_context.state``
+    is frozen at connect time: after a navigation the relay knows the new
+    screen while every tool still reads the screen the person was on when they
+    started talking. A cross-screen journey could therefore never continue, and
+    each retry re-read the same stale value instead of converging.
+
+    Prefer the relay's live publication, keyed by this session, and fall back
+    to session state for non-live callers (typed chat, tests) which have no
+    socket and no staleness problem.
+    """
+    session_id = getattr(getattr(tool_context, "session", None), "id", None)
+    live = read_live_voice_context(session_id) if session_id else None
+    if isinstance(live, dict):
+        return live
+    return tool_context.state.get(_STATE_VOICE_CONTEXT)
+
+
 def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
     """Return the browser-declared executable ids when live context exists.
 
@@ -82,7 +103,7 @@ def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
     absent context preserves compatibility for non-live callers; a present but
     empty list deliberately means no executable controls are available.
     """
-    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    context = _voice_context(tool_context)
     if not isinstance(context, dict) or "available_action_ids" not in context:
         return None
     ids = context.get("available_action_ids")
@@ -130,7 +151,7 @@ async def run_app_action(
             "message": f"'{clean_id}' is not a known app action.",
         }
 
-    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    context = _voice_context(tool_context)
     if isinstance(context, dict) and context.get("context_pending") is True:
         # The live relay seeded this marker at session start; the browser's
         # first app_context frame has not landed yet. Refusing outright here
@@ -358,7 +379,7 @@ async def run_app_action(
 
 
 def _context_revision(tool_context: ToolContext) -> str:
-    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    context = _voice_context(tool_context)
     if not isinstance(context, dict):
         return ""
     return str(context.get("context_revision") or "").strip()[:128]
@@ -678,7 +699,7 @@ async def start_app_goal(
             "message": missing["prompt"],
         }
     journey_slots = _journey_slots(entry or {}, slots or {})
-    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    context = _voice_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
         return {
             "status": "context_not_ready",
@@ -752,7 +773,7 @@ async def _continue_settled_journey(
     run: dict[str, Any], tool_context: ToolContext
 ) -> dict[str, Any]:
     """Make an authored choice eligible only on its accepted destination."""
-    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    context = _voice_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
         return {"status": "settling", "message": "Waiting for the destination screen."}
     expected = run.get("settlement_target")
@@ -817,7 +838,7 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
     goal_id = str(run["goal_id"])
     journey_action_id = str(run.get("action_id") or "").strip()
     destination_screen = str(run.get("expected_screen") or "").strip()
-    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    context = _voice_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
         logger.info("one_adk_goal_decision status=settling reason=context_pending")
         return {"status": "settling", "message": "Waiting for fresh destination context."}

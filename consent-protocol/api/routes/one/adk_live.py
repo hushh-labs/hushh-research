@@ -86,6 +86,10 @@ from hushh_mcp.services.action_directive_ledger import (
     get_action_directive_store,
 )
 from hushh_mcp.services.action_gateway import get_action_gateway_action
+from hushh_mcp.services.live_voice_context import (
+    clear_live_voice_context,
+    publish_live_voice_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -616,6 +620,11 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 sanitized_context = _sanitize_live_context(context_payload)
                 latest_context = sanitized_context
                 state_delta[STATE_VOICE_CONTEXT] = sanitized_context
+                # run_live holds ONE invocation for this whole socket, so the
+                # session state below is frozen at connect time and the tools
+                # would keep reasoning about the screen the person started on.
+                # Publish the live view they actually read from.
+                publish_live_voice_context(session_id, sanitized_context)
                 canonical_screen = sanitized_context.get("screen")
                 # What the browser actually claimed vs what the index resolved.
                 # A journey waiting on a screen can only be debugged from the
@@ -1347,6 +1356,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         if greeting_task is not None:
             greeting_task.cancel()
         queue.close()
+        # Same lifetime as the session itself: the published live context is
+        # per-socket, so it must not outlive the socket that owns it.
+        clear_live_voice_context(session_id)
         await _close_quietly(websocket)
         # Ephemeral session cleanup: without this, InMemorySessionService
         # accumulates one session per voice connection until process restart.

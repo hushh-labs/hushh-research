@@ -35,6 +35,11 @@ from hushh_mcp.one_adk.action_tools import (
     start_app_goal,
 )
 from hushh_mcp.services.action_gateway import get_action_gateway_action
+from hushh_mcp.services.live_voice_context import (
+    clear_live_voice_context,
+    publish_live_voice_context,
+    read_live_voice_context,
+)
 from hushh_mcp.one_adk.agent_tree import (
     APP_ROUTES,
     ONE_IDENTITY_INSTRUCTION,
@@ -1065,3 +1070,71 @@ class TestCatalogDiscovery:
             # way to walk there; advertising it would strand the person.
             assert "setup.open_email" not in listed
             assert len(result["results"]) <= 10
+
+
+class TestLiveContextFreshness:
+    """run_live holds one invocation per socket, so session state freezes.
+
+    After a navigation the relay knows the new screen while the tools were
+    still reading the screen the person started on -- so a cross-screen
+    journey could never continue, and every retry re-read the same stale
+    value instead of converging.
+    """
+
+    def teardown_method(self):
+        clear_live_voice_context("voice_test_session")
+
+    def _ctx(self, frozen_screen: str):
+        return SimpleNamespace(
+            state={
+                _STATE_SCREEN: frozen_screen,
+                "hussh:voice_context": {
+                    "route_pattern": "/one",
+                    "screen": frozen_screen,
+                    "context_revision": "frozen",
+                    "available_action_ids": ["route.kai_analysis"],
+                },
+            },
+            session=SimpleNamespace(id="voice_test_session"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_tools_read_the_relay_publication_over_frozen_state(self):
+        tool_context = self._ctx("one_agents")
+        # What the relay saw after the browser actually navigated.
+        publish_live_voice_context(
+            "voice_test_session",
+            {
+                "route_pattern": "/one/kai?tab=analysis",
+                "screen": "kai_analysis",
+                "context_revision": "fresh",
+                "available_action_ids": ["analysis.start", "analysis.confirm_preview"],
+            },
+        )
+
+        result = await list_app_actions("analyse nvidia stock", tool_context)
+        by_id = {item["action_id"]: item for item in result["results"]}
+
+        # Resolved against the destination, not the screen frozen at connect:
+        # analysis.confirm_preview is on_screen ONLY in the published context.
+        assert by_id["analysis.confirm_preview"]["availability"] == "on_screen"
+        assert by_id["analysis.start"]["availability"] == "on_screen"
+
+    @pytest.mark.asyncio
+    async def test_session_state_still_answers_when_nothing_is_published(self):
+        # Typed chat and tests have no socket, so there is no staleness to
+        # correct and the existing path must keep working unchanged.
+        tool_context = self._ctx("one_agents")
+
+        result = await list_app_actions("", tool_context)
+
+        assert result["status"] == "ok"
+        assert {item["action_id"] for item in result["results"]}
+
+    def test_a_closed_socket_leaves_nothing_behind(self):
+        publish_live_voice_context("voice_test_session", {"screen": "kai_analysis"})
+        assert read_live_voice_context("voice_test_session") is not None
+
+        clear_live_voice_context("voice_test_session")
+
+        assert read_live_voice_context("voice_test_session") is None
