@@ -66,6 +66,11 @@ import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import {
+  clearJourneyApproval,
+  isCoveredByJourneyApproval,
+  recordJourneyApproval,
+} from "@/lib/voice/journey-approval-grant";
+import {
   resolveJourneyPlanForGoal,
   resolveNavigationJourney,
   type JourneyPlan,
@@ -114,8 +119,6 @@ type PendingVoiceConfirmation = {
   plan?: JourneyPlan | null;
 };
 
-/** How long one journey approval stays good for. */
-const JOURNEY_GRANT_TTL_MS = 120_000;
 
 function readBrowserVoiceRoute() {
   if (typeof window === "undefined") return undefined;
@@ -285,21 +288,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // site so a stale checkbox state can never leak into the next card.
   const [voiceConsentChecked, setVoiceConsentCheckedState] = useState(false);
   const [voiceConsentRequesting, setVoiceConsentRequesting] = useState(false);
-  // A journey's steps are all known before it starts, so the person approves
-  // the named list once instead of tapping through it a step at a time. The
-  // grant covers exactly those action ids under exactly that goal run: it is
-  // an enumerated authorization, not a window during which anything may run.
-  // Held in a ref because the directive handler below reads it inside async
-  // closures that would otherwise see whatever it was when they started.
-  const journeyGrantRef = useRef<{
-    goalId: string;
-    actionIds: string[];
-    expiresAt: number;
-  } | null>(null);
+  // The journey approval lives in module scope, not component state: it has
+  // to survive the navigation it exists to span, and a ref does not survive a
+  // remount. See lib/voice/journey-approval-grant.ts.
   const clearJourneyGrant = useCallback((reason: string) => {
-    if (!journeyGrantRef.current) return;
-    console.info("[AgentBar] Journey approval cleared:", reason);
-    journeyGrantRef.current = null;
+    clearJourneyApproval(reason);
   }, []);
   // Mirrors voiceConsentChecked for reads inside the confirmActionDirective
   // .then()/.catch() closures below, which otherwise close over a stale
@@ -695,17 +688,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             // plan runs without asking again. The grant names the goal AND the
             // action, so a directive that drifts to a different goal or a step
             // outside the approved list still gets its own card.
-            const grant = journeyGrantRef.current;
-            const coveredByJourneyGrant = Boolean(
-              grant &&
-                goalId &&
-                grant.goalId === goalId &&
-                grant.actionIds.includes(actionId) &&
-                Date.now() < grant.expiresAt,
+            const coveredByJourneyGrant = isCoveredByJourneyApproval(
+              goalId,
+              actionId,
             );
-            if (grant && Date.now() >= grant.expiresAt) {
-              clearJourneyGrant("expired");
-            }
             if (needsConfirmation && !coveredByJourneyGrant) {
               // Keep sensitive arguments transient in component memory. The
               // confirmation card never renders slots (including OTP values).
@@ -1038,11 +1024,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       // person is not asked again for work they just agreed to. Only on a
       // real approval, and only for the ids the plan enumerated.
       if (confirmed && pending.plan?.batchableActionIds.length) {
-        journeyGrantRef.current = {
-          goalId: pending.plan.goalId,
-          actionIds: pending.plan.batchableActionIds,
-          expiresAt: Date.now() + JOURNEY_GRANT_TTL_MS,
-        };
+        recordJourneyApproval(
+          pending.plan.goalId,
+          pending.plan.batchableActionIds,
+        );
       }
       const reportPendingSettlement = (settlement: DirectiveSettlement) => {
         if (voiceLeaseRef.current?.id !== pending.leaseId) return;
