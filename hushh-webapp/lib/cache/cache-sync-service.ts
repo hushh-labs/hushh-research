@@ -619,6 +619,13 @@ export class CacheSyncService {
    */
   static onConnectionCapabilityMutated(userId: string): void {
     this.onConsentMutated(userId);
+    // Accepting or declining a request also settles the incoming-request list,
+    // which is a connections cache rather than a consent one and so survives
+    // the cascade above. Left stale, the request the user just answered keeps
+    // rendering as still-pending until its TTL lapses.
+    CacheService.getInstance().invalidate(
+      CACHE_KEYS.CONNECTIONS_INCOMING(userId),
+    );
   }
 
   /**
