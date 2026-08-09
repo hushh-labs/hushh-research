@@ -45,18 +45,23 @@ so `com.hushh.app` is permanently unusable for Android regardless of who owns th
 
 ## Known-open items from this migration (do not silently close)
 
-1. **Google Sign-In on Android was broken by this migration and is still unresolved as of
-   this writing.** The Firebase Android app's registered signing certificate is the release
-   *upload key's* SHA-1. Play App Signing re-signs the distributed app with its own
-   certificate, which is what Google Sign-In actually validates against at runtime — that
-   certificate's SHA-1 was never registered. Firebase's `androidApps/{app}/sha` API only
-   provisions a new Google Sign-In OAuth client when a **SHA-1** is added; adding SHA-256
-   fingerprints alone (already done, for passkey/Digital Asset Links purposes) does not
-   create one. **Fix requires the Play App Signing SHA-1 from Play Console → Setup → App
-   integrity → App signing** (no API exposes this — confirmed by direct discovery-document
-   inspection of the Android Publisher API, no `signing`-related method exists). Once
-   obtained, register it via the same Firebase Management API `sha` endpoint used for the
-   SHA-256 values.
+1. **RESOLVED.** Google Sign-In on Android broke during this migration because the Firebase
+   Android app's registered signing certificate was the release *upload key's* SHA-1. Play
+   App Signing re-signs the distributed app with its own certificate, which is what Google
+   Sign-In actually validates against at runtime — that certificate's SHA-1 was never
+   registered. Firebase's `androidApps/{app}/sha` API only provisions a new Google Sign-In
+   OAuth client when a **SHA-1** is added; the SHA-256 fingerprints added earlier (for
+   passkey/Digital Asset Links purposes) did not. No API exposes the Play App Signing SHA-1
+   (confirmed by direct discovery-document inspection of the Android Publisher API, no
+   `signing`-related method exists) — it was retrieved manually from Play Console → Setup →
+   App integrity → App signing, then registered via the Firebase Management API `sha`
+   endpoint for both the classical and post-quantum hybrid-signing certificates. Confirmed:
+   two new `client_type: 1` Android OAuth clients were generated
+   (`...auvubai2sjjkbu7uu9glfoq2rec16gup` for the classical cert,
+   `...4m2484ghqa9u0jau6pp96013pvp5tqdu` for the post-quantum cert), alongside the
+   pre-existing upload-key client. This is a server-side Google config change — it took
+   effect immediately for the app already installed from Internal testing, no new build or
+   reinstall required.
 2. **Sign in with Apple on Android depends on Apple Developer Portal configuration this
    session has no access to verify.** Android's native flow
    (`firebaseAuth.startActivityForSignInWithProvider`, in `HushhAuthPlugin.kt`) is
