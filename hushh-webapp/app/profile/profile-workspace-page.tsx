@@ -2977,16 +2977,19 @@ function ProfilePageContent() {
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={User}
+          iconTone="blue"
           title="Display name"
           description={user.displayName || "Not available"}
         />
         <SettingsRow
           icon={Mail}
+          iconTone="blue"
           title="Email"
           description={user.email || "Not available"}
         />
         <SettingsRow
           icon={Phone}
+          iconTone="green"
           title="Phone number"
           description={phoneSummaryText}
           trailing={
@@ -3001,12 +3004,14 @@ function ProfilePageContent() {
         />
         <SettingsRow
           icon={Fingerprint}
+          iconTone="green"
           title="Sign-in provider"
           description={provider.name}
         />
         {walletCardEntryEnabled ? (
           <SettingsRow
             icon={Wallet}
+            iconTone="purple"
             className="profile-account-service-row"
             title={WALLET_CARD_COPY.profileEntry.title}
             description={WALLET_CARD_COPY.profileEntry.description}
@@ -3018,10 +3023,10 @@ function ProfilePageContent() {
       <SettingsGroup title="Account actions">
         <SettingsRow
           icon={RefreshCw}
+          iconTone="orange"
           className="profile-account-reset-row"
           title="Reset account"
           description={resetRowDescription}
-          tone="destructive"
           chevron
           onClick={() => void handleResetClick()}
         />
