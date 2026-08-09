@@ -17,6 +17,7 @@ from sqlalchemy import text
 from api.utils.fcm_messages import build_push_message
 from api.utils.firebase_admin import ensure_firebase_admin
 from db.db_client import DatabaseExecutionError, get_db, get_db_connection
+from hushh_mcp.consent.pii_sanitizer import mask_email
 from hushh_mcp.consent.token import issue_token, validate_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.location.policy import (
@@ -995,11 +996,13 @@ class OneLocationAgentService:
         if not row:
             return None
         display_name = str(row.get("display_name") or "").strip()
+        email = str(row.get("email") or "").strip()
         masked_phone = _mask_phone(row.get("phone_number"))
         user_id = str(row.get("user_id") or "")
         return {
             "userId": user_id,
             "displayName": display_name or masked_phone or "Verified user",
+            "maskedEmail": mask_email(email) if email else None,
             "maskedPhone": masked_phone,
             "phoneVerified": bool(row.get("phone_verified")),
             "keyId": str(row.get("key_id") or "") or None,
@@ -2952,7 +2955,7 @@ class OneLocationAgentService:
         rows = self._execute_many(
             """
             SELECT
-              a.user_id, a.display_name, a.phone_number, a.phone_verified,
+              a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
             FROM actor_identity_cache a
             LEFT JOIN LATERAL (
@@ -3055,7 +3058,7 @@ class OneLocationAgentService:
         rows = self._execute_many(
             """
             SELECT
-              a.user_id, a.display_name, a.phone_number, a.phone_verified,
+              a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
             FROM actor_identity_cache a
             LEFT JOIN LATERAL (

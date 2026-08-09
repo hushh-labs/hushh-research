@@ -38,6 +38,7 @@ import {
   type DirectoryPerson,
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
+import { getDirectoryPersonDescription } from "./directory-person-label";
 
 type ConnectTab = "people" | "nearby";
 
@@ -689,10 +690,7 @@ export default function ConnectPageClient() {
                     const cta = relationshipCta(person.relationship);
                     const title =
                       person.displayName || person.email || person.userId;
-                    const description =
-                      person.displayName && person.email
-                        ? person.email
-                        : undefined;
+                    const description = getDirectoryPersonDescription(person);
                     return (
                       <SettingsRow
                         key={person.userId}

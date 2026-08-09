@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { getDirectoryPersonDescription } from "@/app/connect/directory-person-label";
+
 describe("Connect canonical surface contract", () => {
   it("uses the shared Profile/One header and settings-row geometry", () => {
     const source = readFileSync(
@@ -35,5 +37,34 @@ describe("Connect canonical surface contract", () => {
     expect(source).not.toContain(
       "if (catalog.items.length === 0 && catalog.offerableItems.length === 0)",
     );
+  });
+
+  it("renders a privacy-safe masked identity when duplicate names need disambiguation", () => {
+    const serviceSource = readFileSync(
+      join(process.cwd(), "lib/services/connections-service.ts"),
+      "utf8",
+    );
+
+    expect(serviceSource).toContain("maskedPhone?: string | null");
+    expect(serviceSource).toContain("maskedEmail?: string | null");
+    expect(
+      getDirectoryPersonDescription({
+        displayName: "Abdul Zalil",
+        email: null,
+        maskedEmail: "a***l@example.com",
+        maskedPhone: "******4455",
+      }),
+    ).toBe("a***l@example.com");
+  });
+
+  it("keeps email as the preferred secondary identity", () => {
+    expect(
+      getDirectoryPersonDescription({
+        displayName: "Abdul Zalil",
+        email: "abdul@example.test",
+        maskedEmail: "a***l@example.test",
+        maskedPhone: "******4455",
+      }),
+    ).toBe("abdul@example.test");
   });
 });
