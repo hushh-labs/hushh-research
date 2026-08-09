@@ -200,6 +200,7 @@ import {
   type EmergencyInfo,
   type EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
+import { buildCircleJoinUrl } from "@/lib/one-location/circle-join-url";
 import type {
   DriveDestination,
   DriveSharePayload,
@@ -5063,10 +5064,17 @@ export function OneLocationAgentPageContent({
   const handleShareNamedCircleCode = useCallback(
     async (circle: OneLocationCircleDetail, code: string) => {
       try {
+        const joinUrl =
+          typeof window !== "undefined"
+            ? buildCircleJoinUrl(window.location.origin, code)
+            : undefined;
         const delivery = await shareNamedCircleCode({
           title: `Join ${circle.name} on One`,
-          text: `Join my ${circle.name} Circle on One with code ${code}. You'll connect with current and future members, while location and SMS stay private until you choose to share.`,
+          text: joinUrl
+            ? `Join my ${circle.name} Circle on One — tap to join: ${joinUrl} (or enter code ${code}). Location and SMS stay private until you choose to share.`
+            : `Join my ${circle.name} Circle on One with code ${code}. You'll connect with current and future members, while location and SMS stay private until you choose to share.`,
           dialogTitle: "Share Circle code",
+          url: joinUrl,
         });
         if (delivery === "copied") toast.success("Circle code copied.");
       } catch (error) {
@@ -5146,10 +5154,17 @@ export function OneLocationAgentPageContent({
   const handleShareOnboardingCircleInvite = useCallback(
     async (invite: OnboardingCircleInvite) => {
       try {
+        const joinUrl =
+          typeof window !== "undefined"
+            ? buildCircleJoinUrl(window.location.origin, invite.code)
+            : undefined;
         const delivery = await shareNamedCircleCode({
           title: `Join ${invite.circleName} on One`,
-          text: `Join my ${invite.circleName} Circle on One with code ${invite.code}. Set up One, then open Location → People → Join a circle and enter it. Location and SMS stay private until you choose to share.`,
+          text: joinUrl
+            ? `Join my ${invite.circleName} Circle on One — tap to join: ${joinUrl} (or enter code ${invite.code}). Set up One, then the link opens the join screen with the code filled in. Location and SMS stay private until you choose to share.`
+            : `Join my ${invite.circleName} Circle on One with code ${invite.code}. Set up One, then open Location → People → Join a circle and enter it. Location and SMS stay private until you choose to share.`,
           dialogTitle: "Share Circle code",
+          url: joinUrl,
         });
         if (delivery === "copied") toast.success("Circle code copied.");
       } catch (error) {

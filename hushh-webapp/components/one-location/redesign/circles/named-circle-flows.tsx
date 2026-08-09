@@ -475,12 +475,15 @@ export function JoinCircleFlow({
   busy,
   onResolve,
   onJoin,
+  initialCode,
 }: {
   busy: boolean;
   onResolve: (code: string) => Promise<OneLocationCircleInvitePreview>;
   onJoin: (code: string) => Promise<void>;
+  /** Pre-fills the code input when arriving from a `/circle/join?code=` link. */
+  initialCode?: string;
 }) {
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(initialCode ?? "");
   const [resolved, setResolved] = useState<{
     code: string;
     preview: OneLocationCircleInvitePreview;
