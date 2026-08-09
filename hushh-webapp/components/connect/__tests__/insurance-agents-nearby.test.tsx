@@ -243,6 +243,39 @@ describe("InsuranceAgentsNearby", () => {
     expect(screen.getByTestId("insurance-agents-postal-input")).toBeTruthy();
   });
 
+  it("still offers the ZIP box after a ZIP search fails", async () => {
+    // A failed ZIP must not strand the reader on a "Try again" that only
+    // re-runs the ZIP that just failed. Mirrors the advisers directory.
+    mocks.locationState = {
+      status: "denied",
+      permission: "denied",
+      snapshot: null,
+      error: "Location is off for Hussh.",
+    };
+    mocks.searchNearby.mockRejectedValueOnce(
+      new Error("That search could not be completed."),
+    );
+
+    render(<InsuranceAgentsNearby getIdToken={getIdToken} />);
+
+    fireEvent.change(screen.getByTestId("insurance-agents-postal-input"), {
+      target: { value: "00000" },
+    });
+    fireEvent.click(screen.getByText("Search"));
+
+    expect(await screen.findByTestId("insurance-agents-error")).toBeTruthy();
+
+    fireEvent.change(screen.getByTestId("insurance-agents-postal-input"), {
+      target: { value: "98033" },
+    });
+    fireEvent.click(screen.getByText("Search"));
+
+    await waitFor(() => expect(mocks.searchNearby).toHaveBeenCalledTimes(2));
+    expect(mocks.searchNearby.mock.calls[1][0]).toMatchObject({
+      postalCode: "98033",
+    });
+  });
+
   it("re-searches when the radius changes", async () => {
     mocks.locationState = {
       status: "ready",
