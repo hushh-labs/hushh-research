@@ -175,28 +175,24 @@ describe("Connect — People", () => {
     expect(await screen.findByText('No one matches "Nobody"')).toBeTruthy();
   });
 
-  it("drops selections the new result set no longer shows", async () => {
-    // "Connect to Selected (N)" counts this set, so an N covering people who
-    // scrolled out of existence is a number the reader cannot reconcile.
+  /**
+   * Bulk selection is deliberately unreachable: the entry point was removed
+   * because selecting many people at once was not a clear answer to finding
+   * the right one, and it invited fanning out requests instead of searching.
+   *
+   * This pins the removal rather than the old behaviour. The selection state,
+   * the per-row checkboxes and the bulk request handler are all still in the
+   * component on purpose, so restoring the control is a one-line change -- but
+   * while it is hidden that path has no coverage, and the previous test for it
+   * ("drops selections the new result set no longer shows") went with the
+   * button. Reinstating the control should reinstate that test.
+   */
+  it("does not offer bulk selection", async () => {
     render(<ConnectPageClient />);
     expect(await screen.findByText("Person 0")).toBeTruthy();
 
-    fireEvent.click(screen.getByText("Select"));
-    fireEvent.click(screen.getByLabelText("Select Person 0"));
-    expect(screen.getByText("Connect to Selected (1)")).toBeTruthy();
-
-    mocks.searchDirectory.mockResolvedValue({
-      items: [person("u9", "Person 9")],
-      hasMore: false,
-      page: 1,
-    });
-    fireEvent.change(screen.getByLabelText("Search people"), {
-      target: { value: "Person 9" },
-    });
-
-    expect(await screen.findByText("Person 9")).toBeTruthy();
-    await waitFor(() =>
-      expect(screen.queryByText("Connect to Selected (1)")).toBeNull(),
-    );
+    expect(screen.queryByText("Select")).toBeNull();
+    expect(screen.queryByText("Select All")).toBeNull();
+    expect(screen.queryByLabelText("Select Person 0")).toBeNull();
   });
 });

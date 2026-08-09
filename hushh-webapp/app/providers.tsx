@@ -53,7 +53,7 @@ import {
   useKaiBottomChromeProgressCssVar,
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import { recordSectionEntry } from "@/lib/navigation/section-back-origin";
+import { recordDestinationEntry } from "@/lib/navigation/section-back-origin";
 import {
   ROUTES,
   isFoundationPublicRoute,
@@ -87,15 +87,22 @@ function AppShellFrame({ children }: ProvidersProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { isAuthenticated, loading: authLoading } = useAuth();
-  // Section crossings behind the shared back contract. Recorded here because
-  // this frame renders for every route, including chrome-less ones, and a
-  // screen with no top bar can still be the place a section was entered from.
-  // Moves inside a section store nothing. `pathname`, not `shellPathname`:
-  // this is where the person went, not what the shell substituted for an
-  // unauthenticated render.
+  // Destination crossings behind the shared back contract. Recorded here
+  // because this frame renders for every route, including chrome-less ones,
+  // and a screen with no top bar can still be where a destination was entered
+  // from. Moves within a destination store nothing.
+  //
+  // The query is carried deliberately: leaving `/one/location?view=people` for
+  // Connect and coming back has to return to the People tab, not to a bare
+  // `/one/location`, which is the right screen showing the wrong thing.
+  //
+  // `pathname`, not `shellPathname`: this is where the person went, not what
+  // the shell substituted for an unauthenticated render.
+  const search = searchParams?.toString() ?? "";
   useEffect(() => {
-    recordSectionEntry(pathname || "/");
-  }, [pathname]);
+    const base = pathname || "/";
+    recordDestinationEntry(search ? `${base}?${search}` : base);
+  }, [pathname, search]);
   const isPublicKnowledgeWorkspace =
     pathname === ROUTES.WELCOME &&
     ["research", "blog", "developers"].includes(searchParams?.get("tab") ?? "");

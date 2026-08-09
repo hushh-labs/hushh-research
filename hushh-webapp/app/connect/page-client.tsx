@@ -658,39 +658,20 @@ export default function ConnectPageClient() {
                     }}
                   />
                 </div>
-                {people.length > 0 && (
-                  <div className="flex shrink-0 items-center gap-1">
-                    {isSelectionMode && (
-                      <Button
-                        type="button"
-                        variant="none"
-                        effect="fade"
-                        onClick={() => {
-                          if (selectedUserIds.size === people.length) {
-                            setSelectedUserIds(new Set());
-                          } else {
-                            setSelectedUserIds(
-                              new Set(people.map((p) => p.userId)),
-                            );
-                          }
-                        }}
-                      >
-                        {selectedUserIds.size === people.length ? "Deselect All" : "Select All"}
-                      </Button>
-                    )}
-                    <Button
-                      type="button"
-                      variant="none"
-                      effect="fade"
-                      onClick={() => {
-                        setIsSelectionMode(!isSelectionMode);
-                        if (isSelectionMode) setSelectedUserIds(new Set());
-                      }}
-                    >
-                      {isSelectionMode ? "Cancel" : "Select"}
-                    </Button>
-                  </div>
-                )}
+                {/*
+                  The Select / Select All controls are intentionally not
+                  rendered. Bulk-selecting people was not a clear answer to the
+                  problem it was reaching for -- finding the right person in a
+                  list that grows with every signup -- and shipping it invited
+                  people to fan out requests rather than helping them search.
+
+                  The machinery below is deliberately left in place: selection
+                  mode, the per-row checkboxes, and the bulk request action all
+                  still work, and `isSelectionMode` simply has no way to become
+                  true from the UI. Restoring the entry point is a one-line
+                  change if a clearer design arrives. Do not delete the state or
+                  the bulk handler on the grounds that they look unreachable.
+                */}
               </div>
               <SettingsGroup
                 title={hasQuery ? "People" : "Suggested"}
