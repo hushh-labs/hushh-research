@@ -986,3 +986,82 @@ class TestContractDrivenNavigationJourneys:
         # Normalized by the contract's own resolver, defaulted per the
         # contract, and stripped of anything the contract never declared.
         assert resolved == {"symbol": "NVDA", "pickSource": "default"}
+
+
+def _screen_context(screen: str, available_action_ids: list[str]) -> dict:
+    return {
+        _STATE_SCREEN: screen,
+        "hussh:voice_context": {
+            "route_pattern": "/one",
+            "screen": screen,
+            "context_revision": "probe-1",
+            "available_action_ids": available_action_ids,
+        },
+    }
+
+
+class TestCatalogDiscovery:
+    """One could only ever see an alphabetical slice of the current screen.
+
+    The result list is bounded, so without ranking most of the app was not
+    merely unreachable -- it was invisible, and One answered "I can't" for
+    things it could have walked to.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_unqueried_call_still_answers_only_for_this_screen(self):
+        state = _screen_context("kai_market", ["route.kai_home"])
+
+        result = await list_app_actions("", _tool_context(state))
+
+        # "What can I do here" must not turn into a tour of the whole app.
+        assert result["results"]
+        assert {item["availability"] for item in result["results"]} == {"on_screen"}
+
+    @pytest.mark.asyncio
+    async def test_a_query_ranks_the_matching_action_first(self):
+        state = _screen_context("kai_market", ["route.kai_home"])
+
+        result = await list_app_actions("analyse nvidia stock", _tool_context(state))
+
+        assert result["results"][0]["action_id"] == "analysis.start"
+        # Discovery names the tool that can actually start it from here.
+        assert result["results"][0]["use_tool"] == "start_app_goal"
+
+    @pytest.mark.asyncio
+    async def test_an_offscreen_match_carries_how_to_reach_it(self):
+        state = _screen_context("kai_market", ["route.kai_home"])
+
+        result = await list_app_actions("analyse nvidia stock", _tool_context(state))
+        by_id = {item["action_id"]: item for item in result["results"]}
+
+        # Off-screen is reported as a next step, not a dead end.
+        assert by_id["analysis.confirm_preview"]["availability"] == "navigate_first"
+        assert by_id["analysis.confirm_preview"]["open_first_action_id"] == "route.kai_analysis"
+
+    @pytest.mark.asyncio
+    async def test_policy_is_reported_from_the_action_not_a_dead_field(self):
+        # This read a `risk` object that is null on every generated action, so
+        # all 117 reported allow_direct -- One was told 8 confirm_required and
+        # 23 manual_only actions needed no confirmation.
+        state = _screen_context("kai_market", ["route.kai_home"])
+
+        result = await list_app_actions("analyse nvidia stock", _tool_context(state))
+        by_id = {item["action_id"]: item for item in result["results"]}
+
+        assert by_id["analysis.confirm_preview"]["policy"] == "confirm_required"
+
+    @pytest.mark.asyncio
+    async def test_discovery_never_lists_what_one_cannot_execute(self):
+        state = _screen_context("kai_market", ["route.kai_home"])
+
+        for query in ["", "check my email", "analyse nvidia stock", "set up my email"]:
+            result = await list_app_actions(query, _tool_context(state))
+            listed = {item["action_id"] for item in result["results"]}
+
+            # Unwired: declared but not built. Listing it invents a capability.
+            assert "email.chat.turn" not in listed
+            # No wired route.* action opens /one/setup, so One has no generated
+            # way to walk there; advertising it would strand the person.
+            assert "setup.open_email" not in listed
+            assert len(result["results"]) <= 10

@@ -21,6 +21,7 @@ loaded through ``hushh_mcp.services.action_gateway``) is the routing authority:
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from google.adk.tools.tool_context import ToolContext
@@ -52,6 +53,25 @@ _DELEGATE_TOOL_BY_AGENT_ID: dict[str, str] = {
 }
 
 _MAX_LIST_RESULTS = 10
+_MAX_QUERY_TOKENS = 8
+# On-screen actions a queried call may keep for context after the real matches.
+_MAX_QUERY_FILLER = 4
+# Words that appear in almost every spoken request and would otherwise pull
+# unrelated actions to the front of a bounded result list.
+_QUERY_STOPWORDS = frozenset(
+    {
+        "the", "a", "an", "my", "me", "i", "you", "can", "could", "would",
+        "please", "for", "to", "of", "on", "in", "at", "and", "or", "is",
+        "it", "this", "that", "with", "do", "does", "want", "need", "get",
+        "show", "let", "us", "we", "how", "what", "one",
+    }
+)
+# Prefer what One can act on now when relevance ties.
+_AVAILABILITY_ORDER = {
+    "on_screen": 0,
+    "journey": 1,
+    "navigate_first": 2,
+}
 
 
 def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
@@ -869,34 +889,132 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
     }
 
 
-async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, Any]:
-    """List generated actions that are executable from the active app context.
+def _query_tokens(query: str) -> list[str]:
+    """Lowercase word tokens from a model query, bounded and deduplicated."""
+    tokens: list[str] = []
+    for raw in re.split(r"[^a-z0-9]+", str(query or "").lower()):
+        token = raw.strip()
+        if len(token) < 2 or token in _QUERY_STOPWORDS or token in tokens:
+            continue
+        tokens.append(token)
+        if len(tokens) >= _MAX_QUERY_TOKENS:
+            break
+    return tokens
 
-    ``query`` is preserved for the model-facing tool contract, but is never
-    lexically ranked here. Semantic selection belongs to One; this loader only
-    projects the generated inventory and the browser's current control set.
+
+def _relevance_score(entry: dict[str, Any], tokens: list[str]) -> int:
+    """Rank one action against the query's tokens.
+
+    Purely lexical, over fields the contract already authors for this purpose
+    (aliases and search_keywords exist precisely so a person's words can find
+    an action). One still makes the final choice; this only decides which
+    actions get to be in front of it, because the result list is bounded and
+    an alphabetical slice is not a search.
     """
-    del query
-    ranked = sorted(list_action_gateway_actions(), key=lambda entry: str(entry.get("label") or ""))
+    if not tokens:
+        return 0
+    action_id = str(entry.get("action_id") or "").lower()
+    label = str(entry.get("label") or "").lower()
+    meaning = str(entry.get("meaning") or "").lower()
+    aliases = [str(value).lower() for value in (entry.get("aliases") or [])]
+    keywords = [str(value).lower() for value in (entry.get("search_keywords") or [])]
+
+    score = 0
+    joined = " ".join(tokens)
+    if joined and joined in aliases:
+        score += 90
+    for token in tokens:
+        if token in action_id:
+            score += 25
+        if token in label:
+            score += 20
+        if any(token in alias for alias in aliases):
+            score += 15
+        if token in keywords:
+            score += 12
+        if token in meaning:
+            score += 5
+    return score
+
+
+def _reachability(
+    entry: dict[str, Any],
+    action_id: str,
+    available_action_ids: set[str] | None,
+) -> tuple[str, str | None]:
+    """How One could actually reach ``action_id`` from where it is standing.
+
+    Discovery is not authority: ``run_app_action`` still refuses anything the
+    browser has not declared. What this adds is an honest next step, so an
+    off-screen answer becomes "open X first" instead of a dead end.
+    """
+    if available_action_ids is None or action_id in available_action_ids:
+        return "on_screen", None
+    if is_navigation_action(entry):
+        return "on_screen", None
+    if _is_journey_startable(entry):
+        return "journey", None
+    for route in (entry.get("reachability") or {}).get("routes") or []:
+        navigation_action_id = _navigation_action_for_route(str(route))
+        if navigation_action_id:
+            return "navigate_first", navigation_action_id
+    return "unreachable_from_here", None
+
+
+async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, Any]:
+    """List generated actions One can reach from the active app context.
+
+    Semantic selection still belongs to One, but the result list is bounded:
+    without ranking, One saw an alphabetical prefix of the catalog and simply
+    could not know that most of the app existed. ``query`` now decides which
+    actions occupy those slots, and a queried call may surface actions that
+    live on other screens -- each carrying how to reach it.
+
+    Execution authority is unchanged. Everything here is still filtered by the
+    generated manifest, and ``run_app_action`` still refuses any action the
+    browser has not declared on the current screen.
+    """
+    tokens = _query_tokens(query)
     available_action_ids = _available_action_ids(tool_context)
-    if available_action_ids is not None:
-        # Navigation actions stay listable from any screen (matching the
-        # run_app_action acceptance rule) so "where can I go" and "go to X"
-        # remain answerable even on surfaces with no local controls.
-        # Journey entry actions join them: start_app_goal can begin those from
-        # any screen, so hiding them here left One unable to discover the only
-        # cross-screen path it had and pushed it onto bare navigation instead.
-        ranked = [
-            entry
-            for entry in ranked
-            if entry["action_id"] in available_action_ids
-            or is_navigation_action(entry)
-            or _is_journey_startable(entry)
-        ]
-    results = []
-    for entry in ranked:
+    candidates: list[tuple[int, int, str, dict[str, Any], str, str | None]] = []
+    for entry in list_action_gateway_actions():
         if (entry.get("execution_target") or {}).get("status") != "wired":
             continue
+        action_id = str(entry.get("action_id") or "")
+        if not action_id:
+            continue
+        availability, open_first = _reachability(entry, action_id, available_action_ids)
+        score = _relevance_score(entry, tokens)
+        if availability == "unreachable_from_here":
+            continue
+        # An unqueried call is "what can I do here" -- answer with this screen
+        # rather than the whole app. Only an actual query opens the catalog,
+        # and then only to actions the query matched.
+        if availability not in {"on_screen", "journey"} and (not tokens or score <= 0):
+            continue
+        candidates.append(
+            (
+                -score,
+                _AVAILABILITY_ORDER.get(availability, 9),
+                str(entry.get("label") or ""),
+                entry,
+                availability,
+                open_first,
+            )
+        )
+
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+    if tokens:
+        # A queried call padded to the cap with whatever happened to be on
+        # screen buries the two or three actions that actually answered the
+        # question. Keep some on-screen context, but never at the cost of a
+        # match: a short relevant list beats a full mostly-irrelevant one.
+        matched = [item for item in candidates if item[0] < 0]
+        filler = [item for item in candidates if item[0] == 0][:_MAX_QUERY_FILLER]
+        candidates = matched + filler
+    selected = candidates[:_MAX_LIST_RESULTS]
+    results = []
+    for _, _, _, entry, availability, open_first in selected:
         delegate_tool = _DELEGATE_TOOL_BY_AGENT_ID.get(str(entry.get("delegate_agent_id") or ""))
         # A delegate still wins: it names the specialist that owns the turn.
         # Otherwise, naming start_app_goal here is what turns discovery into a
@@ -910,12 +1028,18 @@ async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, A
                 "action_id": entry["action_id"],
                 "label": str(entry.get("label") or ""),
                 "meaning": str(entry.get("meaning") or ""),
-                "policy": str((entry.get("risk") or {}).get("execution_policy") or "allow_direct"),
+                # Read from the action's own field. This used to read a `risk`
+                # object that is null on every generated action, so all 117
+                # reported as allow_direct -- One was told that 23 manual_only
+                # and 8 confirm_required actions needed no confirmation.
+                "policy": str(entry.get("execution_policy") or "allow_direct"),
+                "availability": availability,
                 **({"use_tool": use_tool} if use_tool else {}),
+                **({"open_first_action_id": open_first} if open_first else {}),
             }
         )
     return {
         "status": "ok",
         "total_actions": len(list_action_gateway_actions()),
-        "results": results[:_MAX_LIST_RESULTS],
+        "results": results,
     }
