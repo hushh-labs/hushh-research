@@ -68,6 +68,10 @@ steps:
   # --max/--min: service-level limits bound aggregate database fan-out across
   # traffic splits. Revision min-instances=0 prevents no-traffic/retired
   # revisions from pinning their own warm database pools.
+  # Step 3a: Validate the runtime identity + managed-Vertex IAM prerequisites.
+  # Split out of the deploy step: Cloud Build caps one step arg at 10,000 chars
+  # and the deploy body was 142 over after the INTELLIGENCE_* secret wiring.
+  # A separate step gets its own budget; failure here stops the build the same way.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
     args:
@@ -121,6 +125,25 @@ steps:
             exit 1
           fi
         fi
+    id: "verify-runtime-iam"
+
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        genai_project_id="${_GENAI_PROJECT_ID}"
+        if [[ -z "${genai_project_id}" ]]; then
+          genai_project_id="$PROJECT_ID"
+          if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
+            genai_project_id="hushh-pda-uat"
+          fi
+        fi
+        if [[ "${genai_project_id}" != "$PROJECT_ID" && "${_DEPLOY_ENV}" != "dev" ]]; then
+          echo "Cross-project managed Vertex is allowed only for the isolated dev lane." >&2
+          exit 1
+        fi
         add_secret() {
           local secret_name="$1"
           local env_name="$2"
@@ -170,8 +193,17 @@ steps:
         add_secret "${_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET}" "RIA_INTELLIGENCE_VERIFY_BASE_URL"
         add_secret "${_RIA_IDENTITY_BASE_URL_SECRET}" "RIA_IDENTITY_BASE_URL"
         add_secret "${_RIA_IDENTITY_API_KEY_SECRET}" "RIA_IDENTITY_API_KEY"
+        add_secret "${_INTELLIGENCE_API_BASE_URL_SECRET}" "INTELLIGENCE_API_BASE_URL"
+        add_secret "${_INTELLIGENCE_API_KEY_SECRET}" "INTELLIGENCE_API_KEY"
+        add_secret "${_SUPPORT_EMAIL_TEST_TO_SECRET}" "SUPPORT_EMAIL_TEST_TO"
+        add_secret "${_SUPPORT_EMAIL_MODE_SECRET}" "SUPPORT_EMAIL_MODE"
+        add_secret "${_SUPPORT_EMAIL_DELEGATED_USER_SECRET}" "SUPPORT_EMAIL_DELEGATED_USER"
+        add_secret "${_SUPPORT_EMAIL_FROM_SECRET}" "SUPPORT_EMAIL_FROM"
+        add_secret "${_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET}" "GOOGLE_SERVICE_ACCOUNT_EMAIL"
+        add_secret "${_GOOGLE_PRIVATE_KEY_SECRET}" "GOOGLE_PRIVATE_KEY"
         add_secret "${_RIA_CLAIM_TEST_NUMBERS_SECRET}" "RIA_CLAIM_TEST_NUMBERS"
         add_secret "${_RIA_CLAIM_TEST_CODE_SECRET}" "RIA_CLAIM_TEST_CODE"
+        add_secret "${_RIA_CLAIM_TEST_EMAILS_SECRET}" "RIA_CLAIM_TEST_EMAILS"
         add_secret "${_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET}" "ONE_EMAIL_WATCH_RENEW_TOKEN"
         add_secret "${_WALLET_PASS_CERT_PEM_SECRET}" "WALLET_PASS_CERT_PEM"
         add_secret "${_WALLET_PASS_KEY_PEM_SECRET}" "WALLET_PASS_KEY_PEM"
@@ -370,10 +402,19 @@ substitutions:
   _RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET: ""
   _RIA_IDENTITY_BASE_URL_SECRET: ""
   _RIA_IDENTITY_API_KEY_SECRET: ""
+  _INTELLIGENCE_API_BASE_URL_SECRET: ""
+  _INTELLIGENCE_API_KEY_SECRET: ""
+  _SUPPORT_EMAIL_TEST_TO_SECRET: ""
+  _SUPPORT_EMAIL_MODE_SECRET: ""
+  _SUPPORT_EMAIL_DELEGATED_USER_SECRET: ""
+  _SUPPORT_EMAIL_FROM_SECRET: ""
+  _GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET: ""
+  _GOOGLE_PRIVATE_KEY_SECRET: ""
   # Claim demo passcode allowlist. Never pass these in production lanes; the
   # regulated runtime guard refuses boot if they are set there.
   _RIA_CLAIM_TEST_NUMBERS_SECRET: ""
   _RIA_CLAIM_TEST_CODE_SECRET: ""
+  _RIA_CLAIM_TEST_EMAILS_SECRET: ""
   _ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET: ""
   _WALLET_PASS_CERT_PEM_SECRET: WALLET_PASS_CERT_PEM
   _WALLET_PASS_KEY_PEM_SECRET: WALLET_PASS_KEY_PEM

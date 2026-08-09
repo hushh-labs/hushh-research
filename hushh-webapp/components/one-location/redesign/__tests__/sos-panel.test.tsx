@@ -224,6 +224,71 @@ describe("SosPanel", () => {
     expect(onTrigger).toHaveBeenCalledWith(null);
   });
 
+  it("stays pressable when the trigger bails out without ever going busy", async () => {
+    // Regression: handleTriggerSos returns early on a blocked permission, an
+    // empty SMS contact list, or an incident that is already live -- all before
+    // it sets `busy`. The panel's reset effect only runs on a busy true -> false
+    // edge, so nothing released the fired latch: `progress` stayed at 1, the
+    // ring showed a frozen countdown with the radar pulse running, and every
+    // later press was silently ignored until the screen was remounted.
+    const onTrigger = vi.fn().mockResolvedValue(undefined);
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    const hold = screen.getByRole("button", {
+      name: /press and hold for two seconds/i,
+    });
+
+    fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2_000));
+    fireEvent.pointerUp(hold, { pointerId: 1 });
+    expect(onTrigger).toHaveBeenCalledTimes(1);
+
+    // Let the trigger promise settle so the latch is released.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // The ring must be back to its resting label, not a stuck countdown.
+    expect(hold).toHaveTextContent("Hold 2 s");
+
+    fireEvent.pointerDown(hold, { button: 0, pointerId: 2 });
+    act(() => vi.advanceTimersByTime(2_000));
+    fireEvent.pointerUp(hold, { pointerId: 2 });
+
+    expect(onTrigger).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends a typed message straight from the send button in the message box", () => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Short text message" }));
+    fireEvent.change(screen.getByLabelText("Short text message"), {
+      target: { value: "Emergency" },
+    });
+    fireEvent.click(screen.getByTestId("sos-send-custom-message"));
+
+    expect(onTrigger).toHaveBeenCalledTimes(1);
+    expect(onTrigger).toHaveBeenCalledWith("Emergency");
+  });
+
+  it("keeps the send button inert until the message box has text", () => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Short text message" }));
+    const send = screen.getByTestId("sos-send-custom-message");
+    expect(send).toBeDisabled();
+
+    // Whitespace alone is not a message.
+    fireEvent.change(screen.getByLabelText("Short text message"), {
+      target: { value: "   " },
+    });
+    expect(send).toBeDisabled();
+
+    fireEvent.click(send);
+    expect(onTrigger).not.toHaveBeenCalled();
+  });
+
   it("passes the selected fixed message and exposes Edit and Cancel", () => {
     const onTrigger = vi.fn();
     const onClose = vi.fn();
@@ -388,5 +453,17 @@ describe("SosPanel", () => {
     expect(screen.getByText("SMS")).toBeInTheDocument();
     expect(screen.queryByText("Live now")).toBeNull();
     expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
+  });
+
+  it("keeps the mobile strip but widens into a two-column layout on large screens", () => {
+    const { container } = render(<SosPanel {...baseProps} />);
+    const screenEl = screen.getByTestId("sms-safety-screen");
+    // Mobile behavior preserved: still the full-screen black overlay.
+    expect(screenEl).toHaveClass("fixed", "inset-0", "bg-black");
+    // The inner container keeps the mobile 407px strip and widens on lg.
+    const inner = screenEl.firstElementChild as HTMLElement;
+    expect(inner).toHaveClass("max-w-[407px]", "lg:max-w-5xl");
+    // The press ring + controls become side-by-side columns on lg.
+    expect(container.querySelector('[class*="lg:flex-row"]')).not.toBeNull();
   });
 });

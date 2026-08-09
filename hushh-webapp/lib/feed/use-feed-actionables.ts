@@ -32,9 +32,15 @@ import {
 import {
   CONSENT_ACTION_COMPLETE_EVENT,
   CONSENT_STATE_CHANGED_EVENT,
+  dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
+import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
+import {
+  isLocationConsent,
+  locationConsentSummary,
+} from "@/lib/consent/location-consent";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationAccessRequest } from "@/lib/one-location/types";
 import {
@@ -97,6 +103,9 @@ function toTimestamp(value?: string | number | null): number {
 function consentSummary(entry: ConsentCenterEntry): string {
   if (entry.kind === "connection_request") return "Wants to connect with you.";
   if (entry.kind === "invite") return "Invitation waiting for your approval.";
+  if (isLocationConsent(entry.metadata, entry.scope)) {
+    return locationConsentSummary(entry.metadata);
+  }
   return (
     entry.additional_access_summary ||
     entry.scope_description ||
@@ -104,6 +113,31 @@ function consentSummary(entry: ConsentCenterEntry): string {
     entry.scope ||
     "A new consent request needs your review."
   );
+}
+
+/**
+ * A pending location access request is actionable in the viewer's "Needs you"
+ * feed only when the viewer OWNS the request (their location is being asked for)
+ * and did NOT send it themselves. `state.requests` carries BOTH directions, so
+ * without this guard a user's own OUTGOING request leaks back onto their feed as
+ * an incoming "wants to see your location" card labelled with their own name.
+ * Mirrors the `pendingOwnerRequests` predicate in the Location page, plus an
+ * explicit sender-≠-recipient check so a self-request never becomes actionable.
+ */
+export function isIncomingLocationRequestActionable(
+  request: OneLocationAccessRequest,
+  userId: string,
+): boolean {
+  return (
+    request.status === "pending" &&
+    request.ownerUserId === userId &&
+    request.requesterUserId !== userId
+  );
+}
+
+export function notifyFeedActionResolved(): void {
+  dispatchConsentStateChanged({ source: "feed_actionable" });
+  dispatchFeedStateChanged();
 }
 
 export function useFeedActionables(): UseFeedActionablesResult {
@@ -280,9 +314,12 @@ export function useFeedActionables(): UseFeedActionablesResult {
       }
     }
 
-    // Location access requests — inline Approve (1h) / Deny.
+    // Location access requests — inline Approve (1h) / Deny. Only requests the
+    // viewer owns (and did not send) are actionable; outgoing requests must not
+    // surface here as a self-addressed "wants to see your location" card.
     const pendingLocation = (locationRequests ?? []).filter(
-      (request: OneLocationAccessRequest) => request.status === "pending",
+      (request: OneLocationAccessRequest) =>
+        isIncomingLocationRequestActionable(request, userId),
     );
     for (const request of pendingLocation) {
       const label = request.requesterDisplayName?.trim() || "Someone";
@@ -306,6 +343,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                 requestId: request.id,
               });
               if (userId) OneLocationStateResource.invalidate(userId);
+              notifyFeedActionResolved();
               await locationRefresh({ force: true });
             },
           },
@@ -322,6 +360,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                 durationHours: 1,
               });
               if (userId) OneLocationStateResource.invalidate(userId);
+              notifyFeedActionResolved();
               await locationRefresh({ force: true });
             },
           },
@@ -374,6 +413,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                     requestId: request.id,
                   });
                   CacheSyncService.onConnectionCapabilityMutated(userId);
+                  notifyFeedActionResolved();
                   await connectionsRefresh({ force: true });
                 },
               },
@@ -390,6 +430,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                     requestId: request.id,
                   });
                   CacheSyncService.onConnectionCapabilityMutated(userId);
+                  notifyFeedActionResolved();
                   await connectionsRefresh({ force: true });
                 },
               },

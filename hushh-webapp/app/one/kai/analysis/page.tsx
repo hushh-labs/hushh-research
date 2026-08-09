@@ -508,13 +508,29 @@ export function KaiAnalysisPageContent() {
     setHistoryFallbackEntry(entry);
     setShowHistoryWhileActive(false);
     setWorkspaceTab((prev) => (prev === "debate" ? "summary" : prev));
-    setDebateIdParam(extractDebateId(entry));
+    // Unlike the fresh-context callers of setDebateIdParam (new ticker,
+    // close), this fires mid-view while the user is still looking at the
+    // run that just finished -- rebuilding params from scratch here wiped
+    // out `focus`/`run_id`/`view` and, lacking `{ scroll: false }`, forced
+    // an unflagged scroll-to-top right as the workspace pager was still
+    // animating to the summary pane, producing the stuck/glitched layout.
+    const params = new URLSearchParams(searchParamsRef.current.toString());
+    const nextDebateId = extractDebateId(entry);
+    if (nextDebateId) {
+      params.set("debate_id", nextDebateId);
+    } else {
+      params.delete("debate_id");
+    }
+    router.replace(
+      buildKaiMarketRoute("analysis", Object.fromEntries(params.entries())),
+      { scroll: false },
+    );
     if (summaryLoadingToastIdRef.current !== null) {
       toast.dismiss(summaryLoadingToastIdRef.current);
       summaryLoadingToastIdRef.current = null;
     }
     toast.success("Analysis saved to history.");
-  }, [setDebateIdParam]);
+  }, [router]);
 
   const hasFocusedRun = Boolean(focusedRunTask && !focusedRunTask.dismissedAt);
   const activeEntry = liveEntry || resolvedEntry;

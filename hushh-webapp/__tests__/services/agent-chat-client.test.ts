@@ -209,7 +209,7 @@ describe("agent chat client", () => {
         runtimeCredentialMode: "byok",
       })
     ).rejects.toThrow(
-      "One needs your Gemini key. Add it in Connections settings, or switch to Hushh managed Gemini."
+      "One needs your Gemini key. Add it in Connections settings, or switch to Hussh managed Gemini."
     );
   });
 
@@ -303,10 +303,10 @@ describe("agent chat client", () => {
         },
       })
     ).rejects.toThrow(
-      "Your saved Gemini key could not be used. Update it in Connections settings, or switch to Hushh managed Gemini."
+      "Your saved Gemini key could not be used. Update it in Connections settings, or switch to Hussh managed Gemini."
     );
     expect(errors).toEqual([
-      "Your saved Gemini key could not be used. Update it in Connections settings, or switch to Hushh managed Gemini.",
+      "Your saved Gemini key could not be used. Update it in Connections settings, or switch to Hussh managed Gemini.",
     ]);
   });
 

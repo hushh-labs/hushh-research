@@ -105,3 +105,48 @@ export function emergencyInfoForCountryCode(
   if (!country) return null;
   return country;
 }
+
+/** localStorage key for the last successfully resolved local emergency info. */
+export const EMERGENCY_INFO_CACHE_KEY = "one_location_emergency_info_v1";
+
+/**
+ * Hard cap on how long the Save My Soul screen waits for the authoritative
+ * reverse-geocode before it falls back to the last cached local number (or the
+ * retry state). Keeps a slow Maps response from stranding the Call button on a
+ * spinner during a safety-critical flow.
+ */
+export const EMERGENCY_LOOKUP_TIMEOUT_MS = 5_000;
+
+/**
+ * Last resolved local emergency info, re-validated against the country table so
+ * a stale or tampered cache entry can never surface a wrong number — the table
+ * stays the source of truth for the digits, and the cache only remembers which
+ * country was last resolved. Returns null when nothing is cached, storage is
+ * unavailable, or the cached country is no longer known.
+ */
+export function readCachedEmergencyInfo(): EmergencyInfo | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(EMERGENCY_INFO_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { countryCode?: unknown } | null;
+    const countryCode =
+      typeof parsed?.countryCode === "string" ? parsed.countryCode : null;
+    return emergencyInfoForCountryCode(countryCode);
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the last resolved local emergency info for instant reuse. */
+export function writeCachedEmergencyInfo(info: EmergencyInfo): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      EMERGENCY_INFO_CACHE_KEY,
+      JSON.stringify({ countryCode: info.countryCode }),
+    );
+  } catch {
+    // Best-effort: a full or disabled store simply skips the warm cache.
+  }
+}

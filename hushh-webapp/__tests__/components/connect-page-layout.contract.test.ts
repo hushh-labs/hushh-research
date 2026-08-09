@@ -19,6 +19,17 @@ describe("Connect page layout contract", () => {
     expect(source).not.toContain('eyebrow="One"');
   });
 
+  it("stacks connection actions below labels on narrow screens", () => {
+    const source = fs.readFileSync(
+      path.join(WEBAPP_ROOT, "app/connect/page-client.tsx"),
+      "utf8",
+    );
+
+    expect(source).toMatch(
+      /sortedConnections\.map[\s\S]*?<SettingsRow[\s\S]*?stackTrailingOnMobile[\s\S]*?title=\{connection\.displayName \|\| connection\.userId\}/,
+    );
+  });
+
   it("hard-gates Connect and the private agent on live in-memory vault state", () => {
     const connectRoute = fs.readFileSync(
       path.join(WEBAPP_ROOT, "app/one/connect/page.tsx"),

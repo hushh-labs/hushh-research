@@ -221,7 +221,7 @@ export function GeminiRuntimeSettingsCard({
       setMode("hushh_managed_vertex");
       setHasExplicitSelection(true);
       notifyGeminiRuntimeConfigurationChanged();
-      toast.success("Hushh managed Gemini is selected.");
+      toast.success("Hussh managed Gemini is selected.");
     } catch (error) {
       setMode(previousMode);
       setHasExplicitSelection(previousSelection);
@@ -493,8 +493,8 @@ export function GeminiRuntimeSettingsCard({
         <SettingsRow
         asChild
         leading={<GeminiLogo className="h-8 w-8" />}
-        title="Hushh managed Gemini"
-        description="Ready now with Hushh-managed Gemini. No personal key is needed."
+        title="Hussh managed Gemini"
+        description="Ready now with Hussh-managed Gemini. No personal key is needed."
         trailing={
           mode === "hushh_managed_vertex" && hasExplicitSelection ? (
             <Badge variant="secondary">Selected</Badge>

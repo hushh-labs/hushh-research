@@ -11,8 +11,30 @@ function resolveSha256Fingerprints(): string[] {
 }
 
 export async function GET() {
-  const packageName = process.env.NEXT_PUBLIC_ANDROID_APP_ID || "com.hushh.app";
+  const packageName = process.env.NEXT_PUBLIC_ANDROID_APP_ID;
   const fingerprints = resolveSha256Fingerprints();
+
+  // No fallback to a hardcoded package name here: a stale default that
+  // silently diverges from the real Android application id (as happened
+  // across the com.hushh.app -> com.hussh.app rename) would authorize the
+  // WRONG app for passkey credential delegation without ever surfacing an
+  // error -- fail loudly instead, matching the missing-fingerprints case
+  // below.
+  if (!packageName) {
+    return NextResponse.json(
+      {
+        error:
+          "Missing NEXT_PUBLIC_ANDROID_APP_ID for passkey domain association.",
+      },
+      {
+        status: 503,
+        headers: {
+          "Cache-Control": "no-store",
+          "Content-Type": "application/json",
+        },
+      }
+    );
+  }
 
   if (!fingerprints.length) {
     return NextResponse.json(

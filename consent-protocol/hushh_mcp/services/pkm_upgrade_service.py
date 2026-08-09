@@ -457,6 +457,15 @@ class PkmUpgradeService:
                 < self._semantic_version(CURRENT_READABLE_PROJECTION_VERSION)
             ) and not future_reasons
             blocked_reasons = self._domain_blockers(manifest)
+            if needs_upgrade and "missing_manifest" in blocked_reasons:
+                # Discovery-only domains: a server-side summary flag (e.g. a
+                # claim's has_regulator_profile) can list a domain in the index
+                # before any encrypted blob exists. There is nothing to
+                # upgrade, and marking it upgradable sends every app entry
+                # into a run that fails on the missing blob.
+                snapshot = await self.pkm_service.get_domain_snapshot(user_id, domain)
+                if snapshot is None:
+                    needs_upgrade = False
             if future_reasons:
                 blocked_reasons = [*blocked_reasons, "client_update_required", *future_reasons]
             domain_states.append(

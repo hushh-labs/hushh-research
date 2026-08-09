@@ -71,7 +71,7 @@ export function marketplaceInvestorActionTarget(investor: MarketplaceInvestor): 
 export function marketplaceInvestorSourceLabel(investor: MarketplaceInvestor): string | null {
   if (isPublicSecMarketplaceInvestor(investor)) return "Public SEC profile";
   if (String(investor.source_type || "").toLowerCase() === "hushh_user") {
-    return "Qualified Hushh investor";
+    return "Qualified Hussh investor";
   }
   return null;
 }

@@ -17,21 +17,16 @@ vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: "user_1" } }),
 }));
 
+// Both tests below exercise the vault-locked path deliberately ("without
+// opening the vault") -- the component stages the draft in memory instead of
+// saving to the PKM vault whenever isVaultUnlocked/vaultKey/vaultOwnerToken
+// aren't all present.
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
-    vaultKey: "vault-key",
-    vaultOwnerToken: "owner-token",
+    isVaultUnlocked: false,
+    vaultKey: null,
+    vaultOwnerToken: null,
   }),
-}));
-
-vi.mock("@/components/vault/vault-unlock-dialog", () => ({
-  VaultUnlockDialog: () => null,
-}));
-
-vi.mock("@/components/app-ui/onboarding-stepper", () => ({
-  OnboardingStepper: ({ currentIndex }: { currentIndex: number }) => (
-    <div data-testid="onboarding-stepper">Step {currentIndex + 1}</div>
-  ),
 }));
 
 vi.mock("@/lib/services/kyc-identity-profile-pkm-service", () => ({
@@ -41,7 +36,6 @@ vi.mock("@/lib/services/kyc-identity-profile-pkm-service", () => ({
   KycIdentityProfileDraftService: {
     stage: mocks.stageProfile,
   },
-  isValidDateOfBirth: (value: string) => value === "1994-04-15",
 }));
 
 vi.mock("sonner", () => ({
@@ -58,80 +52,50 @@ describe("KycIdentityPreface", () => {
     mocks.saveProfile.mockResolvedValue({ success: true });
   });
 
-  it("stages four identity answers in memory without opening the vault", async () => {
+  it("keeps the shared gutter while removing the standard route's duplicate top offset", () => {
+    const { container } = render(
+      <KycIdentityPreface onComplete={vi.fn()} />,
+    );
+
+    expect(
+      container.querySelector('[data-capability-cinematic-intro="email"]'),
+    ).toBeInTheDocument();
+    const shell = container.querySelector(
+      '[data-fullscreen-flow-shell="true"]',
+    );
+    expect(shell).toBeInTheDocument();
+    expect(shell?.className).toContain("!pt-0");
+  });
+
+  it("stages the about-me summary in memory without opening the vault", () => {
     const onComplete = vi.fn();
     render(<KycIdentityPreface onComplete={onComplete} />);
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
-    fireEvent.change(screen.getByLabelText("Legal name"), {
-      target: { value: "Avery Example" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(
+      screen.getByRole("button", { name: "Save & Continue" }),
+    ).toBeDisabled();
 
-    expect(screen.getByLabelText("Date of birth")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Date of birth"), {
-      target: { value: "1994-04-15" },
+    fireEvent.change(screen.getByLabelText("Tell us about yourself"), {
+      target: { value: "  Product designer in Pune, settling estate matters. " },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-
-    fireEvent.change(screen.getByLabelText("Country of citizenship"), {
-      target: { value: "IN" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-
-    fireEvent.change(screen.getByLabelText("Employment status"), {
-      target: { value: "employed" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save & Continue" }));
 
     expect(onComplete).toHaveBeenCalledTimes(1);
-
     expect(KycIdentityProfileDraftService.stage).toHaveBeenCalledWith(
       "user_1",
       {
-        legalName: "Avery Example",
-        dateOfBirth: "1994-04-15",
-        citizenshipCountryCode: "IN",
-        citizenshipCountryName: "India",
-        employmentStatus: "employed",
+        aboutMe: "Product designer in Pune, settling estate matters.",
       },
     );
     expect(KycIdentityProfilePkmService.saveProfile).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("does not let a future date advance KYC setup", () => {
-    render(<KycIdentityPreface onComplete={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.change(screen.getByLabelText("Legal name"), {
-      target: { value: "Avery Example" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-
-    fireEvent.change(screen.getByLabelText("Date of birth"), {
-      target: { value: "2099-01-01" },
-    });
-
-    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
-    expect(screen.getByLabelText("Date of birth")).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Enter a real date of birth in the past.",
-    );
-  });
-
-  it("lets a user skip questions without writing a partial identity profile", () => {
+  it("lets a user skip KYC setup without writing a partial identity profile", () => {
     const onComplete = vi.fn();
     render(<KycIdentityPreface onComplete={onComplete} />);
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "Skip this question" }));
-    expect(screen.getByLabelText("Date of birth")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Skip this question" }));
-    expect(screen.getByLabelText("Country of citizenship")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Skip this question" }));
-    expect(screen.getByLabelText("Employment status")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Skip KYC setup" }));
 

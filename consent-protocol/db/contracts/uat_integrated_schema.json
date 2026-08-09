@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 133,
+  "expected_migration_version": 139,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -101,6 +101,9 @@
       "fee_structure",
       "min_engagement_amount",
       "min_engagement_currency",
+      "profile_source",
+      "profile_source_url",
+      "profile_source_filed_on",
       "created_at",
       "updated_at"
     ],
@@ -129,6 +132,23 @@
       "raw_response",
       "status",
       "created_at"
+    ],
+    "ria_claim_dossiers": [
+      "id",
+      "ria_profile_id",
+      "crd_number",
+      "user_id",
+      "status",
+      "scan_id",
+      "result_markdown",
+      "result_summary",
+      "mail_message_id",
+      "mail_recipient",
+      "mail_intended_recipient",
+      "mail_delivery_mode",
+      "error",
+      "requested_at",
+      "completed_at"
     ],
     "advisor_investor_relationships": [
       "id",
@@ -711,6 +731,72 @@
       "revoked_at",
       "metadata"
     ],
+    "one_location_circles": [
+      "id",
+      "owner_user_id",
+      "name",
+      "kind",
+      "status",
+      "member_limit",
+      "created_at",
+      "updated_at",
+      "deleted_at",
+      "metadata"
+    ],
+    "one_location_circle_memberships": [
+      "circle_id",
+      "user_id",
+      "role",
+      "status",
+      "joined_at",
+      "updated_at",
+      "ended_at",
+      "metadata"
+    ],
+    "one_location_circle_invite_codes": [
+      "id",
+      "circle_id",
+      "created_by_user_id",
+      "code_hash",
+      "status",
+      "expires_at",
+      "max_uses",
+      "use_count",
+      "created_at",
+      "updated_at",
+      "revoked_at",
+      "metadata"
+    ],
+    "one_location_circle_member_invites": [
+      "id",
+      "circle_id",
+      "inviter_user_id",
+      "invitee_user_id",
+      "status",
+      "expires_at",
+      "created_at",
+      "updated_at",
+      "responded_at",
+      "cancelled_at",
+      "metadata"
+    ],
+    "one_location_share_grants": [
+      "id",
+      "owner_user_id",
+      "recipient_user_id",
+      "recipient_key_id",
+      "status",
+      "consent_scope",
+      "capability_scopes",
+      "duration_hours",
+      "expires_at",
+      "created_at",
+      "updated_at",
+      "revoked_at",
+      "metadata",
+      "latest_envelope_id",
+      "source_circle_id"
+    ],
     "one_location_network_connections": [
       "id",
       "user_a_id",
@@ -1027,6 +1113,19 @@
       "created_at",
       "updated_at",
       "revoked_at"
+    ],
+    "connection_origins": [
+      "id",
+      "connection_id",
+      "origin_kind",
+      "origin_key",
+      "source_circle_id",
+      "source_ref",
+      "status",
+      "created_at",
+      "updated_at",
+      "revoked_at",
+      "metadata"
     ],
     "kai_plaid_items": [
       "item_id",

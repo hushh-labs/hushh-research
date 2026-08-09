@@ -15,10 +15,10 @@ export async function generateMetadata({
   const { slug } = await params;
   const post = getBlogPost(slug);
   if (!post) {
-    return { title: "Post not found · Hushh Research" };
+    return { title: "Post not found · Hussh Research" };
   }
   return {
-    title: `${post.title} · Hushh Research`,
+    title: `${post.title} · Hussh Research`,
     description: post.excerpt,
   };
 }

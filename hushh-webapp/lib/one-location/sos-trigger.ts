@@ -141,8 +141,31 @@ export interface RunSosPanicParams {
     grant: OneLocationGrant,
     recipient: SosShareReadyRecipient,
     point: PlainLocationPoint,
-  ) => Promise<void>;
+  ) => Promise<boolean | null | void>;
 }
+
+/**
+ * Per-recipient outcome for one alert.
+ *
+ * `alerted` is `true` when the backend handed a push to FCM, `false` when the
+ * recipient had no device to deliver to (notifications never enabled, or the
+ * token was reaped after an uninstall), and `null` when the backend did not
+ * report — which must never be shown as a failure.
+ */
+export type SosDeliveryOutcome = {
+  userId: string;
+  displayName: string;
+  alerted: boolean | null;
+};
+
+/**
+ * `SosIncident` plus per-recipient delivery, so a caller can say which contacts
+ * were actually reached instead of a blanket "sent". Extends `SosIncident` so
+ * existing callers that only persist/read incident fields are unaffected.
+ */
+export type SosPanicResult = SosIncident & {
+  delivery: SosDeliveryOutcome[];
+};
 
 /**
  * Creates one 8-hour SOS grant per recipient, publishes an encrypted location
@@ -161,7 +184,7 @@ export interface RunSosPanicParams {
  */
 export async function runSosPanic(
   params: RunSosPanicParams,
-): Promise<SosIncident> {
+): Promise<SosPanicResult> {
   const { vaultOwnerToken, recipients, point, publish, note } = params;
   const normalizedNote = note?.trim() || null;
 
@@ -180,6 +203,7 @@ export async function runSosPanic(
   // partial incident — prevents clock skew between the two code paths.
   const startedAt = new Date().toISOString();
   const grantIds: string[] = [];
+  const delivery: SosDeliveryOutcome[] = [];
 
   try {
     for (const recipient of recipients) {
@@ -194,12 +218,19 @@ export async function runSosPanic(
       // Record the grant id BEFORE publish so it is never orphaned even if
       // publish throws for this or a later recipient.
       grantIds.push(grant.id);
-      await publish(grant, recipient, point);
+      const alerted = await publish(grant, recipient, point);
+      delivery.push({
+        userId: recipient.userId,
+        displayName: recipient.displayName,
+        alerted: typeof alerted === "boolean" ? alerted : null,
+      });
     }
 
     const incident: SosIncident = { grantIds, startedAt };
+    // Only incident fields are persisted; delivery is per-attempt UI feedback
+    // and would be stale the moment it was read back from storage.
     saveSosIncident(incident);
-    return incident;
+    return { ...incident, delivery };
   } catch (error) {
     // Build partial incident from whatever grants were successfully created.
     const partial: SosIncident | null = grantIds.length

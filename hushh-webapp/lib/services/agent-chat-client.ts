@@ -114,13 +114,13 @@ function readRecord(record: Record<string, unknown>, key: string): Record<string
 
 function formatAgentChatErrorMessage(message: string, code?: string): string {
   if (code === "AGENT_RUNTIME_CREDENTIAL_MISSING") {
-    return "One needs your Gemini key. Add it in Connections settings, or switch to Hushh managed Gemini.";
+    return "One needs your Gemini key. Add it in Connections settings, or switch to Hussh managed Gemini.";
   }
   if (code === "AGENT_RUNTIME_CREDENTIAL_INVALID") {
-    return "Your saved Gemini key could not be used. Update it in Connections settings, or switch to Hushh managed Gemini.";
+    return "Your saved Gemini key could not be used. Update it in Connections settings, or switch to Hussh managed Gemini.";
   }
   if (code === "AGENT_RUNTIME_MANAGED_CREDENTIALS_UNAVAILABLE") {
-    return "Hushh managed Gemini is not available in this environment.";
+    return "Hussh managed Gemini is not available in this environment.";
   }
   if (code === "AGENT_RUNTIME_MODEL_UNAVAILABLE") {
     return "One's configured Gemini model is not available for this runtime.";

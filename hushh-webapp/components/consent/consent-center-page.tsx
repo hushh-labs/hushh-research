@@ -73,6 +73,7 @@ import {
   isEmailHelperConsent,
 } from "@/lib/consent/email-helper-consent";
 import {
+  isCircleMemberInviteConsent,
   isLocationConsent,
   locationConsentSummary,
   locationConsentWorkflowHref,
@@ -967,6 +968,7 @@ function ConsentEntryDetail({
   const locationHref = isLocationEntry
     ? normalizeInternalAppHref(locationConsentWorkflowHref(entry.metadata))
     : null;
+  const isCircleMemberInvite = isCircleMemberInviteConsent(entry.metadata);
   const normalizedRequestHref = entry.request_url
     ? normalizeInternalAppHref(entry.request_url) || entry.request_url
     : null;
@@ -987,10 +989,12 @@ function ConsentEntryDetail({
       }
     : locationHref
       ? {
-          title: "Location sharing",
-          description: "Review this request or access in Location.",
+          title: isCircleMemberInvite ? "Circle invitation" : "Location sharing",
+          description: isCircleMemberInvite
+            ? "Open Location to review the Circle and choose Join or Decline. This invitation grants no location access."
+            : "Review this request or access in Location.",
           href: locationHref,
-          label: "Open Location",
+          label: isCircleMemberInvite ? "Open invitation" : "Open Location",
           external: false,
         }
       : distinctRequestHref
@@ -1029,6 +1033,7 @@ function ConsentEntryDetail({
   const isPendingKind =
     entry.kind === "incoming_request" || isConnectionRequestEntry(entry);
   const isPendingDecision =
+    !isCircleMemberInvite &&
     isPendingKind &&
     (allowedNextAction
       ? allowedNextAction === "review_request"

@@ -17,7 +17,7 @@ export const RUNTIME_PROVIDER_CATALOG: readonly RuntimeProviderCatalogEntry[] = 
     id: "gemini",
     name: "Google Gemini",
     availability: "available",
-    description: "Use Hushh managed Gemini or your own Gemini API key.",
+    description: "Use Hussh managed Gemini or your own Gemini API key.",
   },
   {
     id: "openai",
