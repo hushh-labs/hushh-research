@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { resolveAgentSectionForPath } from "@/lib/navigation/agent-sections";
 import {
-  clearSectionOrigins,
-  isSectionRoot,
-  readSectionOrigin,
-  readSectionOriginsForTest,
-  recordSectionEntry,
+  clearDestinationOrigins,
+  isDestinationRoot,
+  readDestinationOrigin,
+  readDestinationOriginsForTest,
+  recordDestinationEntry,
+  resolveDestinationId,
 } from "@/lib/navigation/section-back-origin";
 import {
   navigateTopShellBack,
@@ -16,112 +16,124 @@ import {
 const KAI = "/one/kai";
 const KAI_ANALYSIS = "/one/kai/analysis";
 const LOCATION = "/one/location";
+const LOCATION_PEOPLE = "/one/location?view=people";
+const CONNECT = "/one/connect";
 const ONE_HOME = "/one";
 
 beforeEach(() => {
-  clearSectionOrigins();
+  clearDestinationOrigins();
 });
 
 /**
- * Inside a section the declared parent already climbs correctly and needs no
- * memory. The hierarchy simply cannot know which section the person crossed in
- * from, and that is the only case back got wrong: One home is what *contains*
- * Location, so entering Location from Finance and pressing back landed there.
+ * Inside a destination the declared parent already climbs correctly and needs
+ * no memory. What the hierarchy cannot know is which destination the person
+ * crossed in from, and that is the only case back got wrong.
  */
-describe("section entry recording", () => {
-  it("stores nothing for a move inside one section", () => {
-    recordSectionEntry(KAI);
-    recordSectionEntry(KAI_ANALYSIS);
-
-    expect(readSectionOriginsForTest()).toEqual([]);
+describe("destination identity", () => {
+  it("treats agent sections and shared bottom-nav surfaces alike", () => {
+    expect(resolveDestinationId(LOCATION)).toBeTruthy();
+    // Connect is not an agent capability. Scoping this to sections alone is
+    // what left "Location -> Add Connections -> back" landing on One home.
+    expect(resolveDestinationId(CONNECT)).toBeTruthy();
+    expect(resolveDestinationId(LOCATION)).not.toBe(resolveDestinationId(CONNECT));
   });
 
-  it("stores one entry when crossing between sections", () => {
-    recordSectionEntry(KAI);
-    recordSectionEntry(KAI_ANALYSIS);
-    recordSectionEntry(LOCATION);
-
-    const stored = readSectionOriginsForTest();
-    expect(stored).toHaveLength(1);
-    expect(stored[0]?.from).toBe(KAI_ANALYSIS);
-  });
-
-  it("ignores query and hash, so an overlay is never an entry", () => {
-    recordSectionEntry(KAI);
-    recordSectionEntry(`${LOCATION}?action=share`);
-    recordSectionEntry(`${LOCATION}#map`);
-
-    expect(readSectionOriginsForTest()).toHaveLength(1);
-  });
-
-  it("refuses anything that is not an in-app absolute path", () => {
-    recordSectionEntry(KAI);
-    recordSectionEntry("https://example.com/one/location");
-    recordSectionEntry("//evil.example.com");
-
-    expect(readSectionOriginsForTest()).toEqual([]);
-  });
-
-  it("unwinds rather than stacking when a section is re-entered", () => {
-    recordSectionEntry(ONE_HOME);
-    recordSectionEntry(KAI);
-    recordSectionEntry(LOCATION);
-    recordSectionEntry(KAI);
-
-    // Back in Kai, so Location's origin is spent, not kept alongside a second
-    // Kai entry that would grow every time the person moved between two
-    // sections.
-    const ids = readSectionOriginsForTest().map((entry) => entry.sectionId);
-    expect(new Set(ids).size).toBe(ids.length);
-    expect(readSectionOrigin(LOCATION)).toBeNull();
+  it("knows which routes are exit points", () => {
+    expect(isDestinationRoot(LOCATION)).toBe(true);
+    expect(isDestinationRoot(CONNECT)).toBe(true);
+    // Deeper routes still climb their declared parents.
+    expect(isDestinationRoot(KAI_ANALYSIS)).toBe(false);
   });
 });
 
-describe("back leaves a section by its origin and climbs inside one", () => {
-  it("returns to the section the person came from", () => {
-    recordSectionEntry(KAI);
-    recordSectionEntry(LOCATION);
+describe("recording crossings", () => {
+  it("stores nothing for a move inside one destination", () => {
+    recordDestinationEntry(KAI);
+    recordDestinationEntry(KAI_ANALYSIS);
 
-    // Location's declared parent is One home. The person came from Kai.
-    expect(resolveTopShellBackAction({ pathname: LOCATION })).toEqual({
-      href: KAI,
+    expect(readDestinationOriginsForTest()).toEqual([]);
+  });
+
+  it("keeps the query of the screen that was left", () => {
+    recordDestinationEntry(LOCATION_PEOPLE);
+    recordDestinationEntry(CONNECT);
+
+    // Returning to a bare /one/location is the right screen showing the wrong
+    // tab, which is what the report described.
+    expect(readDestinationOrigin(CONNECT)).toBe(LOCATION_PEOPLE);
+  });
+
+  it("does not treat a query-only change as a crossing", () => {
+    recordDestinationEntry(LOCATION);
+    recordDestinationEntry(LOCATION_PEOPLE);
+
+    expect(readDestinationOriginsForTest()).toEqual([]);
+  });
+
+  it("refuses anything that is not an in-app absolute path", () => {
+    recordDestinationEntry(LOCATION);
+    recordDestinationEntry("https://example.com/one/connect");
+    recordDestinationEntry("//evil.example.com");
+
+    expect(readDestinationOriginsForTest()).toEqual([]);
+  });
+
+  it("unwinds rather than stacking when a destination is re-entered", () => {
+    recordDestinationEntry(ONE_HOME);
+    recordDestinationEntry(LOCATION);
+    recordDestinationEntry(CONNECT);
+    recordDestinationEntry(LOCATION);
+
+    const ids = readDestinationOriginsForTest().map((e) => e.destinationId);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(readDestinationOrigin(CONNECT)).toBeNull();
+  });
+});
+
+describe("back leaves a destination by its origin", () => {
+  it("returns from Connect to the exact Location screen it was opened from", () => {
+    recordDestinationEntry(LOCATION_PEOPLE);
+    recordDestinationEntry(CONNECT);
+
+    expect(resolveTopShellBackAction({ pathname: CONNECT })).toEqual({
+      href: LOCATION_PEOPLE,
       mode: "push",
     });
   });
 
-  it("climbs the hierarchy inside a section, ignoring the origin", () => {
-    recordSectionEntry(LOCATION);
-    recordSectionEntry(KAI);
-    recordSectionEntry(KAI_ANALYSIS);
+  it("climbs inside a destination, ignoring the origin", () => {
+    recordDestinationEntry(LOCATION);
+    recordDestinationEntry(KAI);
+    recordDestinationEntry(KAI_ANALYSIS);
 
-    // Analysis is not a section root, so back climbs to its declared parent
-    // rather than jumping out to Location.
     const action = resolveTopShellBackAction({ pathname: KAI_ANALYSIS });
     expect(action?.href).not.toBe(LOCATION);
-    expect(isSectionRoot(KAI_ANALYSIS)).toBe(false);
   });
 
   it("falls back to the declared parent with no recorded origin", () => {
-    // A deep link, a cold start, a shared invite link. Unchanged behaviour.
+    // Deep link, cold start, shared invite link. Unchanged behaviour.
     expect(resolveTopShellBackAction({ pathname: "/ria/onboarding" })).toEqual({
       href: ONE_HOME,
       mode: "push",
     });
   });
 
-  it("spends the origin so a later visit does not retrace a stale route", () => {
-    recordSectionEntry(KAI);
-    recordSectionEntry(LOCATION);
+  it("spends the origin so a later visit cannot retrace a stale route", () => {
+    recordDestinationEntry(LOCATION_PEOPLE);
+    recordDestinationEntry(CONNECT);
     const navigate = vi.fn();
 
-    navigateTopShellBack({ pathname: LOCATION, navigate });
-    expect(navigate).toHaveBeenCalledWith({ href: KAI, mode: "push" });
-    expect(readSectionOrigin(LOCATION)).toBeNull();
+    navigateTopShellBack({ pathname: CONNECT, navigate });
+    expect(navigate).toHaveBeenCalledWith({
+      href: LOCATION_PEOPLE,
+      mode: "push",
+    });
+    expect(readDestinationOrigin(CONNECT)).toBeNull();
   });
 
-  it("closes an open action sheet in place instead of leaving the section", () => {
-    recordSectionEntry(KAI);
-    recordSectionEntry(LOCATION);
+  it("closes an open action sheet in place instead of leaving", () => {
+    recordDestinationEntry(KAI);
+    recordDestinationEntry(LOCATION);
     const navigate = vi.fn();
 
     navigateTopShellBack({
@@ -132,25 +144,20 @@ describe("back leaves a section by its origin and climbs inside one", () => {
 
     expect(navigate).toHaveBeenCalledWith({ href: LOCATION, mode: "replace" });
     // The overlay closed; the origin is still owed for when they actually go.
-    expect(readSectionOrigin(LOCATION)).toBe(KAI);
+    expect(readDestinationOrigin(LOCATION)).toBe(KAI);
   });
 
   it("still reports no back where the shell hides it", () => {
-    recordSectionEntry(KAI);
-    recordSectionEntry(LOCATION);
+    recordDestinationEntry(LOCATION);
+    recordDestinationEntry(CONNECT);
 
     // The iOS edge-back gesture enables itself from this returning an action,
     // so when back exists must not shift.
     expect(
       resolveTopShellBackAction({
-        pathname: LOCATION,
+        pathname: CONNECT,
         breadcrumb: { backHref: ONE_HOME, hideBack: true, items: [] },
       }),
     ).toBeNull();
-  });
-
-  it("treats a section root as the exit point", () => {
-    expect(isSectionRoot(LOCATION)).toBe(true);
-    expect(resolveAgentSectionForPath(LOCATION)).not.toBeNull();
   });
 });

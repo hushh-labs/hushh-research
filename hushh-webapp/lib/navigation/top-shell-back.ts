@@ -1,7 +1,7 @@
 import {
-  consumeSectionOrigin,
-  isSectionRoot,
-  readSectionOrigin,
+  consumeDestinationOrigin,
+  isDestinationRoot,
+  readDestinationOrigin,
 } from "@/lib/navigation/section-back-origin";
 import {
   resolveTopShellBreadcrumb,
@@ -69,13 +69,13 @@ export function resolveTopShellBackAction(params: {
   // Only the section root leaves the section. Everywhere else the declared
   // parent already climbs the hierarchy correctly, which is why nothing is
   // stored for moves inside a section.
-  if (!isSectionRoot(params.pathname)) {
+  if (!isDestinationRoot(params.pathname)) {
     return { href: breadcrumb.backHref, mode: "push" };
   }
 
   const origin =
     params.sectionOrigin === undefined
-      ? readSectionOrigin(params.pathname)
+      ? readDestinationOrigin(params.pathname)
       : params.sectionOrigin;
 
   return { href: origin || breadcrumb.backHref, mode: "push" };
@@ -93,8 +93,8 @@ export function navigateTopShellBack(params: {
   // Leaving a section spends its origin, so a later return records a fresh
   // one instead of retracing to a route the person has long left. Closing an
   // overlay is a `replace` on the same screen and spends nothing.
-  if (action.mode === "push" && isSectionRoot(params.pathname)) {
-    consumeSectionOrigin(params.pathname);
+  if (action.mode === "push" && isDestinationRoot(params.pathname)) {
+    consumeDestinationOrigin(params.pathname);
   }
   params.navigate(action);
   return true;
