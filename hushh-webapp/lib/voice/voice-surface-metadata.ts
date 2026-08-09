@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
+import { useVoiceSurfaceActive } from "@/lib/voice/voice-surface-activity";
 import type {
   VoiceSurfaceActionDefinition,
   VoiceSurfaceConceptDefinition,
@@ -649,7 +650,7 @@ function composePublishedMetadata(): VoiceSurfaceMetadata | null {
   );
   const routeEntry = [...entries]
     .reverse()
-    .find((entry) => entry.role === "route");
+    .find((entry) => entry.role === "route" && entry.metadata);
   let composed = routeEntry?.metadata || null;
   entries
     .filter((entry) => entry.role === "chrome" && entry.metadata)
@@ -769,12 +770,20 @@ export function usePublishVoiceSurfaceMetadata(
   options: VoiceSurfacePublisherOptions = {},
 ) {
   const pathname = usePathname();
+  const surfaceActive = useVoiceSurfaceActive();
   const publisherIdRef = useRef(
     `voice_surface_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
   );
 
   useEffect(() => {
     const publisherId = publisherIdRef.current;
+    // A mounted-but-backgrounded panel has nothing to say about the current
+    // screen. Withdrawing its entry -- rather than publishing empty metadata --
+    // keeps it out of the route-publisher race entirely.
+    if (!surfaceActive) {
+      clearVoiceSurfaceMetadata(publisherId);
+      return;
+    }
     const routeKey =
       options.routeKey ??
       pathname ??
@@ -786,7 +795,7 @@ export function usePublishVoiceSurfaceMetadata(
     return () => {
       clearVoiceSurfaceMetadata(publisherId);
     };
-  }, [metadata, options.role, options.routeKey, pathname]);
+  }, [metadata, options.role, options.routeKey, pathname, surfaceActive]);
 }
 
 export function useVoiceSurfaceControlTracking() {

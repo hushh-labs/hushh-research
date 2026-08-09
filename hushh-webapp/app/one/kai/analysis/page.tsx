@@ -624,6 +624,22 @@ export function KaiAnalysisPageContent() {
           : "Detailed View";
     const surfaceMode = showWorkspace ? "workspace" : "history";
     const actions = [
+      // Starting an analysis is reachable from this screen in both states: the
+      // ticker search that drives it lives in the shared Kai bottom bar, not in
+      // the panel body. It has to be published because a mounted inventory
+      // suppresses the route-contract fallback -- omitting it made One refuse
+      // "analyse NVDA" while standing on the very screen that runs it. Gated to
+      // mirror the action's own `analysis_idle_required` guard.
+      ...(activeRunTask
+        ? []
+        : [
+            {
+              id: "analysis.start",
+              actionId: "analysis.start",
+              label: "Start stock analysis",
+              purpose: "Open a stock preview so a debate can begin.",
+            },
+          ]),
       ...(showWorkspace
         ? [
             { id: "analysis.back_to_history", actionId: "analysis.back_to_history", label: "Back to history", purpose: "Return to saved analysis history." },

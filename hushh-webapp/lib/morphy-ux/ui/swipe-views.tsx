@@ -8,6 +8,7 @@ import {
   setTopShellTabSwipeState,
   subscribeTopShellTabSelection,
 } from "@/lib/navigation/top-shell-tab-swipe-progress";
+import { VoiceSurfaceActivityBoundary } from "@/lib/voice/voice-surface-activity";
 import { cn } from "@/lib/utils";
 
 /**
@@ -512,7 +513,11 @@ export function SwipeViews({
               )}
               style={{ minHeight: "inherit" }}
             >
-              {panels[index]}
+              {/* Every panel stays mounted, so a backgrounded one must not
+                  publish itself as the screen the person is on. */}
+              <VoiceSurfaceActivityBoundary active={isActive}>
+                {panels[index]}
+              </VoiceSurfaceActivityBoundary>
             </div>
           );
         })}
