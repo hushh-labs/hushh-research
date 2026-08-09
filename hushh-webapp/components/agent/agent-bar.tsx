@@ -65,6 +65,7 @@ import {
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
 import { useAccent, writeAccent } from "@/lib/theme/accent";
 import {
   nextThemePreference,
@@ -536,10 +537,19 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               typeof event.directive.payload?.goalId === "string"
                 ? event.directive.payload.goalId
                 : null;
-            const isSettledAnalysisGoalDirective =
-              goalId === "goal.analysis.start_debate" &&
-              actionId === "analysis.start" &&
-              runtime?.appRuntimeState.route.screen === "kai_analysis";
+            // The relay only stamps goalId on a directive it minted for an
+            // authored journey. Honor it when the id matches THAT action's own
+            // journey and we are standing on its declared destination -- read
+            // from the contract, so a second journey needs no change here.
+            const directiveJourney = actionId
+              ? resolveNavigationJourney(actionId)
+              : null;
+            const isSettledJourneyDirective = Boolean(
+              directiveJourney &&
+                goalId === directiveJourney.goalId &&
+                runtime?.appRuntimeState.route.screen ===
+                  directiveJourney.destinationScreen,
+            );
             if (!directiveId || !contextRevision) {
               console.warn(
                 "[AgentBar] Rejected action directive without server confirmation binding.",
@@ -616,7 +626,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               message: `Preparing ${action?.label ?? "your request"}`,
             });
             actionRunId = actionRun.id;
-            if (runtime?.morphyAxEnabled && !isSettledAnalysisGoalDirective) {
+            if (runtime?.morphyAxEnabled && !isSettledJourneyDirective) {
               const decision = validateMorphyAxAssessment(
                 {
                   schema_version: "morphy_ax_assessment.v1",
@@ -730,12 +740,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                   switchPersona,
                   executionContext: { directiveId },
                   signal: actionAbortControllerRef.current.signal,
-                  goalAuthorization: isSettledAnalysisGoalDirective
-                    ? {
-                        goalId: "goal.analysis.start_debate",
-                        expectedScreen: "kai_analysis",
-                      }
-                    : null,
+                  goalAuthorization:
+                    isSettledJourneyDirective && directiveJourney
+                      ? {
+                          goalId: directiveJourney.goalId,
+                          expectedScreen: directiveJourney.destinationScreen,
+                        }
+                      : null,
                 });
                 if (executionResult.routeAfter) {
                   appInteractionCoordinator.updateActionRun(actionRun.id, {
