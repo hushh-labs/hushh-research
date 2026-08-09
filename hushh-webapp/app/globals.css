@@ -304,6 +304,7 @@ textarea {
   --app-destructive: #ff3b30;
   --app-success: #34c759;
   --app-warning: #ff9500;
+  --app-purple: #af52de;
   --app-info: var(--app-accent);
   --app-focus-ring: rgba(0, 122, 255, 0.25);
   --app-glass-surface: rgba(255, 255, 255, 0.78);
@@ -865,6 +866,7 @@ textarea {
   --app-destructive: #ff453a;
   --app-success: #30d158;
   --app-warning: #ff9f0a;
+  --app-purple: #bf5af2;
   --app-info: var(--app-accent);
   --app-focus-ring: rgba(10, 132, 255, 0.3);
   --app-glass-surface: rgba(28, 28, 30, 0.78);
@@ -1108,6 +1110,48 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   width: var(--ios-account-icon-glyph-size) !important;
 }
 
+[data-profile-stack-screen="account"] [data-icon-tone="blue"],
+[data-profile-stack-screen="panel:account"] [data-icon-tone="blue"],
+.profile-account-content [data-icon-tone="blue"],
+.profile-home-content [data-icon-tone="blue"] {
+  background: var(--ios-account-accent) !important;
+}
+
+[data-profile-stack-screen="account"] [data-icon-tone="green"],
+[data-profile-stack-screen="panel:account"] [data-icon-tone="green"],
+.profile-account-content [data-icon-tone="green"],
+.profile-home-content [data-icon-tone="green"] {
+  background: var(--app-success) !important;
+}
+
+[data-profile-stack-screen="account"] [data-icon-tone="orange"],
+[data-profile-stack-screen="panel:account"] [data-icon-tone="orange"],
+.profile-account-content [data-icon-tone="orange"],
+.profile-home-content [data-icon-tone="orange"] {
+  background: var(--app-warning) !important;
+}
+
+[data-profile-stack-screen="account"] [data-icon-tone="purple"],
+[data-profile-stack-screen="panel:account"] [data-icon-tone="purple"],
+.profile-account-content [data-icon-tone="purple"],
+.profile-home-content [data-icon-tone="purple"] {
+  background: var(--app-purple) !important;
+}
+
+[data-profile-stack-screen="account"] [data-icon-tone="red"],
+[data-profile-stack-screen="panel:account"] [data-icon-tone="red"],
+.profile-account-content [data-icon-tone="red"],
+.profile-home-content [data-icon-tone="red"] {
+  background: var(--app-destructive) !important;
+}
+
+[data-profile-stack-screen="account"] [data-icon-tone] svg,
+[data-profile-stack-screen="panel:account"] [data-icon-tone] svg,
+.profile-account-content [data-icon-tone] svg,
+.profile-home-content [data-icon-tone] svg {
+  color: #ffffff !important;
+}
+
 [data-profile-stack-screen="account"]
   .profile-account-service-row
   [data-slot="settings-row-icon"],
@@ -1193,7 +1237,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-account-content
   .profile-account-reset-row
   [data-slot="settings-row-icon"] {
-  background: var(--ios-account-utility-icon-tile-background) !important;
+  background: var(--app-warning) !important;
 }
 
 .profile-account-content
@@ -1420,6 +1464,30 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   height: var(--ios-account-icon-glyph-size) !important;
   stroke-width: 1.65 !important;
   width: var(--ios-account-icon-glyph-size) !important;
+}
+
+.profile-home-content [data-icon-tone="blue"] {
+  background: var(--ios-account-accent) !important;
+}
+
+.profile-home-content [data-icon-tone="green"] {
+  background: var(--app-success) !important;
+}
+
+.profile-home-content [data-icon-tone="orange"] {
+  background: var(--app-warning) !important;
+}
+
+.profile-home-content [data-icon-tone="purple"] {
+  background: var(--app-purple) !important;
+}
+
+.profile-home-content [data-icon-tone="red"] {
+  background: var(--app-destructive) !important;
+}
+
+.profile-home-content [data-icon-tone] svg {
+  color: #ffffff !important;
 }
 
 .profile-home-content [data-slot="settings-row-title"] {

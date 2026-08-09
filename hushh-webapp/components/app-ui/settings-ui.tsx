@@ -131,17 +131,14 @@ export function SettingsPresentationProvider({
 
 const SETTINGS_ICON_TONE_CLASSNAME = {
   accent:
-    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
+    "bg-[color:var(--app-accent)] text-white",
   blue:
-    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
-  purple:
-    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
-  green:
-    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
+    "bg-[color:var(--app-accent)] text-white",
+  purple: "bg-[color:var(--app-purple)] text-white",
+  green: "bg-[color:var(--app-success)] text-white",
   orange:
-    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
-  red:
-    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
+    "bg-[color:var(--app-warning)] text-white",
+  red: "bg-[color:var(--app-destructive)] text-white",
   gray:
     "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
 } as const;
