@@ -994,4 +994,50 @@ describe("LocationImmersiveMap demo experience", () => {
     });
     expect(pushState).not.toHaveBeenCalled();
   });
+
+  it("shows a loading spinner on the Locate button while the position resolves", async () => {
+    render(<LocationImmersiveMap />);
+
+    const locate = await screen.findByTestId("one-location-map-locate");
+    // Any mount-time capture settles first, so the control starts idle.
+    await waitFor(() =>
+      expect(locate).not.toHaveAttribute("aria-busy", "true"),
+    );
+
+    let resolveCapture: (() => void) | undefined;
+    serviceHarness.captureCurrentPosition.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveCapture = () =>
+            resolve({
+              latitude: 37.776,
+              longitude: -122.418,
+              accuracyM: 12,
+              capturedAt: "2026-07-23T00:00:00.000Z",
+              sourcePlatform: "ios" as const,
+            });
+        }),
+    );
+
+    fireEvent.click(locate);
+
+    // Immediate feedback: the button disables, reports busy, and swaps the
+    // icon for an animated spinner while the lookup is in flight.
+    await waitFor(() => {
+      expect(locate).toBeDisabled();
+      expect(locate).toHaveAttribute("aria-busy", "true");
+    });
+    expect(locate.querySelector(".animate-spin")).not.toBeNull();
+
+    await act(async () => {
+      resolveCapture?.();
+      await Promise.resolve();
+    });
+
+    // Resolution clears the loading state cleanly.
+    await waitFor(() =>
+      expect(locate).toHaveAttribute("aria-busy", "false"),
+    );
+    expect(locate.querySelector(".animate-spin")).toBeNull();
+  });
 });

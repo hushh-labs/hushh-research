@@ -112,6 +112,7 @@ import type {
   EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
+import { CIRCLE_JOIN_CODE_PARAM } from "@/lib/one-location/circle-join-url";
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
@@ -915,6 +916,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "join-circle" ? (
           <JoinCircleFlow
             busy={vm.busy === "namedCircle"}
+            initialCode={
+              searchParams.get(CIRCLE_JOIN_CODE_PARAM)?.trim() || undefined
+            }
             onResolve={vm.onResolveNamedCircleCode}
             onJoin={async (code) => {
               const result = await vm.onJoinNamedCircle(code);

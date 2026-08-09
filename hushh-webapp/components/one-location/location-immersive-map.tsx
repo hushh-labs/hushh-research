@@ -1567,12 +1567,22 @@ export function LocationImmersiveMap() {
         {rendererReady ? (
           <ShellActionSurface
             className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
-            aria-label="Show my location"
+            aria-label={
+              busy === "locate" ? "Finding your location" : "Show my location"
+            }
+            aria-busy={busy === "locate"}
             data-testid="one-location-map-locate"
             disabled={busy === "locate"}
             onClick={() => void locateMe()}
           >
-            <LocateFixed className="h-5 w-5 stroke-[2.25]" />
+            {busy === "locate" ? (
+              <Loader2
+                className="h-5 w-5 animate-spin stroke-[2.25]"
+                aria-hidden="true"
+              />
+            ) : (
+              <LocateFixed className="h-5 w-5 stroke-[2.25]" />
+            )}
           </ShellActionSurface>
         ) : null}
       </div>
