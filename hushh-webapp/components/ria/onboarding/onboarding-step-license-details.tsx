@@ -23,7 +23,7 @@ function InfoRow({
 }) {
   return (
     <SettingsRow
-      title={label}
+      title={<span className="whitespace-nowrap">{label}</span>}
       trailing={
         <span className={cn("text-[15px] font-medium text-foreground", numeric && "tabular-nums")}>
           {loading ? <EnrichingPlaceholder /> : value?.trim() || "Not returned"}
@@ -50,7 +50,7 @@ function EditableRow({
 }) {
   return (
     <SettingsRow
-      title={label}
+      title={<span className="whitespace-nowrap">{label}</span>}
       trailing={
         loading ? (
           <EnrichingPlaceholder />
