@@ -116,19 +116,31 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
     trailing: <ActionButtons actions={item.actions} />,
   } as const;
 
-  if (item.href) {
+  const row = item.href ? (
+    <SettingsRow asChild {...shared} chevron={item.chevron}>
+      <Link
+        href={item.href}
+        prefetch={false}
+        aria-label={`${item.title}. ${item.description}`}
+      />
+    </SettingsRow>
+  ) : (
+    <SettingsRow {...shared} chevron={item.chevron} onClick={item.onSelect} />
+  );
+
+  // Emergency SMS alerts get a prominent red frame so a safety alert stands out
+  // from routine "Needs you" rows.
+  if (item.emphasis === "emergency") {
     return (
-      <SettingsRow asChild {...shared} chevron={item.chevron}>
-        <Link
-          href={item.href}
-          prefetch={false}
-          aria-label={`${item.title}. ${item.description}`}
-        />
-      </SettingsRow>
+      <div
+        role="alert"
+        data-testid="feed-sms-emergency"
+        className="overflow-hidden rounded-2xl border border-destructive/45 bg-destructive/[0.06] ring-1 ring-inset ring-destructive/20"
+      >
+        {row}
+      </div>
     );
   }
 
-  return (
-    <SettingsRow {...shared} chevron={item.chevron} onClick={item.onSelect} />
-  );
+  return row;
 }

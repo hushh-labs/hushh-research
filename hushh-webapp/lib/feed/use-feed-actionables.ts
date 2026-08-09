@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
-import { MapPin, ShieldCheck, TrendingUp, UserRound } from "lucide-react";
+import { MapPin, ShieldCheck, Siren, TrendingUp, UserRound } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -42,7 +42,11 @@ import {
   locationConsentSummary,
 } from "@/lib/consent/location-consent";
 import { OneLocationService } from "@/lib/one-location/service";
-import type { OneLocationAccessRequest } from "@/lib/one-location/types";
+import type {
+  OneLocationAccessRequest,
+  OneLocationGrant,
+} from "@/lib/one-location/types";
+import { buildOneLocationNotificationHref } from "@/lib/one-location/notifications";
 import {
   ConnectionsService,
   type ConnectionRequest,
@@ -86,6 +90,11 @@ export interface FeedActionable {
   chevron?: boolean;
   actions: FeedActionButton[];
   sortAt: number;
+  /**
+   * High-priority visual treatment. "emergency" rows (an incoming SMS · Save My
+   * Soul alert) render with prominent red styling and sort above everything else.
+   */
+  emphasis?: "emergency";
 }
 
 export interface UseFeedActionablesResult {
@@ -133,6 +142,16 @@ export function isIncomingLocationRequestActionable(
     request.ownerUserId === userId &&
     request.requesterUserId !== userId
   );
+}
+
+/**
+ * A received share a contact started as an emergency SOS (SMS · Save My Soul)
+ * that is still live. These surface as pinned, emergency-styled feed cards so a
+ * safety alert is never buried under routine activity. The share point stays
+ * end-to-end encrypted; only the emergency intent (`shareKind`) is read here.
+ */
+export function isActiveSmsEmergencyGrant(grant: OneLocationGrant): boolean {
+  return grant.status === "active" && grant.shareKind === "sos";
 }
 
 export function notifyFeedActionResolved(): void {
@@ -275,6 +294,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // returns fresh every render) so the memo below depends on the actual data
   // + the stable refresh callbacks, not the changing wrapper identity.
   const locationRequests = locationResource.data?.requests;
+  const receivedGrants = locationResource.data?.receivedGrants;
   const locationRefresh = locationResource.refresh;
   const connectionRequests = connectionsResource.data;
   const connectionsRefresh = connectionsResource.refresh;
@@ -312,6 +332,30 @@ export function useFeedActionables(): UseFeedActionablesResult {
           sortAt: Date.now(),
         });
       }
+    }
+
+    // SMS · Save My Soul emergency alerts — a live share a contact started as an
+    // SOS. Rendered as pinned, emergency-styled cards at the very top of the feed
+    // so a safety alert is never buried under routine activity.
+    const smsEmergencies = (receivedGrants ?? []).filter(
+      isActiveSmsEmergencyGrant,
+    );
+    for (const grant of smsEmergencies) {
+      const label = grant.ownerDisplayName?.trim() || "A contact";
+      items.push({
+        id: `sms-emergency:${grant.id}`,
+        icon: Siren,
+        iconTone: "red",
+        emphasis: "emergency",
+        title: `${label} triggered an SOS`,
+        description:
+          grant.shareMessage?.trim() ||
+          "Emergency SMS — sharing live location with you now.",
+        href: buildOneLocationNotificationHref(grant.id),
+        chevron: true,
+        actions: [],
+        sortAt: toTimestamp(grant.createdAt) || Date.now(),
+      });
     }
 
     // Location access requests — inline Approve (1h) / Deny. Only requests the
@@ -533,7 +577,14 @@ export function useFeedActionables(): UseFeedActionablesResult {
       });
     }
 
-    return items.sort((a, b) => b.sortAt - a.sortAt);
+    return items.sort((a, b) => {
+      // Emergency SMS alerts pin to the very top, then the rest stays in
+      // descending recency order.
+      const aEmergency = a.emphasis === "emergency" ? 1 : 0;
+      const bEmergency = b.emphasis === "emergency" ? 1 : 0;
+      if (aEmergency !== bEmergency) return bEmergency - aEmergency;
+      return b.sortAt - a.sortAt;
+    });
     // Depend on the resources' `data` + stable `refresh` (not the wrapper
     // objects, which useStaleResource returns fresh every render) so this memo
     // only recomputes when the underlying data actually changes — otherwise a
@@ -545,6 +596,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     consentItems,
     debateState.tasks,
     locationRequests,
+    receivedGrants,
     locationRefresh,
     openAnalysis,
     pendingConsentCount,
