@@ -76,14 +76,14 @@ export function TrustedPersonCard({
     >
       <Avatar initials={initialsFrom(name)} />
       <div className="min-w-0 flex-1">
-        <p className="break-words text-[13px] font-semibold leading-snug text-foreground [overflow-wrap:anywhere] sm:text-base">
+        <p className="break-words text-[15px] font-semibold leading-5 text-foreground [overflow-wrap:anywhere] sm:text-[17px] sm:leading-[22px]">
           {name}
         </p>
         {subtitle ? (
           <p
             className={cn(
               MUTED_TEXT,
-              "break-words text-[11px] leading-snug [overflow-wrap:anywhere] sm:text-xs",
+              "break-words text-[13px] leading-[18px] [overflow-wrap:anywhere] sm:text-[15px] sm:leading-5",
             )}
           >
             {subtitle}
@@ -205,20 +205,20 @@ export function RequestCard({
   return (
     <div className={cn(SUBCARD_SURFACE, "p-4")}>
       <div className="flex items-center gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#d8d8de] text-white dark:bg-white/15">
-          <User className="h-5 w-5" />
+        <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]">
+          <User className="h-[17px] w-[17px]" strokeWidth={1.9} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[16px] font-bold text-[#1c1c2e] dark:text-foreground">
+          <p className="text-[17px] font-normal leading-[22px] text-foreground">
             {name}
           </p>
-          <p className="mt-0.5 truncate text-[13px] text-black/50 dark:text-muted-foreground">
+          <p className="mt-0.5 truncate text-[15px] leading-5 text-muted-foreground">
             {promptLine}
           </p>
         </div>
       </div>
       {reason ? (
-        <p className="mt-2.5 rounded-lg bg-black/[0.03] px-2.5 py-1.5 text-xs italic text-black/50 dark:bg-white/5 dark:text-muted-foreground">
+        <p className="mt-2.5 rounded-[10px] bg-[color:var(--app-card-surface-compact)] px-2.5 py-1.5 text-[13px] leading-[18px] text-muted-foreground">
           {reason}
         </p>
       ) : null}
@@ -233,7 +233,7 @@ export function RequestCard({
         <Button
           onClick={onDecline}
           isLoading={declineBusy}
-          className="h-11 flex-1 rounded-full bg-[#ededf2] text-sm font-semibold text-[#1d1d1f] hover:bg-[#e2e2ea] dark:bg-white/10 dark:text-foreground"
+          className="h-11 flex-1 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-sm font-semibold text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]/80 dark:bg-white/10"
         >
           Decline
         </Button>

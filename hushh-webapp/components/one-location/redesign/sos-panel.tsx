@@ -308,16 +308,16 @@ export function SosPanel({
           type="button"
           onClick={onClose}
           aria-label="Back to Location"
-          className="press-scale flex h-10 w-10 items-center justify-center rounded-full bg-[#202023] text-white"
+          className="press-scale flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white"
         >
           <ChevronLeft className="h-6 w-6" strokeWidth={2} />
         </button>
 
         <header className="mt-1 px-3 text-center">
-          <h1 className="whitespace-nowrap !text-[28px] !font-bold !leading-[1.15] !tracking-[-0.45px]">
+          <h1 className="whitespace-nowrap !text-[32px] !font-bold !leading-[1.08] !tracking-normal">
             SMS · Save my Soul
           </h1>
-          <p className="mx-auto mt-2 max-w-[290px] text-[14px] leading-[1.45] text-white/70">
+          <p className="mx-auto mt-2 max-w-[310px] text-[17px] leading-[24px] text-white/70">
             Press and hold. An SMS with your live location goes to your people —
             even with no internet.
           </p>
@@ -341,17 +341,17 @@ export function SosPanel({
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[152px] w-[152px] rounded-full bg-[#ff3b30]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite]"
+                  className="absolute h-[152px] w-[152px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite]"
                 />
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[152px] w-[152px] rounded-full bg-[#ff3b30]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:0.73s]"
+                  className="absolute h-[152px] w-[152px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:0.73s]"
                 />
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[152px] w-[152px] rounded-full bg-[#ff3b30]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:1.46s]"
+                  className="absolute h-[152px] w-[152px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:1.46s]"
                 />
               </>
             ) : null}
@@ -376,7 +376,7 @@ export function SosPanel({
               onKeyUp={handleKeyUp}
               onContextMenu={(event) => event.preventDefault()}
               className={cn(
-                "relative z-10 flex h-[152px] w-[152px] touch-none select-none flex-col items-center justify-center rounded-full bg-[#ff3b30] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black",
+                "relative z-10 flex h-[152px] w-[152px] touch-none select-none flex-col items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black",
                 progress > 0 && progress < 1 && "scale-[1.035]",
                 (active || busy) && "[animation:sosCorePulse_2.2s_ease-in-out_infinite]",
                 disabled && "cursor-not-allowed",
@@ -446,7 +446,7 @@ export function SosPanel({
             <button
               type="button"
               onClick={onEditContacts}
-              className="font-semibold text-[#2997ff]"
+              className="font-semibold text-[color:var(--app-accent)]"
             >
               Edit
             </button>
@@ -515,7 +515,7 @@ export function SosPanel({
                     // never runs underneath it.
                     "min-h-[72px] w-full resize-none rounded-2xl border bg-[#1c1c1e] py-3 pl-3.5 pr-14 text-[14px] leading-relaxed text-white outline-none placeholder:text-white/40 focus:border-white/55",
                     customMessageLimitExceeded
-                      ? "border-[#ff453a]"
+                      ? "border-[color:var(--app-destructive)]"
                       : "border-white/10",
                   )}
                 />
@@ -532,7 +532,7 @@ export function SosPanel({
                     "press-scale absolute bottom-2.5 right-2.5 flex h-10 w-10 items-center justify-center rounded-full transition-colors",
                     hardDisabled || !selectedMessage
                       ? "bg-white/10 text-white/35"
-                      : "bg-[#ff3b30] text-white",
+                      : "bg-[color:var(--app-destructive)] text-white",
                   )}
                 >
                   {busy ? (
@@ -547,7 +547,7 @@ export function SosPanel({
                 className={cn(
                   "mt-1 text-right text-[12px]",
                   customMessageLimitExceeded
-                    ? "text-[#ff6961]"
+                    ? "text-[color:var(--app-destructive)]"
                     : "text-white/55",
                 )}
               >
@@ -557,7 +557,7 @@ export function SosPanel({
                 <p
                   id="sos-short-message-error"
                   role="alert"
-                  className="mt-0.5 text-right text-[12px] text-[#ff6961]"
+                  className="mt-0.5 text-right text-[12px] text-[color:var(--app-destructive)]"
                 >
                   character limit exceed
                 </p>
@@ -572,7 +572,7 @@ export function SosPanel({
                   <button
                     type="button"
                     onClick={handleWindowsEmergencyCopy}
-                    className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] px-3 text-white"
+                    className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[color:var(--app-destructive)] px-3 text-white"
                     aria-label={`Copy ${emergency.number} emergency services (${emergency.countryName})`}
                   >
                     <Phone className="h-4 w-4 fill-current" aria-hidden />
@@ -590,7 +590,7 @@ export function SosPanel({
                     from your phone now.
                   </span>
                   {windowsCopyStatus === "copied" ? (
-                    <span className="mt-1 block text-[11px] leading-tight text-[#35d07f]">
+                    <span className="mt-1 block text-[11px] leading-tight text-[color:var(--app-success)]">
                       Number copied to clipboard.
                     </span>
                   ) : null}
@@ -604,7 +604,7 @@ export function SosPanel({
                 <a
                   href={`tel:${emergency.number}`}
                   aria-label={`Call ${emergency.number} emergency services (${emergency.countryName})`}
-                  className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] px-3 text-white"
+                  className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[color:var(--app-destructive)] px-3 text-white"
                 >
                   <Phone className="h-4 w-4 fill-current" aria-hidden />
                   <span className="min-w-0 text-left leading-tight">
@@ -629,7 +629,7 @@ export function SosPanel({
                     ? "Retry local emergency number"
                     : "Finding local emergency number"
                 }
-                className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] px-3 text-white disabled:cursor-wait disabled:opacity-75"
+                className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[color:var(--app-destructive)] px-3 text-white disabled:cursor-wait disabled:opacity-75"
               >
                 {emergencyStatus === "unavailable" ? (
                   <Phone className="h-4 w-4 fill-current" aria-hidden />

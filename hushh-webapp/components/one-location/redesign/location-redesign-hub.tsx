@@ -72,6 +72,7 @@ import {
   TrustNoteCard,
   WarningCard,
 } from "./primitives";
+import { SUBCARD_SURFACE } from "./tokens";
 import {
   RequestCard,
   SharedWithMeCard,
@@ -1429,86 +1430,72 @@ function LocationSettingsFlow({
   onManageSmsContacts: () => void;
 }) {
   return (
-    <div>
+    <div className="space-y-5">
       <TaskFlowHeader
         eyebrow="Location"
         title="Settings"
         description="You control who sees your location and when. Change this anytime."
       />
 
-      <p className="mt-6 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
-        Location sharing
-      </p>
-      <div className="mt-2.5 rounded-2xl bg-white px-4 shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
-        <div className="flex items-center gap-3.5 border-b border-black/[0.06] py-4 dark:border-white/10">
-          <div className="flex-1">
-            <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
-              Auto-share my location
-            </p>
-            <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
-              On — approved shares keep receiving live updates. Off — new shares
-              send only the location you explicitly confirm.
-            </p>
-          </div>
-          <LocationToggle
-            checked={vm.autoShareEnabled}
-            onChange={vm.onAutoShareChange}
-            label="Auto-share my location"
-            disabled={BUSY(vm, "selfLocation")}
-          />
-        </div>
-        <div className="flex items-center gap-3.5 py-4">
-          <div className="flex-1">
-            <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
-              Pause my location
-            </p>
-            <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
-              Stop new private-share updates and check out from Nearby. Existing
-              shares keep their expiry and may retain your last encrypted point.
-            </p>
-          </div>
-          <LocationToggle
-            checked={vm.locationPaused}
-            onChange={(next) => {
-              if (next) {
-                vm.onHideMyLocation();
-                return;
-              }
-              vm.onResumeMyLocation();
-            }}
-            label="Pause my location"
-            disabled={BUSY(vm, "selfLocation")}
-          />
-        </div>
-      </div>
+      <SettingsGroup title="Location sharing" separatorInset>
+        <SettingsRow
+          title="Auto-share my location"
+          description="On — approved shares keep receiving live updates. Off — new shares send only the location you explicitly confirm."
+          trailing={
+            <LocationToggle
+              checked={vm.autoShareEnabled}
+              onChange={vm.onAutoShareChange}
+              label="Auto-share my location"
+              disabled={BUSY(vm, "selfLocation")}
+            />
+          }
+          density="compact"
+        />
+        <SettingsRow
+          title="Pause my location"
+          description="Stop new private-share updates and check out from Nearby. Existing shares keep their expiry and may retain your last encrypted point."
+          trailing={
+            <LocationToggle
+              checked={vm.locationPaused}
+              onChange={(next) => {
+                if (next) {
+                  vm.onHideMyLocation();
+                  return;
+                }
+                vm.onResumeMyLocation();
+              }}
+              label="Pause my location"
+              disabled={BUSY(vm, "selfLocation")}
+            />
+          }
+          density="compact"
+        />
+      </SettingsGroup>
 
-      <div className="mt-4 flex items-start gap-2.5 px-1">
+      <div className="flex items-start gap-2.5 px-1">
         <Shield className="mt-0.5 h-[15px] w-[15px] shrink-0 text-[color:var(--app-accent)]" />
-        <p className="text-[13px] leading-[1.5] text-black/50 dark:text-muted-foreground">
+        <p className="text-[13px] leading-[18px] text-muted-foreground">
           Private shares stay in your circle. Nearby Check-In is separate and
           only starts after you explicitly agree.
         </p>
       </div>
 
-      <p className="mt-7 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
-        Safety
-      </p>
-      <button
-        type="button"
-        onClick={onManageSmsContacts}
-        className="mt-2.5 flex w-full items-center gap-3 rounded-2xl bg-white p-4 text-left shadow-[0_2px_10px_rgba(0,0,0,0.05)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
-        data-testid="one-location-sms-contacts-entry"
-      >
-        <span className="min-w-0 flex-1 text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
-          SMS contacts
-        </span>
-        <span className="text-[14px] text-black/40 dark:text-muted-foreground">
-          {smsContactCount}
-        </span>
-        <ChevronRight className="h-4 w-4 shrink-0 text-black/30 dark:text-muted-foreground" />
-      </button>
+      <SettingsGroup title="Safety" separatorInset>
+        <SettingsRow
+          title="SMS contacts"
+          trailing={
+            <span className="text-[15px] leading-5 text-muted-foreground">
+              {smsContactCount}
+            </span>
+          }
+          onClick={onManageSmsContacts}
+          chevron
+          density="compact"
+          testId="one-location-sms-contacts-entry"
+        />
+      </SettingsGroup>
 
-      <div className="mt-7">
+      <div>
         <SavedLocationsSection />
       </div>
     </div>
@@ -1557,26 +1544,26 @@ function PersonRow({
   return (
     <div
       className={cn(
-        "flex items-center gap-3 p-4",
-        !first && "border-t border-black/[0.06] dark:border-white/10",
+        "flex min-h-[60px] items-center gap-3 p-3.5",
+        !first && "border-t border-[color:var(--app-separator)]",
       )}
     >
       <div className="relative shrink-0">
         <span
-          className="flex h-12 w-12 items-center justify-center rounded-full text-sm font-semibold text-white"
+          className="flex h-10 w-10 items-center justify-center rounded-full text-[14px] font-semibold text-white"
           style={{ backgroundColor: tint }}
         >
           {personInitials(name)}
         </span>
         {active ? (
-          <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-[#34c759] dark:border-[color:var(--app-card-surface-default-solid)]" />
+          <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-[color:var(--app-success)] dark:border-[color:var(--app-card-surface-default-solid)]" />
         ) : null}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[16px] font-bold text-[#1c1c2e] dark:text-foreground">
+        <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
           {name}
         </p>
-        <p className="truncate text-[13px] text-black/50 dark:text-muted-foreground">
+        <p className="truncate text-[15px] leading-5 text-muted-foreground">
           {subtitle}
         </p>
       </div>
@@ -1749,7 +1736,7 @@ function PeopleHub({
       </div>
 
       {filtered.length ? (
-        <div className="overflow-hidden rounded-[20px] bg-white shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
+        <div className={cn("overflow-hidden", SUBCARD_SURFACE)}>
           {filtered.map((r, i) => {
             const grant = vm.activeOwnerGrants.find(
               (g) => g.recipientUserId === r.userId,
@@ -1801,20 +1788,23 @@ function PeopleHub({
       <button
         type="button"
         onClick={onAsk}
-        className="flex w-full items-center gap-3.5 rounded-2xl bg-white p-4 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
+        className={cn(
+          "flex min-h-[60px] w-full items-center gap-3.5 p-3.5 text-left transition-colors hover:bg-foreground/[0.025]",
+          SUBCARD_SURFACE,
+        )}
       >
-        <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] dark:bg-sky-400/15">
-          <Navigation className="h-[18px] w-[18px] text-[color:var(--app-accent)]" />
+        <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12">
+          <Navigation className="h-[17px] w-[17px] text-[color:var(--app-accent)]" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[15px] font-semibold text-[color:var(--app-accent)]">
+          <span className="block text-[17px] font-normal leading-[22px] text-[color:var(--app-accent)]">
             Ask someone to share
           </span>
-          <span className="block text-[13px] text-black/50 dark:text-muted-foreground">
+          <span className="block text-[15px] leading-5 text-muted-foreground">
             Send a request — they approve first.
           </span>
         </span>
-        <ChevronRight className="h-4 w-4 shrink-0 text-black/35 dark:text-muted-foreground" />
+        <ChevronRight className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)]" />
       </button>
 
       {vm.requestedByMe.length ? (
@@ -1863,30 +1853,30 @@ function ActiveLinkRow({
   return (
     <div
       className={cn(
-        "flex items-center gap-3.5 py-4",
-        !first && "border-t border-black/[0.06] dark:border-white/10",
+        "flex min-h-[60px] items-center gap-3.5 py-3.5",
+        !first && "border-t border-[color:var(--app-separator)]",
       )}
     >
       <span
         className={cn(
-          "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
+          "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px]",
           tileClass,
         )}
       >
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-[16px] font-bold text-[#1c1c2e] dark:text-foreground">
+        <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
           {title}
         </p>
-        <p className="mt-0.5 truncate text-[13px] text-black/50 dark:text-muted-foreground">
+        <p className="mt-0.5 truncate text-[15px] leading-5 text-muted-foreground">
           {subtitle}
         </p>
       </div>
       <Button
         variant="outline"
         onClick={onCopy}
-        className="h-9 shrink-0 rounded-full border-[color:var(--app-accent)] px-4 text-sm font-semibold text-[color:var(--app-accent)]"
+        className="h-9 shrink-0 rounded-full border-[color:var(--app-accent)] px-4 text-[14px] font-semibold text-[color:var(--app-accent)]"
       >
         Copy
       </Button>
@@ -1907,17 +1897,17 @@ function LinksHub({
 
   return (
     <div className="space-y-4">
-      <p className="px-1 text-[12px] font-bold uppercase tracking-[0.4px] text-black/40 dark:text-muted-foreground">
+      <p className="px-1 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
         Active links
       </p>
 
       {hasLinks ? (
-        <div className="rounded-[20px] bg-white px-4 shadow-[0_4px_16px_rgba(0,0,0,0.06)] dark:bg-[color:var(--app-card-surface-default-solid)]">
+        <div className={cn("overflow-hidden px-3.5", SUBCARD_SURFACE)}>
           {temp ? (
             <ActiveLinkRow
               first
-              tileClass="bg-[#efe9fb] dark:bg-violet-400/15"
-              icon={<LinkIcon className="h-5 w-5 text-[#7c5cff]" />}
+              tileClass="bg-[color:var(--app-purple)]/12 dark:bg-[color:var(--app-purple)]/15"
+              icon={<LinkIcon className="h-[17px] w-[17px] text-[color:var(--app-purple)]" />}
               title="Live location link"
               subtitle={`${vm.expiresCountdownLabel(temp.expiresAt)} · anyone with the link`}
               onCopy={vm.onCopyPublicInvite}
@@ -1926,8 +1916,8 @@ function LinksHub({
           {invite ? (
             <ActiveLinkRow
               first={!temp}
-              tileClass="bg-[#e5f4ea] dark:bg-emerald-400/15"
-              icon={<ShieldCheck className="h-5 w-5 text-[#2ea44f]" />}
+              tileClass="bg-[color:var(--app-success)]/12 dark:bg-[color:var(--app-success)]/15"
+              icon={<ShieldCheck className="h-[17px] w-[17px] text-[color:var(--app-success)]" />}
               title="Invite link"
               subtitle={`${vm.expiresCountdownLabel(invite.expiresAt)} · one person`}
               onCopy={vm.onCopyCircleInvite}
@@ -1950,8 +1940,8 @@ function LinksHub({
       </Button>
 
       <div className="flex items-start gap-2 px-1">
-        <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-black/40 dark:text-muted-foreground" />
-        <p className="text-[12px] leading-[1.45] text-black/50 dark:text-muted-foreground">
+        <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <p className="text-[13px] leading-[18px] text-muted-foreground">
           Links stop working automatically when they expire. You can revoke any
           link anytime.
         </p>
