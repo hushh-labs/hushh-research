@@ -18,23 +18,37 @@ export class HushhLocationWeb implements HushhLocationPlugin {
         locationServicesEnabled: false,
       };
     }
-    if (!navigator.permissions?.query) {
-      return {
-        state: "prompt",
-        precise: null,
-        background: "foreground-only",
-        locationServicesEnabled: null,
-      };
-    }
-    const result = await navigator.permissions.query({
-      name: "geolocation" as PermissionName,
-    });
-    return {
-      state: result.state,
+    // "We could not read the permission" must resolve to `prompt`, never to a
+    // denial. WebKit does not support the `geolocation` name in the Permissions
+    // API, so on every iPhone this query REJECTS — and an unguarded await here
+    // used to surface as `unavailable` upstream, which blocked sharing and
+    // pinned the toggle off on a device whose location worked perfectly.
+    //
+    // `prompt` is the honest answer to not knowing: it means "ask the device".
+    // Geolocation itself exists (checked above); only our ability to introspect
+    // it is missing.
+    const unknownButAskable: HushhLocationPermissionState = {
+      state: "prompt",
       precise: null,
       background: "foreground-only",
       locationServicesEnabled: null,
     };
+    if (!navigator.permissions?.query) {
+      return unknownButAskable;
+    }
+    try {
+      const result = await navigator.permissions.query({
+        name: "geolocation" as PermissionName,
+      });
+      return {
+        state: result.state,
+        precise: null,
+        background: "foreground-only",
+        locationServicesEnabled: null,
+      };
+    } catch {
+      return unknownButAskable;
+    }
   }
 
   async requestLocationPermission(): Promise<HushhLocationPermissionState> {

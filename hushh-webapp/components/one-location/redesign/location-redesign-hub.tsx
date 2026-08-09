@@ -62,6 +62,7 @@ import type {
   OneLocationRecipient,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
+import { locationStatusLabel } from "@/lib/one-location/location-readiness";
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 
 import {
@@ -172,6 +173,13 @@ export type LocationHubViewModel = {
   };
   permissionIsPrompt: boolean;
   locationEnabled: boolean;
+  /**
+   * The device has refused location and only its settings can undo that.
+   * Distinct from `locationEnabled`, which is the preview control's own state:
+   * a user whose location works perfectly still starts with the preview off,
+   * and must not be told their location is blocked.
+   */
+  locationBlocked: boolean;
   autoShareEnabled: boolean;
   locationPaused: boolean;
   locationAccuracyLimited: boolean;
@@ -478,13 +486,12 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
   const locationOn = vm.locationEnabled;
   const toggling = BUSY(vm, "selfLocation");
   const refreshing = BUSY(vm, "load");
-  const statusLabel = vm.locationPaused
-    ? "Location paused"
-    : vm.locationAccuracyLimited
-      ? "Location limited"
-      : locationOn
-        ? "Location on"
-        : "Location off";
+  const statusLabel = locationStatusLabel({
+    readiness: vm.locationBlocked ? "blocked" : locationOn ? "ready" : "askable",
+    previewOn: locationOn,
+    paused: vm.locationPaused,
+    accuracyLimited: vm.locationAccuracyLimited,
+  });
 
   const handleLocationChange = (checked: boolean) => {
     if (checked === locationOn) return;
