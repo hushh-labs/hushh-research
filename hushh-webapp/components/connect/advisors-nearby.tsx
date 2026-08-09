@@ -11,6 +11,7 @@ import {
   PostalCodeForm,
   QuietBlock,
 } from "@/components/connect/nearby-directory-ui";
+import { OfficeDetailSurface } from "@/components/connect/office-detail-surface";
 import { Button } from "@/lib/morphy-ux/button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { useCurrentLocation } from "@/lib/one-location/use-current-location";
@@ -256,12 +257,8 @@ export function AdvisorsNearby({
                   }
                   description={formatAdvisorSubtitle(card) ?? undefined}
                   density="compact"
-                  chevron={card.kind === "advisor"}
-                  onClick={
-                    card.kind === "advisor"
-                      ? () => setSelected(card)
-                      : undefined
-                  }
+                  chevron
+                  onClick={() => setSelected(card)}
                   trailing={
                     distance ? (
                       <span className="type-footnote shrink-0 tabular-nums text-muted-foreground">
@@ -308,13 +305,24 @@ export function AdvisorsNearby({
         />
       ) : null}
 
+      {/* An office and an adviser open different surfaces on purpose: a branch
+          row has no CRD, so there is no profile to fetch and nothing that would
+          justify showing it as a person. */}
       <AdvisorDetailSurface
-        card={selected}
-        open={selected !== null}
+        card={selected?.kind === "advisor" ? selected : null}
+        open={selected?.kind === "advisor"}
         onOpenChange={(open) => {
           if (!open) setSelected(null);
         }}
         getIdToken={getIdToken}
+      />
+
+      <OfficeDetailSurface
+        card={selected?.kind === "branch" ? selected : null}
+        open={selected?.kind === "branch"}
+        onOpenChange={(open) => {
+          if (!open) setSelected(null);
+        }}
       />
     </div>
   );

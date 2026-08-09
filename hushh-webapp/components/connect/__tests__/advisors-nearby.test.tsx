@@ -262,6 +262,49 @@ describe("AdvisorsNearby", () => {
     expect(screen.getByText("74 advisors · New York")).toBeTruthy();
   });
 
+  it("opens an office surface for a branch instead of an adviser profile", async () => {
+    // Grouped results are what dense metros and wider radii return, so an
+    // office row is the only thing a reader can act on there. Leaving it inert
+    // made 10 mi and 25 mi look broken next to 5 mi.
+    mocks.locationState = {
+      status: "ready",
+      permission: "granted",
+      snapshot: { latitude: 41.88, longitude: -87.63 },
+      error: null,
+    };
+    mocks.searchNearby.mockResolvedValue(
+      result({
+        items: [
+          {
+            kind: "branch",
+            id: "408168",
+            name: "J.P. MORGAN SECURITIES LLC",
+            firmName: null,
+            advisorCount: 74,
+            advisorNames: ["A ADVISOR", "B ADVISOR"],
+            distanceMiles: 0.7,
+            city: "CHICAGO",
+            state: "IL",
+            phone: "312-555-0100",
+          },
+        ],
+        meta: { ...result().meta, grouped: true },
+      }),
+    );
+
+    render(<AdvisorsNearby getIdToken={getIdToken} />);
+
+    fireEvent.click(await screen.findByText("J.P. MORGAN SECURITIES LLC"));
+
+    // The office's own facts, not a person's credentials.
+    expect(await screen.findByText("Advisors at this office")).toBeTruthy();
+    expect(screen.getByText("A ADVISOR")).toBeTruthy();
+    expect(screen.getByText("and 72 more")).toBeTruthy();
+
+    // A branch carries no CRD, so no profile fetch may be attempted.
+    expect(mocks.getProfile).not.toHaveBeenCalled();
+  });
+
   it("surfaces the narrowed radius the server actually used", async () => {
     mocks.locationState = {
       status: "ready",
