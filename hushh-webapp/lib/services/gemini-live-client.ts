@@ -480,7 +480,12 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     // catch-up of frames deliberately withheld until the activity signal could
     // precede them. It is intentional and small, unlike a stall backlog, and
     // dropping it would clip the first words of the first sentence.
-    if (paced && now - this.lastRealtimeAudioSentAt < frameIntervalMs * 0.5) {
+    // A quarter-interval, not a half: frames legitimately arrive with tens of
+    // milliseconds of scheduling jitter, and dropping a merely-early frame
+    // punches a gap in the stream that the provider's VAD reads as end of
+    // speech -- ending the turn and cutting playback mid-sentence. A stall
+    // backlog drains ~0ms apart, so it is still caught with room to spare.
+    if (paced && now - this.lastRealtimeAudioSentAt < frameIntervalMs * 0.25) {
       this.droppedBacklogFrames += 1;
       return;
     }
