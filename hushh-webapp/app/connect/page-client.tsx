@@ -56,6 +56,17 @@ const CONNECT_TABS = [
  */
 const SUGGESTED_PEOPLE_LIMIT = 8;
 
+/**
+ * How many people a page shows, and the sizes the reader can pick.
+ *
+ * #5020 answered "the directory is unusably long" with a fixed sample that
+ * deliberately refused to page. That solved the first screenful and left no way
+ * through the rest, so this replaces it with real paging: the default is still
+ * a screenful, and someone who wants to scan more can say so.
+ */
+const PAGE_SIZE_OPTIONS = [8, 16, 24, 50] as const;
+const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
+
 export default function ConnectPageClient() {
   const { user } = useRequireAuth();
   const router = useRouter();
@@ -68,9 +79,9 @@ export default function ConnectPageClient() {
   const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
   const [outgoingRequestIds, setOutgoingRequestIds] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
@@ -149,28 +160,32 @@ export default function ConnectPageClient() {
   const trimmedQuery = debouncedQuery.trim();
   const hasQuery = trimmedQuery.length > 0;
 
+  // A new query, or a new page size, is a new result set: go back to page one
+  // rather than asking for page 4 of something the reader has just redefined.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [trimmedQuery, pageSize]);
+
   useEffect(() => {
     let cancelled = false;
     async function run() {
       if (!user) return;
       try {
         setHasMore(false);
-        setCurrentPage(1);
         setLoading(true);
         setError(null);
         const idToken = await user.getIdToken();
         const page = await ConnectionsService.searchDirectory({
           idToken,
           query: trimmedQuery,
-          page: 1,
-          ...(hasQuery ? {} : { limit: SUGGESTED_PEOPLE_LIMIT }),
+          page: currentPage,
+          limit: pageSize,
         });
         if (!cancelled) {
+          // One page replaces the last. Appending was what made the directory
+          // an endless scroll with no sense of position in it.
           setPeople(page.items);
-          // A sample is not a directory: never offer to page deeper into it,
-          // whatever the server reports about what else it holds.
-          setHasMore(hasQuery ? page.hasMore : false);
-          setCurrentPage(page.page);
+          setHasMore(page.hasMore);
           // Selections are counted on the "Connect to Selected (N)" button, so
           // drop any that this result set no longer shows — an N the reader
           // cannot see is a promise the surface can't account for.
@@ -198,35 +213,18 @@ export default function ConnectPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [user, hasQuery, trimmedQuery]);
+  }, [user, trimmedQuery, currentPage, pageSize]);
 
-  const loadMorePeople = useCallback(async () => {
-    if (!user || loadingMore || !hasMore || !hasQuery) return;
-    try {
-      setLoadingMore(true);
-      const idToken = await user.getIdToken();
-      const page = await ConnectionsService.searchDirectory({
-        idToken,
-        query: trimmedQuery,
-        page: currentPage + 1,
-      });
-      setPeople((current) => {
-        const existing = new Set(current.map((person) => person.userId));
-        return [
-          ...current,
-          ...page.items.filter((person) => !existing.has(person.userId)),
-        ];
-      });
-      setHasMore(page.hasMore);
-      setCurrentPage(page.page);
-    } catch (loadError) {
-      toast.error(
-        loadError instanceof Error ? loadError.message : "Failed to load more people",
-      );
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [currentPage, trimmedQuery, hasQuery, hasMore, loadingMore, user]);
+  const goToPage = useCallback(
+    (next: number) => {
+      if (loading || next < 1) return;
+      // `hasMore` is the only forward signal the directory gives, so a next
+      // page is offered exactly when the server says one exists.
+      if (next > currentPage && !hasMore) return;
+      setCurrentPage(next);
+    },
+    [currentPage, hasMore, loading],
+  );
 
   const sendConnectionRequest = useCallback(
     async (
@@ -770,18 +768,56 @@ export default function ConnectPageClient() {
                     );
                   })
                 )}
-                {hasMore ? (
-                  <div className="flex justify-center px-3 py-2">
-                    <Button
-                      type="button"
-                      variant="none"
-                      effect="fill"
-                      size="sm"
-                      disabled={loadingMore}
-                      onClick={() => void loadMorePeople()}
-                    >
-                      {loadingMore ? "Loading…" : "Load more people"}
-                    </Button>
+                {people.length > 0 || currentPage > 1 ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3">
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>Per page</span>
+                      <select
+                        value={pageSize}
+                        onChange={(event) =>
+                          setPageSize(Number(event.target.value))
+                        }
+                        aria-label="People per page"
+                        className="h-8 rounded-md border border-[color:var(--app-card-border-standard)] bg-transparent px-2 text-xs"
+                      >
+                        {PAGE_SIZE_OPTIONS.map((size) => (
+                          <option key={size} value={size}>
+                            {size}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="none"
+                        effect="fill"
+                        size="sm"
+                        disabled={loading || currentPage <= 1}
+                        onClick={() => goToPage(currentPage - 1)}
+                      >
+                        Previous
+                      </Button>
+                      {/* The directory reports only whether more exists, never
+                          a total, so this names the page rather than claiming
+                          "3 of 12" — a total the surface cannot stand behind. */}
+                      <span
+                        className="text-xs tabular-nums text-muted-foreground"
+                        aria-live="polite"
+                      >
+                        Page {currentPage}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="none"
+                        effect="fill"
+                        size="sm"
+                        disabled={loading || !hasMore}
+                        onClick={() => goToPage(currentPage + 1)}
+                      >
+                        Next
+                      </Button>
+                    </div>
                   </div>
                 ) : null}
                 {isSelectionMode && selectedUserIds.size > 0 && (

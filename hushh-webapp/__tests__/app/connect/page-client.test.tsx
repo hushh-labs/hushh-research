@@ -106,13 +106,35 @@ describe("Connect — People", () => {
     expect(screen.getByText("Person 0")).toBeTruthy();
   });
 
-  it("never offers to page deeper into the sample, whatever the server says", async () => {
-    // hasMore is true in the fixture: a sample that pages is just the register
-    // again, one tap further away.
+  it("offers paging and a page size, rather than a sample with no way past it", async () => {
+    // A bounded first screenful was the right instinct, but refusing to page
+    // left the rest of the directory unreachable. Both now hold: a screenful
+    // by default, and a way through it.
     render(<ConnectPageClient />);
 
     expect(await screen.findByText("Suggested")).toBeTruthy();
-    expect(screen.queryByText("Load more people")).toBeNull();
+    expect(screen.getByText("Page 1")).toBeTruthy();
+    expect(screen.getByLabelText("People per page")).toBeTruthy();
+    // hasMore is true in the fixture, so forward is offered and back is not.
+    expect(screen.getByText("Next").closest("button")?.disabled).toBe(false);
+    expect(screen.getByText("Previous").closest("button")?.disabled).toBe(true);
+  });
+
+  it("asks the server for the page and size the reader chose", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("People per page"), {
+      target: { value: "24" },
+    });
+
+    await waitFor(() => {
+      const latest =
+        mocks.searchDirectory.mock.calls[
+          mocks.searchDirectory.mock.calls.length - 1
+        ][0];
+      expect(latest).toMatchObject({ page: 1, limit: 24 });
+    });
   });
 
   it("opens the full directory once a name is typed", async () => {
@@ -126,13 +148,15 @@ describe("Connect — People", () => {
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
     const searched = mocks.searchDirectory.mock.calls[1][0];
     expect(searched.query).toBe("Person 9");
-    // No cap on a real search — the reader has said who they are looking for.
-    expect(searched.limit).toBeUndefined();
+    // A search is paged like everything else now. Returning the whole matching
+    // set unpaged is the same unbounded list, just filtered.
+    expect(searched.limit).toBe(8);
+    expect(searched.page).toBe(1);
 
     // "People" is also the tab label, so the sample heading going away is the
     // unambiguous signal that this is no longer the bounded surface.
     await waitFor(() => expect(screen.queryByText("Suggested")).toBeNull());
-    expect(await screen.findByText("Load more people")).toBeTruthy();
+    expect(await screen.findByText("Page 1")).toBeTruthy();
   });
 
   it("says who was searched for when a search matches nobody", async () => {
