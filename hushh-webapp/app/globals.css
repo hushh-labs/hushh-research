@@ -3051,6 +3051,98 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   background-color: var(--app-bar-glass-bg-dark);
 }
 
+/* ── Floating frosted panel ── the voice approval card.
+
+   Follows the same rule as .bar-glass: the tint derives from the live theme
+   background, so the panel never reads milky against the page behind it. The
+   card previously set bg-white/95 next to backdrop-blur-xl -- at 95% opacity
+   there was nothing left for the blur to show, so it was a flat white sheet
+   wearing a glass class.
+
+   Unlike the chrome bars this one floats above content rather than capping
+   it, so it carries a specular rim and layered elevation instead of a mask.
+   The rim is what reads as thickness; without it a blurred panel just looks
+   out of focus. */
+.agent-approval-glass {
+  /* Built on --popover, the elevated-surface token, NOT --background. The
+     chrome bars derive their tint from the page background because they sit
+     over scrolling content; a panel floating over the flat page ground would
+     become the exact colour behind it and vanish. It did. */
+  --agent-approval-tint: color-mix(in oklab, var(--popover) 84%, transparent);
+  --agent-approval-blur: 16px;
+  /* Stand clear of the voice bar. Sitting flush against it read as one
+     welded block rather than a panel the bar had raised, and it left the
+     aurora halo with no ground to fall on. Set here rather than on the shell
+     because the bar has two layouts (fixed and slot) and only one of them
+     carries a gap. */
+  margin-bottom: 1rem;
+  --agent-approval-rim: rgba(255, 255, 255, 0.55);
+  --agent-approval-edge: rgba(0, 0, 0, 0.1);
+  --agent-approval-cast: rgba(0, 0, 0, 0.18);
+  /* The colour the glass carries, taken from .one-bar-aurora--active -- the
+     gold/indigo/pink the voice bar already wears while a conversation is
+     live. The card belongs to that same moment, so it should read as the same
+     material rather than as a generic accent panel that happened to appear. */
+  --agent-approval-hue-gold: rgba(212, 175, 106, 0.18);
+  --agent-approval-hue-indigo: rgba(129, 140, 248, 0.14);
+  --agent-approval-hue-pink: rgba(236, 72, 153, 0.11);
+  position: relative;
+  isolation: isolate;
+  background-color: var(--agent-approval-tint);
+  /* Three soft blooms from different corners rather than one flat wash: glass
+     picks up colour unevenly across its face, and an even tint reads as
+     coloured plastic. Stationary, unlike the bar's breathing aurora -- motion
+     on a dialog the person is being asked to read would fight the reading. */
+  background-image:
+    radial-gradient(120% 100% at 6% 0%, var(--agent-approval-hue-gold), transparent 55%),
+    radial-gradient(110% 100% at 100% 18%, var(--agent-approval-hue-indigo), transparent 58%),
+    radial-gradient(130% 120% at 62% 108%, var(--agent-approval-hue-pink), transparent 62%);
+  -webkit-backdrop-filter: blur(var(--agent-approval-blur)) saturate(180%);
+  backdrop-filter: blur(var(--agent-approval-blur)) saturate(180%);
+  border: 1px solid var(--agent-approval-edge);
+  /* The aurora halo, matching the glow the voice bar casts around itself.
+     Built from stacked coloured shadows rather than a blurred pseudo-element:
+     the card is GPU-promoted (translate3d) and so forms its own stacking
+     context, which would trap a z-index:-1 child in FRONT of the panel
+     instead of behind it. Shadows paint outside the border box regardless. */
+  box-shadow:
+    inset 0 1px 0 0 var(--agent-approval-rim),
+    0 0 22px -4px var(--agent-approval-hue-gold),
+    0 0 38px -8px var(--agent-approval-hue-indigo),
+    0 0 54px -10px var(--agent-approval-hue-pink),
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    0 8px 24px -6px var(--agent-approval-cast),
+    0 24px 48px -14px var(--agent-approval-cast);
+  /* Same GPU promotion the other glass surfaces take: a backdrop-filter that
+     repaints on scroll is the usual source of chrome jitter. */
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+.dark .agent-approval-glass {
+  --agent-approval-tint: color-mix(in oklab, var(--popover) 88%, transparent);
+  --agent-approval-rim: rgba(255, 255, 255, 0.16);
+  /* A dark panel on a dark page needs its edge lit, not merely outlined. */
+  --agent-approval-edge: rgba(255, 255, 255, 0.14);
+  --agent-approval-cast: rgba(0, 0, 0, 0.6);
+  /* A dark ground swallows tint, so the same hues sit stronger here. */
+  --agent-approval-hue-gold: rgba(212, 175, 106, 0.26);
+  --agent-approval-hue-indigo: rgba(129, 140, 248, 0.2);
+  --agent-approval-hue-pink: rgba(236, 72, 153, 0.16);
+}
+
+/* A translucent panel is a readability risk, not just a style: if the person
+   has asked for less transparency, honour it and fall back to a solid tint. */
+@media (prefers-reduced-transparency: reduce) {
+  .agent-approval-glass {
+    --agent-approval-tint: var(--popover);
+    background-image: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 .bar-glass-top::before {
   inset: 0 0 calc(-1 * var(--app-bar-mask-overscan)) 0;
   mask-image: linear-gradient(

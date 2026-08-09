@@ -110,8 +110,16 @@ def sanitize_route_playbook(route_entry: Any) -> dict[str, Any] | None:
     }
 
 
-def compose_route_context_note(context: dict[str, Any]) -> str | None:
-    """Build one bounded model note from server-resolved route intelligence."""
+def compose_route_context_note(
+    context: dict[str, Any], *, is_route_entry: bool = True
+) -> str | None:
+    """Build one bounded model note from server-resolved route intelligence.
+
+    ``is_route_entry`` separates arriving on a screen from the content
+    changing on the screen the person is already standing on. Both refresh
+    the action inventory; only an arrival may spend the playbook's on-entry
+    cue, or One narrates a navigation that never happened.
+    """
     playbook = context.get("route_playbook")
     if not isinstance(playbook, dict):
         return None
@@ -128,7 +136,7 @@ def compose_route_context_note(context: dict[str, Any]) -> str | None:
     layer_id = (
         str(interaction_layer.get("layer_id") or "") if isinstance(interaction_layer, dict) else ""
     )
-    proactive = playbook.get("proactivity") == "on_entry"
+    proactive = playbook.get("proactivity") == "on_entry" and is_route_entry
     return (
         "[App route context - not user speech] This note SUPERSEDES any action "
         "inventory from earlier notes or your initial instructions. The verified "
@@ -140,9 +148,21 @@ def compose_route_context_note(context: dict[str, Any]) -> str | None:
         "and run the exact returned id before any identity or greeting response. "
         f"The currently visible generated action ids are: "
         f"{action_inventory or 'none on this screen (cross-screen navigation actions remain available)'}. "
+        # Capability honesty. Without a sanctioned way to say "I cannot do that
+        # yet", the model reissued the same directive until the person gave up,
+        # or narrated an outcome that nothing had actually performed.
+        "If no listed action covers what the person asks for, say plainly that "
+        "you cannot do that here yet and name what you can do instead. Do not "
+        "reissue a directive that has not settled, and never imply an "
+        "unavailable capability succeeded. "
         f"The content currently visible to the person is: {module_inventory or 'not reported'}. "
-        f"The current top interaction layer is: {layer_id or 'none'}. "
-        f"The preferred action reference is '{primary or 'none'}'. "
+        + (
+            f"The person is looking at: {context.get('spoken_subject')}. "
+            if context.get("spoken_subject")
+            else ""
+        )
+        + f"The current top interaction layer is: {layer_id or 'none'}. "
+        + f"The preferred action reference is '{primary or 'none'}'. "
         + (
             f"After route settlement, orient once with this intent: {cue} "
             if proactive and cue
@@ -178,7 +198,9 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
             **payload,
             "context_id": payload.get("context_id") or snapshot_map.get("snapshot_id"),
             "screen": payload.get("screen") or route.get("screen"),
+            "spoken_subject": payload.get("spoken_subject") or ui.get("spoken_subject"),
             "route_family": payload.get("route_family") or route.get("route_family"),
+            "route_query": payload.get("route_query") or route.get("route_query"),
             "context_revision": payload.get("context_revision")
             or f"{revisions.get('route', '')}:{revisions.get('ui', '')}",
             "signed_in": payload.get("signed_in") is True or auth.get("signed_in") is True,
@@ -201,7 +223,12 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         }
     cache_freshness = bounded_text(payload.get("cache_freshness"), 32)
     route_family = bounded_text(payload.get("route_family"))
-    route_entry = resolve_route_orchestration_entry(route_family)
+    # Structural query only (tab/view/focus/...), allowlisted and bounded by the
+    # browser before it is sent. It selects between screens that share a single
+    # path, so it must not ride inside route_family: that value is
+    # redaction-sensitive and also feeds layout resolution.
+    route_query = bounded_text(payload.get("route_query"), 128)
+    route_entry = resolve_route_orchestration_entry(route_family, route_query)
     route_action_ids = {
         action_id
         for action_id in (
@@ -268,6 +295,10 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         # stale render or forged frame from lending another route's actions to
         # the active page.
         "screen": canonical_screen or None,
+        # Opt-in and bounded. selected_entity / primary_entity stay redacted:
+        # several surfaces fill those with an investor name or email address.
+        # A surface sets this only when naming its subject is harmless.
+        "spoken_subject": bounded_text(payload.get("spoken_subject"), 64) or None,
         "context_revision": bounded_text(payload.get("context_revision"), 128) or None,
         "signed_in": payload.get("signed_in") is True,
         "persona": bounded_text(payload.get("persona")),
@@ -418,3 +449,4 @@ def sanitize_action_settlement(
         "screen_after": bounded_text(payload.get("screenAfter"), 64),
         "destination_context_id": bounded_text(payload.get("destinationContextId"), 128),
     }
+

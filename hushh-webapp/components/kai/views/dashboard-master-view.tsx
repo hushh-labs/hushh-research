@@ -2089,6 +2089,15 @@ export function DashboardMasterView({
       purpose:
         "This screen is the holdings workspace for source switching, portfolio context, and optimization.",
       primaryEntity: sourceDisplayLabel,
+      // `primary_entity` is redacted at the trust boundary because several
+      // surfaces fill it with a person's name or email, so One knew it was on
+      // Portfolio but could not say which one. This names the screen's subject
+      // explicitly: the source label is a fixed "Statement" | "Plaid" literal,
+      // never an institution or account identifier, so it is safe to say out
+      // loud. Holdings and values deliberately stay behind the boundary.
+      spokenSubject: displayedPortfolio
+        ? `Portfolio, ${sourceDisplayLabel} source`
+        : "Portfolio setup",
       sections,
       actions,
       controls,

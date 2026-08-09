@@ -32,7 +32,12 @@ describe("private-agent action confirmation contract", () => {
       "utf8",
     );
 
-    expect(source).toContain('"superseded_by_new_turn"');
+    // Supersession is named after whatever superseded it; the old
+    // "superseded_by_new_turn" label is gone, so this asserted nothing. A new
+    // turn must also tear down any standing journey approval: the person
+    // approved one request, not whatever One decides to do next.
+    expect(source).toContain('clearJourneyGrant("new_user_intent")');
+    expect(source).toContain('"confirmation_superseded"');
     expect(source).toContain('"superseded_by_new_directive"');
     expect(source).toContain("const needsConfirmation = true;");
     expect(source).toContain("Authorized. Tap Run to execute.");
