@@ -3058,6 +3058,12 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
      become the exact colour behind it and vanish. It did. */
   --agent-approval-tint: color-mix(in oklab, var(--popover) 84%, transparent);
   --agent-approval-blur: 16px;
+  /* Stand clear of the voice bar. Sitting flush against it read as one
+     welded block rather than a panel the bar had raised, and it left the
+     aurora halo with no ground to fall on. Set here rather than on the shell
+     because the bar has two layouts (fixed and slot) and only one of them
+     carries a gap. */
+  margin-bottom: 1rem;
   --agent-approval-rim: rgba(255, 255, 255, 0.55);
   --agent-approval-edge: rgba(0, 0, 0, 0.1);
   --agent-approval-cast: rgba(0, 0, 0, 0.18);
