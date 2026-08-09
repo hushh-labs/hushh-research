@@ -521,10 +521,9 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
           onCheckedChange={handleLocationChange}
           disabled={toggling || refreshing}
           aria-label={locationOn ? "Turn location off" : "Turn location on"}
-          className={cn(
-            "data-[state=checked]:bg-emerald-500 dark:data-[state=checked]:bg-emerald-400",
-            toggling && "animate-pulse",
-          )}
+          // No colour override: the shared Switch already carries the iOS
+          // system green, so this toggle reads the same as every other one.
+          className={cn(toggling && "animate-pulse")}
         />
       </div>
     </div>
