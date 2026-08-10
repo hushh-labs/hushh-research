@@ -246,6 +246,11 @@ export function PlacesNearby({
         testId="places-location-prompt"
         useLocationTestId="places-use-location"
         postalInputTestId="places-postal-input"
+        // Google Places is worldwide. Calling this a ZIP, as the two US
+        // registers correctly do, would tell a reader in Bengaluru the surface
+        // is not for them.
+        postalLabel="Postcode"
+        postalNumericOnly={false}
       />
     );
   }
@@ -299,7 +304,7 @@ export function PlacesNearby({
       {error ? (
         <QuietBlock
           title={error}
-          subtitle="Try again, or search a different ZIP."
+          subtitle="Try again, or search a different area."
           testId="places-error"
         >
           <div className="flex w-full flex-col items-center gap-4">
@@ -317,6 +322,8 @@ export function PlacesNearby({
               initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
               onSearch={handlePostalCode}
               testId="places-postal-input"
+              label="Postcode"
+              numericOnly={false}
             />
           </div>
         </QuietBlock>
@@ -328,7 +335,7 @@ export function PlacesNearby({
         // that help: a wider radius above, and a different place to look.
         <QuietBlock
           title="Nothing nearby"
-          subtitle="Try a wider radius, or another ZIP."
+          subtitle="Try a wider radius, or another postcode."
           testId="places-empty"
         >
           <PostalCodeForm
@@ -336,6 +343,8 @@ export function PlacesNearby({
             initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
             onSearch={handlePostalCode}
             testId="places-postal-input"
+            label="Postcode"
+            numericOnly={false}
           />
         </QuietBlock>
       ) : null}
