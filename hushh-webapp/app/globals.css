@@ -1355,14 +1355,38 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-screen [data-profile-avatar-frame="true"] {
   background: #d1d1d6 !important;
   box-shadow: none !important;
+  display: inline-flex;
   height: 96px !important;
+  justify-content: center;
   padding: 0 !important;
+  position: relative;
   width: 96px !important;
 }
 
-.profile-home-screen [data-profile-avatar-frame="true"] > span {
+.profile-home-screen [data-profile-avatar-display="true"] {
+  overflow: hidden;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease,
+    filter 180ms ease;
+}
+
+.profile-home-screen [data-profile-avatar-frame="true"][aria-busy="true"]
+  [data-profile-avatar-display="true"] {
+  filter: saturate(0.92);
+  opacity: 0.82;
+}
+
+.profile-home-screen [data-profile-avatar-camera="true"] {
   background: var(--ios-account-accent) !important;
   box-shadow: none !important;
+  color: var(--ios-account-on-accent) !important;
+  height: 26px !important;
+  width: 26px !important;
+}
+
+.profile-home-screen [data-profile-avatar-camera="true"]:active {
+  transform: scale(0.94);
 }
 
 .profile-home-screen [data-profile-avatar-frame="true"] [data-slot="avatar"],
