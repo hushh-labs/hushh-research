@@ -68,7 +68,7 @@ export function TaskFlowHeader({
         {eyebrow ? <p className={EYEBROW}>{eyebrow}</p> : null}
       </div>
       <h1 className={SCREEN_TITLE}>{title}</h1>
-      {description ? <p className={MUTED_TEXT}>{description}</p> : null}
+      {description ? <p className="ui-text-page-subtitle">{description}</p> : null}
     </header>
   );
 }
@@ -234,7 +234,7 @@ export function WarningCard({
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
       <div>
         <p className="ui-text-row-label-emphasized">{title}</p>
-        <p className="ui-text-row-description opacity-90">
+        <p className="ui-text-row-description">
           {description}
         </p>
       </div>
