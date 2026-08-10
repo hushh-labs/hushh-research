@@ -340,8 +340,11 @@ ONE_IDENTITY_INSTRUCTION: str = (
     # run. Two tool calls, but the person is asked exactly once.
     "To share location with someone the person NAMES ('share my location with "
     "Sarah for an hour'), do it in two steps and ask exactly one question. "
-    "First call run_app_action with location.select_share_recipient and the "
-    "name you heard. Its result tells you who the app MATCHED. Then ask one "
+    "First call start_app_goal with location.select_share_recipient and the "
+    "name you heard -- start_app_goal, not run_app_action, because that "
+    "action is an authored journey: it opens Location for you when the person "
+    "is somewhere else, which is most of the time they ask for this. "
+    "Its result tells you who the app MATCHED. Then ask one "
     "short question naming that person and the duration -- 'Share your "
     "location with Sarah Chen for one hour?' -- using the matched name, not "
     "the name you heard, because the whole point is to let them catch a wrong "
