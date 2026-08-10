@@ -26,7 +26,7 @@ export const SUBCARD_SURFACE =
 
 /** Section heading (e.g. "Trusted Circle", "Device readiness"). */
 export const SECTION_HEADING =
-  "text-lg font-semibold leading-tight tracking-tight text-foreground";
+  "font-[family-name:var(--font-app-body)] text-[15px] font-[500] leading-[20px] tracking-[-0.01em] text-[#6E6E73]";
 
 /** Primary screen title (header). */
 export const SCREEN_TITLE =
@@ -55,9 +55,9 @@ export const PILL_LIVE =
 export const PILL_NEUTRAL =
   "border-border/70 bg-muted/60 text-muted-foreground";
 
-/** Small uppercase eyebrow label. */
+/** Shared readable section label. */
 export const EYEBROW =
-  "text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground";
+  "font-[family-name:var(--font-app-body)] text-[15px] font-[500] leading-[20px] tracking-[-0.01em] text-[#6E6E73]";
 
 /** Warning / caution banner surface. */
 export const WARNING_SURFACE =

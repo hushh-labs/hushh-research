@@ -585,8 +585,8 @@ textarea {
   --ios-account-title-tracking: -0.028em;
   --ios-account-description-size: 15px;
   --ios-account-description-line: 20.7px;
-  --ios-account-section-header-size: 13px;
-  --ios-account-section-header-line: 18px;
+  --ios-account-section-header-size: 15px;
+  --ios-account-section-header-line: 20px;
   --ios-account-regular-weight: var(--foundation-body-weight);
   --ios-account-medium-weight: 500;
   --ios-account-row-title-size: 17px;
@@ -603,8 +603,8 @@ textarea {
   --ios-account-row-min-height: 58px;
   --ios-account-row-vertical-pad: 11px;
   --ios-account-separator-thickness: 0.5px;
-  --ios-account-section-header-bottom-gap: 6px;
-  --ios-account-section-gap: 24px;
+  --ios-account-section-header-bottom-gap: 8px;
+  --ios-account-section-gap: 28px;
   --ios-account-icon-tile-size: 34px;
   --ios-account-icon-tile-radius: 8px;
   --ios-account-icon-glyph-size: 20px;
@@ -1043,7 +1043,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 
 .profile-account-content {
   --settings-group-stack-gap: var(--ios-account-section-header-bottom-gap);
-  --settings-heading-stack-gap: var(--ios-account-section-header-bottom-gap);
+  --settings-heading-stack-gap: 4px;
   --settings-row-px: var(--ios-account-card-leading-inset);
   --settings-row-py: var(--ios-account-row-vertical-pad);
   display: flex;
@@ -1057,13 +1057,14 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-account-content [data-slot="settings-group-heading"] {
-  color: var(--ios-account-secondary-label) !important;
+  color: #6e6e73 !important;
   display: flex !important;
+  font-family: var(--font-app-body);
   font-size: var(--ios-account-section-header-size) !important;
-  font-weight: var(--ios-account-regular-weight) !important;
-  letter-spacing: 0 !important;
+  font-weight: var(--ios-account-medium-weight) !important;
+  letter-spacing: -0.01em !important;
   line-height: var(--ios-account-section-header-line) !important;
-  padding-inline: 4px;
+  padding-inline: 6px;
   text-transform: none !important;
 }
 
@@ -1413,7 +1414,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-content {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 28px;
   margin-top: 34px;
   width: 100%;
 }
@@ -1423,13 +1424,13 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-content [data-slot="settings-group-heading"] {
-  color: var(--ios-account-secondary-label) !important;
+  color: #6e6e73 !important;
   font-family: var(--font-app-body);
-  font-size: 13px !important;
-  font-weight: 400 !important;
-  letter-spacing: 0 !important;
-  line-height: 18px !important;
-  padding-inline: 4px;
+  font-size: var(--ios-account-section-header-size) !important;
+  font-weight: var(--ios-account-medium-weight) !important;
+  letter-spacing: -0.01em !important;
+  line-height: var(--ios-account-section-header-line) !important;
+  padding-inline: 6px;
   text-transform: none !important;
 }
 
@@ -3454,10 +3455,11 @@ html.native-ios [data-testid="one-location-onboarding"] {
 
   [data-slot="settings-group-heading"] {
     font-family: var(--font-app-body);
-    font-size: 13px !important;
-    line-height: 18px !important;
-    font-weight: 400 !important;
-    letter-spacing: 0 !important;
+    color: #6e6e73 !important;
+    font-size: 15px !important;
+    line-height: 20px !important;
+    font-weight: 500 !important;
+    letter-spacing: -0.01em !important;
     text-transform: none !important;
   }
 
@@ -3508,8 +3510,9 @@ html.native-ios [data-testid="one-location-onboarding"] {
     font-family: var(--font-app-body);
     font-size: var(--ios-account-section-header-size) !important;
     line-height: var(--ios-account-section-header-line) !important;
-    font-weight: var(--ios-account-regular-weight) !important;
-    letter-spacing: 0 !important;
+    font-weight: var(--ios-account-medium-weight) !important;
+    letter-spacing: -0.01em !important;
+    color: #6e6e73 !important;
     text-transform: none !important;
   }
 
@@ -5302,19 +5305,22 @@ body[data-persona-surface="ria"] {
 
 /* RIA primitive helper classes (composed by onboarding + surface restyles). */
 body[data-persona-surface="ria"] .ria-eyebrow {
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 2.4px;
-  text-transform: uppercase;
-  color: var(--ria-gold);
+  font-family: var(--font-app-body);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: #6e6e73;
 }
 body[data-persona-surface="ria"] .ria-sublabel {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 1.6px;
-  text-transform: uppercase;
-  color: var(--ria-sublabel);
+  font-family: var(--font-app-body);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: #6e6e73;
 }
 body[data-persona-surface="ria"] .ria-screen-title {
   font-family: var(--font-app-display, var(--font-app-heading));

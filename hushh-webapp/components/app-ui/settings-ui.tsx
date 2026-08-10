@@ -208,22 +208,22 @@ export function SettingsGroup({
   return (
     <section
       className={cn(
-        "w-full space-y-[var(--settings-group-stack-gap)]",
+        "w-full",
         className,
       )}
       data-testid={testId}
     >
       {eyebrow || title || description ? (
-        <div className="space-y-[var(--settings-heading-stack-gap)] px-0.5 sm:px-1">
+        <div className="mb-2 mt-7 space-y-[var(--settings-heading-stack-gap)] px-[6px]">
           {eyebrow || title ? (
             <div
               data-slot="settings-group-heading"
               role="heading"
               aria-level={embedded ? 3 : 2}
-              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground [overflow-wrap:anywhere]"
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73] [overflow-wrap:anywhere]"
             >
               {eyebrow ? (
-                <span className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+                <span className="font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">
                   {eyebrow}
                 </span>
               ) : null}

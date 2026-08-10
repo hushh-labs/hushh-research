@@ -21,25 +21,25 @@
   overflow: visible;
 }
 
-/* Section label ("SETTINGS" / "SESSION") + trailing flex-1 hairline. */
+/* Section label for the flat profile root list. */
 .cinematicSettings [data-slot="settings-group-heading"] {
-  gap: 12px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.15em;
-  color: rgba(0, 0, 0, 0.35);
+  color: #6e6e73;
+  font-family: var(--font-app-body);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 20px;
+  padding-inline: 6px;
+  text-transform: none;
 }
 .cinematicSettings [data-slot="settings-group-heading"]::after {
-  content: "";
-  flex: 1 1 0%;
-  height: 1px;
-  background: rgba(0, 0, 0, 0.1);
+  content: none;
 }
 :global(.dark) .cinematicSettings [data-slot="settings-group-heading"] {
-  color: rgba(255, 255, 255, 0.4);
+  color: #8e8e93;
 }
 :global(.dark) .cinematicSettings [data-slot="settings-group-heading"]::after {
-  background: rgba(255, 255, 255, 0.12);
+  content: none;
 }
 
 /* Rows read as a flat list on the page background. */

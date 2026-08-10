@@ -36,7 +36,7 @@ interface HoldingDetailsDrawerProps {
 function DetailRow({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
   return (
     <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2.5">
-      <p className="app-label-text uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">{label}</p>
       <p className={cn("app-body-text mt-1 font-semibold text-foreground", valueClassName)}>{value}</p>
     </div>
   );

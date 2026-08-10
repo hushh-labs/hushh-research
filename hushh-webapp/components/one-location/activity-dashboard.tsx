@@ -54,7 +54,7 @@ function ActivitySectionLabel({ title }: { title: string }) {
     <div
       role="heading"
       aria-level={2}
-      className="ml-1 flex min-w-0 max-w-full flex-wrap items-center gap-1.5 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground"
+      className="mt-7 flex min-w-0 max-w-full flex-wrap items-center gap-1.5 px-[6px] font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]"
     >
       {title}
     </div>

@@ -1,7 +1,7 @@
 "use client";
 
 export const kaiAppEyebrowClassName =
-  "!text-[10.5px] !font-medium !leading-[1.2] uppercase !tracking-[0.14em]";
+  "!font-[family-name:var(--font-app-body)] !text-[15px] !font-medium !leading-[20px] !tracking-[-0.01em] !text-[#6E6E73]";
 
 export const kaiAppHeroTitleClassName =
   "text-[38px] font-medium leading-[1.05] tracking-normal sm:text-[40px]";

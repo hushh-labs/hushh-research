@@ -37,7 +37,7 @@ function SectionCard({
   return (
     <section className="overflow-hidden rounded-[22px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] shadow-[0_8px_24px_rgba(62,48,30,0.05)]">
       <div className="flex items-center justify-between gap-3 px-[18px] pb-[11px] pt-[15px]">
-        <span className="text-[13px] font-bold uppercase tracking-[2px] text-[color:var(--ria-gold)]">
+        <span className="font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">
           {label}
         </span>
         <button

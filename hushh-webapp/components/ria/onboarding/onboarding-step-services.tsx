@@ -25,7 +25,7 @@ const FEE_OPTIONS = ["Fee-only", "AUM %", "Flat", "Hourly"];
 
 
 
-/** Gold uppercase section label (FEE STRUCTURE / SHORT BIO / BUSINESS LOCATION). */
+/** Section label that follows the shared readable settings scale. */
 function SectionLabel({
   children,
   htmlFor,
@@ -34,7 +34,7 @@ function SectionLabel({
   htmlFor?: string;
 }) {
   const cls =
-    "text-[12px] font-semibold uppercase tracking-[2px] text-[color:var(--ria-gold)]";
+    "px-[6px] font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]";
   if (htmlFor) {
     return (
       <label htmlFor={htmlFor} className={cn("block", cls)}>

@@ -249,11 +249,6 @@ export function PageHeader({
           {description}
         </div>
       ) : null}
-      <div
-        className={cn("h-px w-full", styles.divider)}
-        data-slot="page-header-divider"
-        aria-hidden="true"
-      />
     </header>
   );
 }
