@@ -205,10 +205,15 @@ def get_database_url() -> str:
             "Set in .env from the Cloud SQL instance (project:region:instance); locally these point at "
             "the Cloud SQL Auth Proxy on 127.0.0.1:CLOUDSQL_PROXY_PORT."
         )
+    # DB_USER/DB_PASSWORD may contain URI-reserved characters (e.g. an '@' in a
+    # generated Supabase password), which would otherwise be misparsed as the
+    # user:password/host separator.
+    encoded_user = quote_plus(db_user)
+    encoded_password = quote_plus(db_password)
     if db_unix_socket:
         # Cloud SQL Unix socket path must be provided via query host parameter.
-        return f"postgresql://{db_user}:{db_password}@/{db_name}?host={quote_plus(db_unix_socket)}"
-    return f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+        return f"postgresql://{encoded_user}:{encoded_password}@/{db_name}?host={quote_plus(db_unix_socket)}"
+    return f"postgresql://{encoded_user}:{encoded_password}@{db_host}:{db_port}/{db_name}"
 
 
 def get_database_ssl():

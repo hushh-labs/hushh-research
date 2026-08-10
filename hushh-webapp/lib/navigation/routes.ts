@@ -107,6 +107,13 @@ export const ROUTES = {
   ONE_SETUP_CONNECTIONS: "/one/setup/connections",
   GMAIL: "/one/gmail",
   PKM: "/one/pkm",
+  /** Sage: persistent research agent -- Ask Sage, Research Threads, Citation Lineage, Self-Assessment, Notes. */
+  SAGE: "/one/sage",
+  SAGE_ASK: "/one/sage/ask",
+  SAGE_NOTES: "/one/sage/notes",
+  SAGE_CITATIONS: "/one/sage/citations",
+  SAGE_THREADS: "/one/sage/threads",
+  SAGE_REVIEW: "/one/sage/review",
   ONE_MARKETPLACE: "/one/marketplace",
   /** Owner setup and management for the Apple Wallet profile pass. */
   ONE_WALLET_CARD: "/one/wallet-card",
@@ -176,6 +183,24 @@ export function buildMarketplaceRiaProfileRoute(riaId?: string | null) {
 
 export function buildPhoneMandateRoute(redirect?: string | null) {
   return withQuery(ROUTES.PHONE_MANDATE, { redirect });
+}
+
+/** Deep-links Citation Lineage into a specific Research Thread (`threadId`
+ * shows a "Back to thread" link + "Add to research thread" action) and/or
+ * pre-opens a specific paper (`workId`/`title`, e.g. from a thread's traced
+ * papers list). Either can be used alone or together. */
+export function buildSageCitationsRoute(
+  threadId?: string | null,
+  extra: { workId?: string | null; title?: string | null } = {},
+) {
+  return withQuery(ROUTES.SAGE_CITATIONS, { threadId, workId: extra.workId, title: extra.title });
+}
+
+/** Pre-fills (and optionally auto-asks) Ask Sage with a real question --
+ * used by suggested-prompt chips (pre-fill only) and the home page's quick
+ * ask box (pre-fill + auto-ask, since the user already submitted there). */
+export function buildSageAskRoute(query?: string | null, autoAsk = false) {
+  return withQuery(ROUTES.SAGE_ASK, { q: query, auto: autoAsk ? "1" : null });
 }
 
 /**

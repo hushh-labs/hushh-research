@@ -199,11 +199,19 @@ run_with_timeout() {
   local timeout_seconds="$1"
   shift
   python3 - "$timeout_seconds" "$@" <<'PY'
+import shutil
 import subprocess
 import sys
 
 timeout_seconds = float(sys.argv[1])
 cmd = sys.argv[2:]
+# On Windows, subprocess.run() won't resolve a PATHEXT shim (gcloud.CMD)
+# without shell=True; shutil.which() finds it the same way a real shell
+# would, and is a no-op resolution on POSIX where gcloud is already a
+# real executable.
+resolved = shutil.which(cmd[0]) if cmd else None
+if resolved:
+    cmd = [resolved, *cmd[1:]]
 
 try:
     completed = subprocess.run(

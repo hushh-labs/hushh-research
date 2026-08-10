@@ -14,6 +14,8 @@ This package organizes Kai routes into logical modules:
 - agent_chat.py: Gemini-backed Agent text chat with encrypted durable history
 - agent_intro.py: Pre-vault informational/navigation-only One chat (no PKM, no persistence)
 - location.py: legacy prototype only; not mounted for product traffic
+- pkm_highlight.py: Sage -- PKM highlight/briefing/recap/research/review/thread-synthesis endpoints
+- sage_citations.py: Sage -- OpenAlex paper search/citation-lineage/insight endpoints
 
 All sub-routers are aggregated into `kai_router` for backward compatibility.
 """
@@ -30,8 +32,10 @@ from .gmail import router as gmail_router
 from .health import router as health_router
 from .losers import router as losers_router
 from .market_insights import router as market_insights_router
+from .pkm_highlight import router as pkm_highlight_router
 from .plaid import router as plaid_router
 from .portfolio import router as portfolio_router
+from .sage_citations import router as sage_citations_router
 from .stream import router as stream_router
 from .support import router as support_router
 
@@ -111,6 +115,15 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/market/news/baseline/{user_id}",
     "/market/news/{user_id}",
     "/stock-preview/{user_id}",
+    "/pkm/highlight-summary",
+    "/pkm/sage-briefing",
+    "/pkm/sage-recap",
+    "/pkm/sage-research",
+    "/pkm/sage-review",
+    "/pkm/sage-thread-synthesis",
+    "/sage/paper-search",
+    "/sage/paper-lineage",
+    "/sage/paper-insight",
 ]
 
 # Include all sub-routers (no prefix since main router has /api/kai)
@@ -128,6 +141,8 @@ kai_router.include_router(decisions_router)
 kai_router.include_router(losers_router)
 kai_router.include_router(market_insights_router)
 kai_router.include_router(support_router)
+kai_router.include_router(pkm_highlight_router)
+kai_router.include_router(sage_citations_router)
 
 # Export for server.py
 router = kai_router
