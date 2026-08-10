@@ -33,11 +33,11 @@ const ICON_SIZE_CLASS = {
     pixels: 72,
   },
   launcher: {
-    surface: "h-16 w-16",
+    surface: "h-14 w-14 sm:h-16 sm:w-16",
     lucideSurface:
       "h-16 w-16 rounded-[20px] shadow-[0_10px_24px_rgba(0,0,0,0.10)] ring-1 ring-black/[0.04] dark:ring-white/[0.08]",
     imageSurface: "rounded-[20px]",
-    lucide: "h-7 w-7",
+    lucide: "h-6 w-6 sm:h-7 sm:w-7",
     image: "h-full w-full object-contain",
     pixels: 80,
   },
@@ -51,15 +51,22 @@ const ICON_SIZE_CLASS = {
     pixels: 40,
   },
   menu: {
-    surface: "h-8 w-8",
+    surface: "h-9 w-9",
     lucideSurface:
       "h-8 w-8 rounded-[10px] shadow-[0_5px_13px_rgba(0,0,0,0.10)] ring-1 ring-black/[0.04] dark:ring-white/[0.08]",
-    imageSurface: "rounded-[10px]",
-    lucide: "h-4 w-4",
+    imageSurface: "rounded-[11px]",
+    lucide: "h-[18px] w-[18px]",
     image: "h-full w-full object-contain",
     pixels: 40,
   },
 } as const;
+
+const PROFILE_ICON_RADIUS_CLASS: Record<AgentSectionIconSize, string> = {
+  card: "rounded-[16px]",
+  launcher: "rounded-[17px] sm:rounded-[20px]",
+  topbar: "rounded-[10px]",
+  menu: "rounded-[11px]",
+};
 
 type AgentSectionIconSize = keyof typeof ICON_SIZE_CLASS;
 
@@ -121,7 +128,7 @@ export function AgentSectionIcon({
         className={cn(
           "relative inline-flex shrink-0 items-center justify-center overflow-hidden",
           classes.surface,
-          "rounded-[20px]",
+          PROFILE_ICON_RADIUS_CLASS[size],
           active
             ? "bg-[var(--agent-icon-profile-bg)] text-[var(--agent-icon-profile-fg)] dark:bg-[var(--agent-icon-profile-bg-dark)] dark:text-[var(--agent-icon-profile-fg-dark)]"
             : AGENT_ICON_SURFACE_FALLBACK_CLASSNAME,
@@ -138,7 +145,7 @@ export function AgentSectionIcon({
         <Icon
           className={cn(
             classes.lucide,
-            "drop-shadow-[0_1px_2px_rgba(0,0,0,0.16)]",
+            "[stroke-width:1.8]",
             active
               ? glyphContrast === "inverted"
                 ? "!text-white dark:!text-[#1d1d1f]"
@@ -185,7 +192,7 @@ export function AgentSectionIcon({
           // same primitive drives the dashboard grid and the top switcher.
           className={cn(
             classes.lucide,
-            tone ? "!text-[#1d1d1f] dark:!text-white" : "text-current",
+            tone ? "!text-white" : "text-current",
           )}
           aria-hidden
         />

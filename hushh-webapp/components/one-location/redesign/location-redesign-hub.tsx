@@ -2316,7 +2316,7 @@ function ReviewRow({
 }) {
   return (
     <div className="flex items-start justify-between gap-3 border-b border-border/50 pb-3 last:border-0 last:pb-0">
-      <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <span className="shrink-0 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
         {label}
       </span>
       <div className="min-w-0 max-w-[70%] text-right text-sm font-medium text-foreground">

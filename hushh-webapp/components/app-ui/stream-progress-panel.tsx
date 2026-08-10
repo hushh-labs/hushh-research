@@ -123,7 +123,7 @@ export function AppStreamSection({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="group flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+            className="group flex w-full items-center justify-between gap-3 px-[6px] py-2 text-left font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73] transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
           >
             <span className="inline-flex min-w-0 items-center gap-2">
               <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />

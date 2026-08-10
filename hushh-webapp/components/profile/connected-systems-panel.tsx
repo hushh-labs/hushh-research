@@ -2084,10 +2084,10 @@ export function ConnectedSystemsPanel({
             aria-label="Changes to apply"
             className="min-h-0 max-h-[min(46dvh,30rem)] overflow-y-auto overscroll-contain border-y border-[color:var(--app-card-border-standard)]"
           >
-            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 bg-muted/45 px-5 py-2 text-[11px] font-semibold tracking-[0.16em] text-muted-foreground sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)] sm:px-6">
-              <span>FIELD</span>
-              <span className="hidden sm:block">CURRENT VALUE</span>
-              <span>UPDATED VALUE</span>
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 bg-muted/45 px-5 py-2 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)] sm:px-6">
+              <span>Field</span>
+              <span className="hidden sm:block">Current value</span>
+              <span>Updated value</span>
             </div>
             <dl className="divide-y divide-[color:var(--app-card-border-standard)]">
               {pendingUpdateReview?.fields.map((field) => (

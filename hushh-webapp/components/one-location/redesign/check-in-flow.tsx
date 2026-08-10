@@ -120,10 +120,10 @@ function isFreshReviewedPoint(
   );
 }
 
-/** Uppercase section label (YOUR LOCATION / WHO SHOULD KNOW? / …). */
+/** Section label that follows the shared readable settings scale. */
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mb-2 mt-5 px-1 text-[13px] font-semibold text-black/45 dark:text-white/45">
+    <p className="mb-2 mt-7 px-[6px] font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">
       {children}
     </p>
   );

@@ -791,7 +791,7 @@ function ConsentHistoryLifecycleDetails({
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  <div className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                     {lifecycleLabel(trailIndex)}
                   </div>
                   <div className="mt-1 text-sm font-semibold leading-5 text-foreground">
@@ -1143,7 +1143,7 @@ function ConsentEntryDetail({
         <dl className="grid gap-x-6 gap-y-4 px-1 py-1 sm:grid-cols-2">
           {detailItems.map(([label, value]) => (
             <div key={label} className="min-w-0 space-y-1">
-              <dt className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              <dt className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                 {label}
               </dt>
               <dd className="text-sm leading-5 text-foreground [overflow-wrap:anywhere]">

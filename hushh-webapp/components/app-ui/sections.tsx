@@ -61,7 +61,7 @@ export function Hero({
 }) {
   const head = (
     <>
-      <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--app-accent-deep)]">
+      <div className="font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">
         {kicker}
       </div>
       <h1
@@ -140,7 +140,7 @@ export function Band({
   const head = (
     <>
       {kicker ? (
-        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[color:var(--app-accent-deep)]">
+        <div className="font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">
           {kicker}
         </div>
       ) : null}
@@ -227,7 +227,7 @@ export function Card({
         </div>
       ) : null}
       {eyebrow ? (
-        <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        <div className="font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">
           {eyebrow}
         </div>
       ) : null}
@@ -365,7 +365,7 @@ export function Stat({
       <div className="text-[32px] font-semibold leading-none tracking-tight text-foreground sm:text-[40px]">
         {value}
       </div>
-      <div className="mt-2.5 text-xs font-semibold uppercase tracking-[0.14em] text-[color:var(--app-accent-deep)]">
+      <div className="mt-2.5 font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">
         {label}
       </div>
       {sub ? (

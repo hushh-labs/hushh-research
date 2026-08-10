@@ -312,7 +312,7 @@ export function DataTable<TData, TValue>({
                     key={header.id}
                     className={cn(
                       compact
-                        ? "px-[max(10px,calc(var(--data-table-cell-px)-2px))] py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground"
+                        ? "px-[max(10px,calc(var(--data-table-cell-px)-2px))] py-2 text-[13px] font-normal tracking-normal text-muted-foreground"
                         : "px-[var(--data-table-cell-px)] py-[calc(var(--data-table-cell-py)-1px)]",
                       header.column.getCanSort()
                         ? "cursor-pointer select-none"
