@@ -1089,7 +1089,7 @@ function NowHub({
   onOpenSettings: () => void;
 }) {
   return (
-    <div className="space-y-4" data-testid="one-location-now-hub">
+    <div data-testid="one-location-now-hub">
       {/* Every row and tile below carries the `control_ids` / `action_id` pair
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
@@ -1119,7 +1119,11 @@ function NowHub({
         />
       </SettingsGroup>
 
-      <SettingsGroup separatorInset testId="one-location-now-status">
+      <SettingsGroup
+        separatorInset
+        className="mt-4"
+        testId="one-location-now-status"
+      >
         <SettingsRow
           icon={UsersRound}
           iconTone="purple"
@@ -1188,7 +1192,7 @@ function NowHub({
         />
       </SettingsGroup>
 
-      <div className="pt-3">
+      <div className="mt-7">
         <QuickActionsSection title="Quick actions" columns={2}>
           <QuickActionCard
             tone="green"

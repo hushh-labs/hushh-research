@@ -6,7 +6,7 @@ import type { LucideIcon } from "lucide-react";
 import { SurfaceCard, type SurfaceAccent, type SurfaceTone } from "@/components/app-ui/surfaces";
 import {
   AgentTitle,
-  CardTitle,
+  MajorSectionTitle,
   PageSubtitle,
   PageTitle,
   SectionLabel,
@@ -36,19 +36,16 @@ type SectionAccent =
 const ACCENT_STYLES: Record<SectionAccent, {
   eyebrow: string;
   icon: string;
-  divider: string;
 }> = {
   neutral: {
     eyebrow: "text-muted-foreground",
     icon:
       "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
-    divider: "bg-[color:var(--app-separator)]",
   },
   kai: {
     eyebrow: "text-muted-foreground",
     icon:
       "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
-    divider: "bg-[color:var(--app-separator)]",
   },
   ria: {
     // RIA sub-agent = Apple-clean gold. Var-driven so it flips to the DS gold
@@ -57,83 +54,68 @@ const ACCENT_STYLES: Record<SectionAccent, {
     eyebrow: "text-muted-foreground",
     icon:
       "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
-    divider: "bg-[color:var(--app-separator)]",
   },
   consent: {
     eyebrow: "text-muted-foreground",
     icon:
       "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
-    divider: "bg-[color:var(--app-separator)]",
   },
   marketplace: {
     eyebrow: "text-muted-foreground",
     icon:
       "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
-    divider: "bg-[color:var(--app-separator)]",
   },
   developers: {
     eyebrow: "text-muted-foreground",
     icon:
       "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
-    divider: "bg-[color:var(--app-separator)]",
   },
   research: {
     eyebrow: "text-muted-foreground",
     icon:
       "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
-    divider: "bg-[color:var(--app-separator)]",
   },
   location: {
     eyebrow: "text-muted-foreground",
     icon: "bg-[color:var(--app-accent)] text-white shadow-none",
-    divider: "bg-[color:var(--app-separator)]",
   },
   success: {
     eyebrow: "text-emerald-700 dark:text-emerald-300",
     icon: "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-200",
-    divider: "bg-emerald-300/50 dark:bg-emerald-400/30",
   },
   warning: {
     eyebrow: "text-amber-700 dark:text-amber-300",
     icon: "bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200",
-    divider: "bg-amber-300/50 dark:bg-amber-400/30",
   },
   critical: {
     eyebrow: "text-rose-700 dark:text-rose-300",
     icon: "bg-rose-500/10 text-rose-700 dark:bg-rose-400/10 dark:text-rose-200",
-    divider: "bg-rose-300/50 dark:bg-rose-400/30",
   },
   default: {
     eyebrow: "text-muted-foreground",
     icon:
       "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
-    divider: "bg-[color:var(--app-separator)]",
   },
   sky: {
     eyebrow: "text-muted-foreground",
     icon:
       "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
-    divider: "bg-[color:var(--app-separator)]",
   },
   emerald: {
     eyebrow: "text-emerald-700 dark:text-emerald-300",
     icon: "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-200",
-    divider: "bg-emerald-300/50 dark:bg-emerald-400/30",
   },
   amber: {
     eyebrow: "text-amber-700 dark:text-amber-300",
     icon: "bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200",
-    divider: "bg-amber-300/50 dark:bg-amber-400/30",
   },
   rose: {
     eyebrow: "text-rose-700 dark:text-rose-300",
     icon: "bg-rose-500/10 text-rose-700 dark:bg-rose-400/10 dark:text-rose-200",
-    divider: "bg-rose-300/50 dark:bg-rose-400/30",
   },
   violet: {
     eyebrow: "text-violet-700 dark:text-violet-300",
     icon: "bg-violet-500/10 text-violet-700 dark:bg-violet-400/10 dark:text-violet-200",
-    divider: "bg-violet-300/50 dark:bg-violet-400/30",
   },
 };
 
@@ -331,14 +313,14 @@ export function SectionHeader({
                   {eyebrow}
                 </SectionLabel>
               ) : null}
-              <CardTitle
+              <MajorSectionTitle
                 as="div"
                 role="heading"
                 aria-level={2}
                 data-slot="section-header-title"
               >
                 {title}
-              </CardTitle>
+              </MajorSectionTitle>
               {description ? (
                 <PageSubtitle
                   as="div"
@@ -359,7 +341,6 @@ export function SectionHeader({
           </div>
         </div>
       </div>
-      <div className={cn("h-px w-full", styles.divider)} aria-hidden="true" />
     </div>
   );
 }

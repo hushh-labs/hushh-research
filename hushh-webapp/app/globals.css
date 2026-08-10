@@ -294,9 +294,14 @@ textarea {
   --type-button-label-size: 17px;
   --type-button-label-line: 22px;
   --type-button-label-weight: 600;
-  --type-tab-label-size: 17px;
-  --type-tab-label-line: 22px;
+  --type-tab-label-size: 11px;
+  --type-tab-label-line: 13px;
   --type-tab-label-weight: 500;
+  --type-tab-label-tracking: 0;
+  --type-agent-tab-label-size: 17px;
+  --type-agent-tab-label-line: 22px;
+  --type-agent-tab-label-weight: 500;
+  --type-agent-tab-label-tracking: -0.01em;
   --foundation-caption-tracking: 0.158em;
   --foundation-micro-size: 0.6875rem;
   --foundation-micro-line: 1.273;
@@ -1918,9 +1923,9 @@ html.kb-open [data-agent-bar-shell][data-agent-bar-layout="fixed"] {
   --surface-card-content-pb: 14px;
   --surface-inset-p: 12px;
   --settings-group-stack-gap: 6px;
-  --settings-row-px: 12px;
-  --settings-row-py: 12px;
-  --settings-row-gap: 10px;
+  --settings-row-px: 16px;
+  --settings-row-py: 10px;
+  --settings-row-gap: 12px;
   --settings-row-stack-gap: 10px;
   --data-table-controls-gap: 12px;
   --data-table-cell-px: 10px;
@@ -1947,8 +1952,8 @@ html.kb-open [data-agent-bar-shell][data-agent-bar-layout="fixed"] {
     --surface-card-content-pb: 16px;
     --surface-inset-p: 14px;
     --settings-group-stack-gap: 8px;
-    --settings-row-px: 14px;
-    --settings-row-py: 14px;
+    --settings-row-px: 16px;
+    --settings-row-py: 10px;
     --settings-row-gap: 12px;
     --settings-row-stack-gap: 12px;
     --data-table-controls-gap: 14px;
@@ -4420,10 +4425,10 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 .kai-bottom-nav-pill [role="radio"] > span:last-of-type {
   max-width: 100%;
-  font-size: var(--ios-account-tab-label-size, 10px);
+  font-size: var(--ios-account-tab-label-size, var(--type-tab-label-size));
   font-weight: 500;
-  line-height: var(--ios-account-tab-label-line, 12px);
-  letter-spacing: 0;
+  line-height: var(--ios-account-tab-label-line, var(--type-tab-label-line));
+  letter-spacing: var(--type-tab-label-tracking);
   text-wrap: nowrap;
   opacity: 0.92;
 }
@@ -5464,6 +5469,10 @@ body[data-persona-surface="ria"] {
 
 /* Semantic typography guardrail.
    Kept at the end so role classes beat older h1/h2 and data-slot fallbacks. */
+[data-slot="settings-row-icon"] svg {
+  stroke-width: 1.65 !important;
+}
+
 :is(.ui-text-large-page-title) {
   color: var(--app-label) !important;
   font-family: var(--font-app-display) !important;
@@ -5489,10 +5498,10 @@ body[data-persona-surface="ria"] {
 :is(.ui-text-agent-title) {
   color: var(--app-label) !important;
   font-family: var(--font-app-display) !important;
-  font-size: 34px !important;
-  font-weight: 700 !important;
-  letter-spacing: -0.03em !important;
-  line-height: 41px !important;
+  font-size: var(--type-large-page-title-size) !important;
+  font-weight: var(--type-large-page-title-weight) !important;
+  letter-spacing: var(--type-large-page-title-tracking) !important;
+  line-height: var(--type-large-page-title-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
 }
@@ -5659,7 +5668,7 @@ body[data-persona-surface="ria"] {
   font-family: var(--font-app-body) !important;
   font-size: var(--type-tab-label-size) !important;
   font-weight: var(--type-tab-label-weight) !important;
-  letter-spacing: -0.01em !important;
+  letter-spacing: var(--type-tab-label-tracking) !important;
   line-height: var(--type-tab-label-line) !important;
   opacity: 1 !important;
 }
@@ -5669,6 +5678,25 @@ body[data-persona-surface="ria"] {
 }
 
 [role="tab"][aria-selected="false"] :is(.ui-text-tab-label) {
+  color: var(--app-secondary-label) !important;
+}
+
+:is(.ui-text-agent-tab-label) {
+  color: var(--app-secondary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-agent-tab-label-size) !important;
+  font-weight: var(--type-agent-tab-label-weight) !important;
+  letter-spacing: var(--type-agent-tab-label-tracking) !important;
+  line-height: var(--type-agent-tab-label-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+[role="tab"][aria-selected="true"] :is(.ui-text-agent-tab-label) {
+  color: var(--app-accent) !important;
+}
+
+[role="tab"][aria-selected="false"] :is(.ui-text-agent-tab-label) {
   color: var(--app-secondary-label) !important;
 }
 

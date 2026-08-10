@@ -89,7 +89,7 @@ export function QuickActionCard({
       className={cn(
         "group flex min-h-[120px] w-full min-w-0 flex-col gap-3 rounded-[22px] bg-white p-4 text-left shadow-none transition-all duration-200 dark:bg-[color:var(--app-card-surface-default-solid)]",
         interactive
-          ? "cursor-pointer hover:-translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          ? "cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           : "cursor-not-allowed",
       )}
     >
@@ -103,8 +103,8 @@ export function QuickActionCard({
         >
           {icon}
         </span>
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#eef2f8] dark:bg-white/10">
-          <ChevronRight className="h-3 w-3 text-black/40 dark:text-muted-foreground" />
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] dark:bg-white/10">
+          <ChevronRight className="h-3 w-3 text-[color:var(--app-tertiary-label)]" />
         </span>
       </div>
 
