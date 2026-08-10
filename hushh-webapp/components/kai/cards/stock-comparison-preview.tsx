@@ -111,13 +111,19 @@ export function StockComparisonPreview({
             accent="default"
             actions={
               onBrowseRecommendations || onChangeStock ? (
-                <div className="flex items-center gap-1">
+                // Allow the action buttons to wrap onto a second line instead of
+                // overflowing the card's right edge on narrow iOS widths (which
+                // clipped "Change stock" to "Change stoc"). `shrink-0` keeps each
+                // button's own label intact; `whitespace-nowrap` stops a single
+                // label from breaking mid-word once it has wrapped to its line.
+                <div className="flex flex-wrap items-center justify-end gap-1">
                   {onBrowseRecommendations ? (
                     <Button
                       type="button"
                       variant="none"
                       effect="fade"
                       size="sm"
+                      className="shrink-0 whitespace-nowrap"
                       onClick={onBrowseRecommendations}
                     >
                       Recommendations
@@ -129,9 +135,10 @@ export function StockComparisonPreview({
                       variant="none"
                       effect="fade"
                       size="sm"
+                      className="shrink-0 whitespace-nowrap"
                       onClick={onChangeStock}
                     >
-                      <Search className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                      <Search className="mr-1.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                       Change stock
                     </Button>
                   ) : null}
