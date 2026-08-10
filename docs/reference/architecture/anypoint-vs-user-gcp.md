@@ -7,9 +7,44 @@ infrastructure. The hussh-managed pod is the simulation tier and appears here on
 reference implementation everything else is measured against.
 
 **Stated once, up front:** neither column has production evidence. No pod has served a turn,
-in any environment, for anyone — and both `UserGcpBackend.provision` and
-`AnypointBackend._execute` raise when live. This compares two designs, one of which is
-further along.
+in any environment, for anyone. `AnypointBackend._execute` still raises when live.
+`UserGcpBackend.provision` no longer does — it creates the pod through the same
+`GcpRunClient` the managed tier uses, on a short-lived impersonated token — but it has not
+yet run against a real user project, so "implemented" is the claim and "proven" is not.
+This compares two designs, one of which is further along.
+
+## What earns a pod, per path — the rule, and why it differs
+
+`ai_connection_gate` holds the standing rule: **a working AI connection earns a pod; a
+login never does.** That is unchanged. What it did not previously say is *which* connection
+counts, and the answer is not the same on both paths — because they do not have the same
+model access available. The rule now lives in
+[`model_access_policy`](../../../consent-protocol/hushh_mcp/services/model_access_policy.py)
+and the gate consults it, so provisioning and activation cannot drift apart.
+
+| | Model access | What earns a pod | Activation mode |
+|---|---|---|---|
+| **Anypoint (B)** | The user's own key, per turn. CloudHub is not GCP: no metadata server, no ambient Google identity, and `AnypointBackend` renders `GOOGLE_GENAI_USE_VERTEXAI=false` deliberately. | A **verified BYOK connection** — a key that answered a real generation request. A managed-Vertex selection is **refused outright**, not deferred to a flag. | `byok_per_turn` |
+| **BYO GCP (A)** | The user's own Vertex ADC, on the pod's service account in **their** project — their identity, their quota, their bill. BYOK also available. | Either a verified BYOK key, or **Vertex established in their project**: the API enabled and the pod SA holding `roles/aiplatform.user` (`byoc_vertex_preconditions`). Then the pod is provisioned and agents come up in `AGENT_ACTIVATION_ORDER`. | `user_adc` or `byok_per_turn` |
+| **hushh-managed** | The fleet's shared ADC. | Same as BYO GCP, except the managed route additionally requires `pod_managed_model_enabled` — because the identity being borrowed is hushh's, not the user's. | `fleet_adc` |
+
+Two consequences worth stating plainly, because both were wrong before:
+
+* **The fleet flag does not govern BYOC.** `pod_managed_model_enabled` decides whether a pod
+  may borrow *hushh's* identity. On BYO GCP the Vertex is the user's own, so tying the two
+  together would let a hushh-side switch disable a capability the user owns outright.
+* **Anypoint refuses managed on its own merits.** Previously the gate asked only
+  "managed or BYOK?" and consulted that one flag, with no idea which backend the pod would
+  run on. An Anypoint deployment with the flag on would have provisioned a pod onto a
+  connection the platform can never serve — the exact failure the gate exists to prevent,
+  one level further up.
+
+**What "established" honestly means on BYOC.** A BYOK key proves itself by answering a real
+generation request. Vertex ADC *inside a pod* cannot be proven that way before the pod
+exists, so requiring it would be circular. The precondition check therefore verifies the two
+conditions whose absence makes ADC impossible — API enabled, pod SA bound — and that is a
+weaker claim than "a key answered". It is stated as such rather than dressed up as the same
+thing. An unrecognised backend fails closed.
 
 ## Visual Map
 

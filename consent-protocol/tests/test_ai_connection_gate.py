@@ -206,7 +206,13 @@ async def test_managed_does_not_provision_while_a_pod_cannot_serve_it(monkeypatc
     result = await _verify(provider="hushh_managed_vertex", identity=identity)
 
     assert result["scheduled"] is False
-    assert "cannot serve" in result["reason"]
+    # The refusal used to be the single generic string "pod cannot serve this
+    # connection mode". It now carries the SPECIFIC reason from
+    # `model_access_policy`, because the gate asks per deployment path and the
+    # answers differ -- "the fleet flag is off" and "CloudHub has no Vertex at all"
+    # are different facts and a shared sentence hid that. Asserting the substance
+    # keeps this test about behaviour rather than about wording.
+    assert "pod_managed_model_enabled is off" in result["reason"]
     assert identity.scheduled == []
 
 

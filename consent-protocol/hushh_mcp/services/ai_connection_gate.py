@@ -76,17 +76,33 @@ async def on_ai_connection_verified(
             return {"scheduled": False, "reason": "personal agent is off"}
         if not provision_on_ai_connection():
             return {"scheduled": False, "reason": "ai-connection trigger is off"}
-        if not _pod_can_serve(provider):
-            # NOT a new flag, deliberately. `pod_managed_model_enabled` already
-            # decides whether a pod may serve a turn on the fleet's model
-            # (`pod_turn._resolve_runtime_mode`). Reading that same setting here is
-            # what makes "a pod exists but 400s every turn" unrepresentable: the one
-            # switch governs both halves, so they cannot drift apart.
+        access = _pod_can_serve(provider)
+        if not access.can_serve:
+            # NOT a new flag, deliberately. For the managed tier this still resolves
+            # to `pod_managed_model_enabled`, the same setting that decides whether a
+            # pod may serve a turn (`pod_turn._resolve_runtime_mode`), so "a pod
+            # exists but 400s every turn" stays unrepresentable -- one switch governs
+            # both halves and they cannot drift apart.
             #
-            # A managed user is not stranded by this -- they keep the hub-served
+            # What is new is that the question is now asked per deployment path, so a
+            # connection mode the path cannot serve AT ALL (managed Vertex on
+            # CloudHub) is refused on its own merits rather than riding a flag that
+            # was never about it.
+            #
+            # A user refused here is not stranded -- they keep the hub-served
             # experience. What they do not get is a billable host that refuses every
             # request, which is strictly worse than no host at all.
-            return {"scheduled": False, "reason": "pod cannot serve this connection mode"}
+            logger.info(
+                "ai_connection_gate.refused user_id=%s provider=%s reason=%s",
+                normalized,
+                str(provider or "")[:32],
+                access.reason,
+            )
+            return {
+                "scheduled": False,
+                "reason": access.reason,
+                "activation": access.activation,
+            }
 
         repo = registry
         if repo is None:
@@ -135,7 +151,16 @@ async def on_ai_connection_verified(
             str(transport or "")[:32],
             scheduled,
         )
-        return {"scheduled": scheduled, "reason": "ai connection verified"}
+        return {
+            "scheduled": scheduled,
+            "reason": "ai connection verified",
+            # How this pod will reach a model, and the order its agents come up.
+            # Carried on the verdict so the surface that reports provisioning can say
+            # which of the three model-access modes a person is actually on instead
+            # of inferring it from the provider string.
+            "activation": access.activation,
+            "activationOrder": list(access.activation_order),
+        }
     except Exception as exc:  # noqa: BLE001 - never fail a credential validation
         logger.warning("ai_connection_gate.failed %s", type(exc).__name__)
         return {"scheduled": False, "reason": f"error: {type(exc).__name__}"}
@@ -146,23 +171,34 @@ async def on_ai_connection_verified(
 _MANAGED_PROVIDER = "hushh_managed_vertex"
 
 
-def _pod_can_serve(provider: str) -> bool:
-    """Could a pod actually run a turn on this connection mode?
+def _pod_can_serve(provider: str) -> Any:
+    """Could a pod actually run a turn on this connection mode, ON THIS PATH?
 
-    BYOK always: the key arrives with each turn, so the pod needs no standing model
-    access and the pod service account keeps its zero project roles -- which is the
-    whole basis of the isolation story.
+    The last clause is the fix. This asked only "managed or BYOK?" and consulted one
+    global flag, which is backend-blind — and the paths do not have the same model
+    access available:
 
-    Managed only when a pod is permitted to reach the fleet's model. Until then a
-    managed pod would boot, warm, heartbeat, and refuse every turn with "this pod
-    has no model access", at full price. Provisioning one would be the same mistake
-    as provisioning on login, one step later in the journey.
+    * **Anypoint/CloudHub** has no Google identity, so Vertex ADC is not merely
+      unconfigured there but unreachable. ``AnypointBackend`` renders
+      ``GOOGLE_GENAI_USE_VERTEXAI=false`` for exactly that reason. Under the old
+      check, an Anypoint deployment with ``pod_managed_model_enabled()`` on would
+      have provisioned a pod on a managed connection it could never serve.
+    * **BYO GCP** has Vertex ADC available *as the user's own*, on their identity
+      and their bill, so a managed selection is legitimate there and does not depend
+      on hushh's fleet flag at all.
+    * **hushh-managed GCP** is the only path where the fleet flag is the right
+      question, because it is the only one where the identity is hushh's.
+
+    So the decision moves to ``model_access_policy.model_access_for``, which states
+    all three rules in one place. Returning the verdict rather than a bool means the
+    refusal reason reaches the caller instead of being flattened to False.
     """
-    if str(provider or "").strip().lower() != _MANAGED_PROVIDER:
-        return True
-    from hushh_mcp.runtime_settings import pod_managed_model_enabled  # noqa: PLC0415
+    from hushh_mcp.services.model_access_policy import (  # noqa: PLC0415
+        model_access_for,
+        resolve_backend_id,
+    )
 
-    return pod_managed_model_enabled()
+    return model_access_for(resolve_backend_id(), provider)
 
 
 async def _verified_phone(actor: Any, user_id: str) -> str:
