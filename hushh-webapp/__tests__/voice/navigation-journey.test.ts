@@ -40,6 +40,19 @@ describe("navigation journeys", () => {
     expect(resolveNavigationJourney("route.kai_analysis")).toBeNull();
   });
 
+  it("never turns a route-executing action into a journey to itself", () => {
+    // `location.open_now` navigates to /one/location, which `route.one_location`
+    // also opens -- so the naive lookup paired them into a journey that walks
+    // to the destination and then runs the action that walks there. The name
+    // prefix is not what disqualifies an action; executing by navigation is.
+    const action = getKaiActionById("location.open_now");
+    expect(action?.execution_target).toMatchObject({
+      path: "route",
+      target: "/one/location",
+    });
+    expect(resolveNavigationJourney("location.open_now")).toBeNull();
+  });
+
   it("refuses a destination with no wired navigation action", () => {
     // setup.open_email authors the shape, but no route.* action opens
     // /one/setup/email -- One would have no generated way to walk it.

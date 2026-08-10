@@ -524,6 +524,19 @@ def _navigation_journey_definition(
         # Navigation actions already ARE the navigation. Wrapping one in a
         # journey would make it navigate to itself.
         return None
+    execution_target = entry.get("execution_target")
+    if (
+        isinstance(execution_target, dict)
+        and execution_target.get("status") == "wired"
+        and execution_target.get("path") == "route"
+    ):
+        # The name prefix above was only ever a proxy for this: an action that
+        # executes BY navigating is its own navigation, whatever it is called.
+        # The Location surface authors its tabs and flows as ``location.*``
+        # route actions, and without this check the one whose target matches a
+        # wired ``route.*`` action exactly becomes a journey to where it
+        # already goes.
+        return None
     goal = entry.get("goal")
     if not isinstance(goal, dict):
         return None

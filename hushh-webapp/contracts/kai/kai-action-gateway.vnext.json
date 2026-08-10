@@ -3200,21 +3200,23 @@
       }
     },
     {
-      "action_id": "location.open_compose",
+      "action_id": "location.open_now",
       "surface_id": "one_location",
-      "label": "Open location sharing",
+      "label": "Open Location now",
       "aliases": [
-        "share tab",
-        "compose tab",
-        "open sharing",
-        "location sharing"
+        "location now",
+        "now tab",
+        "location home",
+        "location status",
+        "am i sharing my location"
       ],
       "search_keywords": [
-        "share",
-        "compose",
-        "location"
+        "now",
+        "location",
+        "status",
+        "sharing"
       ],
-      "meaning": "Shows the compose tab, where a location share is set up and sent.",
+      "meaning": "Opens the Now tab of Location, which shows current sharing status and the quick actions.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -3240,12 +3242,10 @@
       "activation_policy": "none",
       "execution_target": {
         "status": "wired",
-        "path": "local_handler",
-        "target": "location.open_compose"
+        "path": "route",
+        "target": "/one/location"
       },
-      "control_ids": [
-        "one-location-tab-compose"
-      ],
+      "control_ids": [],
       "state_exposure": [
         "active location tab"
       ],
@@ -3256,7 +3256,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "The mounted action reports its browser-observed outcome."
+          "current route becomes /one/location"
         ],
         "backend_effects": []
       },
@@ -3270,16 +3270,20 @@
         ]
       },
       "goal": {
-        "goal_id": "goal.location.open_compose",
+        "goal_id": "goal.location.open_now",
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "location.open_compose",
-            "label": "Open location sharing",
-            "failure_behavior": "stop"
+            "action_id": "location.open_now",
+            "label": "Open Location now",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
           }
         ],
         "progress_contract": {
@@ -3303,22 +3307,23 @@
       }
     },
     {
-      "action_id": "location.open_activity",
+      "action_id": "location.open_people",
       "surface_id": "one_location",
-      "label": "Open location activity",
+      "label": "Open Location people",
       "aliases": [
-        "activity tab",
-        "location activity",
-        "requests",
-        "who can see me"
+        "location people",
+        "people tab",
+        "who can see my location",
+        "my circles",
+        "location contacts"
       ],
       "search_keywords": [
-        "activity",
-        "requests",
-        "grants",
+        "people",
+        "circles",
+        "contacts",
         "location"
       ],
-      "meaning": "Shows the activity tab, which lists shares, incoming requests and grants.",
+      "meaning": "Opens the People tab of Location, which lists the people and circles you share with.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -3344,15 +3349,12 @@
       "activation_policy": "none",
       "execution_target": {
         "status": "wired",
-        "path": "local_handler",
-        "target": "location.open_activity"
+        "path": "route",
+        "target": "/one/location?view=people"
       },
-      "control_ids": [
-        "one-location-tab-activity"
-      ],
+      "control_ids": [],
       "state_exposure": [
-        "active location tab",
-        "pending request count"
+        "active location tab"
       ],
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md"
@@ -3361,7 +3363,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "The mounted action reports its browser-observed outcome."
+          "current route becomes /one/location?view=people"
         ],
         "backend_effects": []
       },
@@ -3375,16 +3377,1764 @@
         ]
       },
       "goal": {
-        "goal_id": "goal.location.open_activity",
+        "goal_id": "goal.location.open_people",
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "location.open_activity",
-            "label": "Open location activity",
-            "failure_behavior": "stop"
+            "action_id": "location.open_people",
+            "label": "Open Location people",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?view=people",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_links",
+      "surface_id": "one_location",
+      "label": "Open Location links",
+      "aliases": [
+        "location links",
+        "links tab",
+        "my location links",
+        "temporary links"
+      ],
+      "search_keywords": [
+        "links",
+        "temporary",
+        "location"
+      ],
+      "meaning": "Opens the Links tab of Location, which lists temporary sharing links you have created.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?view=links"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active location tab"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?view=links"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_links",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_links",
+            "label": "Open Location links",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?view=links",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_share",
+      "surface_id": "one_location",
+      "label": "Share my location",
+      "aliases": [
+        "share my location",
+        "share location",
+        "send my location",
+        "let someone see where i am",
+        "share where i am"
+      ],
+      "search_keywords": [
+        "share",
+        "send",
+        "location",
+        "compose"
+      ],
+      "meaning": "Opens the share composer, where you pick who to share your location with and for how long. Nothing is shared until you send it.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=share"
+      },
+      "control_ids": [
+        "one-location-action-share"
+      ],
+      "state_exposure": [
+        "active location flow"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=share"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_share",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_share",
+            "label": "Share my location",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?action=share",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_ask",
+      "surface_id": "one_location",
+      "label": "Ask for someone's location",
+      "aliases": [
+        "ask for location",
+        "request location",
+        "where are you",
+        "ask someone where they are",
+        "request someone's location"
+      ],
+      "search_keywords": [
+        "ask",
+        "request",
+        "location"
+      ],
+      "meaning": "Opens the request composer, where you ask another person to share their location with you.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=ask"
+      },
+      "control_ids": [
+        "one-location-action-ask"
+      ],
+      "state_exposure": [
+        "active location flow"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=ask"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_ask",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_ask",
+            "label": "Ask for someone's location",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?action=ask",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_invite",
+      "surface_id": "one_location",
+      "label": "Invite someone to Location",
+      "aliases": [
+        "invite someone",
+        "invite to location",
+        "add someone to location",
+        "invite a friend"
+      ],
+      "search_keywords": [
+        "invite",
+        "add",
+        "location"
+      ],
+      "meaning": "Opens the invite screen, where you invite someone who is not on Hushh yet to share location with you.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=invite"
+      },
+      "control_ids": [
+        "one-location-action-invite"
+      ],
+      "state_exposure": [
+        "active location flow"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=invite"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_invite",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_invite",
+            "label": "Invite someone to Location",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?action=invite",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_create_circle",
+      "surface_id": "one_location",
+      "label": "Create a circle",
+      "aliases": [
+        "create a circle",
+        "new circle",
+        "make a circle",
+        "start a circle",
+        "create group"
+      ],
+      "search_keywords": [
+        "create",
+        "circle",
+        "group",
+        "new"
+      ],
+      "meaning": "Opens the create-circle screen, where you name a new circle of people to share location with as a group.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=create-circle"
+      },
+      "control_ids": [
+        "one-location-action-create-circle"
+      ],
+      "state_exposure": [
+        "active location flow"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=create-circle"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_create_circle",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_create_circle",
+            "label": "Create a circle",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?action=create-circle",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_join_circle",
+      "surface_id": "one_location",
+      "label": "Join a circle",
+      "aliases": [
+        "join a circle",
+        "join circle",
+        "enter circle code",
+        "use an invite code"
+      ],
+      "search_keywords": [
+        "join",
+        "circle",
+        "code",
+        "invite"
+      ],
+      "meaning": "Opens the join-circle screen, where you enter an invite code to join someone else's circle.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=join-circle"
+      },
+      "control_ids": [
+        "one-location-action-join-circle"
+      ],
+      "state_exposure": [
+        "active location flow"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=join-circle"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_join_circle",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_join_circle",
+            "label": "Join a circle",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?action=join-circle",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_temporary_link",
+      "surface_id": "one_location",
+      "label": "Create a temporary link",
+      "aliases": [
+        "temporary link",
+        "create a link",
+        "share a link",
+        "one time link",
+        "link to my location"
+      ],
+      "search_keywords": [
+        "link",
+        "temporary",
+        "expiring",
+        "share"
+      ],
+      "meaning": "Opens the temporary link screen, where you create a link that shows your location for a limited time to anyone who opens it.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=temp-link"
+      },
+      "control_ids": [
+        "one-location-action-temp-link"
+      ],
+      "state_exposure": [
+        "active location flow"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=temp-link"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_temporary_link",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_temporary_link",
+            "label": "Create a temporary link",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?action=temp-link",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_check_in",
+      "surface_id": "one_location",
+      "label": "Check in",
+      "aliases": [
+        "check in",
+        "check-in",
+        "let them know i arrived",
+        "i arrived",
+        "send a check in"
+      ],
+      "search_keywords": [
+        "check in",
+        "arrived",
+        "safe",
+        "location"
+      ],
+      "meaning": "Opens check-in, where you send a one-off note of where you are to people you choose.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=check-in"
+      },
+      "control_ids": [
+        "one-location-action-check-in"
+      ],
+      "state_exposure": [
+        "active location flow"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=check-in"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_check_in",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_check_in",
+            "label": "Check in",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?action=check-in",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_sos",
+      "surface_id": "one_location",
+      "label": "Open emergency SOS",
+      "aliases": [
+        "sos",
+        "emergency",
+        "panic",
+        "emergency alert",
+        "help",
+        "open sos"
+      ],
+      "search_keywords": [
+        "sos",
+        "emergency",
+        "alert",
+        "help",
+        "panic"
+      ],
+      "meaning": "Opens the emergency SOS screen, where an alert with your location can be sent to your emergency contacts. Opening it does not send anything.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=sos"
+      },
+      "control_ids": [
+        "one-location-action-sos"
+      ],
+      "state_exposure": [
+        "active location flow"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=sos"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_sos",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_sos",
+            "label": "Open emergency SOS",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?action=sos",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_sms_contacts",
+      "surface_id": "one_location",
+      "label": "Open emergency contacts",
+      "aliases": [
+        "emergency contacts",
+        "sms contacts",
+        "who gets my sos",
+        "alert contacts",
+        "text contacts"
+      ],
+      "search_keywords": [
+        "emergency",
+        "contacts",
+        "sms",
+        "text",
+        "sos"
+      ],
+      "meaning": "Opens the emergency SMS contacts screen, where you choose who receives a text message when you raise an SOS.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=sms-contacts"
+      },
+      "control_ids": [
+        "one-location-action-sms-contacts"
+      ],
+      "state_exposure": [
+        "active location flow",
+        "emergency contact count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=sms-contacts"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_sms_contacts",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_sms_contacts",
+            "label": "Open emergency contacts",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?action=sms-contacts",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_settings",
+      "surface_id": "one_location",
+      "label": "Open Location privacy settings",
+      "aliases": [
+        "location settings",
+        "location privacy",
+        "privacy settings",
+        "location precision",
+        "location options"
+      ],
+      "search_keywords": [
+        "settings",
+        "privacy",
+        "precision",
+        "location"
+      ],
+      "meaning": "Opens the Location settings screen, which holds the privacy and precision controls for location sharing.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=settings"
+      },
+      "control_ids": [
+        "one-location-action-settings"
+      ],
+      "state_exposure": [
+        "active location flow",
+        "location permission state"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=settings"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_settings",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_settings",
+            "label": "Open Location privacy settings",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?action=settings",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_active_shares",
+      "surface_id": "one_location",
+      "label": "Open active location shares",
+      "aliases": [
+        "active shares",
+        "who can see me right now",
+        "live shares",
+        "stop sharing",
+        "what am i sharing"
+      ],
+      "search_keywords": [
+        "active",
+        "live",
+        "shares",
+        "stop"
+      ],
+      "meaning": "Opens the list of shares that are live right now, so you can see and stop what other people can currently see.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=active-shares"
+      },
+      "control_ids": [
+        "one-location-action-active-shares"
+      ],
+      "state_exposure": [
+        "active location flow",
+        "active share count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=active-shares"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_active_shares",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_active_shares",
+            "label": "Open active location shares",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?action=active-shares",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_shared_with_me",
+      "surface_id": "one_location",
+      "label": "Open locations shared with me",
+      "aliases": [
+        "shared with me",
+        "who is sharing with me",
+        "see their location",
+        "where are my people"
+      ],
+      "search_keywords": [
+        "shared",
+        "with me",
+        "incoming",
+        "location"
+      ],
+      "meaning": "Opens the list of people who are currently sharing their location with you.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=shared-with-me"
+      },
+      "control_ids": [
+        "one-location-action-shared-with-me"
+      ],
+      "state_exposure": [
+        "active location flow",
+        "granted share count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=shared-with-me"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_shared_with_me",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_shared_with_me",
+            "label": "Open locations shared with me",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?action=shared-with-me",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_needs_review",
+      "surface_id": "one_location",
+      "label": "Open location requests to review",
+      "aliases": [
+        "needs review",
+        "pending requests",
+        "location requests",
+        "approve requests",
+        "who asked for my location"
+      ],
+      "search_keywords": [
+        "review",
+        "requests",
+        "pending",
+        "approve",
+        "decline"
+      ],
+      "meaning": "Opens the requests waiting on your decision, where you approve or decline people asking to see your location.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location?action=needs-review"
+      },
+      "control_ids": [
+        "one-location-action-needs-review"
+      ],
+      "state_exposure": [
+        "active location flow",
+        "pending request count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=needs-review"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_needs_review",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_needs_review",
+            "label": "Open location requests to review",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location?action=needs-review",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.add_connections",
+      "surface_id": "one_location",
+      "label": "Add people to share location with",
+      "aliases": [
+        "add connections",
+        "add people",
+        "i have no connections",
+        "no one to share with",
+        "find people",
+        "connect with someone"
+      ],
+      "search_keywords": [
+        "add",
+        "connections",
+        "people",
+        "connect",
+        "empty"
+      ],
+      "meaning": "Opens Connect, where you find and connect with people. Location can only be shared with a connection or a circle member, so this is the way out of an empty people list.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/connect"
+        ],
+        "screens": [
+          "one_location",
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/connect"
+      },
+      "control_ids": [
+        "one-location-add-connections"
+      ],
+      "state_exposure": [
+        "connection count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /connect"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.add_connections",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.add_connections",
+            "label": "Add people to share location with",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/connect",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_map",
+      "surface_id": "one_location",
+      "label": "Open the location map",
+      "aliases": [
+        "location map",
+        "open the map",
+        "show the map",
+        "map view"
+      ],
+      "search_keywords": [
+        "map",
+        "location",
+        "full screen"
+      ],
+      "meaning": "Opens the full-screen map of the people sharing location with you.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location/map"
+        ],
+        "screens": [
+          "one_location",
+          "one_location_map"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/location/map"
+      },
+      "control_ids": [
+        "one-location-open-map"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location/map"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_map",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_map",
+            "label": "Open the location map",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/location/map",
+              "screen": "one_location"
+            }
           }
         ],
         "progress_contract": {

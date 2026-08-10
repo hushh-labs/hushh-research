@@ -326,6 +326,88 @@ const SHOW_REFERRAL_SECTION = false;
 // scroll-to-section path statically unreachable code.
 const USE_LOCATION_REDESIGN: boolean = true;
 
+/**
+ * How the hub's own URL params read back to a person.
+ *
+ * The redesign addresses every tab as `?view=` and every focused flow as
+ * `?action=`, which is also how the voice action contract reaches them. These
+ * tables are the words for those values, so the surface One is told about and
+ * the surface on screen stay the same surface.
+ */
+const LOCATION_HUB_TAB_LABELS: Readonly<Record<string, string>> = {
+  now: "Now",
+  people: "People",
+  links: "Links",
+};
+
+const LOCATION_TAB_MODULES: Readonly<Record<string, string[]>> = {
+  now: ["Sharing status", "Active shares", "Shared with me", "Quick actions"],
+  people: ["Circles", "Connections"],
+  links: ["Temporary links"],
+};
+
+const LOCATION_FLOW_LABELS: Readonly<Record<string, string>> = {
+  share: "Share location",
+  ask: "Ask for someone's location",
+  invite: "Invite someone",
+  "create-circle": "Create a circle",
+  "join-circle": "Join a circle",
+  "circle-detail": "Circle detail",
+  "temp-link": "Temporary link",
+  "check-in": "Check in",
+  sos: "Emergency SOS",
+  "sms-contacts": "Emergency contacts",
+  settings: "Location settings",
+  "active-shares": "Active shares",
+  "shared-with-me": "Shared with me",
+  "needs-review": "Requests to review",
+};
+
+/**
+ * The Location surface's own inventory, one entry per authored contract action.
+ * Every id here exists in `page.voice-action-contract.json`; nothing describes
+ * a capability the gateway does not carry.
+ */
+const LOCATION_VOICE_ACTIONS = [
+  { id: "location.open_now", actionId: "location.open_now", label: "Open Location now", purpose: "Show current sharing status and quick actions." },
+  { id: "location.open_people", actionId: "location.open_people", label: "Open Location people", purpose: "Show the people and circles you share with." },
+  { id: "location.open_links", actionId: "location.open_links", label: "Open Location links", purpose: "Show temporary sharing links." },
+  { id: "location.open_share", actionId: "location.open_share", label: "Share my location", purpose: "Open the share composer." },
+  { id: "location.open_ask", actionId: "location.open_ask", label: "Ask for someone's location", purpose: "Open the request composer." },
+  { id: "location.open_invite", actionId: "location.open_invite", label: "Invite someone to Location", purpose: "Invite someone not on Hushh yet." },
+  { id: "location.open_create_circle", actionId: "location.open_create_circle", label: "Create a circle", purpose: "Name a new circle to share with as a group." },
+  { id: "location.open_join_circle", actionId: "location.open_join_circle", label: "Join a circle", purpose: "Enter an invite code to join a circle." },
+  { id: "location.open_temporary_link", actionId: "location.open_temporary_link", label: "Create a temporary link", purpose: "Make a link that expires." },
+  { id: "location.open_check_in", actionId: "location.open_check_in", label: "Check in", purpose: "Send a one-off note of where you are." },
+  { id: "location.open_sos", actionId: "location.open_sos", label: "Open emergency SOS", purpose: "Open the emergency alert screen." },
+  { id: "location.open_sms_contacts", actionId: "location.open_sms_contacts", label: "Open emergency contacts", purpose: "Choose who receives an SOS text." },
+  { id: "location.open_settings", actionId: "location.open_settings", label: "Open Location privacy settings", purpose: "Open privacy and precision controls." },
+  { id: "location.open_active_shares", actionId: "location.open_active_shares", label: "Open active location shares", purpose: "See and stop what is live now." },
+  { id: "location.open_shared_with_me", actionId: "location.open_shared_with_me", label: "Open locations shared with me", purpose: "See who is sharing with you." },
+  { id: "location.open_needs_review", actionId: "location.open_needs_review", label: "Open location requests to review", purpose: "Approve or decline requests." },
+  { id: "location.add_connections", actionId: "location.add_connections", label: "Add people to share location with", purpose: "Open Connect to find people." },
+  { id: "location.open_map", actionId: "location.open_map", label: "Open the location map", purpose: "Open the full-screen map." },
+  { id: "location.refresh", actionId: "location.refresh", label: "Refresh location", purpose: "Reload location sharing state." },
+];
+
+const LOCATION_VOICE_CONTROLS = [
+  { id: "one-location-action-share", label: "Share location", purpose: "Open the share composer.", actionId: "location.open_share", role: "button" },
+  { id: "one-location-open-map", label: "Your Map", purpose: "Open the full-screen map.", actionId: "location.open_map", role: "button" },
+  { id: "one-location-action-active-shares", label: "Active shares", purpose: "See what is live now.", actionId: "location.open_active_shares", role: "button" },
+  { id: "one-location-action-shared-with-me", label: "Shared with me", purpose: "See who is sharing with you.", actionId: "location.open_shared_with_me", role: "button" },
+  { id: "one-location-action-needs-review", label: "Needs my review", purpose: "Approve or decline requests.", actionId: "location.open_needs_review", role: "button" },
+  { id: "one-location-action-settings", label: "Settings", purpose: "Open privacy controls.", actionId: "location.open_settings", role: "button" },
+  { id: "one-location-action-check-in", label: "Check-In", purpose: "Send a one-off check in.", actionId: "location.open_check_in", role: "button" },
+  { id: "one-location-action-sos", label: "SMS", purpose: "Open emergency SOS.", actionId: "location.open_sos", role: "button" },
+  { id: "one-location-action-ask", label: "Ask someone to share", purpose: "Request another person's location.", actionId: "location.open_ask", role: "button" },
+  { id: "one-location-action-invite", label: "Invite trusted person", purpose: "Invite someone not on Hushh yet.", actionId: "location.open_invite", role: "button" },
+  { id: "one-location-action-create-circle", label: "Create", purpose: "Create a circle.", actionId: "location.open_create_circle", role: "button" },
+  { id: "one-location-action-join-circle", label: "Join with code", purpose: "Join a circle by code.", actionId: "location.open_join_circle", role: "button" },
+  { id: "one-location-action-temp-link", label: "Create a new link", purpose: "Create a temporary link.", actionId: "location.open_temporary_link", role: "button" },
+  { id: "one-location-add-connections", label: "Add Connections", purpose: "Open Connect to find people.", actionId: "location.add_connections", role: "button" },
+  { id: "one-location-refresh", label: "Refresh", purpose: "Reload location state.", actionId: "location.refresh", role: "button" },
+];
+
 type BusyState =
   | "load"
   | "share"
@@ -6461,13 +6543,43 @@ export function OneLocationAgentPageContent({
   // route is exactly the race that made One describe the wrong screen.
   const locationVoiceSurfaceMetadata = useMemo(() => {
     if (mode !== "workspace") return null;
-    const tabLabel = locationTab === "activity" ? "Activity" : "Compose";
-    const actions = [
-      locationTab === "activity"
-        ? { id: "location.open_compose", actionId: "location.open_compose", label: "Open location sharing", purpose: "Show the compose tab." }
-        : { id: "location.open_activity", actionId: "location.open_activity", label: "Open location activity", purpose: "Show shares, requests and grants." },
-      { id: "location.refresh", actionId: "location.refresh", label: "Refresh location", purpose: "Reload location sharing state." },
-    ];
+    // Read from the hub's own params. This memo used to describe the legacy
+    // compose/activity tabs, which USE_LOCATION_REDESIGN made unreachable, so
+    // One was handed a confident account of a screen nobody could see.
+    const hubTab = LOCATION_HUB_TAB_LABELS[
+      String(searchParams.get("view") || "").trim()
+    ]
+      ? String(searchParams.get("view") || "").trim()
+      : "now";
+    const hubTabLabel = LOCATION_HUB_TAB_LABELS[hubTab];
+    const openFlow =
+      String(searchParams.get("action") || "").trim() || null;
+    const openFlowLabel = openFlow
+      ? (LOCATION_FLOW_LABELS[openFlow] ?? null)
+      : null;
+    const actions = LOCATION_VOICE_ACTIONS;
+    // Location can only be shared with a connection or a circle member, so an
+    // account with neither cannot finish either of these flows however long it
+    // stays on them. The screen says "no connections" and stops; this is what
+    // lets One finish the sentence and offer to open Connect.
+    const hasSomeoneToShareWith =
+      shareRecipientPool.length > 0 || namedCircles.length > 0;
+    const deadEnd =
+      hasSomeoneToShareWith || !openFlow
+        ? null
+        : openFlow === "sms-contacts"
+          ? {
+              reason:
+                "There is no one to add as an emergency contact yet: contacts come from your connections and circles, and this account has neither.",
+              remedyActionId: "location.add_connections",
+            }
+          : openFlow === "share"
+            ? {
+                reason:
+                  "There is no one to share location with yet: sharing needs a connection or a circle member, and this account has neither.",
+                remedyActionId: "location.add_connections",
+              }
+            : null;
     return {
       screenId: "one_location",
       title: "Location",
@@ -6477,17 +6589,17 @@ export function OneLocationAgentPageContent({
       // recipients of a share, their names, an address. None of that crosses
       // into what the model may say aloud, so this screen names only itself.
       primaryEntity: null,
-      spokenSubject: `Location, ${tabLabel} tab`,
+      spokenSubject: openFlowLabel
+        ? `Location, ${openFlowLabel}`
+        : `Location, ${hubTabLabel} tab`,
+      deadEnd,
       sections: [
-        { id: "compose", title: "Compose", purpose: "Choose people and a duration, then share location." },
-        { id: "activity", title: "Activity", purpose: "Review active shares, incoming requests, and granted access." },
+        { id: "now", title: "Now", purpose: "See current sharing status and start a quick action." },
+        { id: "people", title: "People", purpose: "See the people and circles you share location with." },
+        { id: "links", title: "Links", purpose: "See and create temporary sharing links." },
       ],
       actions,
-      controls: [
-        { id: "one-location-tab-compose", label: "Compose tab", purpose: "Show the sharing composer.", actionId: "location.open_compose", role: "tab" },
-        { id: "one-location-tab-activity", label: "Activity tab", purpose: "Show location activity.", actionId: "location.open_activity", role: "tab" },
-        { id: "one-location-refresh", label: "Refresh", purpose: "Reload location state.", actionId: "location.refresh", role: "button" },
-      ],
+      controls: LOCATION_VOICE_CONTROLS,
       concepts: [
         {
           id: "location_share",
@@ -6496,15 +6608,21 @@ export function OneLocationAgentPageContent({
             "A location share gives a chosen person time-limited access to your live location, and can be revoked at any time.",
           aliases: ["location", "share location", "live location"],
         },
+        {
+          id: "location_circle",
+          label: "Circle",
+          explanation:
+            "A circle is a named group you can share location with at once. Members join by invite or code, and a circle member can be shared with even if they are not a connection.",
+          aliases: ["circle", "group", "my circle"],
+        },
       ],
-      activeSection: tabLabel,
-      activeTab: locationTab,
+      activeSection: openFlowLabel || hubTabLabel,
+      activeTab: hubTab,
       selectedEntity: null,
-      visibleModules:
-        locationTab === "activity"
-          ? ["Location activity", "Incoming requests", "Granted access"]
-          : ["Share composer", "Recipient picker"],
-      focusedWidget: `${tabLabel} tab`,
+      visibleModules: openFlowLabel
+        ? [openFlowLabel]
+        : LOCATION_TAB_MODULES[hubTab],
+      focusedWidget: openFlowLabel || `${hubTabLabel} tab`,
       availableActions: actions.map((action) => action.label),
       activeControlId: null,
       lastInteractedControlId: null,
@@ -6514,10 +6632,13 @@ export function OneLocationAgentPageContent({
       ],
       // Counts only -- never who, never where.
       screenMetadata: {
-        location_tab: locationTab,
+        location_tab: hubTab,
+        location_flow: openFlow,
         data_state: dataState,
         permission_state: permission?.state ?? null,
         pending_request_count: pendingOwnerRequests.length,
+        connection_count: shareRecipientPool.length,
+        circle_count: namedCircles.length,
         has_load_error: Boolean(loadError),
       },
     };
@@ -6525,21 +6646,23 @@ export function OneLocationAgentPageContent({
     busy,
     dataState,
     loadError,
-    locationTab,
     mode,
+    namedCircles.length,
     pendingOwnerRequests.length,
     permission?.state,
+    searchParams,
+    shareRecipientPool.length,
   ]);
   usePublishVoiceSurfaceMetadata(locationVoiceSurfaceMetadata);
 
-  useLocalOnboardingActionHandler("location.open_compose", () => {
-    setLocationTab("compose");
-    return { status: "succeeded", summary: "Location sharing opened." };
-  });
-  useLocalOnboardingActionHandler("location.open_activity", () => {
-    setLocationTab("activity");
-    return { status: "succeeded", summary: "Location activity opened." };
-  });
+  // `location.open_compose` / `location.open_activity` used to be wired here.
+  // They drove the legacy compose/activity page tabs, which USE_LOCATION_REDESIGN
+  // made unreachable: `setLocationTab` wrote `?view=compose`, the hub read a value
+  // it does not know and fell back to Now, so both actions silently landed the
+  // person on the wrong screen. Every hub tab and action flow is now authored as
+  // a `route` action in this surface's contract, addressed by the same
+  // `?view=` / `?action=` params the hub already owns — so One can reach them
+  // from anywhere, instead of only while standing on this page.
   useLocalOnboardingActionHandler("location.refresh", () => {
     void refresh();
     return { status: "succeeded", summary: "Location refreshed." };

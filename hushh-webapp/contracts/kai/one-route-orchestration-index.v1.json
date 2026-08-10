@@ -2750,9 +2750,25 @@
       "canonical_screen": "one_location",
       "voice_contract_file": "app/one/location/page.voice-action-contract.json",
       "action_ids": [
+        "location.add_connections",
         "location.chat.turn",
-        "location.open_activity",
-        "location.open_compose",
+        "location.open_active_shares",
+        "location.open_ask",
+        "location.open_check_in",
+        "location.open_create_circle",
+        "location.open_invite",
+        "location.open_join_circle",
+        "location.open_links",
+        "location.open_map",
+        "location.open_needs_review",
+        "location.open_now",
+        "location.open_people",
+        "location.open_settings",
+        "location.open_share",
+        "location.open_shared_with_me",
+        "location.open_sms_contacts",
+        "location.open_sos",
+        "location.open_temporary_link",
         "location.refresh",
         "route.one_location"
       ],
@@ -2813,9 +2829,9 @@
       "route_pattern": "/one/location/map",
       "page_file": "app/one/location/map/page.tsx",
       "route_mode": "hidden",
-      "orchestration_class": "transitional",
+      "orchestration_class": "interactive",
       "instruction_id": "route.one.location.map",
-      "context_policy": "suppress",
+      "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.one.location.map",
         "purpose": "Show fresh, authorized private location shares on an immersive map. Center the camera from one foreground-only device fix on entry; publish that location only after the person explicitly taps Locate me.",
@@ -2843,13 +2859,15 @@
       },
       "canonical_screen": "one_location_map",
       "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "action_ids": [
+        "location.open_map"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-one-location-map"
     },
     {

@@ -2881,9 +2881,25 @@
       ],
       "voice": {
         "action_ids": [
+          "location.add_connections",
           "location.chat.turn",
-          "location.open_activity",
-          "location.open_compose",
+          "location.open_active_shares",
+          "location.open_ask",
+          "location.open_check_in",
+          "location.open_create_circle",
+          "location.open_invite",
+          "location.open_join_circle",
+          "location.open_links",
+          "location.open_map",
+          "location.open_needs_review",
+          "location.open_now",
+          "location.open_people",
+          "location.open_settings",
+          "location.open_share",
+          "location.open_shared_with_me",
+          "location.open_sms_contacts",
+          "location.open_sos",
+          "location.open_temporary_link",
           "location.refresh",
           "route.one_location"
         ],
@@ -2959,7 +2975,9 @@
       "route_mode": "hidden",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "location.open_map"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.location.map"
       }
@@ -4565,21 +4583,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "8aec4cbec09ea6214237f6c30a1875df32dd33211aafed9dc031f93dfed90d0d",
+    "action_gateway": "6219be39d84798f1294cf2d0518c97a2a0bd886d00783f0d7106abda1474099b",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
     "cache_manifest": "53a4bec80f5e2b26de1a00542b8d3ea0566fb891c084038f1ea9f72ec2ae3ed8",
     "data_plane": "270affce3a97bcbde752a465927f065005176f0ddc69aeb9419e6605bbc4f94d",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "f8b7af52c386933e41cfe0ff2755c54b2d39d2515326295348b40d93fea0a8a2",
-    "route_index": "05e02e59b8c8959e4600c0f93446ed8633500ba1abd836b29b14d0eb7a891ed1",
+    "one_specialist_tools": "883a35c6eaffd1232cbfc80b52cfa0a936dad6dba3016953704ee88fa598d843",
+    "route_index": "a29095a467b96584d5ebd1b989998b3b04a9134ed8496ca53684f82422599a92",
     "route_layout": "96347a79931c212dc9972c271642ab0ef38202492471e2f8469201d871a47787",
-    "surface_map": "6a7e6deb80b2ce79f9c0d43499d8e5326ce65ff71d4e7eb3c982d1d5e28b1934",
+    "surface_map": "090d11b2d511b47dbd5770ef99790f57df90d08885e1ddc4c26c3f37c4f0d6e5",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 120,
+    "actions": 136,
     "agents": 18,
     "aliases": 3,
     "decision_required": 2,

@@ -67,6 +67,18 @@ export function resolveNavigationJourney(
   }
   const definition = action ?? getKaiActionById(cleanId);
   if (!definition) return null;
+  if (
+    definition.execution_target.status === "wired" &&
+    definition.execution_target.path === "route"
+  ) {
+    // The `route.` prefix above was only ever a proxy for this: an action that
+    // executes BY navigating is its own navigation, whatever it is named. The
+    // Location surface authors its tabs and flows as `location.*` route
+    // actions, and without this check the one whose target matches a wired
+    // `route.*` action exactly resolves to a journey that navigates to where
+    // it already goes and then runs itself on arrival.
+    return null;
+  }
   const goalId = String(definition.goal?.goal_id || "").trim();
   const steps = definition.goal?.workflow_steps;
   if (!goalId || !Array.isArray(steps) || steps.length !== 1) return null;
