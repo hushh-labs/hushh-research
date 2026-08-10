@@ -296,6 +296,7 @@ function resolveTopShellBreadcrumbInner(
   }
 
   if (pathname === KAI_MARKET_PATH && searchParams?.get("tab") === "analysis") {
+    const analysisEntryId = String(searchParams?.get("analysis_id") || "").trim();
     const debateId = String(searchParams?.get("debate_id") || "").trim();
     const focus = String(searchParams?.get("focus") || "").trim();
     const runId = String(searchParams?.get("run_id") || "").trim();
@@ -306,7 +307,7 @@ function resolveTopShellBreadcrumbInner(
       .trim()
       .toLowerCase();
 
-    if (debateId) {
+    if (analysisEntryId || debateId) {
       return {
         backHref: ROUTES.KAI_ANALYSIS,
         width: "content",
@@ -314,7 +315,7 @@ function resolveTopShellBreadcrumbInner(
         items: [
           { label: "Finance", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
-          { label: ticker ? `${ticker} run` : "Saved run" },
+          { label: ticker ? `${ticker} analysis` : "Saved analysis" },
         ],
       };
     }

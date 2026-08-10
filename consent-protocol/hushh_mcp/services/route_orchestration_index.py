@@ -46,9 +46,7 @@ def _segments_match(pattern_segments: list[str], route_segments: list[str]) -> b
     return all(
         (pattern_segment.startswith("[") and pattern_segment.endswith("]"))
         or pattern_segment == route_segment
-        for pattern_segment, route_segment in zip(
-            pattern_segments, route_segments, strict=False
-        )
+        for pattern_segment, route_segment in zip(pattern_segments, route_segments, strict=False)
     )
 
 

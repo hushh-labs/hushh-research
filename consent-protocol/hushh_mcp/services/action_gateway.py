@@ -132,6 +132,5 @@ def is_navigation_action(entry: dict[str, Any] | None) -> bool:
     if not navigates:
         return False
     return (
-        str((entry.get("risk") or {}).get("execution_policy") or "allow_direct")
-        == "allow_direct"
+        str((entry.get("risk") or {}).get("execution_policy") or "allow_direct") == "allow_direct"
     )
