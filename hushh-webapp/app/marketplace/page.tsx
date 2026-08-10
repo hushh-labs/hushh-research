@@ -834,7 +834,11 @@ export default function MarketplacePage() {
     try {
       setContactMatchLoading(true);
       setContactMatchError(null);
-      const lookupResult = await buildMarketplaceContactLookups({ limit: 500 });
+      const lookupResult = await buildMarketplaceContactLookups({
+        limit: 500,
+        // Resolves which region bare national contact numbers belong to.
+        accountPhoneNumber: user.phoneNumber,
+      });
       if (lookupResult.lookups.length === 0) {
         setContactMatches([]);
         setContactScanSummary("No phone numbers found in contacts.");
@@ -1234,7 +1238,7 @@ export default function MarketplacePage() {
                   onClick={() => openContactMatch(match)}
                 >
                   <ProfileAvatar
-                    kind={match.kind}
+                    kind={match.kind === "one_user" ? "investor" : match.kind}
                     label={match.display_name}
                     className="h-11 w-11 rounded-2xl"
                     riaSurface={isRiaConnectSurface}

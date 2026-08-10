@@ -115,9 +115,14 @@ export interface MarketplaceInvestorDeckResponse {
   deck_complete: boolean;
 }
 
+/**
+ * `one_user` is a plain One account matched under the `one_network` scope: it
+ * has no marketplace profile, so only identity fields the account already
+ * published are populated.
+ */
 export interface MarketplaceContactMatch {
   user_id: string;
-  kind: "ria" | "investor";
+  kind: "ria" | "investor" | "one_user";
   display_name: string;
   headline?: string | null;
   phone_last4?: string | null;
@@ -1464,6 +1469,37 @@ export class RiaService {
     }>(response);
   }
 
+  /**
+   * Whether someone who already holds this user's phone number may learn that
+   * the number belongs to a One account. Defaults to enabled — contact sync is
+   * only useful if the people in a user's address book are findable.
+   */
+  static async getContactDiscoverability(
+    idToken: string,
+  ): Promise<{ user_id: string; contact_discoverable: boolean }> {
+    const response = await authFetch("/api/iam/contact-discoverability", {
+      method: "GET",
+      idToken,
+    });
+    return toJsonOrThrow<{ user_id: string; contact_discoverable: boolean }>(
+      response,
+    );
+  }
+
+  static async setContactDiscoverability(
+    idToken: string,
+    enabled: boolean,
+  ): Promise<{ user_id: string; contact_discoverable: boolean }> {
+    const response = await authFetch("/api/iam/contact-discoverability", {
+      method: "POST",
+      idToken,
+      body: { enabled },
+    });
+    return toJsonOrThrow<{ user_id: string; contact_discoverable: boolean }>(
+      response,
+    );
+  }
+
   static async searchRias(params: {
     query?: string;
     limit?: number;
@@ -1616,6 +1652,12 @@ export class RiaService {
     payload: {
       phone_lookups: Array<{ hash: string; last4: string }>;
       limit?: number;
+      /**
+       * `marketplace` (default) matches publicly discoverable Connect
+       * profiles. `one_network` matches any phone-verified account that has
+       * not turned off contact discoverability.
+       */
+      scope?: "marketplace" | "one_network";
     },
   ): Promise<MarketplaceContactMatch[]> {
     const response = await authFetch("/api/marketplace/contacts/match", {

@@ -2646,6 +2646,74 @@ class RIAIAMService:
             self._invalidate_cached_persona_state(user_id)
             await conn.close()
 
+    async def get_contact_discoverability(self, user_id: str) -> dict[str, Any]:
+        """Report whether this account can be found by someone who has its number.
+
+        Defaults to enabled: contact sync is only useful if the people in a
+        user's address book are findable, and the match discloses nothing
+        beyond confirming a number the requester already had.
+        """
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            row = await conn.fetchrow(
+                "SELECT contact_discoverable FROM actor_profiles WHERE user_id = $1",
+                user_id,
+            )
+            return {
+                "user_id": user_id,
+                "contact_discoverable": (
+                    True if row is None else bool(row["contact_discoverable"])
+                ),
+            }
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def set_contact_discoverability(self, user_id: str, enabled: bool) -> dict[str, Any]:
+        """Turn phone-number discoverability on or off for this account."""
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_vault_user_row(conn, user_id)
+                await self._ensure_iam_schema_ready(conn)
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO actor_profiles (
+                        user_id,
+                        personas,
+                        last_active_persona,
+                        contact_discoverable
+                    )
+                    VALUES ($1, ARRAY['investor']::text[], 'investor', $2)
+                    ON CONFLICT (user_id) DO UPDATE
+                    SET
+                      contact_discoverable = $2,
+                      updated_at = NOW()
+                    RETURNING user_id, contact_discoverable
+                    """,
+                    user_id,
+                    enabled,
+                )
+                if row is None:
+                    raise RuntimeError("Failed to update contact discoverability")
+                return {
+                    "user_id": row["user_id"],
+                    "contact_discoverable": bool(row["contact_discoverable"]),
+                }
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            self._invalidate_cached_persona_state(user_id)
+            await conn.close()
+
     async def set_marketplace_opt_in(self, user_id: str, enabled: bool) -> dict[str, Any]:
         conn = await self._conn()
         try:
@@ -8870,7 +8938,30 @@ class RIAIAMService:
         *,
         phone_lookups: list[dict[str, Any]],
         limit: int,
+        scope: str = "marketplace",
     ) -> list[dict[str, Any]]:
+        """Match hashed contact numbers against phone-verified accounts.
+
+        Two eligibility policies share one matching algorithm:
+
+        ``marketplace``
+            Only publicly discoverable marketplace profiles (verified RIAs, or
+            investors who opted in). This is the Connect deck's policy.
+
+        ``one_network``
+            Any account that is phone verified and has not turned off contact
+            discoverability. This is what One Location contact sync needs; the
+            marketplace policy returns nothing for ordinary users because
+            ``marketplace_public_profiles.is_discoverable`` defaults to FALSE.
+
+        Neither policy discloses a phone number. The caller proves it already
+        holds the number by supplying its SHA-256 digest, and the server only
+        confirms or denies a digest it derives independently.
+        """
+        normalized_scope = str(scope or "marketplace").strip().lower()
+        if normalized_scope not in {"marketplace", "one_network"}:
+            raise RIAIAMPolicyError("Unsupported contact match scope", status_code=400)
+
         normalized_lookups: dict[str, set[str]] = {}
         for item in phone_lookups:
             digest = str(item.get("hash") or "").strip().lower()
@@ -8883,11 +8974,62 @@ class RIAIAMService:
 
         limit_safe = max(1, min(limit, 100))
         last4_values = sorted(normalized_lookups.keys())
+
+        # The last4 bucket is a coarse pre-filter; the digest comparison below
+        # is what actually decides a match. Fetching only 8x the result limit
+        # let unrelated same-last4 rows crowd out real matches once the user
+        # base grew past a few thousand accounts, so the pre-filter is now sized
+        # against collision volume rather than the result limit, and still
+        # bounded so a wide lookup set cannot pull an unbounded result set.
+        candidate_row_cap = min(max(limit_safe * 50, 500), 5000)
+
+        if normalized_scope == "one_network":
+            # actor_profiles is LEFT JOINed so an account that has never had a
+            # profile row written still matches. The COALESCE below supplies the
+            # discoverable-by-default posture for that case; an inner join would
+            # silently make those accounts unfindable.
+            eligibility_join = """
+                LEFT JOIN marketplace_public_profiles mp
+                  ON mp.user_id = aic.user_id
+                  AND mp.is_discoverable = TRUE
+                LEFT JOIN actor_profiles ap
+                  ON ap.user_id = aic.user_id
+                LEFT JOIN ria_profiles rp
+                  ON rp.user_id = aic.user_id
+            """
+            eligibility_predicate = "AND COALESCE(ap.contact_discoverable, TRUE) = TRUE"
+        else:
+            eligibility_join = """
+                JOIN marketplace_public_profiles mp
+                  ON mp.user_id = aic.user_id
+                  AND mp.is_discoverable = TRUE
+                LEFT JOIN actor_profiles ap
+                  ON ap.user_id = aic.user_id
+                LEFT JOIN ria_profiles rp
+                  ON rp.user_id = aic.user_id
+            """
+            eligibility_predicate = """
+                  AND (
+                    (
+                      mp.profile_type = 'ria'
+                      AND rp.verification_status IN ('active', 'verified', 'finra_verified')
+                    )
+                    OR (
+                      mp.profile_type = 'investor'
+                      AND COALESCE(ap.investor_marketplace_opt_in, FALSE) = TRUE
+                    )
+                  )
+            """
+
         conn = await self._conn()
         try:
             await self._ensure_iam_schema_ready(conn)
+            # The two interpolated fragments are module-local literals selected
+            # by `normalized_scope`, which is validated against a fixed set
+            # above and raises otherwise. No caller input reaches the SQL text;
+            # every value is still bound as a parameter.
             rows = await conn.fetch(
-                """
+                f"""
                 SELECT
                   aic.user_id,
                   aic.phone_number,
@@ -8901,34 +9043,22 @@ class RIAIAMService:
                   rp.verification_status,
                   COALESCE(ap.investor_marketplace_opt_in, FALSE) AS investor_marketplace_opt_in
                 FROM actor_identity_cache aic
-                JOIN marketplace_public_profiles mp
-                  ON mp.user_id = aic.user_id
-                  AND mp.is_discoverable = TRUE
-                LEFT JOIN actor_profiles ap
-                  ON ap.user_id = aic.user_id
-                LEFT JOIN ria_profiles rp
-                  ON rp.user_id = aic.user_id
+                {eligibility_join}
                 WHERE
                   aic.user_id <> $1
                   AND aic.phone_verified = TRUE
                   AND aic.phone_number IS NOT NULL
                   AND RIGHT(regexp_replace(aic.phone_number, '[^0-9]', '', 'g'), 4) = ANY($2::text[])
-                  AND (
-                    (
-                      mp.profile_type = 'ria'
-                      AND rp.verification_status IN ('active', 'verified', 'finra_verified')
-                    )
-                    OR (
-                      mp.profile_type = 'investor'
-                      AND COALESCE(ap.investor_marketplace_opt_in, FALSE) = TRUE
-                    )
-                  )
-                ORDER BY mp.display_name ASC
+                {eligibility_predicate}
+                -- Deterministic and index-friendly. Ordering by display_name
+                -- forced a sort of the whole candidate set for a pre-filter
+                -- whose order carries no meaning.
+                ORDER BY aic.user_id ASC
                 LIMIT $3::integer
-                """,
+                """,  # nosec B608
                 user_id,
                 last4_values,
-                max(limit_safe * 8, limit_safe),
+                candidate_row_cap,
             )
             matches: list[dict[str, Any]] = []
             seen_users: set[str] = set()
@@ -8945,7 +9075,18 @@ class RIAIAMService:
                 if target_user_id in seen_users:
                     continue
                 seen_users.add(target_user_id)
-                kind = str(row["profile_type"] or "").strip().lower()
+                profile_type = str(row["profile_type"] or "").strip().lower()
+                # Under one_network a match usually has no marketplace profile
+                # at all. Labelling those "investor" would put a private One
+                # user into a marketplace-shaped card, so they get their own
+                # kind and only the identity fields they already published.
+                if profile_type == "ria":
+                    kind = "ria"
+                elif profile_type == "investor":
+                    kind = "investor"
+                else:
+                    kind = "one_user"
+
                 profile = {
                     "id": str(row["ria_id"])
                     if kind == "ria" and row["ria_id"]
@@ -8965,7 +9106,7 @@ class RIAIAMService:
                 matches.append(
                     {
                         "user_id": target_user_id,
-                        "kind": "ria" if kind == "ria" else "investor",
+                        "kind": kind,
                         "display_name": row["display_name"] or row["identity_display_name"],
                         "headline": row["headline"],
                         "phone_last4": last4,

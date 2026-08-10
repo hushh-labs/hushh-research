@@ -24,6 +24,10 @@ class MarketplaceOptInRequest(BaseModel):
     enabled: bool
 
 
+class ContactDiscoverabilityRequest(BaseModel):
+    enabled: bool
+
+
 def _iam_schema_not_ready_response() -> JSONResponse:
     return JSONResponse(
         status_code=503,
@@ -78,5 +82,36 @@ async def update_marketplace_opt_in(
     service = RIAIAMService()
     try:
         return await service.set_marketplace_opt_in(firebase_uid, payload.enabled)
+    except IAMSchemaNotReadyError:
+        return _iam_schema_not_ready_response()
+
+
+@router.get("/contact-discoverability")
+async def get_contact_discoverability(
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Whether someone holding this user's phone number can find their account."""
+    service = RIAIAMService()
+    try:
+        return await service.get_contact_discoverability(firebase_uid)
+    except IAMSchemaNotReadyError:
+        # Report the default rather than an error: the setting is informational
+        # until the schema lands, and failing here would block the whole
+        # privacy screen from rendering.
+        return {
+            "user_id": firebase_uid,
+            "contact_discoverable": True,
+            "iam_schema_ready": False,
+        }
+
+
+@router.post("/contact-discoverability")
+async def update_contact_discoverability(
+    payload: ContactDiscoverabilityRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = RIAIAMService()
+    try:
+        return await service.set_contact_discoverability(firebase_uid, payload.enabled)
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
