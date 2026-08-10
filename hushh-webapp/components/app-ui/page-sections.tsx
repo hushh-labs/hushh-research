@@ -177,6 +177,7 @@ export function PageHeader({
   return (
     <header
       className={cn("space-y-[var(--page-header-stack-gap)]", className)}
+      data-ui-role={titleRole === "agent" ? "agent-hero" : "page-header"}
       data-slot="page-header"
       data-page-primary="true"
       data-testid={testId}
@@ -288,6 +289,7 @@ export function SectionHeader({
         "space-y-[var(--section-header-stack-gap)] py-1 sm:py-1.5",
         className,
       )}
+      data-ui-role="section-header"
       data-testid={testId}
     >
       <div className="flex items-stretch gap-3">

@@ -122,6 +122,7 @@ export function TopShellTabs({
   return (
     <div
       className="top-shell-ambient-ink relative flex h-[var(--top-tabs-h)] w-full items-center text-current"
+      data-ui-role="agent-tab-bar"
       data-top-shell-tab-set={tabSet.id}
       style={
         {
@@ -145,6 +146,7 @@ export function TopShellTabs({
               id={topShellTabDomId(tabSet, "tab", tab.value)}
               type="button"
               role="tab"
+              data-ui-role="agent-tab"
               data-voice-control-id={
                 tabSet.id === "ria" ? `ria_route_tab_${tab.value}` : undefined
               }
@@ -179,7 +181,7 @@ export function TopShellTabs({
                   "ui-text-agent-tab-label relative truncate transition-colors duration-150",
                   isActive
                     ? "text-[color:var(--app-accent)]"
-                    : "text-[color:var(--app-secondary-label)] hover:text-current",
+                    : "text-[color:var(--app-label)] hover:text-current",
                 )}
               >
                 {tab.label}

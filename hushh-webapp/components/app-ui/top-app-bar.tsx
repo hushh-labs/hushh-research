@@ -878,6 +878,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   return (
     <div
       data-app-top-bar
+      data-ui-role="top-navigation"
       data-top-app-bar-tabs-only={tabsOnlyChrome || undefined}
       data-ambient-chrome-ignore
       className={cn(

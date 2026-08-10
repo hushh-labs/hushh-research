@@ -268,14 +268,14 @@ textarea {
   --type-section-label-size: 15px;
   --type-section-label-line: 20px;
   --type-section-label-weight: 500;
-  --type-section-label-tracking: -0.006em;
+  --type-section-label-tracking: -0.01em;
   --type-row-label-size: 17px;
   --type-row-label-line: 22px;
   --type-row-label-weight: 400;
   --type-row-label-emphasis-weight: 600;
   --type-row-label-tracking: -0.01em;
   --type-page-subtitle-size: 15px;
-  --type-page-subtitle-line: 20px;
+  --type-page-subtitle-line: 21px;
   --type-row-description-size: 13px;
   --type-row-description-line: 18px;
   --type-row-description-weight: 400;
@@ -566,6 +566,7 @@ textarea {
   --app-top-body-start-gap: var(--page-top-start);
   --page-top-local-offset: 0px;
   --app-shell-reading: 54rem;
+  --app-shell-agent: 65rem;
   --app-shell-standard: 90rem;
   --app-shell-expanded: 96rem;
   --top-systembar-row-gap: 4px;
@@ -1873,6 +1874,7 @@ html.kb-open .ambient-chrome-mask--bottom {
   width: 100%;
   padding-left: var(--page-inline-gutter-standard);
   padding-right: var(--page-inline-gutter-standard);
+  padding-bottom: var(--app-bottom-content-clearance);
 }
 
 .app-page-shell--reading {
@@ -2034,6 +2036,10 @@ html.kb-open .ambient-chrome-mask--bottom {
 
 .app-page-shell[data-app-shell-width="reading"] {
   max-width: var(--app-shell-reading);
+}
+
+.app-page-shell[data-app-shell-width="agent"] {
+  max-width: var(--app-shell-agent);
 }
 
 .app-page-shell[data-app-shell-width="standard"] {
@@ -4663,14 +4669,18 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    routes never drift into separate gradients or opaque chrome bands. */
 .foundation-public-ambient {
   /* Standard app canvas: a quiet iOS grouped background. */
-  --foundation-grain-opacity: 0.1;
+  --foundation-grain-opacity: 0;
   background-color: var(--app-grouped-background);
   background-image: none;
 }
 
 .dark .foundation-public-ambient {
-  --foundation-grain-opacity: 0.08;
+  --foundation-grain-opacity: 0;
   background-image: none;
+}
+
+.one-grain {
+  display: none !important;
 }
 
 /* Custom Scrollbar Styles */
@@ -5712,7 +5722,7 @@ body[data-persona-surface="ria"] {
 }
 
 [role="tab"][aria-selected="false"] :is(.ui-text-agent-tab-label) {
-  color: var(--app-secondary-label) !important;
+  color: var(--app-label) !important;
 }
 
 :is(.ui-text-caption) {

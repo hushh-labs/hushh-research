@@ -7912,7 +7912,7 @@ export function OneLocationAgentPageContent({
     }
     return (
       <AppPageShell
-        width="reading"
+        width="agent"
         className="relative isolate"
         nativeTest={nativeTestConfig}
       >

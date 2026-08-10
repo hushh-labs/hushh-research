@@ -453,6 +453,7 @@ export const Navbar = ({
   return (
     <nav
       data-app-bottom-nav
+      data-ui-role="bottom-tab-bar"
       data-ambient-chrome-ignore
       className={cn(
         layout === "slot"

@@ -18,14 +18,15 @@
 
 /** Standard rounded card surface — matches SurfaceCard (app-card tokens). */
 export const CARD_SURFACE =
-  "rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]";
+  "rounded-[22px] border-0 bg-[color:var(--app-card-surface-default-solid)] shadow-none";
 
 /** Soft inset surface used for sub-cards / list rows inside a card. */
 export const SUBCARD_SURFACE =
-  "rounded-[var(--app-card-radius-compact,16px)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)]";
+  "rounded-[22px] border-0 bg-[color:var(--app-card-surface-default-solid)] shadow-none";
 
 /** Section heading (e.g. "Trusted Circle", "Device readiness"). */
 export const SECTION_HEADING = "ui-text-section-label";
+export const SECTION_TITLE = "ui-text-major-section-title";
 
 /** Primary screen title (header). */
 export const SCREEN_TITLE = "ui-text-page-title";
