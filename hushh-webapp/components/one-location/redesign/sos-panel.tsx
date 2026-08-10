@@ -303,7 +303,7 @@ export function SosPanel({
       data-ambient-chrome-ignore
       data-testid="sms-safety-screen"
     >
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(52px,env(safe-area-inset-top))] lg:max-w-5xl lg:px-8">
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(52px,env(safe-area-inset-top))] lg:max-w-[820px] lg:px-8 lg:pt-[max(48px,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={onClose}
@@ -313,7 +313,7 @@ export function SosPanel({
           <ChevronLeft className="h-6 w-6" strokeWidth={2} />
         </button>
 
-        <header className="mt-1 px-3 text-center">
+        <header className="mt-4 px-3 text-center lg:mt-1">
           <h1 className="whitespace-nowrap !text-[32px] !font-bold !leading-[1.08] !tracking-normal">
             SMS · Save my Soul
           </h1>
@@ -328,9 +328,9 @@ export function SosPanel({
             the space instead of a single narrow strip. Below lg it stays the
             original stacked column, untouched. The <style> block inside is
             display:none and never participates in the flex row. */}
-        <div className="flex flex-1 flex-col lg:flex-row lg:items-center lg:justify-center lg:gap-12 xl:gap-16">
-          <div className="flex min-h-[310px] flex-1 items-center justify-center py-6">
-          <div className="relative flex h-[252px] w-[252px] items-center justify-center">
+        <div className="flex flex-1 flex-col justify-center gap-7 pt-6 lg:grid lg:grid-cols-[280px_minmax(0,360px)] lg:items-center lg:justify-center lg:gap-10 lg:pt-2">
+          <div className="flex items-center justify-center py-4 lg:py-0">
+            <div className="relative flex h-[252px] w-[252px] items-center justify-center">
             <span className="absolute inset-0 rounded-full border border-white/10" />
             <span className="absolute inset-[24px] rounded-full border border-white/15" />
 
@@ -401,8 +401,8 @@ export function SosPanel({
                       : "Hold 2 s"}
               </span>
             </button>
+            </div>
           </div>
-        </div>
 
         <style>{`
           @keyframes sosRadarPulse {
@@ -420,7 +420,7 @@ export function SosPanel({
         `}</style>
 
 
-        <div className="mt-auto w-full lg:mt-0 lg:max-w-md lg:flex-shrink-0">
+        <div className="w-full lg:max-w-[360px]">
           {/* While an SMS/SOS session is live, the primary action becomes
               stopping it. Cancelling here revokes the location grants created by
               the alert AND clears the incident, so "SENT · Live now" resets and

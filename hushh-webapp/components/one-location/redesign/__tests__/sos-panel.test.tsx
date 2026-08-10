@@ -455,15 +455,16 @@ describe("SosPanel", () => {
     expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
   });
 
-  it("keeps the mobile strip but widens into a two-column layout on large screens", () => {
+  it("keeps the mobile strip but tightens into a measured two-column layout on large screens", () => {
     const { container } = render(<SosPanel {...baseProps} />);
     const screenEl = screen.getByTestId("sms-safety-screen");
     // Mobile behavior preserved: still the full-screen black overlay.
     expect(screenEl).toHaveClass("fixed", "inset-0", "bg-black");
-    // The inner container keeps the mobile 407px strip and widens on lg.
+    // The inner container keeps the mobile 407px strip and widens only enough
+    // to hold the ring and controls as one centered emergency panel.
     const inner = screenEl.firstElementChild as HTMLElement;
-    expect(inner).toHaveClass("max-w-[407px]", "lg:max-w-5xl");
-    // The press ring + controls become side-by-side columns on lg.
-    expect(container.querySelector('[class*="lg:flex-row"]')).not.toBeNull();
+    expect(inner).toHaveClass("max-w-[407px]", "lg:max-w-[820px]");
+    // The press ring + controls become a measured grid on lg.
+    expect(container.querySelector('[class*="lg:grid-cols-[280px_minmax(0,360px)]"]')).not.toBeNull();
   });
 });
