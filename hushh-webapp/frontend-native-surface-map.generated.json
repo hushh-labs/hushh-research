@@ -3923,7 +3923,9 @@
         "location.open_sms_contacts",
         "location.open_sos",
         "location.open_temporary_link",
-        "location.refresh"
+        "location.pause_updates",
+        "location.refresh",
+        "location.resume_updates"
       ],
       "api_dependencies": [
         {
@@ -8121,5 +8123,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "e7aeed17a8011bc454f0afd7c3d582dd52de0dcc33f44eda7caf852844b7e4e2"
+  "content_sha256": "e1c9ea81fcc956898d4fa4f02b714589c28b4033f19747ae283d507a8bbaa7d9"
 }

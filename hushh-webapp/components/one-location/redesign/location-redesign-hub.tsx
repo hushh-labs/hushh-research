@@ -522,6 +522,10 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
           onCheckedChange={handleLocationChange}
           disabled={toggling || refreshing}
           aria-label={locationOn ? "Turn location off" : "Turn location on"}
+          // The same pair of contract actions the Settings toggle carries.
+          // Both are the same control in two places, so voice can offer
+          // pause/resume from the Now tab without opening Settings first.
+          data-voice-control-id="one-location-updates-toggle"
           // No colour override: the shared Switch already carries the iOS
           // system green, so this toggle reads the same as every other one.
           className={cn(toggling && "animate-pulse")}
@@ -1407,11 +1411,14 @@ function LocationToggle({
   onChange,
   label,
   disabled = false,
+  voiceControlId,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
   disabled?: boolean;
+  /** Anchors contract actions to this control so voice offers them only here. */
+  voiceControlId?: string;
 }) {
   return (
     <button
@@ -1420,6 +1427,7 @@ function LocationToggle({
       aria-checked={checked}
       aria-label={label}
       disabled={disabled}
+      data-voice-control-id={voiceControlId}
       onClick={() => onChange(!checked)}
       className={cn(
         "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-200",
@@ -1483,6 +1491,7 @@ function LocationSettingsFlow({
               }}
               label="Pause my location"
               disabled={BUSY(vm, "selfLocation")}
+              voiceControlId="one-location-updates-toggle"
             />
           }
           density="compact"

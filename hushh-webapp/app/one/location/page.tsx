@@ -72,7 +72,10 @@ import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitiv
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 
 import { useConsentNotificationState } from "@/components/consent/notification-provider";
-import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import {
+  useLocalOnboardingActionHandler,
+  type LocalOnboardingActionResult,
+} from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 import { Badge } from "@/components/ui/badge";
@@ -388,6 +391,8 @@ const LOCATION_VOICE_ACTIONS = [
   { id: "location.add_connections", actionId: "location.add_connections", label: "Add people to share location with", purpose: "Open Connect to find people." },
   { id: "location.open_map", actionId: "location.open_map", label: "Open the location map", purpose: "Open the full-screen map." },
   { id: "location.refresh", actionId: "location.refresh", label: "Refresh location", purpose: "Reload location sharing state." },
+  { id: "location.pause_updates", actionId: "location.pause_updates", label: "Pause my location", purpose: "Stop sending location updates from this device." },
+  { id: "location.resume_updates", actionId: "location.resume_updates", label: "Resume my location", purpose: "Turn location updates back on for this device." },
 ];
 
 const LOCATION_VOICE_CONTROLS = [
@@ -406,6 +411,10 @@ const LOCATION_VOICE_CONTROLS = [
   { id: "one-location-action-temp-link", label: "Create a new link", purpose: "Create a temporary link.", actionId: "location.open_temporary_link", role: "button" },
   { id: "one-location-add-connections", label: "Add Connections", purpose: "Open Connect to find people.", actionId: "location.add_connections", role: "button" },
   { id: "one-location-refresh", label: "Refresh", purpose: "Reload location state.", actionId: "location.refresh", role: "button" },
+  // One control, two contract actions: the direction is whichever one the
+  // switch is not already in. It is rendered in the header and again in
+  // Settings, so both places answer to the same id.
+  { id: "one-location-updates-toggle", label: "Location updates", purpose: "Pause or resume location updates from this device.", actionId: "location.pause_updates", role: "switch" },
 ];
 
 type BusyState =
@@ -6689,40 +6698,52 @@ export function OneLocationAgentPageContent({
     }
   }, [ensureForegroundLocationReady]);
 
-  const handleShowMyLiveLocation = useCallback(async () => {
-    setBusy("selfLocation");
-    setMyLocationError(null);
-    try {
-      const result = await ensureForegroundLocationReady({
-        capturePoint: true,
-        autoOpenSettings: true,
-      });
-      if (!result.ready || !result.point) {
-        const message =
-          "Live location preview needs device Location permission.";
+  // Returns its outcome so the voice handler below can report what actually
+  // happened rather than assuming success. Tap call sites discard it.
+  const handleShowMyLiveLocation =
+    useCallback(async (): Promise<LocalOnboardingActionResult> => {
+      setBusy("selfLocation");
+      setMyLocationError(null);
+      try {
+        const result = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: true,
+        });
+        if (!result.ready || !result.point) {
+          const message =
+            "Live location preview needs device Location permission.";
+          setMyLocationError(message);
+          return { status: "blocked", summary: message };
+        }
+        setMapViewportResetKey((current) => current + 1);
+        toast.success("Your live location preview is ready.");
+        return {
+          status: "succeeded",
+          summary: "Location updates are on again for this device.",
+        };
+      } catch (error) {
+        const message = locationServicesErrorMessage(error);
         setMyLocationError(message);
-        return;
+        toast.error(message);
+        return { status: "failed", summary: message };
+      } finally {
+        setBusy(null);
       }
-      setMapViewportResetKey((current) => current + 1);
-      toast.success("Your live location preview is ready.");
-    } catch (error) {
-      const message = locationServicesErrorMessage(error);
-      setMyLocationError(message);
-      toast.error(message);
-    } finally {
-      setBusy(null);
-    }
-  }, [ensureForegroundLocationReady]);
+    }, [ensureForegroundLocationReady]);
 
   // One coordinated pause owns every Location entry point. Private grants keep
   // their consent/expiry contract, but all new foreground/background updates
   // stop. Nearby presence is a separate authority and must explicitly check
   // out before the UI may claim that Location is paused.
-  const handleHideMyLiveLocation = useCallback(async () => {
-    if (!auth.userId) return;
+  const handleHideMyLiveLocation =
+    useCallback(async (): Promise<LocalOnboardingActionResult> => {
+    if (!auth.userId) {
+      return { status: "blocked", summary: "Sign in to pause your location." };
+    }
     if (nearbyCheckInAvailable && !vaultOwnerToken) {
-      toast.error("Unlock One before pausing nearby location.");
-      return;
+      const message = "Unlock One before pausing nearby location.";
+      toast.error(message);
+      return { status: "blocked", summary: message };
     }
 
     setBusy("selfLocation");
@@ -6747,12 +6768,19 @@ export function OneLocationAgentPageContent({
       setBackgroundShareEnabled(false);
       setMyLocationError(null);
       toast.success("Location updates are paused on this device.");
+      return {
+        status: "succeeded",
+        summary: "Location updates are paused on this device.",
+      };
     } catch {
       automaticPrivatePublishingAllowedRef.current =
         locationControl.autoShareEnabled;
-      toast.error(
-        "Pause did not complete. You may still be visible nearby; please try again.",
-      );
+      const message =
+        "Pause did not complete. You may still be visible nearby; please try again.";
+      toast.error(message);
+      // Reported as failed, not blocked: the person may still be visible, and
+      // saying "paused" here would be the one lie this action must never tell.
+      return { status: "failed", summary: message };
     } finally {
       setBusy(null);
     }
@@ -6767,6 +6795,25 @@ export function OneLocationAgentPageContent({
   const handleResumeMyLocation = useCallback(() => {
     void handleShowMyLiveLocation();
   }, [handleShowMyLiveLocation]);
+
+  // The Location surface's first two actions that DO something rather than
+  // open something. Both delegate to the same callbacks the on-screen controls
+  // use, so voice can never take a path a tap could not, and both report the
+  // real outcome -- including a refusal -- instead of assuming success.
+  //
+  // The asymmetry in policy is deliberate and is the whole safety argument
+  // here. Pausing only ever removes visibility, so it runs directly: someone
+  // who says "hide my location" is in no position to be asked twice. Resuming
+  // makes them visible again to every active grant, so its contract marks it
+  // `confirm_required` and it does not run until they have looked at it.
+  useLocalOnboardingActionHandler(
+    "location.pause_updates",
+    () => handleHideMyLiveLocation(),
+  );
+  useLocalOnboardingActionHandler(
+    "location.resume_updates",
+    () => handleShowMyLiveLocation(),
+  );
 
   const handleAutoShareChange = useCallback(
     (enabled: boolean) => {

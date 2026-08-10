@@ -2775,7 +2775,9 @@
         "location.open_sms_contacts",
         "location.open_sos",
         "location.open_temporary_link",
+        "location.pause_updates",
         "location.refresh",
+        "location.resume_updates",
         "route.one_location"
       ],
       "action_coverage": "inherited",
