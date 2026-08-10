@@ -49,6 +49,32 @@ describe("One Location settings placement", () => {
     expect(HUB_SOURCE).toContain('onRequestLocation={() => openFlow("ask")}');
   });
 
+  it("gives Request Location an icon distinct from Share location", () => {
+    // These two rows are opposites -- give a location out, ask for one in --
+    // and sit three apart in the same list. `Send` was used first and reads as
+    // the same paper-plane silhouette as `Navigation` at row size, so the pair
+    // looked like one repeated icon.
+    const nowStart = HUB_SOURCE.indexOf("function NowHub");
+    const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
+    const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
+
+    const iconFor = (title: string) => {
+      const titleIndex = nowSource.indexOf(`title="${title}"`);
+      expect(titleIndex).toBeGreaterThan(-1);
+      const rowStart = nowSource.lastIndexOf("<SettingsRow", titleIndex);
+      return /icon=\{(\w+)\}/.exec(nowSource.slice(rowStart, titleIndex))?.[1];
+    };
+
+    const requestIcon = iconFor("Request Location");
+    const shareIcon = iconFor("Share location");
+
+    expect(requestIcon).toBeTruthy();
+    expect(shareIcon).toBeTruthy();
+    expect(requestIcon).not.toBe(shareIcon);
+    // Both plane glyphs are interchangeable at this size; neither belongs here.
+    expect(["Send", "Navigation"]).not.toContain(requestIcon);
+  });
+
   it("owns Saved Locations and does not duplicate it in Profile preferences", () => {
     const settingsStart = HUB_SOURCE.indexOf("function LocationSettingsFlow");
     const settingsEnd = HUB_SOURCE.indexOf("/* PEOPLE HUB", settingsStart);

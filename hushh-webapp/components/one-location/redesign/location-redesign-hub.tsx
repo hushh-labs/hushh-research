@@ -34,6 +34,7 @@ import {
   Lock,
   Map,
   MapPin,
+  MessageCircleQuestionMark,
   Navigation,
   Plus,
   Send,
@@ -510,14 +511,15 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
       className="ml-auto flex max-w-full shrink-0 items-center justify-end"
       data-testid="one-location-header-actions"
     >
-      <div className="flex h-9 shrink-0 items-center gap-0 rounded-full bg-black/[0.05] px-2 text-[13px] font-semibold text-foreground sm:gap-2 sm:px-3 dark:bg-white/[0.07]">
+      <div className="flex min-h-[31px] shrink-0 items-center gap-2 rounded-full bg-[color:var(--app-neutral-fill)] pl-3 pr-0">
         <span
-          className="hidden whitespace-nowrap sm:inline"
+          className="ui-text-helper-text hidden whitespace-nowrap text-[color:var(--app-label)] sm:inline"
           aria-hidden="true"
         >
           {statusLabel}
         </span>
         <Switch
+          size="ios"
           checked={locationOn}
           onCheckedChange={handleLocationChange}
           disabled={toggling || refreshing}
@@ -980,15 +982,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* Hub (Now | People | Links)                                        */
   /* ----------------------------------------------------------------- */
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
-        title={
-          <span className="inline-flex h-9 items-center whitespace-nowrap">
-            Location Agent
-          </span>
-        }
+        title="Location Agent"
         icon={MapPin}
-        accent="neutral"
+        accent="location"
+        titleRole="agent"
         actionsInlineMobile
         actions={<LocationHeaderActions vm={vm} />}
       />
@@ -1001,6 +1000,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           options={LOCATION_SWIPE_OPTIONS}
           onSelectionChange={(value) => setTab(value as LocationHubTab)}
           viewportMinHeight="0px"
+          heightMode="active"
         >
           <LocationHubPanel>
             <NowHub
@@ -1089,7 +1089,7 @@ function NowHub({
   onOpenSettings: () => void;
 }) {
   return (
-    <div className="space-y-3" data-testid="one-location-now-hub">
+    <div className="space-y-4" data-testid="one-location-now-hub">
       {/* Every row and tile below carries the `control_ids` / `action_id` pair
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
@@ -1157,8 +1157,15 @@ function NowHub({
             the Now tab listed every way to give a location out and none to ask
             for one. Same flow and same voice control id as that entry -- this
             is an additional way in, not a second implementation. */}
+        {/* Not `Send`: that is the same paper-plane silhouette as `Navigation`
+            on "Share location" two rows up, so at row size the two entries read
+            as the same icon -- and they are opposites. A speech bubble asking a
+            question is distinct at a glance and matches what the flow does:
+            "Requests should explain why. The other person chooses whether to
+            share." Radar and Crosshair were rejected for implying tracking on a
+            surface built around consent. */}
         <SettingsRow
-          icon={Send}
+          icon={MessageCircleQuestionMark}
           iconTone="accent"
           title="Request Location"
           density="compact"
@@ -1181,24 +1188,26 @@ function NowHub({
         />
       </SettingsGroup>
 
-      <QuickActionsSection title="Quick actions" columns={2}>
-        <QuickActionCard
-          tone="green"
-          icon={<ShieldCheck className="h-5 w-5" />}
-          title="Check-In"
-          subtitle={checkInSubtitle}
-          onClick={onCheckIn}
-          controlId="one-location-action-check-in"
-        />
-        <QuickActionCard
-          tone="red"
-          icon={<Shield className="h-5 w-5" />}
-          title="SMS"
-          subtitle={vm.sosActive ? "Live now" : "Save my soul"}
-          onClick={onSos}
-          controlId="one-location-action-sos"
-        />
-      </QuickActionsSection>
+      <div className="pt-3">
+        <QuickActionsSection title="Quick actions" columns={2}>
+          <QuickActionCard
+            tone="green"
+            icon={<ShieldCheck />}
+            title="Check-In"
+            subtitle={checkInSubtitle}
+            onClick={onCheckIn}
+            controlId="one-location-action-check-in"
+          />
+          <QuickActionCard
+            tone="red"
+            icon={<Shield />}
+            title="SMS"
+            subtitle={vm.sosActive ? "Live now" : "Save my soul"}
+            onClick={onSos}
+            controlId="one-location-action-sos"
+          />
+        </QuickActionsSection>
+      </div>
     </div>
   );
 }

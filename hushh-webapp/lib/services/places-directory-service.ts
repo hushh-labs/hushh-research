@@ -204,6 +204,17 @@ export class PlacesDirectoryService {
       throw new Error(messageForStatus(response.status, payload));
     }
 
+    // A hop that buffers the body and re-encodes it as JSON answers 200 with no
+    // frames in it. Read as a stream that yields nothing, that is
+    // indistinguishable from "there is nothing near you" -- which is how this
+    // surface silently showed an empty list on UAT while the backend was
+    // returning 23 KB of places. Treat a non-stream answer as a failed stream
+    // so the caller falls back to the ordinary endpoint instead.
+    const contentType = response.headers?.get?.("content-type") ?? "";
+    if (contentType && !contentType.includes("text/event-stream")) {
+      throw new Error("Response is not a stream");
+    }
+
     const reader = response.body?.getReader();
     if (!reader) {
       // No streaming in this runtime. The caller's fallback handles it.
@@ -212,6 +223,35 @@ export class PlacesDirectoryService {
 
     const decoder = new TextDecoder();
     let buffer = "";
+
+    /** Hand one parsed frame to the caller. Shared by the loop and the flush. */
+    const dispatch = (frame: { event: string; data: string }) => {
+      let raw: Record<string, unknown>;
+      try {
+        raw = JSON.parse(frame.data) as Record<string, unknown>;
+      } catch {
+        // A frame we cannot read is not a reason to discard the rows we
+        // already delivered.
+        return;
+      }
+
+      if (frame.event === "meta" && raw.categories) {
+        opts.handlers.onMeta?.(raw as unknown as PlacesMeta);
+      } else if (frame.event === "results") {
+        const category = String(raw.category ?? "");
+        if (category && isPlaceCardArray(raw.items)) {
+          opts.handlers.onCategory(category, raw.items);
+        }
+      } else if (frame.event === "category_error") {
+        opts.handlers.onCategoryError?.(
+          String(raw.category ?? ""),
+          String(raw.message ?? "This category is unavailable."),
+        );
+      }
+      // "heartbeat" and "done" need no handling: the first exists only to keep
+      // intermediaries from closing a quiet connection, and the second is
+      // implied by the reader finishing.
+    };
 
     try {
       while (true) {
@@ -228,31 +268,17 @@ export class PlacesDirectoryService {
         buffer = parsed.remainder;
 
         for (const frame of parsed.events) {
-          let raw: Record<string, unknown>;
-          try {
-            raw = JSON.parse(frame.data) as Record<string, unknown>;
-          } catch {
-            // A frame we cannot read is not a reason to discard the rows we
-            // already delivered.
-            continue;
-          }
+          dispatch(frame);
+        }
+      }
 
-          if (frame.event === "meta" && raw.categories) {
-            opts.handlers.onMeta?.(raw as unknown as PlacesMeta);
-          } else if (frame.event === "results") {
-            const category = String(raw.category ?? "");
-            if (category && isPlaceCardArray(raw.items)) {
-              opts.handlers.onCategory(category, raw.items);
-            }
-          } else if (frame.event === "category_error") {
-            opts.handlers.onCategoryError?.(
-              String(raw.category ?? ""),
-              String(raw.message ?? "This category is unavailable."),
-            );
-          }
-          // "heartbeat" and "done" need no handling: the first exists only to
-          // keep intermediaries from closing a quiet connection, and the second
-          // is implied by the reader finishing.
+      // A stream can end on a frame whose blank-line terminator never arrives.
+      // `parseSSEBlocks` holds that tail in `remainder`, so without this flush
+      // the last category's rows sit in a buffer and are silently lost. The Kai
+      // stream client does the same thing for the same reason.
+      if (buffer.trim()) {
+        for (const frame of parseSSEBlocks("\n\n", buffer).events) {
+          dispatch(frame);
         }
       }
     } finally {

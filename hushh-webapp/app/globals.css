@@ -294,8 +294,8 @@ textarea {
   --type-button-label-size: 17px;
   --type-button-label-line: 22px;
   --type-button-label-weight: 600;
-  --type-tab-label-size: 11px;
-  --type-tab-label-line: 13px;
+  --type-tab-label-size: 17px;
+  --type-tab-label-line: 22px;
   --type-tab-label-weight: 500;
   --foundation-caption-tracking: 0.158em;
   --foundation-micro-size: 0.6875rem;
@@ -523,6 +523,9 @@ textarea {
   --kai-command-fixed-ui: 82px;
   --kai-command-bottom-gap: 12px;
   --app-screen-footer-pad: calc(8px + var(--app-bottom-inset));
+  --app-bottom-content-clearance: calc(
+    var(--bottom-chrome-stack-height, var(--app-bottom-inset)) + 24px
+  );
   --app-top-safe-offset: 0px;
   --app-safe-area-top-probe: 0px;
   --app-safe-area-top: var(
@@ -535,13 +538,13 @@ textarea {
     var(--app-safe-area-top-probe)
   );
   --app-top-bar-height: 72px;
-  --kai-route-tabs-height: 42px;
+  --kai-route-tabs-height: 56px;
   --kai-route-tabs-content-gap: 14px;
   /* Global top-shell geometry contract (consumed by providers + top-app-bar).
    * Keep these tokens defined at root so web and native share deterministic spacing. */
   --top-shell-safe-area: var(--app-safe-area-top-effective);
   --top-inset: var(--top-shell-safe-area);
-  --top-bar-h: 44px;
+  --top-bar-h: 56px;
   --top-bar-side-w: 98px;
   --top-tabs-h: var(--kai-route-tabs-height);
   --top-tabs-gap: var(--kai-route-tabs-content-gap);
@@ -554,7 +557,7 @@ textarea {
   /* Single visual clearance between the fixed top shell and the first page block.
    * `--page-top-start` is the body-start gap token designers inspect/tune directly.
    * The actual structural spacer adds reserved shell height on top of this value. */
-  --page-top-start: 40px;
+  --page-top-start: 28px;
   --app-top-body-start-gap: var(--page-top-start);
   --page-top-local-offset: 0px;
   --app-shell-reading: 54rem;
@@ -601,7 +604,7 @@ textarea {
     var(--top-shell-visual-height) + var(--top-subnav-total, 0px) +
       var(--top-content-safe-gap)
   );
-  --page-inline-gutter-standard: 20px;
+  --page-inline-gutter-standard: 16px;
   --page-surface-overscan: 0px;
   --page-surface-gap-standard: 16px;
   --page-surface-gap-compact: 12px;
@@ -729,7 +732,7 @@ textarea {
   --motion-deck-scale-other: 0.84;
   /* Foundation (bible): a bright white canvas carries the ambient wash while
      cards remain legible without reverting the app to an opaque flat page. */
-  --background: #ffffff;
+  --background: #f2f2f7;
   --foreground: oklch(0.232 0.004 286.1);
   --card: #ffffff;
   --card-foreground: oklch(0.232 0.004 286.1);
@@ -807,12 +810,12 @@ textarea {
 
   /* App Background - bright Foundation canvas; the shared ambient layer
      supplies its accent depth rather than a separate route gradient. */
-  --app-bg-start: #ffffff;
-  --app-bg-mid: #ffffff;
-  --app-bg-end: #ffffff;
+  --app-bg-start: #f2f2f7;
+  --app-bg-mid: #f2f2f7;
+  --app-bg-end: #f2f2f7;
   /* The base beneath persistent chrome. Foundation may add its restrained
    * corner ambience over this, but shell material must share the same base. */
-  --app-layout-surface: var(--background);
+  --app-layout-surface: var(--app-grouped-background);
 
   --glass1: #ffffff60 !important;
   --glass2: #6464643b !important;
@@ -1827,6 +1830,23 @@ html.kb-open [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]) {
   );
   margin-top: calc(var(--kb-height, 0px) / -2);
 }
+
+/* The fixed "Talk to One" agent launcher lifts above the on-screen keyboard by
+ * --kb-height. On a plain form screen (e.g. Connect's people search) that lands
+ * it directly on top of the focused input, obscuring typed text. While a real
+ * on-screen keyboard is open, hide the FIXED launcher so it can never overlay
+ * the active field. Scoped to layout="fixed": the in-chat slot composer, which
+ * IS the input the person is typing into, keeps its keyboard lift. Inert on
+ * desktop (kb-open never set there). See mobile-bug-log B21. */
+html.kb-open [data-agent-bar-shell][data-agent-bar-layout="fixed"] {
+  opacity: 0;
+  transform: translate3d(0, 1rem, 0);
+  pointer-events: none;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+
 
 
 .app-page-shell {
@@ -4622,22 +4642,14 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    mirrors the quiet root treatment so public, authenticated, and nested
    routes never drift into separate gradients or opaque chrome bands. */
 .foundation-public-ambient {
+  /* Standard app canvas: a quiet iOS grouped background. */
   --foundation-grain-opacity: 0.1;
-  --foundation-ambient-primary: 12%;
-  --foundation-ambient-secondary: 10%;
-  --foundation-ambient-tertiary: 9%;
-  --foundation-ambient-quaternary: 7%;
-  background-color: #f2f2f7;
+  background-color: var(--app-grouped-background);
   background-image: none;
 }
 
 .dark .foundation-public-ambient {
-  --foundation-ambient-primary: 8%;
-  --foundation-ambient-secondary: 7%;
-  --foundation-ambient-tertiary: 6%;
-  --foundation-ambient-quaternary: 6%;
   --foundation-grain-opacity: 0.08;
-  background-color: #000000;
   background-image: none;
 }
 
@@ -5474,6 +5486,17 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
+:is(.ui-text-agent-title) {
+  color: var(--app-label) !important;
+  font-family: var(--font-app-display) !important;
+  font-size: 34px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.03em !important;
+  line-height: 41px !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
 :is(.ui-text-navigation-title) {
   color: var(--app-label) !important;
   font-family: var(--font-app-body) !important;
@@ -5632,12 +5655,21 @@ body[data-persona-surface="ria"] {
 }
 
 :is(.ui-text-tab-label) {
+  color: var(--app-secondary-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-tab-label-size) !important;
   font-weight: var(--type-tab-label-weight) !important;
-  letter-spacing: 0 !important;
+  letter-spacing: -0.01em !important;
   line-height: var(--type-tab-label-line) !important;
   opacity: 1 !important;
+}
+
+[role="tab"][aria-selected="true"] :is(.ui-text-tab-label) {
+  color: var(--app-accent) !important;
+}
+
+[role="tab"][aria-selected="false"] :is(.ui-text-tab-label) {
+  color: var(--app-secondary-label) !important;
 }
 
 :is(.ui-text-caption) {
