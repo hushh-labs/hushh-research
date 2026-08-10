@@ -75,14 +75,25 @@ describe("how these actions can be reached", () => {
     });
   });
 
-  it("does not turn any of them into a navigate-then-run journey", () => {
-    // A journey navigates somewhere and then runs the action on arrival. For
-    // a share that would mean One walking to Location and firing the composer
-    // it found there, whatever was already selected in it. These have no
-    // settlement_target for exactly that reason; this asserts the contract
-    // has not quietly grown one.
-    [PAUSE, RESUME, SHARE].forEach((actionId) => {
-      expect(resolveNavigationJourney(actionId)).toBeNull();
+  it("walks someone to Location before pausing or resuming", () => {
+    // "Hide my location" is worth nothing if the answer is "open Location
+    // first". Both carry a settlement_target, so One navigates there and then
+    // performs the action as one plan the person approved once -- rather than
+    // reporting the surface as unreachable from wherever they happen to be.
+    [PAUSE, RESUME].forEach((actionId) => {
+      const journey = resolveNavigationJourney(actionId);
+      expect(journey?.destinationRoute).toBe("/one/location");
+      expect(journey?.destinationScreen).toBe("one_location");
+      // Resolved from the contract, never named in code.
+      expect(journey?.navigationActionId).toBe("location.open_now");
     });
+  });
+
+  it("refuses to escort a share the same way", () => {
+    // The identical treatment would mean One walking to Location and firing
+    // the composer it found on arrival, at whoever happened to still be
+    // selected in it. A share must begin where the person can already see who
+    // it is going to, so this one deliberately has no settlement_target.
+    expect(resolveNavigationJourney(SHARE)).toBeNull();
   });
 });

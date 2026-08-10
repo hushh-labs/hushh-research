@@ -951,6 +951,36 @@ class TestContractDrivenNavigationJourneys:
         assert journey["navigation_action_id"] == "route.one_pkm"
         assert _is_journey_startable(entry) is True
 
+    def test_location_pause_and_resume_are_escorted_to_their_screen(self):
+        """The first journeys whose destination changes state, not a preview.
+
+        Both are ``local_handler`` actions, so they can only run while Location
+        is mounted. Without an authored destination, "hide my location" from
+        any other screen could only ever answer "open Location first" -- and
+        that is the one Location request with real urgency behind it. The
+        browser half asserts the same two ids in ``navigation-journey.test.ts``.
+        """
+        for action_id in ("location.pause_updates", "location.resume_updates"):
+            entry = get_action_gateway_action(action_id)
+            journey = _navigation_journey_definition(entry, action_id)
+
+            assert journey is not None, action_id
+            assert journey["destination_route"] == "/one/location"
+            assert journey["destination_screen"] == "one_location"
+            # Resolved from the gateway, never named in code.
+            assert journey["navigation_action_id"] == "location.open_now"
+            assert _is_journey_startable(entry) is True
+
+    def test_a_share_is_never_escorted_to_the_composer(self):
+        # The same treatment for a share would mean arriving at the composer
+        # and firing it at whoever was still selected in it. A share has to
+        # begin where the person can already see who it is going to, so this
+        # action is authored without a settlement_target on purpose.
+        entry = get_action_gateway_action("location.share_selected")
+
+        assert _navigation_journey_definition(entry, "location.share_selected") is None
+        assert _is_journey_startable(entry) is False
+
     def test_a_route_action_never_becomes_a_journey_to_itself(self):
         entry = get_action_gateway_action("route.kai_analysis")
 

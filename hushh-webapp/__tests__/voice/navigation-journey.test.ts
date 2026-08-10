@@ -41,8 +41,16 @@ describe("navigation journeys", () => {
       .filter((actionId) => resolveNavigationJourney(actionId) !== null)
       .sort();
 
+    // Location's two acting actions joined the set when they were authored
+    // with a settlement_target. They are the first journeys whose destination
+    // action changes device state rather than opening a preview, and they are
+    // deliberately the only two Location has: `location.share_selected` is
+    // left out, because escorting a share would mean arriving at the composer
+    // and firing it at whoever was still selected in it.
     expect(journeys).toEqual([
       "analysis.start",
+      "location.pause_updates",
+      "location.resume_updates",
       "setup.finish_connected_systems",
       "setup.finish_connections",
       "setup.finish_email",
