@@ -1093,6 +1093,10 @@ function NowHub({
 }) {
   return (
     <div className="space-y-3" data-testid="one-location-now-hub">
+      {/* Every row and tile below carries the `control_ids` / `action_id` pair
+          it was authored with in the Location voice action contract, so One and
+          the search bar can name the individual control a person is asking for
+          rather than only the screen it lives on. */}
       <SettingsGroup separatorInset testId="one-location-now-primary">
         <SettingsRow
           icon={Navigation}
@@ -1102,6 +1106,8 @@ function NowHub({
           chevron
           onClick={onStartShare}
           testId="one-location-share-row"
+          voiceControlId="one-location-action-share"
+          voiceActionId="location.open_share"
         />
         <SettingsRow
           icon={Map}
@@ -1111,6 +1117,8 @@ function NowHub({
           chevron
           onClick={onOpenMap}
           testId="one-location-map-row"
+          voiceControlId="one-location-open-map"
+          voiceActionId="location.open_map"
         />
       </SettingsGroup>
 
@@ -1123,6 +1131,8 @@ function NowHub({
           trailing={vm.activeOwnerGrants.length}
           chevron
           onClick={onOpenActiveShares}
+          voiceControlId="one-location-action-active-shares"
+          voiceActionId="location.open_active_shares"
         />
         <SettingsRow
           icon={MapPin}
@@ -1132,6 +1142,8 @@ function NowHub({
           trailing={vm.receivedGrants.length}
           chevron
           onClick={onOpenSharedWithMe}
+          voiceControlId="one-location-action-shared-with-me"
+          voiceActionId="location.open_shared_with_me"
         />
         <SettingsRow
           icon={ShieldCheck}
@@ -1141,6 +1153,8 @@ function NowHub({
           trailing={vm.pendingOwnerRequests.length}
           chevron
           onClick={onOpenNeedsReview}
+          voiceControlId="one-location-action-needs-review"
+          voiceActionId="location.open_needs_review"
         />
         <SettingsRow
           icon={Lock}
@@ -1150,6 +1164,8 @@ function NowHub({
           chevron
           onClick={onOpenSettings}
           testId="one-location-settings-entry"
+          voiceControlId="one-location-action-settings"
+          voiceActionId="location.open_settings"
         />
       </SettingsGroup>
 
@@ -1160,6 +1176,7 @@ function NowHub({
           title="Check-In"
           subtitle={checkInSubtitle}
           onClick={onCheckIn}
+          controlId="one-location-action-check-in"
         />
         <QuickActionCard
           tone="red"
@@ -1167,6 +1184,7 @@ function NowHub({
           title="SMS"
           subtitle={vm.sosActive ? "Live now" : "Save my soul"}
           onClick={onSos}
+          controlId="one-location-action-sos"
         />
       </QuickActionsSection>
     </div>
@@ -1621,6 +1639,7 @@ function PeopleHub({
           <div className="grid grid-cols-1 gap-2">
             <Button
               onClick={onAddConnections}
+              data-voice-control-id="one-location-add-connections"
               className="h-11 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
             >
               <UsersRound className="mr-2 h-4 w-4" />
@@ -1629,6 +1648,7 @@ function PeopleHub({
             <Button
               variant="outline"
               onClick={onInvite}
+              data-voice-control-id="one-location-action-invite"
               className="h-10 rounded-full text-sm font-semibold"
             >
               <UserPlus className="mr-2 h-4 w-4" />
@@ -1689,6 +1709,7 @@ function PeopleHub({
       <div className="grid grid-cols-1 gap-2">
         <Button
           onClick={onAddConnections}
+          data-voice-control-id="one-location-add-connections"
           className="h-10 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
         >
           <UsersRound className="mr-2 h-4 w-4" />
@@ -1697,6 +1718,7 @@ function PeopleHub({
         <Button
           variant="outline"
           onClick={onInvite}
+          data-voice-control-id="one-location-action-invite"
           className="h-10 rounded-full border-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent)]"
         >
           <UserPlus className="mr-2 h-4 w-4" />
@@ -1775,6 +1797,7 @@ function PeopleHub({
       <button
         type="button"
         onClick={onAsk}
+        data-voice-control-id="one-location-action-ask"
         className={cn(
           "flex min-h-[60px] w-full items-center gap-3.5 p-3.5 text-left transition-colors hover:bg-foreground/[0.025]",
           SUBCARD_SURFACE,
@@ -1920,6 +1943,7 @@ function LinksHub({
 
       <Button
         onClick={onCreateTempLink}
+        data-voice-control-id="one-location-action-temp-link"
         className="h-12 w-full rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
       >
         <Plus className="mr-2 h-4 w-4" />
