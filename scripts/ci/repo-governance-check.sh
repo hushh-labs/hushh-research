@@ -35,5 +35,9 @@ python3 .codex/skills/codex-skill-authoring/scripts/test_trigger_evals.py
 python3 .codex/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py
 python3 .claude/skills/codex-bridge/scripts/route.py --check
 python3 .claude/skills/codex-bridge/scripts/test_route_hook.py
+# Fails when a required NEXT_PUBLIC_* credential is missing from a build lane.
+# Offline and fast. The origin-restriction half of this skill needs gcloud and
+# stays out of CI on purpose — run it from the skill before a release.
+bash .claude/skills/client-env-parity/check.sh
 ./bin/hushh db verify-release-contract
 ./bin/hushh db report-prod-posture
