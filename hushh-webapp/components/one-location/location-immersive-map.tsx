@@ -1505,21 +1505,27 @@ export function LocationImmersiveMap({
     if (closeRequestedRef.current) return;
     closeRequestedRef.current = true;
     setClosing(true);
+    // Tear the native map down immediately. The @capacitor/google-maps view
+    // renders BELOW the WebView; if it lingers it can swallow the very taps that
+    // should dismiss the overlay (the on-device "X does nothing" report), and it
+    // must never cover the next screen. Destroying it up front frees the touch
+    // surface before we navigate.
     void mapRef.current?.disableTouch();
+    void mapRef.current?.destroy();
     beginRouteTransition(
       ROUTES.ONE_LOCATION,
       () => router.replace(ROUTES.ONE_LOCATION, { scroll: false }),
       "tap",
       "full",
     );
-    // If route settlement is externally interrupted, allow an explicit retry
-    // rather than leaving the visible close affordance inert.
+    // Guaranteed exit: if the SPA route transition is interrupted (observed on
+    // native, where the map layer/transition could leave the close affordance
+    // inert), force a hard navigation to the Location dashboard so the user is
+    // never trapped in the full-screen map.
     window.setTimeout(() => {
       if (window.location.pathname !== ROUTES.ONE_LOCATION_MAP) return;
-      closeRequestedRef.current = false;
-      setClosing(false);
-      void mapRef.current?.enableTouch();
-    }, 1_500);
+      window.location.assign(ROUTES.ONE_LOCATION);
+    }, 1_200);
   }, [router]);
 
   useEffect(() => {
