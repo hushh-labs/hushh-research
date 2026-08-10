@@ -1161,8 +1161,7 @@
           "/getting-started"
         ],
         "screens": [
-          "getting_started",
-          "one_agents"
+          "getting_started"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
