@@ -591,9 +591,20 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               typeof event.directive.payload?.contextRevision === "string"
                 ? event.directive.payload.contextRevision
                 : null;
-            // A model-selected action is always a proposal. Nothing executes
-            // until the person confirms from this trusted UI surface.
-            const needsConfirmation = true;
+            // The relay decides this from the contract and stamps it on the
+            // directive. Read it rather than deciding again here.
+            //
+            // Both sides were hardcoded true. Changing only this one made
+            // every allow_direct action run in the browser and then fail
+            // settlement, because the directive being settled had been parked
+            // server-side as needing a confirmation that never came. They are
+            // one invariant with two expressions; reading the stamped value is
+            // what stops them drifting apart again.
+            //
+            // Absent or malformed means confirm. A directive that cannot say
+            // it is safe to run directly does not get to run directly.
+            const needsConfirmation =
+              event.directive.payload?.needsConfirmation !== false;
             const goalId =
               typeof event.directive.payload?.goalId === "string"
                 ? event.directive.payload.goalId

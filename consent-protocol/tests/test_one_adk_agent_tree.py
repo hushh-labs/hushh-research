@@ -667,16 +667,21 @@ class TestRunAppAction:
         assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
-    async def test_navigation_action_waits_for_confirmation_even_when_not_in_screen_inventory(self):
+    async def test_navigation_action_is_parked_even_when_not_in_screen_inventory(self):
         # Cross-screen navigation ("go to profile") must work from any
         # screen; the per-screen inventory does not bound route.* actions.
+        #
+        # It parks READY TO RUN now rather than awaiting a confirmation. The
+        # confirmation was never this test's subject -- reachability was --
+        # and route.profile is allow_direct, so asking before moving a tab was
+        # the blanket policy talking, not the contract.
         state = {
             "hussh:voice_context": {
                 "available_action_ids": ["analysis.start"],
             }
         }
         result = await run_app_action("route.profile", {}, _tool_context(state))
-        assert result["status"] == "confirm_pending"
+        assert result["status"] == "ready_to_run"
         assert (
             state[f"{_STATE_PENDING_DIRECTIVE}:route.profile"]["payload"]["actionId"]
             == "route.profile"
@@ -712,7 +717,9 @@ class TestRunAppAction:
             },
         }
         result = await run_app_action("onboarding.claim_one", {}, _tool_context(state))
-        assert result["status"] == "confirm_pending"
+        # allow_direct, so it parks ready. The screen guard below is what this
+        # test is actually about, and it is unchanged.
+        assert result["status"] == "ready_to_run"
         assert (
             state[f"{_STATE_PENDING_DIRECTIVE}:onboarding.claim_one"]["payload"]["actionId"]
             == "onboarding.claim_one"
@@ -732,23 +739,32 @@ class TestRunAppAction:
     async def test_allow_direct_with_slots_parks_action_directive(self):
         state: dict = {}
         result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
-        assert result["status"] == "confirm_pending"
+        assert result["status"] == "ready_to_run"
         directive = state[f"{_STATE_PENDING_DIRECTIVE}:analysis.start"]
+        # The stamped flags are the contract's answer, not a constant. This is
+        # the value the browser reads to decide whether to raise a card, so the
+        # two halves of the invariant meet here: if this pair stops matching
+        # `execution_policy`, an action runs that should have been confirmed,
+        # or settles against a confirmation that never came.
         assert directive == {
             "kind": "action",
             "payload": {
                 "actionId": "analysis.start",
                 "slots": {"symbol": "NVDA"},
-                "needsConfirmation": True,
-                "trustedActivationRequired": True,
+                "needsConfirmation": False,
+                "trustedActivationRequired": False,
             },
         }
 
     @pytest.mark.asyncio
-    async def test_route_action_requires_confirmation(self):
+    async def test_route_action_parks_ready_to_run(self):
+        # Renamed from ..._requires_confirmation. Opening the consent centre is
+        # allow_direct; asking "allow access to run this" before moving to a
+        # screen taught people to approve without reading, which is how a
+        # confirmation stops being consent.
         state: dict = {}
         result = await run_app_action("route.consents", {}, _tool_context(state))
-        assert result["status"] == "confirm_pending"
+        assert result["status"] == "ready_to_run"
         assert (
             state[f"{_STATE_PENDING_DIRECTIVE}:route.consents"]["payload"]["actionId"]
             == "route.consents"

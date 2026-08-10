@@ -373,26 +373,51 @@ async def run_app_action(
         # bodies, exports, and scopes are resolved by the mounted KYC handler.
         clean_slots = {"instruction": instruction}
 
-    # A model-selected action is a proposal, never user activation. Every
-    # generated app action, including navigation, waits for an explicit tap in
-    # chat or voice. The gateway still enforces the authored risk policy.
+    # Whether an action must be confirmed is the CONTRACT's call.
+    #
+    # This was hardcoded True, and so was its counterpart in the browser
+    # (`agent-bar.tsx`). The two are ONE invariant expressed on both sides of
+    # the trust boundary and must always be changed together: the browser
+    # decides whether to raise a card, this decides whether the ledger will
+    # accept a settlement without a confirm. Changing only the browser half
+    # made every allow_direct action run and then fail settlement, because the
+    # directive it was settling had been parked here as needing a confirm.
+    #
+    # allow_direct issues ready to run. Everything else still waits, and two
+    # cases deliberately keep waiting whatever the policy says: an action the
+    # gateway does not know (unknown is not a licence) and
+    # trusted_activation_required, whose provider window the browser will only
+    # open on a fresh human gesture.
+    execution_policy = str((entry.get("risk") or {}).get("execution_policy") or "allow_direct")
+    trusted_activation = activation_policy == "trusted_activation_required"
+    needs_confirmation = execution_policy != "allow_direct" or trusted_activation
     directive_payload: dict[str, Any] = {
         "actionId": clean_id,
         "slots": clean_slots,
-        "needsConfirmation": True,
-        "trustedActivationRequired": True,
+        "needsConfirmation": needs_confirmation,
+        "trustedActivationRequired": trusted_activation,
     }
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:{clean_id}"] = {
         "kind": "action",
         "payload": directive_payload,
     }
-    logger.info("one_adk_action_decision action=%s status=confirm_pending", clean_id)
+    logger.info(
+        "one_adk_action_decision action=%s status=%s",
+        clean_id,
+        "confirm_pending" if needs_confirmation else "ready_to_run",
+    )
     return {
-        "status": "confirm_pending",
+        "status": "confirm_pending" if needs_confirmation else "ready_to_run",
+        # The model reads this and says it out loud, so it has to match what
+        # will actually happen. Promising a confirmation that never comes --
+        # "I'll ask you to confirm", followed by the thing simply happening --
+        # is how One starts sounding untrustworthy about everything else.
         "message": (
             f"The app will present the exact {label} action for a trusted tap."
-            if activation_policy == "trusted_activation_required"
+            if trusted_activation
             else f"The app will ask the user to confirm {label}."
+            if needs_confirmation
+            else f"{label} is running now; tell the user what you did, briefly."
         ),
         "action_id": clean_id,
         # Proactive-prompting: like open_screen, this text is the tool
@@ -674,7 +699,11 @@ async def _start_settled_journey(
                 "Call list_app_actions for the controls currently available."
             ),
         }
-    if result.get("status") not in {"ok", "confirm_pending"}:
+    # `ready_to_run` joins these: it is the same successfully-parked directive
+    # as `confirm_pending`, differing only in whether a confirmation gates it.
+    # Omitting it here would make every allow_direct action look like a
+    # failure to the journey path that calls this.
+    if result.get("status") not in {"ok", "confirm_pending", "ready_to_run"}:
         return result
 
     pending_key = f"{_STATE_PENDING_DIRECTIVE}:{action_id}"
