@@ -65,6 +65,7 @@ import {
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { classifySpokenConfirmation } from "@/lib/voice/spoken-confirmation";
 import {
   clearJourneyApproval,
   isCoveredByJourneyApproval,
@@ -350,6 +351,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const handleTransportEventRef = useRef<(event: OneVoiceSessionEvent) => void>(
     () => {},
   );
+  // Same indirection, same reason: a spoken yes is read inside
+  // handleTransportEvent, and settlePendingConfirmation is declared well below
+  // it.
+  const settlePendingConfirmationRef = useRef<(confirmed: boolean) => void>(
+    () => {},
+  );
 
   useEffect(() => {
     latestVoiceContextRef.current = runtime?.oneVoiceContextSnapshot ?? null;
@@ -487,6 +494,35 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         return;
       }
       if (event.type === "transcript_final") {
+        // A confirmation that is waiting gets first refusal on this utterance.
+        //
+        // This is what makes the flow hands-free without giving up the
+        // consent it collects: the tap is replaced by a spoken yes, and the
+        // yes still runs through settlePendingConfirmation -- the same path,
+        // the same ledger, the same receipt. What changed is the trigger, not
+        // the proof.
+        //
+        // The reading is done HERE, from the person's own transcript, and not
+        // by the model. The model is the thing being authorized; letting it
+        // also report whether you agreed would have it witness its own
+        // authorization. Anything that is not unmistakably an answer falls
+        // through to be treated as ordinary speech, exactly as before.
+        if (pendingConfirmationRef.current) {
+          const answer = classifySpokenConfirmation(event.text);
+          if (answer === "affirm" || answer === "decline") {
+            appendMirrorEvent({
+              role: "user",
+              text: redactSensitiveVoiceTranscript(
+                event.text.trim(),
+                runtime?.screen,
+              ),
+              source: "gemini_live",
+              turnId: event.turnId ?? null,
+            });
+            settlePendingConfirmationRef.current(answer === "affirm");
+            return;
+          }
+        }
         actionAbortControllerRef.current?.abort();
         // A fresh request supersedes the plan the person approved for the last
         // one. Approval was for a named list, not for whatever One does next.
@@ -1223,6 +1259,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   useEffect(() => {
     stopConversationRef.current = stopConversation;
   }, [stopConversation]);
+
+  useEffect(() => {
+    settlePendingConfirmationRef.current = settlePendingConfirmation;
+  }, [settlePendingConfirmation]);
 
   useEffect(() => {
     const pending = pendingConfirmationRef.current;

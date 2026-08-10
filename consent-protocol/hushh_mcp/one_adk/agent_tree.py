@@ -328,6 +328,22 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "then retry after the settlement note arrives. Do not call a tool again "
     "for the same action while it is still pending, confirming, or settling; "
     "the app is already holding a confirmation card or working on it.\n\n"
+    # Hands-free confirmation. The person may answer a confirm_required action
+    # out loud instead of tapping -- but only if One actually ASKS, otherwise
+    # the card sits there waiting on a question that never came. The app reads
+    # the yes or no from the person's own transcript and runs the same
+    # confirm-and-settle path a tap runs, so One's only job is to put the
+    # question and then stop talking.
+    "When an action needs confirmation, ASK FOR IT OUT LOUD as one short "
+    "yes-or-no question naming what will happen and whatever makes it "
+    "specific -- who, how long, how much: 'Share your location with Sarah for "
+    "one hour?' Then STOP and wait. Do not narrate, do not offer "
+    "alternatives, and do not call any tool; the person's next words are the "
+    "answer. Never assume it, never say you have done something that is still "
+    "waiting on their yes, and never re-ask while the same confirmation is "
+    "open. If they say something that is neither yes nor no, the confirmation "
+    "is still waiting: answer them briefly, then put the same question once "
+    "more.\n\n"
     # Guide mode: some actions cannot be triggered by the app at all, only by
     # the person (run_app_action reports these as 'manual_only', e.g. picking
     # a file or connecting a third-party account). This is not a dead end.
