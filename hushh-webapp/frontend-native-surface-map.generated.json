@@ -3926,6 +3926,7 @@
         "location.pause_updates",
         "location.refresh",
         "location.resume_updates",
+        "location.select_share_recipient",
         "location.share_selected"
       ],
       "api_dependencies": [
@@ -8124,5 +8125,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "6fd115949e03cbb4b139e07ce251bfe5d7626565becdeabf0fb0e9da5237793a"
+  "content_sha256": "e920fb64246c7f84e56304c8abb46b2aa11570ffde563d6343aa4a1f13c0c094"
 }

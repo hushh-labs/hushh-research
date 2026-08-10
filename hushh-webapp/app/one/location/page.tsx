@@ -394,6 +394,7 @@ const LOCATION_VOICE_ACTIONS = [
   { id: "location.pause_updates", actionId: "location.pause_updates", label: "Pause my location", purpose: "Stop sending location updates from this device." },
   { id: "location.resume_updates", actionId: "location.resume_updates", label: "Resume my location", purpose: "Turn location updates back on for this device." },
   { id: "location.share_selected", actionId: "location.share_selected", label: "Share with the people I picked", purpose: "Start the share with whoever is already selected, for a duration you say." },
+  { id: "location.select_share_recipient", actionId: "location.select_share_recipient", label: "Pick someone for the share", purpose: "Select a named connection in the share composer without sending anything." },
 ];
 
 const LOCATION_VOICE_CONTROLS = [
@@ -417,6 +418,7 @@ const LOCATION_VOICE_CONTROLS = [
   // Settings, so both places answer to the same id.
   { id: "one-location-updates-toggle", label: "Location updates", purpose: "Pause or resume location updates from this device.", actionId: "location.pause_updates", role: "switch" },
   { id: "one-location-confirm-share", label: "Start sharing", purpose: "Send the share to the selected people.", actionId: "location.share_selected", role: "button" },
+  { id: "one-location-share-recipient-search", label: "Search trusted people", purpose: "Find and select who to share with.", actionId: "location.select_share_recipient", role: "textbox" },
 ];
 
 type BusyState =
@@ -6859,6 +6861,64 @@ export function OneLocationAgentPageContent({
   // That division is what makes a spoken share safe without a name resolver:
   // the worst a misheard sentence can do is send to the people already on
   // screen for the wrong number of hours, which the person is looking at.
+  // Saying a name resolves to a SELECTION, never to a send.
+  //
+  // The obvious design -- One resolves "Sarah" to a user id and shares with
+  // her -- would need the model to know who your connections are, and the
+  // live-context boundary redacts exactly that: `selected_entity` and
+  // `primary_entity` are stripped server-side because surfaces fill them with
+  // real names and email addresses. Handing the model a contact list to search
+  // would reverse that decision for the sake of one convenience.
+  //
+  // So the matching happens here, in the browser, against the list it already
+  // holds. The model only ever echoes back a name the person just said out
+  // loud, and gets no names in return: the summaries below deliberately count
+  // people rather than name them, because the summary is relayed to the model
+  // while the SCREEN is what shows the person who was picked.
+  //
+  // And it stops at selected. A misheard name becomes a wrong face on screen,
+  // in front of someone who can see it, rather than a live location already
+  // sent to the wrong person.
+  useLocalOnboardingActionHandler("location.select_share_recipient", (slots) => {
+    const spoken = String(slots?.person ?? "").trim().toLowerCase();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say who you want to share with." };
+    }
+    const matches = rankedRecipients.filter((recipient) =>
+      recommendationSearchText(recipient).includes(spoken),
+    );
+    if (matches.length === 0) {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody in your connections matches that name.",
+      };
+    }
+    if (matches.length > 1) {
+      // Never guess between people. Two colleagues sharing a first name is
+      // ordinary, and picking the wrong one here is not recoverable once the
+      // share starts.
+      return {
+        status: "blocked" as const,
+        summary: `${matches.length} people match that name. Tap the right one on screen.`,
+      };
+    }
+    const matchedUserId = matches[0]?.userId;
+    if (!matchedUserId) {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody in your connections matches that name.",
+      };
+    }
+    setSelectedRecipientIds((current) =>
+      current.includes(matchedUserId) ? current : [...current, matchedUserId],
+    );
+    return {
+      status: "succeeded" as const,
+      summary:
+        "Selected them in the share composer. Check the name on screen, then say share to start.",
+    };
+  });
+
   useLocalOnboardingActionHandler("location.share_selected", (slots) => {
     const requested = String(slots?.duration_hours ?? "").trim();
     // Only the durations the composer itself offers. An unrecognised value is

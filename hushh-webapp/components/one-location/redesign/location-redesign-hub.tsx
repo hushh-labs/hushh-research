@@ -2292,6 +2292,7 @@ function ShareFlow({
       <PersonSearchInput
         value={vm.shareRecipientSearch}
         onChange={vm.setShareRecipientSearch}
+        voiceControlId="one-location-share-recipient-search"
       />
       {filtered.length ? (
         <div className={PEOPLE_LIST_SCROLL_CLASS}>

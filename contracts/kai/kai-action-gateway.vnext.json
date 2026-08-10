@@ -5823,6 +5823,123 @@
       }
     },
     {
+      "action_id": "location.select_share_recipient",
+      "surface_id": "one_location",
+      "label": "Pick someone for the share",
+      "aliases": [
+        "share with",
+        "pick someone",
+        "select someone",
+        "add them to the share",
+        "choose who to share with"
+      ],
+      "search_keywords": [
+        "pick",
+        "select",
+        "choose",
+        "recipient",
+        "person",
+        "share"
+      ],
+      "meaning": "Finds the person you named among your connections and selects them in the share composer, so you can see who is picked before anything is sent. It only selects: starting the share is still a separate, confirmed step.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.select_share_recipient"
+      },
+      "control_ids": [
+        "one-location-share-recipient-search"
+      ],
+      "state_exposure": [
+        "selected recipient count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.select_share_recipient",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Who do you want to share with?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.select_share_recipient",
+            "label": "Pick someone for the share",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "location.share_selected",
       "surface_id": "one_location",
       "label": "Share with the people I picked",

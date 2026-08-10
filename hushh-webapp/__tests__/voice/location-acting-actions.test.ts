@@ -62,6 +62,34 @@ describe("what a spoken Location action is allowed to do", () => {
   });
 });
 
+describe("saying a person's name", () => {
+  const SELECT = "location.select_share_recipient";
+
+  it("selects someone rather than sending to them", () => {
+    // The whole reason naming a person is safe here. Selecting is visible and
+    // reversible: a misheard name becomes a wrong face on screen, in front of
+    // someone who can see it, instead of a live location already delivered.
+    // The send stays a separate, confirmed action.
+    expect(getKaiActionById(SELECT)?.risk_level).toBe("low");
+    expect(getKaiActionById(SELECT)?.execution_policy).toBe("allow_direct");
+    expect(getKaiActionById(SHARE)?.execution_policy).toBe("confirm_required");
+  });
+
+  it("takes the spoken name and nothing that identifies an account", () => {
+    // The slot carries what the person said out loud, which the model already
+    // heard. It must never carry a user id: that would mean the model had been
+    // given a contact list to resolve names against, and the live-context
+    // boundary strips `selected_entity` / `primary_entity` server-side
+    // precisely because surfaces fill them with real names and addresses.
+    // Matching happens in the browser, against the list it already holds.
+    const slots = Object.keys(
+      getKaiActionById(SELECT)?.goal?.slot_schema || {},
+    );
+    expect(slots).toEqual(["person"]);
+    expect(slots.join(" ")).not.toMatch(/user_?id|account|email|phone|key/i);
+  });
+});
+
 describe("how these actions can be reached", () => {
   it("keeps all three mounted-only rather than reachable by navigation", () => {
     // A `route` execution path would mean One could fire these by pushing a
