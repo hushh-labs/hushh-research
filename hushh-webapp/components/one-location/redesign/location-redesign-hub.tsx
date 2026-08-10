@@ -72,7 +72,7 @@ import {
   TrustNoteCard,
   WarningCard,
 } from "./primitives";
-import { SUBCARD_SURFACE } from "./tokens";
+import { MUTED_TEXT, SECTION_HEADING, SUBCARD_SURFACE } from "./tokens";
 import {
   RequestCard,
   SharedWithMeCard,
@@ -1474,7 +1474,7 @@ function LocationSettingsFlow({
 
       <div className="flex items-start gap-2.5 px-1">
         <Shield className="mt-0.5 h-[15px] w-[15px] shrink-0 text-[color:var(--app-accent)]" />
-        <p className="text-[13px] leading-[18px] text-muted-foreground">
+        <p className={MUTED_TEXT}>
           Private shares stay in your circle. Nearby Check-In is separate and
           only starts after you explicitly agree.
         </p>
@@ -1897,7 +1897,7 @@ function LinksHub({
 
   return (
     <div className="space-y-4">
-      <p className="px-1 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+      <p className={cn(SECTION_HEADING, "px-[6px]")}>
         Active links
       </p>
 
@@ -1941,7 +1941,7 @@ function LinksHub({
 
       <div className="flex items-start gap-2 px-1">
         <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <p className="text-[13px] leading-[18px] text-muted-foreground">
+        <p className={MUTED_TEXT}>
           Links stop working automatically when they expire. You can revoke any
           link anytime.
         </p>
@@ -2215,7 +2215,7 @@ function ShareFlow({
                     <span className="block truncate text-sm font-semibold text-foreground">
                       {circle.name}
                     </span>
-                    <span className="block text-xs text-muted-foreground">
+                    <span className="block text-[13px] leading-[18px] text-[#8E8E93]">
                       {selected
                         ? `${selectedReady.length} ready now`
                         : `${circle.memberCount} ${
@@ -2235,7 +2235,7 @@ function ShareFlow({
             })}
           </div>
           {vm.selectedShareCircleSelection ? (
-            <p className="mt-3 text-xs leading-5 text-muted-foreground">
+            <p className={cn(MUTED_TEXT, "mt-3")}>
               Current ready members only; future members are never added
               automatically.
               {vm.selectedShareCircleSelection.excluded.filter(
@@ -2316,7 +2316,7 @@ function ReviewRow({
 }) {
   return (
     <div className="flex items-start justify-between gap-3 border-b border-border/50 pb-3 last:border-0 last:pb-0">
-      <span className="shrink-0 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+      <span className="shrink-0 text-[15px] font-normal leading-[20px] tracking-[-0.006em] text-[#8E8E93]">
         {label}
       </span>
       <div className="min-w-0 max-w-[70%] text-right text-sm font-medium text-foreground">
@@ -2471,7 +2471,7 @@ function InviteFlow({
               <p className="text-base font-semibold text-foreground">
                 Circle invite
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className={MUTED_TEXT}>
                 {invite
                   ? vm.expiresLabel(invite.expiresAt)
                   : "Invite expires soon"}

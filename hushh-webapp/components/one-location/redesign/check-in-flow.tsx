@@ -179,7 +179,7 @@ function ContactRow({
             Already shared in this check-in
           </span>
         ) : !ready ? (
-          <span className="block truncate text-[12px] text-black/45 dark:text-white/45">
+          <span className="block truncate text-[13px] leading-[18px] text-[#8E8E93]">
             Not ready to receive location
           </span>
         ) : null}
@@ -474,7 +474,7 @@ export function CheckInFlow({
             <p className="text-[15px] font-semibold leading-5 text-foreground">
               Nearby and private sharing are separate
             </p>
-            <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
+            <p className="mt-1 text-[15px] leading-[20px] text-[#8E8E93]">
               Nearby people can see your name only. People you select below
               receive your encrypted precise location for the duration you
               choose.
@@ -484,7 +484,7 @@ export function CheckInFlow({
       ) : null}
 
       {/* YOUR LOCATION */}
-      <SectionLabel>YOUR LOCATION</SectionLabel>
+      <SectionLabel>Your location</SectionLabel>
       <section className={cn(CARD, "overflow-hidden")}>
         <div className="flex items-center gap-3 px-4 py-[13px]">
           <div className="min-w-0 flex-1">
@@ -497,7 +497,7 @@ export function CheckInFlow({
                     : "Location needs a refresh"
                   : "Location not captured yet"}
             </p>
-            <p className="mt-0.5 text-[13px] text-black/45 dark:text-white/45">
+            <p className="mt-1 text-[15px] leading-[20px] text-[#8E8E93]">
               {point
                 ? confirmedPoint
                   ? `${accuracy ?? "Location captured"} · Retrying the exact point you reviewed`
@@ -559,7 +559,7 @@ export function CheckInFlow({
       </section>
 
       {/* WHO SHOULD KNOW? */}
-      <SectionLabel>WHO SHOULD KNOW?</SectionLabel>
+      <SectionLabel>Who should know?</SectionLabel>
       {vm.circles.length ? (
         <div className={cn(CARD, "mb-2 overflow-hidden")}>
           {vm.circles.map((circle, index) => {
@@ -604,7 +604,7 @@ export function CheckInFlow({
           })}
           {circleSelection ? (
             <>
-              <p className="border-t border-[color:var(--app-separator)] px-4 py-2.5 text-[13px] leading-[18px] text-muted-foreground">
+              <p className="border-t border-[color:var(--app-separator)] px-4 py-2.5 text-[15px] leading-[20px] text-[#8E8E93]">
                 Current ready members only. Future members are not added to this
                 check-in.
                 {circleSelection.excluded.filter(
@@ -693,7 +693,7 @@ export function CheckInFlow({
             Shared with {completedRecipientIds.length}{" "}
             {completedRecipientIds.length === 1 ? "person" : "people"} already
           </p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          <p className="mt-1 text-[15px] leading-[20px] text-[#8E8E93]">
             They keep the original encrypted location, duration, and message.
             Any edits apply only to people who have not received this check-in.
           </p>
@@ -701,7 +701,7 @@ export function CheckInFlow({
       ) : null}
 
       {/* DURATION — gray segmented control incl. "Until I stop". */}
-      <SectionLabel>DURATION</SectionLabel>
+      <SectionLabel>Duration</SectionLabel>
       <div className="flex rounded-[10px] bg-[color:var(--app-neutral-fill-strong)] p-0.5">
         {durationOptions.map((option) => (
           <button
@@ -722,13 +722,13 @@ export function CheckInFlow({
           </button>
         ))}
       </div>
-      <p className="mt-2 flex items-center gap-1.5 px-1 text-[13px] leading-[18px] text-muted-foreground">
+      <p className="mt-2 flex items-center gap-1.5 px-1 text-[15px] leading-[20px] text-[#8E8E93]">
         <Shield className="h-3 w-3 shrink-0" strokeWidth={1.5} />
         Sharing stops automatically — no manual revoke needed.
       </p>
 
       {/* MESSAGE — encrypted with the reviewed point for selected recipients. */}
-      <SectionLabel>MESSAGE</SectionLabel>
+      <SectionLabel>Message</SectionLabel>
       <div className={cn(CARD, "px-4 py-[14px]")}>
         <textarea
           value={message}
@@ -744,7 +744,7 @@ export function CheckInFlow({
           {message.length}/{CHECK_IN_MESSAGE_MAX_LENGTH}
         </p>
       </div>
-      <p className="mb-[18px] mt-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
+      <p className="mb-[18px] mt-2 px-1 text-[15px] leading-[20px] text-[#8E8E93]">
         {retryLocked
           ? "Retry keeps the same duration, encrypted message, and reviewed location, and sends only to people who still failed."
           : "This message is encrypted with your location. The notification only says that you shared a check-in."}

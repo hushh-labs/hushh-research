@@ -234,7 +234,9 @@ export function WarningCard({
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
       <div>
         <p className="text-sm font-semibold">{title}</p>
-        <p className="text-xs leading-snug opacity-90">{description}</p>
+        <p className="text-[15px] font-normal leading-[20px] opacity-90">
+          {description}
+        </p>
       </div>
     </div>
   );
@@ -263,7 +265,9 @@ export function EmptyState({
       )}
     >
       {icon ? <div className="text-muted-foreground">{icon}</div> : null}
-      <p className="text-sm font-semibold text-foreground">{title}</p>
+      <p className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em] text-foreground">
+        {title}
+      </p>
       {description ? <p className={MUTED_TEXT}>{description}</p> : null}
       {action ? <div className="mt-1">{action}</div> : null}
     </div>

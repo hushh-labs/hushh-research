@@ -83,7 +83,7 @@ export function TrustedPersonCard({
           <p
             className={cn(
               MUTED_TEXT,
-              "break-words text-[13px] leading-[18px] [overflow-wrap:anywhere] sm:text-[15px] sm:leading-5",
+              "break-words [overflow-wrap:anywhere]",
             )}
           >
             {subtitle}
@@ -218,7 +218,7 @@ export function RequestCard({
         </div>
       </div>
       {reason ? (
-        <p className="mt-2.5 rounded-[10px] bg-[color:var(--app-card-surface-compact)] px-2.5 py-1.5 text-[13px] leading-[18px] text-muted-foreground">
+        <p className={cn(MUTED_TEXT, "mt-2.5 rounded-[10px] bg-[color:var(--app-card-surface-compact)] px-2.5 py-1.5")}>
           {reason}
         </p>
       ) : null}
