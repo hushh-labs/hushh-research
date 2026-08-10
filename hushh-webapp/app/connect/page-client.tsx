@@ -681,7 +681,7 @@ export default function ConnectPageClient() {
                 */}
               </div>
               <SettingsGroup
-                title={hasQuery ? "People" : "Suggested"}
+                title="People"
                 description={
                   hasQuery
                     ? "Send a connection request to someone you know."
@@ -712,7 +712,7 @@ export default function ConnectPageClient() {
                     />
                   ) : (
                     <SettingsRow
-                      title="No one to suggest yet"
+                      title="No people yet"
                       description="Search by name to find someone on Hussh."
                       density="compact"
                       disabled
