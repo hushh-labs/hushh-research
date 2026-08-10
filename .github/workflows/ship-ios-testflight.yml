@@ -444,21 +444,36 @@ jobs:
       - name: Job summary
         if: always()
         shell: bash
+        # Untrusted / free-form values (the release SHA and the user-supplied
+        # notes) are passed through `env:` and referenced as quoted shell
+        # variables, never interpolated inline into the script body. Inlining
+        # `${{ github.event.inputs.notes }}` directly meant any quote, paren,
+        # or `>` in the notes produced malformed bash (e.g. `if [ -n ""Build" ]`)
+        # and failed this step with a syntax error AFTER a fully successful
+        # upload. See run 31403438972.
+        env:
+          SUMMARY_SHA: ${{ steps.resolve.outputs.sha }}
+          SUMMARY_BUILD: ${{ steps.build_number.outputs.next_build }}
+          SUMMARY_MODE: ${{ github.event.inputs.dry_run == 'true' && 'dry run (no upload)' || 'upload to TestFlight' }}
+          SUMMARY_NOTES: ${{ github.event.inputs.notes }}
         run: |
           set -euo pipefail
           MARKETING="$(grep -m1 -E 'MARKETING_VERSION[[:space:]]*=' "${PBXPROJ}" | sed -E 's/.*= *([^;]+);.*/\1/' | tr -d ' ')"
+          # Collapse newlines and escape the markdown cell separator so a
+          # multi-line or pipe-containing note cannot break the table row.
+          notes_cell="$(printf '%s' "${SUMMARY_NOTES:-}" | tr '\n' ' ' | sed 's/|/\\|/g')"
           {
             echo "## Ship iOS to TestFlight"
             echo ""
             echo "| Field | Value |"
             echo "| --- | --- |"
-            echo "| SHA | \`${{ steps.resolve.outputs.sha }}\` |"
+            echo "| SHA | \`${SUMMARY_SHA}\` |"
             echo "| Version | ${MARKETING:-unknown} |"
-            echo "| Build | ${{ steps.build_number.outputs.next_build }} |"
+            echo "| Build | ${SUMMARY_BUILD} |"
             echo "| Bundle | ${IOS_BUNDLE_ID} |"
             echo "| Backend | UAT (hushh-pda-uat) |"
-            echo "| Mode | ${{ github.event.inputs.dry_run == 'true' && 'dry run (no upload)' || 'upload to TestFlight' }} |"
-            if [ -n "${{ github.event.inputs.notes }}" ]; then
-              echo "| Notes | ${{ github.event.inputs.notes }} |"
+            echo "| Mode | ${SUMMARY_MODE} |"
+            if [ -n "${notes_cell}" ]; then
+              echo "| Notes | ${notes_cell} |"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
