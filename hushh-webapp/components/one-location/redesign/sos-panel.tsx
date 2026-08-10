@@ -326,7 +326,7 @@ export function SosPanel({
       data-ambient-chrome-ignore
       data-testid="sms-safety-screen"
     >
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(52px,env(safe-area-inset-top))] lg:max-w-[820px] lg:px-8 lg:pt-[max(48px,env(safe-area-inset-top))]">
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(52px,env(safe-area-inset-top))] lg:max-w-[720px] lg:px-6 lg:pt-[max(48px,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={onClose}
@@ -351,9 +351,9 @@ export function SosPanel({
             the space instead of a single narrow strip. Below lg it stays the
             original stacked column, untouched. The <style> block inside is
             display:none and never participates in the flex row. */}
-        <div className="flex flex-1 flex-col justify-center gap-7 pt-6 lg:grid lg:grid-cols-[280px_minmax(0,360px)] lg:items-center lg:justify-center lg:gap-10 lg:pt-2">
+        <div className="flex flex-1 flex-col justify-center gap-7 pt-6 lg:grid lg:grid-cols-[240px_minmax(0,320px)] lg:items-center lg:justify-center lg:gap-8 lg:pt-2">
           <div className="flex items-center justify-center py-4 lg:py-0">
-            <div className="relative flex h-[252px] w-[252px] items-center justify-center">
+            <div className="relative flex h-[224px] w-[224px] items-center justify-center">
             <span className="absolute inset-0 rounded-full border border-white/10" />
             <span className="absolute inset-[24px] rounded-full border border-white/15" />
 
@@ -364,17 +364,17 @@ export function SosPanel({
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[152px] w-[152px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite]"
+                  className="absolute h-[136px] w-[136px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite]"
                 />
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[152px] w-[152px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:0.73s]"
+                  className="absolute h-[136px] w-[136px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:0.73s]"
                 />
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[152px] w-[152px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:1.46s]"
+                  className="absolute h-[136px] w-[136px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:1.46s]"
                 />
               </>
             ) : null}
@@ -399,7 +399,7 @@ export function SosPanel({
               onKeyUp={handleKeyUp}
               onContextMenu={(event) => event.preventDefault()}
               className={cn(
-                "relative z-10 flex h-[152px] w-[152px] touch-none select-none flex-col items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black",
+                "relative z-10 flex h-[136px] w-[136px] touch-none select-none flex-col items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black",
                 progress > 0 && progress < 1 && "scale-[1.035]",
                 (active || busy) && "[animation:sosCorePulse_2.2s_ease-in-out_infinite]",
                 disabled && "cursor-not-allowed",
@@ -443,7 +443,7 @@ export function SosPanel({
         `}</style>
 
 
-        <div className="w-full lg:max-w-[360px]">
+        <div className="w-full lg:max-w-[320px]">
           {/* While an SMS/SOS session is live, the primary action becomes
               stopping it. Cancelling here revokes the location grants created by
               the alert AND clears the incident, so "SENT · Live now" resets and
@@ -663,7 +663,7 @@ export function SosPanel({
                     <span className="block text-[15px] font-semibold">
                       Call {emergency.number}
                     </span>
-                    <span className="block truncate text-[10px] text-white/75">
+                    <span className="block truncate text-[12px] text-white/75">
                       {emergency.countryName}
                     </span>
                   </span>
@@ -694,7 +694,7 @@ export function SosPanel({
                       ? "Retry local number"
                       : "Finding local number"}
                   </span>
-                  <span className="block truncate text-[10px] text-white/75">
+                  <span className="block truncate text-[12px] text-white/75">
                     {emergencyStatus === "unavailable"
                       ? "Location unavailable"
                       : "Using current location"}

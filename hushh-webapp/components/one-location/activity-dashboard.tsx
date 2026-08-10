@@ -18,6 +18,7 @@ import {
   CARD_SURFACE,
   SUBCARD_SURFACE,
 } from "@/components/one-location/redesign/tokens";
+import { SectionLabel } from "@/components/app-ui/typography";
 
 const ACTIVITY_RANGE_OPTIONS: {
   value: OneLocationActivityRange;
@@ -51,13 +52,14 @@ function activityEventToneClassName(kind: OneLocationActivityKind): string {
 
 function ActivitySectionLabel({ title }: { title: string }) {
   return (
-    <div
+    <SectionLabel
+      as="div"
       role="heading"
       aria-level={2}
-      className="mt-7 flex min-w-0 max-w-full flex-wrap items-center gap-1.5 px-[6px] font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]"
+      className="mt-7 flex min-w-0 max-w-full flex-wrap items-center gap-1.5 px-[6px]"
     >
       {title}
-    </div>
+    </SectionLabel>
   );
 }
 

@@ -140,7 +140,7 @@ export function OnboardingStepLicense({
       ) : null}
 
       <div className="space-y-3">
-        <p className="px-[6px] font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">Supported Regulators</p>
+        <p className="ui-text-section-label px-[6px]">Supported Regulators</p>
         <div className="flex flex-wrap gap-2">
           {SUPPORTED_REGULATORS.map((regulator) => (
             <span

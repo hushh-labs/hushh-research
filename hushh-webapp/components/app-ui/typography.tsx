@@ -174,6 +174,24 @@ export function HelperText({ as = "p", ...props }: RoleTextProps) {
   );
 }
 
+export function InputValue(props: RoleTextProps) {
+  return (
+    <SemanticText
+      roleClassName={TYPOGRAPHY_CLASSNAMES.inputValue}
+      {...props}
+    />
+  );
+}
+
+export function StatusText(props: RoleTextProps) {
+  return (
+    <SemanticText
+      roleClassName={TYPOGRAPHY_CLASSNAMES.statusText}
+      {...props}
+    />
+  );
+}
+
 export function ButtonLabel(props: RoleTextProps) {
   return (
     <SemanticText
@@ -187,6 +205,24 @@ export function TabLabel(props: RoleTextProps) {
   return (
     <SemanticText
       roleClassName={TYPOGRAPHY_CLASSNAMES.tabLabel}
+      {...props}
+    />
+  );
+}
+
+export function CaptionText(props: RoleTextProps) {
+  return (
+    <SemanticText
+      roleClassName={TYPOGRAPHY_CLASSNAMES.caption}
+      {...props}
+    />
+  );
+}
+
+export function LegalText(props: RoleTextProps) {
+  return (
+    <SemanticText
+      roleClassName={TYPOGRAPHY_CLASSNAMES.legal}
       {...props}
     />
   );

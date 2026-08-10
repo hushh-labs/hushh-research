@@ -61,7 +61,7 @@ export function Hero({
 }) {
   const head = (
     <>
-      <div className="font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">
+      <div className="ui-text-section-label">
         {kicker}
       </div>
       <h1
@@ -140,7 +140,7 @@ export function Band({
   const head = (
     <>
       {kicker ? (
-        <div className="font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">
+        <div className="ui-text-section-label">
           {kicker}
         </div>
       ) : null}
@@ -227,7 +227,7 @@ export function Card({
         </div>
       ) : null}
       {eyebrow ? (
-        <div className="font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">
+        <div className="ui-text-section-label">
           {eyebrow}
         </div>
       ) : null}
@@ -365,7 +365,7 @@ export function Stat({
       <div className="text-[32px] font-semibold leading-none tracking-tight text-foreground sm:text-[40px]">
         {value}
       </div>
-      <div className="mt-2.5 font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">
+      <div className="ui-text-section-label mt-2.5">
         {label}
       </div>
       {sub ? (
