@@ -390,18 +390,25 @@ function TopShellBreadcrumbTrail({
         return (
           <span
             key={`${item.label}-${index}`}
-            className="flex min-w-0 items-center gap-1"
+            className={cn(
+              "flex min-w-0 items-center gap-1",
+              // The last crumb (current page) keeps its full label; earlier
+              // ancestors are allowed to shrink and truncate so a deep trail
+              // like "Profile > Preferences > Gemini" collapses gracefully on
+              // narrow iOS widths instead of colliding/overflowing the header.
+              isLast ? "shrink-0" : "min-w-0 shrink",
+            )}
           >
             {index > 0 ? (
               <ChevronRight
-                className="h-3.5 w-3.5 shrink-0 text-[color:var(--app-tertiary-label)]"
+                className="mx-0.5 h-3.5 w-3.5 shrink-0 text-[color:var(--app-tertiary-label)]"
                 aria-hidden
               />
             ) : null}
             {item.href && !isLast ? (
               <button
                 type="button"
-                className="max-w-[9rem] shrink-0 truncate text-[color:var(--app-secondary-label)] transition-colors hover:text-current"
+                className="min-w-0 max-w-[9rem] shrink truncate text-[color:var(--app-secondary-label)] transition-colors hover:text-current"
                 onClick={() =>
                   requestInternalAppNavigation({
                     href: item.href!,
@@ -416,8 +423,10 @@ function TopShellBreadcrumbTrail({
             ) : (
               <span
                 className={cn(
-                  "min-w-0 truncate",
-                  isLast ? "font-semibold text-current" : "text-[color:var(--app-secondary-label)]",
+                  "truncate",
+                  isLast
+                    ? "min-w-0 shrink-0 font-semibold text-current"
+                    : "min-w-0 shrink text-[color:var(--app-secondary-label)]",
                 )}
                 aria-current={isLast ? "page" : undefined}
               >
