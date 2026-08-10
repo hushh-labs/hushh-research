@@ -26,6 +26,29 @@ describe("One Location settings placement", () => {
     expect(nowSource).not.toContain('title="Privacy"');
   });
 
+  it("offers Request Location directly above Settings in the Now hub", () => {
+    // The Now hub listed every way to give a location out -- Share, Map, Active
+    // shares, Shared with me -- and no way to ask for one; asking was reachable
+    // only from the People tab. Placement matters: it belongs with the other
+    // list entries, immediately above Settings, not buried in Quick actions.
+    const nowStart = HUB_SOURCE.indexOf("function NowHub");
+    const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
+    const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
+
+    expect(nowSource).toContain('testId="one-location-request-row"');
+    expect(nowSource).toContain('title="Request Location"');
+
+    const requestIndex = nowSource.indexOf('title="Request Location"');
+    const settingsIndex = nowSource.indexOf('title="Settings"');
+    expect(requestIndex).toBeGreaterThan(-1);
+    expect(settingsIndex).toBeGreaterThan(requestIndex);
+
+    // Reuses the existing ask flow rather than introducing a second one, so
+    // voice and the search bar keep naming a single control.
+    expect(nowSource).toContain('voiceControlId="one-location-action-ask"');
+    expect(HUB_SOURCE).toContain('onRequestLocation={() => openFlow("ask")}');
+  });
+
   it("owns Saved Locations and does not duplicate it in Profile preferences", () => {
     const settingsStart = HUB_SOURCE.indexOf("function LocationSettingsFlow");
     const settingsEnd = HUB_SOURCE.indexOf("/* PEOPLE HUB", settingsStart);

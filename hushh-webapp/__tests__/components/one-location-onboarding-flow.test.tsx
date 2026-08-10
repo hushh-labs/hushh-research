@@ -359,6 +359,23 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.queryByText("Connected Person")).toBeNull();
   });
 
+  it("lets Skip leave the add-people screen without choosing anyone", () => {
+    // Skip used to call the Continue handler, which rejects an empty selection
+    // with "Choose at least one contact" -- so the button offered a way out and
+    // then refused to take it. Needing a contact to finish setup is the exact
+    // friction this screen should avoid; contacts can be added later from
+    // Connect.
+    const props = renderFlow();
+    openPeopleScreen();
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+
+    expect(props.onSkip).toHaveBeenCalledTimes(1);
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(props.onSendConnectionRequests).not.toHaveBeenCalled();
+  });
+
+
   it("requests only missing permissions as screen two opens", () => {
     const props = renderFlow();
 
@@ -542,30 +559,6 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
   });
 
-  it("does not let people-screen Skip bypass the required contact", () => {
-    const props = renderFlow({
-      people: [people[1]!],
-      connections: [],
-    });
-    openPeopleScreen();
-
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-
-    expect(toast.error).toHaveBeenCalledWith(
-      "Choose at least one contact",
-      {
-        description:
-          "One Location works best with someone in your circle. You can update contacts later from the Connect tab.",
-      },
-    );
-    expect(screen.getByTestId("one-location-onboarding-people")).toBeTruthy();
-    expect(
-      screen.queryByTestId("one-location-onboarding-circle"),
-    ).toBeNull();
-    expect(props.onSkip).not.toHaveBeenCalled();
-    expect(props.onComplete).not.toHaveBeenCalled();
-    expect(props.onSendConnectionRequests).not.toHaveBeenCalled();
-  });
 
   it("sends deliberate requests, shows selected people, and auto-completes after four seconds", async () => {
     vi.useFakeTimers();
