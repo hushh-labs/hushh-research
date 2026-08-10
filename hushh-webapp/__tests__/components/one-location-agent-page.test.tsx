@@ -1208,12 +1208,14 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "What are you sharing?" }),
     ).toBeTruthy();
+    // The precision options are gone: nothing behind them ever coarsened the
+    // point, so offering the choice made a privacy promise the share did not
+    // keep. Asserting their absence is what stops the dead control returning
+    // before there is a real precision mode to attach it to.
+    expect(screen.queryByText("Better for privacy and battery life")).toBeNull();
     expect(
-      screen.getByText("Better for privacy and battery life"),
-    ).toBeTruthy();
-    expect(
-      screen.getByText("Updates while you move for your loved ones"),
-    ).toBeTruthy();
+      screen.queryByText("Updates while you move for your loved ones"),
+    ).toBeNull();
     expect(screen.queryByText("Private by design")).toBeNull();
 
     const duration = screen.getByRole("combobox", { name: "Duration" });
@@ -1354,7 +1356,6 @@ describe("OneLocationAgentPage", () => {
       target: { value: "Trusted" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("radio", { name: /Approximate area/i }));
     fireEvent.click(screen.getByRole("combobox", { name: "Duration" }));
     fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Optional note" }), {
@@ -1420,12 +1421,14 @@ describe("OneLocationAgentPage", () => {
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    // No precision radios to reset — the reopened flow offers only the fields
+    // that actually carry through to the share.
     expect(
-      screen.getByRole("radio", { name: /Precise live location/i }),
-    ).toHaveAttribute("aria-checked", "true");
+      screen.queryByRole("radio", { name: /Precise live location/i }),
+    ).toBeNull();
     expect(
-      screen.getByRole("radio", { name: /Approximate area/i }),
-    ).toHaveAttribute("aria-checked", "false");
+      screen.queryByRole("radio", { name: /Approximate area/i }),
+    ).toBeNull();
     expect(
       screen.getByRole("combobox", { name: "Duration" }).textContent,
     ).toContain("15 min");
