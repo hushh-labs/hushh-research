@@ -1,10 +1,12 @@
 # UAT Apple iOS-First Migration Route Matrix
 
-Generated: 2026-08-09T19:57:31.036Z
+Generated: 2026-08-10T00:00:00.000Z
 
 Source inputs: `hushh-webapp/lib/navigation/app-route-layout.contract.json`, `hushh-webapp/app/**/page.*`, and user-supplied Apple iOS-first migration docs.
 
 Status key: `Not started` means inventory only; rendered verification is still required before any route can be marked complete. Welcome is excluded by the migration prompt.
+
+Current shared hierarchy pass: shared typography roles and high-leverage shared components are normalized, but individual routes remain unverified until rendered browser proof is captured.
 
 ## Visual Context
 

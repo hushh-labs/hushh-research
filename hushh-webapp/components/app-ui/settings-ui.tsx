@@ -35,6 +35,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  CardTitle,
+  PageSubtitle,
+  RowDescription,
+  RowLabel,
+  SectionLabel,
+  TrailingAction,
+  TrailingValue,
+} from "@/components/app-ui/typography";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
@@ -216,24 +225,24 @@ export function SettingsGroup({
       {eyebrow || title || description ? (
         <div className="mb-2 mt-7 space-y-[var(--settings-heading-stack-gap)] px-[6px]">
           {eyebrow || title ? (
-            <div
+            <SectionLabel
               data-slot="settings-group-heading"
               role="heading"
               aria-level={embedded ? 3 : 2}
-              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73] [overflow-wrap:anywhere]"
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-pretty [overflow-wrap:anywhere]"
             >
               {eyebrow ? (
-                <span className="font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">
+                <span>
                   {eyebrow}
                 </span>
               ) : null}
               {title ? <span>{title}</span> : null}
-            </div>
+            </SectionLabel>
           ) : null}
           {description ? (
-            <p className="max-w-2xl text-[13px] leading-[18px] text-muted-foreground [overflow-wrap:anywhere]">
+            <RowDescription className="max-w-2xl [overflow-wrap:anywhere]">
               {description}
-            </p>
+            </RowDescription>
           ) : null}
         </div>
       ) : null}
@@ -355,22 +364,24 @@ export function SettingsRow({
         </span>
       ) : null}
       <div className="min-w-0 flex-1 space-y-0.5">
-        <div
+        <RowLabel
+          as="div"
           data-slot="settings-row-title"
           className={cn(
-            "text-[17px] font-normal leading-[22px] tracking-normal text-foreground [overflow-wrap:anywhere]",
+            "[overflow-wrap:anywhere]",
             tone === "destructive" && "text-destructive",
           )}
         >
           {title}
-        </div>
+        </RowLabel>
         {description ? (
-          <div
+          <RowDescription
+            as="div"
             data-slot="settings-row-description"
-            className="text-[15px] leading-[20px] text-muted-foreground [overflow-wrap:anywhere]"
+            className="[overflow-wrap:anywhere]"
           >
             {description}
-          </div>
+          </RowDescription>
         ) : null}
       </div>
     </div>
@@ -615,16 +626,16 @@ export function AdaptiveDetailSurface({
                 {leading ? <div className="shrink-0">{leading}</div> : null}
                 <div className="min-w-0">
                   {eyebrow ? (
-                    <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+                    <SectionLabel as="p">
                       {eyebrow}
-                    </p>
+                    </SectionLabel>
                   ) : null}
-                  <SheetTitle className="truncate text-base font-semibold tracking-tight">
+                  <SheetTitle className="ui-text-navigation-title truncate">
                     {title}
                   </SheetTitle>
                   <SheetDescription
                     className={cn(
-                      "line-clamp-2 text-sm leading-5",
+                      "ui-text-row-description line-clamp-2",
                       !description && "sr-only",
                     )}
                   >
@@ -672,16 +683,16 @@ export function AdaptiveDetailSurface({
               {leading ? <div className="shrink-0">{leading}</div> : null}
               <div className="min-w-0">
                 {eyebrow ? (
-                  <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+                  <SectionLabel as="p">
                     {eyebrow}
-                  </p>
+                  </SectionLabel>
                 ) : null}
-                <DrawerTitle className="truncate text-base font-semibold tracking-tight">
+                <DrawerTitle className="ui-text-navigation-title truncate">
                   {title}
                 </DrawerTitle>
                 <DrawerDescription
                   className={cn(
-                    "line-clamp-2 text-sm leading-5 sm:leading-6",
+                    "ui-text-row-description line-clamp-2",
                     !description && "sr-only",
                   )}
                 >
@@ -731,16 +742,16 @@ export function AdaptiveDetailSurface({
             {leading ? <div className="shrink-0">{leading}</div> : null}
             <div className="min-w-0">
               {eyebrow ? (
-                <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+                <SectionLabel as="p">
                   {eyebrow}
-                </p>
+                </SectionLabel>
               ) : null}
-              <DialogTitle className="truncate text-base font-semibold tracking-tight">
+              <DialogTitle className="ui-text-navigation-title truncate">
                 {title}
               </DialogTitle>
               <DialogDescription
                 className={cn(
-                  "line-clamp-2 text-sm leading-6",
+                  "ui-text-row-description line-clamp-2",
                   !description && "sr-only",
                 )}
               >
@@ -772,3 +783,13 @@ export function AdaptiveDetailSurface({
 export function SettingsDetailPanel(props: AdaptiveDetailSurfaceProps) {
   return <AdaptiveDetailSurface {...props} />;
 }
+
+export {
+  CardTitle,
+  PageSubtitle,
+  RowDescription,
+  RowLabel,
+  SectionLabel,
+  TrailingAction,
+  TrailingValue,
+};
