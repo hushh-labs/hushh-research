@@ -190,7 +190,12 @@ export function SmsContactsFlow({
       data-ambient-chrome-ignore
       data-testid="sms-contacts-screen"
     >
-      <div className="mx-auto min-h-[100dvh] w-full max-w-[430px] px-3.5 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(38px,env(safe-area-inset-top))]">
+      {/* 430px is a phone, not a layout. Held at every width it left most of a
+          tablet or a desktop window as empty grey while the lists below scrolled
+          inside a narrow ribbon. The column grows with the viewport instead, and
+          stops at 960px so the rows never stretch into unreadable full-bleed
+          lines. */}
+      <div className="mx-auto min-h-[100dvh] w-full max-w-[430px] px-3.5 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(38px,env(safe-area-inset-top))] md:max-w-[720px] md:px-6 xl:max-w-[960px]">
         <button
           type="button"
           onClick={onBack}
@@ -260,7 +265,10 @@ export function SmsContactsFlow({
                 the invite code so loved ones can join before they become SMS
                 contacts. Membership never auto-adds anyone to SMS. */}
             {circles.map((circle) => (
-              <div key={`grow-${circle.id}`} className="mt-3 px-1">
+              <div
+                key={`grow-${circle.id}`}
+                className="mt-3 px-1 md:max-w-[520px]"
+              >
                 <p className={cn(SECTION_HEADING, "mb-1.5")}>
                   Grow {circle.name}
                 </p>
@@ -284,57 +292,68 @@ export function SmsContactsFlow({
         ) : null}
 
 
-        <p className={cn(SECTION_HEADING, "mb-2 mt-6 px-[6px]")}>
-          Alerted on SMS
-        </p>
-        {selected.length ? (
-          <ContactGroup>
-            {selected.map((recipient, index) => (
-              <ContactRow
-                key={recipient.userId}
-                recipient={recipient}
-                index={index}
-                selected
-                ready={isRecipientShareReady(recipient)}
-                busy={busyKey === `sms-contact:${recipient.userId}`}
-                onAdd={() => onAdd(recipient.userId)}
-                onAskRemove={() => setPendingRemoval(recipient)}
-                recipientLabel={recipientLabel}
-                recipientSubtitle={recipientSubtitle}
-              />
-            ))}
-          </ContactGroup>
-        ) : (
-          <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-5 text-center text-[15px] leading-5 text-muted-foreground">
-            No SMS contacts yet. Add someone from your circle below.
+        {/* The two lists are one task: moving a person from "can be added" to
+            "will be alerted". Stacked, the destination sits off-screen while you
+            work the source. Side by side once there is room, the move is visible
+            in a single glance — which is the whole reason to want the width.
+            `items-start` keeps a short column from stretching to match a long one. */}
+        <div className="mt-6 md:grid md:grid-cols-2 md:items-start md:gap-x-6">
+          <div>
+            <p className={cn(SECTION_HEADING, "mb-2 px-[6px]")}>
+              Alerted on SMS
+            </p>
+            {selected.length ? (
+              <ContactGroup>
+                {selected.map((recipient, index) => (
+                  <ContactRow
+                    key={recipient.userId}
+                    recipient={recipient}
+                    index={index}
+                    selected
+                    ready={isRecipientShareReady(recipient)}
+                    busy={busyKey === `sms-contact:${recipient.userId}`}
+                    onAdd={() => onAdd(recipient.userId)}
+                    onAskRemove={() => setPendingRemoval(recipient)}
+                    recipientLabel={recipientLabel}
+                    recipientSubtitle={recipientSubtitle}
+                  />
+                ))}
+              </ContactGroup>
+            ) : (
+              <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-5 text-center text-[15px] leading-5 text-muted-foreground">
+                No SMS contacts yet. Add someone from your circle below.
+              </div>
+            )}
           </div>
-        )}
 
-        <p className={cn(SECTION_HEADING, "mb-2 mt-6 px-[6px]")}>
-          Add from your circle
-        </p>
-        {available.length ? (
-          <ContactGroup>
-            {available.map((recipient, index) => (
-              <ContactRow
-                key={recipient.userId}
-                recipient={recipient}
-                index={index + selected.length}
-                selected={false}
-                ready={isRecipientShareReady(recipient)}
-                busy={busyKey === `sms-contact:${recipient.userId}`}
-                onAdd={() => onAdd(recipient.userId)}
-                onAskRemove={() => setPendingRemoval(recipient)}
-                recipientLabel={recipientLabel}
-                recipientSubtitle={recipientSubtitle}
-              />
-            ))}
-          </ContactGroup>
-        ) : (
-          <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-5 text-center text-[15px] leading-5 text-muted-foreground">
-            Everyone in your ready circle is already selected.
+          <div className="mt-6 md:mt-0">
+            <p className={cn(SECTION_HEADING, "mb-2 px-[6px]")}>
+              Add from your circle
+            </p>
+            {available.length ? (
+              <ContactGroup>
+                {available.map((recipient, index) => (
+                  <ContactRow
+                    key={recipient.userId}
+                    recipient={recipient}
+                    index={index + selected.length}
+                    selected={false}
+                    ready={isRecipientShareReady(recipient)}
+                    busy={busyKey === `sms-contact:${recipient.userId}`}
+                    onAdd={() => onAdd(recipient.userId)}
+                    onAskRemove={() => setPendingRemoval(recipient)}
+                    recipientLabel={recipientLabel}
+                    recipientSubtitle={recipientSubtitle}
+                  />
+                ))}
+              </ContactGroup>
+            ) : (
+              <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-5 text-center text-[15px] leading-5 text-muted-foreground">
+                Everyone in your ready circle is already selected.
+              </div>
+            )}
           </div>
-        )}
+        </div>
 
         <p className={cn(MUTED_TEXT, "mt-4 px-1")}>
           Only people in your circle can be SMS contacts. They&apos;re never
@@ -348,9 +367,13 @@ export function SmsContactsFlow({
           if (!open && !removing) setPendingRemoval(null);
         }}
       >
+        {/* A sheet that rises from the thumb is right on a phone and odd on a
+            desktop, where it lands far from the row that opened it and from the
+            pointer. Base classes stay exactly as they were — the phone case is
+            the tested one — and only wider viewports re-centre it. */}
         <AlertDialogContent
           size="sm"
-          className="!bottom-0 !left-1/2 !top-auto !w-full !max-w-[430px] !-translate-x-1/2 !translate-y-0 !gap-0 !rounded-b-none !rounded-t-[24px] !border-0 !bg-[color:var(--app-card-surface-default-solid)] !px-4 !pb-[max(20px,env(safe-area-inset-bottom))] !pt-5 !shadow-none"
+          className="!bottom-0 !left-1/2 !top-auto !w-full !max-w-[430px] !-translate-x-1/2 !translate-y-0 !gap-0 !rounded-b-none !rounded-t-[24px] !border-0 !bg-[color:var(--app-card-surface-default-solid)] !px-4 !pb-[max(20px,env(safe-area-inset-bottom))] !pt-5 !shadow-none md:!bottom-auto md:!top-1/2 md:!max-w-[400px] md:!-translate-y-1/2 md:!rounded-b-[24px] md:!pb-5 md:!shadow-xl"
         >
           <AlertDialogHeader className="!place-items-center !text-center sm:!place-items-center sm:!text-center">
             <span
