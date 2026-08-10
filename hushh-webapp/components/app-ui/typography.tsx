@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 export const TYPOGRAPHY_CLASSNAMES = {
   largeTitle: "ui-text-large-page-title",
   pageTitle: "ui-text-page-title",
+  agentTitle: "ui-text-agent-title",
   pageSubtitle: "ui-text-page-subtitle",
   navigationTitle: "ui-text-navigation-title",
   identityName: "ui-text-identity-name",
@@ -31,6 +32,7 @@ export const TYPOGRAPHY_CLASSNAMES = {
 const TYPOGRAPHY_ROLE_BY_CLASSNAME: Record<string, string> = {
   [TYPOGRAPHY_CLASSNAMES.largeTitle]: "large-title",
   [TYPOGRAPHY_CLASSNAMES.pageTitle]: "page-title",
+  [TYPOGRAPHY_CLASSNAMES.agentTitle]: "agent-title",
   [TYPOGRAPHY_CLASSNAMES.pageSubtitle]: "subtitle",
   [TYPOGRAPHY_CLASSNAMES.navigationTitle]: "nav-title",
   [TYPOGRAPHY_CLASSNAMES.identityName]: "identity-title",
@@ -93,6 +95,16 @@ export function PageTitle({ as = "h1", ...props }: RoleTextProps) {
     <SemanticText
       as={as}
       roleClassName={TYPOGRAPHY_CLASSNAMES.pageTitle}
+      {...props}
+    />
+  );
+}
+
+export function AgentTitle({ as = "h1", ...props }: RoleTextProps) {
+  return (
+    <SemanticText
+      as={as}
+      roleClassName={TYPOGRAPHY_CLASSNAMES.agentTitle}
       {...props}
     />
   );

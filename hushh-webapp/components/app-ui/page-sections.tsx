@@ -5,6 +5,7 @@ import type { LucideIcon } from "lucide-react";
 
 import { SurfaceCard, type SurfaceAccent, type SurfaceTone } from "@/components/app-ui/surfaces";
 import {
+  AgentTitle,
   CardTitle,
   PageSubtitle,
   PageTitle,
@@ -21,6 +22,7 @@ type SectionAccent =
   | "marketplace"
   | "developers"
   | "research"
+  | "location"
   | "success"
   | "warning"
   | "critical"
@@ -79,6 +81,11 @@ const ACCENT_STYLES: Record<SectionAccent, {
     eyebrow: "text-muted-foreground",
     icon:
       "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
+    divider: "bg-[color:var(--app-separator)]",
+  },
+  location: {
+    eyebrow: "text-muted-foreground",
+    icon: "bg-[color:var(--app-accent)] text-white shadow-none",
     divider: "bg-[color:var(--app-separator)]",
   },
   success: {
@@ -166,6 +173,7 @@ export function PageHeader({
   icon,
   leading,
   accent = "default",
+  titleRole = "page",
   className,
   testId = "page-header",
 }: {
@@ -178,10 +186,12 @@ export function PageHeader({
   icon?: LucideIcon;
   leading?: ReactNode;
   accent?: SectionAccent;
+  titleRole?: "page" | "agent";
   className?: string;
   testId?: string;
 }) {
   const styles = ACCENT_STYLES[accent];
+  const TitleComponent = titleRole === "agent" ? AgentTitle : PageTitle;
   return (
     <header
       className={cn("space-y-[var(--page-header-stack-gap)]", className)}
@@ -196,7 +206,10 @@ export function PageHeader({
             leading={leading}
             iconSize="lg"
             iconClassName={cn(
-              "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[8px]",
+              "flex shrink-0 items-center justify-center",
+              titleRole === "agent"
+                ? "h-11 w-11 rounded-[10px]"
+                : "h-[34px] w-[34px] rounded-[8px]",
               styles.icon
             )}
           />
@@ -221,9 +234,9 @@ export function PageHeader({
                   {eyebrow}
                 </SectionLabel>
               ) : null}
-              <PageTitle>
+              <TitleComponent>
                 {title}
-              </PageTitle>
+              </TitleComponent>
               {description && !descriptionFullWidth ? (
                 <PageSubtitle
                   as="div"

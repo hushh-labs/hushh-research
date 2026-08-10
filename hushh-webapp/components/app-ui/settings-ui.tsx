@@ -193,7 +193,7 @@ export function SettingsGroup({
       className={cn(
         // Inset settings groups use the compact card radius and flat grouped
         // Apple surfaces; separators inside the card carry the structure.
-        "relative isolate [--settings-group-radius:var(--app-card-radius-compact)] overflow-hidden rounded-[var(--settings-group-radius)]",
+        "relative isolate [--settings-group-radius:22px] overflow-hidden rounded-[var(--settings-group-radius)]",
         "bg-[color:var(--app-card-surface-default-solid)] shadow-none ring-0",
         !embedded && "sm:rounded-[var(--settings-group-radius)]",
         shellClassName,
@@ -321,15 +321,15 @@ export function SettingsRow({
     // need a full-width hairline; otherwise the divider appears arbitrarily cut
     // off, as it did on Connect's plain-text rows.
     icon || leading
-      ? "group-data-[inset-separators=true]/settings-list:after:left-[3.75rem] sm:group-data-[inset-separators=true]/settings-list:after:left-[4.25rem]"
+      ? "group-data-[inset-separators=true]/settings-list:after:left-[62px] sm:group-data-[inset-separators=true]/settings-list:after:left-[62px]"
       : "group-data-[inset-separators=true]/settings-list:after:left-0";
   const rowShellClassName = cn(
-    "group/settings-row relative isolate overflow-hidden bg-[color:var(--app-list-row-surface)] sm:bg-transparent",
-    resolvedDensity === "compact" && "[--settings-row-py:11px]",
+    "group/settings-row relative isolate overflow-hidden bg-transparent",
+    resolvedDensity === "compact" && "[--settings-row-py:13px]",
     // iOS-style separator — active only inside SettingsGroup with
     // separatorInset and hidden on the final row. Its start is derived from
     // whether this row actually has a leading visual.
-    "group-data-[inset-separators=true]/settings-list:after:pointer-events-none group-data-[inset-separators=true]/settings-list:after:absolute group-data-[inset-separators=true]/settings-list:after:bottom-0 group-data-[inset-separators=true]/settings-list:after:right-0 group-data-[inset-separators=true]/settings-list:after:h-px group-data-[inset-separators=true]/settings-list:after:bg-[color:var(--app-separator)] group-data-[inset-separators=true]/settings-list:after:content-[''] last:after:hidden",
+    "group-data-[inset-separators=true]/settings-list:after:pointer-events-none group-data-[inset-separators=true]/settings-list:after:absolute group-data-[inset-separators=true]/settings-list:after:bottom-0 group-data-[inset-separators=true]/settings-list:after:right-4 group-data-[inset-separators=true]/settings-list:after:h-px group-data-[inset-separators=true]/settings-list:after:bg-[color:var(--app-separator)] group-data-[inset-separators=true]/settings-list:after:content-[''] last:after:hidden",
     separatorInsetClassName,
     rowRadiusClassName,
     disabled && "cursor-not-allowed opacity-60",
@@ -354,13 +354,13 @@ export function SettingsRow({
             // Keep settings icons as iOS-style rounded-square utility wells.
             // Agent artwork continues to use AgentSectionIcon, which owns the
             // larger launcher/menu geometry separately.
-            "inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center self-center rounded-[8px]",
+            "inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center self-center rounded-[9px]",
             resolvedDensity !== "compact" &&
-              "sm:h-[34px] sm:w-[34px] sm:rounded-[8px]",
+              "sm:h-[34px] sm:w-[34px] sm:rounded-[9px]",
             SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
           )}
         >
-          <Icon icon={icon} size="md" />
+          <Icon icon={icon} size={19} />
         </span>
       ) : null}
       <div className="min-w-0 flex-1 space-y-0.5">
@@ -386,8 +386,14 @@ export function SettingsRow({
       </div>
     </div>
   );
+  const renderedTrailing =
+    typeof trailing === "string" || typeof trailing === "number" ? (
+      <TrailingValue>{trailing}</TrailingValue>
+    ) : (
+      trailing
+    );
   const trailingContent =
-    trailing || chevron ? (
+    renderedTrailing || chevron ? (
       <div
         className={cn(
           "relative z-0 flex max-w-full shrink-0 items-center justify-end self-center gap-2.5 pr-0.5 sm:pr-1",
@@ -395,7 +401,7 @@ export function SettingsRow({
             "w-full min-w-0 justify-between pl-[var(--settings-row-stack-indent,2.65rem)] pt-1 sm:w-auto sm:justify-end sm:pl-0 sm:pt-0",
         )}
       >
-        {trailing}
+        {renderedTrailing}
         {chevron ? (
           <ChevronRight
             className={cn(
@@ -408,7 +414,7 @@ export function SettingsRow({
     ) : null;
 
   const sharedClassName = cn(
-    "relative isolate grid w-full appearance-none overflow-hidden border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent]",
+    "relative isolate grid min-h-[60px] w-full appearance-none overflow-hidden border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent]",
     shouldStackTrailing
       ? "grid-cols-1 gap-y-[var(--settings-row-stack-gap)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-[var(--settings-row-gap)] sm:gap-y-0"
       : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-[var(--settings-row-gap)]",
@@ -416,7 +422,7 @@ export function SettingsRow({
       "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0",
   );
   const primaryActionClassName = cn(
-    "relative isolate min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+    "relative isolate min-h-[60px] min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
   );
   const voiceProps = {
     "data-voice-control-id": voiceControlId || undefined,
