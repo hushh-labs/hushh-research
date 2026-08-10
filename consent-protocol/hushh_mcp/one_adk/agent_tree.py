@@ -334,6 +334,21 @@ ONE_IDENTITY_INSTRUCTION: str = (
     # the yes or no from the person's own transcript and runs the same
     # confirm-and-settle path a tap runs, so One's only job is to put the
     # question and then stop talking.
+    # Sharing a location with a NAMED person. The one question exists to catch
+    # a mis-heard name, not to ask permission -- so it has to name the person
+    # the app actually matched, which One only knows after the select step has
+    # run. Two tool calls, but the person is asked exactly once.
+    "To share location with someone the person NAMES ('share my location with "
+    "Sarah for an hour'), do it in two steps and ask exactly one question. "
+    "First call run_app_action with location.select_share_recipient and the "
+    "name you heard. Its result tells you who the app MATCHED. Then ask one "
+    "short question naming that person and the duration -- 'Share your "
+    "location with Sarah Chen for one hour?' -- using the matched name, not "
+    "the name you heard, because the whole point is to let them catch a wrong "
+    "match. Wait for their answer. On yes, call run_app_action with "
+    "location.share_selected and the duration. If the result says several "
+    "people matched, ask which one and select again; never pick for them. If "
+    "it says nobody matched, say so and stop.\n\n"
     "When an action needs confirmation, ASK FOR IT OUT LOUD as one short "
     "yes-or-no question naming what will happen and whatever makes it "
     "specific -- who, how long, how much: 'Share your location with Sarah for "

@@ -6947,13 +6947,24 @@ export function OneLocationAgentPageContent({
       // Never guess between people. Two colleagues sharing a first name is
       // ordinary, and picking the wrong one here is not recoverable once the
       // share starts.
+      // Naming them is the point: "which Sarah?" is only answerable if the
+      // person hears both. Bounded to the handful that actually matched the
+      // name they just said.
+      const names = matches
+        .slice(0, 4)
+        .map((recipient) => recipientLabel(recipient).trim())
+        .filter(Boolean)
+        .join(", ");
       return {
         status: "blocked" as const,
-        summary: `${matches.length} people match that name. Tap the right one on screen.`,
+        summary: names
+          ? `${matches.length} people match that name: ${names}. Ask which one they meant.`
+          : `${matches.length} people match that name. Ask which one they meant.`,
       };
     }
-    const matchedUserId = matches[0]?.userId;
-    if (!matchedUserId) {
+    const match = matches[0];
+    const matchedUserId = match?.userId;
+    if (!match || !matchedUserId) {
       return {
         status: "blocked" as const,
         summary: "Nobody in your connections matches that name.",
@@ -6962,10 +6973,25 @@ export function OneLocationAgentPageContent({
     setSelectedRecipientIds((current) =>
       current.includes(matchedUserId) ? current : [...current, matchedUserId],
     );
+    // The RESOLVED name goes back, and that is the safety mechanism rather
+    // than a leak.
+    //
+    // Phase 4 deliberately counted people instead of naming them, to keep the
+    // contact list out of the model's context. Echoing back what the person
+    // already said verifies nothing though: "sarah" confirms only that we
+    // heard a sound. Hearing "Sarah Chen" is what lets a wrong match die in
+    // the question instead of on someone's phone.
+    //
+    // The disclosure is bounded to exactly that: one contact, the person's
+    // own, resolved from a name they just said aloud, spoken back to them.
+    // No id, no address, no list -- and still nothing about anyone they did
+    // not name.
+    const matchedName = recipientLabel(match).trim();
     return {
       status: "succeeded" as const,
-      summary:
-        "Selected them in the share composer. Check the name on screen, then say share to start.",
+      summary: matchedName
+        ? `Matched ${matchedName}. Ask the person to confirm that is who they meant, and for how long, then start the share.`
+        : "Matched one person. Ask the person to confirm who they meant, then start the share.",
     };
   });
 
