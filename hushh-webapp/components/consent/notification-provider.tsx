@@ -478,6 +478,23 @@ function oneLocationNotificationId(data: Record<string, string>): string {
   );
 }
 
+/**
+ * Format an optional coordinate pair as a human-readable fallback, e.g.
+ * "10.7904° N, 78.7047° E". Returns undefined unless both values are finite, so
+ * a missing/partial point simply omits the coordinate fallback.
+ */
+function formatOptionalCoordinates(
+  latRaw: unknown,
+  lngRaw: unknown,
+): string | undefined {
+  const lat = Number(latRaw);
+  const lng = Number(lngRaw);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined;
+  const latHemisphere = lat >= 0 ? "N" : "S";
+  const lngHemisphere = lng >= 0 ? "E" : "W";
+  return `${Math.abs(lat).toFixed(4)}° ${latHemisphere}, ${Math.abs(lng).toFixed(4)}° ${lngHemisphere}`;
+}
+
 function oneLocationPayloadRoute(
   data: Record<string, string>,
   fallback: string,
@@ -768,6 +785,21 @@ export function ConsentNotificationProvider({
         shareKind: data.share_kind,
         notificationProfile: data.notification_profile,
       });
+      // Forward-compatible last-known location for the emergency toast. The
+      // share point is end-to-end encrypted, so these are only present when a
+      // coarse locality is explicitly attached to the alert; when absent the
+      // toast omits the location line entirely (never a broken/pending state).
+      const emergencyAddress =
+        String(
+          data.last_known_address ||
+            data.formatted_address ||
+            data.share_location_label ||
+            "",
+        ).trim() || null;
+      const emergencyCoordinatesFallback = formatOptionalCoordinates(
+        data.share_point_lat,
+        data.share_point_lng,
+      );
       playOneLocationNotificationSound(data.share_kind);
 
       toast(
@@ -775,6 +807,8 @@ export function ConsentNotificationProvider({
           <EmergencySmsNotificationToast
             title={title}
             description={description}
+            address={emergencyAddress}
+            coordinatesFallback={emergencyCoordinatesFallback}
             onOpen={() => {
               markOneLocationGrantOpened(user.uid, grantId);
               toast.dismiss(toastKey);

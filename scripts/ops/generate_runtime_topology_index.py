@@ -142,14 +142,25 @@ def build_index() -> dict[str, Any]:
         raise ValueError(f"runtime wiring references unauthored agents: {unknown_wiring_agents}")
 
     layout_routes = set(layout_by_route)
+    # A query-qualified entry (`/one/kai?tab=analysis`) is a canonical_screen
+    # override layered on a physical route, not a route of its own -- the
+    # layout, surface map and cache manifest each index a pathname exactly
+    # once. Comparing variants against the physical layout would demand a
+    # physical route that does not exist, and declaring one in the layout to
+    # satisfy this check would immediately break the other two comparisons,
+    # which have no such entry. So coverage is asserted on physical routes;
+    # the variants' own pathnames are still covered by their parent entry.
+    orchestration_physical = {
+        route for route in orchestration_by_route if "?" not in route
+    }
     for name, rows in (
-        ("surface map", surface_by_route),
-        ("cache manifest", cache_by_route),
-        ("route orchestration index", orchestration_by_route),
+        ("surface map", set(surface_by_route)),
+        ("cache manifest", set(cache_by_route)),
+        ("route orchestration index", orchestration_physical),
     ):
-        if set(rows) != layout_routes:
-            missing_routes = sorted(layout_routes - set(rows))
-            extra_routes = sorted(set(rows) - layout_routes)
+        if rows != layout_routes:
+            missing_routes = sorted(layout_routes - rows)
+            extra_routes = sorted(rows - layout_routes)
             raise ValueError(
                 f"{name} route coverage differs from route layout: "
                 f"missing={missing_routes}, extra={extra_routes}"

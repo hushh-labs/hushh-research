@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 _PLACES_BASE = "https://places.googleapis.com"
 _PLACES_NEARBY_URL = f"{_PLACES_BASE}/v1/places:searchNearby"
+_PLACES_TEXT_URL = f"{_PLACES_BASE}/v1/places:searchText"
 _ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 _GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 _NEARBY_CHECK_IN_RADIUS_METERS = 500.0
@@ -266,6 +267,23 @@ def _country_code_from_components(components: Any) -> str | None:
     return None
 
 
+def _postal_code_from_components(components: Any) -> str:
+    """Read a postal code from Geocoding or Places address components."""
+    if not isinstance(components, list):
+        return ""
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        types = component.get("types") or []
+        if "postal_code" not in types:
+            continue
+        value = component.get("long_name") or component.get("longText")
+        normalized = str(value or "").strip()
+        if normalized:
+            return normalized
+    return ""
+
+
 def _distance_meters(
     *,
     origin_lat: float,
@@ -360,6 +378,57 @@ def _check_in_place_identity(
 
 
 class GoogleMapsService:
+    async def resolve_place(self, *, query: str) -> dict[str, Any]:
+        """Postal code and coordinates for a free-text place ("FIRM, CITY, ST").
+
+        Text Search (New), not Geocoding: the Geocoding API is not enabled for
+        this key, and Places already is — the same reason ``reverse_geocode``
+        falls back to a nearby place. Enrichment only, so every failure path
+        (no key, transport, upstream error, no match) returns empty values and
+        never raises into the caller.
+        """
+        empty: dict[str, Any] = {"postal_code": "", "latitude": None, "longitude": None}
+        text = str(query or "").strip()
+        if not text or not GOOGLE_MAPS_API_KEY:
+            return empty
+        try:
+            async with _async_client() as client:
+                response = await client.post(
+                    _PLACES_TEXT_URL,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+                        "X-Goog-FieldMask": "places.addressComponents,places.location",
+                    },
+                    json={"textQuery": text, "maxResultCount": 1},
+                )
+        except httpx.HTTPError as exc:
+            logger.info("maps.resolve_place transport %s", type(exc).__name__)
+            return empty
+        if response.status_code >= 400:
+            logger.info("maps.resolve_place upstream %s", response.status_code)
+            return empty
+        try:
+            places = response.json().get("places") or []
+        except ValueError:
+            return empty
+        if not places or not isinstance(places[0], dict):
+            return empty
+        place = places[0]
+        location = place.get("location")
+        location = location if isinstance(location, dict) else {}
+        latitude = location.get("latitude")
+        longitude = location.get("longitude")
+        return {
+            "postal_code": _postal_code_from_components(place.get("addressComponents")),
+            "latitude": float(latitude) if isinstance(latitude, int | float) else None,
+            "longitude": float(longitude) if isinstance(longitude, int | float) else None,
+        }
+
+    async def resolve_postal_code(self, *, query: str) -> str:
+        """Just the postal code — see :meth:`resolve_place`."""
+        return str((await self.resolve_place(query=query)).get("postal_code") or "")
+
     async def _nearest_place_address(
         self,
         *,

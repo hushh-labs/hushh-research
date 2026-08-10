@@ -132,6 +132,15 @@ append_optional_secret "${_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET}" "ONE_EMAIL_WATCH
 append_optional_secret "${_WALLET_PASS_CERT_PEM_SECRET}" "WALLET_PASS_CERT_PEM"
 append_optional_secret "${_WALLET_PASS_KEY_PEM_SECRET}" "WALLET_PASS_KEY_PEM"
 append_optional_secret "${_WALLET_PASS_WWDR_PEM_SECRET}" "WALLET_PASS_WWDR_PEM"
+append_optional_secret "${_INTELLIGENCE_API_BASE_URL_SECRET}" "INTELLIGENCE_API_BASE_URL"
+append_optional_secret "${_INTELLIGENCE_API_KEY_SECRET}" "INTELLIGENCE_API_KEY"
+append_optional_secret "${_SUPPORT_EMAIL_TEST_TO_SECRET}" "SUPPORT_EMAIL_TEST_TO"
+append_optional_secret "${_SUPPORT_EMAIL_MODE_SECRET}" "SUPPORT_EMAIL_MODE"
+append_optional_secret "${_SUPPORT_EMAIL_DELEGATED_USER_SECRET}" "SUPPORT_EMAIL_DELEGATED_USER"
+append_optional_secret "${_SUPPORT_EMAIL_FROM_SECRET}" "SUPPORT_EMAIL_FROM"
+append_optional_secret "${_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET}" "GOOGLE_SERVICE_ACCOUNT_EMAIL"
+append_optional_secret "${_GOOGLE_PRIVATE_KEY_SECRET}" "GOOGLE_PRIVATE_KEY"
+append_optional_secret "${_RIA_CLAIM_TEST_EMAILS_SECRET}" "RIA_CLAIM_TEST_EMAILS"
 append_optional_secret "${_WALLET_API_KEY_SECRET}" "WALLET_API_KEY"
 
 # Runtime identity normally comes from _RUNTIME_ENVIRONMENT, falling back to the

@@ -46,6 +46,7 @@ import {
   TaskFlowHeader,
   TrustNoteCard,
 } from "@/components/one-location/redesign/primitives";
+import { MUTED_TEXT, SECTION_HEADING } from "@/components/one-location/redesign/tokens";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnection,
@@ -168,10 +169,10 @@ export function CirclesSection({
     <div className="space-y-3" data-testid="one-location-named-circles">
       <div className="flex items-center justify-between gap-3 px-1">
         <div>
-          <h2 className="text-[12px] font-bold uppercase tracking-[0.4px] text-black/40 dark:text-muted-foreground">
+          <h2 className={SECTION_HEADING}>
             Your circles
           </h2>
-          <p className="mt-0.5 text-[13px] text-black/50 dark:text-muted-foreground">
+          <p className={cn(MUTED_TEXT, "mt-1")}>
             Family and friends you choose to group together.
           </p>
         </div>
@@ -237,7 +238,7 @@ export function CirclesSection({
                   <p className="truncate text-[15px] font-semibold text-foreground">
                     {invite.circleName}
                   </p>
-                  <p className="text-[13px] leading-5 text-muted-foreground">
+                  <p className={MUTED_TEXT}>
                     Invited by {invite.inviterDisplayName}
                   </p>
                 </div>
@@ -329,6 +330,7 @@ export function CirclesSection({
         <Button
           type="button"
           onClick={onCreate}
+          data-voice-control-id="one-location-action-create-circle"
           className="h-11 rounded-full font-semibold"
         >
           <Plus className="mr-2 h-4 w-4" />
@@ -338,6 +340,7 @@ export function CirclesSection({
           type="button"
           variant="outline"
           onClick={onJoin}
+          data-voice-control-id="one-location-action-join-circle"
           className="h-11 rounded-full font-semibold"
         >
           <KeyRound className="mr-2 h-4 w-4" />
@@ -475,12 +478,15 @@ export function JoinCircleFlow({
   busy,
   onResolve,
   onJoin,
+  initialCode,
 }: {
   busy: boolean;
   onResolve: (code: string) => Promise<OneLocationCircleInvitePreview>;
   onJoin: (code: string) => Promise<void>;
+  /** Pre-fills the code input when arriving from a `/circle/join?code=` link. */
+  initialCode?: string;
 }) {
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(initialCode ?? "");
   const [resolved, setResolved] = useState<{
     code: string;
     preview: OneLocationCircleInvitePreview;
@@ -632,7 +638,7 @@ function CircleMemberRow({
           {member.displayName}
           {isCurrentUser ? " (you)" : ""}
         </p>
-        <p className="truncate text-[13px] text-muted-foreground">
+        <p className={cn(MUTED_TEXT, "truncate")}>
           {member.role === "owner"
             ? "Circle owner"
             : member.secureLocationReady
@@ -1104,7 +1110,7 @@ export function CircleDetailFlow({
                   <p className="break-all font-mono text-lg font-bold tracking-[0.08em] text-foreground min-[360px]:text-xl min-[360px]:tracking-[0.12em]">
                     {inviteCode.code}
                   </p>
-                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                  <p className={cn(MUTED_TEXT, "mt-2")}>
                     Joining connects Circle members. Location and SMS stay
                     private until each person chooses to share.
                   </p>

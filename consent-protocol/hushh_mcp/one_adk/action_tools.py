@@ -21,6 +21,7 @@ loaded through ``hushh_mcp.services.action_gateway``) is the routing authority:
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from google.adk.tools.tool_context import ToolContext
@@ -30,6 +31,7 @@ from hushh_mcp.services.action_gateway import (
     is_navigation_action,
     list_action_gateway_actions,
 )
+from hushh_mcp.services.live_voice_context import read_live_voice_context
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,6 @@ _STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
 _STATE_SCREEN = "hussh:screen"
 _STATE_VOICE_CONTEXT = "hussh:voice_context"
 _STATE_GOAL_RUN = "hussh:goal_run"
-_ANALYSIS_GOAL_ID = "goal.analysis.start_debate"
 
 # Manifest delegate ids -> One's specialist tool names. Only these redirect;
 # other delegate markers (e.g. "agent_kyc", which has no conversational
@@ -53,6 +54,45 @@ _DELEGATE_TOOL_BY_AGENT_ID: dict[str, str] = {
 }
 
 _MAX_LIST_RESULTS = 10
+_MAX_QUERY_TOKENS = 8
+# On-screen actions a queried call may keep for context after the real matches.
+_MAX_QUERY_FILLER = 4
+# Words that appear in almost every spoken request and would otherwise pull
+# unrelated actions to the front of a bounded result list.
+_QUERY_STOPWORDS = frozenset(
+    {
+        "the", "a", "an", "my", "me", "i", "you", "can", "could", "would",
+        "please", "for", "to", "of", "on", "in", "at", "and", "or", "is",
+        "it", "this", "that", "with", "do", "does", "want", "need", "get",
+        "show", "let", "us", "we", "how", "what", "one",
+    }
+)
+# Prefer what One can act on now when relevance ties.
+_AVAILABILITY_ORDER = {
+    "on_screen": 0,
+    "journey": 1,
+    "navigate_first": 2,
+}
+
+
+def _voice_context(tool_context: ToolContext) -> Any:
+    """The freshest sanitized browser context available to this tool.
+
+    ``run_live`` opens one long invocation per socket, so ``tool_context.state``
+    is frozen at connect time: after a navigation the relay knows the new
+    screen while every tool still reads the screen the person was on when they
+    started talking. A cross-screen journey could therefore never continue, and
+    each retry re-read the same stale value instead of converging.
+
+    Prefer the relay's live publication, keyed by this session, and fall back
+    to session state for non-live callers (typed chat, tests) which have no
+    socket and no staleness problem.
+    """
+    session_id = getattr(getattr(tool_context, "session", None), "id", None)
+    live = read_live_voice_context(session_id) if session_id else None
+    if isinstance(live, dict):
+        return live
+    return tool_context.state.get(_STATE_VOICE_CONTEXT)
 
 
 def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
@@ -63,7 +103,7 @@ def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
     absent context preserves compatibility for non-live callers; a present but
     empty list deliberately means no executable controls are available.
     """
-    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    context = _voice_context(tool_context)
     if not isinstance(context, dict) or "available_action_ids" not in context:
         return None
     ids = context.get("available_action_ids")
@@ -111,7 +151,7 @@ async def run_app_action(
             "message": f"'{clean_id}' is not a known app action.",
         }
 
-    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    context = _voice_context(tool_context)
     if isinstance(context, dict) and context.get("context_pending") is True:
         # The live relay seeded this marker at session start; the browser's
         # first app_context frame has not landed yet. Refusing outright here
@@ -174,6 +214,18 @@ async def run_app_action(
             "message": (
                 f"{label} must be done by the user in the app; I cannot trigger it.{where}"
             ),
+            # Guide mode: manual_only is not a dead end. State the guidance once
+            # and hand off -- the next [App route context] note (already
+            # re-injected on any visible_modules/interaction_layer change,
+            # regardless of action) is the existing, generic signal that the
+            # person acted; resume narrating from there.
+            "next_step": (
+                "Tell the person exactly what to do, then wait silently. Do not "
+                "repeat this guidance and do not propose an alternate action. "
+                "When a fresh [App route context] note arrives, that is your "
+                "signal the person acted -- resume narrating the next step from "
+                "its available action inventory."
+            ),
         }
 
     execution_target = entry.get("execution_target") or {}
@@ -201,6 +253,20 @@ async def run_app_action(
         and clean_id not in available_action_ids
         and not is_navigation_action(entry)
     ):
+        # A journey entry action is legitimately off-screen right now, but it is
+        # not out of reach: start_app_goal navigates to its authored destination
+        # first. Say so, instead of reporting a dead end the model can only
+        # answer by falling back to plain navigation.
+        if _is_journey_startable(entry):
+            logger.info("one_adk_action_decision action=%s status=use_start_app_goal", clean_id)
+            return {
+                "status": "use_start_app_goal",
+                "message": (
+                    f"'{clean_id}' is not on this screen, but it is a journey. "
+                    "Call start_app_goal with this exact action id and its "
+                    "required slots; it will open the right screen first."
+                ),
+            }
         logger.info("one_adk_action_decision action=%s status=action_unavailable", clean_id)
         return {
             "status": "action_unavailable",
@@ -313,7 +379,7 @@ async def run_app_action(
 
 
 def _context_revision(tool_context: ToolContext) -> str:
-    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    context = _voice_context(tool_context)
     if not isinstance(context, dict):
         return ""
     return str(context.get("context_revision") or "").strip()[:128]
@@ -366,6 +432,171 @@ def _settled_journey_definition(entry: dict[str, Any], action_id: str) -> dict[s
     }
 
 
+_JOURNEY_SLOT_MAX_CHARS = 64
+
+
+def _journey_slots(entry: dict[str, Any], slots: dict[str, Any]) -> dict[str, Any]:
+    """Bounded slot values for a journey run, per the action's goal contract.
+
+    Only slots the generated contract declares survive, so a journey can never
+    carry arbitrary model-authored state across a navigation. Values are
+    trimmed and length-capped; declared defaults fill an omitted slot.
+    """
+    raw_goal = entry.get("goal")
+    goal: dict[str, Any] = raw_goal if isinstance(raw_goal, dict) else {}
+    raw_schema = goal.get("slot_schema")
+    schema: dict[str, str] = (
+        {str(key): str(value) for key, value in raw_schema.items()}
+        if isinstance(raw_schema, dict)
+        else {}
+    )
+    defaults: dict[str, Any] = {}
+    for spec in goal.get("required_inputs") or []:
+        if not isinstance(spec, dict):
+            continue
+        slot_name = str(spec.get("slot") or spec.get("name") or "").strip()
+        if not slot_name:
+            continue
+        schema.setdefault(slot_name, str(spec.get("resolver") or ""))
+        if spec.get("default_value") not in (None, ""):
+            defaults[slot_name] = spec["default_value"]
+
+    resolved: dict[str, Any] = {}
+    for slot_name, resolver in schema.items():
+        name = slot_name.strip()
+        if not name:
+            continue
+        raw = (slots or {}).get(name)
+        if raw in (None, ""):
+            raw = defaults.get(name)
+        if raw in (None, ""):
+            continue
+        value = str(raw).strip()[:_JOURNEY_SLOT_MAX_CHARS]
+        # The contract names the resolver, so normalization stays declared
+        # rather than hardcoded per action. A ticker is canonically uppercase.
+        if resolver == "ticker_symbol":
+            value = value.upper()
+        resolved[name] = value
+    return resolved
+
+
+def _navigation_action_for_route(route: str) -> str | None:
+    """The wired action that opens ``route``, if one exists.
+
+    A navigate-then-execute journey is only real when One actually has a
+    generated way to reach the destination. Resolving it from the gateway --
+    rather than naming one in code -- is what keeps the journey authored in
+    the contract. Sorted so the choice is deterministic when a route has more
+    than one navigation action.
+    """
+    clean_route = str(route or "").strip()
+    if not clean_route:
+        return None
+    candidates: list[str] = []
+    for candidate in list_action_gateway_actions():
+        action_id = str(candidate.get("action_id") or "").strip()
+        if not action_id:
+            continue
+        # Any action that navigates to this route can walk someone there,
+        # whatever it is named. Requiring the ``route.`` prefix made whole
+        # destinations look unreachable: /one/setup/finance is opened only by
+        # ``setup.open_finance``, and /one/connect only by ``route.one_connect``.
+        target = candidate.get("execution_target") or {}
+        if target.get("path") != "route" or target.get("status") != "wired":
+            continue
+        if str(target.get("target") or "").strip() == clean_route:
+            candidates.append(action_id)
+    return sorted(candidates)[0] if candidates else None
+
+
+def _navigation_journey_definition(
+    entry: dict[str, Any], action_id: str
+) -> dict[str, Any] | None:
+    """Return an authored navigate-then-execute journey for ``action_id``.
+
+    The complement of ``_settled_journey_definition``: that shape runs an
+    action HERE and then offers a choice where it lands, while this one
+    navigates to an authored destination FIRST and runs the action there.
+
+    Both are declared entirely by the generated contract. This one is a single
+    ``action`` step naming itself plus the ``settlement_target`` it needs to be
+    standing on. Adding a second journey is therefore a contract edit, not a
+    code change -- which is the whole point: this path used to be a literal
+    ``if action_id != "analysis.start"``, so the app could only ever have one.
+    """
+    if action_id.startswith("route."):
+        # Navigation actions already ARE the navigation. Wrapping one in a
+        # journey would make it navigate to itself.
+        return None
+    execution_target = entry.get("execution_target")
+    if (
+        isinstance(execution_target, dict)
+        and execution_target.get("status") == "wired"
+        and execution_target.get("path") == "route"
+    ):
+        # The name prefix above was only ever a proxy for this: an action that
+        # executes BY navigating is its own navigation, whatever it is called.
+        # The Location surface authors its tabs and flows as ``location.*``
+        # route actions, and without this check the one whose target matches a
+        # wired ``route.*`` action exactly becomes a journey to where it
+        # already goes.
+        return None
+    goal = entry.get("goal")
+    if not isinstance(goal, dict):
+        return None
+    goal_id = str(goal.get("goal_id") or "").strip()
+    steps = goal.get("workflow_steps")
+    if not goal_id or not isinstance(steps, list) or len(steps) != 1:
+        return None
+    step = steps[0] if isinstance(steps[0], dict) else {}
+    settlement_target = step.get("settlement_target")
+    if (
+        step.get("type") != "action"
+        or str(step.get("action_id") or "") != action_id
+        or not isinstance(settlement_target, dict)
+    ):
+        return None
+    route = str(settlement_target.get("route") or "").strip()
+    screen = str(settlement_target.get("screen") or "").strip()
+    if not route or not screen:
+        return None
+    navigation_action_id = _navigation_action_for_route(route)
+    if not navigation_action_id or navigation_action_id == action_id:
+        # Nothing can escort itself. Once the resolver stopped requiring a
+        # `route.` name prefix it began finding surface-named navigations like
+        # `setup.open_email` -- including, for that action, itself.
+        return None
+    return {
+        "goal_id": goal_id,
+        "destination_route": route,
+        "destination_screen": screen,
+        "navigation_action_id": navigation_action_id,
+        "label": str(step.get("label") or "").strip(),
+    }
+
+
+def _is_journey_startable(entry: dict[str, Any]) -> bool:
+    """True when ``start_app_goal`` can begin this action from ANY screen.
+
+    This deliberately mirrors ``start_app_goal``'s own two accepted paths so
+    discovery can never advertise an action the runtime would then refuse: an
+    authored two-stage journey, or an authored navigate-then-execute journey.
+    Every other action still falls through to ``run_app_action``, which
+    correctly requires the control to be mounted on the current screen.
+
+    Without this, a journey's own entry action was unlistable from anywhere
+    except the screen it already lives on -- so One could never discover that
+    "analyze Nvidia" had a real cross-screen path, and settled for the plain
+    route.* navigation it could see instead.
+    """
+    action_id = str(entry.get("action_id") or "").strip()
+    if not action_id:
+        return False
+    if _settled_journey_definition(entry, action_id) is not None:
+        return True
+    return _navigation_journey_definition(entry, action_id) is not None
+
+
 def _deferred_choice(
     slots: dict[str, Any], journey: dict[str, Any]
 ) -> tuple[dict[str, Any], str | None]:
@@ -401,6 +632,18 @@ async def _start_settled_journey(
         }
 
     result = await run_app_action(action_id, action_slots, tool_context)
+    if result.get("status") == "use_start_app_goal":
+        # We ARE start_app_goal. Forwarding its "call start_app_goal" redirect
+        # would bounce the model straight back here forever, so collapse it to
+        # the honest terminal status: this journey's own first step is not
+        # mounted on the current screen, so the journey cannot begin.
+        return {
+            "status": "action_unavailable",
+            "message": (
+                f"'{action_id}' cannot start from this screen. "
+                "Call list_app_actions for the controls currently available."
+            ),
+        }
     if result.get("status") not in {"ok", "confirm_pending"}:
         return result
 
@@ -461,18 +704,22 @@ async def start_app_goal(
         journey = _settled_journey_definition(entry, clean_id)
         if journey is not None:
             return await _start_settled_journey(clean_id, slots, tool_context, entry, journey)
-    if clean_id != "analysis.start":
+    navigation_journey = (
+        _navigation_journey_definition(entry, clean_id) if entry is not None else None
+    )
+    if navigation_journey is None:
         return await run_app_action(clean_id, slots, tool_context)
-    if entry is None or str((entry.get("goal") or {}).get("goal_id") or "") != _ANALYSIS_GOAL_ID:
-        return {"status": "unknown_action", "message": "Stock analysis is not available."}
-    symbol = str((slots or {}).get("symbol") or "").strip().upper()
-    if not symbol:
+    goal_id = navigation_journey["goal_id"]
+    destination_screen = navigation_journey["destination_screen"]
+    missing = _missing_required_slot(entry or {}, slots or {})
+    if missing is not None:
         return {
             "status": "input_needed",
-            "missing_slot": "symbol",
-            "message": "Which stock should I analyze?",
+            "missing_slot": missing["slot"],
+            "message": missing["prompt"],
         }
-    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    journey_slots = _journey_slots(entry or {}, slots or {})
+    context = _voice_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
         return {
             "status": "context_not_ready",
@@ -485,37 +732,60 @@ async def start_app_goal(
         }
 
     current_screen = str(context.get("screen") or "")
+    # Asking for the action while already ON its destination needs no
+    # navigation, so there is no incoming context to wait for.
+    already_on_destination = current_screen == destination_screen
     run = {
         "schema_version": "one.goal_run.v1",
-        "goal_id": _ANALYSIS_GOAL_ID,
+        "goal_id": goal_id,
         "action_id": clean_id,
-        # Ticker and pick source are non-sensitive, bounded action slots.
-        "slots": {
-            "symbol": symbol,
-            "pickSource": str((slots or {}).get("pickSource") or "default")[:32],
-        },
+        # Bounded, non-sensitive action slots declared by the action's own
+        # generated goal contract. Nothing outside that schema is carried.
+        "slots": journey_slots,
         "step_cursor": 0,
-        "expected_screen": "kai_analysis",
-        "expected_context_revision": _context_revision(tool_context),
-        "status": "awaiting_analysis_context",
+        "expected_screen": destination_screen,
+        # This revision exists so continue_app_goal refuses to act on the
+        # OUTGOING screen's context after a navigation. With no navigation,
+        # stamping the current revision made that guard compare the value
+        # against itself and settle forever -- "analyse Nvidia" from the
+        # Analysis tab could never start, and retrying could never clear it
+        # because nothing was coming to change the revision. Leaving it empty
+        # stands the guard down for exactly the case it does not police.
+        "expected_context_revision": (
+            "" if already_on_destination else _context_revision(tool_context)
+        ),
+        "status": "awaiting_destination_screen",
     }
     tool_context.state[_STATE_GOAL_RUN] = run
-    if current_screen == "kai_analysis":
+    if already_on_destination:
         return await continue_app_goal(tool_context)
 
-    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:goal:{_ANALYSIS_GOAL_ID}"] = {
+    navigation_action_id = navigation_journey["navigation_action_id"]
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:goal:{goal_id}"] = {
         "kind": "action",
         "payload": {
-            "actionId": "route.kai_analysis",
+            "actionId": navigation_action_id,
             "slots": {},
-            "goalId": _ANALYSIS_GOAL_ID,
+            "goalId": goal_id,
             "goalRun": run,
         },
     }
+    # This navigation is indistinguishable from a bare route.* directive in the
+    # relay log -- both surface as the same route action. Without this line
+    # there is no way to tell "One started the journey" from "One just
+    # navigated and gave up", which is exactly the failure being chased.
+    logger.info(
+        "one_adk_goal_decision goal=%s action=%s status=navigation_started",
+        goal_id,
+        clean_id,
+    )
     return {
         "status": "navigation_started",
-        "message": "Opening Analysis, then I will prepare the stock preview.",
-        "goal_id": _ANALYSIS_GOAL_ID,
+        "message": (
+            f"Opening the {destination_screen.replace('_', ' ')} screen, "
+            "then I will continue."
+        ),
+        "goal_id": goal_id,
     }
 
 
@@ -523,7 +793,7 @@ async def _continue_settled_journey(
     run: dict[str, Any], tool_context: ToolContext
 ) -> dict[str, Any]:
     """Make an authored choice eligible only on its accepted destination."""
-    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    context = _voice_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
         return {"status": "settling", "message": "Waiting for the destination screen."}
     expected = run.get("settlement_target")
@@ -573,16 +843,34 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
     run = tool_context.state.get(_STATE_GOAL_RUN)
     if isinstance(run, dict) and run.get("schema_version") == "one.settled_action_journey.v1":
         return await _continue_settled_journey(run, tool_context)
-    if not isinstance(run, dict) or run.get("goal_id") != _ANALYSIS_GOAL_ID:
+    # Every outcome below is logged with a distinct reason. A stalled journey
+    # ("it opened Analysis and then nothing happened") is indistinguishable
+    # from a never-started one in the relay log, because both end at the same
+    # route.kai_analysis settlement. The reason tag is what separates "One
+    # never continued" from "One continued but the screen was not ready yet".
+    if (
+        not isinstance(run, dict)
+        or run.get("schema_version") != "one.goal_run.v1"
+        or not str(run.get("goal_id") or "").strip()
+    ):
+        logger.info("one_adk_goal_decision status=no_active_goal")
         return {"status": "no_active_goal", "message": "There is no app goal waiting to continue."}
-    context = tool_context.state.get(_STATE_VOICE_CONTEXT)
+    goal_id = str(run["goal_id"])
+    journey_action_id = str(run.get("action_id") or "").strip()
+    destination_screen = str(run.get("expected_screen") or "").strip()
+    context = _voice_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
-        return {"status": "settling", "message": "Waiting for fresh Analysis context."}
+        logger.info("one_adk_goal_decision status=settling reason=context_pending")
+        return {"status": "settling", "message": "Waiting for fresh destination context."}
     if (
         context.get("pending_settlement") is True
-        or str(context.get("screen") or "") != "kai_analysis"
+        or str(context.get("screen") or "") != destination_screen
     ):
-        return {"status": "settling", "message": "Waiting for the Analysis screen to settle."}
+        logger.info(
+            "one_adk_goal_decision status=settling reason=screen_not_settled screen=%s",
+            str(context.get("screen") or "")[:64],
+        )
+        return {"status": "settling", "message": "Waiting for the destination screen to settle."}
     expected_revision = str(run.get("expected_context_revision") or "")
     current_revision = _context_revision(tool_context)
     if (
@@ -591,7 +879,24 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
         and expected_revision == current_revision
         and run.get("step_cursor") == 0
     ):
-        return {"status": "settling", "message": "Waiting for a fresh Analysis context."}
+        logger.info("one_adk_goal_decision status=settling reason=stale_context_revision")
+        return {"status": "settling", "message": "Waiting for a fresh destination context."}
+
+    # The preview is minted exactly once per goal. Without this, every later
+    # continue_app_goal call re-minted a fresh analysis.start directive: the
+    # staleness guard above only inspects step_cursor 0, so once the preview
+    # had started there was nothing left to stop the loop, and the person got
+    # a new confirmation card every turn while none of them could complete.
+    if run.get("step_cursor", 0) >= 1:
+        logger.info("one_adk_goal_decision goal=%s status=preview_already_open", goal_id)
+        return {
+            "status": "preview_already_open",
+            "message": (
+                "This journey's step is already open on the screen. Ask the person "
+                "to confirm it there; do not start another one."
+            ),
+            "goal_id": goal_id,
+        }
 
     slots = run.get("slots") if isinstance(run.get("slots"), dict) else {}
     next_run = {
@@ -601,57 +906,187 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
         "status": "preview_started",
     }
     tool_context.state[_STATE_GOAL_RUN] = next_run
-    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:goal:{_ANALYSIS_GOAL_ID}:preview"] = {
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:goal:{goal_id}:preview"] = {
         "kind": "action",
         "payload": {
-            "actionId": "analysis.start",
+            "actionId": journey_action_id,
             "slots": slots,
-            "goalId": _ANALYSIS_GOAL_ID,
+            "goalId": goal_id,
             "goalRun": next_run,
         },
     }
+    logger.info(
+        "one_adk_goal_decision goal=%s action=%s status=preview_started",
+        goal_id,
+        journey_action_id,
+    )
     return {
         "status": "preview_started",
-        "message": "Opening the stock preview. The debate will wait for your confirmation.",
-        "goal_id": _ANALYSIS_GOAL_ID,
+        "message": (
+            "The journey's step is open on the screen. It waits for the person's "
+            "confirmation."
+        ),
+        "goal_id": goal_id,
     }
 
 
-async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, Any]:
-    """List generated actions that are executable from the active app context.
+def _query_tokens(query: str) -> list[str]:
+    """Lowercase word tokens from a model query, bounded and deduplicated."""
+    tokens: list[str] = []
+    for raw in re.split(r"[^a-z0-9]+", str(query or "").lower()):
+        token = raw.strip()
+        if len(token) < 2 or token in _QUERY_STOPWORDS or token in tokens:
+            continue
+        tokens.append(token)
+        if len(tokens) >= _MAX_QUERY_TOKENS:
+            break
+    return tokens
 
-    ``query`` is preserved for the model-facing tool contract, but is never
-    lexically ranked here. Semantic selection belongs to One; this loader only
-    projects the generated inventory and the browser's current control set.
+
+def _relevance_score(entry: dict[str, Any], tokens: list[str]) -> int:
+    """Rank one action against the query's tokens.
+
+    Purely lexical, over fields the contract already authors for this purpose
+    (aliases and search_keywords exist precisely so a person's words can find
+    an action). One still makes the final choice; this only decides which
+    actions get to be in front of it, because the result list is bounded and
+    an alphabetical slice is not a search.
     """
-    del query
-    ranked = sorted(list_action_gateway_actions(), key=lambda entry: str(entry.get("label") or ""))
+    if not tokens:
+        return 0
+    action_id = str(entry.get("action_id") or "").lower()
+    label = str(entry.get("label") or "").lower()
+    meaning = str(entry.get("meaning") or "").lower()
+    aliases = [str(value).lower() for value in (entry.get("aliases") or [])]
+    keywords = [str(value).lower() for value in (entry.get("search_keywords") or [])]
+
+    score = 0
+    joined = " ".join(tokens)
+    if joined and joined in aliases:
+        score += 90
+    for token in tokens:
+        if token in action_id:
+            score += 25
+        if token in label:
+            score += 20
+        if any(token in alias for alias in aliases):
+            score += 15
+        if token in keywords:
+            score += 12
+        if token in meaning:
+            score += 5
+    return score
+
+
+def _reachability(
+    entry: dict[str, Any],
+    action_id: str,
+    available_action_ids: set[str] | None,
+) -> tuple[str, str | None]:
+    """How One could actually reach ``action_id`` from where it is standing.
+
+    Discovery is not authority: ``run_app_action`` still refuses anything the
+    browser has not declared. What this adds is an honest next step, so an
+    off-screen answer becomes "open X first" instead of a dead end.
+    """
+    if available_action_ids is None or action_id in available_action_ids:
+        return "on_screen", None
+    if is_navigation_action(entry):
+        return "on_screen", None
+    if _is_journey_startable(entry):
+        return "journey", None
+    for route in (entry.get("reachability") or {}).get("routes") or []:
+        navigation_action_id = _navigation_action_for_route(str(route))
+        if navigation_action_id:
+            return "navigate_first", navigation_action_id
+    return "unreachable_from_here", None
+
+
+async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, Any]:
+    """List generated actions One can reach from the active app context.
+
+    Semantic selection still belongs to One, but the result list is bounded:
+    without ranking, One saw an alphabetical prefix of the catalog and simply
+    could not know that most of the app existed. ``query`` now decides which
+    actions occupy those slots, and a queried call may surface actions that
+    live on other screens -- each carrying how to reach it.
+
+    Execution authority is unchanged. Everything here is still filtered by the
+    generated manifest, and ``run_app_action`` still refuses any action the
+    browser has not declared on the current screen.
+    """
+    tokens = _query_tokens(query)
     available_action_ids = _available_action_ids(tool_context)
-    if available_action_ids is not None:
-        # Navigation actions stay listable from any screen (matching the
-        # run_app_action acceptance rule) so "where can I go" and "go to X"
-        # remain answerable even on surfaces with no local controls.
-        ranked = [
-            entry
-            for entry in ranked
-            if entry["action_id"] in available_action_ids or is_navigation_action(entry)
-        ]
-    results = []
-    for entry in ranked:
+    candidates: list[tuple[int, int, str, dict[str, Any], str, str | None]] = []
+    for entry in list_action_gateway_actions():
         if (entry.get("execution_target") or {}).get("status") != "wired":
             continue
+        action_id = str(entry.get("action_id") or "")
+        if not action_id:
+            continue
+        availability, open_first = _reachability(entry, action_id, available_action_ids)
+        score = _relevance_score(entry, tokens)
+        if availability == "unreachable_from_here":
+            continue
+        # An unqueried call is "what can I do here" -- answer with this screen
+        # rather than the whole app. Only an actual query opens the catalog,
+        # and then only to actions the query matched.
+        if availability not in {"on_screen", "journey"} and (not tokens or score <= 0):
+            continue
+        candidates.append(
+            (
+                -score,
+                _AVAILABILITY_ORDER.get(availability, 9),
+                str(entry.get("label") or ""),
+                entry,
+                availability,
+                open_first,
+            )
+        )
+
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+    if tokens:
+        # A queried call padded to the cap with whatever happened to be on
+        # screen buries the two or three actions that actually answered the
+        # question. Keep some on-screen context, but never at the cost of a
+        # match: a short relevant list beats a full mostly-irrelevant one.
+        matched = [item for item in candidates if item[0] < 0]
+        filler = [item for item in candidates if item[0] == 0][:_MAX_QUERY_FILLER]
+        candidates = matched + filler
+    selected = candidates[:_MAX_LIST_RESULTS]
+    results = []
+    for _, _, _, entry, availability, open_first in selected:
         delegate_tool = _DELEGATE_TOOL_BY_AGENT_ID.get(str(entry.get("delegate_agent_id") or ""))
+        # Always name the tool; never leave it to be inferred. A delegate wins
+        # (it owns the turn), then a journey (start_app_goal opens the right
+        # screen first), and everything else runs through run_app_action.
+        #
+        # Leaving it unset for ordinary actions left One to guess, and it
+        # guessed the action id WAS the tool. ADK then raised "Tool
+        # 'analysis.open_summary_tab' not found", which escaped the live flow
+        # and killed the relay pump -- one bad guess dropped the whole call.
+        # An action id and a tool name are different kinds of thing, so every
+        # result now says which one it is holding.
+        use_tool = delegate_tool or (
+            "start_app_goal" if _is_journey_startable(entry) else "run_app_action"
+        )
         results.append(
             {
                 "action_id": entry["action_id"],
                 "label": str(entry.get("label") or ""),
                 "meaning": str(entry.get("meaning") or ""),
-                "policy": str((entry.get("risk") or {}).get("execution_policy") or "allow_direct"),
-                **({"use_tool": delegate_tool} if delegate_tool else {}),
+                # Read from the action's own field. This used to read a `risk`
+                # object that is null on every generated action, so all 117
+                # reported as allow_direct -- One was told that 23 manual_only
+                # and 8 confirm_required actions needed no confirmation.
+                "policy": str(entry.get("execution_policy") or "allow_direct"),
+                "availability": availability,
+                **({"use_tool": use_tool} if use_tool else {}),
+                **({"open_first_action_id": open_first} if open_first else {}),
             }
         )
     return {
         "status": "ok",
         "total_actions": len(list_action_gateway_actions()),
-        "results": results[:_MAX_LIST_RESULTS],
+        "results": results,
     }

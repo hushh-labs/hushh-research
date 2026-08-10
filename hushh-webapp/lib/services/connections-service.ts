@@ -8,6 +8,8 @@ export interface DirectoryPerson {
   displayName: string | null;
   photoUrl: string | null;
   email: string | null;
+  maskedEmail?: string | null;
+  maskedPhone?: string | null;
   relationship: ConnectionRelationship;
 }
 

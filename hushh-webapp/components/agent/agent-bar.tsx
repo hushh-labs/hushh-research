@@ -65,6 +65,16 @@ import {
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import {
+  clearJourneyApproval,
+  isCoveredByJourneyApproval,
+  recordJourneyApproval,
+} from "@/lib/voice/journey-approval-grant";
+import {
+  resolveJourneyPlanForGoal,
+  resolveNavigationJourney,
+  type JourneyPlan,
+} from "@/lib/voice/navigation-journey";
 import { useAccent, writeAccent } from "@/lib/theme/accent";
 import {
   nextThemePreference,
@@ -100,7 +110,15 @@ type PendingVoiceConfirmation = {
   transport: RealtimeVoiceTransport | null;
   contextRevision: string;
   receipt?: string;
+  /** Set once the person has gone quiet on this card past the nudge window. */
+  nudgedAt?: number | null;
+  /**
+   * The journey this directive opens, when it opens one. Present means the
+   * card shows the whole plan and one approval covers its batchable steps.
+   */
+  plan?: JourneyPlan | null;
 };
+
 
 function readBrowserVoiceRoute() {
   if (typeof window === "undefined") return undefined;
@@ -159,14 +177,12 @@ async function settleAgentBarAction(
   });
 }
 
-// Precaution: if a live voice session sits idle (no user speech, no agent
-// speech, no tool/navigation activity) this long, close it automatically
-// instead of leaving an open mic/session hanging indefinitely. The timer is
-// reset on every bit of session activity (speech, thinking, tool results,
-// navigation), so this is a true "silence" window, not a hard cap. Mirrors the
-// idle-timeout pattern in `agent-chat-workspace.tsx`, scoped to the full
-// ambient session since Gemini Live has no per-turn stream to watch.
-const AGENT_BAR_VOICE_IDLE_TIMEOUT_MS = 10_000;
+
+// A confirmation card waits for an explicit tap; this only decides when to
+// nudge someone who's gone quiet on it. Nudging is a same-card text change,
+// not a re-ask -- it never re-sends anything to the backend, and it fires at
+// most once per card (see pendingConfirmationNudgeTimerRef).
+const PENDING_CONFIRMATION_NUDGE_MS = 12_000;
 
 // Screen-aware hint copy. First matching prefix wins, so order longest/most
 // specific routes before their parents. Falls back to a generic prompt.
@@ -266,6 +282,26 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const [conversationActive, setConversationActive] = useState(false);
   const [pendingConfirmation, setPendingConfirmation] =
     useState<PendingVoiceConfirmation | null>(null);
+  // Single-dialog confirm+run: the checkbox (not a separate first tap)
+  // triggers the receipt request; the Run button only lights up once the
+  // receipt lands. Reset alongside pendingConfirmation at every arm/clear
+  // site so a stale checkbox state can never leak into the next card.
+  const [voiceConsentChecked, setVoiceConsentCheckedState] = useState(false);
+  const [voiceConsentRequesting, setVoiceConsentRequesting] = useState(false);
+  // The journey approval lives in module scope, not component state: it has
+  // to survive the navigation it exists to span, and a ref does not survive a
+  // remount. See lib/voice/journey-approval-grant.ts.
+  const clearJourneyGrant = useCallback((reason: string) => {
+    clearJourneyApproval(reason);
+  }, []);
+  // Mirrors voiceConsentChecked for reads inside the confirmActionDirective
+  // .then()/.catch() closures below, which otherwise close over a stale
+  // value from whenever the request started rather than the live checkbox.
+  const voiceConsentCheckedRef = useRef(false);
+  const setVoiceConsentChecked = useCallback((value: boolean) => {
+    voiceConsentCheckedRef.current = value;
+    setVoiceConsentCheckedState(value);
+  }, []);
   const activeActionRun = useActiveActionRun();
   const pendingConfirmationRef = useRef<PendingVoiceConfirmation | null>(null);
   const voiceStatus = useAgentVoiceState((s) => s.status);
@@ -284,11 +320,22 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const activeRuntimeModeRef = useRef<"hushh_managed_vertex" | "byok" | null>(null);
   const lastTranscriptRef = useRef<{ text: string; atMs: number } | null>(null);
   const prewarmedRelayRef = useRef<PrewarmedGeminiRelay | null>(null);
-  // Idle-close precaution: any live-session activity (speech, thinking, tool
-  // results, navigation) reschedules this timer; if it ever fires, the
-  // session has been silent for AGENT_BAR_VOICE_IDLE_TIMEOUT_MS and is closed
-  // automatically so an ambient/onboarding session never lingers open.
+  const relayMintInFlightRef = useRef(false);
+  const relayMintCooldownUntilRef = useRef(0);
+  const relayMintBackoffMsRef = useRef(5_000);
+  // Voice stays active regardless of silence -- only explicit user action
+  // (disabling voice, ending the call) closes the session now. This ref and
+  // the schedule/clear helpers below are kept as inert no-ops rather than
+  // removed outright, since callers throughout this file still call them at
+  // every activity/resolution point; scheduleVoiceIdleTimer just no longer
+  // arms anything.
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Nudges a confirmation card once if the person hasn't tapped Confirm/Cancel
+  // within PENDING_CONFIRMATION_NUDGE_MS. Cleared the instant the card
+  // resolves or is superseded, so it can never fire against a stale card.
+  const pendingConfirmationNudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   // Last actionable context pushed into the live session. Do not dedupe on
   // snapshot_id: it intentionally changes on every voice-state transition.
   const lastPushedContextRef = useRef<string | null>(null);
@@ -315,18 +362,18 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     }
   }, []);
 
-  // Precaution: reschedule on every real activity signal (state transition,
-  // final transcript, directive, handoff, error); if none arrive for
-  // AGENT_BAR_VOICE_IDLE_TIMEOUT_MS the session closes itself. input_level /
-  // output_level are intentionally excluded - they poll continuously on a
-  // fixed interval regardless of actual sound, so treating them as activity
-  // would make the idle timeout never fire.
+  const clearPendingConfirmationNudgeTimer = useCallback(() => {
+    if (pendingConfirmationNudgeTimerRef.current) {
+      clearTimeout(pendingConfirmationNudgeTimerRef.current);
+      pendingConfirmationNudgeTimerRef.current = null;
+    }
+  }, []);
+
+  // No auto-close on silence: voice stays active until the user explicitly
+  // disables it. Kept as a callback (rather than removing every call site)
+  // so activity/resolution points elsewhere don't need to change.
   const scheduleVoiceIdleTimer = useCallback(() => {
     clearVoiceIdleTimer();
-    idleTimeoutRef.current = setTimeout(() => {
-      idleTimeoutRef.current = null;
-      stopConversationRef.current();
-    }, AGENT_BAR_VOICE_IDLE_TIMEOUT_MS);
   }, [clearVoiceIdleTimer]);
 
   const abandonPendingConfirmation = useCallback(
@@ -334,7 +381,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       const pending = pendingConfirmationRef.current;
       if (!pending) return;
       pendingConfirmationRef.current = null;
-      if (clearUi) setPendingConfirmation(null);
+      clearPendingConfirmationNudgeTimer();
+      if (clearUi) {
+        setPendingConfirmation(null);
+        setVoiceConsentChecked(false);
+        setVoiceConsentRequesting(false);
+      }
       if (voiceLeaseRef.current?.id !== pending.leaseId) return;
       pending.transport?.reportActionSettlement?.({
         directiveId: pending.directiveId,
@@ -359,7 +411,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         message: summary,
       });
     },
-    [],
+    [clearPendingConfirmationNudgeTimer, setVoiceConsentChecked],
   );
 
   const handleTransportEvent = useCallback(
@@ -416,6 +468,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       }
       if (event.type === "error") {
         actionAbortControllerRef.current?.abort();
+        clearJourneyGrant("transport_error");
         abandonPendingConfirmation(
           "transport_error",
           "The confirmation was cancelled because the voice session hit an error.",
@@ -435,6 +488,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       }
       if (event.type === "transcript_final") {
         actionAbortControllerRef.current?.abort();
+        // A fresh request supersedes the plan the person approved for the last
+        // one. Approval was for a named list, not for whatever One does next.
+        clearJourneyGrant("new_user_intent");
         // Mirror the user's transcript into the conversation session. One's
         // agent tree decides everything server-side; there is no client-side
         // planner to feed here.
@@ -447,13 +503,11 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         ) {
           return;
         }
-        // A new utterance is new intent, never implicit confirmation of the
-        // card already on screen. Disarm that directive server-side before
-        // One processes the replacement request.
-        abandonPendingConfirmation(
-          "superseded_by_new_turn",
-          "The prior confirmation was cancelled because the person said something else.",
-        );
+        // A pending confirmation card holds through arbitrary speech -- it is
+        // only replaced when the model actually proposes a new action
+        // directive (handled where client_directive is processed below).
+        // Tearing it down on every transcript made verbal replies to the
+        // card (or unrelated chatter) kill it before One could react.
         lastTranscriptRef.current = { text: transcript, atMs: Date.now() };
         appendMirrorEvent({
           role: "user",
@@ -508,10 +562,19 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               typeof event.directive.payload?.goalId === "string"
                 ? event.directive.payload.goalId
                 : null;
-            const isSettledAnalysisGoalDirective =
-              goalId === "goal.analysis.start_debate" &&
-              actionId === "analysis.start" &&
-              runtime?.appRuntimeState.route.screen === "kai_analysis";
+            // The relay only stamps goalId on a directive it minted for an
+            // authored journey. Honor it when the id matches THAT action's own
+            // journey and we are standing on its declared destination -- read
+            // from the contract, so a second journey needs no change here.
+            const directiveJourney = actionId
+              ? resolveNavigationJourney(actionId)
+              : null;
+            const isSettledJourneyDirective = Boolean(
+              directiveJourney &&
+                goalId === directiveJourney.goalId &&
+                runtime?.appRuntimeState.route.screen ===
+                  directiveJourney.destinationScreen,
+            );
             if (!directiveId || !contextRevision) {
               console.warn(
                 "[AgentBar] Rejected action directive without server confirmation binding.",
@@ -525,6 +588,14 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               return;
             }
             let actionRunId: string | null = null;
+            // A step covered by a journey approval never arms a confirmation
+            // card, so there is no pendingConfirmation to carry its receipt.
+            // The ledger still requires one to settle: a receipt-less success
+            // is refused as "settlement receipt required", the directive never
+            // closes, and the goal loops. The approval was real -- it was given
+            // for the whole plan up front -- so this holds the receipt minted
+            // for it without a second card.
+            let journeyGrantReceipt: string | undefined;
             const reportDirectiveSettlement = (settlement: DirectiveSettlement) => {
               if (
                 voiceLeaseRef.current?.id !== directiveLeaseId
@@ -536,7 +607,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 actionId,
                 contextRevision,
                 ...settlement,
-                receipt: pendingConfirmationRef.current?.receipt,
+                receipt: pendingConfirmationRef.current?.receipt ?? journeyGrantReceipt,
               });
               appInteractionCoordinator.settleDirective(
                 directiveLedgerSessionId,
@@ -588,7 +659,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               message: `Preparing ${action?.label ?? "your request"}`,
             });
             actionRunId = actionRun.id;
-            if (runtime?.morphyAxEnabled && !isSettledAnalysisGoalDirective) {
+            if (runtime?.morphyAxEnabled && !isSettledJourneyDirective) {
               const decision = validateMorphyAxAssessment(
                 {
                   schema_version: "morphy_ax_assessment.v1",
@@ -621,13 +692,30 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 return;
               }
             }
-            if (needsConfirmation) {
+            // A step the person already approved as part of this journey's
+            // plan runs without asking again. The grant names the goal AND the
+            // action, so a directive that drifts to a different goal or a step
+            // outside the approved list still gets its own card.
+            const coveredByJourneyGrant = isCoveredByJourneyApproval(
+              goalId,
+              actionId,
+            );
+            if (needsConfirmation && !coveredByJourneyGrant) {
               // Keep sensitive arguments transient in component memory. The
               // confirmation card never renders slots (including OTP values).
               abandonPendingConfirmation(
                 "confirmation_superseded",
                 "A newer confirmation replaced the pending action.",
               );
+              // When this directive opens an authored journey, show the whole
+              // plan rather than its first step. Approving a named list is
+              // what makes one tap honest instead of a blank cheque.
+              // Resolved from the GOAL: the first directive of a journey is
+              // its navigation step, and a route action is never a journey in
+              // its own right, so resolving by action id found nothing.
+              const journeyPlan = goalId
+                ? resolveJourneyPlanForGoal(goalId)
+                : null;
               const pending = {
                 directiveId,
                 actionId,
@@ -638,9 +726,30 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                 actionRunId: actionRun.id,
                 transport: directiveTransport,
                 contextRevision,
+                plan:
+                  journeyPlan && journeyPlan.goalId === goalId
+                    ? journeyPlan
+                    : null,
               };
               pendingConfirmationRef.current = pending;
               setPendingConfirmation(pending);
+              setVoiceConsentChecked(false);
+              setVoiceConsentRequesting(false);
+              // A confirmation card holds until the person acts. Silence must
+              // not kill the whole voice session out from under someone who's
+              // just reading it -- suspend the global idle timer for as long
+              // as this card is up, and nudge once (text-only, no re-ask) if
+              // they haven't responded after PENDING_CONFIRMATION_NUDGE_MS.
+              clearVoiceIdleTimer();
+              clearPendingConfirmationNudgeTimer();
+              pendingConfirmationNudgeTimerRef.current = setTimeout(() => {
+                pendingConfirmationNudgeTimerRef.current = null;
+                setPendingConfirmation((prev) =>
+                  prev && prev.directiveId === directiveId
+                    ? { ...prev, nudgedAt: Date.now() }
+                    : prev,
+                );
+              }, PENDING_CONFIRMATION_NUDGE_MS);
               directiveTransport?.interrupt?.();
               appInteractionCoordinator.updateActionRun(actionRun.id, {
                 phase: "awaiting_confirmation",
@@ -661,6 +770,29 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             }
             void (async () => {
               try {
+                // The person approved this whole plan at the batch card, so no
+                // second card is shown -- but the ledger still needs the
+                // one-time receipt that proves this directive was authorized.
+                // Minting it here is the mechanical half of an approval that
+                // already happened, not another ask.
+                if (coveredByJourneyGrant) {
+                  const confirmation =
+                    await directiveTransport?.confirmActionDirective?.({
+                      directiveId,
+                      actionId,
+                      contextRevision,
+                    });
+                  journeyGrantReceipt = confirmation?.receipt;
+                  if (!journeyGrantReceipt) {
+                    // Nothing runs without ledger authority, approval or not.
+                    reportDirectiveSettlement({
+                      status: "failed",
+                      summary: "The approved step could not be authorized.",
+                      reason: "journey_receipt_unavailable",
+                    });
+                    return;
+                  }
+                }
                 appInteractionCoordinator.updateActionRun(actionRun.id, {
                   phase: "executing",
                 });
@@ -685,12 +817,13 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
                   switchPersona,
                   executionContext: { directiveId },
                   signal: actionAbortControllerRef.current.signal,
-                  goalAuthorization: isSettledAnalysisGoalDirective
-                    ? {
-                        goalId: "goal.analysis.start_debate",
-                        expectedScreen: "kai_analysis",
-                      }
-                    : null,
+                  goalAuthorization:
+                    isSettledJourneyDirective && directiveJourney
+                      ? {
+                          goalId: directiveJourney.goalId,
+                          expectedScreen: directiveJourney.destinationScreen,
+                        }
+                      : null,
                 });
                 if (executionResult.routeAfter) {
                   appInteractionCoordinator.updateActionRun(actionRun.id, {
@@ -797,6 +930,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       if (event.type === "closed") {
         actionAbortControllerRef.current?.abort();
         clearVoiceIdleTimer();
+        clearJourneyGrant("session_closed");
         abandonPendingConfirmation(
           "session_closed",
           "The confirmation was cancelled when the voice session closed.",
@@ -813,7 +947,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       agentPopover,
       abandonPendingConfirmation,
       appendMirrorEvent,
+      clearJourneyGrant,
+      setVoiceConsentChecked,
       busyOperations,
+      clearPendingConfirmationNudgeTimer,
       clearVoiceIdleTimer,
       createHandoff,
       pathname,
@@ -851,12 +988,78 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     resetVoice();
   }, [abandonPendingConfirmation, clearVoiceIdleTimer, resetVoice]);
 
+  // Ticking the consent checkbox requests the directive receipt in place --
+  // unlike settlePendingConfirmation, this never nulls pendingConfirmation
+  // first, so the same dialog stays up throughout instead of disappearing
+  // and reappearing as what reads like a second, separate prompt.
+  const requestVoiceConfirmationReceipt = useCallback(
+    (pending: PendingVoiceConfirmation) => {
+      const confirmationTransport = pending.transport;
+      if (!confirmationTransport?.confirmActionDirective) {
+        setVoiceConsentChecked(false);
+        setVoiceConsentRequesting(false);
+        abandonPendingConfirmation(
+          "confirmation_authority_unavailable",
+          "The confirmation service was unavailable.",
+        );
+        return;
+      }
+      setVoiceConsentRequesting(true);
+      setVoiceStatus("thinking", "Authorizing confirmation");
+      void confirmationTransport
+        .confirmActionDirective({
+          directiveId: pending.directiveId,
+          actionId: pending.actionId,
+          contextRevision: pending.contextRevision,
+        })
+        .then((confirmation) => {
+          if (voiceLeaseRef.current?.id !== pending.leaseId) return;
+          if (pendingConfirmationRef.current?.directiveId !== pending.directiveId) {
+            return;
+          }
+          setVoiceConsentRequesting(false);
+          // The person unchecked it while the request was in flight -- the
+          // receipt is still valid server-side (it'll simply expire unused),
+          // but don't light up Run off a box that's no longer ticked.
+          if (!voiceConsentCheckedRef.current) return;
+          const authorized = { ...pending, receipt: confirmation.receipt };
+          pendingConfirmationRef.current = authorized;
+          setPendingConfirmation(authorized);
+          appInteractionCoordinator.updateActionRun(pending.actionRunId, {
+            phase: "awaiting_confirmation",
+            message: "Allowed. Tap Run to execute.",
+          });
+          setVoiceStatus("thinking", "Tap Run to execute");
+        })
+        .catch(() => {
+          if (voiceLeaseRef.current?.id !== pending.leaseId) return;
+          setVoiceConsentRequesting(false);
+          setVoiceConsentChecked(false);
+          abandonPendingConfirmation(
+            "confirmation_rejected",
+            "That confirmation expired or was already used.",
+          );
+        });
+    },
+    [abandonPendingConfirmation, setVoiceConsentChecked, setVoiceStatus],
+  );
+
   const settlePendingConfirmation = useCallback(
     (confirmed: boolean) => {
       const pending = pendingConfirmationRef.current;
       if (!pending) return;
       pendingConfirmationRef.current = null;
+      clearPendingConfirmationNudgeTimer();
       setPendingConfirmation(null);
+      // Approving a plan authorizes its remaining batchable steps, so the
+      // person is not asked again for work they just agreed to. Only on a
+      // real approval, and only for the ids the plan enumerated.
+      if (confirmed && pending.plan?.batchableActionIds.length) {
+        recordJourneyApproval(
+          pending.plan.goalId,
+          pending.plan.batchableActionIds,
+        );
+      }
       const reportPendingSettlement = (settlement: DirectiveSettlement) => {
         if (voiceLeaseRef.current?.id !== pending.leaseId) return;
         pending.transport?.reportActionSettlement?.({
@@ -883,6 +1086,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           reason: "user_cancelled",
         });
         setVoiceStatus("listening", "Listening");
+        // The confirm/success/failure branches below all resume the idle
+        // timer; declining a proposal must too, or the session is left
+        // without an idle timer running at all until the next activity.
+        scheduleVoiceIdleTimer();
         return;
       }
       if (!pending.receipt) {
@@ -1001,6 +1208,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     },
     [
       busyOperations,
+      clearPendingConfirmationNudgeTimer,
       clearVoiceIdleTimer,
       router,
       runtime,
@@ -1221,10 +1429,26 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
 
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      // Context (screen, consent token) rides in post-connect app_context
-      // frames, so the prewarmed URL only carries the opaque relay ticket.
+      // The snapshot identity churns on every navigation and cache event, so
+      // this effect re-fires constantly. The ticket is context-free (context
+      // rides in post-connect app_context frames) — reuse an unexpired one,
+      // never mint concurrently, and back off after a rate limit instead of
+      // hammering the relay endpoint on every snapshot change.
+      const existing = prewarmedRelayRef.current;
+      if (
+        existing &&
+        existing.accessTier === accessTier &&
+        existing.expiresAtMs > Date.now()
+      ) {
+        return;
+      }
+      if (relayMintInFlightRef.current) return;
+      if (Date.now() < relayMintCooldownUntilRef.current) return;
+      relayMintInFlightRef.current = true;
       void ApiService.getOneAdkLiveRelayUrl({ signal: controller.signal })
         .then((relayUrl) => {
+          relayMintInFlightRef.current = false;
+          relayMintBackoffMsRef.current = 5_000;
           if (controller.signal.aborted) return;
           prewarmedRelayRef.current = {
             relayUrl,
@@ -1233,7 +1457,20 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             accessTier,
           };
         })
-        .catch(() => {
+        .catch((error: unknown) => {
+          relayMintInFlightRef.current = false;
+          const status =
+            typeof error === "object" && error !== null
+              ? Number((error as { status?: unknown }).status)
+              : NaN;
+          if (status === 429) {
+            relayMintCooldownUntilRef.current =
+              Date.now() + relayMintBackoffMsRef.current;
+            relayMintBackoffMsRef.current = Math.min(
+              relayMintBackoffMsRef.current * 2,
+              60_000,
+            );
+          }
           if (!controller.signal.aborted) {
             prewarmedRelayRef.current = null;
           }
@@ -1407,6 +1644,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   const pendingAction = pendingConfirmation
     ? getKaiActionById(pendingConfirmation.actionId)
     : null;
+  const pendingConfirmationPlanSteps = pendingConfirmation?.plan?.steps ?? [];
   const pendingActionNeedsTrustedActivation =
     pendingAction?.activation_policy === "trusted_activation_required";
   const pendingActionLabel = pendingAction?.label || "Continue this action";
@@ -1638,7 +1876,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         <div
           role="dialog"
           aria-label="Confirm voice action"
-          className="pointer-events-auto w-full max-w-[min(calc(100vw-3rem),392px)] rounded-3xl border border-black/10 bg-white/95 p-4 text-[#1d1d1f] shadow-2xl backdrop-blur-xl dark:border-white/10 dark:bg-[#1c1c1e]/95 dark:text-[#f5f5f7]"
+          className="agent-approval-glass pointer-events-auto w-full max-w-[min(calc(100vw-3rem),392px)] rounded-3xl p-4 text-[#1d1d1f] dark:text-[#f5f5f7]"
         >
           <p className="text-[13px] font-medium text-muted-foreground">
             {pendingActionNeedsTrustedActivation
@@ -1649,30 +1887,84 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
             {pendingActionNeedsTrustedActivation
               ? "This tap opens the provider window and keeps One active here."
-              : pendingConfirmation.receipt
-                ? "Authorization is ready. This tap runs only the action shown above."
-                : "Sensitive values are hidden. Nothing runs until you confirm."}
+              : pendingConfirmationPlanSteps.length > 1
+                ? "Sensitive values stay hidden. Allow access to run these steps."
+                : "Sensitive values stay hidden. Allow access to run this."}
           </p>
+          {/* Every step is named before anything runs, so one approval is a
+              list the person can read rather than an open-ended permission. */}
+          {pendingConfirmationPlanSteps.length > 1 ? (
+            <ol className="mt-3 flex flex-col gap-1.5">
+              {pendingConfirmationPlanSteps.map((step, index) => (
+                <li
+                  key={step.actionId}
+                  className="flex items-baseline gap-2 text-[13px] leading-relaxed"
+                >
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {index + 1}.
+                  </span>
+                  <span>
+                    {step.label}
+                    {step.batchable ? null : (
+                      <span className="ml-1.5 text-[12px] font-medium text-muted-foreground">
+                        (asks you again)
+                      </span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+          {!pendingActionNeedsTrustedActivation ? (
+            <label className="mt-3 flex items-center gap-2.5 text-[13px] font-medium">
+              <input
+                type="checkbox"
+                checked={Boolean(pendingConfirmation.receipt) || voiceConsentChecked}
+                disabled={Boolean(pendingConfirmation.receipt) || voiceConsentRequesting}
+                onChange={(event) => {
+                  setVoiceConsentChecked(event.target.checked);
+                  if (event.target.checked) {
+                    requestVoiceConfirmationReceipt(pendingConfirmation);
+                  }
+                }}
+                className="h-4 w-4 rounded border-black/20 accent-primary dark:border-white/20"
+              />
+              {voiceConsentRequesting
+                ? "Allowing access..."
+                : "Allow access to complete this"}
+            </label>
+          ) : null}
+          {pendingConfirmation.nudgedAt ? (
+            <p className="mt-2 text-[12px] font-medium text-muted-foreground/80">
+              {pendingActionNeedsTrustedActivation
+                ? "Still there? Tap the button above or Cancel when you're ready."
+                : "Still there? Allow access and tap Run, or Cancel."}
+            </p>
+          ) : null}
           <div className="mt-4 grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => settlePendingConfirmation(false)}
-              className="h-10 rounded-full bg-black/[0.05] text-[14px] font-semibold dark:bg-white/[0.08]"
+              // A 5% tint reads as a control on a solid card and as nothing on
+              // a translucent one, so the fill carries a hairline edge now.
+              className="h-10 rounded-full bg-black/[0.05] text-[14px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={() => settlePendingConfirmation(true)}
-              className="h-10 rounded-full bg-primary text-[14px] font-semibold text-primary-foreground"
+              disabled={
+                !pendingActionNeedsTrustedActivation &&
+                (!pendingConfirmation.receipt || voiceConsentRequesting)
+              }
+              className="h-10 rounded-full bg-primary text-[14px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:opacity-40 disabled:hover:opacity-40"
             >
               {pendingActionNeedsTrustedActivation
                 ? pendingConfirmation.receipt
                   ? pendingActionLabel
                   : "Authorize"
-                : pendingConfirmation.receipt
-                  ? "Run"
-                  : "Confirm"}
+                : "Run"}
             </button>
           </div>
         </div>

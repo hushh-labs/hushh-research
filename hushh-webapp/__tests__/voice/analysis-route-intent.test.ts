@@ -57,4 +57,25 @@ describe("deriveAnalysisRouteIntent", () => {
       workspaceTab: null,
     });
   });
+
+  /**
+   * `focus`/`run_id` choose the run; `view` chooses the tab. They used to be
+   * gated together, so the focus param the debate journey puts in the URL
+   * pinned the workspace to the debate tab -- reverting every deliberate
+   * switch, and looping the voice agent, which kept re-issuing "open summary"
+   * against a tab that snapped straight back.
+   */
+  it("keeps an explicit tab when a run is also focused", () => {
+    expect(deriveAnalysisRouteIntent(params("view=summary&focus=active&ticker=NVDA"))).toEqual({
+      shouldApply: true,
+      focusActive: true,
+      runId: null,
+      showHistory: false,
+      workspaceTab: "summary",
+    });
+  });
+
+  it("still defaults to the debate view when focus names no tab", () => {
+    expect(deriveAnalysisRouteIntent(params("focus=active&ticker=NVDA")).workspaceTab).toBeNull();
+  });
 });

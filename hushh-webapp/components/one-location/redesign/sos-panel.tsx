@@ -107,6 +107,16 @@ export function SosPanel({
     useState<SmsMessageSelection>(null);
   const [customMessage, setCustomMessage] = useState("");
 
+  /**
+   * The message that actually went out, held for as long as the alert is live.
+   *
+   * Without it the panel showed a live alert and an editable picker, and the
+   * two had no relationship: whatever was selected looked like what had been
+   * sent, and changing the selection changed nothing that anyone had received.
+   * `null` while nothing is live; `""` when an alert was sent with no message.
+   */
+  const [sentMessage, setSentMessage] = useState<string | null>(null);
+
   const [progress, setProgress] = useState(0);
   const [windowsCopyStatus, setWindowsCopyStatus] =
     useState<WindowsFallbackCopyStatus>("idle");
@@ -152,7 +162,17 @@ export function SosPanel({
   // Radar pulse is active the moment the user starts pressing, and keeps
   // emanating continuously while the SMS is sending and after it goes live.
   const showPulse = active || busy || progress > 0;
+  // Editing is closed from the moment the alert is sent until it is cancelled.
+  const messageLocked = active || busy;
 
+
+  // The alert ending is the only thing that releases the record and the lock.
+  // Cancelling is deliberately the single escape: an editable picker over a
+  // live alert invites someone to believe they have changed a message that has
+  // already been delivered.
+  useEffect(() => {
+    if (!active && !busy) setSentMessage(null);
+  }, [active, busy]);
 
   const clearHold = useCallback((resetProgress = true) => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -180,6 +200,9 @@ export function SosPanel({
     firedRef.current = true;
     clearHold(false);
     setProgress(1);
+    // Captured before the await so the record is of what was sent, not of
+    // whatever the picker happens to hold when the request settles.
+    setSentMessage(selectedMessage ?? "");
     void Promise.resolve(onTrigger(selectedMessage)).finally(() => {
       if (observedBusyRef.current) return;
       firedRef.current = false;
@@ -303,28 +326,34 @@ export function SosPanel({
       data-ambient-chrome-ignore
       data-testid="sms-safety-screen"
     >
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(52px,env(safe-area-inset-top))]">
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(52px,env(safe-area-inset-top))] lg:max-w-[720px] lg:px-6 lg:pt-[max(48px,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={onClose}
           aria-label="Back to Location"
-          className="press-scale flex h-10 w-10 items-center justify-center rounded-full bg-[#202023] text-white"
+          className="press-scale flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white"
         >
           <ChevronLeft className="h-6 w-6" strokeWidth={2} />
         </button>
 
-        <header className="mt-1 px-3 text-center">
-          <h1 className="whitespace-nowrap !text-[28px] !font-bold !leading-[1.15] !tracking-[-0.45px]">
+        <header className="mt-4 px-3 text-center lg:mt-1">
+          <h1 className="whitespace-nowrap !text-[32px] !font-bold !leading-[1.08] !tracking-normal">
             SMS · Save my Soul
           </h1>
-          <p className="mx-auto mt-2 max-w-[290px] text-[14px] leading-[1.45] text-white/70">
+          <p className="mx-auto mt-2 max-w-[310px] text-[17px] leading-[24px] text-white/70">
             Press and hold. An SMS with your live location goes to your people —
             even with no internet.
           </p>
         </header>
 
-        <div className="flex min-h-[310px] flex-1 items-center justify-center py-6">
-          <div className="relative flex h-[252px] w-[252px] items-center justify-center">
+        {/* On wide viewports (lg+) the primary press ring and the
+            message/controls column sit side by side so the safety screen fills
+            the space instead of a single narrow strip. Below lg it stays the
+            original stacked column, untouched. The <style> block inside is
+            display:none and never participates in the flex row. */}
+        <div className="flex flex-1 flex-col justify-center gap-7 pt-6 lg:grid lg:grid-cols-[240px_minmax(0,320px)] lg:items-center lg:justify-center lg:gap-8 lg:pt-2">
+          <div className="flex items-center justify-center py-4 lg:py-0">
+            <div className="relative flex h-[224px] w-[224px] items-center justify-center">
             <span className="absolute inset-0 rounded-full border border-white/10" />
             <span className="absolute inset-[24px] rounded-full border border-white/15" />
 
@@ -335,17 +364,17 @@ export function SosPanel({
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[152px] w-[152px] rounded-full bg-[#ff3b30]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite]"
+                  className="absolute h-[136px] w-[136px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite]"
                 />
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[152px] w-[152px] rounded-full bg-[#ff3b30]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:0.73s]"
+                  className="absolute h-[136px] w-[136px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:0.73s]"
                 />
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[152px] w-[152px] rounded-full bg-[#ff3b30]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:1.46s]"
+                  className="absolute h-[136px] w-[136px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:1.46s]"
                 />
               </>
             ) : null}
@@ -370,7 +399,7 @@ export function SosPanel({
               onKeyUp={handleKeyUp}
               onContextMenu={(event) => event.preventDefault()}
               className={cn(
-                "relative z-10 flex h-[152px] w-[152px] touch-none select-none flex-col items-center justify-center rounded-full bg-[#ff3b30] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black",
+                "relative z-10 flex h-[136px] w-[136px] touch-none select-none flex-col items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black",
                 progress > 0 && progress < 1 && "scale-[1.035]",
                 (active || busy) && "[animation:sosCorePulse_2.2s_ease-in-out_infinite]",
                 disabled && "cursor-not-allowed",
@@ -395,8 +424,8 @@ export function SosPanel({
                       : "Hold 2 s"}
               </span>
             </button>
+            </div>
           </div>
-        </div>
 
         <style>{`
           @keyframes sosRadarPulse {
@@ -414,7 +443,7 @@ export function SosPanel({
         `}</style>
 
 
-        <div className="mt-auto">
+        <div className="w-full lg:max-w-[320px]">
           {/* While an SMS/SOS session is live, the primary action becomes
               stopping it. Cancelling here revokes the location grants created by
               the alert AND clears the incident, so "SENT · Live now" resets and
@@ -424,14 +453,14 @@ export function SosPanel({
               type="button"
               onClick={onStopSos}
               disabled={stopBusy}
-              aria-label="Cancel SMS alert and stop sharing your location"
+              aria-label="Cancel the alert and stop sharing your location"
               data-testid="sos-cancel-alert"
-              className="press-scale mb-3 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white text-[15px] font-semibold text-[#d70015] disabled:opacity-60"
+              className="press-scale mb-4 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white text-[15px] font-semibold text-[#d70015] shadow-sm disabled:opacity-60"
             >
               {stopBusy ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               ) : null}
-              {stopBusy ? "Cancelling…" : "Cancel SMS Alert"}
+              {stopBusy ? "Cancelling…" : "Cancel the alert"}
             </button>
           ) : null}
 
@@ -440,11 +469,34 @@ export function SosPanel({
             <button
               type="button"
               onClick={onEditContacts}
-              className="font-semibold text-[#2997ff]"
+              className="font-semibold text-[color:var(--app-accent)]"
             >
               Edit
             </button>
           </p>
+
+          {/* What actually went out. A live alert with an editable picker and
+              no record of the sent text left people unsure which message their
+              contacts had received -- and free to change a selection that
+              could no longer affect it. */}
+          {sentMessage !== null ? (
+            <div
+              role="status"
+              data-testid="sos-sent-message"
+              className="mt-3 rounded-2xl border border-white/10 bg-white/[0.06] p-3 text-[13px] leading-relaxed text-white"
+            >
+              <p className="font-semibold">{busy ? "Sending" : "Sent"}</p>
+              <p className="mt-1 text-white/70">
+                {sentMessage
+                  ? `“${sentMessage}”`
+                  : "Your location, with no message."}
+              </p>
+              <p className="mt-2 text-white/50">
+                The message cannot be changed while this alert is live. Cancel
+                it to send a different one.
+              </p>
+            </div>
+          ) : null}
 
           <div className="mt-3 grid grid-cols-2 gap-2">
             {(["Come get me", "I'm not safe"] as const).map((option) => (
@@ -452,6 +504,7 @@ export function SosPanel({
                 key={option}
                 type="button"
                 aria-pressed={messageSelection === option}
+                disabled={messageLocked}
                 onClick={() =>
                   setMessageSelection((current) =>
                     current === option ? null : option,
@@ -462,6 +515,7 @@ export function SosPanel({
                   messageSelection === option
                     ? "border-white bg-white text-black"
                     : "border-white/5 bg-[#1c1c1e] text-white",
+                  messageLocked && "cursor-not-allowed opacity-50",
                 )}
               >
                 {option}
@@ -470,6 +524,7 @@ export function SosPanel({
             <button
               type="button"
               aria-pressed={messageSelection === "custom"}
+              disabled={messageLocked}
               onClick={() =>
                 setMessageSelection((current) =>
                   current === "custom" ? null : "custom",
@@ -480,6 +535,7 @@ export function SosPanel({
                 messageSelection === "custom"
                   ? "border-white bg-white text-black"
                   : "border-white/5 bg-[#1c1c1e] text-white",
+                messageLocked && "cursor-not-allowed opacity-50",
               )}
             >
               Short text message
@@ -502,6 +558,7 @@ export function SosPanel({
                   aria-invalid={customMessageLimitExceeded}
                   value={customMessage}
                   onChange={(event) => setCustomMessage(event.target.value)}
+                  readOnly={messageLocked}
                   placeholder="Type a short message"
                   rows={2}
                   className={cn(
@@ -509,8 +566,9 @@ export function SosPanel({
                     // never runs underneath it.
                     "min-h-[72px] w-full resize-none rounded-2xl border bg-[#1c1c1e] py-3 pl-3.5 pr-14 text-[14px] leading-relaxed text-white outline-none placeholder:text-white/40 focus:border-white/55",
                     customMessageLimitExceeded
-                      ? "border-[#ff453a]"
+                      ? "border-[color:var(--app-destructive)]"
                       : "border-white/10",
+                    messageLocked && "cursor-not-allowed opacity-60",
                   )}
                 />
                 {/* Without this the only way to send a typed message was to go
@@ -526,7 +584,7 @@ export function SosPanel({
                     "press-scale absolute bottom-2.5 right-2.5 flex h-10 w-10 items-center justify-center rounded-full transition-colors",
                     hardDisabled || !selectedMessage
                       ? "bg-white/10 text-white/35"
-                      : "bg-[#ff3b30] text-white",
+                      : "bg-[color:var(--app-destructive)] text-white",
                   )}
                 >
                   {busy ? (
@@ -541,7 +599,7 @@ export function SosPanel({
                 className={cn(
                   "mt-1 text-right text-[12px]",
                   customMessageLimitExceeded
-                    ? "text-[#ff6961]"
+                    ? "text-[color:var(--app-destructive)]"
                     : "text-white/55",
                 )}
               >
@@ -551,7 +609,7 @@ export function SosPanel({
                 <p
                   id="sos-short-message-error"
                   role="alert"
-                  className="mt-0.5 text-right text-[12px] text-[#ff6961]"
+                  className="mt-0.5 text-right text-[12px] text-[color:var(--app-destructive)]"
                 >
                   character limit exceed
                 </p>
@@ -566,7 +624,7 @@ export function SosPanel({
                   <button
                     type="button"
                     onClick={handleWindowsEmergencyCopy}
-                    className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] px-3 text-white"
+                    className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[color:var(--app-destructive)] px-3 text-white"
                     aria-label={`Copy ${emergency.number} emergency services (${emergency.countryName})`}
                   >
                     <Phone className="h-4 w-4 fill-current" aria-hidden />
@@ -574,22 +632,22 @@ export function SosPanel({
                       <span className="block text-[15px] font-semibold">
                         Copy emergency number
                       </span>
-                      <span className="block truncate text-[10px] text-white/75">
+                      <span className="block truncate text-[12px] text-white/75">
                         {emergency.countryName} · {emergency.number}
                       </span>
                     </span>
                   </button>
-                  <span className="mt-1 block text-[11px] leading-tight text-white/75">
+                  <span className="mt-1 block text-[13px] leading-[18px] text-white/75">
                     Windows browsers cannot open emergency dialers directly. Call {emergency.number}
                     from your phone now.
                   </span>
                   {windowsCopyStatus === "copied" ? (
-                    <span className="mt-1 block text-[11px] leading-tight text-[#35d07f]">
+                    <span className="mt-1 block text-[13px] leading-[18px] text-[color:var(--app-success)]">
                       Number copied to clipboard.
                     </span>
                   ) : null}
                   {windowsCopyStatus === "error" ? (
-                    <span className="mt-1 block text-[11px] leading-tight text-[#ff9a75]">
+                    <span className="mt-1 block text-[13px] leading-[18px] text-[#ff9a75]">
                       Could not copy. Please open your phone dialer manually.
                     </span>
                   ) : null}
@@ -598,14 +656,14 @@ export function SosPanel({
                 <a
                   href={`tel:${emergency.number}`}
                   aria-label={`Call ${emergency.number} emergency services (${emergency.countryName})`}
-                  className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] px-3 text-white"
+                  className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[color:var(--app-destructive)] px-3 text-white"
                 >
                   <Phone className="h-4 w-4 fill-current" aria-hidden />
                   <span className="min-w-0 text-left leading-tight">
                     <span className="block text-[15px] font-semibold">
                       Call {emergency.number}
                     </span>
-                    <span className="block truncate text-[10px] text-white/75">
+                    <span className="block truncate text-[12px] text-white/75">
                       {emergency.countryName}
                     </span>
                   </span>
@@ -623,7 +681,7 @@ export function SosPanel({
                     ? "Retry local emergency number"
                     : "Finding local emergency number"
                 }
-                className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[#ff3b30] px-3 text-white disabled:cursor-wait disabled:opacity-75"
+                className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[color:var(--app-destructive)] px-3 text-white disabled:cursor-wait disabled:opacity-75"
               >
                 {emergencyStatus === "unavailable" ? (
                   <Phone className="h-4 w-4 fill-current" aria-hidden />
@@ -636,7 +694,7 @@ export function SosPanel({
                       ? "Retry local number"
                       : "Finding local number"}
                   </span>
-                  <span className="block truncate text-[10px] text-white/75">
+                  <span className="block truncate text-[12px] text-white/75">
                     {emergencyStatus === "unavailable"
                       ? "Location unavailable"
                       : "Using current location"}
@@ -654,6 +712,7 @@ export function SosPanel({
               Cancel
             </button>
           </div>
+        </div>
         </div>
       </div>
     </section>

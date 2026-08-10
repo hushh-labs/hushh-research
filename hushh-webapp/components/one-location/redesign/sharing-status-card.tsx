@@ -190,7 +190,7 @@ export function SharingStatusCard({
           <h2 className="mt-3.5 text-[25px] font-bold leading-none tracking-[-0.4px] text-[#1c1c2e] dark:text-white">
             {title}
           </h2>
-          <p className="mt-1.5 max-w-[210px] text-[15px] leading-[1.4] text-black/50 dark:text-white/55">
+          <p className="mt-1.5 max-w-[210px] text-[15px] leading-[20px] text-[#8E8E93]">
             {subtitle}
           </p>
 
@@ -204,7 +204,7 @@ export function SharingStatusCard({
                   {endsLabel ?? "Sharing live"}
                 </span>
                 {startedLabel ? (
-                  <span className="mt-px block text-[13px] text-black/45 dark:text-white/50">
+                  <span className="mt-px block text-[15px] leading-[20px] text-[#8E8E93]">
                     {startedLabel}
                   </span>
                 ) : null}
@@ -226,7 +226,7 @@ export function SharingStatusCard({
       {/* Privacy footer. */}
       <div className="flex items-center gap-[11px] border-t border-black/[0.06] px-[18px] py-3.5 dark:border-white/[0.08]">
         <Lock className="h-[15px] w-[15px] text-black/40 dark:text-white/40" />
-        <span className="text-sm text-black/50 dark:text-white/50">
+        <span className="text-[15px] leading-[20px] text-[#8E8E93]">
           Your location is only visible to your circle.
         </span>
       </div>

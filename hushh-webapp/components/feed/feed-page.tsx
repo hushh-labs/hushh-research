@@ -14,6 +14,7 @@ import {
   AppPageContentRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
@@ -247,12 +248,14 @@ export function FeedPage() {
   );
 }
 
-/** Tiny sticky day / section divider — deliberately understated so the list
- *  reads as one continuous descending stream, not a stack of cards. */
+/** Sticky day / section divider that follows the shared readable label scale. */
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <h2 className="sticky top-[var(--top-shell-live-height)] z-10 bg-background/85 px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground/55 backdrop-blur-md">
+    <AppSectionLabel
+      as="h2"
+      className="sticky top-[var(--top-shell-live-height)] z-10 bg-background/85 px-[6px] pb-2 pt-7 backdrop-blur-md"
+    >
       {children}
-    </h2>
+    </AppSectionLabel>
   );
 }

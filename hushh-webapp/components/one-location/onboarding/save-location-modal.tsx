@@ -29,6 +29,15 @@ import {
   type SavedLocationAddressDetails,
 } from "@/lib/one-location/saved-location-address";
 
+const iconButtonClassName =
+  "press-scale absolute flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45";
+
+const controlLabelClassName =
+  "mb-1.5 block text-[13px] font-semibold leading-[18px] text-muted-foreground";
+
+const controlInputClassName =
+  "h-12 w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] px-4 text-[15px] leading-5 text-foreground outline-none transition-colors placeholder:text-[color:var(--app-tertiary-label)] focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent)]/25 disabled:opacity-60";
+
 export type SavedLocationPlaceSuggestion = {
   placeId: string;
   text: string;
@@ -109,7 +118,7 @@ function SavedLocationCategoryPicker({
 }) {
   return (
     <div role="group" aria-label="Saved location category">
-      <p className="mb-2 text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]">
+      <p className={controlLabelClassName}>
         What kind of place is this?
       </p>
       <div className="grid grid-cols-3 gap-2.5">
@@ -123,14 +132,14 @@ function SavedLocationCategoryPicker({
               onClick={() => onChange(category)}
               disabled={disabled}
               className={cn(
-                "press-scale flex min-h-[88px] flex-col items-center justify-center gap-2 rounded-2xl border-2 px-2 py-3 transition-colors disabled:opacity-45",
+                "press-scale flex min-h-[82px] flex-col items-center justify-center gap-2 rounded-[14px] border px-2 py-3 transition-colors disabled:opacity-45",
                 selected
-                  ? "border-[color:var(--app-accent,#087ff5)] bg-[color:var(--app-accent-tint,#e7f0fd)] text-[color:var(--app-accent-deep,#0b62c4)] dark:bg-[color:var(--app-accent,#087ff5)]/15"
-                  : "border-black/[0.08] bg-white text-[#4b5563] hover:border-black/20 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-[#aeb8c7]",
+                  ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
+                  : "border-border/70 bg-[color:var(--app-card-surface-default-solid)] text-muted-foreground hover:bg-foreground/[0.03]",
               )}
             >
-              <Icon className="h-6 w-6" strokeWidth={2.1} aria-hidden />
-              <span className="text-[13px] font-bold">{label}</span>
+              <Icon className="h-5 w-5" strokeWidth={1.9} aria-hidden />
+              <span className="text-[13px] font-semibold leading-[18px]">{label}</span>
             </button>
           );
         })}
@@ -396,10 +405,8 @@ export function SaveLocationModal({
         }}
         className={cn(
           "z-[560] bottom-[var(--kb-height,0px)] top-auto max-h-[min(92dvh,760px)] w-full max-w-[420px] translate-y-0 gap-5 overflow-y-auto",
-          "rounded-b-none rounded-t-[28px] sm:bottom-auto sm:top-[50%] sm:translate-y-[-50%] sm:rounded-[24px]",
-          "border border-black/[0.06] bg-white p-6 pb-[calc(env(safe-area-inset-bottom,0px)+22px)] sm:pb-6",
-          "shadow-[0_-8px_40px_rgba(16,24,40,0.18)] sm:shadow-[0_20px_60px_rgba(16,24,40,0.24)]",
-          "dark:border-white/[0.08] dark:bg-[#141922]",
+          "rounded-b-none rounded-t-[24px] sm:bottom-auto sm:top-[50%] sm:translate-y-[-50%] sm:rounded-[20px]",
+          "border border-border/60 bg-[color:var(--app-card-surface-default-solid)] p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] shadow-none sm:p-6 sm:pb-6",
         )}
       >
         {flowStep === "map" && canPickOnMap ? (
@@ -449,7 +456,7 @@ export function SaveLocationModal({
               }
               disabled={interactionBusy}
               aria-label={canPickOnMap ? "Back to map" : "Back"}
-              className="press-scale absolute left-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] disabled:opacity-45 dark:bg-white/[0.08] dark:text-[#aeb8c7]"
+              className={cn(iconButtonClassName, "left-4 top-4")}
             >
               <ArrowLeft className="h-4.5 w-4.5" strokeWidth={2.4} />
             </button>
@@ -458,40 +465,40 @@ export function SaveLocationModal({
               onClick={onSkip}
               disabled={interactionBusy}
               aria-label="Close"
-              className="press-scale absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] disabled:opacity-45 dark:bg-white/[0.08] dark:text-[#aeb8c7]"
+              className={cn(iconButtonClassName, "right-4 top-4")}
             >
               <X className="h-4.5 w-4.5" strokeWidth={2.4} />
             </button>
 
             <header className="px-9 text-center">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[color:var(--app-accent-deep,#0b62c4)] dark:text-[#9bc7f5]">
+              <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                 Step 2 of 2
               </p>
               <DialogTitle
                 ref={detailsTitleRef}
                 tabIndex={-1}
-                className="mt-2 text-[22px] font-bold leading-[1.15] tracking-[-0.01em] text-[#0b1220] outline-none dark:text-[#f4f7fb]"
+                className="mt-1 text-[28px] font-bold leading-[1.12] tracking-normal text-foreground outline-none"
               >
                 Add your address details
               </DialogTitle>
               <p
                 id={descriptionId}
-                className="mt-1.5 text-[14px] leading-[1.45] text-[#5b6472] dark:text-[#9aa6b6]"
+                className="mt-2 text-[15px] leading-5 text-muted-foreground"
               >
                 The pin tells One where. These details make the entrance easy to
                 recognise.
               </p>
             </header>
 
-            <div className="flex items-start gap-2.5 rounded-2xl bg-[#f4f6fa] px-3.5 py-3 dark:bg-white/[0.05]">
-              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-[color:var(--app-accent,#087ff5)] shadow-sm dark:bg-[#1c2430]">
-                <MapPin className="h-4 w-4" strokeWidth={2.4} aria-hidden />
+            <div className="flex items-start gap-2.5 rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3">
+              <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+                <MapPin className="h-[17px] w-[17px]" strokeWidth={1.9} aria-hidden />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#8b93a1] dark:text-[#7f8a99]">
+                <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                   Pinned location
                 </p>
-                <p className="mt-0.5 line-clamp-2 text-[13px] font-semibold leading-[1.35] text-[#111827] dark:text-[#e9eef7]">
+                <p className="mt-0.5 line-clamp-2 text-[15px] font-semibold leading-5 text-foreground">
                   {pickedAddress ||
                     resolvedAddress ||
                     "Your selected map point"}
@@ -502,7 +509,7 @@ export function SaveLocationModal({
                   type="button"
                   onClick={() => setFlowStep("map")}
                   disabled={interactionBusy}
-                  className="press-scale shrink-0 rounded-full bg-white px-2.5 py-1.5 text-[12px] font-bold text-[color:var(--app-accent-deep,#0b62c4)] shadow-sm disabled:opacity-45 dark:bg-white/[0.08] dark:text-[#9bc7f5]"
+                  className="press-scale shrink-0 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45"
                 >
                   Edit pin
                 </button>
@@ -513,7 +520,7 @@ export function SaveLocationModal({
               <div>
                 <label
                   htmlFor="saved-location-house-or-flat"
-                  className="mb-1.5 block text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]"
+                  className={controlLabelClassName}
                 >
                   House, flat, floor or block
                 </label>
@@ -529,7 +536,7 @@ export function SaveLocationModal({
                   maxLength={80}
                   autoComplete={deferredUntilVault ? "off" : "address-line1"}
                   placeholder="e.g. Flat 4B, Tower 2"
-                  className="h-12 w-full rounded-2xl border border-black/[0.1] bg-white px-4 text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa2b0] focus:border-[color:var(--app-accent,#087ff5)] focus:ring-2 focus:ring-[color:var(--app-accent,#087ff5)]/25 dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-[#e9eef7]"
+                  className={controlInputClassName}
                 />
               </div>
 
@@ -537,7 +544,7 @@ export function SaveLocationModal({
                 <div>
                   <label
                     htmlFor="saved-location-building-color"
-                    className="mb-1.5 block text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]"
+                    className={controlLabelClassName}
                   >
                     Building colour{" "}
                     <span className="font-normal">(optional)</span>
@@ -553,13 +560,13 @@ export function SaveLocationModal({
                     maxLength={40}
                     autoComplete="off"
                     placeholder="e.g. Blue gate"
-                    className="h-12 w-full rounded-2xl border border-black/[0.1] bg-white px-4 text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa2b0] focus:border-[color:var(--app-accent,#087ff5)] focus:ring-2 focus:ring-[color:var(--app-accent,#087ff5)]/25 dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-[#e9eef7]"
+                    className={controlInputClassName}
                   />
                 </div>
                 <div>
                   <label
                     htmlFor="saved-location-postal-code"
-                    className="mb-1.5 block text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]"
+                    className={controlLabelClassName}
                   >
                     PIN / postal code
                   </label>
@@ -586,14 +593,17 @@ export function SaveLocationModal({
                       !isValidPostalCode(addressDetails.postalCode)
                     }
                     placeholder="e.g. 560001"
-                    className="h-12 w-full rounded-2xl border border-black/[0.1] bg-white px-4 text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa2b0] focus:border-[color:var(--app-accent,#087ff5)] focus:ring-2 focus:ring-[color:var(--app-accent,#087ff5)]/25 aria-[invalid=true]:border-[#d92d20] dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-[#e9eef7]"
+                    className={cn(
+                      controlInputClassName,
+                      "aria-[invalid=true]:border-[color:var(--app-destructive)]",
+                    )}
                   />
                   {addressDetails.postalCode.length > 0 &&
                   !isValidPostalCode(addressDetails.postalCode) ? (
                     <p
                       id={postalCodeErrorId}
                       role="alert"
-                      className="mt-1.5 text-[12px] font-medium text-[#b42318] dark:text-[#ff9b91]"
+                      className="mt-1.5 text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
                     >
                       Enter a valid PIN or postal code.
                     </p>
@@ -604,7 +614,7 @@ export function SaveLocationModal({
               <div>
                 <label
                   htmlFor="saved-location-landmark"
-                  className="mb-1.5 block text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]"
+                  className={controlLabelClassName}
                 >
                   Nearby landmark{" "}
                   <span className="font-normal">(optional)</span>
@@ -620,7 +630,7 @@ export function SaveLocationModal({
                   maxLength={100}
                   autoComplete={deferredUntilVault ? "off" : "address-line2"}
                   placeholder="e.g. Opposite City Mall"
-                  className="h-12 w-full rounded-2xl border border-black/[0.1] bg-white px-4 text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa2b0] focus:border-[color:var(--app-accent,#087ff5)] focus:ring-2 focus:ring-[color:var(--app-accent,#087ff5)]/25 dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-[#e9eef7]"
+                  className={controlInputClassName}
                 />
               </div>
             </div>
@@ -635,7 +645,7 @@ export function SaveLocationModal({
               <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
                 <label
                   htmlFor="saved-location-details-custom-label"
-                  className="mb-1.5 block text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]"
+                  className={controlLabelClassName}
                 >
                   Give it a name <span className="font-normal">(optional)</span>
                 </label>
@@ -647,26 +657,26 @@ export function SaveLocationModal({
                   disabled={interactionBusy}
                   maxLength={40}
                   placeholder="e.g. Gym, parents' house"
-                  className="h-12 w-full rounded-2xl border border-black/[0.1] bg-white px-4 text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa2b0] focus:border-[color:var(--app-accent,#087ff5)] focus:ring-2 focus:ring-[color:var(--app-accent,#087ff5)]/25 dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-[#e9eef7]"
+                  className={controlInputClassName}
                 />
               </div>
             ) : null}
 
-            <p className="rounded-2xl bg-[#f4f6fa] px-3.5 py-3 text-[12px] leading-[1.45] text-[#5b6472] dark:bg-white/[0.05] dark:text-[#9aa6b6]">
+            <p className="rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3 text-[13px] leading-[18px] text-muted-foreground">
               {deferredUntilVault
                 ? "Kept only for this setup session. One encrypts and saves it after your private vault is ready."
                 : "Saved in your private vault and shared only when you approve location access."}
             </p>
 
-            <div className="sticky bottom-0 z-20 -mx-3 mt-1 flex flex-col gap-2.5 rounded-t-2xl border-t border-black/[0.06] bg-white/95 px-3 pb-1 pt-3 backdrop-blur dark:border-white/[0.08] dark:bg-[#141922]/95">
+            <div className="sticky bottom-0 z-20 -mx-3 mt-1 flex flex-col gap-2.5 rounded-t-[18px] border-t border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)]/95 px-3 pb-1 pt-3 backdrop-blur">
               <button
                 type="button"
                 onClick={handleSave}
                 disabled={!canSave || !detailsComplete}
                 aria-busy={saving || undefined}
                 className={cn(
-                  "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[16px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-45",
-                  "bg-[color:var(--app-accent,#087ff5)] text-[color:var(--app-accent-fg,#ffffff)] hover:bg-[color:var(--app-accent-hover,#0b62c4)]",
+                  "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[17px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45",
+                  "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
                 )}
               >
                 {saving ? (
@@ -680,7 +690,7 @@ export function SaveLocationModal({
                 type="button"
                 onClick={onSkip}
                 disabled={interactionBusy}
-                className="h-11 w-full rounded-full text-[15px] font-semibold text-[#6b7280] transition-colors hover:text-[#374151] disabled:opacity-50 dark:text-[#9aa6b6] dark:hover:text-[#c4cdda]"
+                className="h-11 w-full rounded-full text-[15px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
               >
                 Skip for now
               </button>
@@ -694,21 +704,21 @@ export function SaveLocationModal({
               onClick={onSkip}
               disabled={interactionBusy}
               aria-label="Close"
-              className="press-scale absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] disabled:opacity-45 dark:bg-white/[0.08] dark:text-[#aeb8c7]"
+              className={cn(iconButtonClassName, "right-4 top-4")}
             >
               <X className="h-4.5 w-4.5" strokeWidth={2.4} />
             </button>
 
             <header className="pr-8">
-              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[color:var(--app-accent-tint,#e7f0fd)] text-[color:var(--app-accent,#087ff5)]">
-                <MapPin className="h-6 w-6" strokeWidth={2.2} />
+              <span className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+                <MapPin className="h-[17px] w-[17px]" strokeWidth={1.9} />
               </span>
-              <DialogTitle className="mt-3.5 text-[22px] font-bold leading-[1.15] tracking-[-0.01em] text-[#0b1220] dark:text-[#f4f7fb]">
+              <DialogTitle className="mt-3 text-[28px] font-bold leading-[1.12] tracking-normal text-foreground">
                 Save this place
               </DialogTitle>
               <p
                 id={descriptionId}
-                className="mt-1.5 text-[14px] leading-[1.45] text-[#5b6472] dark:text-[#9aa6b6]"
+                className="mt-2 text-[15px] leading-5 text-muted-foreground"
               >
                 Tag where you are so One can personalise your experience. It
                 stays encrypted in your vault and is shared only when you
@@ -716,21 +726,21 @@ export function SaveLocationModal({
               </p>
             </header>
 
-            <div className="flex items-center gap-2.5 rounded-2xl bg-[#f4f6fa] px-3.5 py-3 dark:bg-white/[0.05]">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-[color:var(--app-accent,#087ff5)] shadow-sm dark:bg-[#1c2430]">
-                <MapPin className="h-4 w-4" strokeWidth={2.4} />
+            <div className="flex items-center gap-2.5 rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3">
+              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+                <MapPin className="h-[17px] w-[17px]" strokeWidth={1.9} />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#8b93a1] dark:text-[#7f8a99]">
+                <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                   Current location
                 </p>
                 {loadingAddress ? (
-                  <span className="mt-0.5 flex items-center gap-1.5 text-[13px] text-[#5b6472] dark:text-[#9aa6b6]">
+                  <span className="mt-0.5 flex items-center gap-1.5 text-[15px] leading-5 text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" /> Finding
                     your address…
                   </span>
                 ) : (
-                  <p className="mt-0.5 truncate text-[14px] font-semibold text-[#111827] dark:text-[#e9eef7]">
+                  <p className="mt-0.5 truncate text-[15px] font-semibold leading-5 text-foreground">
                     {resolvedAddress || "Address unavailable"}
                   </p>
                 )}
@@ -745,7 +755,7 @@ export function SaveLocationModal({
                     setPlaceSearchError(null);
                   }}
                   disabled={interactionBusy}
-                  className="press-scale inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-white px-2.5 text-[12px] font-bold text-[color:var(--app-accent-deep,#0b62c4)] shadow-sm disabled:opacity-45 dark:bg-white/[0.08] dark:text-[#9bc7f5]"
+                  className="press-scale inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45"
                   aria-label="Change captured location"
                 >
                   <Pencil className="h-3.5 w-3.5" aria-hidden />
@@ -760,16 +770,16 @@ export function SaveLocationModal({
                 onClick={() => setFlowStep("map")}
                 disabled={interactionBusy}
                 data-testid="save-location-adjust-on-map"
-                className="press-scale flex w-full items-center gap-3 rounded-2xl border border-dashed border-[color:var(--app-accent,#087ff5)]/40 bg-[color:var(--app-accent-tint,#e7f0fd)]/50 px-3.5 py-3 text-left transition-colors hover:bg-[color:var(--app-accent-tint,#e7f0fd)] disabled:opacity-45 dark:border-[color:var(--app-accent,#087ff5)]/30 dark:bg-[color:var(--app-accent,#087ff5)]/10"
+                className="press-scale flex w-full items-center gap-3 rounded-[14px] border border-dashed border-[color:var(--app-accent)]/35 bg-[color:var(--app-accent)]/10 px-3.5 py-3 text-left transition-colors hover:bg-[color:var(--app-accent)]/15 disabled:opacity-45"
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-[color:var(--app-accent,#087ff5)] shadow-sm dark:bg-[#1c2430]">
-                  <MapIcon className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+                <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+                  <MapIcon className="h-[17px] w-[17px]" strokeWidth={1.9} aria-hidden />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[14px] font-bold text-[color:var(--app-accent-deep,#0b62c4)] dark:text-[#9bc7f5]">
+                  <span className="block text-[15px] font-semibold leading-5 text-[color:var(--app-accent)]">
                     Pin your entrance on the map
                   </span>
-                  <span className="block text-[12px] leading-[1.4] text-[#5b6472] dark:text-[#9aa6b6]">
+                  <span className="block text-[13px] leading-[18px] text-muted-foreground">
                     GPS can be off by a few meters — drag the pin to your door.
                   </span>
                 </span>
@@ -780,13 +790,13 @@ export function SaveLocationModal({
               <div className="space-y-2.5 [animation:saveLocFadeIn_.2s_ease-out_both]">
                 <label
                   htmlFor="saved-location-place-search"
-                  className="block text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]"
+                  className={controlLabelClassName}
                 >
                   Search for another place
                 </label>
                 <div className="relative">
                   <Search
-                    className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8b93a1]"
+                    className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--app-tertiary-label)]"
                     aria-hidden
                   />
                   <input
@@ -797,11 +807,11 @@ export function SaveLocationModal({
                     disabled={interactionBusy}
                     autoComplete="off"
                     placeholder="Search address or place"
-                    className="h-12 w-full rounded-2xl border border-black/[0.1] bg-white pl-10 pr-10 text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa2b0] focus:border-[color:var(--app-accent,#087ff5)] focus:ring-2 focus:ring-[color:var(--app-accent,#087ff5)]/25 dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-[#e9eef7]"
+                    className={cn(controlInputClassName, "pl-10 pr-10")}
                   />
                   {placeSearching || changingPlace ? (
                     <Loader2
-                      className="absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[#8b93a1]"
+                      className="absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[color:var(--app-tertiary-label)]"
                       aria-label="Searching places"
                     />
                   ) : null}
@@ -809,7 +819,7 @@ export function SaveLocationModal({
 
                 {placeSuggestions.length > 0 ? (
                   <div
-                    className="max-h-40 overflow-y-auto rounded-2xl border border-black/[0.08] bg-white p-1 shadow-sm dark:border-white/[0.1] dark:bg-[#1b2230]"
+                    className="max-h-40 overflow-y-auto rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-1 shadow-none"
                     aria-label="Location suggestions"
                   >
                     {placeSuggestions.map((suggestion) => (
@@ -820,10 +830,10 @@ export function SaveLocationModal({
                           void handleSelectPlace(suggestion.placeId)
                         }
                         disabled={interactionBusy}
-                        className="flex min-h-11 w-full items-start gap-2 rounded-xl px-3 py-2.5 text-left text-[14px] font-medium text-[#273142] hover:bg-black/[0.04] disabled:opacity-45 dark:text-[#dce5f2] dark:hover:bg-white/[0.06]"
+                        className="flex min-h-11 w-full items-start gap-2 rounded-[10px] px-3 py-2.5 text-left text-[15px] leading-5 text-foreground hover:bg-foreground/[0.04] disabled:opacity-45"
                       >
                         <MapPin
-                          className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--app-accent,#087ff5)]"
+                          className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
                           aria-hidden
                         />
                         <span>{suggestion.text}</span>
@@ -835,7 +845,7 @@ export function SaveLocationModal({
                 {placeSearchError ? (
                   <p
                     role="alert"
-                    className="text-[12px] font-medium text-[#b42318] dark:text-[#ff9b91]"
+                    className="text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
                   >
                     {placeSearchError}
                   </p>
@@ -850,7 +860,7 @@ export function SaveLocationModal({
                     setPlaceSearchError(null);
                   }}
                   disabled={interactionBusy}
-                  className="text-[13px] font-semibold text-[#5b6472] disabled:opacity-45 dark:text-[#9aa6b6]"
+                  className="text-[13px] font-semibold text-muted-foreground disabled:opacity-45"
                 >
                   Keep current location
                 </button>
@@ -867,7 +877,7 @@ export function SaveLocationModal({
               <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
                 <label
                   htmlFor="saved-location-custom-label"
-                  className="mb-1.5 block text-[13px] font-semibold text-[#374151] dark:text-[#c4cdda]"
+                  className={controlLabelClassName}
                 >
                   Give it a name <span className="font-normal">(optional)</span>
                 </label>
@@ -879,7 +889,7 @@ export function SaveLocationModal({
                   disabled={interactionBusy}
                   maxLength={40}
                   placeholder="e.g. Gym, Mom's house, Cafe"
-                  className="h-12 w-full rounded-2xl border border-black/[0.1] bg-white px-4 text-[15px] text-[#111827] outline-none transition-colors placeholder:text-[#9aa2b0] focus:border-[color:var(--app-accent,#087ff5)] focus:ring-2 focus:ring-[color:var(--app-accent,#087ff5)]/25 dark:border-white/[0.12] dark:bg-white/[0.05] dark:text-[#e9eef7]"
+                  className={controlInputClassName}
                 />
               </div>
             ) : null}
@@ -891,8 +901,8 @@ export function SaveLocationModal({
                 disabled={!canSave}
                 aria-busy={saving || undefined}
                 className={cn(
-                  "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[16px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-45",
-                  "bg-[color:var(--app-accent,#087ff5)] text-[color:var(--app-accent-fg,#ffffff)] hover:bg-[color:var(--app-accent-hover,#0b62c4)]",
+                  "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[17px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45",
+                  "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
                 )}
               >
                 {saving ? (
@@ -906,7 +916,7 @@ export function SaveLocationModal({
                 type="button"
                 onClick={onSkip}
                 disabled={interactionBusy}
-                className="h-11 w-full rounded-full text-[15px] font-semibold text-[#6b7280] transition-colors hover:text-[#374151] disabled:opacity-50 dark:text-[#9aa6b6] dark:hover:text-[#c4cdda]"
+                className="h-11 w-full rounded-full text-[15px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
               >
                 Skip for now
               </button>

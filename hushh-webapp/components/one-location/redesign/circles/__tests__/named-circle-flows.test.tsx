@@ -154,6 +154,21 @@ describe("named Circle flows", () => {
     );
   });
 
+  it("pre-fills the code input from initialCode (a shared /circle/join link)", () => {
+    render(
+      <JoinCircleFlow
+        busy={false}
+        initialCode="2345-6789-ABCD"
+        onResolve={async () => ({}) as OneLocationCircleInvitePreview}
+        onJoin={async () => undefined}
+      />,
+    );
+
+    expect(screen.getByLabelText("Circle invite code")).toHaveValue(
+      "2345-6789-ABCD",
+    );
+  });
+
   it("ignores a stale preview and joins the exact code that was reviewed", async () => {
     let resolveFirst:
       | ((value: OneLocationCircleInvitePreview) => void)

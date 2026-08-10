@@ -16,14 +16,14 @@ import { cn } from "@/lib/utils";
 // carry the muted eyebrow tone on the stroke and warm to full foreground on
 // hover; pill controls add horizontal padding + label text.
 const shellActionSurfaceVariants = cva(
-  "shell-action-surface group/shell-action relative isolate inline-flex overflow-hidden rounded-full bg-black/[0.05] transition-[color,background-color,transform] duration-200 hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60 dark:bg-white/[0.07] dark:hover:bg-white/[0.1]",
+  "shell-action-surface group/shell-action relative isolate inline-flex overflow-hidden rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] transition-[color,background-color,transform] duration-200 hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
   {
     variants: {
       variant: {
         icon:
           "h-9 w-9 items-center justify-center text-muted-foreground hover:text-foreground active:scale-90",
         pill:
-          "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-medium tracking-normal text-foreground active:scale-[0.97] sm:gap-2 sm:px-4 sm:text-base",
+          "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-semibold tracking-normal text-foreground active:scale-[0.97] sm:gap-2 sm:px-4 sm:text-base",
       },
     },
     defaultVariants: {

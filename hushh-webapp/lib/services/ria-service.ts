@@ -124,6 +124,19 @@ export interface MarketplaceContactMatch {
   profile: MarketplaceRia | MarketplaceInvestor;
 }
 
+/** Parsed claim snapshot persisted in `ria_verification_events.reference_metadata`. */
+export interface RiaClaimEventMetadata {
+  provider?: string;
+  claim_type?: string;
+  firm_record?: Record<string, unknown> | null;
+  advisor_record?: Record<string, unknown> | null;
+  satisfied?: string[];
+  missing?: string[];
+  evidence_ledger?: unknown;
+  verification_level?: string | null;
+  [key: string]: unknown;
+}
+
 export interface RiaOnboardingStatus {
   exists: boolean;
   ria_profile_id?: string;
@@ -158,6 +171,25 @@ export interface RiaOnboardingStatus {
   business_pin_zip?: string | null;
   business_latitude?: number | null;
   business_longitude?: number | null;
+  /** ISO country of the office, so a bare city name is not globally ambiguous. */
+  business_country_code?: string | null;
+  /**
+   * Where the shown address came from: "profile" when the adviser entered it,
+   * "sec_record" when any shown value was derived from their claimed SEC
+   * filing, null when there is no address at all.
+   */
+  business_location_source?: "profile" | "sec_record" | null;
+  /**
+   * Where the narrative fields (services, fees, min engagement, bio) came from
+   * when the adviser left them blank: "form_adv_part2" when the claimed Form
+   * ADV Part 2 brochure supplied at least one of them, empty/absent when the
+   * adviser wrote everything shown.
+   */
+  profile_source?: string | null;
+  /** The exact brochure PDF the values were read from. */
+  profile_source_url?: string | null;
+  /** The filing date as the SEC states it (e.g. "1/13/2026") — never reparsed. */
+  profile_source_filed_on?: string | null;
   bio?: string | null;
   strategy?: string | null;
   disclosures_url?: string | null;
@@ -168,6 +200,18 @@ export interface RiaOnboardingStatus {
     checked_at: string;
     expires_at?: string | null;
     reference_metadata?: Record<string, unknown>;
+  } | null;
+  /**
+   * The durable `ria_identity_claim` snapshot (provider-filtered server-side so
+   * later refresh-license / onboarding events can't shadow it). Null when the
+   * profile was never claimed by phone. `reference_metadata` also carries raw
+   * phone digits — render selected keys only, never the whole object.
+   */
+  latest_claim_event?: {
+    outcome: string;
+    checked_at: string;
+    expires_at?: string | null;
+    reference_metadata?: RiaClaimEventMetadata;
   } | null;
   latest_advisory_event?: {
     outcome: string;
@@ -312,6 +356,43 @@ export interface RiaClaimProfileFacts {
   has_disclosures?: boolean | null;
 }
 
+/** Durable statuses persisted on the background-dossier row. */
+export type RiaDossierStatus =
+  | "queued"
+  | "scanning"
+  | "generated"
+  | "sent"
+  | "scan_failed"
+  | "send_failed"
+  | "blocked_no_email"
+  | "send_blocked_test_unset"
+  | (string & {});
+
+/**
+ * Fire-and-forget dispatch receipt attached to the claim-complete response.
+ * Best-effort by contract: absent on older backends and whenever the dispatch
+ * itself failed — the claim always stands.
+ */
+export interface RiaClaimDossierDispatch {
+  status: "queued" | "skipped" | (string & {});
+  email_masked?: string | null;
+}
+
+export interface RiaDossierMail {
+  status?: string | null;
+  recipient_masked?: string | null;
+}
+
+/** The own-row dossier snapshot served by `GET /ria/dossier` (404 ⇒ none). */
+export interface RiaDossier {
+  status: RiaDossierStatus;
+  summary?: string | null;
+  markdown?: string | null;
+  requested_at?: string | null;
+  completed_at?: string | null;
+  mail?: RiaDossierMail | null;
+}
+
 export interface RiaClaimCompleteResult {
   status: string;
   claim_type: string;
@@ -320,6 +401,18 @@ export interface RiaClaimCompleteResult {
   provisional: boolean;
   profile: RiaClaimProfileSummary;
   facts?: RiaClaimProfileFacts | null;
+  dossier?: RiaClaimDossierDispatch | null;
+}
+
+export interface RiaClaimEmailStartResult {
+  status: "sent" | "already_verified" | "send_failed" | (string & {});
+  email_masked?: string | null;
+}
+
+export interface RiaClaimEmailConfirmResult {
+  verified: boolean;
+  verification_status: string;
+  verification_level?: string | null;
 }
 
 export interface RiaLicenseVerificationResult {
@@ -1684,6 +1777,59 @@ export class RiaService {
       body: payload,
     });
     return toJsonOrThrow<RiaClaimCompleteResult>(response);
+  }
+
+  static async claimEmailStart(
+    idToken: string,
+    payload: { email: string },
+  ): Promise<RiaClaimEmailStartResult> {
+    const response = await authFetch("/api/ria/claim/email/start", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    // Mail is best-effort upstream: a queue failure comes back as a 502 with
+    // {status:"send_failed"} and the alias ceremony still stands. Surface it as
+    // a result so the UI can offer Retry instead of a thrown error.
+    if (response.status === 502) {
+      const body = (await response
+        .json()
+        .catch(() => null)) as RiaClaimEmailStartResult | null;
+      if (body?.status === "send_failed") return body;
+      throw new RiaApiError("Couldn't send the code.", 502);
+    }
+    return toJsonOrThrow<RiaClaimEmailStartResult>(response);
+  }
+
+  static async claimEmailConfirm(
+    idToken: string,
+    payload: { email: string; code: string },
+  ): Promise<RiaClaimEmailConfirmResult> {
+    const response = await authFetch("/api/ria/claim/email/confirm", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    return toJsonOrThrow<RiaClaimEmailConfirmResult>(response);
+  }
+
+  static async getDossier(idToken: string): Promise<RiaDossier | null> {
+    const response = await authFetch("/api/ria/dossier", {
+      method: "GET",
+      idToken,
+    });
+    // 404 = no dossier row for this profile (never dispatched) — a normal
+    // state, not an error, so the profile row simply doesn't render.
+    if (response.status === 404) return null;
+    return toJsonOrThrow<RiaDossier>(response);
+  }
+
+  static async retryDossier(idToken: string): Promise<RiaDossier> {
+    const response = await authFetch("/api/ria/dossier/retry", {
+      method: "POST",
+      idToken,
+    });
+    return toJsonOrThrow<RiaDossier>(response);
   }
 
   static async verifyOnboardingLicense(

@@ -63,15 +63,15 @@ export const surfaceDataTableShellClassName = cn(
 );
 
 export const surfaceInteractiveShellClassName = cn(
-  "rounded-[var(--app-card-radius-feature)] border border-transparent",
+  "rounded-[var(--app-card-radius-standard)] border border-transparent",
   "bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]",
-  "transition-[background-color,border-color,box-shadow] duration-200 ease-out",
-  "hover:bg-[color:var(--app-card-surface-default-solid)] hover:shadow-[var(--app-card-shadow-feature)]"
+  "transition-[background-color,border-color] duration-200 ease-out",
+  "hover:bg-[color:var(--app-card-surface-compact)]"
 );
 
 export const surfaceInsetClassName = cn(
   "rounded-[var(--app-card-radius-compact)] border border-transparent",
-  "bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]"
+  "bg-[color:var(--app-card-surface-compact)] shadow-none"
 );
 
 type SurfaceCardProps = Omit<CardProps, "effect" | "preset" | "showRipple" | "variant"> & {
@@ -125,7 +125,7 @@ export const SurfaceCardTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CardTitle
     ref={ref}
-    className={cn("text-sm font-semibold tracking-tight sm:text-[15px]", className)}
+    className={cn("text-[17px] font-semibold leading-[22px] tracking-normal", className)}
     {...props}
   />
 ));
@@ -138,7 +138,7 @@ export const SurfaceCardDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CardDescription
     ref={ref}
-    className={cn("text-[11px] leading-4 text-muted-foreground sm:text-[12px]", className)}
+    className={cn("text-[15px] leading-[20px] text-muted-foreground", className)}
     {...props}
   />
 ));

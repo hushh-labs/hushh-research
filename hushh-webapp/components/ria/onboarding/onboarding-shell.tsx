@@ -186,7 +186,7 @@ export function OnboardingShell({
               ) : null}
             </div>
           ) : null}
-          <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-muted-foreground mb-1 block">{eyebrow}</p>
+          <p className="ui-text-section-label mb-2 block px-[6px]">{eyebrow}</p>
           <h1
             className={cn(
               "ria-screen-title",

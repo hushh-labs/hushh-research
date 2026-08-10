@@ -2108,6 +2108,10 @@ export function OneLocationOnboardingFlow({
   };
 
   const backFromFeatures = () => {
+    // A dismissed location picker is reversible. When the owner goes back and
+    // returns to Features, prepare Location again; the parent still suppresses
+    // duplicate work after a confirmed save.
+    locationPreparationCompleteRef.current = false;
     if (startAt === "permissions") {
       void runBack();
       return;
@@ -2223,8 +2227,15 @@ export function OneLocationOnboardingFlow({
       <section
         className={cn(
           "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[#0c1017]",
+          // Features sizes off viewport HEIGHT so its artwork keeps its
+          // proportions on a short screen, but that left the whole panel a
+          // narrow strip on a wide one: `58dvh` shrinks as the window gets
+          // shorter, and 560px capped it however much room there was. Keep
+          // that behaviour where it earns its place -- phones and short
+          // windows -- and let a genuinely wide viewport use the width, the
+          // same way the SOS panel does.
           screen === "features"
-            ? "max-w-[min(560px,58dvh)] max-[431px]:max-w-none"
+            ? "max-w-[min(560px,58dvh)] max-[431px]:max-w-none lg:max-w-3xl"
             : "max-w-[480px]",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}

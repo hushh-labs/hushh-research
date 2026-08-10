@@ -70,6 +70,25 @@ const baseProps = {
 
 
 describe("SmsContactsFlow", () => {
+  it("grows past phone width and pairs the two lists on a wide screen", () => {
+    // The column used to be pinned at 430px at every size, so a tablet or a
+    // desktop window rendered a narrow ribbon in a field of grey. Asserting the
+    // breakpoint classes is how this file already checks layout, and it is the
+    // part a refactor is most likely to drop silently.
+    render(<SmsContactsFlow {...baseProps} />);
+
+    const column = screen.getByTestId("sms-contacts-screen")
+      .firstElementChild as HTMLElement;
+    expect(column).toHaveClass("max-w-[430px]");
+    expect(column).toHaveClass("md:max-w-[720px]", "xl:max-w-[960px]");
+
+    // "Alerted on SMS" and "Add from your circle" share one grid, so moving a
+    // person between them stays visible in a single glance.
+    const lists = screen.getByText("Alerted on SMS").closest("div")
+      ?.parentElement as HTMLElement;
+    expect(lists).toHaveClass("md:grid", "md:grid-cols-2");
+  });
+
   it("separates selected and available circle members", () => {
     render(<SmsContactsFlow {...baseProps} />);
 
@@ -107,21 +126,20 @@ describe("SmsContactsFlow", () => {
 
     const removeButton = screen.getByRole("button", { name: "Remove" });
     expect(removeButton).toHaveClass(
-      "bg-[#ffe9e9]",
-      "text-[#d70015]",
-      "border-[#ff3b30]/35",
+      "bg-[color:var(--app-destructive)]/10",
+      "text-[color:var(--app-destructive)]",
     );
     fireEvent.click(removeButton);
     expect(onRemove).not.toHaveBeenCalled();
     expect(screen.getByText("Remove Kushal?")).toBeInTheDocument();
 
     const title = screen.getByRole("heading", { name: /Remove Kushal\?/i });
-    expect(title.querySelector("span")).toHaveClass("text-[#17171c]");
+    expect(title.querySelector("span")).toHaveClass("text-foreground");
     expect(
       screen.getByText(
         "They'll no longer be alerted with your live location when you trigger SMS.",
       ),
-    ).toHaveClass("!text-[#17171c]");
+    ).toHaveClass("!text-muted-foreground");
 
     const removeButtons = screen.getAllByRole("button", {
       name: "Remove",
@@ -160,7 +178,7 @@ describe("SmsContactsFlow", () => {
     expect(screen.getByTestId("sms-contacts-screen")).toHaveClass(
       "fixed",
       "inset-0",
-      "bg-[#f2f3f7]",
+      "bg-background",
     );
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     expect(screen.getByRole("alertdialog")).toHaveClass(

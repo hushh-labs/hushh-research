@@ -52,6 +52,21 @@ describe("KycIdentityPreface", () => {
     mocks.saveProfile.mockResolvedValue({ success: true });
   });
 
+  it("keeps the shared gutter while removing the standard route's duplicate top offset", () => {
+    const { container } = render(
+      <KycIdentityPreface onComplete={vi.fn()} />,
+    );
+
+    expect(
+      container.querySelector('[data-capability-cinematic-intro="email"]'),
+    ).toBeInTheDocument();
+    const shell = container.querySelector(
+      '[data-fullscreen-flow-shell="true"]',
+    );
+    expect(shell).toBeInTheDocument();
+    expect(shell?.className).toContain("!pt-0");
+  });
+
   it("stages the about-me summary in memory without opening the vault", () => {
     const onComplete = vi.fn();
     render(<KycIdentityPreface onComplete={onComplete} />);

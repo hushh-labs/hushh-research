@@ -311,6 +311,13 @@ export function LocationImmersiveMap() {
   const [status, setStatus] = useState<
     "idle" | "loading" | "ready" | "unavailable" | "error"
   >("idle");
+  // Why the map is unavailable. Both causes used to render the same card, which
+  // told the user "no location was captured or exposed" when their location was
+  // fine and the build simply had no Maps key — sending them to debug the wrong
+  // thing entirely.
+  const [unavailableReason, setUnavailableReason] = useState<
+    "maps-key" | "renderer"
+  >("maps-key");
   const [busy, setBusy] = useState<"presence" | "locate" | null>(null);
   const [nearbyConnectionBusyAlias, setNearbyConnectionBusyAlias] = useState<
     string | null
@@ -695,6 +702,7 @@ export function LocationImmersiveMap() {
     if (!rendererReady || !mapElement.current) return;
     const apiKey = mapApiKey();
     if (!apiKey) {
+      setUnavailableReason("maps-key");
       setStatus("unavailable");
       return;
     }
@@ -755,7 +763,9 @@ export function LocationImmersiveMap() {
         setMapReady(true);
       })
       .catch(() => {
-        if (!cancelled) setStatus("unavailable");
+        if (cancelled) return;
+        setUnavailableReason("renderer");
+        setStatus("unavailable");
       });
     return () => {
       cancelled = true;
@@ -1567,12 +1577,22 @@ export function LocationImmersiveMap() {
         {rendererReady ? (
           <ShellActionSurface
             className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
-            aria-label="Show my location"
+            aria-label={
+              busy === "locate" ? "Finding your location" : "Show my location"
+            }
+            aria-busy={busy === "locate"}
             data-testid="one-location-map-locate"
             disabled={busy === "locate"}
             onClick={() => void locateMe()}
           >
-            <LocateFixed className="h-5 w-5 stroke-[2.25]" />
+            {busy === "locate" ? (
+              <Loader2
+                className="h-5 w-5 animate-spin stroke-[2.25]"
+                aria-hidden="true"
+              />
+            ) : (
+              <LocateFixed className="h-5 w-5 stroke-[2.25]" />
+            )}
           </ShellActionSurface>
         ) : null}
       </div>
@@ -1668,11 +1688,14 @@ export function LocationImmersiveMap() {
       {rendererReady && status === "unavailable" ? (
         <section className="absolute inset-x-4 bottom-4 z-20 rounded-3xl bg-background/95 p-5 shadow-xl">
           <h1 className="font-semibold">
-            Your Map needs secure map configuration
+            {unavailableReason === "maps-key"
+              ? "This build has no Maps key"
+              : "The map could not start"}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            No location was captured or exposed. Try again after the app’s
-            restricted Maps key is configured.
+            {unavailableReason === "maps-key"
+              ? "Your location is fine — this app build was packaged without its restricted Google Maps key, so the map cannot render. Nothing about your location was captured or shared."
+              : "The map renderer failed to load. Check your connection and try again — your location was not captured or shared."}
           </p>
         </section>
       ) : null}

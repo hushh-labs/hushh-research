@@ -32,6 +32,11 @@ on:
         options:
           - "false"
           - "true"
+      nearby_check_in_cohort:
+        description: "Nearby check-in audience. Leave this as 'all' for a normal deploy. Clearing it turns nearby check-in OFF in production, which is the kill switch; a comma-separated list of user ids restricts it to those accounts."
+        required: false
+        default: "all"
+        type: string
 
 permissions:
   contents: read
@@ -237,8 +242,8 @@ jobs:
             --plaid-redirect-path "/kai/plaid/oauth/return" \
             --plaid-tx-history-days "730" \
             --hushh-trusted-device-enabled "false" \
-            --one-location-nearby-presence-mode "${{ vars.ONE_LOCATION_NEARBY_PRESENCE_MODE || '' }}" \
-            --one-location-nearby-presence-cohort "${{ vars.ONE_LOCATION_NEARBY_PRESENCE_COHORT || '' }}" \
+            --one-location-nearby-presence-mode "${{ github.event.inputs.nearby_check_in_cohort && 'production' || '' }}" \
+            --one-location-nearby-presence-cohort "${{ github.event.inputs.nearby_check_in_cohort }}" \
             > /tmp/prod-runtime-secret-sync.json
 
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_frontend_runtime_secrets.py \
@@ -426,7 +431,7 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/frontend.cloudbuild.yaml \
-            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_ONE_LOCATION_NEARBY_CHECK_IN=${{ vars.ONE_LOCATION_NEARBY_CHECK_IN_WEB || 'false' }},_APP_ENV=production,_ONE_WALLET_CARD_ENABLED=true,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
+            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_ONE_LOCATION_NEARBY_CHECK_IN=${{ github.event.inputs.nearby_check_in_cohort && 'true' || 'false' }},_APP_ENV=production,_ONE_WALLET_CARD_ENABLED=true,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
 
       - name: Get frontend URL
         if: steps.scope.outputs.deploy_frontend == 'true'

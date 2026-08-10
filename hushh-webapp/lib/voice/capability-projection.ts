@@ -5,6 +5,7 @@ import {
   type KaiActionAvailability,
   type KaiActionDefinition,
 } from "@/lib/voice/kai-action-gateway";
+import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
@@ -188,7 +189,11 @@ export function projectKaiActionCapability(input: {
     return { schema_version: "one.capability_projection.v1", action_id: action.action_id, status: "confirmation_needed", reason: null, action, availability };
   }
   if (action.goal.required_inputs.some((item) => item.required)) {
-    if (action.action_id === "analysis.start") {
+    // An action whose contract authors a navigate-then-execute journey stays
+    // reachable from anywhere, so it is a journey rather than a dead end
+    // waiting on input. Resolved from the contract, not by action id: this
+    // read `=== "analysis.start"`, which capped the app at one journey.
+    if (resolveNavigationJourney(action.action_id, action)) {
       return { schema_version: "one.capability_projection.v1", action_id: action.action_id, status: "cross_surface_journey", reason: null, action, availability };
     }
     return { schema_version: "one.capability_projection.v1", action_id: action.action_id, status: "input_needed", reason: null, action, availability };

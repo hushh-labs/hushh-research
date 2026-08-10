@@ -7,6 +7,7 @@ import { Grid2X2, List, Search } from "lucide-react";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { MajorSectionTitle } from "@/components/app-ui/typography";
 import {
   getOneSetupCapability,
   isOneCapabilityEnabled,
@@ -64,18 +65,18 @@ const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
  * until auth resolves, so it never server-renders with content). Reading the
  * persisted preference synchronously in the state initializer therefore has
  * no hydration-mismatch risk and lets the very first paint already be the
- * remembered view - eliminating the brief grid→list flip on every return to
+ * remembered view - eliminating a brief default-view flip on every return to
  * `/one`.
  */
 function readPersistedRosterView(): AgentRosterView {
-  if (typeof window === "undefined") return "grid";
+  if (typeof window === "undefined") return "list";
   try {
     const persisted = window.localStorage.getItem(
       AGENT_ROSTER_VIEW_STORAGE_KEY,
     );
-    return persisted === "list" ? "list" : "grid";
+    return persisted === "grid" ? "grid" : "list";
   } catch {
-    return "grid";
+    return "list";
   }
 }
 
@@ -430,7 +431,7 @@ function AgentMetricDisplay({
     >
       <span
         className={cn(
-          "shrink-0 font-semibold tabular-nums",
+          "shrink-0 font-semibold tabular-nums tracking-normal",
           compact ? "text-[13px]" : "text-[15px]",
           metricClassName(mode),
         )}
@@ -439,8 +440,8 @@ function AgentMetricDisplay({
       </span>
       <span
         className={cn(
-          "min-w-0 truncate font-medium text-muted-foreground",
-          compact ? "text-[10px]" : "text-[11px]",
+          "min-w-0 truncate font-normal text-muted-foreground",
+          compact ? "text-[12px]" : "text-[13px]",
           isPositiveMetric && "text-emerald-700/80 dark:text-emerald-300/85",
         )}
       >
@@ -464,7 +465,7 @@ function AgentGridItem({
       data-testid={`one-agent-tile-${mode.id}`}
       title={mode.description}
       className={cn(
-        "group relative flex min-h-[9rem] min-w-0 w-full flex-col items-center justify-start gap-2 overflow-hidden rounded-[12px] px-2 py-3 text-center",
+        "group relative flex min-h-[8.25rem] min-w-0 w-full flex-col items-center justify-start gap-2 overflow-hidden rounded-[12px] px-2.5 py-3 text-center",
         "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[color:var(--app-card-surface-compact)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-inset active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
         className,
@@ -482,7 +483,7 @@ function AgentGridItem({
         className="relative z-10"
       />
       <span className="relative z-10 min-w-0">
-        <span className="block truncate text-[13px] font-semibold leading-tight text-foreground">
+        <span className="block truncate text-[15px] font-normal leading-[20px] tracking-normal text-foreground">
           {mode.title}
         </span>
         <AgentMetricDisplay mode={mode} compact />
@@ -498,6 +499,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       asChild
       density="compact"
       title={mode.title}
+      className="[--settings-row-px:16px] [--settings-row-py:10px]"
       leading={
         <AgentSectionIcon
           id={mode.id}
@@ -534,7 +536,7 @@ function AgentRosterViewToggle({
     <div
       role="group"
       aria-label="Agent roster view"
-      className="inline-flex shrink-0 items-center gap-0.5 rounded-xl bg-black/[0.045] p-0.5 dark:bg-white/[0.06]"
+      className="inline-flex shrink-0 items-center gap-1 rounded-[14px] bg-[color:var(--app-card-surface-compact)] p-1"
     >
       <ShellActionSurface
         aria-label="Show agent grid view"
@@ -542,13 +544,13 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-grid"
         onClick={() => onChange("grid")}
         className={cn(
-          "h-8 w-8 rounded-[10px]",
+          "h-9 w-9 rounded-[11px]",
           value === "grid"
-            ? "bg-accent text-accent-foreground shadow-[0_1px_5px_rgba(0,0,0,0.14)] hover:bg-accent dark:bg-accent"
+            ? "bg-accent text-accent-foreground shadow-none hover:bg-accent dark:bg-accent"
             : "bg-transparent text-muted-foreground shadow-none hover:bg-foreground/[0.06] hover:text-foreground dark:bg-transparent",
         )}
       >
-        <Grid2X2 className="h-4 w-4" aria-hidden />
+        <Grid2X2 className="h-[17px] w-[17px] [stroke-width:1.8]" aria-hidden />
       </ShellActionSurface>
       <ShellActionSurface
         aria-label="Show agent list view"
@@ -556,13 +558,13 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-list"
         onClick={() => onChange("list")}
         className={cn(
-          "h-8 w-8 rounded-[10px]",
+          "h-9 w-9 rounded-[11px]",
           value === "list"
-            ? "bg-accent text-accent-foreground shadow-[0_1px_5px_rgba(0,0,0,0.14)] hover:bg-accent dark:bg-accent"
+            ? "bg-accent text-accent-foreground shadow-none hover:bg-accent dark:bg-accent"
             : "bg-transparent text-muted-foreground shadow-none hover:bg-foreground/[0.06] hover:text-foreground dark:bg-transparent",
         )}
       >
-        <List className="h-4 w-4" aria-hidden />
+        <List className="h-[17px] w-[17px] [stroke-width:1.8]" aria-hidden />
       </ShellActionSurface>
     </div>
   );
@@ -617,30 +619,31 @@ export function OneAgentRoster({
     <section
       aria-labelledby="one-agents-heading"
       data-testid="one-agents-section"
-      className="w-full"
+      className="mx-auto w-full max-w-[720px]"
     >
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2
+        <MajorSectionTitle
+          as="h2"
           id="one-agents-heading"
-          className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+          className="text-[28px] leading-[34px]"
         >
-          Agents ({modes.length})
-        </h2>
+          agents ({modes.length})
+        </MajorSectionTitle>
         <AgentRosterViewToggle value={view} onChange={selectView} />
       </div>
-      <label className="relative mb-3 block">
+      <label className="relative mb-4 block">
         <Search
-          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-muted-foreground [stroke-width:1.8]"
           aria-hidden="true"
         />
         <input
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search agents"
-          aria-label="Search agents"
+          placeholder="search agents"
+          aria-label="search agents"
           data-testid="one-agents-search"
-          className="h-10 w-full rounded-[var(--app-radius-lg)] border border-border/70 bg-[color:var(--app-card-surface-compact)] py-2 pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
+          className="h-11 w-full rounded-[16px] border-0 bg-[color:var(--app-card-surface-compact)] py-2 pl-11 pr-4 text-[17px] font-normal leading-[22px] tracking-normal text-foreground outline-none ring-1 ring-border/55 placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
         />
       </label>
       <div
@@ -656,7 +659,7 @@ export function OneAgentRoster({
           >
             <div
               data-agent-roster-layout="grouped-icon-grid"
-              className="grid w-full grid-cols-3 gap-1.5 sm:grid-cols-4 sm:gap-2"
+              className="grid w-full grid-cols-3 gap-1.5 sm:grid-cols-4 sm:gap-2.5"
             >
               {visibleModes.map((mode) => (
                 <AgentGridItem key={mode.id} mode={mode} />

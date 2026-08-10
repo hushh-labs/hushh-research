@@ -59,6 +59,7 @@ export const ROUTE_ID_VALUES = [
   "one_location_map",
   "one_location_public_request",
   "one_location_circle_invite",
+  "one_location_circle_join",
   "one_wallet_card",
   "wallet_card_public",
   "portfolio_shared",
@@ -198,6 +199,11 @@ export function resolveRouteId(pathname: string): RouteId {
     return "one_location_public_request";
   if (pathname.startsWith("/one/location/invite/"))
     return "one_location_circle_invite";
+  // Recipient landing for a shared Circle join link. It only forwards into
+  // /one/location with the code pre-filled, but it still needs an id: falling
+  // through to "unknown" logs the raw pathname, and this route's query carries
+  // a join code. Same reasoning as the public request and invite links above.
+  if (pathname === "/circle/join") return "one_location_circle_join";
   if (pathname === ROUTES.ONE_WALLET_CARD) return "one_wallet_card";
   // The scanned page emits no analytics of its own (isAnalyticsExemptRoute),
   // so this ID is never attached to a page view. It exists because "unknown"

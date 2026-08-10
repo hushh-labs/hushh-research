@@ -13,6 +13,7 @@ import {
   evaluateKaiActionAvailability,
   getKaiActionById,
 } from "@/lib/voice/kai-action-gateway";
+import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
@@ -54,8 +55,8 @@ export type ExecuteAgentGatewayActionInput = {
    * preview step after the generated route step has settled on Analysis.
    */
   goalAuthorization?: {
-    goalId: "goal.analysis.start_debate";
-    expectedScreen: "kai_analysis";
+    goalId: string;
+    expectedScreen: string;
   } | null;
 };
 
@@ -97,14 +98,21 @@ function isActionInActiveInventory(
     }
   }
 
-  if (
-    input.goalAuthorization?.goalId === "goal.analysis.start_debate" &&
-    input.goalAuthorization.expectedScreen === "kai_analysis" &&
-    input.actionId === "analysis.start" &&
-    input.appRuntimeState.route.screen === "kai_analysis" &&
-    !routeIsBlockedByActiveLayer
-  ) {
-    return true;
+  // A goal authorization is honored only when it names THIS action's own
+  // authored journey and the browser is standing on that journey's declared
+  // destination. Both facts come from the generated contract, so the check
+  // cannot be satisfied by a caller inventing a goal id for another action.
+  const authorization = input.goalAuthorization;
+  if (authorization && !routeIsBlockedByActiveLayer) {
+    const journey = resolveNavigationJourney(input.actionId);
+    if (
+      journey &&
+      authorization.goalId === journey.goalId &&
+      authorization.expectedScreen === journey.destinationScreen &&
+      input.appRuntimeState.route.screen === journey.destinationScreen
+    ) {
+      return true;
+    }
   }
 
   if (input.allowedActionIds) {

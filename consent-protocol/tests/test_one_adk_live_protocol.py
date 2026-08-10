@@ -2,7 +2,11 @@
 
 import pytest
 
-from api.routes.one.adk_live import _InitialGreetingGate, _receive_runtime_bootstrap
+from api.routes.one.adk_live import (
+    _close_quietly,
+    _InitialGreetingGate,
+    _receive_runtime_bootstrap,
+)
 from api.routes.one.live_context import (
     compose_route_context_note as _compose_route_context_note,
 )
@@ -45,9 +49,50 @@ class _BootstrapSocket:
         return json.dumps(self._frame)
 
 
+class _CloseSocket:
+    """Stand-in for the real websocket's close(), optionally raising to
+    simulate the known websockets/uvicorn legacy-protocol bug where close()
+    throws AttributeError on a connection whose transfer_data_task never got
+    set (client gone before the handshake finished)."""
+
+    def __init__(self, close_error: Exception | None = None):
+        self._close_error = close_error
+        self.close_calls: list[tuple[int, str]] = []
+
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        self.close_calls.append((code, reason))
+        if self._close_error is not None:
+            raise self._close_error
+
+
+@pytest.mark.asyncio
+async def test_close_quietly_closes_with_the_given_code_and_reason():
+    socket = _CloseSocket()
+
+    await _close_quietly(socket, code=1008, reason="Voice relay ticket is expired.")
+
+    assert socket.close_calls == [(1008, "Voice relay ticket is expired.")]
+
+
+@pytest.mark.asyncio
+async def test_close_quietly_swallows_a_close_failure_on_an_already_gone_client():
+    socket = _CloseSocket(
+        close_error=AttributeError(
+            "'WebSocketProtocol' object has no attribute 'transfer_data_task'"
+        )
+    )
+
+    # Must not raise: the client is already gone, so there is no one left to
+    # notify, and a rejection path failing to send its close frame must not
+    # itself become an unhandled server exception.
+    await _close_quietly(socket, code=1008, reason="Voice session configuration was not accepted.")
+
+    assert socket.close_calls == [(1008, "Voice session configuration was not accepted.")]
+
+
 @pytest.mark.asyncio
 async def test_runtime_bootstrap_accepts_only_the_authenticated_byok_frame():
-    mode, credential, transport, project, location = await _receive_runtime_bootstrap(
+    mode, credential, transport, project, location, _resume = await _receive_runtime_bootstrap(
         _BootstrapSocket(
             {
                 "type": "runtime_bootstrap",
@@ -68,7 +113,7 @@ async def test_runtime_bootstrap_accepts_only_the_authenticated_byok_frame():
 
 @pytest.mark.asyncio
 async def test_runtime_bootstrap_accepts_a_vertex_api_key_only_with_explicit_endpoint_metadata():
-    mode, credential, transport, project, location = await _receive_runtime_bootstrap(
+    mode, credential, transport, project, location, _resume = await _receive_runtime_bootstrap(
         _BootstrapSocket(
             {
                 "type": "runtime_bootstrap",
@@ -130,6 +175,13 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
         "route_context_policy": "suppress",
         "route_playbook": context["route_playbook"],
         "screen": "kai_market",
+        # Opt-in and absent unless a surface declares it. selected_entity and
+        # primary_entity stay out of the boundary entirely: several surfaces
+        # fill those with an investor name or email address.
+        "spoken_subject": None,
+        # Same posture: absent unless a surface says it is stuck, and dropped
+        # entirely unless the remedy it names is one this route may run.
+        "dead_end": None,
         "persona": "investor",
         "voice_state": "listening",
         "signed_in": False,
@@ -287,6 +339,102 @@ def test_route_note_surfaces_visible_content_for_active_screen_awareness():
     assert "watchlist" in note
 
 
+def test_dead_end_reaches_the_note_with_the_action_that_resolves_it():
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/location",
+            "available_action_ids": ["location.add_connections"],
+            "dead_end": {
+                "reason": "There is no one to add as an emergency contact yet.",
+                "remedy_action_id": "location.add_connections",
+            },
+        }
+    )
+
+    assert context["dead_end"] == {
+        "reason": "There is no one to add as an emergency contact yet.",
+        "remedy_action_id": "location.add_connections",
+    }
+
+    note = _compose_route_context_note(context)
+    assert note is not None
+    # The point of the whole path: One is told both that the person is stuck
+    # and where it gets unstuck, so "no connections" stops being a full stop.
+    assert "currently stuck on this screen" in note
+    assert "no one to add as an emergency contact" in note
+    assert "location.add_connections" in note
+    assert "never run it unasked" in note
+
+
+def test_dead_end_is_dropped_whole_when_its_remedy_is_not_runnable_here():
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/location",
+            "available_action_ids": ["location.add_connections"],
+            "dead_end": {
+                "reason": "Nothing to do here.",
+                "remedy_action_id": "connect.delete_everyones_account",
+            },
+        }
+    )
+
+    # A screen may describe its own dead end; it may not invent a destination.
+    # Half a dead end -- a reason with an unreachable remedy -- would strand the
+    # person mid-sentence, so the whole thing goes rather than the remedy alone.
+    assert context["dead_end"] is None
+    note = _compose_route_context_note(context)
+    assert note is not None
+    assert "currently stuck on this screen" not in note
+
+
+def test_dead_end_needs_both_halves():
+    for payload in (
+        {"reason": "Stuck.", "remedy_action_id": ""},
+        {"reason": "", "remedy_action_id": "location.add_connections"},
+        {"remedy_action_id": "location.add_connections"},
+        "not a mapping",
+    ):
+        context = _sanitize_live_context(
+            {
+                "route_family": "/one/location",
+                "available_action_ids": ["location.add_connections"],
+                "dead_end": payload,
+            }
+        )
+        assert context["dead_end"] is None
+
+
+def _proactive_context():
+    context = _sanitize_live_context(
+        {"route_family": "/", "available_action_ids": ["onboarding.claim_one"]}
+    )
+    playbook = dict(context.get("route_playbook") or {})
+    playbook.update({"proactivity": "on_entry", "entry_cue": "Pick a finance view."})
+    context["route_playbook"] = playbook
+    return context
+
+
+def test_route_note_spends_the_entry_cue_when_the_person_actually_arrives():
+    note = _compose_route_context_note(_proactive_context(), is_route_entry=True)
+
+    assert note is not None
+    assert "orient once with this intent" in note
+    assert "Pick a finance view." in note
+
+
+def test_route_note_stays_silent_when_only_content_changed_on_the_same_screen():
+    # Opening a preview on the current screen refreshes the inventory but is
+    # not an arrival. Spending the on-entry cue here made One announce a
+    # navigation that never happened.
+    note = _compose_route_context_note(_proactive_context(), is_route_entry=False)
+
+    assert note is not None
+    assert "orient once with this intent" not in note
+    assert "Use this context silently until the person speaks." in note
+    # The refreshed inventory still reaches One; only the spoken cue is held.
+    assert "onboarding.claim_one" in note
+
+
 def test_action_settlement_requires_matching_issued_directive_and_can_retry_after_invalid():
     issued = {"directive-1": "analysis.start"}
 
@@ -325,3 +473,35 @@ def test_action_settlement_requires_matching_issued_directive_and_can_retry_afte
     assert settlement["summary"] == "Portfolio access is locked."
     assert settlement["destination_context_id"] == "ctx-2"
     assert issued == {}
+
+
+def test_live_context_speaks_only_an_opt_in_subject_never_the_raw_entity():
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/kai",
+            "spoken_subject": "QCOM",
+            # Several surfaces set these to an investor's name or email, so
+            # they must not cross the boundary however useful they look.
+            "selected_entity": "investor@example.com",
+            "primary_entity": "Jane Investor",
+        }
+    )
+
+    assert context["spoken_subject"] == "QCOM"
+    assert "selected_entity" not in context
+    assert "primary_entity" not in context
+
+    note = _compose_route_context_note(context)
+    assert note is not None
+    assert "The person is looking at: QCOM." in note
+    assert "investor@example.com" not in note
+    assert "Jane Investor" not in note
+
+
+def test_live_context_note_omits_the_subject_line_when_none_is_declared():
+    context = _sanitize_live_context({"route_family": "/one/kai"})
+
+    note = _compose_route_context_note(context)
+
+    assert note is not None
+    assert "The person is looking at" not in note

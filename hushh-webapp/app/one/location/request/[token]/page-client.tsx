@@ -63,8 +63,8 @@ function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
       ? `Accuracy +/- ${Math.round(point.accuracyM)} m`
       : null;
   return (
-    <div className="overflow-hidden rounded-[var(--app-card-radius-standard)] border border-border/70 bg-background">
-      <div className="relative h-64 overflow-hidden bg-muted">
+    <div className="overflow-hidden rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)]">
+      <div className="relative h-64 overflow-hidden bg-muted sm:h-72">
         <iframe
           key={`public-location-map:${viewportResetKey}`}
           title="Public location map"
@@ -74,7 +74,7 @@ function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
           allowFullScreen
           className="h-full w-full border-0"
         />
-        <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full border border-emerald-300/40 bg-emerald-950/75 px-3 py-1.5 text-xs font-semibold text-emerald-50 shadow-lg backdrop-blur-xl">
+        <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-[color:var(--app-success)] px-3 py-1.5 text-[12px] font-semibold leading-4 text-white backdrop-blur-xl">
           <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
           Public location
         </div>
@@ -85,26 +85,26 @@ function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
           aria-label="Recenter public location map"
           title="Recenter map"
           onClick={() => setViewportResetKey((current) => current + 1)}
-          className="absolute right-3 top-3 z-10 h-11 w-11 rounded-full border border-border/70 bg-background/90 shadow-lg backdrop-blur-xl hover:bg-background sm:h-9 sm:w-9"
+          className="absolute right-3 top-3 z-10 h-11 w-11 rounded-full border border-border/70 bg-background/90 shadow-none backdrop-blur-xl hover:bg-background sm:h-9 sm:w-9"
         >
           <RefreshCw className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>
-      <div className="space-y-3 p-3">
+      <div className="space-y-3 p-3.5">
         <div className="min-w-0">
-          <p className="text-sm font-semibold">Shared location</p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="text-[17px] font-normal leading-[22px]">Shared location</p>
+          <p className="mt-0.5 text-[15px] leading-5 text-muted-foreground">
             Updated {capturedAt}
             {accuracy ? ` - ${accuracy}` : ""}
           </p>
         </div>
         {point.drive ? (
-          <div className="rounded-[12px] border border-sky-500/30 bg-sky-500/[0.08] p-3">
-            <p className="flex items-center gap-1.5 text-xs font-semibold text-sky-700 dark:text-sky-300">
+          <div className="rounded-[12px] bg-[color:var(--app-accent)]/10 p-3">
+            <p className="flex items-center gap-1.5 text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)]">
               <Route className="h-3.5 w-3.5" aria-hidden="true" />
               Driving to {point.drive.destination.label}
             </p>
-            <p className="mt-0.5 text-sm font-semibold">
+            <p className="mt-0.5 text-[15px] font-semibold leading-5">
               {driveEtaText(point.drive.etaSeconds)}
             </p>
           </div>
@@ -176,26 +176,26 @@ export default function PublicLocationRequestPageClient() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center px-5 py-10">
-        <div className="space-y-6 rounded-[var(--app-card-radius-standard)] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--shadow-xs)] sm:p-7">
+      <div className="mx-auto flex min-h-screen w-full max-w-[720px] flex-col px-5 pb-10 pt-[max(48px,calc(env(safe-area-inset-top)+28px))] sm:px-6 sm:pt-[max(64px,calc(env(safe-area-inset-top)+40px))]">
+        <div className="space-y-6 rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-none sm:p-6">
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
+            <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
               {error ? (
-                <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+                <AlertTriangle className="h-[17px] w-[17px]" aria-hidden="true" />
               ) : publicLocation ? (
-                <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
+                <CheckCircle2 className="h-[17px] w-[17px]" aria-hidden="true" />
               ) : (
-                <MapPin className="h-5 w-5" aria-hidden="true" />
+                <MapPin className="h-[17px] w-[17px]" aria-hidden="true" />
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-[color:var(--app-accent)]">
+              <div className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                 Location
               </div>
-              <h1 className="mt-2 text-[28px] font-medium leading-[1.12] tracking-normal sm:text-[32px]">
+              <h1 className="mt-1 text-[32px] font-bold leading-[1.08] tracking-normal sm:text-[34px]">
                 View shared location
               </h1>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              <p className="mt-3 text-[17px] leading-[24px] text-muted-foreground">
                 {loading
                   ? "Checking public location link."
                   : error
@@ -217,7 +217,7 @@ export default function PublicLocationRequestPageClient() {
 
           {!loading && invite ? (
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2 text-sm">
+              <div className="flex flex-wrap items-center gap-2 text-[13px]">
                 <Badge variant="secondary">
                   Expires {formatDateTime(invite.expiresAt)}
                 </Badge>
@@ -228,7 +228,7 @@ export default function PublicLocationRequestPageClient() {
               {publicLocation ? (
                 <PublicLocationMap point={publicLocation} />
               ) : (
-                <div className="rounded-[var(--app-card-radius-standard)] border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-6 text-amber-800 dark:text-amber-100">
+                <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-warning)]/10 p-4 text-[15px] leading-5 text-[color:var(--app-warning)]">
                   This link opened correctly, but no public location is attached.
                   Ask the sender to create a fresh public location link.
                 </div>

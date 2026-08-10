@@ -104,7 +104,7 @@ export function AgentSectionDropdown({
       >
         <Command className="bg-transparent">
           <CommandInput
-            placeholder="Search agents..."
+            placeholder="search agents..."
             data-testid="agent-section-search"
           />
           <CommandList
@@ -112,7 +112,7 @@ export function AgentSectionDropdown({
             className="max-h-[calc(100svh-9rem)] px-1 pb-2"
           >
             <CommandEmpty>No agent found.</CommandEmpty>
-            <CommandGroup heading="Agents">
+            <CommandGroup heading="agents">
               {sections.map((section) => {
                 const active = section.id === currentSection.id;
                 return (

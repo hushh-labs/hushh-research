@@ -26,6 +26,9 @@ from hushh_mcp.one_adk.action_tools import (
     _STATE_GOAL_RUN,
     _STATE_PENDING_DIRECTIVE,
     _STATE_SCREEN,
+    _is_journey_startable,
+    _journey_slots,
+    _navigation_journey_definition,
     continue_app_goal,
     list_app_actions,
     run_app_action,
@@ -46,6 +49,12 @@ from hushh_mcp.one_adk.agent_tree import (
     build_one_text_agent,
     get_one_runner,
     open_screen,
+)
+from hushh_mcp.services.action_gateway import get_action_gateway_action
+from hushh_mcp.services.live_voice_context import (
+    clear_live_voice_context,
+    publish_live_voice_context,
+    read_live_voice_context,
 )
 
 
@@ -631,13 +640,30 @@ class TestRunAppAction:
 
     @pytest.mark.asyncio
     async def test_live_context_refuses_action_not_declared_available(self):
+        # A non-journey control that is not on the current screen stays a hard
+        # refusal: run_app_action must never execute an unmounted control.
+        state = {
+            "hussh:voice_context": {
+                "available_action_ids": ["route.profile"],
+            }
+        }
+        result = await run_app_action("analysis.open_debate_tab", {}, _tool_context(state))
+        assert result["status"] == "action_unavailable"
+        assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
+
+    @pytest.mark.asyncio
+    async def test_offscreen_journey_entry_redirects_to_start_app_goal(self):
+        # A journey entry action is off-screen but NOT out of reach:
+        # start_app_goal navigates to its authored destination first. It still
+        # must not execute anything here -- only name the tool that can.
         state = {
             "hussh:voice_context": {
                 "available_action_ids": ["route.profile"],
             }
         }
         result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
-        assert result["status"] == "action_unavailable"
+        assert result["status"] == "use_start_app_goal"
+        assert "start_app_goal" in result["message"]
         assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
 
     @pytest.mark.asyncio
@@ -876,3 +902,350 @@ class TestListAppActions:
         by_id = {r["action_id"]: r for r in result["results"]}
         if "email.chat.turn" in by_id:
             assert by_id["email.chat.turn"]["use_tool"] == "ask_email_agent"
+
+
+class TestContractDrivenNavigationJourneys:
+    """The navigate-then-execute journey must be authored, not hardcoded.
+
+    This path used to be a literal ``if action_id != "analysis.start"``, so the
+    app could hold exactly one cross-screen journey no matter how many the
+    contracts declared. These pin the shape that replaced it.
+    """
+
+    def test_analysis_journey_is_resolved_entirely_from_its_contract(self):
+        entry = get_action_gateway_action("analysis.start")
+        journey = _navigation_journey_definition(entry, "analysis.start")
+
+        assert journey == {
+            "goal_id": "goal.analysis.start_debate",
+            "destination_route": "/one/kai?tab=analysis",
+            "destination_screen": "kai_analysis",
+            "navigation_action_id": "route.kai_analysis",
+            "label": "Open stock analysis preview",
+        }
+
+    def test_a_second_journey_needs_no_code_change(self):
+        # Same authored shape, entirely different feature. Nothing about this
+        # action exists in the runtime -- if it resolves, the path is generic.
+        entry = {
+            "action_id": "pkm.capture_note",
+            "goal": {
+                "goal_id": "goal.pkm.capture_note",
+                "workflow_steps": [
+                    {
+                        "type": "action",
+                        "label": "Open the capture sheet",
+                        "action_id": "pkm.capture_note",
+                        "settlement_target": {"route": "/one/pkm", "screen": "pkm"},
+                    }
+                ],
+            },
+        }
+
+        journey = _navigation_journey_definition(entry, "pkm.capture_note")
+
+        assert journey is not None
+        assert journey["goal_id"] == "goal.pkm.capture_note"
+        assert journey["destination_screen"] == "pkm"
+        # Resolved from the gateway, never named in code.
+        assert journey["navigation_action_id"] == "route.one_pkm"
+        assert _is_journey_startable(entry) is True
+
+    def test_a_route_action_never_becomes_a_journey_to_itself(self):
+        entry = get_action_gateway_action("route.kai_analysis")
+
+        assert _navigation_journey_definition(entry, "route.kai_analysis") is None
+
+    def test_a_destination_with_no_navigation_action_is_not_a_journey(self):
+        entry = {
+            "action_id": "setup.open_email",
+            "goal": {
+                "goal_id": "goal.setup.open_email",
+                "workflow_steps": [
+                    {
+                        "type": "action",
+                        "action_id": "setup.open_email",
+                        "settlement_target": {
+                            "route": "/one/setup/email",
+                            "screen": "one_setup_hub",
+                        },
+                    }
+                ],
+            },
+        }
+
+        # `setup.open_email` opens /one/setup/email itself, so the only
+        # candidate escort for this destination is the action being escorted.
+        # A journey to itself is not a journey. (This used to pass for a
+        # different reason -- the resolver required a `route.` name prefix and
+        # therefore found no escort at all -- which also made every genuine
+        # setup destination look unreachable.)
+        assert _navigation_journey_definition(entry, "setup.open_email") is None
+        assert _is_journey_startable(entry) is False
+
+    def test_journey_slots_keep_only_contract_declared_values(self):
+        entry = get_action_gateway_action("analysis.start")
+
+        resolved = _journey_slots(
+            entry,
+            {"symbol": " nvda ", "smuggled": "ignore me"},
+        )
+
+        # Normalized by the contract's own resolver, defaulted per the
+        # contract, and stripped of anything the contract never declared.
+        assert resolved == {"symbol": "NVDA", "pickSource": "default"}
+
+
+def _screen_context(screen: str, available_action_ids: list[str]) -> dict:
+    return {
+        _STATE_SCREEN: screen,
+        "hussh:voice_context": {
+            "route_pattern": "/one",
+            "screen": screen,
+            "context_revision": "probe-1",
+            "available_action_ids": available_action_ids,
+        },
+    }
+
+
+class TestCatalogDiscovery:
+    """One could only ever see an alphabetical slice of the current screen.
+
+    The result list is bounded, so without ranking most of the app was not
+    merely unreachable -- it was invisible, and One answered "I can't" for
+    things it could have walked to.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_unqueried_call_still_answers_only_for_this_screen(self):
+        state = _screen_context("kai_market", ["route.kai_home"])
+
+        result = await list_app_actions("", _tool_context(state))
+
+        # "What can I do here" must not turn into a tour of the whole app.
+        assert result["results"]
+        assert {item["availability"] for item in result["results"]} == {"on_screen"}
+
+    @pytest.mark.asyncio
+    async def test_a_query_ranks_the_matching_action_first(self):
+        state = _screen_context("kai_market", ["route.kai_home"])
+
+        result = await list_app_actions("analyse nvidia stock", _tool_context(state))
+
+        assert result["results"][0]["action_id"] == "analysis.start"
+        # Discovery names the tool that can actually start it from here.
+        assert result["results"][0]["use_tool"] == "start_app_goal"
+
+    @pytest.mark.asyncio
+    async def test_an_offscreen_match_carries_how_to_reach_it(self):
+        state = _screen_context("kai_market", ["route.kai_home"])
+
+        result = await list_app_actions("analyse nvidia stock", _tool_context(state))
+        by_id = {item["action_id"]: item for item in result["results"]}
+
+        # Off-screen is reported as a next step, not a dead end.
+        assert by_id["analysis.confirm_preview"]["availability"] == "navigate_first"
+        assert by_id["analysis.confirm_preview"]["open_first_action_id"] == "route.kai_analysis"
+
+    @pytest.mark.asyncio
+    async def test_policy_is_reported_from_the_action_not_a_dead_field(self):
+        # This read a `risk` object that is null on every generated action, so
+        # all 117 reported allow_direct -- One was told 8 confirm_required and
+        # 23 manual_only actions needed no confirmation.
+        state = _screen_context("kai_market", ["route.kai_home"])
+
+        result = await list_app_actions("analyse nvidia stock", _tool_context(state))
+        by_id = {item["action_id"]: item for item in result["results"]}
+
+        assert by_id["analysis.confirm_preview"]["policy"] == "confirm_required"
+
+    @pytest.mark.asyncio
+    async def test_discovery_never_lists_what_one_cannot_execute(self):
+        state = _screen_context("kai_market", ["route.kai_home"])
+
+        for query in ["", "check my email", "analyse nvidia stock", "set up my email"]:
+            result = await list_app_actions(query, _tool_context(state))
+            listed = {item["action_id"] for item in result["results"]}
+
+            # Unwired: declared but not built. Listing it invents a capability.
+            assert "email.chat.turn" not in listed
+            assert len(result["results"]) <= 10
+
+    @pytest.mark.asyncio
+    async def test_a_self_navigating_action_needs_no_escort_to_be_reachable(self):
+        # This used to assert the OPPOSITE -- that `setup.open_email` must never
+        # be listed, on the grounds that no `route.*` action opens
+        # /one/setup/email so One would have no way to walk there. The premise
+        # was wrong. The action's own execution_target IS
+        # `route -> /one/setup/email`, so running it performs the navigation; it
+        # never needed an escort. It was judged unreachable only because
+        # navigation membership was decided by the `route.` NAME PREFIX rather
+        # than by what the action does, which is the same defect that refused
+        # `location.open_join_circle` on Location.
+        state = _screen_context("kai_market", ["route.kai_home"])
+
+        result = await list_app_actions("set up my email", _tool_context(state))
+        by_id = {item["action_id"]: item for item in result["results"]}
+
+        assert "setup.open_email" in by_id
+        assert by_id["setup.open_email"]["availability"] == "on_screen"
+        # Offered as something to run, not as somewhere to be taken first.
+        assert not by_id["setup.open_email"].get("open_first_action_id")
+
+
+class TestLiveContextFreshness:
+    """run_live holds one invocation per socket, so session state freezes.
+
+    After a navigation the relay knows the new screen while the tools were
+    still reading the screen the person started on -- so a cross-screen
+    journey could never continue, and every retry re-read the same stale
+    value instead of converging.
+    """
+
+    def teardown_method(self):
+        clear_live_voice_context("voice_test_session")
+
+    def _ctx(self, frozen_screen: str):
+        return SimpleNamespace(
+            state={
+                _STATE_SCREEN: frozen_screen,
+                "hussh:voice_context": {
+                    "route_pattern": "/one",
+                    "screen": frozen_screen,
+                    "context_revision": "frozen",
+                    "available_action_ids": ["route.kai_analysis"],
+                },
+            },
+            session=SimpleNamespace(id="voice_test_session"),
+        )
+
+    @pytest.mark.asyncio
+    async def test_tools_read_the_relay_publication_over_frozen_state(self):
+        tool_context = self._ctx("one_agents")
+        # What the relay saw after the browser actually navigated.
+        publish_live_voice_context(
+            "voice_test_session",
+            {
+                "route_pattern": "/one/kai?tab=analysis",
+                "screen": "kai_analysis",
+                "context_revision": "fresh",
+                "available_action_ids": ["analysis.start", "analysis.confirm_preview"],
+            },
+        )
+
+        result = await list_app_actions("analyse nvidia stock", tool_context)
+        by_id = {item["action_id"]: item for item in result["results"]}
+
+        # Resolved against the destination, not the screen frozen at connect:
+        # analysis.confirm_preview is on_screen ONLY in the published context.
+        assert by_id["analysis.confirm_preview"]["availability"] == "on_screen"
+        assert by_id["analysis.start"]["availability"] == "on_screen"
+
+    @pytest.mark.asyncio
+    async def test_session_state_still_answers_when_nothing_is_published(self):
+        # Typed chat and tests have no socket, so there is no staleness to
+        # correct and the existing path must keep working unchanged.
+        tool_context = self._ctx("one_agents")
+
+        result = await list_app_actions("", tool_context)
+
+        assert result["status"] == "ok"
+        assert {item["action_id"] for item in result["results"]}
+
+    def test_a_closed_socket_leaves_nothing_behind(self):
+        publish_live_voice_context("voice_test_session", {"screen": "kai_analysis"})
+        assert read_live_voice_context("voice_test_session") is not None
+
+        clear_live_voice_context("voice_test_session")
+
+        assert read_live_voice_context("voice_test_session") is None
+
+
+class TestDiscoveryNamesItsTool:
+    @pytest.mark.asyncio
+    async def test_every_result_says_which_tool_runs_it(self):
+        # An action id is not a tool name. Leaving use_tool unset let One guess
+        # the id WAS the tool; ADK then raised "Tool 'x' not found", which
+        # escaped the live flow and killed the relay pump -- one bad guess
+        # ended the call. Every result now names the tool that runs it.
+        state = _screen_context("kai_market", ["route.kai_home"])
+
+        for query in ["", "analyse nvidia stock", "open my portfolio"]:
+            result = await list_app_actions(query, _tool_context(state))
+            assert result["results"], f"no results for {query!r}"
+            for item in result["results"]:
+                assert item.get("use_tool"), f"{item['action_id']} does not name a tool"
+                assert item["use_tool"] in {
+                    "run_app_action",
+                    "start_app_goal",
+                    "ask_email_agent",
+                    "ask_location_agent",
+                    "ask_consent_agent",
+                    "ask_connected_systems_agent",
+                }
+
+
+class TestNavigationActionMembership:
+    """Which contracts may be proposed from a screen that never declared them.
+
+    Navigation is the one class admitted from anywhere -- it is how "go to
+    profile" stays reachable from a tab that has never heard of the profile.
+    Membership used to be decided by the ``route.`` NAME PREFIX alone, which is
+    only a proxy for the real property, and the proxy is wrong in both
+    directions. That broke "join a circle": Location grew past the capped
+    ``available_action_ids`` list, and every id the cap dropped was refused as
+    action_unavailable because a surface-scoped navigation was not recognised
+    as navigation.
+    """
+
+    def test_navigation_by_behaviour_not_by_name(self):
+        from hushh_mcp.services.action_gateway import (
+            get_action_gateway_action,
+            is_navigation_action,
+        )
+
+        # Navigates, but is named for the surface that owns it. This is the
+        # family the old prefix test excluded, and the observed failure.
+        for action_id in (
+            "location.open_join_circle",
+            "location.open_share",
+            "setup.open_finance",
+        ):
+            entry = get_action_gateway_action(action_id)
+            assert entry is not None, f"{action_id} missing from the gateway"
+            assert entry["execution_target"]["path"] == "route"
+            assert is_navigation_action(entry), f"{action_id} must be navigation"
+
+    def test_prefixed_navigation_survives_a_non_route_path(self):
+        from hushh_mcp.services.action_gateway import (
+            get_action_gateway_action,
+            is_navigation_action,
+        )
+
+        # The other direction: these ARE cross-screen navigation but do not run
+        # through a route target. Judging purely by path would have silently
+        # un-navigated them -- exactly the ids the reserved global-navigation
+        # segment exists to keep proposable.
+        for action_id in ("route.profile", "route.consents", "route.back"):
+            entry = get_action_gateway_action(action_id)
+            assert entry is not None, f"{action_id} missing from the gateway"
+            assert entry["execution_target"]["path"] != "route"
+            assert is_navigation_action(entry), f"{action_id} must stay navigation"
+
+    def test_screen_work_is_still_screen_work(self):
+        from hushh_mcp.services.action_gateway import (
+            get_action_gateway_action,
+            is_navigation_action,
+        )
+
+        # Widening navigation must not turn every action into a global one. A
+        # local handler only runs where it is mounted, and analysis.start is a
+        # real piece of work rather than a way to move between screens.
+        for action_id in (
+            "location.refresh",
+            "kai.setup.answer_horizon",
+            "analysis.start",
+        ):
+            entry = get_action_gateway_action(action_id)
+            assert entry is not None, f"{action_id} missing from the gateway"
+            assert not is_navigation_action(entry), f"{action_id} must not be navigation"

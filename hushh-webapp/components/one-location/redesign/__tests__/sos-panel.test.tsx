@@ -411,7 +411,7 @@ describe("SosPanel", () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 
-  it("shows 'Cancel SMS Alert' only while a session is active and calls onStopSos", () => {
+  it("shows 'Cancel the alert' only while a session is active and calls onStopSos", () => {
     const onStopSos = vi.fn();
     const { rerender } = render(
       <SosPanel {...baseProps} active={false} onStopSos={onStopSos} />,
@@ -425,14 +425,14 @@ describe("SosPanel", () => {
     expect(screen.getByText("SENT")).toBeInTheDocument();
     expect(screen.getByText("Live now")).toBeInTheDocument();
     const cancel = screen.getByRole("button", {
-      name: "Cancel SMS alert and stop sharing your location",
+      name: "Cancel the alert and stop sharing your location",
     });
-    expect(cancel).toHaveTextContent("Cancel SMS Alert");
+    expect(cancel).toHaveTextContent("Cancel the alert");
     fireEvent.click(cancel);
     expect(onStopSos).toHaveBeenCalledTimes(1);
   });
 
-  it("disables 'Cancel SMS Alert' and shows a spinner while stopping", () => {
+  it("disables 'Cancel the alert' and shows a spinner while stopping", () => {
     const onStopSos = vi.fn();
     render(
       <SosPanel {...baseProps} active stopBusy onStopSos={onStopSos} />,
@@ -453,5 +453,42 @@ describe("SosPanel", () => {
     expect(screen.getByText("SMS")).toBeInTheDocument();
     expect(screen.queryByText("Live now")).toBeNull();
     expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
+  });
+
+  it("keeps the mobile strip but tightens into a measured two-column layout on large screens", () => {
+    const { container } = render(<SosPanel {...baseProps} />);
+    const screenEl = screen.getByTestId("sms-safety-screen");
+    // Mobile behavior preserved: still the full-screen black overlay.
+    expect(screenEl).toHaveClass("fixed", "inset-0", "bg-black");
+    // The inner container keeps the mobile 407px strip and widens only enough
+    // to hold the ring and controls as one centered emergency panel.
+    const inner = screenEl.firstElementChild as HTMLElement;
+    expect(inner).toHaveClass("max-w-[407px]", "lg:max-w-[820px]");
+    // The press ring + controls become a measured grid on lg.
+    expect(container.querySelector('[class*="lg:grid-cols-[280px_minmax(0,360px)]"]')).not.toBeNull();
+  });
+});
+
+describe("SosPanel — no editing while the alert is live", () => {
+  it("closes every way of editing the message while the alert is live", () => {
+    render(<SosPanel {...baseProps} active />);
+
+    // The three ways in: two presets and the custom toggle. Cancel is the only
+    // escape, so none of these may respond while an alert is out.
+    expect(screen.getByRole("button", { name: "Come get me" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "I'm not safe" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Short text message" }),
+    ).toBeDisabled();
+    expect(screen.getByTestId("sos-cancel-alert")).toBeTruthy();
+  });
+
+  it("leaves the message editable when nothing is live", () => {
+    render(<SosPanel {...baseProps} />);
+
+    expect(
+      screen.getByRole("button", { name: "Come get me" }),
+    ).not.toBeDisabled();
+    expect(screen.queryByTestId("sos-sent-message")).toBeNull();
   });
 });

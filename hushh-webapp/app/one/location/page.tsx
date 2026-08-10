@@ -72,6 +72,8 @@ import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitiv
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 
 import { useConsentNotificationState } from "@/components/consent/notification-provider";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -149,6 +151,12 @@ import {
 } from "@/lib/one-location/notifications";
 import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
+import {
+  LOCATION_BLOCK_MESSAGE,
+  isLocationPermissionDeniedError,
+  locationBlockReason,
+  locationReadiness as resolveLocationReadiness,
+} from "@/lib/one-location/location-readiness";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   syncOneLocationContactSignals,
@@ -165,6 +173,7 @@ import {
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
+import { buildOneLocationRequestMessage } from "@/lib/one-location/request-message";
 import {
   clearLocationWorkspaceMemory,
   readLocationWorkspaceMemory,
@@ -194,9 +203,13 @@ import {
 } from "@/lib/one-location/sos-trigger";
 import {
   emergencyInfoForCountryCode,
+  readCachedEmergencyInfo,
+  writeCachedEmergencyInfo,
+  EMERGENCY_LOOKUP_TIMEOUT_MS,
   type EmergencyInfo,
   type EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
+import { buildCircleJoinUrl } from "@/lib/one-location/circle-join-url";
 import type {
   DriveDestination,
   DriveSharePayload,
@@ -312,6 +325,88 @@ const SHOW_REFERRAL_SECTION = false;
 // early-return inside `focusOneLocationSection` does not make the legacy
 // scroll-to-section path statically unreachable code.
 const USE_LOCATION_REDESIGN: boolean = true;
+
+/**
+ * How the hub's own URL params read back to a person.
+ *
+ * The redesign addresses every tab as `?view=` and every focused flow as
+ * `?action=`, which is also how the voice action contract reaches them. These
+ * tables are the words for those values, so the surface One is told about and
+ * the surface on screen stay the same surface.
+ */
+const LOCATION_HUB_TAB_LABELS: Readonly<Record<string, string>> = {
+  now: "Now",
+  people: "People",
+  links: "Links",
+};
+
+const LOCATION_TAB_MODULES: Readonly<Record<string, string[]>> = {
+  now: ["Sharing status", "Active shares", "Shared with me", "Quick actions"],
+  people: ["Circles", "Connections"],
+  links: ["Temporary links"],
+};
+
+const LOCATION_FLOW_LABELS: Readonly<Record<string, string>> = {
+  share: "Share location",
+  ask: "Ask for someone's location",
+  invite: "Invite someone",
+  "create-circle": "Create a circle",
+  "join-circle": "Join a circle",
+  "circle-detail": "Circle detail",
+  "temp-link": "Temporary link",
+  "check-in": "Check in",
+  sos: "Emergency SOS",
+  "sms-contacts": "Emergency contacts",
+  settings: "Location settings",
+  "active-shares": "Active shares",
+  "shared-with-me": "Shared with me",
+  "needs-review": "Requests to review",
+};
+
+/**
+ * The Location surface's own inventory, one entry per authored contract action.
+ * Every id here exists in `page.voice-action-contract.json`; nothing describes
+ * a capability the gateway does not carry.
+ */
+const LOCATION_VOICE_ACTIONS = [
+  { id: "location.open_now", actionId: "location.open_now", label: "Open Location now", purpose: "Show current sharing status and quick actions." },
+  { id: "location.open_people", actionId: "location.open_people", label: "Open Location people", purpose: "Show the people and circles you share with." },
+  { id: "location.open_links", actionId: "location.open_links", label: "Open Location links", purpose: "Show temporary sharing links." },
+  { id: "location.open_share", actionId: "location.open_share", label: "Share my location", purpose: "Open the share composer." },
+  { id: "location.open_ask", actionId: "location.open_ask", label: "Ask for someone's location", purpose: "Open the request composer." },
+  { id: "location.open_invite", actionId: "location.open_invite", label: "Invite someone to Location", purpose: "Invite someone not on Hushh yet." },
+  { id: "location.open_create_circle", actionId: "location.open_create_circle", label: "Create a circle", purpose: "Name a new circle to share with as a group." },
+  { id: "location.open_join_circle", actionId: "location.open_join_circle", label: "Join a circle", purpose: "Enter an invite code to join a circle." },
+  { id: "location.open_temporary_link", actionId: "location.open_temporary_link", label: "Create a temporary link", purpose: "Make a link that expires." },
+  { id: "location.open_check_in", actionId: "location.open_check_in", label: "Check in", purpose: "Send a one-off note of where you are." },
+  { id: "location.open_sos", actionId: "location.open_sos", label: "Open emergency SOS", purpose: "Open the emergency alert screen." },
+  { id: "location.open_sms_contacts", actionId: "location.open_sms_contacts", label: "Open emergency contacts", purpose: "Choose who receives an SOS text." },
+  { id: "location.open_settings", actionId: "location.open_settings", label: "Open Location privacy settings", purpose: "Open privacy and precision controls." },
+  { id: "location.open_active_shares", actionId: "location.open_active_shares", label: "Open active location shares", purpose: "See and stop what is live now." },
+  { id: "location.open_shared_with_me", actionId: "location.open_shared_with_me", label: "Open locations shared with me", purpose: "See who is sharing with you." },
+  { id: "location.open_needs_review", actionId: "location.open_needs_review", label: "Open location requests to review", purpose: "Approve or decline requests." },
+  { id: "location.add_connections", actionId: "location.add_connections", label: "Add people to share location with", purpose: "Open Connect to find people." },
+  { id: "location.open_map", actionId: "location.open_map", label: "Open the location map", purpose: "Open the full-screen map." },
+  { id: "location.refresh", actionId: "location.refresh", label: "Refresh location", purpose: "Reload location sharing state." },
+];
+
+const LOCATION_VOICE_CONTROLS = [
+  { id: "one-location-action-share", label: "Share location", purpose: "Open the share composer.", actionId: "location.open_share", role: "button" },
+  { id: "one-location-open-map", label: "Your Map", purpose: "Open the full-screen map.", actionId: "location.open_map", role: "button" },
+  { id: "one-location-action-active-shares", label: "Active shares", purpose: "See what is live now.", actionId: "location.open_active_shares", role: "button" },
+  { id: "one-location-action-shared-with-me", label: "Shared with me", purpose: "See who is sharing with you.", actionId: "location.open_shared_with_me", role: "button" },
+  { id: "one-location-action-needs-review", label: "Needs my review", purpose: "Approve or decline requests.", actionId: "location.open_needs_review", role: "button" },
+  { id: "one-location-action-settings", label: "Settings", purpose: "Open privacy controls.", actionId: "location.open_settings", role: "button" },
+  { id: "one-location-action-check-in", label: "Check-In", purpose: "Send a one-off check in.", actionId: "location.open_check_in", role: "button" },
+  { id: "one-location-action-sos", label: "SMS", purpose: "Open emergency SOS.", actionId: "location.open_sos", role: "button" },
+  { id: "one-location-action-ask", label: "Ask someone to share", purpose: "Request another person's location.", actionId: "location.open_ask", role: "button" },
+  { id: "one-location-action-invite", label: "Invite trusted person", purpose: "Invite someone not on Hushh yet.", actionId: "location.open_invite", role: "button" },
+  { id: "one-location-action-create-circle", label: "Create", purpose: "Create a circle.", actionId: "location.open_create_circle", role: "button" },
+  { id: "one-location-action-join-circle", label: "Join with code", purpose: "Join a circle by code.", actionId: "location.open_join_circle", role: "button" },
+  { id: "one-location-action-temp-link", label: "Create a new link", purpose: "Create a temporary link.", actionId: "location.open_temporary_link", role: "button" },
+  { id: "one-location-add-connections", label: "Add Connections", purpose: "Open Connect to find people.", actionId: "location.add_connections", role: "button" },
+  { id: "one-location-refresh", label: "Refresh", purpose: "Reload location state.", actionId: "location.refresh", role: "button" },
+];
 
 type BusyState =
   | "load"
@@ -622,6 +717,28 @@ function toggleSelectedId(
     return selectedIds.filter((selectedId) => selectedId !== recipientId);
   }
   return [...selectedIds, recipientId];
+}
+
+function useShareRecipientSelectionState(): readonly [
+  string[],
+  (next: SetStateAction<string[]>) => string[],
+] {
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // React can batch multiple share actions before rerendering. This cursor lets
+  // each action compose from the latest queued selection while state remains
+  // the rendered source of truth.
+  const latestSelectedIdsRef = useRef<string[]>([]);
+  const updateSelectedIds = useCallback(
+    (next: SetStateAction<string[]>): string[] => {
+      const resolvedIds =
+        typeof next === "function" ? next(latestSelectedIdsRef.current) : next;
+      latestSelectedIdsRef.current = resolvedIds;
+      setSelectedIds(resolvedIds);
+      return resolvedIds;
+    },
+    [],
+  );
+  return [selectedIds, updateSelectedIds] as const;
 }
 
 type ShareReadyRecipient = OneLocationRecipient & {
@@ -1393,15 +1510,19 @@ function isLocationServicesDisabled(
   return permission?.locationServicesEnabled === false;
 }
 
+/**
+ * Refuse a share only when no attempt could succeed.
+ *
+ * `denied` used to appear here, which meant a permission value we merely read
+ * could veto a share the device would have allowed — and on Safari, where the
+ * value is unreadable and arrived as `unavailable`, it vetoed every share on a
+ * perfectly working phone. The share paths now attempt and let a real denial
+ * stop them, so this only guards what genuinely cannot be attempted.
+ */
 function locationPermissionBlocksSharing(
   permission: HushhLocationPermissionState | null,
 ): boolean {
-  return (
-    isLocationServicesDisabled(permission) ||
-    permission?.state === "denied" ||
-    permission?.state === "restricted" ||
-    permission?.state === "unavailable"
-  );
+  return locationBlockReason(permission) !== null;
 }
 
 function locationServicesErrorMessage(error: unknown): string {
@@ -1480,7 +1601,10 @@ async function shareOneLocationLink(params: {
   throw new Error("Sharing is not supported on this device.");
 }
 
-function readinessCopy(permission: HushhLocationPermissionState | null): {
+function readinessCopy(
+  permission: HushhLocationPermissionState | null,
+  observedDenial = false,
+): {
   title: string;
   description: string;
   tone: "ready" | "warning" | "blocked" | "checking";
@@ -1512,13 +1636,26 @@ function readinessCopy(permission: HushhLocationPermissionState | null): {
       actionLabel: "Allow Location",
     };
   }
-  if (permission.state === "denied" || permission.state === "restricted") {
+  // Only a refusal we actually observed proves the device is blocked. A
+  // read-back `denied` may be stale, and on Safari it cannot be read at all —
+  // so this offers to ask rather than declaring a dead end the user cannot act
+  // on. `restricted` is genuinely unaskable and stays blocked.
+  if (permission.state === "restricted" || (permission.state === "denied" && observedDenial)) {
     return {
       title: "Location permission blocked",
       description:
         "Allow location access from app settings before you share your location.",
       tone: "blocked",
       actionLabel: "Open Location Settings",
+    };
+  }
+  if (permission.state === "denied") {
+    return {
+      title: "Allow location permission",
+      description:
+        "One will ask this device for location access the moment you share.",
+      tone: "warning",
+      actionLabel: "Allow Location",
     };
   }
   if (permission.state === "unavailable") {
@@ -1726,6 +1863,12 @@ export function OneLocationAgentPageContent({
   }, [auth.userId]);
   const [permission, setPermission] =
     useState<HushhLocationPermissionState | null>(null);
+  // Set only by a capture attempt that came back with a real PERMISSION_DENIED.
+  // A denial we observed is trustworthy in a way a queried one is not, so this
+  // — not the permission API — is what lets the UI say "blocked" and route the
+  // user to settings. Cleared the moment any capture succeeds.
+  const observedLocationDenialRef = useRef(false);
+  const [locationDenialObserved, setLocationDenialObserved] = useState(false);
   useEffect(() => {
     onSetupReadinessChange?.(
       permission?.state === "granted" &&
@@ -1847,9 +1990,8 @@ export function OneLocationAgentPageContent({
   const [oneNetworkListExpanded, setOneNetworkListExpanded] = useState(false);
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [selectedRequestOwnerId, setSelectedRequestOwnerId] = useState("");
-  const [selectedRecipientIds, setSelectedRecipientIds] = useState<string[]>(
-    [],
-  );
+  const [selectedRecipientIds, setSelectedRecipientIds] =
+    useShareRecipientSelectionState();
   const [selectedRequestOwnerIds, setSelectedRequestOwnerIds] = useState<
     string[]
   >([]);
@@ -2234,8 +2376,7 @@ export function OneLocationAgentPageContent({
   // perfectly usable for picking the venue you are standing in.
   const locationAccuracyLimited =
     locationEnabled &&
-    (permission?.state !== "granted" ||
-      permission?.precise === false ||
+    (permission?.precise === false ||
       (typeof myLocationPoint?.accuracyM === "number" &&
         Number.isFinite(myLocationPoint.accuracyM) &&
         myLocationPoint.accuracyM > ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS));
@@ -2631,17 +2772,23 @@ export function OneLocationAgentPageContent({
       auth.user,
       auth.userId,
       contactMatchedUserIds,
+      setSelectedRecipientIds,
       stateEntry?.userId,
       vaultOwnerToken,
     ],
   );
 
   const refreshLocationPermission = useCallback(async () => {
+    // A failed read means we do not know, which is a reason to ask the device
+    // rather than to declare it unusable. Reporting `unavailable` here used to
+    // block every share path and pin the toggle off whenever the platform could
+    // not introspect its own permission — which is every iPhone, since WebKit
+    // has no `geolocation` entry in the Permissions API.
     const nextPermission = await OneLocationService.getPermissionState().catch(
       () => ({
-        state: "unavailable" as const,
-        precise: false,
-        background: "unavailable" as const,
+        state: "prompt" as const,
+        precise: null,
+        background: "foreground-only" as const,
         locationServicesEnabled: null,
       }),
     );
@@ -2678,11 +2825,20 @@ export function OneLocationAgentPageContent({
     }): Promise<{ ready: boolean; point?: PlainLocationPoint }> => {
       const shouldCapturePoint = Boolean(options?.capturePoint);
       const shouldOpenSettings = options?.autoOpenSettings !== false;
-      const shouldRequestNativePrompt = options?.requestNativePrompt === true;
       const currentPermission = await refreshLocationPermission();
 
-      if (isLocationServicesDisabled(currentPermission)) {
-        toast.error("Turn on phone Location before sharing.");
+      // Only two things stop us before we have tried, and neither can be fixed
+      // by asking: the OS location service is off, or the platform forbids the
+      // prompt outright (iOS `restricted`, or no geolocation at all).
+      //
+      // A read-back "denied" is deliberately NOT one of them. Refusing on it is
+      // what made this unrecoverable: on the web the browser's prompt appears
+      // only from `getCurrentPosition()`, so returning early guarantees the user
+      // is never asked, and a stale or unreadable value traps them for good. We
+      // attempt, and let a real PERMISSION_DENIED be the thing that blocks.
+      const blockReason = locationBlockReason(currentPermission);
+      if (blockReason) {
+        toast.error(LOCATION_BLOCK_MESSAGE[blockReason]);
         if (shouldOpenSettings) {
           await OneLocationService.openLocationSettings().catch(() => null);
         }
@@ -2690,32 +2846,19 @@ export function OneLocationAgentPageContent({
       }
 
       if (
-        currentPermission.state === "restricted" ||
-        (currentPermission.state === "denied" && !shouldRequestNativePrompt)
+        currentPermission.state === "granted" &&
+        !shouldCapturePoint &&
+        !observedLocationDenialRef.current
       ) {
-        toast.error("Allow location permission before sharing.");
-        if (shouldOpenSettings) {
-          await OneLocationService.openLocationSettings().catch(() => null);
-        }
-        return { ready: false };
-      }
-
-      if (currentPermission.state === "unavailable") {
-        toast.error(
-          "Location is unavailable. Check your phone Location settings.",
-        );
-        if (shouldOpenSettings) {
-          await OneLocationService.openLocationSettings().catch(() => null);
-        }
-        return { ready: false };
-      }
-
-      if (currentPermission.state === "granted" && !shouldCapturePoint) {
         return { ready: true };
       }
 
       try {
         const point = await OneLocationService.captureCurrentPosition();
+        // A coordinate in hand outranks anything the permission API says. This
+        // is what keeps Safari honest, where the value is simply unreadable.
+        observedLocationDenialRef.current = false;
+        setLocationDenialObserved(false);
         const nextPermission =
           await OneLocationService.getPermissionState().catch(() => null);
         setPermission(
@@ -2736,11 +2879,17 @@ export function OneLocationAgentPageContent({
         if (nextPermission) {
           setPermission(nextPermission);
         }
+        // Only an attempt can prove a denial. Record it so the UI can say
+        // "blocked" and offer settings, instead of guessing from a query.
+        const denied = isLocationPermissionDeniedError(error);
+        observedLocationDenialRef.current = denied;
+        setLocationDenialObserved(denied);
         const message = locationServicesErrorMessage(error);
         toast.error(message);
         if (
           shouldOpenSettings &&
-          (isLocationServicesDisabled(nextPermission) ||
+          (denied ||
+            isLocationServicesDisabled(nextPermission) ||
             message.toLowerCase().includes("turn on location"))
         ) {
           await OneLocationService.openLocationSettings().catch(() => null);
@@ -3232,7 +3381,7 @@ export function OneLocationAgentPageContent({
     setSelectedShareCircleSelection(null);
     setShareDurationHours(ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS);
     setShareMessage("");
-  }, []);
+  }, [setSelectedRecipientIds]);
   const resetRequestComposer = useCallback(() => {
     suppressAutoRecipientSelectionRef.current = true;
     setSelectedRequestOwnerId("");
@@ -3374,11 +3523,22 @@ export function OneLocationAgentPageContent({
         }
         // Country lookup continues independently so a slow Maps response never
         // delays the actual Save My Soul SMS after the user completes the hold.
-        void OneLocationService.reverseGeocode({
+        // Cap the authoritative lookup: past EMERGENCY_LOOKUP_TIMEOUT_MS we stop
+        // waiting and fall back to the last cached local number, so the Call
+        // button is never stranded on a spinner during a safety-critical flow.
+        let lookupTimer: ReturnType<typeof setTimeout> | null = null;
+        const lookup = OneLocationService.reverseGeocode({
           vaultOwnerToken,
           lat: result.point.latitude,
           lng: result.point.longitude,
-        })
+        });
+        const lookupDeadline = new Promise<never>((_, reject) => {
+          lookupTimer = setTimeout(
+            () => reject(new Error("emergency-lookup-timeout")),
+            EMERGENCY_LOOKUP_TIMEOUT_MS,
+          );
+        });
+        void Promise.race([lookup, lookupDeadline])
           .then((place) => {
             if (sosEmergencyLookupIdRef.current !== emergencyLookupId) return;
             const emergency = emergencyInfoForCountryCode(place.countryCode);
@@ -3386,13 +3546,26 @@ export function OneLocationAgentPageContent({
               setSosEmergencyStatus("unavailable");
               return;
             }
+            // Warm the cache so a later slow/failed lookup can reuse this
+            // verified local number instantly instead of a dead spinner.
+            writeCachedEmergencyInfo(emergency);
             setSosEmergency(emergency);
             setSosEmergencyStatus("resolved");
           })
           .catch(() => {
-            if (sosEmergencyLookupIdRef.current === emergencyLookupId) {
+            if (sosEmergencyLookupIdRef.current !== emergencyLookupId) return;
+            // Slow or failed authoritative lookup: fall back to the last cached
+            // local number when we have one, else surface the retry state.
+            const cached = readCachedEmergencyInfo();
+            if (cached) {
+              setSosEmergency(cached);
+              setSosEmergencyStatus("resolved");
+            } else {
               setSosEmergencyStatus("unavailable");
             }
+          })
+          .finally(() => {
+            if (lookupTimer) clearTimeout(lookupTimer);
           });
         return result.point;
       } catch {
@@ -4410,7 +4583,7 @@ export function OneLocationAgentPageContent({
     }
   }, [auth.user, contactSignal]);
 
-  const handleRequestAccess = useCallback(async () => {
+  const handleRequestAccess = useCallback(async (reason?: string | null) => {
     if (!vaultOwnerToken || !selectedRequestOwners.length) return;
     if (!auth.user || !auth.userId) {
       toast.error("Refresh your session before sending a location request.");
@@ -4450,7 +4623,7 @@ export function OneLocationAgentPageContent({
         await OneLocationService.requestAccess({
           vaultOwnerToken: activeVaultOwnerToken,
           ownerUserId: owner.userId,
-          message: requestMessage.trim() || undefined,
+          message: buildOneLocationRequestMessage(reason, requestMessage),
         });
         successCount += 1;
       }
@@ -4864,6 +5037,7 @@ export function OneLocationAgentPageContent({
     [
       handleResolveNamedCircleRecipients,
       selectedShareCircleSelection?.circle.id,
+      setSelectedRecipientIds,
     ],
   );
 
@@ -5013,10 +5187,17 @@ export function OneLocationAgentPageContent({
   const handleShareNamedCircleCode = useCallback(
     async (circle: OneLocationCircleDetail, code: string) => {
       try {
+        const joinUrl =
+          typeof window !== "undefined"
+            ? buildCircleJoinUrl(window.location.origin, code)
+            : undefined;
         const delivery = await shareNamedCircleCode({
           title: `Join ${circle.name} on One`,
-          text: `Join my ${circle.name} Circle on One with code ${code}. You'll connect with current and future members, while location and SMS stay private until you choose to share.`,
+          text: joinUrl
+            ? `Join my ${circle.name} Circle on One — tap to join: ${joinUrl} (or enter code ${code}). Location and SMS stay private until you choose to share.`
+            : `Join my ${circle.name} Circle on One with code ${code}. You'll connect with current and future members, while location and SMS stay private until you choose to share.`,
           dialogTitle: "Share Circle code",
+          url: joinUrl,
         });
         if (delivery === "copied") toast.success("Circle code copied.");
       } catch (error) {
@@ -5096,10 +5277,17 @@ export function OneLocationAgentPageContent({
   const handleShareOnboardingCircleInvite = useCallback(
     async (invite: OnboardingCircleInvite) => {
       try {
+        const joinUrl =
+          typeof window !== "undefined"
+            ? buildCircleJoinUrl(window.location.origin, invite.code)
+            : undefined;
         const delivery = await shareNamedCircleCode({
           title: `Join ${invite.circleName} on One`,
-          text: `Join my ${invite.circleName} Circle on One with code ${invite.code}. Set up One, then open Location → People → Join a circle and enter it. Location and SMS stay private until you choose to share.`,
+          text: joinUrl
+            ? `Join my ${invite.circleName} Circle on One — tap to join: ${joinUrl} (or enter code ${invite.code}). Set up One, then the link opens the join screen with the code filled in. Location and SMS stay private until you choose to share.`
+            : `Join my ${invite.circleName} Circle on One with code ${invite.code}. Set up One, then open Location → People → Join a circle and enter it. Location and SMS stay private until you choose to share.`,
           dialogTitle: "Share Circle code",
+          url: joinUrl,
         });
         if (delivery === "copied") toast.success("Circle code copied.");
       } catch (error) {
@@ -5379,7 +5567,7 @@ export function OneLocationAgentPageContent({
       setSelectedRecipientIds([recipientUserId]);
       setShareReviewOpen(false);
     },
-    [namedCircles],
+    [namedCircles, setSelectedRecipientIds],
   );
 
   const clearNamedCircleShareContext = useCallback(() => {
@@ -5543,9 +5731,10 @@ export function OneLocationAgentPageContent({
       selectionSurface: OneLocationSelectionSurface = "select_menu",
     ) => {
       const recipient = recipients.find((item) => item.userId === recipientId);
-      const nextSelectedIds = addSelectedId(selectedRecipientIds, recipientId);
+      const nextSelectedIds = setSelectedRecipientIds((current) =>
+        addSelectedId(current, recipientId),
+      );
       setSelectedRecipientId(recipientId);
-      setSelectedRecipientIds(nextSelectedIds);
       setShareReviewOpen(false);
       if (recipient) {
         trackRecommendationSelection(
@@ -5556,7 +5745,7 @@ export function OneLocationAgentPageContent({
         );
       }
     },
-    [recipients, selectedRecipientIds, trackRecommendationSelection],
+    [recipients, setSelectedRecipientIds, trackRecommendationSelection],
   );
   const toggleShareRecipient = useCallback(
     (
@@ -5564,12 +5753,10 @@ export function OneLocationAgentPageContent({
       selectionSurface: OneLocationSelectionSurface = "quick_circle",
     ) => {
       const recipient = recipients.find((item) => item.userId === recipientId);
-      const nextSelectedIds = toggleSelectedId(
-        selectedRecipientIds,
-        recipientId,
+      const nextSelectedIds = setSelectedRecipientIds((current) =>
+        toggleSelectedId(current, recipientId),
       );
       setSelectedRecipientId(recipientId);
-      setSelectedRecipientIds(nextSelectedIds);
       setShareReviewOpen(false);
       if (recipient) {
         trackRecommendationSelection(
@@ -5580,20 +5767,19 @@ export function OneLocationAgentPageContent({
         );
       }
     },
-    [recipients, selectedRecipientIds, trackRecommendationSelection],
+    [recipients, setSelectedRecipientIds, trackRecommendationSelection],
   );
   const removeShareRecipient = useCallback(
     (recipientId: string) => {
-      const nextSelectedIds = selectedRecipientIds.filter(
-        (selectedId) => selectedId !== recipientId,
+      const nextSelectedIds = setSelectedRecipientIds((current) =>
+        current.filter((selectedId) => selectedId !== recipientId),
       );
-      setSelectedRecipientIds(nextSelectedIds);
       setSelectedRecipientId((current) =>
         current === recipientId ? nextSelectedIds[0] || "" : current,
       );
       setShareReviewOpen(false);
     },
-    [selectedRecipientIds],
+    [setSelectedRecipientIds],
   );
   const addRequestOwner = useCallback(
     (
@@ -6348,6 +6534,139 @@ export function OneLocationAgentPageContent({
     : state
       ? "loaded"
       : "loading";
+  // Voice surface for the Location screen. Until this existed One could route
+  // here and delegate to the Location specialist, but arrived blind: it knew
+  // the screen's name and nothing about what was on it.
+  //
+  // Only the workspace instance publishes. `/one/setup/location` renders this
+  // same component and publishes its own metadata, and two publishers on one
+  // route is exactly the race that made One describe the wrong screen.
+  const locationVoiceSurfaceMetadata = useMemo(() => {
+    if (mode !== "workspace") return null;
+    // Read from the hub's own params. This memo used to describe the legacy
+    // compose/activity tabs, which USE_LOCATION_REDESIGN made unreachable, so
+    // One was handed a confident account of a screen nobody could see.
+    const hubTab = LOCATION_HUB_TAB_LABELS[
+      String(searchParams.get("view") || "").trim()
+    ]
+      ? String(searchParams.get("view") || "").trim()
+      : "now";
+    const hubTabLabel = LOCATION_HUB_TAB_LABELS[hubTab];
+    const openFlow =
+      String(searchParams.get("action") || "").trim() || null;
+    const openFlowLabel = openFlow
+      ? (LOCATION_FLOW_LABELS[openFlow] ?? null)
+      : null;
+    const actions = LOCATION_VOICE_ACTIONS;
+    // Location can only be shared with a connection or a circle member, so an
+    // account with neither cannot finish either of these flows however long it
+    // stays on them. The screen says "no connections" and stops; this is what
+    // lets One finish the sentence and offer to open Connect.
+    const hasSomeoneToShareWith =
+      shareRecipientPool.length > 0 || namedCircles.length > 0;
+    const deadEnd =
+      hasSomeoneToShareWith || !openFlow
+        ? null
+        : openFlow === "sms-contacts"
+          ? {
+              reason:
+                "There is no one to add as an emergency contact yet: contacts come from your connections and circles, and this account has neither.",
+              remedyActionId: "location.add_connections",
+            }
+          : openFlow === "share"
+            ? {
+                reason:
+                  "There is no one to share location with yet: sharing needs a connection or a circle member, and this account has neither.",
+                remedyActionId: "location.add_connections",
+              }
+            : null;
+    return {
+      screenId: "one_location",
+      title: "Location",
+      purpose:
+        "This screen shares live location with chosen people and reviews who currently has access.",
+      // Deliberately null. The subjects here are people and places -- the
+      // recipients of a share, their names, an address. None of that crosses
+      // into what the model may say aloud, so this screen names only itself.
+      primaryEntity: null,
+      spokenSubject: openFlowLabel
+        ? `Location, ${openFlowLabel}`
+        : `Location, ${hubTabLabel} tab`,
+      deadEnd,
+      sections: [
+        { id: "now", title: "Now", purpose: "See current sharing status and start a quick action." },
+        { id: "people", title: "People", purpose: "See the people and circles you share location with." },
+        { id: "links", title: "Links", purpose: "See and create temporary sharing links." },
+      ],
+      actions,
+      controls: LOCATION_VOICE_CONTROLS,
+      concepts: [
+        {
+          id: "location_share",
+          label: "Location share",
+          explanation:
+            "A location share gives a chosen person time-limited access to your live location, and can be revoked at any time.",
+          aliases: ["location", "share location", "live location"],
+        },
+        {
+          id: "location_circle",
+          label: "Circle",
+          explanation:
+            "A circle is a named group you can share location with at once. Members join by invite or code, and a circle member can be shared with even if they are not a connection.",
+          aliases: ["circle", "group", "my circle"],
+        },
+      ],
+      activeSection: openFlowLabel || hubTabLabel,
+      activeTab: hubTab,
+      selectedEntity: null,
+      visibleModules: openFlowLabel
+        ? [openFlowLabel]
+        : LOCATION_TAB_MODULES[hubTab],
+      focusedWidget: openFlowLabel || `${hubTabLabel} tab`,
+      availableActions: actions.map((action) => action.label),
+      activeControlId: null,
+      lastInteractedControlId: null,
+      busyOperations: [
+        ...(dataState === "loading" ? ["location_state_load"] : []),
+        ...(busy ? [`location_${busy}`] : []),
+      ],
+      // Counts only -- never who, never where.
+      screenMetadata: {
+        location_tab: hubTab,
+        location_flow: openFlow,
+        data_state: dataState,
+        permission_state: permission?.state ?? null,
+        pending_request_count: pendingOwnerRequests.length,
+        connection_count: shareRecipientPool.length,
+        circle_count: namedCircles.length,
+        has_load_error: Boolean(loadError),
+      },
+    };
+  }, [
+    busy,
+    dataState,
+    loadError,
+    mode,
+    namedCircles.length,
+    pendingOwnerRequests.length,
+    permission?.state,
+    searchParams,
+    shareRecipientPool.length,
+  ]);
+  usePublishVoiceSurfaceMetadata(locationVoiceSurfaceMetadata);
+
+  // `location.open_compose` / `location.open_activity` used to be wired here.
+  // They drove the legacy compose/activity page tabs, which USE_LOCATION_REDESIGN
+  // made unreachable: `setLocationTab` wrote `?view=compose`, the hub read a value
+  // it does not know and fell back to Now, so both actions silently landed the
+  // person on the wrong screen. Every hub tab and action flow is now authored as
+  // a `route` action in this surface's contract, addressed by the same
+  // `?view=` / `?action=` params the hub already owns — so One can reach them
+  // from anywhere, instead of only while standing on this page.
+  useLocalOnboardingActionHandler("location.refresh", () => {
+    void refresh();
+    return { status: "succeeded", summary: "Location refreshed." };
+  });
   const showInitialSkeleton =
     !loadError &&
     !state &&
@@ -6355,8 +6674,8 @@ export function OneLocationAgentPageContent({
       busy === "load" ||
       Boolean(auth.userId && vaultOwnerToken));
   const locationReadiness = useMemo(
-    () => readinessCopy(permission),
-    [permission],
+    () => readinessCopy(permission, locationDenialObserved),
+    [permission, locationDenialObserved],
   );
   const handleRequestLocationPermission = useCallback(async () => {
     setBusy("locationSettings");
@@ -6861,6 +7180,9 @@ export function OneLocationAgentPageContent({
   );
 
   const handleSkipSaveOnboardingLocation = useCallback(() => {
+    // Dismissing the saved-place picker must stay reversible during onboarding.
+    // Going back and continuing again should offer the picker again.
+    savedLocationPromptedRef.current = false;
     if (auth.userId) {
       PreVaultSensitiveDraftService.clearSavedLocation(auth.userId);
     }
@@ -7049,10 +7371,7 @@ export function OneLocationAgentPageContent({
         return;
       }
 
-      if (
-        permission?.state === "denied" ||
-        permission?.state === "restricted"
-      ) {
+      if (permission?.state === "restricted") {
         await openAppSettingsForOnboarding();
         return;
       }
@@ -7087,7 +7406,12 @@ export function OneLocationAgentPageContent({
         return;
       }
 
-      if (requestedPermission.state !== "granted") {
+      if (
+        requestedPermission.state !== "granted" &&
+        !(await OneLocationService.captureCurrentPosition()
+          .then(() => true)
+          .catch(() => false))
+      ) {
         await openAppSettingsForOnboarding();
         return;
       }
@@ -7111,14 +7435,32 @@ export function OneLocationAgentPageContent({
   ]);
 
   useEffect(() => {
+    // Onboarding's own retry, unchanged: it owns the flag and the ordering that
+    // the saved-place prompt depends on.
     const refreshIfPending = () => {
       if (!locationOnboardingRetryOnResumeRef.current) return;
       locationOnboardingRetryOnResumeRef.current = false;
       void refreshLocationPermission();
     };
+    // Separately, and for everyone: permission is changed outside the app — iOS
+    // Settings, Safari's site settings, the Android sheet — so coming back is
+    // exactly when our copy of it is most likely to be stale. Re-reading only
+    // behind onboarding's flag left every other surface showing an old verdict
+    // until a full reload.
+    const refreshPermissionOnReturn = () => {
+      void refreshLocationPermission().then((next) => {
+        // Once it is actually granted, an old observed denial is history, so
+        // the UI stops claiming "blocked" the moment that stops being true.
+        if (next?.state === "granted") {
+          observedLocationDenialRef.current = false;
+          setLocationDenialObserved(false);
+        }
+      });
+    };
     const refreshWhenVisible = () => {
       if (document.visibilityState === "hidden") return;
       refreshIfPending();
+      refreshPermissionOnReturn();
     };
 
     window.addEventListener("focus", refreshWhenVisible);
@@ -7361,6 +7703,12 @@ export function OneLocationAgentPageContent({
     },
     permissionIsPrompt: permission?.state === "prompt",
     locationEnabled,
+    locationBlocked:
+      resolveLocationReadiness({
+        permission,
+        hasFix: Boolean(myLocationPoint),
+        observedDenial: locationDenialObserved,
+      }) === "blocked",
     autoShareEnabled: locationControl.autoShareEnabled,
     locationPaused: locationControl.paused,
     locationAccuracyLimited,
@@ -7424,7 +7772,7 @@ export function OneLocationAgentPageContent({
     onShareToContacts: () => void handleShareContactInvite(),
     onOpenShareReview: () => void handleOpenShareReview(),
     onConfirmShare: () => void handleShare(),
-    onSendRequest: () => void handleRequestAccess(),
+    onSendRequest: (reason) => void handleRequestAccess(reason),
     onApprove: (request) => void handleApprove(request),
     onDeny: (requestId) => void handleDeny(requestId),
     onViewGrant: (grant) => void handleView(grant),
@@ -7483,6 +7831,8 @@ export function OneLocationAgentPageContent({
     ),
     mapLocationHref: googleMapsLocationUrl,
     decryptedPoints,
+    reverseGeocodePoint: (point) =>
+      reverseGeocodeForSavedLocation(point.latitude, point.longitude),
     sosRecipients: sosActionRecipients,
     smsRecipients: smsActionRecipients,
     smsContactCandidates: sosActionRecipients,
@@ -7571,6 +7921,7 @@ export function OneLocationAgentPageContent({
               onClick={() => void refresh()}
               disabled={busy === "load"}
               className="h-9 rounded-full px-3"
+              data-voice-control-id="one-location-refresh"
             >
               {busy === "load" ? (
                 <Loader2

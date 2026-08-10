@@ -10,14 +10,14 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 119,
-    "physical_page_count": 119,
-    "route_contract_count": 119,
-    "surface_map_count": 119,
+    "total_screens": 120,
+    "physical_page_count": 0,
+    "route_contract_count": 120,
+    "surface_map_count": 120,
     "class_counts": {
       "public/static": 2,
       "realtime/SSE": 1,
-      "redirect/alias": 40,
+      "redirect/alias": 41,
       "vault-backed": 42,
       "hidden flow": 13,
       "auth/pre-vault": 6,
@@ -259,6 +259,46 @@
       "findings": [
         "no local cache primitive detected in page/contract source"
       ]
+    },
+    {
+      "route": "/circle/join",
+      "page_file": "app/circle/join/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/circle/join",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
     },
     {
       "route": "/connected-systems",
@@ -2495,16 +2535,14 @@
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": false,
-        "resource_wrapper": false,
+        "resource_wrapper": true,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/location",
@@ -5341,5 +5379,5 @@
       ]
     }
   ],
-  "content_sha256": "308acdad07ac9e0d64a71f4d4e35438a074d888ef43a710ba921e1f05008b561"
+  "content_sha256": "301dc38200d0cbb0ce8dfc5d25f6dc2933fed7495c80bcdfb57fb35620f7c427"
 }

@@ -1208,12 +1208,14 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "What are you sharing?" }),
     ).toBeTruthy();
+    // The precision options are gone: nothing behind them ever coarsened the
+    // point, so offering the choice made a privacy promise the share did not
+    // keep. Asserting their absence is what stops the dead control returning
+    // before there is a real precision mode to attach it to.
+    expect(screen.queryByText("Better for privacy and battery life")).toBeNull();
     expect(
-      screen.getByText("Better for privacy and battery life"),
-    ).toBeTruthy();
-    expect(
-      screen.getByText("Updates while you move for your loved ones"),
-    ).toBeTruthy();
+      screen.queryByText("Updates while you move for your loved ones"),
+    ).toBeNull();
     expect(screen.queryByText("Private by design")).toBeNull();
 
     const duration = screen.getByRole("combobox", { name: "Duration" });
@@ -1273,6 +1275,46 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("keeps the selected people and count in sync during one batched share interaction", async () => {
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openSharePersonStep();
+
+    const trustedButton = screen.getByRole("button", {
+      name: /Select Trusted B for private sharing/i,
+    });
+    const investorButton = screen.getByRole("button", {
+      name: /Select Investor D for private sharing/i,
+    });
+
+    act(() => {
+      fireEvent.click(trustedButton);
+      fireEvent.click(investorButton);
+    });
+
+    expect(
+      screen.getByRole("button", {
+        name: /Deselect Trusted B for private sharing/i,
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: /Deselect Investor D for private sharing/i,
+      }),
+    ).toBeTruthy();
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      "one_location_recommendation_selected",
+      expect.objectContaining({
+        action: "share",
+        selection_surface: "section_list",
+        selected_count: 2,
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("resets every abandoned share field and ignores a late review preflight", async () => {
     const { rerender } = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
@@ -1314,7 +1356,6 @@ describe("OneLocationAgentPage", () => {
       target: { value: "Trusted" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("radio", { name: /Approximate area/i }));
     fireEvent.click(screen.getByRole("combobox", { name: "Duration" }));
     fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Optional note" }), {
@@ -1380,12 +1421,14 @@ describe("OneLocationAgentPage", () => {
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    // No precision radios to reset — the reopened flow offers only the fields
+    // that actually carry through to the share.
     expect(
-      screen.getByRole("radio", { name: /Precise live location/i }),
-    ).toHaveAttribute("aria-checked", "true");
+      screen.queryByRole("radio", { name: /Precise live location/i }),
+    ).toBeNull();
     expect(
-      screen.getByRole("radio", { name: /Approximate area/i }),
-    ).toHaveAttribute("aria-checked", "false");
+      screen.queryByRole("radio", { name: /Approximate area/i }),
+    ).toBeNull();
     expect(
       screen.getByRole("combobox", { name: "Duration" }).textContent,
     ).toContain("15 min");
@@ -1675,6 +1718,13 @@ describe("OneLocationAgentPage", () => {
       background: "restricted",
       locationServicesEnabled: true,
     });
+    // A genuinely denied device refuses the capture too. Setup now confirms by
+    // attempting rather than trusting the reported state, because that state is
+    // unreadable on Safari — so the refusal has to come from the attempt for
+    // this to still be a denial at all.
+    const denied = new Error("Location permission was not granted.");
+    denied.name = "LocationPermissionDeniedError";
+    mockCaptureCurrentPosition.mockRejectedValue(denied);
 
     render(
       <OneLocationAgentPage mode="setup" onSetupComplete={onSetupComplete} />,
@@ -1705,6 +1755,15 @@ describe("OneLocationAgentPage", () => {
       locationServicesEnabled: true,
     };
     mockGetPermissionState.mockResolvedValue(deniedPermission);
+    // The request reports the same refusal the read did — otherwise the device
+    // is not actually denied and routing to Settings would be wrong.
+    mockRequestLocationPermission.mockResolvedValue(deniedPermission);
+    // A genuinely denied device refuses the capture too. Setup now confirms a
+    // denial by attempting rather than trusting the reported state — that state
+    // is unreadable on Safari — so the refusal has to come from the attempt.
+    const refused = new Error("Location permission was not granted.");
+    refused.name = "LocationPermissionDeniedError";
+    mockCaptureCurrentPosition.mockRejectedValue(refused);
     mockGetState.mockResolvedValue({
       ...locationState(),
       ownerGrants: [],
@@ -1714,16 +1773,27 @@ describe("OneLocationAgentPage", () => {
 
     await openLocationPermissionsStep();
     await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
-    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
+    // Asked first, and only then routed to Settings once the device said no.
+    expect(mockCaptureCurrentPosition).toHaveBeenCalled();
 
+    const attemptsWhileDenied = mockCaptureCurrentPosition.mock.calls.length;
     mockGetPermissionState.mockResolvedValue(grantedPermission);
+    mockCaptureCurrentPosition.mockResolvedValue({
+      latitude: 28.6139,
+      longitude: 77.209,
+      accuracyM: 18,
+      capturedAt: "2026-05-20T07:30:00.000Z",
+      sourcePlatform: "web",
+    });
     act(() => {
       appInteractionCoordinator.handleLifecycle("background");
       appInteractionCoordinator.handleLifecycle("active");
     });
 
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(mockCaptureCurrentPosition.mock.calls.length).toBeGreaterThan(
+      attemptsWhileDenied,
+    );
   });
 
   it("keeps setup onboarding available when the workspace state fetch fails", async () => {
@@ -2207,6 +2277,54 @@ describe("OneLocationAgentPage", () => {
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(2);
   });
 
+  it("reopens the location picker after dismissing it and returning to the feature step", async () => {
+    window.localStorage.removeItem(
+      "one_location_saved_location_prompt_v1:user_a",
+    );
+    window.localStorage.removeItem(
+      "one_location_saved_location_prompt_v2:user_a",
+    );
+
+    mockLoadSavedLocations.mockResolvedValue([]);
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+    mockGetPermissionState.mockResolvedValue({
+      state: "granted",
+      precise: true,
+      background: "foreground-only",
+      locationServicesEnabled: true,
+    });
+
+    render(<OneLocationAgentPage />);
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    await openLocationPermissionsStep();
+
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("save-location-modal")).toBeNull(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Share your location easily with anyone.",
+      }),
+    ).toBeTruthy();
+
+    await openLocationPermissionsStep();
+
+    expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(2);
+  });
   it("retires a legacy skipped outcome and still opens the onboarding picker", async () => {
     window.localStorage.setItem(
       "one_location_saved_location_prompt_v2:user_a",
@@ -3144,7 +3262,12 @@ describe("OneLocationAgentPage", () => {
     expect(mockRevokeGrant).not.toHaveBeenCalled();
   });
 
-  it("blocks share actions when browser location permission is denied", async () => {
+  it("still offers to share when a permission read claims denied", async () => {
+    // A read-back "denied" is not proof. Safari cannot report the value at all,
+    // and browsers and Android both re-prompt, so disabling the control here is
+    // what left users staring at "Allow location permission before sharing" on
+    // a phone whose location worked. The share stays available; the capture
+    // attempt is what asks, and a real refusal is what stops it.
     mockGetPermissionState.mockResolvedValue({
       state: "denied",
       precise: false,
@@ -3164,10 +3287,31 @@ describe("OneLocationAgentPage", () => {
     const shareButton = screen.getByRole("button", {
       name: /Review share/i,
     }) as HTMLButtonElement;
+    expect(shareButton.disabled).toBe(false);
+  });
+
+  it("blocks share actions once the OS location switch is off", async () => {
+    // This one genuinely cannot be fixed by asking, so it must still block.
+    mockGetPermissionState.mockResolvedValue({
+      state: "denied",
+      precise: false,
+      background: "unavailable",
+      locationServicesEnabled: false,
+    });
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openShareDetailsStep();
+    const shareButton = screen.getByRole("button", {
+      name: /Review share/i,
+    }) as HTMLButtonElement;
     expect(shareButton.disabled).toBe(true);
-    await waitFor(() =>
-      expect(mockCaptureCurrentPosition).not.toHaveBeenCalled(),
-    );
     expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 

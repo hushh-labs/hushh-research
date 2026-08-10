@@ -29,7 +29,6 @@ export function KaiSearchBar({
   capabilityState,
   surfaceMetadata,
   portfolioTickers = [],
-  topMover = null,
 }: {
   onSelectAction: (selection: KaiCommandPaletteSelection) => void;
   onSubmitPrompt: (prompt: string) => void;
@@ -45,10 +44,6 @@ export function KaiSearchBar({
     is_investable?: boolean;
     analyze_eligible?: boolean;
   }>;
-  topMover?: {
-    symbol: string;
-    companyName?: string | null;
-  } | null;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -74,7 +69,6 @@ export function KaiSearchBar({
       surfaceMetadata={surfaceMetadata}
       disabled={disabled}
       portfolioTickers={portfolioTickers}
-      topMover={topMover}
     />
   );
 }

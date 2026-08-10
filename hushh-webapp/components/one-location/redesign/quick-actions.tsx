@@ -14,7 +14,7 @@ import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { SECTION_HEADING } from "./tokens";
+import { MUTED_TEXT, SECTION_HEADING } from "./tokens";
 
 export type QuickActionTone = "green" | "red" | "blue" | "violet" | "slate";
 
@@ -55,6 +55,12 @@ export type QuickActionCardProps = {
   comingSoon?: boolean;
   /** Disable interaction without the coming-soon semantics. */
   disabled?: boolean;
+  /**
+   * The `control_ids` anchor from this tile's entry in the Location voice
+   * action contract. It is what lets One and the search bar name the button a
+   * person is looking at, rather than only the screen it sits on.
+   */
+  controlId?: string;
 };
 
 export function QuickActionCard({
@@ -65,6 +71,7 @@ export function QuickActionCard({
   onClick,
   comingSoon = false,
   disabled = false,
+  controlId,
 }: QuickActionCardProps) {
   const palette = TONE_STYLES[tone];
   const interactive = !comingSoon && !disabled;
@@ -75,6 +82,7 @@ export function QuickActionCard({
       onClick={interactive ? onClick : undefined}
       disabled={!interactive}
       aria-disabled={!interactive}
+      data-voice-control-id={controlId}
       className={cn(
         "group flex h-full w-full min-w-0 flex-col gap-3 rounded-2xl bg-white p-3 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-all duration-200 dark:bg-[color:var(--app-card-surface-default-solid)]",
         interactive
@@ -104,7 +112,7 @@ export function QuickActionCard({
         {/* Subtitle spans the full card width (no chevron sharing the row) and
             uses a compact size so the one-line description stays fully visible
             on every device without truncating to an ellipsis. */}
-        <span className="mt-1.5 block truncate text-[11px] leading-tight text-black/50 dark:text-muted-foreground">
+        <span className={cn(MUTED_TEXT, "mt-1.5 block truncate text-[13px] leading-[18px]")}>
           {subtitle}
         </span>
       </div>

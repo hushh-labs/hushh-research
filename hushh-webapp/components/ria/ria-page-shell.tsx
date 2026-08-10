@@ -163,7 +163,7 @@ export function MetricTile({
 }) {
   return (
     <SurfaceInset className="p-4">
-      <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">{label}</p>
+      <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">{label}</p>
       <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{value}</p>
       {helper ? <p className="mt-1 text-xs text-muted-foreground">{helper}</p> : null}
     </SurfaceInset>
@@ -215,7 +215,7 @@ export function RiaStatusPanel({
             <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[18px] border border-[color:var(--app-card-border-strong)] bg-[color:var(--app-card-surface-compact)] text-foreground shadow-[var(--shadow-xs)]">
               <ShieldCheck className="h-4 w-4" />
             </span>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
               {eyebrow}
             </p>
           </div>
@@ -242,7 +242,7 @@ export function RiaStatusPanel({
               STATUS_TONE_STYLES[item.tone || "neutral"]
             )}
           >
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
               {item.label}
             </p>
             <p className="mt-1.5 text-[17px] font-semibold tracking-tight text-foreground">{item.value}</p>

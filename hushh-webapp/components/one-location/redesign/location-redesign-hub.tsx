@@ -62,6 +62,7 @@ import type {
   OneLocationRecipient,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
+import { locationStatusLabel } from "@/lib/one-location/location-readiness";
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 
 import {
@@ -71,18 +72,19 @@ import {
   TrustNoteCard,
   WarningCard,
 } from "./primitives";
+import { MUTED_TEXT, SECTION_HEADING, SUBCARD_SURFACE } from "./tokens";
 import {
   RequestCard,
   SharedWithMeCard,
   TemporaryLinkCard,
   TrustedPersonCard,
 } from "./cards";
+// LocationTypeSelector stays exported from ./selectors, unused for now, so
+// PR #4767 can wire it back to a real precision mode without rebuilding it.
 import {
   DurationSelector,
-  LocationTypeSelector,
   PersonSearchInput,
   ReasonChips,
-  type LocationTypeValue,
   type ReasonValue,
 } from "./selectors";
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
@@ -112,6 +114,7 @@ import type {
   EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
+import { CIRCLE_JOIN_CODE_PARAM } from "@/lib/one-location/circle-join-url";
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
@@ -171,6 +174,13 @@ export type LocationHubViewModel = {
   };
   permissionIsPrompt: boolean;
   locationEnabled: boolean;
+  /**
+   * The device has refused location and only its settings can undo that.
+   * Distinct from `locationEnabled`, which is the preview control's own state:
+   * a user whose location works perfectly still starts with the preview off,
+   * and must not be told their location is blocked.
+   */
+  locationBlocked: boolean;
   autoShareEnabled: boolean;
   locationPaused: boolean;
   locationAccuracyLimited: boolean;
@@ -239,7 +249,7 @@ export type LocationHubViewModel = {
   onShareToContacts: () => void;
   onOpenShareReview: () => void;
   onConfirmShare: () => void;
-  onSendRequest: () => void;
+  onSendRequest: (reason?: string | null) => void;
   onApprove: (request: OneLocationAccessRequest) => void;
   onDeny: (requestId: string) => void;
   onViewGrant: (grant: OneLocationGrant) => void;
@@ -349,6 +359,12 @@ export type LocationHubViewModel = {
   ) => ReactNode;
   mapLocationHref: (point: PlainLocationPoint) => string;
   decryptedPoints: Record<string, PlainLocationPoint>;
+  /**
+   * Reverse-geocode a decrypted shared point to a street address. Returns null
+   * when unavailable (no vault token, provider error, or no match). Optional so
+   * a view model without it degrades to the lat/lng fallback.
+   */
+  reverseGeocodePoint?: (point: PlainLocationPoint) => Promise<string | null>;
 };
 
 type FlowKind =
@@ -414,19 +430,69 @@ const LEGACY_ACTION_TO_FLOW: Readonly<Partial<Record<string, FlowKind>>> = {
   privacy: "settings",
 };
 
+/**
+ * Focus a One-Location notification "Open" deep link resolves to. `detailAction`
+ * opens a focused flow (e.g. Shared with me / Needs my review); `nextTab`
+ * selects a hub tab.
+ */
+export type LocationDeepLinkFocus = {
+  detailAction: Extract<FlowKind, "needs-review" | "shared-with-me"> | null;
+  nextTab: LocationHubTab | null;
+};
+
+/**
+ * Resolve where a location deep link should land. An explicit `section` (set by
+ * the notification "Open" action) ALWAYS wins over the id-presence heuristics:
+ * an approval notification carries BOTH the newly created grantId and the
+ * originating requestId, so only the section separates "Shared with me"
+ * (section=shared) from "Needs my review" (section=approvals). Checking
+ * `hasRequest` before the section — as the previous inline logic did — stranded
+ * an approved requester on "Needs my review". The id checks remain as fallbacks
+ * for legacy links that omit the section.
+ */
+export function resolveLocationDeepLinkFocus(input: {
+  section: string;
+  hasRequest: boolean;
+  hasGrant: boolean;
+  hasSubmission: boolean;
+}): LocationDeepLinkFocus {
+  const { section, hasRequest, hasGrant, hasSubmission } = input;
+  if (section === "approvals" || section === "my_requests") {
+    return { detailAction: "needs-review", nextTab: null };
+  }
+  if (section === "shared") {
+    return { detailAction: "shared-with-me", nextTab: null };
+  }
+  if (section === "public_responses") {
+    return { detailAction: null, nextTab: "links" };
+  }
+  if (section === "people") {
+    return { detailAction: null, nextTab: "people" };
+  }
+  if (hasRequest) {
+    return { detailAction: "needs-review", nextTab: null };
+  }
+  if (hasGrant) {
+    return { detailAction: "shared-with-me", nextTab: null };
+  }
+  if (hasSubmission) {
+    return { detailAction: null, nextTab: "links" };
+  }
+  return { detailAction: null, nextTab: null };
+}
+
 const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
 
 function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
   const locationOn = vm.locationEnabled;
   const toggling = BUSY(vm, "selfLocation");
   const refreshing = BUSY(vm, "load");
-  const statusLabel = vm.locationPaused
-    ? "Location paused"
-    : vm.locationAccuracyLimited
-      ? "Location limited"
-      : locationOn
-        ? "Location on"
-        : "Location off";
+  const statusLabel = locationStatusLabel({
+    readiness: vm.locationBlocked ? "blocked" : locationOn ? "ready" : "askable",
+    previewOn: locationOn,
+    paused: vm.locationPaused,
+    accuracyLimited: vm.locationAccuracyLimited,
+  });
 
   const handleLocationChange = (checked: boolean) => {
     if (checked === locationOn) return;
@@ -456,10 +522,9 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
           onCheckedChange={handleLocationChange}
           disabled={toggling || refreshing}
           aria-label={locationOn ? "Turn location off" : "Turn location on"}
-          className={cn(
-            "data-[state=checked]:bg-emerald-500 dark:data-[state=checked]:bg-emerald-400",
-            toggling && "animate-pulse",
-          )}
+          // No colour override: the shared Switch already carries the iOS
+          // system green, so this toggle reads the same as every other one.
+          className={cn(toggling && "animate-pulse")}
         />
       </div>
     </div>
@@ -541,17 +606,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     const hasSubmission = Boolean(
       String(searchParams.get("submissionId") || "").trim(),
     );
-    let nextTab: LocationHubTab | null = null;
-    let detailAction: FlowKind | null = null;
-    if (section === "approvals" || section === "my_requests" || hasRequest) {
-      detailAction = "needs-review";
-    } else if (section === "shared" || hasGrant) {
-      detailAction = "shared-with-me";
-    } else if (section === "public_responses" || hasSubmission) {
-      nextTab = "links";
-    } else if (section === "people") {
-      nextTab = "people";
-    }
+    const { detailAction, nextTab } = resolveLocationDeepLinkFocus({
+      section,
+      hasRequest,
+      hasGrant,
+      hasSubmission,
+    });
     const legacyInbox = searchParams.get(LOCATION_HUB_TAB_PARAM) === "inbox";
     if (detailAction || nextTab || legacyInbox) {
       setFlow("none");
@@ -574,10 +634,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   }, [pathname, router, searchParams]);
 
   const [shareStep, setShareStep] = useState<"person" | "details">("person");
-  const [shareLocationType, setShareLocationType] =
-    useState<LocationTypeValue>("precise");
-  const [temporaryLinkLocationType, setTemporaryLinkLocationType] =
-    useState<LocationTypeValue>("precise");
   const [reason, setReason] = useState<ReasonValue | null>("Safety check-in");
   const activeFlowRef = useRef<FlowKind>("none");
   const resetShareComposer = vm.resetShareComposer;
@@ -585,7 +641,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
 
   const resetShareLocalState = useCallback(() => {
     setShareStep("person");
-    setShareLocationType("precise");
   }, []);
   const resetShareDraft = useCallback(() => {
     resetShareLocalState();
@@ -765,7 +820,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       activeFlowRef.current = "none";
       pendingFlowRef.current = "none";
       setShareStep("person");
-      setShareLocationType("precise");
       if (nearbyPrivateCheckIn) {
         router.replace(nearbyCheckInReturnHref, { scroll: false });
         return;
@@ -803,8 +857,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             vm={vm}
             step={shareStep}
             setStep={setShareStep}
-            locationType={shareLocationType}
-            setLocationType={setShareLocationType}
             onClose={closeShareFlow}
           />
         ) : flow === "ask" ? (
@@ -863,6 +915,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "join-circle" ? (
           <JoinCircleFlow
             busy={vm.busy === "namedCircle"}
+            initialCode={
+              searchParams.get(CIRCLE_JOIN_CODE_PARAM)?.trim() || undefined
+            }
             onResolve={vm.onResolveNamedCircleCode}
             onJoin={async (code) => {
               const result = await vm.onJoinNamedCircle(code);
@@ -921,12 +976,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             onManageSmsContacts={() => openFlow("sms-contacts")}
           />
         ) : (
-          <TemporaryLinkFlow
-            vm={vm}
-            locationType={temporaryLinkLocationType}
-            setLocationType={setTemporaryLinkLocationType}
-            onClose={closeFlow}
-          />
+          <TemporaryLinkFlow vm={vm} onClose={closeFlow} />
         )}
       </div>
     );
@@ -1043,6 +1093,10 @@ function NowHub({
 }) {
   return (
     <div className="space-y-3" data-testid="one-location-now-hub">
+      {/* Every row and tile below carries the `control_ids` / `action_id` pair
+          it was authored with in the Location voice action contract, so One and
+          the search bar can name the individual control a person is asking for
+          rather than only the screen it lives on. */}
       <SettingsGroup separatorInset testId="one-location-now-primary">
         <SettingsRow
           icon={Navigation}
@@ -1052,6 +1106,8 @@ function NowHub({
           chevron
           onClick={onStartShare}
           testId="one-location-share-row"
+          voiceControlId="one-location-action-share"
+          voiceActionId="location.open_share"
         />
         <SettingsRow
           icon={Map}
@@ -1061,6 +1117,8 @@ function NowHub({
           chevron
           onClick={onOpenMap}
           testId="one-location-map-row"
+          voiceControlId="one-location-open-map"
+          voiceActionId="location.open_map"
         />
       </SettingsGroup>
 
@@ -1073,6 +1131,8 @@ function NowHub({
           trailing={vm.activeOwnerGrants.length}
           chevron
           onClick={onOpenActiveShares}
+          voiceControlId="one-location-action-active-shares"
+          voiceActionId="location.open_active_shares"
         />
         <SettingsRow
           icon={MapPin}
@@ -1082,6 +1142,8 @@ function NowHub({
           trailing={vm.receivedGrants.length}
           chevron
           onClick={onOpenSharedWithMe}
+          voiceControlId="one-location-action-shared-with-me"
+          voiceActionId="location.open_shared_with_me"
         />
         <SettingsRow
           icon={ShieldCheck}
@@ -1091,6 +1153,8 @@ function NowHub({
           trailing={vm.pendingOwnerRequests.length}
           chevron
           onClick={onOpenNeedsReview}
+          voiceControlId="one-location-action-needs-review"
+          voiceActionId="location.open_needs_review"
         />
         <SettingsRow
           icon={Lock}
@@ -1100,6 +1164,8 @@ function NowHub({
           chevron
           onClick={onOpenSettings}
           testId="one-location-settings-entry"
+          voiceControlId="one-location-action-settings"
+          voiceActionId="location.open_settings"
         />
       </SettingsGroup>
 
@@ -1110,6 +1176,7 @@ function NowHub({
           title="Check-In"
           subtitle={checkInSubtitle}
           onClick={onCheckIn}
+          controlId="one-location-action-check-in"
         />
         <QuickActionCard
           tone="red"
@@ -1117,6 +1184,7 @@ function NowHub({
           title="SMS"
           subtitle={vm.sosActive ? "Live now" : "Save my soul"}
           onClick={onSos}
+          controlId="one-location-action-sos"
         />
       </QuickActionsSection>
     </div>
@@ -1146,6 +1214,41 @@ function LocationDetailFlow({
       [grantId]: (current[grantId] ?? 0) + 1,
     }));
   }, []);
+
+  // Reverse-geocode each received share's decrypted point to a street address,
+  // keyed by grant id + coordinates so a moved point re-resolves. The ref
+  // dedupes in-flight/resolved coordinate pairs without re-triggering the effect.
+  const [addressByGrant, setAddressByGrant] = useState<
+    Record<string, { key: string; status: "loading" | "done"; text: string | null }>
+  >({});
+  const resolvedAddressKeyRef = useRef<Record<string, string>>({});
+  const reverseGeocodePoint = vm.reverseGeocodePoint;
+  useEffect(() => {
+    if (kind !== "shared-with-me" || !reverseGeocodePoint) return;
+    let cancelled = false;
+    for (const grant of vm.receivedGrants) {
+      const point = vm.decryptedPoints[grant.id];
+      if (!point) continue;
+      const key = `${point.latitude},${point.longitude}`;
+      if (resolvedAddressKeyRef.current[grant.id] === key) continue;
+      resolvedAddressKeyRef.current[grant.id] = key;
+      setAddressByGrant((current) => ({
+        ...current,
+        [grant.id]: { key, status: "loading", text: null },
+      }));
+      void reverseGeocodePoint(point).then((text) => {
+        if (cancelled) return;
+        setAddressByGrant((current) => {
+          const entry = current[grant.id];
+          if (!entry || entry.key !== key) return current;
+          return { ...current, [grant.id]: { key, status: "done", text } };
+        });
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, reverseGeocodePoint, vm.receivedGrants, vm.decryptedPoints]);
   const copy = {
     "active-shares": {
       title: "Active shares",
@@ -1200,6 +1303,7 @@ function LocationDetailFlow({
           <div className="space-y-3">
             {vm.receivedGrants.map((grant) => {
               const point = vm.decryptedPoints[grant.id];
+              const addressEntry = addressByGrant[grant.id];
               const expanded =
                 Boolean(point) && !collapsedGrantIds.has(grant.id);
               return (
@@ -1219,6 +1323,17 @@ function LocationDetailFlow({
                     point?.checkIn?.message ??
                     grant.shareMessage ??
                     undefined
+                  }
+                  address={
+                    addressEntry?.status === "done" ? addressEntry.text : null
+                  }
+                  addressLoading={
+                    Boolean(point) && addressEntry?.status === "loading"
+                  }
+                  coordinatesFallback={
+                    point
+                      ? `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}`
+                      : undefined
                   }
                 >
                   {expanded && point
@@ -1320,86 +1435,72 @@ function LocationSettingsFlow({
   onManageSmsContacts: () => void;
 }) {
   return (
-    <div>
+    <div className="space-y-5">
       <TaskFlowHeader
         eyebrow="Location"
         title="Settings"
         description="You control who sees your location and when. Change this anytime."
       />
 
-      <p className="mt-6 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
-        Location sharing
-      </p>
-      <div className="mt-2.5 rounded-2xl bg-white px-4 shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
-        <div className="flex items-center gap-3.5 border-b border-black/[0.06] py-4 dark:border-white/10">
-          <div className="flex-1">
-            <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
-              Auto-share my location
-            </p>
-            <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
-              On — approved shares keep receiving live updates. Off — new shares
-              send only the location you explicitly confirm.
-            </p>
-          </div>
-          <LocationToggle
-            checked={vm.autoShareEnabled}
-            onChange={vm.onAutoShareChange}
-            label="Auto-share my location"
-            disabled={BUSY(vm, "selfLocation")}
-          />
-        </div>
-        <div className="flex items-center gap-3.5 py-4">
-          <div className="flex-1">
-            <p className="text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
-              Pause my location
-            </p>
-            <p className="mt-0.5 text-[13px] leading-[1.45] text-black/50 dark:text-muted-foreground">
-              Stop new private-share updates and check out from Nearby. Existing
-              shares keep their expiry and may retain your last encrypted point.
-            </p>
-          </div>
-          <LocationToggle
-            checked={vm.locationPaused}
-            onChange={(next) => {
-              if (next) {
-                vm.onHideMyLocation();
-                return;
-              }
-              vm.onResumeMyLocation();
-            }}
-            label="Pause my location"
-            disabled={BUSY(vm, "selfLocation")}
-          />
-        </div>
-      </div>
+      <SettingsGroup title="Location sharing" separatorInset>
+        <SettingsRow
+          title="Auto-share my location"
+          description="On — approved shares keep receiving live updates. Off — new shares send only the location you explicitly confirm."
+          trailing={
+            <LocationToggle
+              checked={vm.autoShareEnabled}
+              onChange={vm.onAutoShareChange}
+              label="Auto-share my location"
+              disabled={BUSY(vm, "selfLocation")}
+            />
+          }
+          density="compact"
+        />
+        <SettingsRow
+          title="Pause my location"
+          description="Stop new private-share updates and check out from Nearby. Existing shares keep their expiry and may retain your last encrypted point."
+          trailing={
+            <LocationToggle
+              checked={vm.locationPaused}
+              onChange={(next) => {
+                if (next) {
+                  vm.onHideMyLocation();
+                  return;
+                }
+                vm.onResumeMyLocation();
+              }}
+              label="Pause my location"
+              disabled={BUSY(vm, "selfLocation")}
+            />
+          }
+          density="compact"
+        />
+      </SettingsGroup>
 
-      <div className="mt-4 flex items-start gap-2.5 px-1">
+      <div className="flex items-start gap-2.5 px-1">
         <Shield className="mt-0.5 h-[15px] w-[15px] shrink-0 text-[color:var(--app-accent)]" />
-        <p className="text-[13px] leading-[1.5] text-black/50 dark:text-muted-foreground">
+        <p className={MUTED_TEXT}>
           Private shares stay in your circle. Nearby Check-In is separate and
           only starts after you explicitly agree.
         </p>
       </div>
 
-      <p className="mt-7 px-1 text-[12px] font-bold uppercase tracking-[0.6px] text-black/40 dark:text-muted-foreground">
-        Safety
-      </p>
-      <button
-        type="button"
-        onClick={onManageSmsContacts}
-        className="mt-2.5 flex w-full items-center gap-3 rounded-2xl bg-white p-4 text-left shadow-[0_2px_10px_rgba(0,0,0,0.05)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
-        data-testid="one-location-sms-contacts-entry"
-      >
-        <span className="min-w-0 flex-1 text-[16px] font-semibold text-[#1c1c2e] dark:text-foreground">
-          SMS contacts
-        </span>
-        <span className="text-[14px] text-black/40 dark:text-muted-foreground">
-          {smsContactCount}
-        </span>
-        <ChevronRight className="h-4 w-4 shrink-0 text-black/30 dark:text-muted-foreground" />
-      </button>
+      <SettingsGroup title="Safety" separatorInset>
+        <SettingsRow
+          title="SMS contacts"
+          trailing={
+            <span className="text-[15px] leading-5 text-muted-foreground">
+              {smsContactCount}
+            </span>
+          }
+          onClick={onManageSmsContacts}
+          chevron
+          density="compact"
+          testId="one-location-sms-contacts-entry"
+        />
+      </SettingsGroup>
 
-      <div className="mt-7">
+      <div>
         <SavedLocationsSection />
       </div>
     </div>
@@ -1448,26 +1549,26 @@ function PersonRow({
   return (
     <div
       className={cn(
-        "flex items-center gap-3 p-4",
-        !first && "border-t border-black/[0.06] dark:border-white/10",
+        "flex min-h-[60px] items-center gap-3 p-3.5",
+        !first && "border-t border-[color:var(--app-separator)]",
       )}
     >
       <div className="relative shrink-0">
         <span
-          className="flex h-12 w-12 items-center justify-center rounded-full text-sm font-semibold text-white"
+          className="flex h-10 w-10 items-center justify-center rounded-full text-[14px] font-semibold text-white"
           style={{ backgroundColor: tint }}
         >
           {personInitials(name)}
         </span>
         {active ? (
-          <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-[#34c759] dark:border-[color:var(--app-card-surface-default-solid)]" />
+          <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-[color:var(--app-success)] dark:border-[color:var(--app-card-surface-default-solid)]" />
         ) : null}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[16px] font-bold text-[#1c1c2e] dark:text-foreground">
+        <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
           {name}
         </p>
-        <p className="truncate text-[13px] text-black/50 dark:text-muted-foreground">
+        <p className="truncate text-[15px] leading-5 text-muted-foreground">
           {subtitle}
         </p>
       </div>
@@ -1538,6 +1639,7 @@ function PeopleHub({
           <div className="grid grid-cols-1 gap-2">
             <Button
               onClick={onAddConnections}
+              data-voice-control-id="one-location-add-connections"
               className="h-11 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
             >
               <UsersRound className="mr-2 h-4 w-4" />
@@ -1546,6 +1648,7 @@ function PeopleHub({
             <Button
               variant="outline"
               onClick={onInvite}
+              data-voice-control-id="one-location-action-invite"
               className="h-10 rounded-full text-sm font-semibold"
             >
               <UserPlus className="mr-2 h-4 w-4" />
@@ -1606,6 +1709,7 @@ function PeopleHub({
       <div className="grid grid-cols-1 gap-2">
         <Button
           onClick={onAddConnections}
+          data-voice-control-id="one-location-add-connections"
           className="h-10 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
         >
           <UsersRound className="mr-2 h-4 w-4" />
@@ -1614,6 +1718,7 @@ function PeopleHub({
         <Button
           variant="outline"
           onClick={onInvite}
+          data-voice-control-id="one-location-action-invite"
           className="h-10 rounded-full border-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent)]"
         >
           <UserPlus className="mr-2 h-4 w-4" />
@@ -1640,7 +1745,7 @@ function PeopleHub({
       </div>
 
       {filtered.length ? (
-        <div className="overflow-hidden rounded-[20px] bg-white shadow-[0_2px_10px_rgba(0,0,0,0.05)] dark:bg-[color:var(--app-card-surface-default-solid)]">
+        <div className={cn("overflow-hidden", SUBCARD_SURFACE)}>
           {filtered.map((r, i) => {
             const grant = vm.activeOwnerGrants.find(
               (g) => g.recipientUserId === r.userId,
@@ -1692,20 +1797,24 @@ function PeopleHub({
       <button
         type="button"
         onClick={onAsk}
-        className="flex w-full items-center gap-3.5 rounded-2xl bg-white p-4 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-colors hover:bg-black/[0.02] dark:bg-[color:var(--app-card-surface-default-solid)]"
+        data-voice-control-id="one-location-action-ask"
+        className={cn(
+          "flex min-h-[60px] w-full items-center gap-3.5 p-3.5 text-left transition-colors hover:bg-foreground/[0.025]",
+          SUBCARD_SURFACE,
+        )}
       >
-        <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] dark:bg-sky-400/15">
-          <Navigation className="h-[18px] w-[18px] text-[color:var(--app-accent)]" />
+        <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12">
+          <Navigation className="h-[17px] w-[17px] text-[color:var(--app-accent)]" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[15px] font-semibold text-[color:var(--app-accent)]">
+          <span className="block text-[17px] font-normal leading-[22px] text-[color:var(--app-accent)]">
             Ask someone to share
           </span>
-          <span className="block text-[13px] text-black/50 dark:text-muted-foreground">
+          <span className="block text-[15px] leading-5 text-muted-foreground">
             Send a request — they approve first.
           </span>
         </span>
-        <ChevronRight className="h-4 w-4 shrink-0 text-black/35 dark:text-muted-foreground" />
+        <ChevronRight className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)]" />
       </button>
 
       {vm.requestedByMe.length ? (
@@ -1754,30 +1863,30 @@ function ActiveLinkRow({
   return (
     <div
       className={cn(
-        "flex items-center gap-3.5 py-4",
-        !first && "border-t border-black/[0.06] dark:border-white/10",
+        "flex min-h-[60px] items-center gap-3.5 py-3.5",
+        !first && "border-t border-[color:var(--app-separator)]",
       )}
     >
       <span
         className={cn(
-          "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
+          "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px]",
           tileClass,
         )}
       >
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-[16px] font-bold text-[#1c1c2e] dark:text-foreground">
+        <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
           {title}
         </p>
-        <p className="mt-0.5 truncate text-[13px] text-black/50 dark:text-muted-foreground">
+        <p className="mt-0.5 truncate text-[15px] leading-5 text-muted-foreground">
           {subtitle}
         </p>
       </div>
       <Button
         variant="outline"
         onClick={onCopy}
-        className="h-9 shrink-0 rounded-full border-[color:var(--app-accent)] px-4 text-sm font-semibold text-[color:var(--app-accent)]"
+        className="h-9 shrink-0 rounded-full border-[color:var(--app-accent)] px-4 text-[14px] font-semibold text-[color:var(--app-accent)]"
       >
         Copy
       </Button>
@@ -1798,17 +1907,17 @@ function LinksHub({
 
   return (
     <div className="space-y-4">
-      <p className="px-1 text-[12px] font-bold uppercase tracking-[0.4px] text-black/40 dark:text-muted-foreground">
+      <p className={cn(SECTION_HEADING, "px-[6px]")}>
         Active links
       </p>
 
       {hasLinks ? (
-        <div className="rounded-[20px] bg-white px-4 shadow-[0_4px_16px_rgba(0,0,0,0.06)] dark:bg-[color:var(--app-card-surface-default-solid)]">
+        <div className={cn("overflow-hidden px-3.5", SUBCARD_SURFACE)}>
           {temp ? (
             <ActiveLinkRow
               first
-              tileClass="bg-[#efe9fb] dark:bg-violet-400/15"
-              icon={<LinkIcon className="h-5 w-5 text-[#7c5cff]" />}
+              tileClass="bg-[color:var(--app-purple)]/12 dark:bg-[color:var(--app-purple)]/15"
+              icon={<LinkIcon className="h-[17px] w-[17px] text-[color:var(--app-purple)]" />}
               title="Live location link"
               subtitle={`${vm.expiresCountdownLabel(temp.expiresAt)} · anyone with the link`}
               onCopy={vm.onCopyPublicInvite}
@@ -1817,8 +1926,8 @@ function LinksHub({
           {invite ? (
             <ActiveLinkRow
               first={!temp}
-              tileClass="bg-[#e5f4ea] dark:bg-emerald-400/15"
-              icon={<ShieldCheck className="h-5 w-5 text-[#2ea44f]" />}
+              tileClass="bg-[color:var(--app-success)]/12 dark:bg-[color:var(--app-success)]/15"
+              icon={<ShieldCheck className="h-[17px] w-[17px] text-[color:var(--app-success)]" />}
               title="Invite link"
               subtitle={`${vm.expiresCountdownLabel(invite.expiresAt)} · one person`}
               onCopy={vm.onCopyCircleInvite}
@@ -1834,6 +1943,7 @@ function LinksHub({
 
       <Button
         onClick={onCreateTempLink}
+        data-voice-control-id="one-location-action-temp-link"
         className="h-12 w-full rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
       >
         <Plus className="mr-2 h-4 w-4" />
@@ -1841,8 +1951,8 @@ function LinksHub({
       </Button>
 
       <div className="flex items-start gap-2 px-1">
-        <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-black/40 dark:text-muted-foreground" />
-        <p className="text-[12px] leading-[1.45] text-black/50 dark:text-muted-foreground">
+        <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <p className={MUTED_TEXT}>
           Links stop working automatically when they expire. You can revoke any
           link anytime.
         </p>
@@ -1897,19 +2007,33 @@ function SosFlow({
 /* SHARE FLOW                                                           */
 /* =================================================================== */
 
+/**
+ * Sharing has exactly one precision: the point the device gives us.
+ *
+ * This flow used to offer "Approximate area" beside "Precise live location",
+ * echo the choice back on the review step, and then discard it —
+ * `onConfirmShare` takes no arguments, the state never left this component,
+ * and `handleShare` published the raw captured point either way. There is no
+ * coarsening anywhere in the client, so "Approximate area" shared exact
+ * coordinates. A privacy control that does nothing is worse than no control:
+ * it is relied upon.
+ *
+ * The control is gone rather than repaired because the real implementation
+ * already exists in PR #4767 — grid-snapped areas with a radius, an update
+ * interval, and a recipient-visible `location_mode` on the grant so the other
+ * side can render an area instead of a confident, wrong pin. Coarsening here
+ * without that column would only move the deception to the recipient. Restore
+ * this when that lands.
+ */
 function ShareFlow({
   vm,
   step,
   setStep,
-  locationType,
-  setLocationType,
   onClose,
 }: {
   vm: LocationHubViewModel;
   step: "person" | "details";
   setStep: (s: "person" | "details") => void;
-  locationType: LocationTypeValue;
-  setLocationType: (v: LocationTypeValue) => void;
   onClose: () => void;
 }) {
   const filtered = vm.visibleShareRecipients;
@@ -1968,14 +2092,9 @@ function ShareFlow({
                 )
               }
             />
-            <ReviewRow
-              label="Location type"
-              value={
-                locationType === "precise"
-                  ? "Precise live location"
-                  : "Approximate area"
-              }
-            />
+            {/* No "Location type" row. It read back whichever option was
+                picked, which made the review step the most convincing part of
+                a promise nothing kept — see the note above ShareFlow. */}
             <ReviewRow
               label="Duration"
               value={durationLabel(vm.shareDurationHours)}
@@ -2012,10 +2131,6 @@ function ShareFlow({
         />
         <SectionCard>
           <div className="space-y-5">
-            <LocationTypeSelector
-              value={locationType}
-              onChange={setLocationType}
-            />
             <DurationSelector
               value={vm.shareDurationHours}
               onChange={vm.setShareDurationHours}
@@ -2116,7 +2231,7 @@ function ShareFlow({
                     <span className="block truncate text-sm font-semibold text-foreground">
                       {circle.name}
                     </span>
-                    <span className="block text-xs text-muted-foreground">
+                    <span className="block text-[13px] leading-[18px] text-[#8E8E93]">
                       {selected
                         ? `${selectedReady.length} ready now`
                         : `${circle.memberCount} ${
@@ -2136,7 +2251,7 @@ function ShareFlow({
             })}
           </div>
           {vm.selectedShareCircleSelection ? (
-            <p className="mt-3 text-xs leading-5 text-muted-foreground">
+            <p className={cn(MUTED_TEXT, "mt-3")}>
               Current ready members only; future members are never added
               automatically.
               {vm.selectedShareCircleSelection.excluded.filter(
@@ -2217,7 +2332,7 @@ function ReviewRow({
 }) {
   return (
     <div className="flex items-start justify-between gap-3 border-b border-border/50 pb-3 last:border-0 last:pb-0">
-      <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <span className="shrink-0 text-[15px] font-normal leading-[20px] tracking-[-0.006em] text-[#8E8E93]">
         {label}
       </span>
       <div className="min-w-0 max-w-[70%] text-right text-sm font-medium text-foreground">
@@ -2327,7 +2442,7 @@ function AskFlow({
 
       <Button
         onClick={() => {
-          vm.onSendRequest();
+          vm.onSendRequest(reason);
           onClose();
         }}
         disabled={!vm.selectedRequestOwnerIds.length}
@@ -2372,7 +2487,7 @@ function InviteFlow({
               <p className="text-base font-semibold text-foreground">
                 Circle invite
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className={MUTED_TEXT}>
                 {invite
                   ? vm.expiresLabel(invite.expiresAt)
                   : "Invite expires soon"}
@@ -2464,15 +2579,12 @@ function InviteFlow({
 /* TEMPORARY LINK FLOW                                                  */
 /* =================================================================== */
 
+/** Same precision story as ShareFlow — see the note there. */
 function TemporaryLinkFlow({
   vm,
-  locationType,
-  setLocationType,
   onClose,
 }: {
   vm: LocationHubViewModel;
-  locationType: LocationTypeValue;
-  setLocationType: (v: LocationTypeValue) => void;
   onClose: () => void;
 }) {
   const created =
@@ -2535,13 +2647,8 @@ function TemporaryLinkFlow({
           ]}
         />
       </SectionCard>
-      <SectionCard title="Location type">
-        <LocationTypeSelector
-          value={locationType}
-          onChange={setLocationType}
-          label=""
-        />
-      </SectionCard>
+      {/* The temporary link shares the same precise point as everything else,
+          so it offers no precision card either. */}
       <TrustNoteCard
         title="Expires automatically"
         description="Public location links are safer when they expire quickly."

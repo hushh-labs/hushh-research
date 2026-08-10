@@ -8,6 +8,12 @@ import {
   projectKaiActionCapability,
   type VoiceCapabilityStateV1,
 } from "@/lib/voice/capability-projection";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import {
+  firstMissingRequiredSlot,
+  resolveJourneySlots,
+  resolveNavigationJourney,
+} from "@/lib/voice/navigation-journey";
 import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 export type GoalRunV1 = {
@@ -78,7 +84,15 @@ export async function startAppGoal(
     return blocked(input.actionId, initialProjection.reason || "That action is unavailable.");
   }
 
-  if (input.actionId !== "analysis.start") {
+  // Which actions can cross a screen boundary is declared by the generated
+  // contract, not named here. This used to read `!== "analysis.start"`, so
+  // the browser could only ever walk one journey however many were authored.
+  const journeyAction = getKaiActionById(input.actionId);
+  const journey = journeyAction
+    ? resolveNavigationJourney(input.actionId, journeyAction)
+    : null;
+
+  if (!journey || !journeyAction) {
     const result = await executeAgentGatewayAction({
       ...input,
       actionId: input.actionId,
@@ -93,27 +107,27 @@ export async function startAppGoal(
     });
   }
 
-  const symbol = String(slots.symbol || "").trim().toUpperCase();
-  if (!symbol) {
-    return blocked("analysis.start", "Which stock should One analyze?");
+  const missing = firstMissingRequiredSlot(journeyAction, slots);
+  if (missing) {
+    return blocked(input.actionId, missing.prompt);
   }
 
   const goal: GoalRunV1 = {
     schema_version: "one.goal_run.v1",
-    goal_id: "goal.analysis.start_debate",
-    action_id: "analysis.start",
-    slots: { symbol, pickSource: String(slots.pickSource || "default") },
+    goal_id: journey.goalId,
+    action_id: input.actionId,
+    slots: resolveJourneySlots(journeyAction, slots),
     step_cursor: 0,
-    expected_screen: "kai_analysis",
+    expected_screen: journey.destinationScreen,
     expected_route_revision: initialState.route_revision,
     status: "running",
   };
   input.onGoalRun?.(goal);
 
-  if (input.getAppRuntimeState().route.screen !== "kai_analysis") {
+  if (input.getAppRuntimeState().route.screen !== journey.destinationScreen) {
     const routeResult = await executeAgentGatewayAction({
       ...input,
-      actionId: "route.kai_analysis",
+      actionId: journey.navigationActionId,
       slots: {},
       appRuntimeState: input.getAppRuntimeState(),
       surfaceMetadata: input.getSurfaceMetadata(),
@@ -129,31 +143,39 @@ export async function startAppGoal(
     goal.step_cursor = 1;
     goal.status = "awaiting_settlement";
     input.onGoalRun?.(goal);
-    if (!(await waitForScreen(input.getAppRuntimeState, "kai_analysis"))) {
-      return blocked("analysis.start", "Analysis is still opening. Try again once it is ready.");
+    if (
+      !(await waitForScreen(input.getAppRuntimeState, journey.destinationScreen))
+    ) {
+      return blocked(
+        input.actionId,
+        `${journeyAction.label} is still opening. Try again once it is ready.`,
+      );
     }
   }
 
   const settledState = input.getCapabilityState();
   const settledProjection = projectKaiActionCapability({
-    actionId: "analysis.start",
+    actionId: input.actionId,
     state: settledState,
     surfaceMetadata: input.getSurfaceMetadata(),
   });
   if (settledProjection.status === "blocked" || settledProjection.status === "terminal") {
-    return blocked("analysis.start", settledProjection.reason || "Stock analysis is unavailable.");
+    return blocked(
+      input.actionId,
+      settledProjection.reason || `${journeyAction.label} is unavailable.`,
+    );
   }
 
   const previewResult = await executeAgentGatewayAction({
     ...input,
-    actionId: "analysis.start",
+    actionId: input.actionId,
     slots: goal.slots,
     appRuntimeState: input.getAppRuntimeState(),
     surfaceMetadata: input.getSurfaceMetadata(),
     allowedActionIds: settledState.available_action_ids,
     goalAuthorization: {
-      goalId: "goal.analysis.start_debate",
-      expectedScreen: "kai_analysis",
+      goalId: journey.goalId,
+      expectedScreen: journey.destinationScreen,
     },
   });
   const settledPreview = await settleAgentGatewayAction(previewResult, {

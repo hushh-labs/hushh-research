@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Search as SearchIcon, UserRound, Users } from "lucide-react";
@@ -14,6 +14,8 @@ import { AdvisorsNearby } from "@/components/connect/advisors-nearby";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -24,6 +26,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
@@ -38,6 +47,7 @@ import {
   type DirectoryPerson,
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
+import { getDirectoryPersonDescription } from "./directory-person-label";
 
 type ConnectTab = "people" | "nearby";
 
@@ -46,11 +56,32 @@ const CONNECT_TABS = [
   { value: "nearby", label: "Around you" },
 ];
 
+/**
+ * How many people the unsearched People tab offers.
+ *
+ * Deliberately about a screen's worth. It exists so someone who has just joined
+ * and knows nobody's exact name is not staring at an empty surface — not so
+ * they can browse the register, which is the thing that stops scaling.
+ */
+const SUGGESTED_PEOPLE_LIMIT = 8;
+
+/**
+ * How many people a page shows, and the sizes the reader can pick.
+ *
+ * #5020 answered "the directory is unusably long" with a fixed sample that
+ * deliberately refused to page. That solved the first screenful and left no way
+ * through the rest, so this replaces it with real paging: the default is still
+ * a screenful, and someone who wants to scan more can say so.
+ */
+const PAGE_SIZE_OPTIONS = [8, 16, 24, 50] as const;
+const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
+
 export default function ConnectPageClient() {
   const { user } = useRequireAuth();
   const router = useRouter();
 
   const [tab, setTab] = useState<ConnectTab>("people");
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, 300);
 
@@ -58,9 +89,9 @@ export default function ConnectPageClient() {
   const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
   const [outgoingRequestIds, setOutgoingRequestIds] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
@@ -129,25 +160,53 @@ export default function ConnectPageClient() {
     void loadOutgoingRequestIds();
   }, [loadOutgoingRequestIds]);
 
+  // The directory is every account on Hussh, so listing all of it unprompted
+  // stops being useful as soon as sign-ups outgrow a screen or two: the person
+  // you came to connect with is buried among strangers, and paging through them
+  // is the tedious part. Unsearched, this surface therefore shows a short
+  // suggested sample and nothing more — enough that someone who does not yet
+  // know a name has somewhere to start, small enough that it is never the thing
+  // you have to scroll past. Naming a name is what opens the full directory.
+  const trimmedQuery = debouncedQuery.trim();
+  const hasQuery = trimmedQuery.length > 0;
+
+  // A new query, or a new page size, is a new result set: go back to page one
+  // rather than asking for page 4 of something the reader has just redefined.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [trimmedQuery, pageSize]);
+
   useEffect(() => {
     let cancelled = false;
     async function run() {
       if (!user) return;
       try {
         setHasMore(false);
-        setCurrentPage(1);
         setLoading(true);
         setError(null);
         const idToken = await user.getIdToken();
         const page = await ConnectionsService.searchDirectory({
           idToken,
-          query: debouncedQuery,
-          page: 1,
+          query: trimmedQuery,
+          page: currentPage,
+          limit: pageSize,
         });
         if (!cancelled) {
+          // One page replaces the last. Appending was what made the directory
+          // an endless scroll with no sense of position in it.
           setPeople(page.items);
           setHasMore(page.hasMore);
-          setCurrentPage(page.page);
+          // Selections are counted on the "Connect to Selected (N)" button, so
+          // drop any that this result set no longer shows — an N the reader
+          // cannot see is a promise the surface can't account for.
+          setSelectedUserIds((current) => {
+            if (current.size === 0) return current;
+            const visible = new Set(page.items.map((person) => person.userId));
+            const next = new Set(
+              [...current].filter((userId) => visible.has(userId)),
+            );
+            return next.size === current.size ? current : next;
+          });
         }
       } catch (loadError) {
         if (!cancelled)
@@ -164,35 +223,18 @@ export default function ConnectPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [user, debouncedQuery]);
+  }, [user, trimmedQuery, currentPage, pageSize]);
 
-  const loadMorePeople = useCallback(async () => {
-    if (!user || loadingMore || !hasMore) return;
-    try {
-      setLoadingMore(true);
-      const idToken = await user.getIdToken();
-      const page = await ConnectionsService.searchDirectory({
-        idToken,
-        query: debouncedQuery,
-        page: currentPage + 1,
-      });
-      setPeople((current) => {
-        const existing = new Set(current.map((person) => person.userId));
-        return [
-          ...current,
-          ...page.items.filter((person) => !existing.has(person.userId)),
-        ];
-      });
-      setHasMore(page.hasMore);
-      setCurrentPage(page.page);
-    } catch (loadError) {
-      toast.error(
-        loadError instanceof Error ? loadError.message : "Failed to load more people",
-      );
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [currentPage, debouncedQuery, hasMore, loadingMore, user]);
+  const goToPage = useCallback(
+    (next: number) => {
+      if (loading || next < 1) return;
+      // `hasMore` is the only forward signal the directory gives, so a next
+      // page is offered exactly when the server says one exists.
+      if (next > currentPage && !hasMore) return;
+      setCurrentPage(next);
+    },
+    [currentPage, hasMore, loading],
+  );
 
   const sendConnectionRequest = useCallback(
     async (
@@ -467,6 +509,82 @@ export default function ConnectPageClient() {
     [connections],
   );
 
+  // Voice surface for Connect. Until this existed the route derived the
+  // generic "app" screen, so One knew a person was somewhere in the app and
+  // nothing more -- and Connect could not be named as a destination, which is
+  // why an empty people list elsewhere had nowhere to send anyone.
+  const connectVoiceSurfaceMetadata = useMemo(
+    () => ({
+      screenId: "connect",
+      title: "Connect",
+      purpose:
+        "This screen finds people, sends connection requests, and manages who you are connected to.",
+      // The subjects here are people, by name and email. None of that is safe
+      // to say aloud, so this screen names only itself.
+      primaryEntity: null,
+      selectedEntity: null,
+      spokenSubject: tab === "nearby" ? "Connect, Around you tab" : "Connect, People tab",
+      sections: [
+        { id: "people", title: "People", purpose: "Search everyone you could connect with, and manage existing connections." },
+        { id: "nearby", title: "Around you", purpose: "Find advisors near your current location." },
+      ],
+      actions: [
+        { id: "connect.open_people", actionId: "connect.open_people", label: "Open Connect people", purpose: "Show connections and the people directory." },
+        { id: "connect.open_nearby", actionId: "connect.open_nearby", label: "Open advisors around you", purpose: "Show advisors near you." },
+        { id: "connect.search_people", actionId: "connect.search_people", label: "Search for someone to connect with", purpose: "Put the cursor in the people search box." },
+      ],
+      // Only the search box carries a `data-voice-control-id` anchor. The tab
+      // strip is the shared SegmentedTabs, which has no per-option control id,
+      // so claiming one here would describe a hook that does not exist.
+      controls: [
+        { id: "one-connect-search", label: "Search people", purpose: "Search the directory by name.", actionId: "connect.search_people", role: "textbox" },
+      ],
+      concepts: [
+        {
+          id: "connection",
+          label: "Connection",
+          explanation:
+            "A connection is a person who has accepted your request. Connections are who you can share things with, including your location.",
+          aliases: ["connection", "connections", "connected people"],
+        },
+      ],
+      activeSection: tab === "nearby" ? "Around you" : "People",
+      activeTab: tab,
+      visibleModules:
+        tab === "nearby" ? ["Advisors near you"] : ["Your connections", "People directory"],
+      focusedWidget: tab === "nearby" ? "Around you tab" : "People tab",
+      availableActions: ["Open Connect people", "Open advisors around you", "Search for someone to connect with"],
+      activeControlId: null,
+      lastInteractedControlId: null,
+      busyOperations: loading ? ["connect_directory_load"] : [],
+      // Counts only -- never who.
+      screenMetadata: {
+        connect_tab: tab,
+        connection_count: connections.length,
+        has_load_error: Boolean(error),
+        searching: query.trim().length > 0,
+      },
+    }),
+    [connections.length, error, loading, query, tab],
+  );
+  usePublishVoiceSurfaceMetadata(connectVoiceSurfaceMetadata);
+
+  useLocalOnboardingActionHandler("connect.open_people", () => {
+    setTab("people");
+    return { status: "succeeded", summary: "Connect people opened." };
+  });
+  useLocalOnboardingActionHandler("connect.open_nearby", () => {
+    setTab("nearby");
+    return { status: "succeeded", summary: "Advisors around you opened." };
+  });
+  useLocalOnboardingActionHandler("connect.search_people", () => {
+    // Focus only. Typing the name is the person's to do -- One filling the box
+    // would be searching the directory on their behalf.
+    setTab("people");
+    searchInputRef.current?.focus();
+    return { status: "succeeded", summary: "People search focused." };
+  });
+
   return (
     <AppPageShell
       as="main"
@@ -521,6 +639,7 @@ export default function ConnectPageClient() {
                     key={connection.connectionId}
                     icon={Users}
                     iconTone="blue"
+                    stackTrailingOnMobile
                     title={connection.displayName || connection.userId}
                     density="compact"
                     trailing={
@@ -589,51 +708,66 @@ export default function ConnectPageClient() {
                     <SearchIcon className="h-4.5 w-4.5" />
                   </span>
                   <Input
+                    ref={searchInputRef}
                     type="search"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="Search people by name"
                     aria-label="Search people"
+                    data-voice-control-id="one-connect-search"
                     className="h-10 pl-11"
+                    enterKeyHint="search"
+                    onKeyDown={(event) => {
+                      // iOS soft-keyboard "return" must dismiss the keyboard;
+                      // blurring the field is what actually closes it in the
+                      // Capacitor webview (there is no form submit here).
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      }
+                    }}
+                    onFocus={(event) => {
+                      // Keyboard-dismiss "on drag": the first scroll/drag while
+                      // the field is focused blurs it, so an open keyboard never
+                      // locks the results out of view. Scoped to this field's
+                      // focus lifecycle and cleaned up on blur.
+                      const field = event.currentTarget;
+                      const dismiss = () => field.blur();
+                      window.addEventListener("touchmove", dismiss, {
+                        passive: true,
+                        once: true,
+                      });
+                      field.addEventListener(
+                        "blur",
+                        () =>
+                          window.removeEventListener("touchmove", dismiss),
+                        { once: true },
+                      );
+                    }}
                   />
                 </div>
-                {people.length > 0 && (
-                  <div className="flex shrink-0 items-center gap-1">
-                    {isSelectionMode && (
-                      <Button
-                        type="button"
-                        variant="none"
-                        effect="fade"
-                        onClick={() => {
-                          if (selectedUserIds.size === people.length) {
-                            setSelectedUserIds(new Set());
-                          } else {
-                            setSelectedUserIds(
-                              new Set(people.map((p) => p.userId)),
-                            );
-                          }
-                        }}
-                      >
-                        {selectedUserIds.size === people.length ? "Deselect All" : "Select All"}
-                      </Button>
-                    )}
-                    <Button
-                      type="button"
-                      variant="none"
-                      effect="fade"
-                      onClick={() => {
-                        setIsSelectionMode(!isSelectionMode);
-                        if (isSelectionMode) setSelectedUserIds(new Set());
-                      }}
-                    >
-                      {isSelectionMode ? "Cancel" : "Select"}
-                    </Button>
-                  </div>
-                )}
+                {/*
+                  The Select / Select All controls are intentionally not
+                  rendered. Bulk-selecting people was not a clear answer to the
+                  problem it was reaching for -- finding the right person in a
+                  list that grows with every signup -- and shipping it invited
+                  people to fan out requests rather than helping them search.
+
+                  The machinery below is deliberately left in place: selection
+                  mode, the per-row checkboxes, and the bulk request action all
+                  still work, and `isSelectionMode` simply has no way to become
+                  true from the UI. Restoring the entry point is a one-line
+                  change if a clearer design arrives. Do not delete the state or
+                  the bulk handler on the grounds that they look unreachable.
+                */}
               </div>
               <SettingsGroup
                 title="People"
-                description="Find people on Hussh and send a connection request."
+                description={
+                  hasQuery
+                    ? "Send a connection request to someone you know."
+                    : "A few people on Hussh. Search by name to find someone specific."
+                }
                 separatorInset
               >
                 {loading ? (
@@ -650,20 +784,27 @@ export default function ConnectPageClient() {
                     tone="destructive"
                   />
                 ) : people.length === 0 ? (
-                  <SettingsRow
-                    title="No people found"
-                    density="compact"
-                    disabled
-                  />
+                  hasQuery ? (
+                    <SettingsRow
+                      title={`No one matches "${trimmedQuery}"`}
+                      description="Check the spelling, or try their full name."
+                      density="compact"
+                      disabled
+                    />
+                  ) : (
+                    <SettingsRow
+                      title="No people yet"
+                      description="Search by name to find someone on Hussh."
+                      density="compact"
+                      disabled
+                    />
+                  )
                 ) : (
                   people.map((person) => {
                     const cta = relationshipCta(person.relationship);
                     const title =
                       person.displayName || person.email || person.userId;
-                    const description =
-                      person.displayName && person.email
-                        ? person.email
-                        : undefined;
+                    const description = getDirectoryPersonDescription(person);
                     return (
                       <SettingsRow
                         key={person.userId}
@@ -715,18 +856,66 @@ export default function ConnectPageClient() {
                     );
                   })
                 )}
-                {hasMore ? (
-                  <div className="flex justify-center px-3 py-2">
-                    <Button
-                      type="button"
-                      variant="none"
-                      effect="fill"
-                      size="sm"
-                      disabled={loadingMore}
-                      onClick={() => void loadMorePeople()}
-                    >
-                      {loadingMore ? "Loading…" : "Load more people"}
-                    </Button>
+                {people.length > 0 || currentPage > 1 ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        id="connect-people-per-page-label"
+                        className="text-xs text-muted-foreground"
+                      >
+                        Per page
+                      </span>
+                      <Select
+                        value={String(pageSize)}
+                        onValueChange={(value) => setPageSize(Number(value))}
+                      >
+                        <SelectTrigger
+                          size="sm"
+                          aria-label="People per page"
+                          className="w-[78px]"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PAGE_SIZE_OPTIONS.map((size) => (
+                            <SelectItem key={size} value={String(size)}>
+                              {size}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="none"
+                        effect="fill"
+                        size="sm"
+                        disabled={loading || currentPage <= 1}
+                        onClick={() => goToPage(currentPage - 1)}
+                      >
+                        Previous
+                      </Button>
+                      {/* The directory reports only whether more exists, never
+                          a total, so this names the page rather than claiming
+                          "3 of 12" — a total the surface cannot stand behind. */}
+                      <span
+                        className="text-xs tabular-nums text-muted-foreground"
+                        aria-live="polite"
+                      >
+                        Page {currentPage}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="none"
+                        effect="fill"
+                        size="sm"
+                        disabled={loading || !hasMore}
+                        onClick={() => goToPage(currentPage + 1)}
+                      >
+                        Next
+                      </Button>
+                    </div>
                   </div>
                 ) : null}
                 {isSelectionMode && selectedUserIds.size > 0 && (

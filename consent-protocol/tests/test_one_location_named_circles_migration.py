@@ -18,9 +18,11 @@ def test_named_circle_migrations_are_registered_in_release_order() -> None:
         "136_one_location_circle_member_invites.sql",
     ]
 
-    assert manifest["ordered_migrations"][-3:] == migrations
+    ordered = manifest["ordered_migrations"]
+    start = ordered.index(migrations[0])
+    assert ordered[start : start + len(migrations)] == migrations
     assert all(migration in manifest["groups"]["iam"] for migration in migrations)
-    assert schema["expected_migration_version"] == 136
+    assert schema["expected_migration_version"] >= 136
     for migration in migrations:
         assert (MIGRATIONS_DIR / migration).exists()
         stem = migration.removesuffix(".sql")
