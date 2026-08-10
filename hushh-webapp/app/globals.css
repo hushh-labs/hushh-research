@@ -1803,11 +1803,19 @@ html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
    html.kb-open + --kb-height on a real on-screen keyboard only). Shrink the
    dialog and shift its center up by half the keyboard height so it stays in the
    band above the keyboard. Only active while kb-open, so desktop is untouched
-   (kb-open is never set there). See mobile-bug-log B21. */
+   (kb-open is never set there). See mobile-bug-log B21.
+
+   This max-height replaces the base rule's, so it repeats the top safe-area
+   subtraction; otherwise a dialog with a search field (e.g. Connect's scopes
+   modal) would lose Dynamic Island clearance the moment its keyboard opened. */
 html.kb-open [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]) {
-  max-height: calc(100dvh - 2rem - var(--kb-height, 0px));
+  max-height: calc(
+    100dvh - 2rem - var(--kb-height, 0px) -
+      var(--app-safe-area-top-effective, 0px)
+  );
   margin-top: calc(var(--kb-height, 0px) / -2);
 }
+
 
 .app-page-shell {
   width: 100%;
