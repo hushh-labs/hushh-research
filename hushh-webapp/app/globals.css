@@ -174,12 +174,9 @@ textarea {
 :root {
   /* Centralized app typography variables.
    * Apple-system web pass uses the bundled Inter Variable family only. */
-  --font-app-display:
-    "InterVariable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
-  --font-app-body:
-    "InterVariable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  --font-family-product: "InterVariable", "Inter", system-ui, sans-serif;
+  --font-app-display: var(--font-family-product);
+  --font-app-body: var(--font-family-product);
   --font-app-text: var(--font-app-body);
   --font-app-heading: var(--font-app-display);
   --font-app-mono: var(--font-app-body);
@@ -249,48 +246,51 @@ textarea {
      for app UI hierarchy; components opt into roles instead of restating
      route-specific font sizes. */
   --type-large-page-title-size: 34px;
-  --type-large-page-title-line: 38px;
+  --type-large-page-title-line: 41px;
   --type-large-page-title-weight: 700;
-  --type-large-page-title-tracking: -0.028em;
+  --type-large-page-title-tracking: -0.03em;
   --type-page-title-size: 28px;
-  --type-page-title-line: 32px;
+  --type-page-title-line: 34px;
   --type-page-title-weight: 700;
-  --type-page-title-tracking: -0.022em;
+  --type-page-title-tracking: -0.025em;
   --type-navigation-title-size: 17px;
   --type-navigation-title-line: 22px;
   --type-navigation-title-weight: 600;
   --type-navigation-title-tracking: -0.01em;
   --type-major-section-title-size: 22px;
-  --type-major-section-title-line: 26px;
+  --type-major-section-title-line: 27px;
   --type-major-section-title-weight: 600;
-  --type-major-section-title-tracking: -0.017em;
-  --type-card-title-size: 20px;
-  --type-card-title-line: 24px;
+  --type-major-section-title-tracking: -0.018em;
+  --type-card-title-size: 17px;
+  --type-card-title-line: 22px;
   --type-card-title-weight: 600;
-  --type-card-title-tracking: -0.014em;
+  --type-card-title-tracking: -0.01em;
   --type-section-label-size: 15px;
   --type-section-label-line: 20px;
   --type-section-label-weight: 500;
-  --type-section-label-tracking: -0.01em;
+  --type-section-label-tracking: -0.006em;
   --type-row-label-size: 17px;
   --type-row-label-line: 22px;
   --type-row-label-weight: 400;
   --type-row-label-emphasis-weight: 600;
   --type-row-label-tracking: -0.01em;
-  --type-page-subtitle-size: 16px;
-  --type-page-subtitle-line: 22px;
-  --type-row-description-size: 15px;
-  --type-row-description-line: 21px;
+  --type-page-subtitle-size: 15px;
+  --type-page-subtitle-line: 20px;
+  --type-row-description-size: 13px;
+  --type-row-description-line: 18px;
   --type-row-description-weight: 400;
-  --type-row-description-tracking: -0.006em;
+  --type-row-description-tracking: 0;
   --type-form-label-size: 15px;
   --type-form-label-line: 20px;
   --type-form-label-weight: 500;
   --type-form-label-tracking: -0.006em;
   --type-input-value-size: 17px;
-  --type-input-value-line: 24px;
+  --type-input-value-line: 22px;
   --type-helper-text-size: 13px;
   --type-helper-text-line: 18px;
+  --type-helper-text-tracking: 0;
+  --type-legal-text-size: 11px;
+  --type-legal-text-line: 15px;
   --type-button-label-size: 17px;
   --type-button-label-line: 22px;
   --type-button-label-weight: 600;
@@ -345,11 +345,12 @@ textarea {
   --app-secondary-surface: #f9f9fb;
   --app-elevated-surface: #ffffff;
   --app-label: #1d1d1f;
-  --app-secondary-label: #8e8e93;
+  --app-secondary-label: #6e6e73;
   --app-section-label: #6e6e73;
-  --app-tertiary-label: #aeaeb2;
+  --app-tertiary-label: #8e8e93;
+  --app-disabled-label: #aeaeb2;
   --app-quaternary-label: #c7c7cc;
-  --app-separator: rgba(60, 60, 67, 0.1);
+  --app-separator: rgba(60, 60, 67, 0.12);
   --app-opaque-separator: #e5e5ea;
   --app-neutral-fill: rgba(120, 120, 128, 0.16);
   --app-neutral-fill-strong: rgba(120, 120, 128, 0.2);
@@ -358,6 +359,15 @@ textarea {
   --app-destructive: #ff3b30;
   --app-success: #34c759;
   --app-warning: #ff9500;
+  --text-primary: var(--app-label);
+  --text-secondary: var(--app-secondary-label);
+  --text-tertiary: var(--app-tertiary-label);
+  --text-disabled: var(--app-disabled-label);
+  --chevron: var(--app-quaternary-label);
+  --system-blue: var(--app-accent);
+  --system-green: var(--app-success);
+  --system-red: var(--app-destructive);
+  --system-orange: var(--app-warning);
   --app-purple: #af52de;
   --app-info: var(--app-accent);
   --app-focus-ring: rgba(0, 122, 255, 0.25);
@@ -5555,10 +5565,10 @@ body[data-persona-surface="ria"] {
 :is(.ui-text-identity-name) {
   color: var(--app-label) !important;
   font-family: var(--font-app-display) !important;
-  font-size: clamp(28px, 7.8vw, 34px) !important;
+  font-size: var(--type-page-title-size) !important;
   font-weight: 700 !important;
-  letter-spacing: -0.028em !important;
-  line-height: 1.12 !important;
+  letter-spacing: var(--type-page-title-tracking) !important;
+  line-height: var(--type-page-title-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
 }
@@ -5625,8 +5635,8 @@ body[data-persona-surface="ria"] {
   font-weight: var(--type-row-label-emphasis-weight) !important;
 }
 
-:is(.ui-text-row-description, .ui-text-trailing-value) {
-  color: var(--app-secondary-label) !important;
+:is(.ui-text-row-description) {
+  color: var(--app-tertiary-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-row-description-size) !important;
   font-weight: var(--type-row-description-weight) !important;
@@ -5642,7 +5652,7 @@ body[data-persona-surface="ria"] {
   font-size: 15px !important;
   font-weight: 500 !important;
   letter-spacing: -0.006em !important;
-  line-height: 21px !important;
+  line-height: 20px !important;
   opacity: 1 !important;
   text-transform: none !important;
 }
@@ -5663,7 +5673,7 @@ body[data-persona-surface="ria"] {
   font-family: var(--font-app-body) !important;
   font-size: var(--type-input-value-size) !important;
   font-weight: 400 !important;
-  letter-spacing: -0.008em !important;
+  letter-spacing: -0.01em !important;
   line-height: var(--type-input-value-line) !important;
   opacity: 1 !important;
 }
@@ -5673,7 +5683,7 @@ body[data-persona-surface="ria"] {
   font-family: var(--font-app-body) !important;
   font-size: var(--type-helper-text-size) !important;
   font-weight: 400 !important;
-  letter-spacing: -0.003em !important;
+  letter-spacing: var(--type-helper-text-tracking) !important;
   line-height: var(--type-helper-text-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
@@ -5681,10 +5691,10 @@ body[data-persona-surface="ria"] {
 
 :is(.ui-text-status) {
   font-family: var(--font-app-body) !important;
-  font-size: 13px !important;
+  font-size: var(--type-row-label-size) !important;
   font-weight: 600 !important;
-  letter-spacing: -0.006em !important;
-  line-height: 18px !important;
+  letter-spacing: var(--type-row-label-tracking) !important;
+  line-height: var(--type-row-label-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
 }
@@ -5707,14 +5717,25 @@ body[data-persona-surface="ria"] {
   opacity: 1 !important;
 }
 
-:is(.ui-text-caption, .ui-text-legal) {
-  color: var(--app-secondary-label) !important;
+:is(.ui-text-caption) {
+  color: var(--app-tertiary-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: 12px !important;
   font-weight: 400 !important;
   letter-spacing: 0 !important;
   line-height: 16px !important;
   opacity: 1 !important;
+}
+
+:is(.ui-text-legal) {
+  color: var(--app-tertiary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-legal-text-size) !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+  line-height: var(--type-legal-text-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
 }
 
 .app-page-shell
@@ -5735,8 +5756,53 @@ body[data-persona-surface="ria"] {
   font-family: var(--font-app-body) !important;
   font-size: var(--type-helper-text-size) !important;
   font-weight: 400 !important;
-  letter-spacing: -0.003em !important;
+  letter-spacing: var(--type-helper-text-tracking) !important;
   line-height: var(--type-helper-text-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+.app-page-shell
+  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg3)]"][class*="text-[10px]"],
+.app-page-shell
+  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg3)]"][class*="text-[11px]"],
+.app-page-shell
+  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg3)]"][class*="text-[12px]"],
+.app-page-shell
+  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg2)]"][class*="text-[12px]"] {
+  color: var(--app-tertiary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-helper-text-size) !important;
+  font-weight: 400 !important;
+  letter-spacing: var(--type-helper-text-tracking) !important;
+  line-height: var(--type-helper-text-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[color:var(--one-fg2)]"][class*="text-[13px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[color:var(--one-fg2)]"][class*="text-[14px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-sm"] {
+  color: var(--app-secondary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-page-subtitle-size) !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.006em !important;
+  line-height: var(--type-page-subtitle-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-trailing-value) {
+  color: var(--app-tertiary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: 15px !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.006em !important;
+  line-height: 20px !important;
   opacity: 1 !important;
   text-transform: none !important;
 }
