@@ -34,6 +34,7 @@ import {
   Lock,
   Map,
   MapPin,
+  MessageCircleQuestionMark,
   Navigation,
   Plus,
   Send,
@@ -1156,8 +1157,15 @@ function NowHub({
             the Now tab listed every way to give a location out and none to ask
             for one. Same flow and same voice control id as that entry -- this
             is an additional way in, not a second implementation. */}
+        {/* Not `Send`: that is the same paper-plane silhouette as `Navigation`
+            on "Share location" two rows up, so at row size the two entries read
+            as the same icon -- and they are opposites. A speech bubble asking a
+            question is distinct at a glance and matches what the flow does:
+            "Requests should explain why. The other person chooses whether to
+            share." Radar and Crosshair were rejected for implying tracking on a
+            surface built around consent. */}
         <SettingsRow
-          icon={Send}
+          icon={MessageCircleQuestionMark}
           iconTone="accent"
           title="Request Location"
           density="compact"
