@@ -294,8 +294,8 @@ textarea {
   --type-button-label-size: 17px;
   --type-button-label-line: 22px;
   --type-button-label-weight: 600;
-  --type-tab-label-size: 11px;
-  --type-tab-label-line: 13px;
+  --type-tab-label-size: 17px;
+  --type-tab-label-line: 22px;
   --type-tab-label-weight: 500;
   --foundation-caption-tracking: 0.158em;
   --foundation-micro-size: 0.6875rem;
@@ -523,6 +523,9 @@ textarea {
   --kai-command-fixed-ui: 82px;
   --kai-command-bottom-gap: 12px;
   --app-screen-footer-pad: calc(8px + var(--app-bottom-inset));
+  --app-bottom-content-clearance: calc(
+    var(--bottom-chrome-stack-height, var(--app-bottom-inset)) + 24px
+  );
   --app-top-safe-offset: 0px;
   --app-safe-area-top-probe: 0px;
   --app-safe-area-top: var(
@@ -535,13 +538,13 @@ textarea {
     var(--app-safe-area-top-probe)
   );
   --app-top-bar-height: 72px;
-  --kai-route-tabs-height: 42px;
+  --kai-route-tabs-height: 56px;
   --kai-route-tabs-content-gap: 14px;
   /* Global top-shell geometry contract (consumed by providers + top-app-bar).
    * Keep these tokens defined at root so web and native share deterministic spacing. */
   --top-shell-safe-area: var(--app-safe-area-top-effective);
   --top-inset: var(--top-shell-safe-area);
-  --top-bar-h: 44px;
+  --top-bar-h: 56px;
   --top-bar-side-w: 98px;
   --top-tabs-h: var(--kai-route-tabs-height);
   --top-tabs-gap: var(--kai-route-tabs-content-gap);
@@ -554,7 +557,7 @@ textarea {
   /* Single visual clearance between the fixed top shell and the first page block.
    * `--page-top-start` is the body-start gap token designers inspect/tune directly.
    * The actual structural spacer adds reserved shell height on top of this value. */
-  --page-top-start: 40px;
+  --page-top-start: 28px;
   --app-top-body-start-gap: var(--page-top-start);
   --page-top-local-offset: 0px;
   --app-shell-reading: 54rem;
@@ -601,7 +604,7 @@ textarea {
     var(--top-shell-visual-height) + var(--top-subnav-total, 0px) +
       var(--top-content-safe-gap)
   );
-  --page-inline-gutter-standard: 20px;
+  --page-inline-gutter-standard: 16px;
   --page-surface-overscan: 0px;
   --page-surface-gap-standard: 16px;
   --page-surface-gap-compact: 12px;
@@ -729,7 +732,7 @@ textarea {
   --motion-deck-scale-other: 0.84;
   /* Foundation (bible): a bright white canvas carries the ambient wash while
      cards remain legible without reverting the app to an opaque flat page. */
-  --background: #ffffff;
+  --background: #f2f2f7;
   --foreground: oklch(0.232 0.004 286.1);
   --card: #ffffff;
   --card-foreground: oklch(0.232 0.004 286.1);
@@ -807,12 +810,12 @@ textarea {
 
   /* App Background - bright Foundation canvas; the shared ambient layer
      supplies its accent depth rather than a separate route gradient. */
-  --app-bg-start: #ffffff;
-  --app-bg-mid: #ffffff;
-  --app-bg-end: #ffffff;
+  --app-bg-start: #f2f2f7;
+  --app-bg-mid: #f2f2f7;
+  --app-bg-end: #f2f2f7;
   /* The base beneath persistent chrome. Foundation may add its restrained
    * corner ambience over this, but shell material must share the same base. */
-  --app-layout-surface: var(--background);
+  --app-layout-surface: var(--app-grouped-background);
 
   --glass1: #ffffff60 !important;
   --glass2: #6464643b !important;
@@ -4639,100 +4642,15 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    mirrors the quiet root treatment so public, authenticated, and nested
    routes never drift into separate gradients or opaque chrome bands. */
 .foundation-public-ambient {
-  /* Light mode gets the same four-corner accent wash as dark mode, tuned
-     stronger, not weaker: mixing an accent into near-white at the same
-     percentage as near-black reads as far fainter, because the relative
-     luminance/hue shift off a bright base is much smaller. These percentages
-     are deliberately above dark mode's 6-8% so the corners actually read as
-     an accent glow instead of disappearing into the white canvas. */
+  /* Standard app canvas: a quiet iOS grouped background. */
   --foundation-grain-opacity: 0.1;
-  --foundation-ambient-primary: 12%;
-  --foundation-ambient-secondary: 10%;
-  --foundation-ambient-tertiary: 9%;
-  --foundation-ambient-quaternary: 7%;
-  background-color: var(--app-layout-surface);
-  background-image:
-    radial-gradient(
-      circle at 4% 4%,
-      color-mix(
-        in oklab,
-        var(--app-accent) var(--foundation-ambient-primary),
-        transparent
-      ),
-      transparent 31%
-    ),
-    radial-gradient(
-      circle at 100% 0%,
-      color-mix(
-        in oklab,
-        var(--app-accent-bright) var(--foundation-ambient-secondary),
-        transparent
-      ),
-      transparent 33%
-    ),
-    radial-gradient(
-      circle at 0% 100%,
-      color-mix(
-        in oklab,
-        var(--app-accent) var(--foundation-ambient-tertiary),
-        transparent
-      ),
-      transparent 33%
-    ),
-    radial-gradient(
-      circle at 100% 100%,
-      color-mix(
-        in oklab,
-        var(--app-accent-bright) var(--foundation-ambient-quaternary),
-        transparent
-      ),
-      transparent 31%
-    );
+  background-color: var(--app-grouped-background);
+  background-image: none;
 }
 
 .dark .foundation-public-ambient {
-  --foundation-ambient-primary: 8%;
-  --foundation-ambient-secondary: 7%;
-  --foundation-ambient-tertiary: 6%;
-  --foundation-ambient-quaternary: 6%;
   --foundation-grain-opacity: 0.08;
-  background-image:
-    radial-gradient(
-      circle at 4% 4%,
-      color-mix(
-        in oklab,
-        var(--app-accent) var(--foundation-ambient-primary),
-        transparent
-      ),
-      transparent 31%
-    ),
-    radial-gradient(
-      circle at 100% 0%,
-      color-mix(
-        in oklab,
-        var(--app-accent-bright) var(--foundation-ambient-secondary),
-        transparent
-      ),
-      transparent 33%
-    ),
-    radial-gradient(
-      circle at 0% 100%,
-      color-mix(
-        in oklab,
-        var(--app-accent) var(--foundation-ambient-tertiary),
-        transparent
-      ),
-      transparent 33%
-    ),
-    radial-gradient(
-      circle at 100% 100%,
-      color-mix(
-        in oklab,
-        var(--app-accent-bright) var(--foundation-ambient-quaternary),
-        transparent
-      ),
-      transparent 31%
-    );
+  background-image: none;
 }
 
 /* Custom Scrollbar Styles */
@@ -5568,6 +5486,17 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
+:is(.ui-text-agent-title) {
+  color: var(--app-label) !important;
+  font-family: var(--font-app-display) !important;
+  font-size: 34px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.03em !important;
+  line-height: 41px !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
 :is(.ui-text-navigation-title) {
   color: var(--app-label) !important;
   font-family: var(--font-app-body) !important;
@@ -5726,12 +5655,21 @@ body[data-persona-surface="ria"] {
 }
 
 :is(.ui-text-tab-label) {
+  color: var(--app-secondary-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-tab-label-size) !important;
   font-weight: var(--type-tab-label-weight) !important;
-  letter-spacing: 0 !important;
+  letter-spacing: -0.01em !important;
   line-height: var(--type-tab-label-line) !important;
   opacity: 1 !important;
+}
+
+[role="tab"][aria-selected="true"] :is(.ui-text-tab-label) {
+  color: var(--app-accent) !important;
+}
+
+[role="tab"][aria-selected="false"] :is(.ui-text-tab-label) {
+  color: var(--app-secondary-label) !important;
 }
 
 :is(.ui-text-caption) {

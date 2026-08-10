@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EmblaCarouselType } from "embla-carousel";
 import useEmblaCarousel from "embla-carousel-react";
 
@@ -165,6 +165,11 @@ interface SwipeViewsProps {
    * when their toolbar and pagination live outside the scrollable row rail.
    */
   viewportMinHeight?: string;
+  /**
+   * Defaults to max content height so mounted panes can keep their existing
+   * layout. Compact task panes can opt into the active pane's measured height.
+   */
+  heightMode?: "max" | "active";
   className?: string;
 }
 
@@ -177,6 +182,7 @@ export function SwipeViews({
   onSelectionCommit,
   panelInset = "none",
   viewportMinHeight = SWIPE_VIEWPORT_MIN_HEIGHT,
+  heightMode = "max",
   className,
 }: SwipeViewsProps) {
   const watchDrag = useCallback(
@@ -220,6 +226,8 @@ export function SwipeViews({
     0,
     options.findIndex((option) => option.value === activeValue),
   );
+  const panelNodesRef = useRef<Record<string, HTMLDivElement | null>>({});
+  const [activePanelHeight, setActivePanelHeight] = useState<number | null>(null);
   const isDraggingRef = useRef(false);
   const hasMovedSincePointerDownRef = useRef(false);
   const lastReportedValueRef = useRef(activeValue);
@@ -233,6 +241,45 @@ export function SwipeViews({
     activeValueRef.current = activeValue;
     optionsRef.current = options;
   }, [activeValue, options]);
+
+  useEffect(() => {
+    if (heightMode !== "active") {
+      setActivePanelHeight(null);
+      return;
+    }
+
+    const activeNode = panelNodesRef.current[activeValue];
+    if (!activeNode) return;
+
+    let frame = 0;
+    const measure = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        const nextHeight = Math.ceil(activeNode.scrollHeight);
+        setActivePanelHeight((current) =>
+          current === nextHeight ? current : nextHeight,
+        );
+      });
+    };
+
+    measure();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure, { passive: true });
+      return () => {
+        if (frame) window.cancelAnimationFrame(frame);
+        window.removeEventListener("resize", measure);
+      };
+    }
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(activeNode);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [activeValue, heightMode]);
 
   // Embla measures the container and slides synchronously at init, but only
   // attaches its own ResizeObserver a frame later. A width change inside that
@@ -516,13 +563,22 @@ export function SwipeViews({
   return (
     <div
       data-swipe-views-root="true"
+      data-swipe-views-height-mode={heightMode}
       data-no-auto-fade="true"
       className={cn("w-full min-h-0 overflow-hidden", className)}
       ref={emblaRef}
-      style={{ minHeight: viewportMinHeight }}
+      style={{
+        minHeight: viewportMinHeight,
+        ...(heightMode === "active" && activePanelHeight !== null
+          ? { height: activePanelHeight }
+          : null),
+      }}
     >
       <div
-        className="flex w-full min-h-0 touch-pan-y transform-gpu will-change-transform"
+        className={cn(
+          "flex w-full min-h-0 touch-pan-y transform-gpu will-change-transform",
+          heightMode === "active" && "items-start",
+        )}
         style={{ minHeight: "inherit" }}
       >
         {options.map((option, index) => {
@@ -531,6 +587,9 @@ export function SwipeViews({
           return (
             <div
               key={option.value}
+              ref={(node) => {
+                panelNodesRef.current[option.value] = node;
+              }}
               id={`top-shell-${tabSetId}-panel-${safeValue}`}
               role="tabpanel"
               aria-labelledby={`top-shell-${tabSetId}-tab-${safeValue}`}
@@ -538,7 +597,8 @@ export function SwipeViews({
               tabIndex={isActive ? 0 : -1}
               data-swipe-panel-inset={panelInset}
               className={cn(
-                "h-full flex-[0_0_100%] min-h-0 min-w-0 max-w-full",
+                "flex-[0_0_100%] min-h-0 min-w-0 max-w-full",
+                heightMode === "active" ? "h-auto" : "h-full",
                 panelInset === "page" &&
                   "px-[var(--page-inline-gutter-standard)]",
               )}

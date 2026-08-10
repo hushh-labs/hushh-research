@@ -255,7 +255,22 @@ function pairBounds(
  * foreground location fix so the initial camera settles on the current device;
  * it never starts a background watcher or publishes that fix to recipients.
  */
-export function LocationImmersiveMap() {
+/**
+ * `surface` decides which product this screen is.
+ *
+ * "map" is Your Map: the people who already share their location with you,
+ * pinned, plus your own position. "check-in" is the nearby flow: a place you
+ * pick, the 500 m area around it, and a list of opted-in people there. They
+ * were the same route with a drawer on top, so both read as one feature and QA
+ * could not tell them apart. The private-share pins and the people tray belong
+ * to Your Map only, and are withheld here.
+ */
+export function LocationImmersiveMap({
+  surface = "map",
+}: {
+  surface?: "map" | "check-in";
+} = {}) {
+  const isCheckInSurface = surface === "check-in";
   const searchParams = useSearchParams();
   const router = useRouter();
   const auth = useRequireAuth();
@@ -371,13 +386,49 @@ export function LocationImmersiveMap() {
       });
       return;
     }
-    const requested = action === "check-in";
+    // `?action=check-in` on the map route is the old entry point. Rather than
+    // chase every caller -- the hub, breadcrumbs, notification deep links, and
+    // anything already shared -- send them all to the destination that now owns
+    // the flow. One redirect keeps old links working and stops the map from
+    // rendering check-in over Your Map ever again.
+    if (!isCheckInSurface && action === "check-in") {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("action");
+      const query = params.toString();
+      router.replace(
+        query
+          ? `${ROUTES.ONE_LOCATION_CHECK_IN}?${query}`
+          : ROUTES.ONE_LOCATION_CHECK_IN,
+        { scroll: false },
+      );
+      return;
+    }
+    // On its own route the sheet is the screen, not an overlay the URL
+    // toggles -- there is no Your Map underneath to fall back to.
+    const requested = isCheckInSurface;
     setNearbyCheckInOpen(requested);
     if (
       !requested ||
       nearbyHistoryPreparedRef.current ||
       typeof window === "undefined"
     ) {
+      return;
+    }
+
+    if (isCheckInSurface) {
+      // A real route is already its own history entry: Back leaves check-in
+      // without help. The synthetic boundary below existed only because the
+      // sheet had no URL of its own, and re-creating it here would cost a
+      // second Back press to escape. Consume any resume token and strip it so
+      // a refresh cannot replay it.
+      const surfaceResumeToken = searchParams.get(NEARBY_PRIVATE_RESUME_PARAM);
+      if (surfaceResumeToken && typeof window !== "undefined") {
+        consumeNearbyPrivateReturn(surfaceResumeToken);
+        const resumedUrl = new URL(window.location.href);
+        resumedUrl.searchParams.delete(NEARBY_PRIVATE_RESUME_PARAM);
+        window.history.replaceState(window.history.state, "", resumedUrl.href);
+      }
+      nearbyHistoryPreparedRef.current = true;
       return;
     }
 
@@ -402,7 +453,7 @@ export function LocationImmersiveMap() {
     window.history.replaceState(window.history.state, "", plainMapUrl.href);
     window.history.pushState(window.history.state, "", actionUrl.href);
     nearbyHistoryPreparedRef.current = true;
-  }, [nearbyCheckInAvailable, router, searchParams]);
+  }, [isCheckInSurface, nearbyCheckInAvailable, router, searchParams]);
 
   const openNearbyCheckIn = useCallback(() => {
     if (
@@ -423,6 +474,13 @@ export function LocationImmersiveMap() {
   }, [demoMode, nearbyCheckInAvailable, rendererReady, router, searchParams]);
 
   const closeNearbyCheckIn = useCallback(() => {
+    // Dismissing on the dedicated route must leave it. Clearing the flag alone
+    // would strand the person on a bare map that is not Your Map and has none
+    // of its content -- the emptiest possible screen.
+    if (isCheckInSurface) {
+      router.push(ROUTES.ONE_LOCATION);
+      return;
+    }
     setNearbyCheckInOpen(false);
     if (
       typeof window !== "undefined" &&
@@ -430,7 +488,7 @@ export function LocationImmersiveMap() {
     ) {
       window.history.back();
     }
-  }, []);
+  }, [isCheckInSurface, router]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -871,11 +929,16 @@ export function LocationImmersiveMap() {
   }, [nearbyCheckInOpen, nearbyPlaceFocus]);
 
   const visibleMarkers = useMemo(() => {
-    const next = [...markers];
+    // Private-share pins are Your Map's answer to "where are the people who
+    // share with me". Drawing them behind the check-in flow put that answer on
+    // both screens and made the two read as one feature. Check-in shows only
+    // the two points its own question needs: where you are, and the place you
+    // are checking in to.
+    const next = isCheckInSurface ? [] : [...markers];
     if (selfMarker) next.push(selfMarker);
     if (nearbyPlaceMarker) next.push(nearbyPlaceMarker);
     return next;
-  }, [markers, nearbyPlaceMarker, selfMarker]);
+  }, [isCheckInSurface, markers, nearbyPlaceMarker, selfMarker]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1699,7 +1762,7 @@ export function LocationImmersiveMap() {
           </p>
         </section>
       ) : null}
-      {rendererReady && status !== "unavailable" ? (
+      {rendererReady && status !== "unavailable" && !isCheckInSurface ? (
         <section
           ref={peopleTrayRef}
           className="absolute left-1/2 z-20 isolate flex min-h-0 flex-col overflow-hidden border border-[var(--app-accent-border)] bg-background/95 shadow-[0_18px_60px_color-mix(in_oklab,var(--app-accent)_18%,transparent)] backdrop-blur-xl motion-reduce:transition-none"
