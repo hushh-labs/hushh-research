@@ -64,13 +64,24 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 
     // When using asChild, we must ensure only one child is passed to Slot.
     // If loading, we handle the content inside a single span.
-    const content = (
-      <>
-        {isLoading && (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-        )}
-        {isLoading ? <span className="opacity-0">{children}</span> : children}
-      </>
+    //
+    // While loading, keep the original label in the flow but invisible so the
+    // button preserves its width, and overlay the spinner absolutely centered
+    // over it. The previous approach put the spinner inline with `mr-2` beside
+    // the hidden label, so the whole group centered as a block and the spinner
+    // rendered left of the button's true center. Absolute centering pins it to
+    // the exact middle regardless of label width.
+    const content = isLoading ? (
+      <span className="relative inline-flex items-center justify-center">
+        <span aria-hidden="true" className="opacity-0">
+          {children}
+        </span>
+        <span className="absolute inset-0 flex items-center justify-center">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        </span>
+      </span>
+    ) : (
+      children
     )
 
     return (
