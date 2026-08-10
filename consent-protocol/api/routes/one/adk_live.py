@@ -137,6 +137,50 @@ _VERTEX_PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
 _VERTEX_LOCATION_RE = re.compile(r"^(?:global|[a-z]+-[a-z]+[0-9]+)$")
 
 
+# A navigate-then-act journey is TWO tool calls, and only the first one is
+# One's own idea. `start_app_goal` issues the route step and answers
+# `navigation_started`; the action the person actually asked for has not run,
+# so its result does not exist yet. `continue_app_goal` is the only thing that
+# runs it, and nothing in the protocol calls it on One's behalf -- so a journey
+# whose navigation lands and is never continued just stops, looking in the log
+# exactly like one that finished.
+_GOAL_CONTINUATION_NOTE = (
+    "[Goal runner - not user speech] The journey's destination screen has settled with "
+    "fresh app context. Call continue_app_goal now; it is the only thing that runs the "
+    "step you started. Do not describe what that step found and do not ask a question "
+    "about it yet -- its own settlement report is what tells you the outcome."
+)
+
+
+def _is_navigation_step_settlement(goal_run: Any) -> bool:
+    """True when this settlement is a navigate-then-act journey's route step."""
+    return (
+        isinstance(goal_run, dict)
+        and goal_run.get("schema_version") == "one.goal_run.v1"
+        and goal_run.get("step_cursor", 0) == 0
+    )
+
+
+def _navigation_continuation_screen(
+    goal_id: str | None, goal_run: Any, settlement_status: str
+) -> str | None:
+    """Screen a navigate-then-act journey must reach before it may continue.
+
+    Returns the destination to wait for, or ``None`` when this settlement is
+    not a journey's navigation step. Reading it from the run rather than
+    naming a screen keeps every authored journey on one path: this was
+    hardcoded to Analysis, which is why the journeys authored after it
+    navigated and then stalled with nothing left to move them.
+    """
+    # Past the navigation step, what settles is the journey's ACTION, whose
+    # result is the thing One is waiting on -- never another cue to act.
+    if not goal_id or not _is_navigation_step_settlement(goal_run):
+        return None
+    if settlement_status not in {"succeeded", "started"}:
+        return None
+    return str(goal_run.get("expected_screen") or "").strip() or None
+
+
 def _browser_frame_within_bounds(raw: str) -> bool:
     return len(raw) <= _MAX_BROWSER_FRAME_CHARS
 
@@ -538,7 +582,8 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     # browser's own directiveFingerprint()) and skip re-issuing an identical
     # one while it's still open.
     issued_action_fingerprints: dict[str, str] = {}
-    awaiting_goal_context: set[str] = set()
+    # goal id -> the destination screen whose arrival releases its continuation.
+    awaiting_goal_context: dict[str, str] = {}
     initial_context_ready = asyncio.Event()
     latest_context: dict[str, Any] = {}
 
@@ -587,7 +632,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     goal_id,
                     stale_action_id,
                 )
-                awaiting_goal_context.discard(goal_id)
+                awaiting_goal_context.pop(goal_id, None)
             issued_goal_runs.pop(stale_directive_id, None)
             issued_journey_started_at.pop(stale_directive_id, None)
             issued_action_fingerprints.pop(stale_directive_id, None)
@@ -764,28 +809,25 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                 )
                             )
                 first_app_context_seen = True
-                if (
-                    "goal.analysis.start_debate" in awaiting_goal_context
-                    and clean_screen == "kai_analysis"
-                ):
-                    awaiting_goal_context.discard("goal.analysis.start_debate")
+                released_goal_id = next(
+                    (
+                        waiting_goal_id
+                        for waiting_goal_id, waiting_screen in awaiting_goal_context.items()
+                        if waiting_screen == clean_screen
+                    ),
+                    None,
+                )
+                if released_goal_id is not None:
+                    awaiting_goal_context.pop(released_goal_id, None)
                     logger.info(
-                        "one_adk_goal_decision goal=goal.analysis.start_debate "
-                        "status=continuation_nudge_sent screen=%s",
+                        "one_adk_goal_decision goal=%s status=continuation_nudge_sent screen=%s",
+                        released_goal_id,
                         clean_screen,
                     )
                     queue.send_content(
                         genai_types.Content(
                             role="user",
-                            parts=[
-                                genai_types.Part(
-                                    text=(
-                                        "[Goal runner - not user speech] Analysis route has settled "
-                                        "with fresh app context. Call continue_app_goal now to open "
-                                        "the requested preview; do not start a debate."
-                                    )
-                                )
-                            ],
+                            parts=[genai_types.Part(text=_GOAL_CONTINUATION_NOTE)],
                         )
                     )
                 continue
@@ -959,23 +1001,28 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     _bounded_text(settlement.get("summary"), 160),
                 )
                 goal_id = issued_goal_directives.pop(settlement["directive_id"], None)
-                if (
-                    goal_id == "goal.analysis.start_debate"
-                    and settlement["action_id"] == "route.kai_analysis"
-                    and settlement["status"] in {"succeeded", "started"}
-                ):
-                    awaiting_goal_context.add(goal_id)
+                continuation_screen = _navigation_continuation_screen(
+                    goal_id, issued_goal_runs.get(settlement["directive_id"]), settlement["status"]
+                )
+                if continuation_screen is not None and goal_id:
+                    awaiting_goal_context[goal_id] = continuation_screen
                     logger.info(
-                        "one_adk_goal_decision goal=%s status=awaiting_destination_context", goal_id
+                        "one_adk_goal_decision goal=%s status=awaiting_destination_context "
+                        "screen=%s",
+                        goal_id,
+                        continuation_screen,
                     )
-                elif settlement["action_id"] == "route.kai_analysis":
+                elif _is_navigation_step_settlement(
+                    issued_goal_runs.get(settlement["directive_id"])
+                ):
                     # The journey's own navigation settled but did NOT arm the
                     # continuation. Without this, a lost goal linkage looks
                     # exactly like a successful navigation in the log.
                     logger.info(
                         "one_adk_goal_decision goal=%s status=continuation_not_armed "
-                        "settlement_status=%s",
+                        "action=%s settlement_status=%s",
                         goal_id,
+                        settlement["action_id"],
                         settlement["status"],
                     )
                 settlement_state_delta: dict[str, Any] = {

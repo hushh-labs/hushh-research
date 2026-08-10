@@ -3,8 +3,10 @@
 import pytest
 
 from api.routes.one.adk_live import (
+    _GOAL_CONTINUATION_NOTE,
     _close_quietly,
     _InitialGreetingGate,
+    _navigation_continuation_screen,
     _receive_runtime_bootstrap,
 )
 from api.routes.one.live_context import (
@@ -505,3 +507,77 @@ def test_live_context_note_omits_the_subject_line_when_none_is_declared():
 
     assert note is not None
     assert "The person is looking at" not in note
+
+
+def _navigation_run(goal_id: str, screen: str, **overrides):
+    """A journey run as `start_app_goal` parks it after issuing the route step."""
+    return {
+        "schema_version": "one.goal_run.v1",
+        "goal_id": goal_id,
+        "action_id": "location.select_share_recipient",
+        "slots": {"person": "sarah"},
+        "step_cursor": 0,
+        "expected_screen": screen,
+        "status": "awaiting_destination_screen",
+        **overrides,
+    }
+
+
+def test_a_journey_waits_for_the_screen_its_own_run_names():
+    # Reading the destination off the run is what makes every authored journey
+    # continue. This was pinned to Analysis, so a journey to anywhere else
+    # navigated and then stopped -- the person watched the right screen open
+    # and nothing happen on it, which is indistinguishable from success.
+    run = _navigation_run("goal.location.select_share_recipient", "one_location")
+
+    assert _navigation_continuation_screen(
+        "goal.location.select_share_recipient", run, "succeeded"
+    ) == "one_location"
+    assert _navigation_continuation_screen(
+        "goal.analysis.start_debate",
+        _navigation_run("goal.analysis.start_debate", "kai_analysis"),
+        "started",
+    ) == "kai_analysis"
+
+
+def test_a_settled_action_step_is_never_mistaken_for_another_cue_to_act():
+    # `continue_app_goal` stamps step_cursor 1 before issuing the action. What
+    # settles then is the pick itself, carrying the matched name One is waiting
+    # to hear -- re-arming here would send it back to run the step it just ran.
+    ran = _navigation_run("goal.location.select_share_recipient", "one_location", step_cursor=1)
+
+    assert _navigation_continuation_screen(
+        "goal.location.select_share_recipient", ran, "succeeded"
+    ) is None
+
+
+def test_a_navigation_that_did_not_arrive_continues_nothing():
+    run = _navigation_run("goal.location.select_share_recipient", "one_location")
+
+    # Nothing to stand on, so there is nothing to run there.
+    assert _navigation_continuation_screen("goal.location.select_share_recipient", run, "blocked") is None
+    assert _navigation_continuation_screen("goal.location.select_share_recipient", run, "failed") is None
+    # A directive with no goal behind it is an ordinary action, not a journey.
+    assert _navigation_continuation_screen(None, run, "succeeded") is None
+    # The settled-choice journey shape has its own continuation path.
+    assert (
+        _navigation_continuation_screen(
+            "goal.x",
+            {"schema_version": "one.settled_action_journey.v1", "expected_screen": "one_location"},
+            "succeeded",
+        )
+        is None
+    )
+
+
+def test_the_continuation_note_names_no_screen_and_forbids_answering_early():
+    # One turn of prose serves every journey, so it can never say "Analysis"
+    # or "preview". The prohibition is the load-bearing half: on the share
+    # chain One holds only the name it HEARD until the pick settles, and
+    # asking from that is exactly the wrong-name failure the question exists
+    # to catch.
+    assert "continue_app_goal" in _GOAL_CONTINUATION_NOTE
+    assert "not user speech" in _GOAL_CONTINUATION_NOTE
+    assert "do not ask a question" in _GOAL_CONTINUATION_NOTE
+    for surface_specific in ("analysis", "debate", "location", "preview"):
+        assert surface_specific not in _GOAL_CONTINUATION_NOTE.lower()
