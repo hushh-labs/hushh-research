@@ -51,6 +51,12 @@ describe("navigation journeys", () => {
       "analysis.start",
       "location.pause_updates",
       "location.resume_updates",
+      // Escorted because selecting someone sends nothing. Asked from another
+      // screen it was simply unavailable, which broke "share my location with
+      // Sarah" from anywhere but Location. `location.share_selected` is still
+      // deliberately absent: arriving and FIRING is the thing that must not
+      // happen unattended.
+      "location.select_share_recipient",
       "setup.finish_connected_systems",
       "setup.finish_connections",
       "setup.finish_email",

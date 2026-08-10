@@ -5883,7 +5883,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "The mounted action reports its browser-observed outcome."
+          "current route becomes /one/location"
         ],
         "backend_effects": []
       },
@@ -5914,9 +5914,13 @@
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "location.select_share_recipient",
             "label": "Pick someone for the share",
-            "failure_behavior": "stop"
+            "failure_behavior": "stop",
+            "action_id": "location.select_share_recipient",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
           }
         ],
         "progress_contract": {

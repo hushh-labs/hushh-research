@@ -117,6 +117,16 @@ describe("how these actions can be reached", () => {
     });
   });
 
+  it("escorts the pick, because picking someone sends nothing", () => {
+    // Asked from anywhere but Location this was `action_unavailable`, so
+    // "share my location with Sarah" only worked if you were already
+    // standing on the right screen. Selecting is safe to escort: it ticks a
+    // name on a composer and nothing leaves the device.
+    const journey = resolveNavigationJourney("location.select_share_recipient");
+    expect(journey?.destinationScreen).toBe("one_location");
+    expect(journey?.navigationActionId).toBe("location.open_now");
+  });
+
   it("refuses to escort a share the same way", () => {
     // The identical treatment would mean One walking to Location and firing
     // the composer it found on arrival, at whoever happened to still be
