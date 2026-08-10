@@ -388,9 +388,26 @@ async def run_app_action(
     # gateway does not know (unknown is not a licence) and
     # trusted_activation_required, whose provider window the browser will only
     # open on a fresh human gesture.
-    execution_policy = str((entry.get("risk") or {}).get("execution_policy") or "allow_direct")
     trusted_activation = activation_policy == "trusted_activation_required"
-    needs_confirmation = execution_policy != "allow_direct" or trusted_activation
+    # Voice runs what it is asked to run. `execution_policy` no longer gates a
+    # directive: the product decision is that One acts, and that a person who
+    # said "share my location with Sarah" should not then be asked whether
+    # they meant it.
+    #
+    # Two exceptions survive, and neither is a policy choice:
+    #
+    #   * trusted_activation_required -- the provider window is opened by the
+    #     BROWSER, which checks navigator.userActivation and refuses without a
+    #     fresh gesture. No consent model satisfies this; it is a platform rule.
+    #   * an action the generated gateway does not know. Not caution about the
+    #     person, but about ourselves: an unrecognised id has no authored
+    #     policy to have relaxed, and running it would be executing something
+    #     no contract describes.
+    #
+    # What still stands between a misheard sentence and an irreversible act is
+    # narrower now: the classifier that reads a spoken answer, the slot
+    # allowlists, and the handlers' own refusals. Those carry the whole weight.
+    needs_confirmation = entry is None or trusted_activation
     directive_payload: dict[str, Any] = {
         "actionId": clean_id,
         "slots": clean_slots,
