@@ -17,12 +17,10 @@ export const SUBCARD_SURFACE =
   "rounded-[var(--app-card-radius-compact,16px)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)]";
 
 /** Shared readable section label. */
-export const EYEBROW =
-  "font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]";
+export const EYEBROW = "ui-text-section-label";
 
 /** Shared readable accent section label. */
-export const EYEBROW_ACCENT =
-  "font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]";
+export const EYEBROW_ACCENT = "ui-text-section-label";
 
 /**
  * Primary pill CTA (compact). Solid accent pill, accent-foreground label. Meets

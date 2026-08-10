@@ -4,6 +4,12 @@ import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
 import { SurfaceCard, type SurfaceAccent, type SurfaceTone } from "@/components/app-ui/surfaces";
+import {
+  CardTitle,
+  PageSubtitle,
+  PageTitle,
+  SectionLabel,
+} from "@/components/app-ui/typography";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 
@@ -205,26 +211,27 @@ export function PageHeader({
           >
             <div className="min-w-0 flex-1 space-y-[var(--page-header-copy-gap)]">
               {eyebrow ? (
-                <p
+                <SectionLabel
+                  as="p"
                   className={cn(
-                    "text-[13px] font-normal leading-[18px] tracking-normal",
                     styles.eyebrow
                   )}
                   data-slot="page-header-eyebrow"
                 >
                   {eyebrow}
-                </p>
+                </SectionLabel>
               ) : null}
-              <h1 className="text-[28px] font-bold leading-[34px] tracking-[-0.02em] text-foreground">
+              <PageTitle>
                 {title}
-              </h1>
+              </PageTitle>
               {description && !descriptionFullWidth ? (
-                <div
-                  className="max-w-2xl text-[15px] leading-[20px] text-muted-foreground"
+                <PageSubtitle
+                  as="div"
+                  className="max-w-2xl"
                   data-slot="page-header-description"
                 >
                   {description}
-                </div>
+                </PageSubtitle>
               ) : null}
             </div>
             {actions ? (
@@ -242,12 +249,12 @@ export function PageHeader({
         </div>
       </div>
       {description && descriptionFullWidth ? (
-        <div
-          className="text-[15px] leading-[20px] text-muted-foreground"
+        <PageSubtitle
+          as="div"
           data-slot="page-header-description"
         >
           {description}
-        </div>
+        </PageSubtitle>
       ) : null}
     </header>
   );
@@ -307,25 +314,25 @@ export function SectionHeader({
           >
             <div className="min-w-0 flex-1 space-y-[var(--section-header-copy-gap)]">
               {eyebrow ? (
-                <p className={cn("text-[13px] font-normal leading-[18px] tracking-normal", styles.eyebrow)}>
+                <SectionLabel as="p" className={styles.eyebrow}>
                   {eyebrow}
-                </p>
+                </SectionLabel>
               ) : null}
-              <div
+              <CardTitle
+                as="div"
                 role="heading"
                 aria-level={2}
                 data-slot="section-header-title"
-                className="text-[20px] font-semibold leading-[25px] tracking-[-0.014em] text-foreground"
               >
                 {title}
-              </div>
+              </CardTitle>
               {description ? (
-                <div
-                  className="text-[15px] leading-[20px] text-muted-foreground"
+                <PageSubtitle
+                  as="div"
                   data-slot="section-header-description"
                 >
                   {description}
-                </div>
+                </PageSubtitle>
               ) : null}
             </div>
             {actions ? (

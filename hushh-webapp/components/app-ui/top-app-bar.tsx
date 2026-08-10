@@ -394,14 +394,14 @@ function TopShellBreadcrumbTrail({
           >
             {index > 0 ? (
               <ChevronRight
-                className="h-3.5 w-3.5 shrink-0 opacity-40"
+                className="h-3.5 w-3.5 shrink-0 text-[color:var(--app-tertiary-label)]"
                 aria-hidden
               />
             ) : null}
             {item.href && !isLast ? (
               <button
                 type="button"
-                className="max-w-[9rem] shrink-0 truncate opacity-65 transition-opacity hover:opacity-100"
+                className="max-w-[9rem] shrink-0 truncate text-[color:var(--app-secondary-label)] transition-colors hover:text-current"
                 onClick={() =>
                   requestInternalAppNavigation({
                     href: item.href!,
@@ -417,7 +417,7 @@ function TopShellBreadcrumbTrail({
               <span
                 className={cn(
                   "min-w-0 truncate",
-                  isLast ? "font-semibold" : "opacity-65",
+                  isLast ? "font-semibold text-current" : "text-[color:var(--app-secondary-label)]",
                 )}
                 aria-current={isLast ? "page" : undefined}
               >

@@ -72,19 +72,19 @@ import {
   TrustNoteCard,
   WarningCard,
 } from "./primitives";
-import { SUBCARD_SURFACE } from "./tokens";
+import { MUTED_TEXT, SECTION_HEADING, SUBCARD_SURFACE } from "./tokens";
 import {
   RequestCard,
   SharedWithMeCard,
   TemporaryLinkCard,
   TrustedPersonCard,
 } from "./cards";
+// LocationTypeSelector stays exported from ./selectors, unused for now, so
+// PR #4767 can wire it back to a real precision mode without rebuilding it.
 import {
   DurationSelector,
-  LocationTypeSelector,
   PersonSearchInput,
   ReasonChips,
-  type LocationTypeValue,
   type ReasonValue,
 } from "./selectors";
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
@@ -634,10 +634,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   }, [pathname, router, searchParams]);
 
   const [shareStep, setShareStep] = useState<"person" | "details">("person");
-  const [shareLocationType, setShareLocationType] =
-    useState<LocationTypeValue>("precise");
-  const [temporaryLinkLocationType, setTemporaryLinkLocationType] =
-    useState<LocationTypeValue>("precise");
   const [reason, setReason] = useState<ReasonValue | null>("Safety check-in");
   const activeFlowRef = useRef<FlowKind>("none");
   const resetShareComposer = vm.resetShareComposer;
@@ -645,7 +641,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
 
   const resetShareLocalState = useCallback(() => {
     setShareStep("person");
-    setShareLocationType("precise");
   }, []);
   const resetShareDraft = useCallback(() => {
     resetShareLocalState();
@@ -825,7 +820,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       activeFlowRef.current = "none";
       pendingFlowRef.current = "none";
       setShareStep("person");
-      setShareLocationType("precise");
       if (nearbyPrivateCheckIn) {
         router.replace(nearbyCheckInReturnHref, { scroll: false });
         return;
@@ -863,8 +857,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             vm={vm}
             step={shareStep}
             setStep={setShareStep}
-            locationType={shareLocationType}
-            setLocationType={setShareLocationType}
             onClose={closeShareFlow}
           />
         ) : flow === "ask" ? (
@@ -984,12 +976,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             onManageSmsContacts={() => openFlow("sms-contacts")}
           />
         ) : (
-          <TemporaryLinkFlow
-            vm={vm}
-            locationType={temporaryLinkLocationType}
-            setLocationType={setTemporaryLinkLocationType}
-            onClose={closeFlow}
-          />
+          <TemporaryLinkFlow vm={vm} onClose={closeFlow} />
         )}
       </div>
     );
@@ -1106,6 +1093,10 @@ function NowHub({
 }) {
   return (
     <div className="space-y-3" data-testid="one-location-now-hub">
+      {/* Every row and tile below carries the `control_ids` / `action_id` pair
+          it was authored with in the Location voice action contract, so One and
+          the search bar can name the individual control a person is asking for
+          rather than only the screen it lives on. */}
       <SettingsGroup separatorInset testId="one-location-now-primary">
         <SettingsRow
           icon={Navigation}
@@ -1115,6 +1106,8 @@ function NowHub({
           chevron
           onClick={onStartShare}
           testId="one-location-share-row"
+          voiceControlId="one-location-action-share"
+          voiceActionId="location.open_share"
         />
         <SettingsRow
           icon={Map}
@@ -1124,6 +1117,8 @@ function NowHub({
           chevron
           onClick={onOpenMap}
           testId="one-location-map-row"
+          voiceControlId="one-location-open-map"
+          voiceActionId="location.open_map"
         />
       </SettingsGroup>
 
@@ -1136,6 +1131,8 @@ function NowHub({
           trailing={vm.activeOwnerGrants.length}
           chevron
           onClick={onOpenActiveShares}
+          voiceControlId="one-location-action-active-shares"
+          voiceActionId="location.open_active_shares"
         />
         <SettingsRow
           icon={MapPin}
@@ -1145,6 +1142,8 @@ function NowHub({
           trailing={vm.receivedGrants.length}
           chevron
           onClick={onOpenSharedWithMe}
+          voiceControlId="one-location-action-shared-with-me"
+          voiceActionId="location.open_shared_with_me"
         />
         <SettingsRow
           icon={ShieldCheck}
@@ -1154,6 +1153,8 @@ function NowHub({
           trailing={vm.pendingOwnerRequests.length}
           chevron
           onClick={onOpenNeedsReview}
+          voiceControlId="one-location-action-needs-review"
+          voiceActionId="location.open_needs_review"
         />
         <SettingsRow
           icon={Lock}
@@ -1163,6 +1164,8 @@ function NowHub({
           chevron
           onClick={onOpenSettings}
           testId="one-location-settings-entry"
+          voiceControlId="one-location-action-settings"
+          voiceActionId="location.open_settings"
         />
       </SettingsGroup>
 
@@ -1173,6 +1176,7 @@ function NowHub({
           title="Check-In"
           subtitle={checkInSubtitle}
           onClick={onCheckIn}
+          controlId="one-location-action-check-in"
         />
         <QuickActionCard
           tone="red"
@@ -1180,6 +1184,7 @@ function NowHub({
           title="SMS"
           subtitle={vm.sosActive ? "Live now" : "Save my soul"}
           onClick={onSos}
+          controlId="one-location-action-sos"
         />
       </QuickActionsSection>
     </div>
@@ -1474,7 +1479,7 @@ function LocationSettingsFlow({
 
       <div className="flex items-start gap-2.5 px-1">
         <Shield className="mt-0.5 h-[15px] w-[15px] shrink-0 text-[color:var(--app-accent)]" />
-        <p className="text-[13px] leading-[18px] text-muted-foreground">
+        <p className={MUTED_TEXT}>
           Private shares stay in your circle. Nearby Check-In is separate and
           only starts after you explicitly agree.
         </p>
@@ -1634,6 +1639,7 @@ function PeopleHub({
           <div className="grid grid-cols-1 gap-2">
             <Button
               onClick={onAddConnections}
+              data-voice-control-id="one-location-add-connections"
               className="h-11 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
             >
               <UsersRound className="mr-2 h-4 w-4" />
@@ -1642,6 +1648,7 @@ function PeopleHub({
             <Button
               variant="outline"
               onClick={onInvite}
+              data-voice-control-id="one-location-action-invite"
               className="h-10 rounded-full text-sm font-semibold"
             >
               <UserPlus className="mr-2 h-4 w-4" />
@@ -1702,6 +1709,7 @@ function PeopleHub({
       <div className="grid grid-cols-1 gap-2">
         <Button
           onClick={onAddConnections}
+          data-voice-control-id="one-location-add-connections"
           className="h-10 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
         >
           <UsersRound className="mr-2 h-4 w-4" />
@@ -1710,6 +1718,7 @@ function PeopleHub({
         <Button
           variant="outline"
           onClick={onInvite}
+          data-voice-control-id="one-location-action-invite"
           className="h-10 rounded-full border-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent)]"
         >
           <UserPlus className="mr-2 h-4 w-4" />
@@ -1788,6 +1797,7 @@ function PeopleHub({
       <button
         type="button"
         onClick={onAsk}
+        data-voice-control-id="one-location-action-ask"
         className={cn(
           "flex min-h-[60px] w-full items-center gap-3.5 p-3.5 text-left transition-colors hover:bg-foreground/[0.025]",
           SUBCARD_SURFACE,
@@ -1897,7 +1907,7 @@ function LinksHub({
 
   return (
     <div className="space-y-4">
-      <p className="px-1 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+      <p className={cn(SECTION_HEADING, "px-[6px]")}>
         Active links
       </p>
 
@@ -1933,6 +1943,7 @@ function LinksHub({
 
       <Button
         onClick={onCreateTempLink}
+        data-voice-control-id="one-location-action-temp-link"
         className="h-12 w-full rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
       >
         <Plus className="mr-2 h-4 w-4" />
@@ -1941,7 +1952,7 @@ function LinksHub({
 
       <div className="flex items-start gap-2 px-1">
         <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <p className="text-[13px] leading-[18px] text-muted-foreground">
+        <p className={MUTED_TEXT}>
           Links stop working automatically when they expire. You can revoke any
           link anytime.
         </p>
@@ -1996,19 +2007,33 @@ function SosFlow({
 /* SHARE FLOW                                                           */
 /* =================================================================== */
 
+/**
+ * Sharing has exactly one precision: the point the device gives us.
+ *
+ * This flow used to offer "Approximate area" beside "Precise live location",
+ * echo the choice back on the review step, and then discard it —
+ * `onConfirmShare` takes no arguments, the state never left this component,
+ * and `handleShare` published the raw captured point either way. There is no
+ * coarsening anywhere in the client, so "Approximate area" shared exact
+ * coordinates. A privacy control that does nothing is worse than no control:
+ * it is relied upon.
+ *
+ * The control is gone rather than repaired because the real implementation
+ * already exists in PR #4767 — grid-snapped areas with a radius, an update
+ * interval, and a recipient-visible `location_mode` on the grant so the other
+ * side can render an area instead of a confident, wrong pin. Coarsening here
+ * without that column would only move the deception to the recipient. Restore
+ * this when that lands.
+ */
 function ShareFlow({
   vm,
   step,
   setStep,
-  locationType,
-  setLocationType,
   onClose,
 }: {
   vm: LocationHubViewModel;
   step: "person" | "details";
   setStep: (s: "person" | "details") => void;
-  locationType: LocationTypeValue;
-  setLocationType: (v: LocationTypeValue) => void;
   onClose: () => void;
 }) {
   const filtered = vm.visibleShareRecipients;
@@ -2067,14 +2092,9 @@ function ShareFlow({
                 )
               }
             />
-            <ReviewRow
-              label="Location type"
-              value={
-                locationType === "precise"
-                  ? "Precise live location"
-                  : "Approximate area"
-              }
-            />
+            {/* No "Location type" row. It read back whichever option was
+                picked, which made the review step the most convincing part of
+                a promise nothing kept — see the note above ShareFlow. */}
             <ReviewRow
               label="Duration"
               value={durationLabel(vm.shareDurationHours)}
@@ -2111,10 +2131,6 @@ function ShareFlow({
         />
         <SectionCard>
           <div className="space-y-5">
-            <LocationTypeSelector
-              value={locationType}
-              onChange={setLocationType}
-            />
             <DurationSelector
               value={vm.shareDurationHours}
               onChange={vm.setShareDurationHours}
@@ -2215,7 +2231,7 @@ function ShareFlow({
                     <span className="block truncate text-sm font-semibold text-foreground">
                       {circle.name}
                     </span>
-                    <span className="block text-xs text-muted-foreground">
+                    <span className="block text-[13px] leading-[18px] text-[#8E8E93]">
                       {selected
                         ? `${selectedReady.length} ready now`
                         : `${circle.memberCount} ${
@@ -2235,7 +2251,7 @@ function ShareFlow({
             })}
           </div>
           {vm.selectedShareCircleSelection ? (
-            <p className="mt-3 text-xs leading-5 text-muted-foreground">
+            <p className={cn(MUTED_TEXT, "mt-3")}>
               Current ready members only; future members are never added
               automatically.
               {vm.selectedShareCircleSelection.excluded.filter(
@@ -2316,7 +2332,7 @@ function ReviewRow({
 }) {
   return (
     <div className="flex items-start justify-between gap-3 border-b border-border/50 pb-3 last:border-0 last:pb-0">
-      <span className="shrink-0 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+      <span className="shrink-0 text-[15px] font-normal leading-[20px] tracking-[-0.006em] text-[#8E8E93]">
         {label}
       </span>
       <div className="min-w-0 max-w-[70%] text-right text-sm font-medium text-foreground">
@@ -2471,7 +2487,7 @@ function InviteFlow({
               <p className="text-base font-semibold text-foreground">
                 Circle invite
               </p>
-              <p className="text-xs text-muted-foreground">
+              <p className={MUTED_TEXT}>
                 {invite
                   ? vm.expiresLabel(invite.expiresAt)
                   : "Invite expires soon"}
@@ -2563,15 +2579,12 @@ function InviteFlow({
 /* TEMPORARY LINK FLOW                                                  */
 /* =================================================================== */
 
+/** Same precision story as ShareFlow — see the note there. */
 function TemporaryLinkFlow({
   vm,
-  locationType,
-  setLocationType,
   onClose,
 }: {
   vm: LocationHubViewModel;
-  locationType: LocationTypeValue;
-  setLocationType: (v: LocationTypeValue) => void;
   onClose: () => void;
 }) {
   const created =
@@ -2634,13 +2647,8 @@ function TemporaryLinkFlow({
           ]}
         />
       </SectionCard>
-      <SectionCard title="Location type">
-        <LocationTypeSelector
-          value={locationType}
-          onChange={setLocationType}
-          label=""
-        />
-      </SectionCard>
+      {/* The temporary link shares the same precise point as everything else,
+          so it offers no precision card either. */}
       <TrustNoteCard
         title="Expires automatically"
         description="Public location links are safer when they expire quickly."

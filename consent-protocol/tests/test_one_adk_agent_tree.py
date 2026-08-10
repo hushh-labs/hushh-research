@@ -974,9 +974,12 @@ class TestContractDrivenNavigationJourneys:
             },
         }
 
-        # No wired route.* action opens /one/setup/email, so One has no
-        # generated way to get there. Advertising a journey it cannot walk
-        # would strand the person mid-goal.
+        # `setup.open_email` opens /one/setup/email itself, so the only
+        # candidate escort for this destination is the action being escorted.
+        # A journey to itself is not a journey. (This used to pass for a
+        # different reason -- the resolver required a `route.` name prefix and
+        # therefore found no escort at all -- which also made every genuine
+        # setup destination look unreachable.)
         assert _navigation_journey_definition(entry, "setup.open_email") is None
         assert _is_journey_startable(entry) is False
 
@@ -1066,10 +1069,28 @@ class TestCatalogDiscovery:
 
             # Unwired: declared but not built. Listing it invents a capability.
             assert "email.chat.turn" not in listed
-            # No wired route.* action opens /one/setup, so One has no generated
-            # way to walk there; advertising it would strand the person.
-            assert "setup.open_email" not in listed
             assert len(result["results"]) <= 10
+
+    @pytest.mark.asyncio
+    async def test_a_self_navigating_action_needs_no_escort_to_be_reachable(self):
+        # This used to assert the OPPOSITE -- that `setup.open_email` must never
+        # be listed, on the grounds that no `route.*` action opens
+        # /one/setup/email so One would have no way to walk there. The premise
+        # was wrong. The action's own execution_target IS
+        # `route -> /one/setup/email`, so running it performs the navigation; it
+        # never needed an escort. It was judged unreachable only because
+        # navigation membership was decided by the `route.` NAME PREFIX rather
+        # than by what the action does, which is the same defect that refused
+        # `location.open_join_circle` on Location.
+        state = _screen_context("kai_market", ["route.kai_home"])
+
+        result = await list_app_actions("set up my email", _tool_context(state))
+        by_id = {item["action_id"]: item for item in result["results"]}
+
+        assert "setup.open_email" in by_id
+        assert by_id["setup.open_email"]["availability"] == "on_screen"
+        # Offered as something to run, not as somewhere to be taken first.
+        assert not by_id["setup.open_email"].get("open_first_action_id")
 
 
 class TestLiveContextFreshness:
@@ -1162,3 +1183,69 @@ class TestDiscoveryNamesItsTool:
                     "ask_consent_agent",
                     "ask_connected_systems_agent",
                 }
+
+
+class TestNavigationActionMembership:
+    """Which contracts may be proposed from a screen that never declared them.
+
+    Navigation is the one class admitted from anywhere -- it is how "go to
+    profile" stays reachable from a tab that has never heard of the profile.
+    Membership used to be decided by the ``route.`` NAME PREFIX alone, which is
+    only a proxy for the real property, and the proxy is wrong in both
+    directions. That broke "join a circle": Location grew past the capped
+    ``available_action_ids`` list, and every id the cap dropped was refused as
+    action_unavailable because a surface-scoped navigation was not recognised
+    as navigation.
+    """
+
+    def test_navigation_by_behaviour_not_by_name(self):
+        from hushh_mcp.services.action_gateway import (
+            get_action_gateway_action,
+            is_navigation_action,
+        )
+
+        # Navigates, but is named for the surface that owns it. This is the
+        # family the old prefix test excluded, and the observed failure.
+        for action_id in (
+            "location.open_join_circle",
+            "location.open_share",
+            "setup.open_finance",
+        ):
+            entry = get_action_gateway_action(action_id)
+            assert entry is not None, f"{action_id} missing from the gateway"
+            assert entry["execution_target"]["path"] == "route"
+            assert is_navigation_action(entry), f"{action_id} must be navigation"
+
+    def test_prefixed_navigation_survives_a_non_route_path(self):
+        from hushh_mcp.services.action_gateway import (
+            get_action_gateway_action,
+            is_navigation_action,
+        )
+
+        # The other direction: these ARE cross-screen navigation but do not run
+        # through a route target. Judging purely by path would have silently
+        # un-navigated them -- exactly the ids the reserved global-navigation
+        # segment exists to keep proposable.
+        for action_id in ("route.profile", "route.consents", "route.back"):
+            entry = get_action_gateway_action(action_id)
+            assert entry is not None, f"{action_id} missing from the gateway"
+            assert entry["execution_target"]["path"] != "route"
+            assert is_navigation_action(entry), f"{action_id} must stay navigation"
+
+    def test_screen_work_is_still_screen_work(self):
+        from hushh_mcp.services.action_gateway import (
+            get_action_gateway_action,
+            is_navigation_action,
+        )
+
+        # Widening navigation must not turn every action into a global one. A
+        # local handler only runs where it is mounted, and analysis.start is a
+        # real piece of work rather than a way to move between screens.
+        for action_id in (
+            "location.refresh",
+            "kai.setup.answer_horizon",
+            "analysis.start",
+        ):
+            entry = get_action_gateway_action(action_id)
+            assert entry is not None, f"{action_id} missing from the gateway"
+            assert not is_navigation_action(entry), f"{action_id} must not be navigation"

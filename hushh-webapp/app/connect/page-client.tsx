@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Search as SearchIcon, UserRound, Users } from "lucide-react";
@@ -14,6 +14,8 @@ import { AdvisorsNearby } from "@/components/connect/advisors-nearby";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -79,6 +81,7 @@ export default function ConnectPageClient() {
   const router = useRouter();
 
   const [tab, setTab] = useState<ConnectTab>("people");
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, 300);
 
@@ -506,6 +509,82 @@ export default function ConnectPageClient() {
     [connections],
   );
 
+  // Voice surface for Connect. Until this existed the route derived the
+  // generic "app" screen, so One knew a person was somewhere in the app and
+  // nothing more -- and Connect could not be named as a destination, which is
+  // why an empty people list elsewhere had nowhere to send anyone.
+  const connectVoiceSurfaceMetadata = useMemo(
+    () => ({
+      screenId: "connect",
+      title: "Connect",
+      purpose:
+        "This screen finds people, sends connection requests, and manages who you are connected to.",
+      // The subjects here are people, by name and email. None of that is safe
+      // to say aloud, so this screen names only itself.
+      primaryEntity: null,
+      selectedEntity: null,
+      spokenSubject: tab === "nearby" ? "Connect, Around you tab" : "Connect, People tab",
+      sections: [
+        { id: "people", title: "People", purpose: "Search everyone you could connect with, and manage existing connections." },
+        { id: "nearby", title: "Around you", purpose: "Find advisors near your current location." },
+      ],
+      actions: [
+        { id: "connect.open_people", actionId: "connect.open_people", label: "Open Connect people", purpose: "Show connections and the people directory." },
+        { id: "connect.open_nearby", actionId: "connect.open_nearby", label: "Open advisors around you", purpose: "Show advisors near you." },
+        { id: "connect.search_people", actionId: "connect.search_people", label: "Search for someone to connect with", purpose: "Put the cursor in the people search box." },
+      ],
+      // Only the search box carries a `data-voice-control-id` anchor. The tab
+      // strip is the shared SegmentedTabs, which has no per-option control id,
+      // so claiming one here would describe a hook that does not exist.
+      controls: [
+        { id: "one-connect-search", label: "Search people", purpose: "Search the directory by name.", actionId: "connect.search_people", role: "textbox" },
+      ],
+      concepts: [
+        {
+          id: "connection",
+          label: "Connection",
+          explanation:
+            "A connection is a person who has accepted your request. Connections are who you can share things with, including your location.",
+          aliases: ["connection", "connections", "connected people"],
+        },
+      ],
+      activeSection: tab === "nearby" ? "Around you" : "People",
+      activeTab: tab,
+      visibleModules:
+        tab === "nearby" ? ["Advisors near you"] : ["Your connections", "People directory"],
+      focusedWidget: tab === "nearby" ? "Around you tab" : "People tab",
+      availableActions: ["Open Connect people", "Open advisors around you", "Search for someone to connect with"],
+      activeControlId: null,
+      lastInteractedControlId: null,
+      busyOperations: loading ? ["connect_directory_load"] : [],
+      // Counts only -- never who.
+      screenMetadata: {
+        connect_tab: tab,
+        connection_count: connections.length,
+        has_load_error: Boolean(error),
+        searching: query.trim().length > 0,
+      },
+    }),
+    [connections.length, error, loading, query, tab],
+  );
+  usePublishVoiceSurfaceMetadata(connectVoiceSurfaceMetadata);
+
+  useLocalOnboardingActionHandler("connect.open_people", () => {
+    setTab("people");
+    return { status: "succeeded", summary: "Connect people opened." };
+  });
+  useLocalOnboardingActionHandler("connect.open_nearby", () => {
+    setTab("nearby");
+    return { status: "succeeded", summary: "Advisors around you opened." };
+  });
+  useLocalOnboardingActionHandler("connect.search_people", () => {
+    // Focus only. Typing the name is the person's to do -- One filling the box
+    // would be searching the directory on their behalf.
+    setTab("people");
+    searchInputRef.current?.focus();
+    return { status: "succeeded", summary: "People search focused." };
+  });
+
   return (
     <AppPageShell
       as="main"
@@ -629,11 +708,13 @@ export default function ConnectPageClient() {
                     <SearchIcon className="h-4.5 w-4.5" />
                   </span>
                   <Input
+                    ref={searchInputRef}
                     type="search"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="Search people by name"
                     aria-label="Search people"
+                    data-voice-control-id="one-connect-search"
                     className="h-10 pl-11"
                     enterKeyHint="search"
                     onKeyDown={(event) => {
@@ -681,7 +762,7 @@ export default function ConnectPageClient() {
                 */}
               </div>
               <SettingsGroup
-                title={hasQuery ? "People" : "Suggested"}
+                title="People"
                 description={
                   hasQuery
                     ? "Send a connection request to someone you know."
@@ -712,7 +793,7 @@ export default function ConnectPageClient() {
                     />
                   ) : (
                     <SettingsRow
-                      title="No one to suggest yet"
+                      title="No people yet"
                       description="Search by name to find someone on Hussh."
                       density="compact"
                       disabled

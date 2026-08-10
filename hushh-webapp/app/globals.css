@@ -244,6 +244,57 @@ textarea {
   --foundation-caption-size: 0.75rem;
   --foundation-caption-line: 1.333;
   --foundation-caption-weight: 600;
+
+  /* Apple iOS-first semantic type roles. These are the shared source of truth
+     for app UI hierarchy; components opt into roles instead of restating
+     route-specific font sizes. */
+  --type-large-page-title-size: 34px;
+  --type-large-page-title-line: 38px;
+  --type-large-page-title-weight: 700;
+  --type-large-page-title-tracking: -0.028em;
+  --type-page-title-size: 28px;
+  --type-page-title-line: 32px;
+  --type-page-title-weight: 700;
+  --type-page-title-tracking: -0.022em;
+  --type-navigation-title-size: 17px;
+  --type-navigation-title-line: 22px;
+  --type-navigation-title-weight: 600;
+  --type-navigation-title-tracking: -0.01em;
+  --type-major-section-title-size: 22px;
+  --type-major-section-title-line: 26px;
+  --type-major-section-title-weight: 600;
+  --type-major-section-title-tracking: -0.017em;
+  --type-card-title-size: 20px;
+  --type-card-title-line: 24px;
+  --type-card-title-weight: 600;
+  --type-card-title-tracking: -0.014em;
+  --type-section-label-size: 15px;
+  --type-section-label-line: 20px;
+  --type-section-label-weight: 500;
+  --type-section-label-tracking: -0.01em;
+  --type-row-label-size: 17px;
+  --type-row-label-line: 22px;
+  --type-row-label-weight: 400;
+  --type-row-label-emphasis-weight: 600;
+  --type-row-label-tracking: -0.01em;
+  --type-row-description-size: 15px;
+  --type-row-description-line: 21px;
+  --type-row-description-weight: 400;
+  --type-row-description-tracking: -0.006em;
+  --type-form-label-size: 15px;
+  --type-form-label-line: 20px;
+  --type-form-label-weight: 500;
+  --type-form-label-tracking: -0.006em;
+  --type-input-value-size: 17px;
+  --type-input-value-line: 24px;
+  --type-helper-text-size: 13px;
+  --type-helper-text-line: 18px;
+  --type-button-label-size: 17px;
+  --type-button-label-line: 22px;
+  --type-button-label-weight: 600;
+  --type-tab-label-size: 11px;
+  --type-tab-label-line: 13px;
+  --type-tab-label-weight: 500;
   --foundation-caption-tracking: 0.158em;
   --foundation-micro-size: 0.6875rem;
   --foundation-micro-line: 1.273;
@@ -293,6 +344,7 @@ textarea {
   --app-elevated-surface: #ffffff;
   --app-label: #1d1d1f;
   --app-secondary-label: #8e8e93;
+  --app-section-label: #6e6e73;
   --app-tertiary-label: #aeaeb2;
   --app-quaternary-label: #c7c7cc;
   --app-separator: rgba(60, 60, 67, 0.1);
@@ -855,6 +907,7 @@ textarea {
   --app-elevated-surface: #2c2c2e;
   --app-label: #ffffff;
   --app-secondary-label: #98989d;
+  --app-section-label: #98989d;
   --app-tertiary-label: #636366;
   --app-quaternary-label: #48484a;
   --app-separator: rgba(84, 84, 88, 0.65);
@@ -1355,14 +1408,38 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-screen [data-profile-avatar-frame="true"] {
   background: #d1d1d6 !important;
   box-shadow: none !important;
+  display: inline-flex;
   height: 96px !important;
+  justify-content: center;
   padding: 0 !important;
+  position: relative;
   width: 96px !important;
 }
 
-.profile-home-screen [data-profile-avatar-frame="true"] > span {
+.profile-home-screen [data-profile-avatar-display="true"] {
+  overflow: hidden;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease,
+    filter 180ms ease;
+}
+
+.profile-home-screen [data-profile-avatar-frame="true"][aria-busy="true"]
+  [data-profile-avatar-display="true"] {
+  filter: saturate(0.92);
+  opacity: 0.82;
+}
+
+.profile-home-screen [data-profile-avatar-camera="true"] {
   background: var(--ios-account-accent) !important;
   box-shadow: none !important;
+  color: var(--ios-account-on-accent) !important;
+  height: 26px !important;
+  width: 26px !important;
+}
+
+.profile-home-screen [data-profile-avatar-camera="true"]:active {
+  transform: scale(0.94);
 }
 
 .profile-home-screen [data-profile-avatar-frame="true"] [data-slot="avatar"],
@@ -3447,19 +3524,30 @@ html.native-ios [data-testid="one-location-onboarding"] {
      typography instead of inheriting title3 size and semibold weight. */
   [data-slot="settings-row-title"] {
     font-family: var(--font-app-body);
-    font-size: 17px !important;
-    line-height: 22px !important;
-    font-weight: 400 !important;
-    letter-spacing: 0 !important;
+    font-size: var(--type-row-label-size) !important;
+    line-height: var(--type-row-label-line) !important;
+    font-weight: var(--type-row-label-weight) !important;
+    letter-spacing: var(--type-row-label-tracking) !important;
+    color: var(--app-label) !important;
+  }
+
+  [data-slot="settings-row-description"] {
+    font-family: var(--font-app-body);
+    font-size: var(--type-row-description-size) !important;
+    line-height: var(--type-row-description-line) !important;
+    font-weight: var(--type-row-description-weight) !important;
+    letter-spacing: var(--type-row-description-tracking) !important;
+    color: var(--app-secondary-label) !important;
   }
 
   [data-slot="settings-group-heading"] {
     font-family: var(--font-app-body);
-    color: #6e6e73 !important;
-    font-size: 15px !important;
-    line-height: 20px !important;
-    font-weight: 500 !important;
-    letter-spacing: -0.01em !important;
+    color: var(--app-section-label) !important;
+    font-size: var(--type-section-label-size) !important;
+    line-height: var(--type-section-label-line) !important;
+    font-weight: var(--type-section-label-weight) !important;
+    letter-spacing: var(--type-section-label-tracking) !important;
+    opacity: 1 !important;
     text-transform: none !important;
   }
 
@@ -3543,17 +3631,20 @@ html.native-ios [data-testid="one-location-onboarding"] {
    */
   .app-page-shell
     [data-slot="section-header-title"][role="heading"][aria-level="2"] {
-    font-family: var(--font-app-text);
-    font-size: 0.8125rem !important;
-    line-height: 1.2 !important;
-    font-weight: 500 !important;
-    letter-spacing: 0 !important;
+    font-family: var(--font-app-display);
+    font-size: var(--type-card-title-size) !important;
+    line-height: var(--type-card-title-line) !important;
+    font-weight: var(--type-card-title-weight) !important;
+    letter-spacing: var(--type-card-title-tracking) !important;
+    color: var(--app-label) !important;
+    opacity: 1 !important;
+    text-transform: none !important;
   }
 
   @media (min-width: 640px) {
     .app-page-shell
       [data-slot="section-header-title"][role="heading"][aria-level="2"] {
-      font-size: 0.875rem !important;
+      font-size: var(--type-card-title-size) !important;
     }
   }
 
@@ -5413,4 +5504,211 @@ body[data-persona-surface="ria"] {
   --ria-onboarding-cta-bottom-clearance: calc(
     var(--bottom-chrome-stack-height, var(--app-screen-footer-pad)) + 112px
   );
+}
+
+/* Semantic typography guardrail.
+   Kept at the end so role classes beat older h1/h2 and data-slot fallbacks. */
+:is(.ui-text-large-page-title) {
+  color: var(--app-label) !important;
+  font-family: var(--font-app-display) !important;
+  font-size: var(--type-large-page-title-size) !important;
+  font-weight: var(--type-large-page-title-weight) !important;
+  letter-spacing: var(--type-large-page-title-tracking) !important;
+  line-height: var(--type-large-page-title-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-page-title) {
+  color: var(--app-label) !important;
+  font-family: var(--font-app-display) !important;
+  font-size: var(--type-page-title-size) !important;
+  font-weight: var(--type-page-title-weight) !important;
+  letter-spacing: var(--type-page-title-tracking) !important;
+  line-height: var(--type-page-title-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-navigation-title) {
+  color: var(--app-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-navigation-title-size) !important;
+  font-weight: var(--type-navigation-title-weight) !important;
+  letter-spacing: var(--type-navigation-title-tracking) !important;
+  line-height: var(--type-navigation-title-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-identity-name) {
+  color: var(--app-label) !important;
+  font-family: var(--font-app-display) !important;
+  font-size: clamp(28px, 7.8vw, 34px) !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.028em !important;
+  line-height: 1.12 !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-page-subtitle) {
+  color: var(--app-secondary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: 15px !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.006em !important;
+  line-height: 21px !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-major-section-title) {
+  color: var(--app-label) !important;
+  font-family: var(--font-app-display) !important;
+  font-size: var(--type-major-section-title-size) !important;
+  font-weight: var(--type-major-section-title-weight) !important;
+  letter-spacing: var(--type-major-section-title-tracking) !important;
+  line-height: var(--type-major-section-title-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-card-title) {
+  color: var(--app-label) !important;
+  font-family: var(--font-app-display) !important;
+  font-size: var(--type-card-title-size) !important;
+  font-weight: var(--type-card-title-weight) !important;
+  letter-spacing: var(--type-card-title-tracking) !important;
+  line-height: var(--type-card-title-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-section-label) {
+  color: var(--app-section-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-section-label-size) !important;
+  font-weight: var(--type-section-label-weight) !important;
+  letter-spacing: var(--type-section-label-tracking) !important;
+  line-height: var(--type-section-label-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-row-label, .ui-text-row-label-emphasized) {
+  color: var(--app-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-row-label-size) !important;
+  letter-spacing: var(--type-row-label-tracking) !important;
+  line-height: var(--type-row-label-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-row-label) {
+  font-weight: var(--type-row-label-weight) !important;
+}
+
+:is(.ui-text-row-label-emphasized) {
+  font-weight: var(--type-row-label-emphasis-weight) !important;
+}
+
+:is(.ui-text-row-description, .ui-text-trailing-value) {
+  color: var(--app-secondary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-row-description-size) !important;
+  font-weight: var(--type-row-description-weight) !important;
+  letter-spacing: var(--type-row-description-tracking) !important;
+  line-height: var(--type-row-description-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-trailing-action) {
+  color: var(--app-accent) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: 15px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.006em !important;
+  line-height: 21px !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-form-label) {
+  color: var(--app-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-form-label-size) !important;
+  font-weight: var(--type-form-label-weight) !important;
+  letter-spacing: var(--type-form-label-tracking) !important;
+  line-height: var(--type-form-label-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-input-value) {
+  color: var(--app-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-input-value-size) !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.008em !important;
+  line-height: var(--type-input-value-line) !important;
+  opacity: 1 !important;
+}
+
+:is(.ui-text-helper-text) {
+  color: var(--app-secondary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-helper-text-size) !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.003em !important;
+  line-height: var(--type-helper-text-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-status) {
+  font-family: var(--font-app-body) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.006em !important;
+  line-height: 18px !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-button-label) {
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-button-label-size) !important;
+  font-weight: var(--type-button-label-weight) !important;
+  letter-spacing: -0.01em !important;
+  line-height: var(--type-button-label-line) !important;
+  opacity: 1 !important;
+}
+
+:is(.ui-text-tab-label) {
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-tab-label-size) !important;
+  font-weight: var(--type-tab-label-weight) !important;
+  letter-spacing: 0 !important;
+  line-height: var(--type-tab-label-line) !important;
+  opacity: 1 !important;
+}
+
+:is(.ui-text-caption, .ui-text-legal) {
+  color: var(--app-secondary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+  line-height: 16px !important;
+  opacity: 1 !important;
+}
+
+[data-testid="settings-row"][data-tone="destructive"]
+  [data-slot="settings-row-title"].ui-text-row-label,
+[data-testid="settings-row"][data-tone="destructive"]
+  [data-slot="settings-row-title"] {
+  color: var(--app-destructive) !important;
 }
