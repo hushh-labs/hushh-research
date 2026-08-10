@@ -728,9 +728,20 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   );
   const breadcrumbTrailItems = useMemo(() => {
     const raw = topShellBreadcrumb?.items ?? [];
+    // Defensively drop any crumb whose label is empty/whitespace before the
+    // trail renders. A resolver that spreads a conditional segment
+    // (`...(x ? [{label}] : [])`) can only ever yield real labels today, but
+    // guarding here means a future empty/undefined segment can never surface as
+    // a stray separator pair (the "Finance > , > > preview" artifact) in the
+    // shared chevron trail.
+    const cleaned = raw.filter(
+      (item) => typeof item.label === "string" && item.label.trim().length > 0,
+    );
     // Inner/"subagent" routes read as "Kai > Analysis", not
     // "One > Kai > Analysis": drop the app-root crumb from the visible trail.
-    return raw.length > 0 && raw[0]?.label === "One" ? raw.slice(1) : raw;
+    return cleaned.length > 0 && cleaned[0]?.label === "One"
+      ? cleaned.slice(1)
+      : cleaned;
   }, [topShellBreadcrumb]);
   const hasBreadcrumbTrail = !centerTitle && breadcrumbTrailItems.length > 0;
   const canShowPersonaSwitcher = useMemo(
