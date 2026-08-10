@@ -118,7 +118,7 @@ function ContactRow({
           type="button"
           onClick={onAdd}
           disabled={busy || !ready}
-          className="press-scale flex h-8 min-w-[58px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:bg-black/10 disabled:text-black/35"
+          className="press-scale flex h-8 min-w-[58px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:text-muted-foreground"
         >
           {busy ? (
             <Loader2 className="h-4 w-4 animate-spin" />
