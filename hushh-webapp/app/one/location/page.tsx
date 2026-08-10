@@ -372,6 +372,23 @@ const LOCATION_FLOW_LABELS: Readonly<Record<string, string>> = {
  * a capability the gateway does not carry.
  */
 const LOCATION_VOICE_ACTIONS = [
+  // Local handlers FIRST, and the order is load-bearing.
+  //
+  // Every action on this surface names `one_location`, so they all tie for
+  // top rank in `prioritizeAvailableActionIds` and the 10-item cap falls back
+  // to the order they appear here. Route actions survive being cut regardless
+  // -- the relay admits navigation from any screen whether or not it was
+  // submitted -- but a dropped local handler is simply gone, and comes back
+  // from the relay as `action_unavailable`, which reads as a broken feature.
+  //
+  // With 24 actions and 10 slots, listing these last meant the only actions
+  // that DO something were the only ones guaranteed to be lost.
+  { id: "location.share_selected", actionId: "location.share_selected", label: "Share with the people I picked", purpose: "Start the share with whoever is already selected, for a duration you say." },
+  { id: "location.select_share_recipient", actionId: "location.select_share_recipient", label: "Pick someone for the share", purpose: "Select a named connection in the share composer without sending anything." },
+  { id: "location.pause_updates", actionId: "location.pause_updates", label: "Pause my location", purpose: "Stop sending location updates from this device." },
+  { id: "location.resume_updates", actionId: "location.resume_updates", label: "Resume my location", purpose: "Turn location updates back on for this device." },
+  { id: "location.refresh", actionId: "location.refresh", label: "Refresh location", purpose: "Reload location sharing state." },
+
   { id: "location.open_now", actionId: "location.open_now", label: "Open Location now", purpose: "Show current sharing status and quick actions." },
   { id: "location.open_people", actionId: "location.open_people", label: "Open Location people", purpose: "Show the people and circles you share with." },
   { id: "location.open_links", actionId: "location.open_links", label: "Open Location links", purpose: "Show temporary sharing links." },
@@ -390,11 +407,6 @@ const LOCATION_VOICE_ACTIONS = [
   { id: "location.open_needs_review", actionId: "location.open_needs_review", label: "Open location requests to review", purpose: "Approve or decline requests." },
   { id: "location.add_connections", actionId: "location.add_connections", label: "Add people to share location with", purpose: "Open Connect to find people." },
   { id: "location.open_map", actionId: "location.open_map", label: "Open the location map", purpose: "Open the full-screen map." },
-  { id: "location.refresh", actionId: "location.refresh", label: "Refresh location", purpose: "Reload location sharing state." },
-  { id: "location.pause_updates", actionId: "location.pause_updates", label: "Pause my location", purpose: "Stop sending location updates from this device." },
-  { id: "location.resume_updates", actionId: "location.resume_updates", label: "Resume my location", purpose: "Turn location updates back on for this device." },
-  { id: "location.share_selected", actionId: "location.share_selected", label: "Share with the people I picked", purpose: "Start the share with whoever is already selected, for a duration you say." },
-  { id: "location.select_share_recipient", actionId: "location.select_share_recipient", label: "Pick someone for the share", purpose: "Select a named connection in the share composer without sending anything." },
 ];
 
 const LOCATION_VOICE_CONTROLS = [
@@ -6610,22 +6622,39 @@ export function OneLocationAgentPageContent({
     // lets One finish the sentence and offer to open Connect.
     const hasSomeoneToShareWith =
       shareRecipientPool.length > 0 || namedCircles.length > 0;
-    const deadEnd =
-      hasSomeoneToShareWith || !openFlow
-        ? null
-        : openFlow === "sms-contacts"
-          ? {
-              reason:
-                "There is no one to add as an emergency contact yet: contacts come from your connections and circles, and this account has neither.",
-              remedyActionId: "location.add_connections",
-            }
-          : openFlow === "share"
-            ? {
-                reason:
-                  "There is no one to share location with yet: sharing needs a connection or a circle member, and this account has neither.",
-                remedyActionId: "location.add_connections",
-              }
-            : null;
+    const deadEnd = (() => {
+      if (!openFlow) return null;
+      if (!hasSomeoneToShareWith) {
+        if (openFlow === "sms-contacts") {
+          return {
+            reason:
+              "There is no one to add as an emergency contact yet: contacts come from your connections and circles, and this account has neither.",
+            remedyActionId: "location.add_connections",
+          };
+        }
+        if (openFlow === "share") {
+          return {
+            reason:
+              "There is no one to share location with yet: sharing needs a connection or a circle member, and this account has neither.",
+            remedyActionId: "location.add_connections",
+          };
+        }
+        return null;
+      }
+      // There ARE people to share with, but none are picked. Saying "share my
+      // location" here refuses -- deliberately, because the recipient is never
+      // a voice slot -- and without this the person just hears no twice and is
+      // told nothing about which half is missing. Naming the remedy turns the
+      // refusal into the next step.
+      if (openFlow === "share" && shareReadySelectedRecipients.length === 0) {
+        return {
+          reason:
+            "Nobody is picked for this share yet, so starting it will refuse. The share needs a person chosen before it can run.",
+          remedyActionId: "location.select_share_recipient",
+        };
+      }
+      return null;
+    })();
     return {
       screenId: "one_location",
       title: "Location",
@@ -6698,6 +6727,9 @@ export function OneLocationAgentPageContent({
     permission?.state,
     searchParams,
     shareRecipientPool.length,
+    // Picking someone clears the dead end, so the metadata has to be rebuilt
+    // when the selection changes -- not only when the pool does.
+    shareReadySelectedRecipients.length,
   ]);
   usePublishVoiceSurfaceMetadata(locationVoiceSurfaceMetadata);
 

@@ -470,10 +470,25 @@ function prioritizeAvailableActionIds(
           actionId,
         );
       }
-      return 2;
+      return 3;
     }
-    if (screen && action.reachability.screens.includes(screen)) return 0;
-    return 1;
+    if (screen && action.reachability.screens.includes(screen)) {
+      // Among the actions this screen owns, the ones that cannot be reached
+      // any other way come first.
+      //
+      // A route action that loses its slot is still reachable: the relay
+      // admits navigation from any screen whether or not it was submitted
+      // here. A local handler that loses its slot is simply gone, and comes
+      // back from the relay as `action_unavailable` -- which reads as a
+      // broken feature rather than as a full context array.
+      //
+      // Without this, a surface with more actions than the cap drops
+      // whichever happen to be declared last. On Location that was every
+      // action that DOES something, while nineteen ways to open a tab kept
+      // their slots.
+      return action.execution_target.path === "route" ? 1 : 0;
+    }
+    return 2;
   };
   const ranked = deduped
     .map((actionId, index) => ({ actionId, index, rank: rankOf(actionId) }))
