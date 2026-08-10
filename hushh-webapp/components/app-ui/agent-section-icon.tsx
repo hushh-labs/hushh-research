@@ -59,6 +59,14 @@ const ICON_SIZE_CLASS = {
     image: "h-full w-full object-contain",
     pixels: 40,
   },
+  roster: {
+    surface: "h-10 w-10",
+    lucideSurface: "h-10 w-10 rounded-[10px]",
+    imageSurface: "rounded-[10px]",
+    lucide: "h-5 w-5",
+    image: "h-full w-full object-contain",
+    pixels: 40,
+  },
 } as const;
 
 const PROFILE_ICON_RADIUS_CLASS: Record<AgentSectionIconSize, string> = {
@@ -66,6 +74,7 @@ const PROFILE_ICON_RADIUS_CLASS: Record<AgentSectionIconSize, string> = {
   launcher: "rounded-[17px] sm:rounded-[20px]",
   topbar: "rounded-[10px]",
   menu: "rounded-[11px]",
+  roster: "rounded-[10px]",
 };
 
 type AgentSectionIconSize = keyof typeof ICON_SIZE_CLASS;
