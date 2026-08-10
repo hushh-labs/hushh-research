@@ -787,8 +787,19 @@ async def start_app_goal(
         return await run_app_action(clean_id, slots, tool_context)
     goal_id = navigation_journey["goal_id"]
     destination_screen = navigation_journey["destination_screen"]
+    # Every early return below refuses the journey before a single directive
+    # exists, so the relay log stayed completely silent on them. "One never
+    # tried" and "One tried and the app turned it away" then looked identical
+    # -- both an empty log -- which is not a distinction that can be guessed
+    # from the person's side of a voice session.
     missing = _missing_required_slot(entry or {}, slots or {})
     if missing is not None:
+        logger.info(
+            "one_adk_goal_decision goal=%s action=%s status=input_needed slot=%s",
+            goal_id,
+            clean_id,
+            missing["slot"],
+        )
         return {
             "status": "input_needed",
             "missing_slot": missing["slot"],
@@ -797,11 +808,15 @@ async def start_app_goal(
     journey_slots = _journey_slots(entry or {}, slots or {})
     context = _voice_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
+        logger.info(
+            "one_adk_goal_decision goal=%s action=%s status=context_not_ready", goal_id, clean_id
+        )
         return {
             "status": "context_not_ready",
             "message": "The app is still publishing its screen state. Please try again in a moment.",
         }
     if context.get("pending_settlement") is True:
+        logger.info("one_adk_goal_decision goal=%s action=%s status=settling", goal_id, clean_id)
         return {
             "status": "settling",
             "message": "The previous action is still settling. Wait for the fresh screen state.",
