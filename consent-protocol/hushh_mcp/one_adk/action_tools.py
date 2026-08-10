@@ -481,7 +481,7 @@ def _journey_slots(entry: dict[str, Any], slots: dict[str, Any]) -> dict[str, An
 
 
 def _navigation_action_for_route(route: str) -> str | None:
-    """The wired ``route.*`` action that opens ``route``, if one exists.
+    """The wired action that opens ``route``, if one exists.
 
     A navigate-then-execute journey is only real when One actually has a
     generated way to reach the destination. Resolving it from the gateway --
@@ -495,8 +495,12 @@ def _navigation_action_for_route(route: str) -> str | None:
     candidates: list[str] = []
     for candidate in list_action_gateway_actions():
         action_id = str(candidate.get("action_id") or "").strip()
-        if not action_id.startswith("route."):
+        if not action_id:
             continue
+        # Any action that navigates to this route can walk someone there,
+        # whatever it is named. Requiring the ``route.`` prefix made whole
+        # destinations look unreachable: /one/setup/finance is opened only by
+        # ``setup.open_finance``, and /one/connect only by ``route.one_connect``.
         target = candidate.get("execution_target") or {}
         if target.get("path") != "route" or target.get("status") != "wired":
             continue
@@ -524,6 +528,19 @@ def _navigation_journey_definition(
         # Navigation actions already ARE the navigation. Wrapping one in a
         # journey would make it navigate to itself.
         return None
+    execution_target = entry.get("execution_target")
+    if (
+        isinstance(execution_target, dict)
+        and execution_target.get("status") == "wired"
+        and execution_target.get("path") == "route"
+    ):
+        # The name prefix above was only ever a proxy for this: an action that
+        # executes BY navigating is its own navigation, whatever it is called.
+        # The Location surface authors its tabs and flows as ``location.*``
+        # route actions, and without this check the one whose target matches a
+        # wired ``route.*`` action exactly becomes a journey to where it
+        # already goes.
+        return None
     goal = entry.get("goal")
     if not isinstance(goal, dict):
         return None
@@ -544,7 +561,10 @@ def _navigation_journey_definition(
     if not route or not screen:
         return None
     navigation_action_id = _navigation_action_for_route(route)
-    if not navigation_action_id:
+    if not navigation_action_id or navigation_action_id == action_id:
+        # Nothing can escort itself. Once the resolver stopped requiring a
+        # `route.` name prefix it began finding surface-named navigations like
+        # `setup.open_email` -- including, for that action, itself.
         return None
     return {
         "goal_id": goal_id,

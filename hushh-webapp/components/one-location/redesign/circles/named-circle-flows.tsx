@@ -330,6 +330,7 @@ export function CirclesSection({
         <Button
           type="button"
           onClick={onCreate}
+          data-voice-control-id="one-location-action-create-circle"
           className="h-11 rounded-full font-semibold"
         >
           <Plus className="mr-2 h-4 w-4" />
@@ -339,6 +340,7 @@ export function CirclesSection({
           type="button"
           variant="outline"
           onClick={onJoin}
+          data-voice-control-id="one-location-action-join-circle"
           className="h-11 rounded-full font-semibold"
         >
           <KeyRound className="mr-2 h-4 w-4" />

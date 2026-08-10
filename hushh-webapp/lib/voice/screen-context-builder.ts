@@ -100,6 +100,8 @@ export type StructuredScreenContext = {
     selected_entity?: string | null;
     /** Opt-in, safe-to-speak subject of the screen (e.g. a ticker). */
     spoken_subject?: string | null;
+    /** Present only while the screen cannot proceed without leaving it. */
+    dead_end?: { reason: string; remedy_action_id: string } | null;
     active_tab?: string | null;
     modal_state?: string | null;
     focused_widget?: string | null;
@@ -226,6 +228,8 @@ export type OneVoiceContextSnapshot = {
     selected_entity_present: boolean;
     /** Opt-in and speakable; selected_entity itself stays redacted. */
     spoken_subject?: string | null;
+    /** Present only while the screen cannot proceed without leaving it. */
+    dead_end?: { reason: string; remedy_action_id: string } | null;
     modal_state?: string | null;
     focused_widget?: string | null;
     interaction_layer?: StructuredVoiceInteractionLayer | null;
@@ -479,13 +483,21 @@ function prioritizeAvailableActionIds(
     ranked.length > STRUCTURED_CONTEXT_ARRAY_CAP &&
     process.env.NODE_ENV !== "production"
   ) {
-    console.debug(
-      "[VOICE_CONTEXT] available_action_ids overflow: keeping",
-      STRUCTURED_CONTEXT_ARRAY_CAP,
-      "of",
-      ranked.length,
-      "for screen",
-      screen,
+    // Loud, and it names what was lost. This was a console.debug, and the
+    // truncation it describes is invisible in the product: a dropped id comes
+    // back from the relay as `action_unavailable`, which reads as "this
+    // feature is broken" rather than "this screen declared more than the
+    // context can carry". Location growing to 19 actions is what found it.
+    //
+    // Route-executing actions survive the cut in practice, because the relay
+    // admits navigation from any screen whether or not it was submitted here.
+    // So the ids that genuinely go missing are the local handlers, which is
+    // what naming them makes obvious.
+    const dropped = ranked.slice(STRUCTURED_CONTEXT_ARRAY_CAP);
+    console.warn(
+      `[VOICE_CONTEXT] ${screen || "unknown screen"} declared ${ranked.length} ` +
+        `action ids but only ${STRUCTURED_CONTEXT_ARRAY_CAP} fit. ` +
+        `Dropped: ${dropped.join(", ")}`,
     );
   }
   // Screen-ranked segment first (original cap), then the reserved global
@@ -748,6 +760,17 @@ export function buildStructuredScreenContext(args: {
       // Opt-in and safe to say aloud, unlike selected_entity/primary_entity
       // which several surfaces fill with an investor name or email.
       spoken_subject: publishedSurface?.spokenSubject || null,
+      // Normalized here rather than trusted as published: a half-filled dead
+      // end (a reason with no remedy, or the reverse) would tell One something
+      // is wrong while giving it nowhere to send the person.
+      dead_end:
+        publishedSurface?.deadEnd?.reason &&
+        publishedSurface?.deadEnd?.remedyActionId
+          ? {
+              reason: publishedSurface.deadEnd.reason,
+              remedy_action_id: publishedSurface.deadEnd.remedyActionId,
+            }
+          : null,
       active_tab: activeTab,
       modal_state:
         publishedSurface?.modalState ||
@@ -927,6 +950,10 @@ export function buildOneVoiceContextSnapshot(args: {
     // screen to a person, and presence-only left the revision unchanged so
     // nothing republished and One kept describing the previous stock.
     structured.ui.spoken_subject ?? null,
+    // A dead end appearing or clearing changes what One should say next, so it
+    // has to move the revision or the guidance would arrive a screen late.
+    structured.ui.dead_end?.remedy_action_id ?? null,
+    structured.ui.dead_end?.reason ?? null,
     structured.ui.modal_state ?? null,
     structured.ui.focused_widget ?? null,
     availableActionIds,
@@ -991,6 +1018,7 @@ export function buildOneVoiceContextSnapshot(args: {
       active_tab: structured.ui.active_tab ?? null,
       selected_entity_present: Boolean(structured.ui.selected_entity),
       spoken_subject: structured.ui.spoken_subject ?? null,
+      dead_end: structured.ui.dead_end ?? null,
       modal_state: structured.ui.modal_state ?? null,
       focused_widget: structured.ui.focused_widget ?? null,
       interaction_layer: activeInteractionLayer,
