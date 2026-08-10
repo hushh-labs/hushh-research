@@ -19,6 +19,26 @@ export type {
   VoiceSurfaceSectionDefinition,
 } from "@/lib/voice/voice-types";
 
+/**
+ * A screen reporting that it currently cannot do the thing it exists to do,
+ * together with the action that fixes it.
+ *
+ * The emergency-contacts screen is the case this was built for: it says "no
+ * connections" and stops there, when what the person needs to know is that
+ * connections are made in Connect. A screen in that state is not broken and
+ * not blocked by a guard -- it is simply waiting on something that lives
+ * somewhere else -- so nothing in the action gateway could express it.
+ *
+ * `reason` is spoken aloud, so it must be safe to say and must describe the
+ * situation rather than name any person. `remedyActionId` is a generated
+ * gateway id: the trust boundary drops the whole dead end if the id is not one
+ * this route is allowed to run, so a screen cannot invent a destination.
+ */
+export type VoiceSurfaceDeadEnd = {
+  reason: string;
+  remedyActionId: string;
+};
+
 export type VoiceSurfaceMetadata = {
   /** Route publisher lease that owns this composed inventory. */
   publisherRouteKey?: string | null;
@@ -36,6 +56,8 @@ export type VoiceSurfaceMetadata = {
    * subject when naming it is harmless -- a ticker, a document title.
    */
   spokenSubject?: string | null;
+  /** Set only while the screen is genuinely stuck; see the type's own note. */
+  deadEnd?: VoiceSurfaceDeadEnd | null;
   sections?: VoiceSurfaceSectionDefinition[];
   actions?: VoiceSurfaceActionDefinition[];
   controls?: VoiceSurfaceControlDefinition[];
@@ -470,6 +492,18 @@ function normalizeSurfaceMetadata(
     controls: surfaceDefinition?.controls || [],
     concepts: surfaceDefinition?.concepts || [],
     spokenSubject: cleanString(metadata.spokenSubject),
+    // Both halves or neither: a reason with no remedy names a problem and
+    // leaves One to guess the way out, which is the guessing this removes.
+    deadEnd:
+      cleanString(metadata.deadEnd?.reason) &&
+      cleanString(metadata.deadEnd?.remedyActionId)
+        ? {
+            reason: cleanString(metadata.deadEnd?.reason) as string,
+            remedyActionId: cleanString(
+              metadata.deadEnd?.remedyActionId,
+            ) as string,
+          }
+        : null,
     activeSection: cleanString(metadata.activeSection),
     activeTab: cleanString(metadata.activeTab),
     visibleModules: uniqueStrings(metadata.visibleModules),
@@ -565,6 +599,9 @@ function mergeVoiceSurfaceMetadata(
     ...base,
     ...effectiveOverlay,
     spokenSubject: effectiveOverlay.spokenSubject || base.spokenSubject,
+    // An overlay that is itself stuck speaks for the screen; otherwise the
+    // route's own dead end survives being covered by a panel that has none.
+    deadEnd: effectiveOverlay.deadEnd || base.deadEnd,
     surfaceDefinition,
     visibleModules: uniqueStrings(
       overlayFirst

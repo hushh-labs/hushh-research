@@ -100,6 +100,8 @@ export type StructuredScreenContext = {
     selected_entity?: string | null;
     /** Opt-in, safe-to-speak subject of the screen (e.g. a ticker). */
     spoken_subject?: string | null;
+    /** Present only while the screen cannot proceed without leaving it. */
+    dead_end?: { reason: string; remedy_action_id: string } | null;
     active_tab?: string | null;
     modal_state?: string | null;
     focused_widget?: string | null;
@@ -226,6 +228,8 @@ export type OneVoiceContextSnapshot = {
     selected_entity_present: boolean;
     /** Opt-in and speakable; selected_entity itself stays redacted. */
     spoken_subject?: string | null;
+    /** Present only while the screen cannot proceed without leaving it. */
+    dead_end?: { reason: string; remedy_action_id: string } | null;
     modal_state?: string | null;
     focused_widget?: string | null;
     interaction_layer?: StructuredVoiceInteractionLayer | null;
@@ -748,6 +752,17 @@ export function buildStructuredScreenContext(args: {
       // Opt-in and safe to say aloud, unlike selected_entity/primary_entity
       // which several surfaces fill with an investor name or email.
       spoken_subject: publishedSurface?.spokenSubject || null,
+      // Normalized here rather than trusted as published: a half-filled dead
+      // end (a reason with no remedy, or the reverse) would tell One something
+      // is wrong while giving it nowhere to send the person.
+      dead_end:
+        publishedSurface?.deadEnd?.reason &&
+        publishedSurface?.deadEnd?.remedyActionId
+          ? {
+              reason: publishedSurface.deadEnd.reason,
+              remedy_action_id: publishedSurface.deadEnd.remedyActionId,
+            }
+          : null,
       active_tab: activeTab,
       modal_state:
         publishedSurface?.modalState ||
@@ -927,6 +942,10 @@ export function buildOneVoiceContextSnapshot(args: {
     // screen to a person, and presence-only left the revision unchanged so
     // nothing republished and One kept describing the previous stock.
     structured.ui.spoken_subject ?? null,
+    // A dead end appearing or clearing changes what One should say next, so it
+    // has to move the revision or the guidance would arrive a screen late.
+    structured.ui.dead_end?.remedy_action_id ?? null,
+    structured.ui.dead_end?.reason ?? null,
     structured.ui.modal_state ?? null,
     structured.ui.focused_widget ?? null,
     availableActionIds,
@@ -991,6 +1010,7 @@ export function buildOneVoiceContextSnapshot(args: {
       active_tab: structured.ui.active_tab ?? null,
       selected_entity_present: Boolean(structured.ui.selected_entity),
       spoken_subject: structured.ui.spoken_subject ?? null,
+      dead_end: structured.ui.dead_end ?? null,
       modal_state: structured.ui.modal_state ?? null,
       focused_widget: structured.ui.focused_widget ?? null,
       interaction_layer: activeInteractionLayer,
