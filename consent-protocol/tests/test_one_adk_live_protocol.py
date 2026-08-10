@@ -581,3 +581,36 @@ def test_the_continuation_note_names_no_screen_and_forbids_answering_early():
     assert "do not ask a question" in _GOAL_CONTINUATION_NOTE
     for surface_specific in ("analysis", "debate", "location", "preview"):
         assert surface_specific not in _GOAL_CONTINUATION_NOTE.lower()
+
+
+def test_the_greeting_hold_is_owed_once_not_once_per_rearm():
+    # The cue is armed twice: a generic one when the socket opens, then a
+    # screen-aware one when the first app context lands. Re-arming used to
+    # restart the wait, so the person paid it again for the context arriving --
+    # on top of however long the browser took to publish it, which on a busy
+    # dashboard is seconds. The hold guards against talking over someone who
+    # opened the mic already speaking; that is owed once per session.
+    gate = _InitialGreetingGate(idle_seconds=1.5)
+
+    assert gate.hold_seconds(100.0) == pytest.approx(1.5)
+    # 0.4s later the context arrives and the cue is re-armed with the screen.
+    assert gate.hold_seconds(100.4) == pytest.approx(1.1)
+
+
+def test_a_late_first_context_greets_immediately_rather_than_waiting_again():
+    gate = _InitialGreetingGate(idle_seconds=1.5)
+    gate.hold_seconds(100.0)
+
+    # The browser took 9 seconds to publish its first context. The hold is long
+    # spent; nothing is owed, so the screen-aware cue goes out now.
+    assert gate.hold_seconds(109.0) == 0.0
+
+
+def test_the_hold_never_resurrects_a_cue_that_speech_already_cancelled():
+    # hold_seconds answers "how long", never "whether" -- schedule() owns that,
+    # and visitor speech must keep beating the cue outright.
+    gate = _InitialGreetingGate(idle_seconds=1.5)
+    gate.hold_seconds(100.0)
+    gate.cancel_for_visitor_activity()
+
+    assert gate.schedule() is None

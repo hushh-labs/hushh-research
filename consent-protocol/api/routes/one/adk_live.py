@@ -288,10 +288,26 @@ class _InitialGreetingGate:
     cancellation races with its timer.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, idle_seconds: float = _INITIAL_GREETING_IDLE_SECONDS) -> None:
         self._epoch = 0
         self._visitor_activity_seen = False
         self._greeting_sent = False
+        self._idle_seconds = idle_seconds
+        self._deadline: float | None = None
+
+    def hold_seconds(self, now: float) -> float:
+        """Seconds still owed before this session's cue may go out.
+
+        The hold is a guard against One talking over someone who opened the
+        mic already speaking, so it is owed ONCE per session. Re-arming the
+        cue to upgrade its wording once the screen is known must not restart
+        it: that charged the person a second full wait for the app context
+        arriving, on top of however long the browser took to send it. Past the
+        deadline this returns 0 and the cue goes out immediately.
+        """
+        if self._deadline is None:
+            self._deadline = now + self._idle_seconds
+        return max(0.0, self._deadline - now)
 
     def schedule(self) -> int | None:
         if self._visitor_activity_seen or self._greeting_sent:
@@ -481,6 +497,16 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     # now cancels the cue before it reaches the model.
     greeting_gate = _InitialGreetingGate()
     greeting_task: Optional[asyncio.Task[None]] = None
+    # One deadline for the whole session, set when the cue is first armed. The
+    # idle wait exists so visitor speech owns the first turn -- it is a hold
+    # against talking over someone, so it is owed ONCE. Re-arming the cue to
+    # upgrade its wording used to restart it, which charged the person a second
+    # full wait for the app context arriving, on top of however long that took.
+    # Nothing measured how long the person actually waits, so "the greeting is
+    # slow" could not be attributed: the relay's own hold, the browser taking
+    # its time to publish the first context, and the model's first token are
+    # three different problems with one symptom.
+    session_started_at = time.monotonic()
 
     def _compose_greeting_prompt(screen: str, playbook: dict[str, Any] | None) -> str:
         entry_cue = _bounded_text(playbook.get("entry_cue"), 240) if playbook else ""
@@ -519,6 +545,11 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     def _send_greeting(screen: str, playbook: dict[str, Any] | None, epoch: int) -> None:
         if not greeting_gate.mark_sent(epoch):
             return
+        logger.info(
+            "one_adk_live_greeting_queued screen=%s elapsed_ms=%s",
+            screen or "none",
+            round((time.monotonic() - session_started_at) * 1000),
+        )
         queue.send_content(
             genai_types.Content(
                 role="user",
@@ -537,10 +568,12 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         epoch = greeting_gate.schedule()
         if epoch is None:
             return
+        remaining = greeting_gate.hold_seconds(time.monotonic())
 
         async def _send_after_idle() -> None:
             try:
-                await asyncio.sleep(_INITIAL_GREETING_IDLE_SECONDS)
+                if remaining > 0:
+                    await asyncio.sleep(remaining)
             except asyncio.CancelledError:
                 return
             _send_greeting(screen, playbook, epoch)
@@ -721,6 +754,11 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 clean_screen = canonical_screen if isinstance(canonical_screen, str) else ""
                 is_first = not first_app_context_seen
                 if is_first:
+                    logger.info(
+                        "one_adk_live_first_context screen=%s elapsed_ms=%s",
+                        clean_screen or "none",
+                        round((time.monotonic() - session_started_at) * 1000),
+                    )
                     # The first context establishes the entry screen. Keep the
                     # cue idle-only so visitor speech always owns the first
                     # actionable turn.
