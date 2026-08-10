@@ -379,8 +379,15 @@ function AgentMetricDisplay({
     <span
       data-testid={isTopWinner ? "one-finance-top-winner-kpi" : undefined}
       className={cn(
-        "inline-flex min-w-0 items-baseline gap-1 whitespace-nowrap leading-tight",
-        compact ? "justify-center" : "justify-end",
+        "inline-flex min-w-0 items-baseline gap-1 leading-tight",
+        // Grid tiles are a 3-column layout on narrow iOS viewports, where a
+        // multi-word metric like "0 requests to review" cannot fit on one line.
+        // Allow it to wrap and center within the cell instead of overflowing
+        // (the old whitespace-nowrap + truncate clipped it past the left edge).
+        // List mode keeps the single-line, right-aligned, truncating treatment.
+        compact
+          ? "max-w-full flex-wrap justify-center"
+          : "justify-end whitespace-nowrap",
       )}
     >
       <span
@@ -394,8 +401,14 @@ function AgentMetricDisplay({
       </span>
       <span
         className={cn(
-          "min-w-0 truncate font-normal text-muted-foreground",
-          compact ? "text-[13px]" : "text-[15px] leading-[21px]",
+          "font-normal text-muted-foreground",
+          // Grid (compact) wraps and centers so multi-word metrics like
+          // "0 requests to review" never clip on narrow iOS. List keeps the
+          // single-line truncating treatment. Font sizes follow the upstream
+          // typography pass (compact 13px, list 15px/21px).
+          compact
+            ? "min-w-0 whitespace-normal text-center [overflow-wrap:anywhere] text-[13px]"
+            : "min-w-0 truncate text-[15px] leading-[21px]",
           isPositiveMetric && "text-emerald-700/80 dark:text-emerald-300/85",
         )}
       >
