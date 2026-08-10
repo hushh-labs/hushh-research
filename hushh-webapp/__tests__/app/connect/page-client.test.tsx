@@ -52,10 +52,13 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
   },
 }));
 
-// The Around-you tab has its own suite; keep its directory services out of this
-// render so a failure here can only mean the People tab.
-vi.mock("@/components/connect/advisors-nearby", () => ({
-  AdvisorsNearby: () => <div data-testid="advisors-nearby-stub" />,
+// The Around-you tab has its own suites; keep its directory services out of
+// this render so a failure here can only mean the People tab. Stubbing the
+// switch rather than one directory keeps that true as directories are added --
+// stubbing `advisors-nearby` alone stopped covering the tab the moment a second
+// and third directory hung off it.
+vi.mock("@/components/connect/nearby-directories", () => ({
+  NearbyDirectories: () => <div data-testid="nearby-directories-stub" />,
 }));
 
 vi.mock("sonner", () => ({
