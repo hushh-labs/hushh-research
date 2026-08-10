@@ -190,6 +190,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "hushh_trusted_device_uat_allowlist": args.hushh_trusted_device_uat_allowlist,
         "advisors_api_base_url": args.advisors_api_base_url,
         "insurance_agents_api_base_url": args.insurance_agents_api_base_url,
+        "one_places_directory_enabled": args.one_places_directory_enabled,
     }
     return _drop_empty(config)
 
@@ -295,6 +296,7 @@ def main() -> int:
     # above: a non-secret base URL in the generated runtime config, and a bearer
     # key mirrored from the project that owns it.
     parser.add_argument("--insurance-agents-api-base-url", default="")
+    parser.add_argument("--one-places-directory-enabled", default="")
     parser.add_argument(
         "--insurance-agents-api-key-source-project", default="hushh-tech-prod"
     )
