@@ -36,7 +36,9 @@ import {
 import {
   evaluateKaiActionAvailability,
   getKaiActionById,
+  listKaiActionsForSurface,
   searchKaiActions,
+  type KaiActionDefinition,
 } from "@/lib/voice/kai-action-gateway";
 import {
   isDiscoverableCapability,
@@ -81,6 +83,38 @@ export type InitialCommandRecommendation = {
   label: string;
   slots?: Record<string, string>;
 };
+
+/**
+ * How many of the current screen's own actions the unfiltered palette offers
+ * before it falls back to the app-wide suggestions. Location alone declares
+ * seventeen; listing them all would bury everything else in the dialog.
+ */
+const ON_SCREEN_ACTION_LIMIT = 6;
+
+/**
+ * True when running `action` would land exactly where the person already is.
+ *
+ * A route action names its destination as a path plus, for surfaces whose tabs
+ * and flows live in the query string, one of the params `deriveVoiceRouteScreen`
+ * reads back as the subview. Comparing both is what keeps "Open Location now"
+ * out of the list while you are standing on the Location Now tab -- the single
+ * suggestion that would most make search look unaware of its surroundings.
+ */
+export function actionTargetsCurrentSurface(
+  action: KaiActionDefinition,
+  pathname: string,
+  subview: string | null,
+): boolean {
+  const target = action.execution_target;
+  if (target.status !== "wired" || target.path !== "route") return false;
+  const [targetPath, targetQuery] = String(target.target || "").split("?");
+  if (targetPath !== pathname) return false;
+  if (!targetQuery) return !subview;
+  const params = new URLSearchParams(targetQuery);
+  const targetSubview =
+    params.get("action") || params.get("view") || params.get("tab");
+  return Boolean(targetSubview) && targetSubview === subview;
+}
 
 /**
  * The empty command palette is a short, varied next-step list rather than a
@@ -458,6 +492,55 @@ export function KaiCommandPalette({
     [appRuntimeState, capabilityState, query, surfaceMetadata]
   );
 
+  /**
+   * What the screen the person is looking at can actually do, read straight
+   * from the action gateway.
+   *
+   * The unfiltered palette used to offer nothing but `buildInitialCommand-
+   * Recommendations` -- an authored four-item Kai list -- so opening search
+   * anywhere in the app suggested stock analysis and Memory however far those
+   * were from the surface in view. This group answers "what can I do here"
+   * instead, and stays current for free: a surface that authors a new action
+   * in its voice contract shows up here with no change to this file.
+   */
+  const onScreenActions = useMemo(() => {
+    const screen = String(appRuntimeState?.route.screen || "").trim();
+    // `route.pathname` carries the query string as well -- the runtime state
+    // builder feeds it `pathnameWithQuery` -- so the path has to be split back
+    // out before it can be compared with a contract's route target.
+    const pathname =
+      String(appRuntimeState?.route.pathname || "")
+        .trim()
+        .split("?")[0] || "";
+    const subview = String(appRuntimeState?.route.subview || "").trim() || null;
+    if (!screen && !pathname) return [];
+    return listKaiActionsForSurface({ screen, pathname })
+      .filter((action) => !actionTargetsCurrentSurface(action, pathname, subview))
+      .map((action) => ({
+        action,
+        availability: evaluateKaiActionAvailability({
+          action,
+          appRuntimeState,
+          surfaceMetadata,
+        }),
+      }))
+      .filter(({ action, availability }) => {
+        // Unlike the typed-query list, which shows a blocked action together
+        // with the reason it is blocked, this group is a menu of what is
+        // possible right now -- an entry that cannot run does not belong in it.
+        if (availability.status !== "available") return false;
+        if (!capabilityState) return true;
+        return isDiscoverableCapability(
+          projectKaiActionCapability({
+            actionId: action.action_id,
+            state: capabilityState,
+            surfaceMetadata,
+          }),
+        );
+      })
+      .slice(0, ON_SCREEN_ACTION_LIMIT);
+  }, [appRuntimeState, capabilityState, surfaceMetadata]);
+
   const initialRecommendations = useMemo(
     () =>
       buildInitialCommandRecommendations({ topMover }).flatMap(
@@ -551,6 +634,35 @@ export function KaiCommandPalette({
     >
       <CommandList className="max-h-[min(56dvh,24rem)] sm:max-h-[300px]">
         <CommandEmpty className={isFiltering ? undefined : "hidden"}>{commandEmptyMessage}</CommandEmpty>
+
+        <CommandGroup
+          heading="On this screen"
+          hidden={isFiltering || onScreenActions.length === 0}
+        >
+          {onScreenActions.map(({ action }) => (
+            <CommandItem
+              className={commandItemClass}
+              key={action.action_id}
+              disabled={disabled}
+              value={[
+                action.label,
+                action.action_id,
+                action.aliases.join(" "),
+                action.search_keywords.join(" "),
+              ].join(" ")}
+              onSelect={() => runAction(action.action_id)}
+            >
+              <Icon
+                icon={Compass}
+                size="sm"
+                className="mr-2 text-muted-foreground"
+              />
+              <span className="min-w-0 truncate font-medium">
+                {action.label}
+              </span>
+            </CommandItem>
+          ))}
+        </CommandGroup>
 
         <CommandGroup heading="Suggested actions" hidden={isFiltering}>
           {initialRecommendations.map(({ action, actionId, category, label, slots }) => {
