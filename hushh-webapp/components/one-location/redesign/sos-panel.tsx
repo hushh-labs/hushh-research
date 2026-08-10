@@ -107,6 +107,16 @@ export function SosPanel({
     useState<SmsMessageSelection>(null);
   const [customMessage, setCustomMessage] = useState("");
 
+  /**
+   * The message that actually went out, held for as long as the alert is live.
+   *
+   * Without it the panel showed a live alert and an editable picker, and the
+   * two had no relationship: whatever was selected looked like what had been
+   * sent, and changing the selection changed nothing that anyone had received.
+   * `null` while nothing is live; `""` when an alert was sent with no message.
+   */
+  const [sentMessage, setSentMessage] = useState<string | null>(null);
+
   const [progress, setProgress] = useState(0);
   const [windowsCopyStatus, setWindowsCopyStatus] =
     useState<WindowsFallbackCopyStatus>("idle");
@@ -152,7 +162,17 @@ export function SosPanel({
   // Radar pulse is active the moment the user starts pressing, and keeps
   // emanating continuously while the SMS is sending and after it goes live.
   const showPulse = active || busy || progress > 0;
+  // Editing is closed from the moment the alert is sent until it is cancelled.
+  const messageLocked = active || busy;
 
+
+  // The alert ending is the only thing that releases the record and the lock.
+  // Cancelling is deliberately the single escape: an editable picker over a
+  // live alert invites someone to believe they have changed a message that has
+  // already been delivered.
+  useEffect(() => {
+    if (!active && !busy) setSentMessage(null);
+  }, [active, busy]);
 
   const clearHold = useCallback((resetProgress = true) => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -180,6 +200,9 @@ export function SosPanel({
     firedRef.current = true;
     clearHold(false);
     setProgress(1);
+    // Captured before the await so the record is of what was sent, not of
+    // whatever the picker happens to hold when the request settles.
+    setSentMessage(selectedMessage ?? "");
     void Promise.resolve(onTrigger(selectedMessage)).finally(() => {
       if (observedBusyRef.current) return;
       firedRef.current = false;
@@ -452,12 +475,39 @@ export function SosPanel({
             </button>
           </p>
 
+          {/* What actually went out. A live alert with an editable picker and
+              no record of the sent text left people unsure which message their
+              contacts had received -- and free to change a selection that
+              could no longer affect it. */}
+          {sentMessage !== null ? (
+            <div
+              role="status"
+              data-testid="sos-sent-message"
+              className="mt-3 rounded-2xl border border-white/10 bg-white/[0.06] p-3 text-[13px] leading-relaxed text-white"
+            >
+              <p className="font-semibold">
+                {busy ? "Sending" : "Sent"}
+                {names ? ` to ${names}` : ""}
+              </p>
+              <p className="mt-1 text-white/70">
+                {sentMessage
+                  ? `“${sentMessage}”`
+                  : "Your location, with no message."}
+              </p>
+              <p className="mt-2 text-white/50">
+                The message cannot be changed while this alert is live. Cancel
+                it to send a different one.
+              </p>
+            </div>
+          ) : null}
+
           <div className="mt-3 grid grid-cols-2 gap-2">
             {(["Come get me", "I'm not safe"] as const).map((option) => (
               <button
                 key={option}
                 type="button"
                 aria-pressed={messageSelection === option}
+                disabled={messageLocked}
                 onClick={() =>
                   setMessageSelection((current) =>
                     current === option ? null : option,
@@ -468,6 +518,7 @@ export function SosPanel({
                   messageSelection === option
                     ? "border-white bg-white text-black"
                     : "border-white/5 bg-[#1c1c1e] text-white",
+                  messageLocked && "cursor-not-allowed opacity-50",
                 )}
               >
                 {option}
@@ -476,6 +527,7 @@ export function SosPanel({
             <button
               type="button"
               aria-pressed={messageSelection === "custom"}
+              disabled={messageLocked}
               onClick={() =>
                 setMessageSelection((current) =>
                   current === "custom" ? null : "custom",
@@ -486,6 +538,7 @@ export function SosPanel({
                 messageSelection === "custom"
                   ? "border-white bg-white text-black"
                   : "border-white/5 bg-[#1c1c1e] text-white",
+                messageLocked && "cursor-not-allowed opacity-50",
               )}
             >
               Short text message
@@ -508,6 +561,7 @@ export function SosPanel({
                   aria-invalid={customMessageLimitExceeded}
                   value={customMessage}
                   onChange={(event) => setCustomMessage(event.target.value)}
+                  readOnly={messageLocked}
                   placeholder="Type a short message"
                   rows={2}
                   className={cn(
@@ -517,6 +571,7 @@ export function SosPanel({
                     customMessageLimitExceeded
                       ? "border-[color:var(--app-destructive)]"
                       : "border-white/10",
+                    messageLocked && "cursor-not-allowed opacity-60",
                   )}
                 />
                 {/* Without this the only way to send a typed message was to go
