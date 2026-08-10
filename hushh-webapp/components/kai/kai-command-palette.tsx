@@ -52,6 +52,13 @@ import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
+import {
+  RECENT_ACTION_LIMIT,
+  readActionUsage,
+  recordActionUse,
+  usageBoostFor,
+  type ActionUsageEntry,
+} from "@/lib/voice/action-usage-memory";
 
 export type KaiCommandPaletteSelection = {
   actionId: string;
@@ -66,6 +73,8 @@ interface KaiCommandPaletteProps {
   appRuntimeState?: AppRuntimeState;
   capabilityState?: VoiceCapabilityStateV1;
   surfaceMetadata?: VoiceSurfaceMetadata | null;
+  /** Scopes usage memory per account; a shared device must not blend habits. */
+  userId?: string | null;
   disabled?: boolean;
   portfolioTickers?: Array<{
     symbol: string;
@@ -279,6 +288,7 @@ export function KaiCommandPalette({
   appRuntimeState,
   capabilityState,
   surfaceMetadata,
+  userId = null,
   disabled = false,
   portfolioTickers = [],
 }: KaiCommandPaletteProps) {
@@ -560,6 +570,8 @@ export function KaiCommandPalette({
     [appRuntimeState, capabilityState, currentScreen, query, surfaceMetadata]
   );
 
+
+
   /**
    * What the screen the person is looking at can actually do, read straight
    * from the action gateway.
@@ -581,10 +593,12 @@ export function KaiCommandPalette({
   const [tappableControlIds, setTappableControlIds] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
   );
+  const [usage, setUsage] = useState<readonly ActionUsageEntry[]>([]);
   useEffect(() => {
     if (!open || typeof document === "undefined") return;
     setTappableControlIds(readTappableControlIds());
-  }, [open]);
+    setUsage(readActionUsage(userId));
+  }, [open, userId]);
 
   const surfaceActions = useMemo(() => {
     const screen = String(appRuntimeState?.route.screen || "").trim();
@@ -646,6 +660,70 @@ export function KaiCommandPalette({
   );
 
   /**
+   * The same matches, with what this person actually uses breaking ties.
+   *
+   * `searchKaiActions` has already ranked by how well each action answers the
+   * query; this only separates entries that answered it equally well. The
+   * boost is capped so a familiar action can never displace a better answer --
+   * typing "circle" must find Create a circle whether or not you have ever
+   * created one.
+   */
+  const rankedActionMatches = useMemo(() => {
+    if (usage.length === 0) return actionMatches;
+    return [...actionMatches].sort(
+      (left, right) =>
+        usageBoostFor(usage, right.action.action_id) -
+        usageBoostFor(usage, left.action.action_id),
+    );
+  }, [actionMatches, usage]);
+
+  /**
+   * What this person reaches for, offered before anything the app guessed.
+   *
+   * Filtered through the same availability and capability rules as every other
+   * group -- a habit is not a reason to offer something that cannot run -- and
+   * excludes whatever is already a button in front of them.
+   */
+  const recentActions = useMemo(() => {
+    if (usage.length === 0) return [];
+    const rows: KaiActionDefinition[] = [];
+    for (const entry of usage) {
+      if (rows.length >= RECENT_ACTION_LIMIT) break;
+      const action = getKaiActionById(entry.actionId);
+      if (!action) continue;
+      if (action.control_ids.some((id) => tappableControlIds.has(id))) continue;
+      if (isLocalHandlerAwayFromItsScreen(action, currentScreen)) continue;
+      const availability = evaluateKaiActionAvailability({
+        action,
+        appRuntimeState,
+        surfaceMetadata,
+      });
+      if (availability.status !== "available") continue;
+      if (
+        capabilityState &&
+        !isDiscoverableCapability(
+          projectKaiActionCapability({
+            actionId: action.action_id,
+            state: capabilityState,
+            surfaceMetadata,
+          }),
+        )
+      ) {
+        continue;
+      }
+      rows.push(action);
+    }
+    return rows;
+  }, [
+    appRuntimeState,
+    capabilityState,
+    currentScreen,
+    surfaceMetadata,
+    tappableControlIds,
+    usage,
+  ]);
+
+  /**
    * What the app has noticed and thinks is worth doing next.
    *
    * The insight comes first: a surface that has published a dead end is
@@ -697,6 +775,10 @@ export function KaiCommandPalette({
 
   function runAction(actionId: string, slots?: Record<string, unknown>) {
     if (disabled) return;
+    // The id only, and only what the person actually chose -- not what was
+    // merely offered, and never the slots that would turn a habit into a
+    // holding.
+    recordActionUse(userId, actionId);
     onOpenChange(false);
     setQuery("");
     // A local handler belonging to another screen cannot run from here: the
@@ -764,6 +846,29 @@ export function KaiCommandPalette({
             this group on screen, full of fuzzy matches, pushing the real
             results below the fold. A group that is not in the tree cannot be
             resurrected. */}
+        {!isFiltering && recentActions.length > 0 ? (
+          <CommandGroup heading="You usually">
+            {recentActions.map((action) => (
+              <CommandItem
+                className={commandItemClass}
+                key={`recent-${action.action_id}`}
+                disabled={disabled}
+                value={action.action_id}
+                onSelect={() => runAction(action.action_id)}
+              >
+                <Icon
+                  icon={History}
+                  size="sm"
+                  className="mr-2 text-muted-foreground"
+                />
+                <span className="min-w-0 truncate font-medium">
+                  {action.label}
+                </span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        ) : null}
+
         {!isFiltering && offScreenActions.length > 0 ? (
           <CommandGroup heading="Elsewhere on this screen">
             {offScreenActions.map(({ action }) => (
@@ -840,13 +945,13 @@ export function KaiCommandPalette({
         <CommandSeparator hidden={!isFiltering} />
 
         <CommandGroup heading="Commands" hidden={!isFiltering}>
-          {actionMatches.length === 0 ? (
+          {rankedActionMatches.length === 0 ? (
             <CommandItem className={commandItemClass} disabled>
               <Icon icon={Compass} size="sm" className="mr-2 text-muted-foreground" />
               No matching Kai actions.
             </CommandItem>
           ) : null}
-          {actionMatches.map(({ action, availability }) => {
+          {rankedActionMatches.map(({ action, availability }) => {
             const actionDisabled =
               disabled ||
               availability.status === "dead" ||
