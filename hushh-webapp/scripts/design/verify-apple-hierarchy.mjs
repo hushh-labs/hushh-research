@@ -29,6 +29,7 @@ function expectNotIncludes(repoPath, needle, message) {
 
 const typographySource = read("components/app-ui/typography.tsx");
 for (const exportName of [
+  "LargeTitle",
   "PageTitle",
   "PageSubtitle",
   "SectionLabel",
@@ -55,15 +56,33 @@ for (const exportName of [
 
 const globals = read("app/globals.css");
 for (const [token, value] of [
-  ["--type-page-subtitle-size", "16px"],
-  ["--type-page-subtitle-line", "22px"],
+  ["--type-large-page-title-size", "34px"],
+  ["--type-large-page-title-line", "41px"],
+  ["--type-large-page-title-weight", "700"],
+  ["--type-large-page-title-tracking", "-0.03em"],
+  ["--type-page-title-size", "28px"],
+  ["--type-page-title-line", "34px"],
+  ["--type-page-title-weight", "700"],
+  ["--type-page-title-tracking", "-0.025em"],
+  ["--type-page-subtitle-size", "15px"],
+  ["--type-page-subtitle-line", "20px"],
   ["--type-section-label-size", "15px"],
   ["--type-section-label-line", "20px"],
   ["--type-section-label-weight", "500"],
-  ["--type-section-label-tracking", "-0.01em"],
+  ["--type-section-label-tracking", "-0.006em"],
   ["--type-row-label-size", "17px"],
-  ["--type-row-description-size", "15px"],
+  ["--type-row-label-line", "22px"],
+  ["--type-row-label-tracking", "-0.01em"],
+  ["--type-row-description-size", "13px"],
+  ["--type-row-description-line", "18px"],
+  ["--type-row-description-tracking", "0"],
   ["--type-input-value-size", "17px"],
+  ["--type-input-value-line", "22px"],
+  ["--type-helper-text-size", "13px"],
+  ["--type-helper-text-line", "18px"],
+  ["--type-helper-text-tracking", "0"],
+  ["--type-legal-text-size", "11px"],
+  ["--type-legal-text-line", "15px"],
 ]) {
   if (!globals.includes(`${token}: ${value};`)) {
     failures.push(`app/globals.css: ${token} must stay ${value}`);
@@ -131,9 +150,64 @@ for (const repoPath of [
 
 expectIncludes(
   "components/dashboard/one-agent-roster.tsx",
-  "agents ({modes.length})",
-  "agents heading must preserve the requested natural lowercase casing",
+  "Agents ({modes.length})",
+  "agents heading is the page title and must use title casing",
 );
+
+expectNotIncludes(
+  "components/dashboard/one-agent-roster.tsx",
+  "text-[28px] leading-[34px]",
+  "agents heading must use the shared PageTitle role instead of a route-level arbitrary override",
+);
+
+expectNotIncludes(
+  "components/dashboard/one-agent-roster.tsx",
+  'placeholder="search agents"',
+  "search placeholder must preserve sentence casing",
+);
+
+for (const repoPath of [
+  "components/kai/shared/kai-typography.ts",
+  "components/dashboard/one-agent-roster.tsx",
+]) {
+  const source = read(repoPath);
+  for (const forbidden of [
+    "sm:text-",
+    "md:text-",
+    "lg:text-",
+    "xl:text-",
+    "clamp(",
+    "font-size:",
+    "fontSize:",
+  ]) {
+    if (source.includes(forbidden)) {
+      failures.push(`${repoPath}: strict app typography must not use ${forbidden}`);
+    }
+  }
+}
+
+for (const [key, uiRole] of [
+  ["largeTitle", "large-title"],
+  ["pageTitle", "page-title"],
+  ["pageSubtitle", "subtitle"],
+  ["sectionLabel", "section-label"],
+  ["cardTitle", "card-title"],
+  ["rowLabel", "body"],
+  ["rowDescription", "row-description"],
+  ["trailingValue", "trailing-value"],
+  ["trailingAction", "trailing-action"],
+  ["inputValue", "input-text"],
+  ["helperText", "helper-text"],
+  ["buttonLabel", "button-label"],
+  ["tabLabel", "tab-label"],
+  ["legal", "legal-text"],
+]) {
+  if (!typographySource.includes(`[TYPOGRAPHY_CLASSNAMES.${key}]: "${uiRole}"`)) {
+    failures.push(
+      `components/app-ui/typography.tsx: ${key} must emit data-ui-role="${uiRole}"`,
+    );
+  }
+}
 
 if (failures.length > 0) {
   console.error(`verify-apple-hierarchy: ${failures.length} failure(s)\n`);
