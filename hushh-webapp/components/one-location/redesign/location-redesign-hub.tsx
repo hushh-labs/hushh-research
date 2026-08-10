@@ -164,6 +164,8 @@ export type LocationHubViewModel = {
   revokingGrantId: string | null;
   /** Bumped on each successful share so the hub can close the share flow. */
   shareCompletedTick: number;
+  /** Where a completed share should land, when not the clean hub. */
+  shareCompletedDestination?: string | null;
 
   /* device + self location */
   readiness: {
@@ -828,6 +830,14 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         router.replace(nearbyCheckInReturnHref, { scroll: false });
         return;
       }
+      // An authored landing wins over the clean-up below, and has to be
+      // decided HERE rather than pushed by the caller: this effect calls
+      // router.replace on the very next render, so anything the caller
+      // navigated to would simply be replaced away.
+      if (vm.shareCompletedDestination) {
+        router.replace(vm.shareCompletedDestination, { scroll: false });
+        return;
+      }
       // Drop the action param so the hub URL is clean after a completed share.
       if ((searchParams.get(FLOW_ACTION_PARAM) || "").trim()) {
         const params = new URLSearchParams(searchParams.toString());
@@ -839,6 +849,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     }
   }, [
     vm.shareCompletedTick,
+    vm.shareCompletedDestination,
     nearbyCheckInReturnHref,
     nearbyPrivateCheckIn,
     pathname,

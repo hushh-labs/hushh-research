@@ -1909,6 +1909,18 @@ export function OneLocationAgentPageContent({
   // Monotonic counter bumped each time a share completes successfully, so the
   // redesign hub can close the 3-step share flow and return to the main screen.
   const [shareCompletedTick, setShareCompletedTick] = useState(0);
+  // Where to land once a share completes, when the caller wants somewhere
+  // other than the clean hub.
+  //
+  // A hands-free share is invisible: One says it started sharing and the
+  // screen returns to a hub that looks exactly as it did before. This lets
+  // the voice path ask to be dropped on Active shares instead, which is both
+  // the proof it happened and the way to stop it.
+  //
+  // A ref rather than state, because the value has to be readable by the
+  // completion effect on the very render the tick bumps -- and because taps
+  // must keep landing on the clean hub, which they do by never setting it.
+  const shareCompletedDestinationRef = useRef<string | null>(null);
 
   const [sosIncident, setSosIncident] = useState<SosIncident | null>(null);
   const [sosEmergency, setSosEmergency] = useState<EmergencyInfo | null>(null);
@@ -3419,8 +3431,14 @@ export function OneLocationAgentPageContent({
   // travels as an argument rather than through state it cannot see yet. Taps
   // pass nothing and keep using whatever the composer shows.
   const handleShare = useCallback(
-    async (durationOverride?: string): Promise<LocalOnboardingActionResult> => {
+    async (
+      durationOverride?: string,
+      landOnAfter?: string,
+    ): Promise<LocalOnboardingActionResult> => {
       const effectiveDurationHours = durationOverride ?? shareDurationHours;
+      // Set on every attempt, so a landing asked for by one share can never
+      // survive into the next one. Taps pass nothing and get the clean hub.
+      shareCompletedDestinationRef.current = landOnAfter ?? null;
     if (!vaultOwnerToken) {
       return { status: "blocked", summary: "Unlock One before sharing your location." };
     }
@@ -6951,7 +6969,7 @@ export function OneLocationAgentPageContent({
     };
   });
 
-  useLocalOnboardingActionHandler("location.share_selected", (slots) => {
+  useLocalOnboardingActionHandler("location.share_selected", async (slots) => {
     const requested = String(slots?.duration_hours ?? "").trim();
     // Only the durations the composer itself offers. An unrecognised value is
     // ignored in favour of what is on screen rather than coerced into some
@@ -6960,7 +6978,19 @@ export function OneLocationAgentPageContent({
       ? requested
       : undefined;
     if (duration) setShareDurationHours(duration);
-    return handleShare(duration);
+
+    // A hands-free share is otherwise invisible: One says it started and the
+    // screen returns to a hub that looks exactly as it did before. Landing on
+    // Active shares makes the result something the person can see and stop.
+    // Only set for the voice path -- taps keep returning to the clean hub.
+    const landOn = "/one/location?action=active-shares";
+    const result = await handleShare(duration, landOn);
+    if (result.status !== "succeeded") return result;
+    // Declared only once the completion effect will really navigate there.
+    // `routeAfter` makes the runtime WAIT for that settlement -- on an action
+    // that does not navigate it waits for nothing and times out into a false
+    // "started", which is why it cannot simply be returned unconditionally.
+    return { ...result, routeAfter: landOn, screenAfter: "one_location" };
   });
 
   const handleAutoShareChange = useCallback(
@@ -7899,6 +7929,7 @@ export function OneLocationAgentPageContent({
     busy,
     revokingGrantId,
     shareCompletedTick,
+    shareCompletedDestination: shareCompletedDestinationRef.current,
     readiness: {
       tone: locationReadiness.tone,
       title: locationReadiness.title,
