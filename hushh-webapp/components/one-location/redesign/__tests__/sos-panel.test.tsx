@@ -411,7 +411,7 @@ describe("SosPanel", () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 
-  it("shows 'Cancel SMS Alert' only while a session is active and calls onStopSos", () => {
+  it("shows 'Cancel the alert' only while a session is active and calls onStopSos", () => {
     const onStopSos = vi.fn();
     const { rerender } = render(
       <SosPanel {...baseProps} active={false} onStopSos={onStopSos} />,
@@ -425,14 +425,14 @@ describe("SosPanel", () => {
     expect(screen.getByText("SENT")).toBeInTheDocument();
     expect(screen.getByText("Live now")).toBeInTheDocument();
     const cancel = screen.getByRole("button", {
-      name: "Cancel SMS alert and stop sharing your location",
+      name: "Cancel the alert and stop sharing your location",
     });
-    expect(cancel).toHaveTextContent("Cancel SMS Alert");
+    expect(cancel).toHaveTextContent("Cancel the alert");
     fireEvent.click(cancel);
     expect(onStopSos).toHaveBeenCalledTimes(1);
   });
 
-  it("disables 'Cancel SMS Alert' and shows a spinner while stopping", () => {
+  it("disables 'Cancel the alert' and shows a spinner while stopping", () => {
     const onStopSos = vi.fn();
     render(
       <SosPanel {...baseProps} active stopBusy onStopSos={onStopSos} />,

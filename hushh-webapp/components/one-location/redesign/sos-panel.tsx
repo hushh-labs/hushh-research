@@ -453,14 +453,14 @@ export function SosPanel({
               type="button"
               onClick={onStopSos}
               disabled={stopBusy}
-              aria-label="Cancel SMS alert and stop sharing your location"
+              aria-label="Cancel the alert and stop sharing your location"
               data-testid="sos-cancel-alert"
-              className="press-scale mb-3 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white text-[15px] font-semibold text-[#d70015] disabled:opacity-60"
+              className="press-scale mb-4 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white text-[15px] font-semibold text-[#d70015] shadow-sm disabled:opacity-60"
             >
               {stopBusy ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               ) : null}
-              {stopBusy ? "Cancelling…" : "Cancel SMS Alert"}
+              {stopBusy ? "Cancelling…" : "Cancel the alert"}
             </button>
           ) : null}
 
@@ -485,10 +485,7 @@ export function SosPanel({
               data-testid="sos-sent-message"
               className="mt-3 rounded-2xl border border-white/10 bg-white/[0.06] p-3 text-[13px] leading-relaxed text-white"
             >
-              <p className="font-semibold">
-                {busy ? "Sending" : "Sent"}
-                {names ? ` to ${names}` : ""}
-              </p>
+              <p className="font-semibold">{busy ? "Sending" : "Sent"}</p>
               <p className="mt-1 text-white/70">
                 {sentMessage
                   ? `“${sentMessage}”`
