@@ -370,12 +370,16 @@ async def places_stream(
         ),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "private, no-store, no-cache",
+            # `no-transform` is doing real work, not decoration: the frontend
+            # runs with `compress: true`, and a compressing intermediary is
+            # free to buffer a response body to compress it. That turns a
+            # stream back into one lump. The Kai stream lanes carry it for the
+            # same reason. `private, no-store` matches the two sibling
+            # directories, because this response is derived from a position.
+            "Cache-Control": "private, no-store, no-cache, no-transform",
             "Pragma": "no-cache",
             "Connection": "keep-alive",
-            # Without this an nginx-shaped intermediary buffers the whole body
-            # and the stream arrives as one lump, which is the ordinary response
-            # with extra steps.
+            # And this stops an nginx-shaped proxy buffering it regardless.
             "X-Accel-Buffering": "no",
         },
     )

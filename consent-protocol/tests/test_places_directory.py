@@ -10,6 +10,7 @@ would otherwise notice. The first test here pins that table's size.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 
 import pytest
@@ -211,6 +212,36 @@ def test_an_unexpected_crash_is_contained_to_its_category(monkeypatch) -> None:
     assert frames[-1]["event"] == "done"
     assert frames[-1]["failed"] == ["hotels_stays"]
     assert frames[-1]["delivered"] == 1
+
+
+def test_the_stream_carries_the_headers_that_stop_it_being_buffered() -> None:
+    """Without these the stream is an ordinary response with extra steps.
+
+    Checked at the source because the header dict is built inside the route and
+    the route is auth-gated; the repo already asserts deploy wiring this way.
+    `no-transform` is the subtle one: the frontend runs with `compress: true`,
+    and a compressing intermediary may buffer a body in order to compress it.
+    """
+
+    source = inspect.getsource(places_routes)
+
+    assert "no-transform" in source
+    assert '"X-Accel-Buffering": "no"' in source
+    assert 'media_type="text/event-stream"' in source
+
+
+def test_every_frame_is_named_because_the_parser_drops_unnamed_ones() -> None:
+    """`parseSSEBlocks` skips any block without an `event:` line.
+
+    A heartbeat sent as a bare SSE comment would therefore never reach the
+    client and could not reset its idle timer -- the one job it has.
+    """
+
+    for event in ("meta", "results", "category_error", "heartbeat", "done"):
+        rendered = places_routes._frame(event, {}).decode()
+        assert rendered.startswith(f"event: {event}\n")
+        assert "\ndata: " in rendered
+        assert rendered.endswith("\n\n")
 
 
 def test_the_done_frame_is_terminal() -> None:
