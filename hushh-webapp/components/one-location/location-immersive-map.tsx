@@ -1749,18 +1749,30 @@ export function LocationImmersiveMap({
         </section>
       ) : null}
       {rendererReady && status === "unavailable" ? (
-        <section className="absolute inset-x-4 bottom-4 z-20 rounded-3xl bg-background/95 p-5 shadow-xl">
-          <h1 className="font-semibold">
+        // Full-bleed styled fallback. Previously only a small bottom card sat
+        // over the (blank) native canvas, so most of Your Map read as a blank
+        // white screen when the Maps key was missing. Cover the whole surface
+        // with an intentional muted placeholder (subtle grid + pin) so it never
+        // looks broken, and center the explanation.
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-[#eef2f7] px-6 text-center dark:bg-[#10151d]">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 opacity-[0.5] [background-image:linear-gradient(to_right,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px)] [background-size:32px_32px]"
+          />
+          <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-background text-[color:var(--app-accent,#087ff5)] shadow-lg">
+            <MapPin className="h-7 w-7" strokeWidth={2} aria-hidden />
+          </span>
+          <h1 className="relative font-semibold">
             {unavailableReason === "maps-key"
               ? "This build has no Maps key"
               : "The map could not start"}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="relative max-w-sm text-sm text-muted-foreground">
             {unavailableReason === "maps-key"
               ? "Your location is fine — this app build was packaged without its restricted Google Maps key, so the map cannot render. Nothing about your location was captured or shared."
               : "The map renderer failed to load. Check your connection and try again — your location was not captured or shared."}
           </p>
-        </section>
+        </div>
       ) : null}
       {rendererReady && status !== "unavailable" && !isCheckInSurface ? (
         <section
