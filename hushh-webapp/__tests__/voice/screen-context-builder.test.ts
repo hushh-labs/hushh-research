@@ -1035,6 +1035,42 @@ describe("buildStructuredScreenContext", () => {
     expect(JSON.stringify(snapshot.onboarding)).not.toContain("unsafe");
   });
 
+  it("carries a screen's dead end into the snapshot One reads", () => {
+    window.history.pushState({}, "", "/one/location");
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "one_location",
+      deadEnd: {
+        reason: "There is no one to add as an emergency contact yet.",
+        remedyActionId: "location.add_connections",
+      },
+    });
+
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/location", "one_location"),
+    });
+
+    expect(snapshot.ui.dead_end).toEqual({
+      reason: "There is no one to add as an emergency contact yet.",
+      remedy_action_id: "location.add_connections",
+    });
+  });
+
+  it("drops a half-filled dead end rather than naming a problem with no way out", () => {
+    window.history.pushState({}, "", "/one/location");
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "one_location",
+      // A reason with no remedy would tell One something is wrong and leave it
+      // to guess the way out -- exactly the guessing this removes.
+      deadEnd: { reason: "Stuck.", remedyActionId: "" },
+    });
+
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/location", "one_location"),
+    });
+
+    expect(snapshot.ui.dead_end).toBeNull();
+  });
+
   it("keeps structured context shape while attaching One Voice metadata", () => {
     const context = buildOneVoiceStructuredScreenContext({
       appRuntimeState: makeRuntimeState("/one", "one_agents"),

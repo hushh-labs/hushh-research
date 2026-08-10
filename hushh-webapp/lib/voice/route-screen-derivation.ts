@@ -237,11 +237,27 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_FEED) {
     return { screen: "one_feed", subview: null };
   }
+  if (normalizedPath === ROUTES.CONNECT) {
+    // Connect had no branch here at all, so it derived the generic "app"
+    // screen: it could neither publish an inventory nor be named as a
+    // destination, which is why nothing in the app could send anyone to it.
+    // Its tabs are local component state rather than query params, so there is
+    // no subview to report.
+    return { screen: "connect", subview: null };
+  }
   if (normalizedPath === ROUTES.ONE_LOCATION_MAP) {
     return { screen: "one_location_map", subview: null };
   }
   if (normalizedPath === ROUTES.ONE_LOCATION) {
-    return { screen: "one_location", subview: query.get("tab") || null };
+    // Location's hub owns two query params, and neither is `tab`: `view`
+    // selects the Now/People/Links tab, and `action` opens a focused flow on
+    // top of it. Reading `tab` here always returned null, so One believed the
+    // person was on a bare Location page however deep they actually were. The
+    // open flow is the more specific answer, so it wins over the tab.
+    return {
+      screen: "one_location",
+      subview: query.get("action") || query.get("view") || null,
+    };
   }
   if (
     normalizedPath === ROUTES.GMAIL ||

@@ -2263,8 +2263,8 @@
         },
         "voice_playbook": {
           "playbook_id": "route.connect",
-          "purpose": "Help the person understand and use the connect screen through its generated controls.",
-          "screen": "app",
+          "purpose": "Find people, send connection requests, and manage who you are connected to.",
+          "screen": "connect",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -2305,8 +2305,13 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/connect/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "connect.open_nearby",
+        "connect.open_people",
+        "connect.search_people",
+        "route.one_connect"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -3900,8 +3905,24 @@
       },
       "voice_action_contract_file": "app/one/location/page.voice-action-contract.json",
       "voice_action_contract_ids": [
-        "location.open_activity",
-        "location.open_compose",
+        "location.add_connections",
+        "location.open_active_shares",
+        "location.open_ask",
+        "location.open_check_in",
+        "location.open_create_circle",
+        "location.open_invite",
+        "location.open_join_circle",
+        "location.open_links",
+        "location.open_map",
+        "location.open_needs_review",
+        "location.open_now",
+        "location.open_people",
+        "location.open_settings",
+        "location.open_share",
+        "location.open_shared_with_me",
+        "location.open_sms_contacts",
+        "location.open_sos",
+        "location.open_temporary_link",
         "location.refresh"
       ],
       "api_dependencies": [
@@ -8100,5 +8121,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "68186d0a8b8da194f16659c12b0801a6a8daae6c89c78a4b865ed886674760c0"
+  "content_sha256": "e7aeed17a8011bc454f0afd7c3d582dd52de0dcc33f44eda7caf852844b7e4e2"
 }

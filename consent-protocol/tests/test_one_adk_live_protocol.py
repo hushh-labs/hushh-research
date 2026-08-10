@@ -179,6 +179,9 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
         # primary_entity stay out of the boundary entirely: several surfaces
         # fill those with an investor name or email address.
         "spoken_subject": None,
+        # Same posture: absent unless a surface says it is stuck, and dropped
+        # entirely unless the remedy it names is one this route may run.
+        "dead_end": None,
         "persona": "investor",
         "voice_state": "listening",
         "signed_in": False,
@@ -334,6 +337,71 @@ def test_route_note_surfaces_visible_content_for_active_screen_awareness():
     assert "content currently visible to the person is" in note
     assert "market_summary" in note
     assert "watchlist" in note
+
+
+def test_dead_end_reaches_the_note_with_the_action_that_resolves_it():
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/location",
+            "available_action_ids": ["location.add_connections"],
+            "dead_end": {
+                "reason": "There is no one to add as an emergency contact yet.",
+                "remedy_action_id": "location.add_connections",
+            },
+        }
+    )
+
+    assert context["dead_end"] == {
+        "reason": "There is no one to add as an emergency contact yet.",
+        "remedy_action_id": "location.add_connections",
+    }
+
+    note = _compose_route_context_note(context)
+    assert note is not None
+    # The point of the whole path: One is told both that the person is stuck
+    # and where it gets unstuck, so "no connections" stops being a full stop.
+    assert "currently stuck on this screen" in note
+    assert "no one to add as an emergency contact" in note
+    assert "location.add_connections" in note
+    assert "never run it unasked" in note
+
+
+def test_dead_end_is_dropped_whole_when_its_remedy_is_not_runnable_here():
+    context = _sanitize_live_context(
+        {
+            "route_family": "/one/location",
+            "available_action_ids": ["location.add_connections"],
+            "dead_end": {
+                "reason": "Nothing to do here.",
+                "remedy_action_id": "connect.delete_everyones_account",
+            },
+        }
+    )
+
+    # A screen may describe its own dead end; it may not invent a destination.
+    # Half a dead end -- a reason with an unreachable remedy -- would strand the
+    # person mid-sentence, so the whole thing goes rather than the remedy alone.
+    assert context["dead_end"] is None
+    note = _compose_route_context_note(context)
+    assert note is not None
+    assert "currently stuck on this screen" not in note
+
+
+def test_dead_end_needs_both_halves():
+    for payload in (
+        {"reason": "Stuck.", "remedy_action_id": ""},
+        {"reason": "", "remedy_action_id": "location.add_connections"},
+        {"remedy_action_id": "location.add_connections"},
+        "not a mapping",
+    ):
+        context = _sanitize_live_context(
+            {
+                "route_family": "/one/location",
+                "available_action_ids": ["location.add_connections"],
+                "dead_end": payload,
+            }
+        )
+        assert context["dead_end"] is None
 
 
 def _proactive_context():

@@ -847,8 +847,8 @@
     },
     "voicePlaybook": {
       "playbookId": "route.connect",
-      "purpose": "Help the person understand and use the connect screen through its generated controls.",
-      "screen": "app",
+      "purpose": "Find people, send connection requests, and manage who you are connected to.",
+      "screen": "connect",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
