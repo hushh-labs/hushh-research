@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
-import { MapPin, ShieldCheck, TrendingUp, UserRound } from "lucide-react";
+import { MapPin, ShieldCheck, Siren, TrendingUp, UserRound } from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -32,11 +32,26 @@ import {
 import {
   CONSENT_ACTION_COMPLETE_EVENT,
   CONSENT_STATE_CHANGED_EVENT,
+  dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
+import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
+import {
+  isLocationConsent,
+  locationConsentSummary,
+} from "@/lib/consent/location-consent";
 import { OneLocationService } from "@/lib/one-location/service";
-import type { OneLocationAccessRequest } from "@/lib/one-location/types";
+import {
+  RECIPIENT_KEY_UNAVAILABLE_MESSAGE,
+  decryptLocationEnvelope,
+  ensureVaultSyncedRecipientKey,
+} from "@/lib/one-location/encryption";
+import type {
+  OneLocationAccessRequest,
+  OneLocationGrant,
+} from "@/lib/one-location/types";
+import { buildOneLocationNotificationHref } from "@/lib/one-location/notifications";
 import {
   ConnectionsService,
   type ConnectionRequest,
@@ -80,6 +95,11 @@ export interface FeedActionable {
   chevron?: boolean;
   actions: FeedActionButton[];
   sortAt: number;
+  /**
+   * High-priority visual treatment. "emergency" rows (an incoming SMS · Save My
+   * Soul alert) render with prominent red styling and sort above everything else.
+   */
+  emphasis?: "emergency";
 }
 
 export interface UseFeedActionablesResult {
@@ -95,8 +115,10 @@ function toTimestamp(value?: string | number | null): number {
 }
 
 function consentSummary(entry: ConsentCenterEntry): string {
-  if (entry.kind === "connection_request") return "Wants to connect with you.";
   if (entry.kind === "invite") return "Invitation waiting for your approval.";
+  if (isLocationConsent(entry.metadata, entry.scope)) {
+    return locationConsentSummary(entry.metadata);
+  }
   return (
     entry.additional_access_summary ||
     entry.scope_description ||
@@ -106,11 +128,49 @@ function consentSummary(entry: ConsentCenterEntry): string {
   );
 }
 
+/**
+ * A pending location access request is actionable in the viewer's "Needs you"
+ * feed only when the viewer OWNS the request (their location is being asked for)
+ * and did NOT send it themselves. `state.requests` carries BOTH directions, so
+ * without this guard a user's own OUTGOING request leaks back onto their feed as
+ * an incoming "wants to see your location" card labelled with their own name.
+ * Mirrors the `pendingOwnerRequests` predicate in the Location page, plus an
+ * explicit sender-≠-recipient check so a self-request never becomes actionable.
+ */
+export function isIncomingLocationRequestActionable(
+  request: OneLocationAccessRequest,
+  userId: string,
+): boolean {
+  return (
+    request.status === "pending" &&
+    request.ownerUserId === userId &&
+    request.requesterUserId !== userId
+  );
+}
+
+/**
+ * A received share a contact started as an emergency SOS (SMS · Save My Soul)
+ * that is still live. These surface as pinned, emergency-styled feed cards so a
+ * safety alert is never buried under routine activity. The share point stays
+ * end-to-end encrypted; only the emergency intent (`shareKind`) is read here.
+ */
+export function isActiveSmsEmergencyGrant(grant: OneLocationGrant): boolean {
+  return grant.status === "active" && grant.shareKind === "sos";
+}
+
+export function notifyFeedActionResolved(): void {
+  dispatchConsentStateChanged({ source: "feed_actionable" });
+  dispatchFeedStateChanged();
+}
+
 export function useFeedActionables(): UseFeedActionablesResult {
   const router = useRouter();
   const { user } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultKey, vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
+  const [smsEmergencyAddresses, setSmsEmergencyAddresses] = useState<
+    Record<string, string>
+  >({});
   const cache = useMemo(() => CacheService.getInstance(), []);
 
   // ── Debate + background-task live stores (in-memory, synchronous) ──
@@ -203,10 +263,16 @@ export function useFeedActionables(): UseFeedActionablesResult {
   });
 
   // ── Incoming connection requests ──
+  // Keyed on the same tick as the consent lanes: a connection request can be
+  // answered from the Consent Center rather than here, and that surface only
+  // announces itself through CONSENT_ACTION_COMPLETE_EVENT. Without the key
+  // this resource never re-runs, so an accepted request stays on the feed as
+  // though it were still waiting.
   const connectionsResource = useStaleResource({
     cacheKey: userId
       ? CACHE_KEYS.CONNECTIONS_INCOMING(userId)
       : "connections_incoming_guest",
+    refreshKey: `connections:${consentTick}`,
     enabled: Boolean(userId),
     load: async () => {
       const idToken = await user?.getIdToken();
@@ -241,10 +307,105 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // returns fresh every render) so the memo below depends on the actual data
   // + the stable refresh callbacks, not the changing wrapper identity.
   const locationRequests = locationResource.data?.requests;
+  const receivedGrants = locationResource.data?.receivedGrants;
+  const myRecipientKey = locationResource.data?.myRecipientKey;
   const locationRefresh = locationResource.refresh;
   const connectionRequests = connectionsResource.data;
   const connectionsRefresh = connectionsResource.refresh;
   const consentItems = consentListResource.data?.items;
+
+  // SOS location remains end-to-end encrypted at rest. Only active SOS
+  // grants are opened here, while the recipient vault is unlocked. The
+  // decrypted coordinate exists only long enough to reverse-geocode it;
+  // Feed state retains the resulting human-readable address, never the
+  // plaintext point.
+  useEffect(() => {
+    const emergencies = (receivedGrants ?? []).filter(
+      isActiveSmsEmergencyGrant,
+    );
+
+    if (!userId || !vaultOwnerToken || emergencies.length === 0) {
+      setSmsEmergencyAddresses((current) =>
+        Object.keys(current).length === 0 ? current : {},
+      );
+      return;
+    }
+
+    let cancelled = false;
+
+    void Promise.all(
+      emergencies.map(async (grant) => {
+        try {
+          const response = await OneLocationService.viewEnvelope({
+            vaultOwnerToken,
+            grantId: grant.id,
+          });
+
+          let point;
+          try {
+            point = await decryptLocationEnvelope({
+              userId,
+              envelope: response.envelope,
+            });
+          } catch (decryptError) {
+            // Match the Location workspace recovery path: a new device
+            // may need to restore the vault-synced recipient key once.
+            if (
+              decryptError instanceof Error &&
+              decryptError.message === RECIPIENT_KEY_UNAVAILABLE_MESSAGE &&
+              vaultKey &&
+              myRecipientKey?.encryptedPrivateKeyJwk
+            ) {
+              await ensureVaultSyncedRecipientKey({
+                userId,
+                vaultKey,
+                remoteBackup: myRecipientKey,
+              });
+              point = await decryptLocationEnvelope({
+                userId,
+                envelope: response.envelope,
+              });
+            } else {
+              throw decryptError;
+            }
+          }
+
+          const place = await OneLocationService.reverseGeocode({
+            vaultOwnerToken,
+            lat: point.latitude,
+            lng: point.longitude,
+          });
+
+          const address =
+            place.formattedAddress?.trim() || place.name?.trim() || "";
+
+          return [grant.id, address] as const;
+        } catch {
+          // The emergency card must remain useful even while an envelope,
+          // key, or geocoder is temporarily unavailable.
+          return [grant.id, ""] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+
+      setSmsEmergencyAddresses(
+        Object.fromEntries(
+          entries.filter(([, address]) => Boolean(address)),
+        ),
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    myRecipientKey,
+    receivedGrants,
+    userId,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
 
   const actionables = useMemo<FeedActionable[]>(() => {
     if (!userId) return [];
@@ -255,6 +416,13 @@ export function useFeedActionables(): UseFeedActionablesResult {
     // one-tap approving; mirrors the prior consent inbox).
     if ((pendingConsentCount ?? 0) > 0) {
       for (const entry of consentItems ?? []) {
+        // Incoming connection requests reach this lane too — the Consent
+        // Center folds them into its `pending` surface from the very same
+        // ConnectionsService the connections lane below reads. Rendering both
+        // put one request in "Needs you" twice (a chevron-only consent row and
+        // the real one). The connections lane owns them: it carries the inline
+        // Confirm/Decline and the scoped Review route.
+        if (entry.kind === "connection_request") continue;
         items.push({
           id: `consent:${entry.id}`,
           icon: ShieldCheck,
@@ -280,9 +448,40 @@ export function useFeedActionables(): UseFeedActionablesResult {
       }
     }
 
-    // Location access requests — inline Approve (1h) / Deny.
+    // SMS · Save My Soul emergency alerts — a live share a contact started as an
+    // SOS. Rendered as pinned, emergency-styled cards at the very top of the feed
+    // so a safety alert is never buried under routine activity.
+    const smsEmergencies = (receivedGrants ?? []).filter(
+      isActiveSmsEmergencyGrant,
+    );
+    for (const grant of smsEmergencies) {
+      const label = grant.ownerDisplayName?.trim() || "A contact";
+      const emergencyMessage =
+        grant.shareMessage?.trim() ||
+        "Emergency SMS — sharing live location with you now.";
+      const lastKnownAddress = smsEmergencyAddresses[grant.id]?.trim();
+      items.push({
+        id: `sms-emergency:${grant.id}`,
+        icon: Siren,
+        iconTone: "red",
+        emphasis: "emergency",
+        title: `${label} triggered an SOS`,
+        description: lastKnownAddress
+          ? `${emergencyMessage} | Last known: ${lastKnownAddress}`
+          : emergencyMessage,
+        href: buildOneLocationNotificationHref(grant.id),
+        chevron: true,
+        actions: [],
+        sortAt: toTimestamp(grant.createdAt) || Date.now(),
+      });
+    }
+
+    // Location access requests — inline Approve (1h) / Deny. Only requests the
+    // viewer owns (and did not send) are actionable; outgoing requests must not
+    // surface here as a self-addressed "wants to see your location" card.
     const pendingLocation = (locationRequests ?? []).filter(
-      (request: OneLocationAccessRequest) => request.status === "pending",
+      (request: OneLocationAccessRequest) =>
+        isIncomingLocationRequestActionable(request, userId),
     );
     for (const request of pendingLocation) {
       const label = request.requesterDisplayName?.trim() || "Someone";
@@ -306,6 +505,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                 requestId: request.id,
               });
               if (userId) OneLocationStateResource.invalidate(userId);
+              notifyFeedActionResolved();
               await locationRefresh({ force: true });
             },
           },
@@ -322,6 +522,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                 durationHours: 1,
               });
               if (userId) OneLocationStateResource.invalidate(userId);
+              notifyFeedActionResolved();
               await locationRefresh({ force: true });
             },
           },
@@ -374,6 +575,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                     requestId: request.id,
                   });
                   CacheSyncService.onConnectionCapabilityMutated(userId);
+                  notifyFeedActionResolved();
                   await connectionsRefresh({ force: true });
                 },
               },
@@ -390,6 +592,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                     requestId: request.id,
                   });
                   CacheSyncService.onConnectionCapabilityMutated(userId);
+                  notifyFeedActionResolved();
                   await connectionsRefresh({ force: true });
                 },
               },
@@ -492,7 +695,14 @@ export function useFeedActionables(): UseFeedActionablesResult {
       });
     }
 
-    return items.sort((a, b) => b.sortAt - a.sortAt);
+    return items.sort((a, b) => {
+      // Emergency SMS alerts pin to the very top, then the rest stays in
+      // descending recency order.
+      const aEmergency = a.emphasis === "emergency" ? 1 : 0;
+      const bEmergency = b.emphasis === "emergency" ? 1 : 0;
+      if (aEmergency !== bEmergency) return bEmergency - aEmergency;
+      return b.sortAt - a.sortAt;
+    });
     // Depend on the resources' `data` + stable `refresh` (not the wrapper
     // objects, which useStaleResource returns fresh every render) so this memo
     // only recomputes when the underlying data actually changes — otherwise a
@@ -504,6 +714,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
     consentItems,
     debateState.tasks,
     locationRequests,
+    receivedGrants,
+    smsEmergencyAddresses,
     locationRefresh,
     openAnalysis,
     pendingConsentCount,

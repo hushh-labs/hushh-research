@@ -179,16 +179,30 @@ export function InsuranceAgentsNearby({
       />
 
       {error && !loading ? (
-        <QuietBlock title={error} testId="insurance-agents-error">
-          <Button
-            type="button"
-            variant="none"
-            effect="fill"
-            size="lg"
-            onClick={() => void runSearch(anchor, radiusMi, 0)}
-          >
-            Try again
-          </Button>
+        // Same reasoning as the advisers directory: keep the ZIP box reachable
+        // on a failure, or a bad ZIP is a dead end until the tab is remounted.
+        <QuietBlock
+          title={error}
+          subtitle="Try again, or search a different ZIP."
+          testId="insurance-agents-error"
+        >
+          <div className="flex w-full flex-col items-center gap-4">
+            <Button
+              type="button"
+              variant="none"
+              effect="fill"
+              size="lg"
+              onClick={() => void runSearch(anchor, radiusMi, 0)}
+            >
+              Try again
+            </Button>
+            <PostalCodeForm
+              busy={loading}
+              initialValue={anchor.kind === "postal" ? anchor.postalCode : ""}
+              onSearch={handlePostalCode}
+              testId="insurance-agents-postal-input"
+            />
+          </div>
         </QuietBlock>
       ) : null}
 

@@ -111,7 +111,13 @@
     "130_one_runtime_setup_choice.sql",
     "131_one_location_nearby_point_contract.sql",
     "132_one_wallet_card.sql",
-    "133_hussh_crm_response_contracts.sql"
+    "133_hussh_crm_response_contracts.sql",
+    "134_one_location_named_circles.sql",
+    "135_one_location_circle_connection_origins.sql",
+    "136_one_location_circle_member_invites.sql",
+    "137_ria_claim_dossiers.sql",
+    "138_circle_member_connection_origin.sql",
+    "139_ria_profile_brochure_provenance.sql"
   ],
   "groups": {
     "iam": [
@@ -177,7 +183,13 @@
       "130_one_runtime_setup_choice.sql",
       "131_one_location_nearby_point_contract.sql",
       "132_one_wallet_card.sql",
-      "133_hussh_crm_response_contracts.sql"
+      "133_hussh_crm_response_contracts.sql",
+      "134_one_location_named_circles.sql",
+      "135_one_location_circle_connection_origins.sql",
+      "136_one_location_circle_member_invites.sql",
+      "137_ria_claim_dossiers.sql",
+      "138_circle_member_connection_origin.sql",
+      "139_ria_profile_brochure_provenance.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

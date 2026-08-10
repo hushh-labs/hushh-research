@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   PkmDomainResourceService: {
@@ -647,7 +648,12 @@ describe("OneKycClientZkService", () => {
     expect(draft.body).toContain("Risk profile: Balanced");
     expect(draft.body).toContain("Investment horizon: Medium term");
     expect(draft.body).toContain("Drawdown response: Buy more");
-    expect(draft.body).toContain("Last updated: Mar 1, 2026");
+    expect(draft.body).toContain(
+      `Last updated: ${formatLocalDateTime("2026-03-01T18:49:42.147Z", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })}`,
+    );
     expect(draft.body).not.toContain("Financial profile\n\nFinancial profile");
     expect(draft.body).not.toContain("2026-03-01T18:49:42.147Z");
     expect(draft.body).not.toContain("onboarding");

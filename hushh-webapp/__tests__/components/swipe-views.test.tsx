@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EmblaCarouselType } from "embla-carousel";
 
@@ -148,8 +148,21 @@ describe("SwipeViews", () => {
     expect(embla.options).toMatchObject({
       duration: 16,
       dragThreshold: 6,
-      watchResize: false,
     });
+
+    // Resize watching stays ON so a stale container measurement can correct
+    // itself, but is scoped to the container: per-slide entries (streaming
+    // content changing height) must not re-trigger the horizontal engine.
+    const watchResize = embla.options?.watchResize as (
+      api: { containerNode: () => Element },
+      entries: { target: Element }[],
+    ) => boolean;
+    expect(typeof watchResize).toBe("function");
+    const containerNode = document.createElement("div");
+    const slideNode = document.createElement("div");
+    const apiStub = { containerNode: () => containerNode };
+    expect(watchResize(apiStub, [{ target: containerNode }])).toBe(true);
+    expect(watchResize(apiStub, [{ target: slideNode }])).toBe(false);
   });
 
   it("starts pane motion immediately when the shared top tab is pressed", () => {
@@ -269,5 +282,96 @@ describe("SwipeViews", () => {
     expect(
       watchDrag({ rootNode: () => nestedRoot }, { target: nestedTarget } as Event),
     ).toBe(true);
+  });
+
+  describe("viewport resize", () => {
+    // The engine measures width once. When the container narrows without the
+    // window changing — a vertical scrollbar appearing as pane content streams
+    // in — a window-only listener never fires, Embla keeps a stale width, and
+    // it translates by the wrong distance, leaving the previous pane clipped
+    // beside the selected one (the Memory /one/pkm report).
+    let observerCallback: ResizeObserverCallback | null = null;
+    let observed: Element | null = null;
+    let disconnected = false;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    const originalRaf = globalThis.requestAnimationFrame;
+
+    beforeEach(() => {
+      observerCallback = null;
+      observed = null;
+      disconnected = false;
+      globalThis.ResizeObserver = class {
+        constructor(callback: ResizeObserverCallback) {
+          observerCallback = callback;
+        }
+        observe(element: Element) {
+          observed = element;
+        }
+        disconnect() {
+          disconnected = true;
+        }
+        unobserve() {}
+      } as unknown as typeof ResizeObserver;
+      // Run rAF work synchronously so the debounce is deterministic.
+      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+      }) as typeof globalThis.requestAnimationFrame;
+    });
+
+    afterEach(() => {
+      globalThis.ResizeObserver = originalResizeObserver;
+      globalThis.requestAnimationFrame = originalRaf;
+    });
+
+    const emitWidth = (width: number) => {
+      observerCallback?.(
+        [{ contentRect: { width } } as unknown as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+    };
+
+    const renderPager = () =>
+      render(
+        <SwipeViews tabSetId="resize" activeValue="first" options={OPTIONS}>
+          <div>first panel content</div>
+          <div>second panel content</div>
+        </SwipeViews>,
+      );
+
+    it("observes the viewport element, not just the window", () => {
+      renderPager();
+      expect(observed).toBe(embla.rootNode);
+    });
+
+    it("re-initialises when the container width changes with no window resize", () => {
+      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockReturnValue({
+        width: 800,
+      } as DOMRect);
+      renderPager();
+      embla.reInit.mockClear();
+
+      emitWidth(785); // scrollbar appears; window.innerWidth never changes
+
+      expect(embla.reInit).toHaveBeenCalledTimes(1);
+    });
+
+    it("ignores height-only changes so streaming content does not re-init", () => {
+      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockReturnValue({
+        width: 800,
+      } as DOMRect);
+      renderPager();
+      embla.reInit.mockClear();
+
+      emitWidth(800); // taller content, identical width
+
+      expect(embla.reInit).not.toHaveBeenCalled();
+    });
+
+    it("disconnects the observer on unmount", () => {
+      const view = renderPager();
+      view.unmount();
+      expect(disconnected).toBe(true);
+    });
   });
 });

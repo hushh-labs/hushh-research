@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+import asyncio
+import logging
+import secrets
+from typing import Annotated, Any, Literal
 
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
@@ -11,9 +15,19 @@ from pydantic import BaseModel, Field, field_validator
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import limiter
 from api.routes.account import _verify_phone_claim_id_token
+from db.connection import get_pool
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityAliasError,
+    ActorIdentityService,
+)
 from hushh_mcp.services.consent_center_service import ConsentCenterService
+from hushh_mcp.services.ria_claim_email_service import queue_claim_verification_email
 from hushh_mcp.services.ria_claim_service import (
+    RIAClaimEmailError,
     RIAClaimService,
+    claim_test_code,
+    is_claim_test_email,
+    mask_email,
     normalize_nanp_phone,
     validate_claim_ticket,
     verify_test_possession,
@@ -23,6 +37,8 @@ from hushh_mcp.services.ria_iam_service import (
     RIAIAMPolicyError,
     RIAIAMService,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ria", tags=["RIA"])
 
@@ -779,7 +795,28 @@ async def ria_claim_otp_start(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
-async def _prove_claim_possession(payload: RIAClaimVerifyRequest, phone_digits: str) -> str:
+async def _account_phone_matches(firebase_uid: str, phone_digits: str) -> bool:
+    """True when this account's already-verified phone IS the number being claimed.
+
+    The phone mandate verifies possession of the account's number and records it
+    server-side. When an adviser then claims the same number, asking for a second
+    passcode proves nothing the backend does not already hold. This reads our own
+    record — never anything the browser asserts — so the possession model is
+    unchanged.
+    """
+    try:
+        identity = (await ActorIdentityService().get_many([firebase_uid])).get(firebase_uid) or {}
+    except Exception:  # noqa: BLE001 - identity cache is advisory here; fail closed
+        return False
+    if identity.get("phone_verified") is not True:
+        return False
+    stored: str = normalize_nanp_phone(str(identity.get("phone_number") or ""))
+    return bool(stored) and stored == phone_digits
+
+
+async def _prove_claim_possession(
+    payload: RIAClaimVerifyRequest, phone_digits: str, firebase_uid: str
+) -> str:
     """Return the proof channel after verifying possession, or raise 401."""
     if payload.phone_id_token:
         token_phone, _session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
@@ -802,6 +839,11 @@ async def _prove_claim_possession(payload: RIAClaimVerifyRequest, phone_digits: 
                 "message": "That code didn't work. Check it and try again.",
             },
         )
+    # No passcode supplied: accept the account's own verified phone when it is
+    # the number being claimed. This is what removes the second passcode from
+    # the journey for an adviser who just verified that exact line.
+    if await _account_phone_matches(firebase_uid, phone_digits):
+        return "verified_account_phone"
     raise HTTPException(
         status_code=422,
         detail={
@@ -821,7 +863,7 @@ async def ria_claim_verify(
     phone_digits = normalize_nanp_phone(payload.phone)
     if not phone_digits:
         raise HTTPException(status_code=400, detail="Enter a valid US phone number.")
-    proof_channel = await _prove_claim_possession(payload, phone_digits)
+    proof_channel = await _prove_claim_possession(payload, phone_digits, firebase_uid)
     service = RIAClaimService()
     try:
         result = await service.evaluate_with_possession(
@@ -868,3 +910,325 @@ async def ria_claim_complete(
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Claim email upgrade: verify a work-email alias on the claimed firm's own
+# domain, then re-run the upstream evaluation with the extra evidence. The
+# plaintext code travels only from the identity service to the mail queue —
+# it never appears in any HTTP response.
+# ---------------------------------------------------------------------------
+
+
+class RIAClaimEmailStartRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+
+class RIAClaimEmailConfirmRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    code: str = Field(min_length=1, max_length=16)
+
+
+@router.post("/claim/email/start")
+@limiter.limit("20/minute")
+async def ria_claim_email_start(
+    payload: RIAClaimEmailStartRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = RIAClaimService()
+    try:
+        prepared = await service.prepare_email_verification(firebase_uid, payload.email)
+    except RIAClaimEmailError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    try:
+        alias_result = await ActorIdentityService().request_email_alias_verification(
+            user_id=firebase_uid,
+            email=prepared["email"],
+            verification_source="user_verified",
+            source_ref="ria_claim_email",
+            include_plaintext_code=True,
+        )
+    except ActorIdentityAliasError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+    # Route-internal handoff: pop the plaintext so it cannot leak into the
+    # response, and give it only to the mail sender.
+    code_plaintext = alias_result.pop("verification_code_plaintext", None)
+    if alias_result.get("already_verified"):
+        return {"status": "already_verified", "email_masked": prepared["email_masked"]}
+
+    delivery = await queue_claim_verification_email(
+        target_email=prepared["email"],
+        verification_code=str(code_plaintext or ""),
+        firm_name=prepared.get("firm_name"),
+    )
+    if delivery.get("delivery_status") != "queued":
+        # Best-effort mail: the alias ceremony stands, the client may retry.
+        return JSONResponse(
+            status_code=502,
+            content={"status": "send_failed", "email_masked": prepared["email_masked"]},
+        )
+    return {"status": "sent", "email_masked": prepared["email_masked"]}
+
+
+@router.post("/claim/email/confirm")
+@limiter.limit("20/minute")
+async def ria_claim_email_confirm(
+    payload: RIAClaimEmailConfirmRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    # Demo fallback (never production): an allowlisted address may also confirm
+    # with the fixed claim test code, so the badge journey stays walkable when
+    # mail delivery is unavailable. The real emailed code always works too.
+    test_code = claim_test_code()
+    test_code_accepted = bool(
+        test_code
+        and is_claim_test_email(payload.email)
+        and secrets.compare_digest(str(payload.code or "").strip(), test_code)
+    )
+    try:
+        await ActorIdentityService().confirm_email_alias_verification(
+            user_id=firebase_uid,
+            email=payload.email,
+            verification_code=payload.code,
+            accept_without_code=test_code_accepted,
+        )
+    except ActorIdentityAliasError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+    service = RIAClaimService()
+    try:
+        result = await service.upgrade_with_email_evidence(firebase_uid, email=payload.email)
+    except RIAClaimEmailError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    except IAMSchemaNotReadyError:
+        return _iam_schema_not_ready_response()
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return {
+        "verified": bool(result.get("verified")),
+        "verification_status": str(result.get("verification_status") or ""),
+        "verification_level": result.get("verification_level"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Claim dossier: the background scan row a verified claim dispatched. Own row
+# only; a failed scan or send is visible and retryable, never silent.
+# ---------------------------------------------------------------------------
+
+
+_DOSSIER_RETRYABLE_STATUSES = ("scan_failed", "send_failed", "send_blocked_test_unset")
+_DOSSIER_MAIL_STATUSES = {
+    "sent": "sent",
+    "send_failed": "failed",
+    "send_blocked_test_unset": "blocked",
+    "blocked_no_email": "blocked",
+}
+
+
+async def _fetch_own_dossier_row(conn: Any, user_id: str, *, for_update: bool = False) -> Any:
+    """Latest dossier row belonging to the caller — never anyone else's."""
+    query = """
+        SELECT id, status, scan_id, result_summary, result_markdown, requested_at,
+               completed_at, mail_recipient, mail_intended_recipient
+        FROM ria_claim_dossiers
+        WHERE user_id = $1
+        ORDER BY requested_at DESC, id DESC
+        LIMIT 1
+    """
+    if for_update:
+        query += " FOR UPDATE"
+    return await conn.fetchrow(query, user_id)
+
+
+def _shape_dossier_row(row: Any) -> dict[str, Any]:
+    """Own-row projection: status, result, and the mail outcome — no internals."""
+    status = str(row["status"] or "")
+    recipient = str(row["mail_intended_recipient"] or row["mail_recipient"] or "")
+    requested_at = row["requested_at"]
+    completed_at = row["completed_at"]
+    return {
+        "status": status,
+        "summary": row["result_summary"],
+        "markdown": row["result_markdown"],
+        "requested_at": requested_at.isoformat() if requested_at else None,
+        "completed_at": completed_at.isoformat() if completed_at else None,
+        "mail": {
+            "status": _DOSSIER_MAIL_STATUSES.get(status, "pending"),
+            "recipient_masked": mask_email(recipient) if recipient else None,
+        },
+    }
+
+
+async def _load_dossier_claim_context(user_id: str) -> dict[str, Any] | None:
+    """Latest persisted claim snapshot — the worker's re-dispatch input."""
+    try:
+        # Route-internal reuse of the claim service's own snapshot loader.
+        context = await RIAClaimService()._load_claim_context(user_id)
+    except Exception:  # noqa: BLE001 - a missing snapshot is a 409, never a 500
+        return None
+    return context if isinstance(context, dict) else None
+
+
+def _redispatch_dossier(*, dossier_id: int, user_id: str, context: dict[str, Any]) -> None:
+    """Spawn the dossier worker again for an already-claimed row."""
+    from hushh_mcp.services import ria_dossier_service
+
+    metadata_raw = context.get("metadata")
+    metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
+    service = ria_dossier_service.RIADossierService()
+    task = asyncio.create_task(
+        service._run_worker(
+            dossier_id=dossier_id,
+            user_id=user_id,
+            ria_profile_id=str(context.get("ria_profile_id") or ""),
+            claim_type=str(metadata.get("claim_type") or ""),
+            reference_metadata=metadata,
+        )
+    )
+    ria_dossier_service._track_background_task(task)
+
+
+# Dossier rows whose poll this instance is already resuming, so a page that
+# reloads twice does not stack workers on one row.
+_DOSSIER_RESUMING: set[int] = set()
+
+
+async def _resume_stalled_dossier(row: Any, user_id: str) -> None:
+    """Re-enter the poll for a row left mid-scan, if one is stalled.
+
+    The worker is an in-process background task on a CPU-throttled Cloud Run
+    service: once an instance stops receiving requests its CPU is withdrawn,
+    the poll freezes mid-flight, and the row is stranded in `scanning` forever
+    with the scan itself finishing perfectly well upstream. The read that
+    renders the card is a request, so it is also the thing that can revive the
+    poll — the scan id is already durable on the row, so resuming costs one
+    poll rather than a new scan.
+    """
+    if str(row["status"] or "") != "scanning" or row["completed_at"] is not None:
+        return
+    scan_id = str(row["scan_id"] or "").strip()
+    dossier_id = int(row["id"])
+    if not scan_id or dossier_id in _DOSSIER_RESUMING:
+        return
+    context = await _load_dossier_claim_context(user_id)
+    if context is None:
+        return
+
+    from hushh_mcp.services import ria_dossier_service
+
+    metadata_raw = context.get("metadata")
+    metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
+    service = ria_dossier_service.RIADossierService()
+    _DOSSIER_RESUMING.add(dossier_id)
+
+    async def _run() -> None:
+        try:
+            await service._run_worker(
+                dossier_id=dossier_id,
+                user_id=user_id,
+                ria_profile_id=str(context.get("ria_profile_id") or ""),
+                claim_type=str(metadata.get("claim_type") or ""),
+                reference_metadata=metadata,
+                resume_scan_id=scan_id,
+            )
+        finally:
+            _DOSSIER_RESUMING.discard(dossier_id)
+
+    ria_dossier_service._track_background_task(asyncio.create_task(_run()))
+
+
+@router.get("/dossier")
+@limiter.limit("20/minute")
+async def ria_dossier_status(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """The caller's own dossier row; 404 until a verified claim creates one."""
+    _ = request
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            row = await _fetch_own_dossier_row(conn, firebase_uid)
+    except asyncpg.UndefinedTableError:
+        row = None
+    if row is None:
+        raise HTTPException(status_code=404, detail="No dossier yet.")
+    try:
+        await _resume_stalled_dossier(row, firebase_uid)
+    except Exception:  # noqa: BLE001 - reviving the poll never fails the read
+        logger.warning("ria.dossier_resume_failed", exc_info=True)
+    return _shape_dossier_row(row)
+
+
+@router.post("/dossier/retry")
+@limiter.limit("20/minute")
+async def ria_dossier_retry(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Flip a failed dossier back to queued and re-run the worker.
+
+    Allowed only from the visible failure states; the flip happens under
+    FOR UPDATE so a double-tap re-dispatches exactly once.
+    """
+    _ = request
+    context = await _load_dossier_claim_context(firebase_uid)
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await _fetch_own_dossier_row(conn, firebase_uid, for_update=True)
+                if row is None:
+                    raise HTTPException(status_code=404, detail="No dossier yet.")
+                status = str(row["status"] or "")
+                if status not in _DOSSIER_RETRYABLE_STATUSES:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "DOSSIER_NOT_RETRYABLE",
+                            "message": "Only a failed dossier can be retried.",
+                        },
+                    )
+                if context is None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "CLAIM_CONTEXT_MISSING",
+                            "message": "Claim your profile before retrying the dossier.",
+                        },
+                    )
+                await conn.execute(
+                    """
+                    UPDATE ria_claim_dossiers
+                    SET status = 'queued', error = NULL, completed_at = NULL
+                    WHERE id = $1
+                    """,
+                    row["id"],
+                )
+    except asyncpg.UndefinedTableError:
+        raise HTTPException(status_code=404, detail="No dossier yet.") from None
+    _redispatch_dossier(dossier_id=int(row["id"]), user_id=firebase_uid, context=context)
+    shaped = _shape_dossier_row(row)
+    shaped["status"] = "queued"
+    shaped["completed_at"] = None
+    shaped["mail"]["status"] = "pending"
+    return shaped

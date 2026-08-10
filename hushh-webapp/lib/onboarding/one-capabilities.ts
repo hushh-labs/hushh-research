@@ -18,6 +18,7 @@ import {
   ONE_SETUP_CAPABILITY_IDS,
   type OneSetupCapabilityId,
 } from "@/lib/onboarding/setup-capability-ids";
+import { ONE_CAPABILITY_ICON_CLASS_BY_TONE } from "@/lib/design/agent-theme-registry";
 
 export {
   ONE_SETUP_CAPABILITY_IDS,
@@ -306,30 +307,7 @@ export function getOneCapability(id: string): OneCapability | undefined {
  */
 // Class strings are written out in full (not built from a hex variable) so
 // Tailwind's static content scanner can find and generate each utility.
-export const ONE_CAPABILITY_ICON_CLASS_BY_TONE: Record<
-  OneCapabilityTone,
-  string
-> = {
-  // One color guidelines — soft premium palette (see the "One — Color
-  // Guidelines" spec). Each tone maps to its named token.
-  // Finance: Lavender Mist.
-  finance: "bg-[#B85CF6] text-[#1d1d1f] dark:text-white",
-  // RIA: Sky Blue.
-  ria: "bg-[#60A5FA] text-[#1d1d1f] dark:text-white",
-  // Gmail renders its own full-color brand mark (see GmailBrandIcon) on a clean
-  // Cloud White tile, so the logo's colors read cleanly.
-  gmail: "bg-white text-[#1d1d1f]",
-  // Email: Mint Teal.
-  email: "bg-[#14B8A6] text-[#1d1d1f] dark:text-white",
-  // Location: Sage Green.
-  location: "bg-[#A7D7A1] text-[#1d1d1f] dark:text-white",
-  // Memory (saved knowledge) + Information Marketplace preview: Lavender Mist.
-  pkm: "bg-[#B85CF6] text-[#1d1d1f] dark:text-white",
-  // Consent: Warm Gold (matches the shield motif).
-  consent: "bg-[#C8923A] text-[#1d1d1f] dark:text-white",
-  // Connected Systems: Slate Blue-Gray.
-  connected: "bg-[#94A3B8] text-[#1d1d1f] dark:text-white",
-};
+export { ONE_CAPABILITY_ICON_CLASS_BY_TONE };
 
 export function isOneCapabilityEnabled(capability: OneCapability | string | undefined | null): boolean {
   const resolved =

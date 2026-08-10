@@ -569,6 +569,55 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/circle/join",
+      "page_file": "app/circle/join/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Public Circle join landing route reads the invite code from the query string and redirects into the in-app Join-with-code flow; it owns no signed-in app shell of its own.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.circle.join",
+          "purpose": "Help the person understand and use the circle join screen through its generated controls.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/connected-systems",
       "page_file": "app/connected-systems/page.tsx",
       "physical_page_exists": true,
@@ -3849,11 +3898,56 @@
         "shared_loader": true,
         "back_button_pattern": "route-local-check-required"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
+      "voice_action_contract_file": "app/one/location/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "location.open_activity",
+        "location.open_compose",
+        "location.refresh"
+      ],
+      "api_dependencies": [
+        {
+          "service_file": "lib/one-location/service.ts",
+          "service_methods": [
+            "getState",
+            "listCircles",
+            "getCircle",
+            "createNamedCircle",
+            "updateNamedCircle",
+            "deleteNamedCircle",
+            "createNamedCircleInviteCode",
+            "revokeNamedCircleInviteCode",
+            "resolveNamedCircleCode",
+            "joinNamedCircle",
+            "removeNamedCircleMember",
+            "leaveNamedCircle",
+            "listNamedCircleEligibleConnections",
+            "createNamedCircleMemberInvites",
+            "listNamedCircleMemberInvites",
+            "acceptNamedCircleMemberInvite",
+            "declineNamedCircleMemberInvite",
+            "cancelNamedCircleMemberInvite",
+            "addSmsContact",
+            "removeSmsContact"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/one/location/{circles,circle-codes,circle-member-invites,sms-contacts}/*",
+          "native_transport": "CapacitorHttp direct backend via the shared One Location service"
+        }
+      ],
+      "native_plugin_dependencies": [
+        {
+          "package": "@capacitor/share",
+          "integration": "Native iOS and Android share sheets for text-only Circle invite codes; code values never enter URLs"
+        }
+      ],
+      "thread_and_consent_contract": {
+        "membership_authority": "Circle join creates source-aware connections with active members, but never creates a trusted edge, SMS selection, location grant, envelope, or capability",
+        "location_authority": "Every live-location share remains recipient-specific, encrypted, duration-bounded, and explicitly confirmed",
+        "circle_targeting_authority": "Share and Check-In expand only the explicitly selected Circle's current ready members; SMS adds an explicit current-member snapshot, and future members are never auto-selected",
+        "circle_invitation_authority": "Every active member may share the shared Circle code or invite their own direct connections; invitees still accept, while rotation, revocation, rename, removal, and deletion remain owner-governed",
+        "invite_code_storage": "Active members may re-read the shared code under private no-store responses; only its keyed digest and derivation version persist, and raw codes never enter URLs or durable client storage"
+      }
     },
     {
       "route": "/one/location/invite/[token]",
@@ -6231,7 +6325,7 @@
           "playbook_id": "route.one.setup.connections",
           "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.",
           "screen": "one_setup_connections",
-          "entry_cue": "Choose Hushh managed Gemini now, or record BYOK and add the encrypted key after setup.",
+          "entry_cue": "Choose Hussh managed Gemini now, or record BYOK and add the encrypted key after setup.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.finish_connections",
           "happy_path_action_ids": [
@@ -8006,5 +8100,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "a3e8d8d59fd9082029f159d8f5225575ac595f02972eb33d9b2648ae8569a7ef"
+  "content_sha256": "68186d0a8b8da194f16659c12b0801a6a8daae6c89c78a4b865ed886674760c0"
 }

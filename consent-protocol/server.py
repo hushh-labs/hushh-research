@@ -55,6 +55,11 @@ def _require_database_on_startup() -> bool:
     return _is_production()
 
 
+# Tables the process refuses to start without. Every entry must still exist once
+# all migrations have run; a stale entry here is not a failing check but a
+# backend that cannot boot. test_server_startup_guards.py enforces that, because
+# the predeploy schema gate only knows about tables named in the DB contract and
+# so cannot catch a guard entry that no longer has a table behind it.
 REQUIRED_RUNTIME_TABLES = (
     "vault_keys",
     "vault_key_wrappers",
@@ -62,6 +67,11 @@ REQUIRED_RUNTIME_TABLES = (
     "user_push_tokens",
     "internal_access_events",
     "runtime_persona_state",
+    "one_location_circles",
+    "one_location_circle_memberships",
+    "one_location_circle_invite_codes",
+    "connection_origins",
+    "one_location_circle_member_invites",
     "connection_scope_proposals",
     "connection_scope_proposal_events",
 )
@@ -394,6 +404,35 @@ logger.info(
 # that the guard reuses the already-warm pool instead of paying cold-start
 # connection cost a second time.
 # ============================================================================
+
+
+@app.on_event("startup")
+async def startup_widen_default_executor() -> None:
+    """Give the asyncio default thread-pool executor more room.
+
+    Why this exists
+    ----------------
+    Every synchronous SQLAlchemy DB call in this process (and
+    `asyncio.to_thread` calls like the one_location agent tools use) runs on
+    the SAME default executor asyncio itself uses for things like DNS
+    resolution (`loop.getaddrinfo`, which the `websockets` client uses to
+    connect out to the Gemini Live API). Python's default pool size --
+    `min(32, cpu_count + 4)` -- is easily saturated by concurrent blocking DB
+    work under load, at which point an unrelated, otherwise-instant operation
+    like that DNS lookup queues behind it and can time out. Observed directly:
+    a live voice session's outbound Gemini Live handshake failed with
+    "TimeoutError: timed out during opening handshake" at getaddrinfo, at the
+    exact moment two DB-heavy endpoints were each taking 40-50s. Widening the
+    pool doesn't fix the underlying DB cost, but it stops unrelated quick
+    executor work from being starved behind it.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    max_workers = int(os.getenv("ASYNCIO_DEFAULT_EXECUTOR_MAX_WORKERS", "64"))
+    asyncio.get_running_loop().set_default_executor(
+        ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="asyncio-default")
+    )
+    logger.info("startup.asyncio_default_executor_widened max_workers=%d", max_workers)
 
 
 @app.on_event("startup")

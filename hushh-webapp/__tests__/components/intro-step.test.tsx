@@ -73,7 +73,7 @@ describe("IntroStep voice contract", () => {
   it("keeps the root public navigation to Research, Blog, and Developers", () => {
     render(<IntroStep onLogin={vi.fn()} />);
 
-    const publicNav = screen.getByRole("navigation", { name: "Explore Hushh" });
+    const publicNav = screen.getByRole("navigation", { name: "Explore Hussh" });
     expect(publicNav.querySelectorAll("a")).toHaveLength(3);
     expect(screen.getByRole("link", { name: "Research" })).toHaveAttribute(
       "href",

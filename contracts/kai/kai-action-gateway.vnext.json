@@ -6,6 +6,7 @@
     "hushh-webapp/app/login/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
     "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
+    "hushh-webapp/app/one/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/connected-systems/page.voice-action-contract.json",
@@ -136,6 +137,31 @@
         },
         "speaker_persona": "kyc",
         "delegate_agent_id": "agent_kyc"
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_location",
+      "surface_title": "Location",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/location/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one",
+        "guard_ids": [
+          "auth_signed_in"
+        ]
       },
       "orchestration": {
         "instruction_id": null,
@@ -3150,6 +3176,316 @@
             "type": "action",
             "action_id": "kyc.draft.reject",
             "label": "Reject response draft",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_compose",
+      "surface_id": "one_location",
+      "label": "Open location sharing",
+      "aliases": [
+        "share tab",
+        "compose tab",
+        "open sharing",
+        "location sharing"
+      ],
+      "search_keywords": [
+        "share",
+        "compose",
+        "location"
+      ],
+      "meaning": "Shows the compose tab, where a location share is set up and sent.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.open_compose"
+      },
+      "control_ids": [
+        "one-location-tab-compose"
+      ],
+      "state_exposure": [
+        "active location tab"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_compose",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_compose",
+            "label": "Open location sharing",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.open_activity",
+      "surface_id": "one_location",
+      "label": "Open location activity",
+      "aliases": [
+        "activity tab",
+        "location activity",
+        "requests",
+        "who can see me"
+      ],
+      "search_keywords": [
+        "activity",
+        "requests",
+        "grants",
+        "location"
+      ],
+      "meaning": "Shows the activity tab, which lists shares, incoming requests and grants.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.open_activity"
+      },
+      "control_ids": [
+        "one-location-tab-activity"
+      ],
+      "state_exposure": [
+        "active location tab",
+        "pending request count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.open_activity",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.open_activity",
+            "label": "Open location activity",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.refresh",
+      "surface_id": "one_location",
+      "label": "Refresh location",
+      "aliases": [
+        "refresh location",
+        "reload location",
+        "update location"
+      ],
+      "search_keywords": [
+        "refresh",
+        "reload",
+        "location"
+      ],
+      "meaning": "Reloads location sharing state so shares, requests and grants are current.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.refresh"
+      },
+      "control_ids": [
+        "one-location-refresh"
+      ],
+      "state_exposure": [
+        "location data state"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.refresh",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.refresh",
+            "label": "Refresh location",
             "failure_behavior": "stop"
           }
         ],
@@ -11474,7 +11810,7 @@
         "key",
         "setup"
       ],
-      "meaning": "Opens AI access setup so the person can choose Hushh managed Gemini or validate and protect their own Gemini access.",
+      "meaning": "Opens AI access setup so the person can choose Hussh managed Gemini or validate and protect their own Gemini access.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

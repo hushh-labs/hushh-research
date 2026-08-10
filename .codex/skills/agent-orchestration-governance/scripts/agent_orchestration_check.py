@@ -376,7 +376,7 @@ def validate_bacterial_architecture_contract(root: Path, errors: list[str]) -> N
     doctrine_text = doctrine_path.read_text(encoding="utf-8")
     for marker in [
         "Project-Wide Bacterial Software Architecture Gate",
-        str(BACTERIAL_ARCHITECTURE_RELATIVE_PATH),
+        BACTERIAL_ARCHITECTURE_RELATIVE_PATH.as_posix(),
         "`gene`",
         "`operon`",
         "`organ`",
@@ -400,7 +400,7 @@ def validate_bacterial_architecture_contract(root: Path, errors: list[str]) -> N
     linked_contracts = {
         persona_path: [
             "Bacterial Engineering Instinct",
-            str(BACTERIAL_ARCHITECTURE_RELATIVE_PATH.relative_to("docs")),
+            BACTERIAL_ARCHITECTURE_RELATIVE_PATH.relative_to("docs").as_posix(),
             "Every line must earn its cost",
             "could someone “yoink”",
             "`gene`",
@@ -467,8 +467,9 @@ def validate_delegation_policies(root: Path, errors: list[str]) -> None:
             continue
         if policy.get("auto_spawn_read_only_evidence_lanes") is not True:
             errors.append(f"{path}: delegation_policy must explicitly enable read-only evidence lanes")
-        if policy.get("router") != str(DELEGATION_ROUTER_RELATIVE_PATH):
-            errors.append(f"{path}: delegation_policy.router must point to {DELEGATION_ROUTER_RELATIVE_PATH}")
+        expected_router = DELEGATION_ROUTER_RELATIVE_PATH.as_posix()
+        if policy.get("router") != expected_router:
+            errors.append(f"{path}: delegation_policy.router must point to {expected_router}")
         phase_checkpoints = policy.get("phase_checkpoints")
         if phase_checkpoints != ["start", "mid"]:
             errors.append(f"{path}: delegation_policy.phase_checkpoints must equal ['start', 'mid']")

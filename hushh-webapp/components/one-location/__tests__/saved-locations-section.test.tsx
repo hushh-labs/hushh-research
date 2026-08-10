@@ -72,6 +72,42 @@ vi.mock("@/lib/one-location/service", () => ({
   },
 }));
 
+vi.mock("@/components/one-location/onboarding/location-picker-map", () => ({
+  LocationPickerMap: ({
+    onConfirm,
+    onCancel,
+    confirmLabel,
+    cancelLabel,
+  }: {
+    onConfirm: (picked: {
+      latitude: number;
+      longitude: number;
+      address: string;
+    }) => void;
+    onCancel: () => void;
+    confirmLabel: string;
+    cancelLabel: string;
+  }) => (
+    <div aria-label="Mock location picker">
+      <button
+        type="button"
+        onClick={() =>
+          onConfirm({
+            latitude: 28.6139,
+            longitude: 77.209,
+            address: "Kartavya Path, New Delhi, Delhi 110001, India",
+          })
+        }
+      >
+        {confirmLabel}
+      </button>
+      <button type="button" onClick={onCancel}>
+        {cancelLabel}
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock("sonner", () => ({
   toast: {
     success: vi.fn(),
@@ -94,6 +130,16 @@ const HOME = {
   longitude: 77.5929,
   address: "Kasturba Road, Bengaluru",
   savedAt: "2026-07-26T00:00:00.000Z",
+};
+
+// The coordinate + address the mocked LocationPickerMap confirms with, so
+// duplicate-gate tests can seed a saved place at the exact pinned entrance.
+const PICKED_ENTRANCE_ADDRESS = "Kartavya Path, New Delhi, Delhi 110001, India";
+const HOME_AT_PICKED_PIN = {
+  ...HOME,
+  latitude: 28.6139,
+  longitude: 77.209,
+  address: PICKED_ENTRANCE_ADDRESS,
 };
 
 describe("SavedLocationsSection", () => {
@@ -218,7 +264,7 @@ describe("SavedLocationsSection", () => {
     });
 
     expect(
-      screen.queryByRole("dialog", { name: /save this place/i }),
+      screen.queryByTestId("save-location-modal"),
     ).not.toBeInTheDocument();
     expect(mocks.reverseGeocode).not.toHaveBeenCalled();
   });
@@ -255,7 +301,9 @@ describe("SavedLocationsSection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /add place/i }));
     expect(
-      await screen.findByRole("dialog", { name: /save this place/i }),
+      await screen.findByRole("dialog", {
+        name: /pin your entrance|before google maps opens/i,
+      }),
     ).toBeInTheDocument();
     await waitFor(() =>
       expect(mocks.reverseGeocode).toHaveBeenCalledWith({
@@ -265,6 +313,14 @@ describe("SavedLocationsSection", () => {
       }),
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+    expect(
+      await screen.findByRole("heading", { name: "Add your address details" }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+      target: { value: "Flat 4B, Tower 2" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
     fireEvent.click(screen.getByRole("button", { name: /save location/i }));
 
@@ -278,22 +334,33 @@ describe("SavedLocationsSection", () => {
         input: {
           category: "home",
           label: "",
-          latitude: 12.9763,
-          longitude: 77.5929,
-          address: "Kasturba Road, Bengaluru",
+          latitude: 28.6139,
+          longitude: 77.209,
+          // buildSavedLocationAddress folds the entrance details into the
+          // pinned map address (postal code already present, so not repeated).
+          address: `Flat 4B, Tower 2, ${PICKED_ENTRANCE_ADDRESS}`,
         },
       }),
     );
   });
 
   it("reminds the owner and blocks a duplicate category before persistence", async () => {
+    mocks.loadSavedLocations.mockResolvedValueOnce([HOME_AT_PICKED_PIN]);
     render(<SavedLocationsSection />);
-    await screen.findByText("Kasturba Road, Bengaluru");
+    await screen.findByText(PICKED_ENTRANCE_ADDRESS);
 
     fireEvent.click(screen.getByRole("button", { name: /add place/i }));
     expect(
-      await screen.findByRole("dialog", { name: /save this place/i }),
+      await screen.findByRole("dialog", {
+        name: /pin your entrance|before google maps opens/i,
+      }),
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+    await screen.findByRole("heading", { name: "Add your address details" });
+
+    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+      target: { value: "Flat 4B" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
     fireEvent.click(screen.getByRole("button", { name: /save location/i }));
 
@@ -302,7 +369,7 @@ describe("SavedLocationsSection", () => {
       "This place is already saved as Home. Choose a different place or remove it first.",
     );
     expect(
-      screen.getByRole("dialog", { name: /save this place/i }),
+      screen.getByRole("dialog", { name: "Add your address details" }),
     ).toBeInTheDocument();
   });
 
@@ -317,7 +384,15 @@ describe("SavedLocationsSection", () => {
     await screen.findByText(/no saved places yet/i);
 
     fireEvent.click(screen.getByRole("button", { name: /add place/i }));
-    await screen.findByRole("dialog", { name: /save this place/i });
+    await screen.findByRole("dialog", {
+      name: /pin your entrance|before google maps opens/i,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+    await screen.findByRole("heading", { name: "Add your address details" });
+
+    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+      target: { value: "Flat 4B" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
     fireEvent.click(screen.getByRole("button", { name: /save location/i }));
 
@@ -327,7 +402,7 @@ describe("SavedLocationsSection", () => {
       ),
     );
     expect(
-      screen.getByRole("dialog", { name: /save this place/i }),
+      screen.getByRole("dialog", { name: "Add your address details" }),
     ).toBeInTheDocument();
   });
 

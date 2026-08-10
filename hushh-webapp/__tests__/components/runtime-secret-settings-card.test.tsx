@@ -195,7 +195,7 @@ describe("RuntimeSecretSettingsCard", () => {
     );
 
     const toggle = await screen.findByRole("switch", {
-      name: "Use Hushh managed Gemini",
+      name: "Use Hussh managed Gemini",
     });
     fireEvent.click(toggle);
 
@@ -211,7 +211,7 @@ describe("RuntimeSecretSettingsCard", () => {
     );
   });
 
-  it("defaults to Hushh managed Gemini when no runtime mode is saved", async () => {
+  it("defaults to Hussh managed Gemini when no runtime mode is saved", async () => {
     vi.spyOn(PersonalKnowledgeModelService, "loadRuntimeSecret").mockResolvedValue(null);
 
     render(
@@ -227,12 +227,12 @@ describe("RuntimeSecretSettingsCard", () => {
     );
 
     const toggle = await screen.findByRole("switch", {
-      name: "Use Hushh managed Gemini",
+      name: "Use Hussh managed Gemini",
     });
     expect((toggle as HTMLButtonElement).getAttribute("aria-checked")).toBe("true");
   });
 
-  it("lets users update the Gemini key while Hushh managed Gemini is selected", async () => {
+  it("lets users update the Gemini key while Hussh managed Gemini is selected", async () => {
     vi.spyOn(PersonalKnowledgeModelService, "loadRuntimeSecret").mockImplementation(
       async ({ credentialRef }) => {
         if (credentialRef === GEMINI_RUNTIME_CREDENTIAL_REF) {

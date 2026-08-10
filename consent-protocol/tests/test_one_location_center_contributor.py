@@ -73,6 +73,63 @@ def test_pending_owner_request_maps_to_requests():
     assert entry["metadata"]["section"] == "approvals"
 
 
+def test_pending_circle_member_invite_maps_to_requests_without_location_authority():
+    state = {
+        "circleMemberInvites": [
+            {
+                "id": "invite_1",
+                "circleId": "circle_1",
+                "circleName": "Hushh Family",
+                "circleKind": "family",
+                "inviterUserId": "user_b",
+                "inviterDisplayName": "Bob",
+                "inviteeUserId": "user_a",
+                "status": "pending",
+                "createdAt": "2030-01-01T00:00:00Z",
+                "expiresAt": "2030-01-08T00:00:00Z",
+            }
+        ],
+    }
+
+    buckets = _contributor(state).collect("user_a")
+
+    assert len(buckets["incoming_requests"]) == 1
+    entry = buckets["incoming_requests"][0]
+    assert entry["id"] == "one_location_circle_member_invite:invite_1"
+    assert entry["kind"] == "invite"
+    assert entry["scope"] is None
+    assert entry["action"] == "CIRCLE_MEMBER_INVITED"
+    assert entry["request_url"] == ("/one/location?tab=people&circleInviteId=invite_1")
+    assert entry["metadata"] == {
+        "request_source": "one_location_circle_member_invite",
+        "workflow_kind": "circle_membership",
+        "section": "people",
+        "invite_id": "invite_1",
+        "circle_id": "circle_1",
+        "circle_name": "Hushh Family",
+        "circle_kind": "family",
+        "requester_label": "Bob",
+    }
+    assert "grant_id" not in entry["metadata"]
+    assert "sms" not in entry["metadata"]
+
+
+def test_circle_member_invite_for_another_user_is_not_projected():
+    state = {
+        "circleMemberInvites": [
+            {
+                "id": "invite_1",
+                "inviteeUserId": "user_b",
+                "status": "pending",
+            }
+        ],
+    }
+
+    buckets = _contributor(state).collect("user_a")
+
+    assert buckets["incoming_requests"] == []
+
+
 def test_revoked_grant_maps_to_history():
     state = {
         "receivedGrants": [
@@ -114,6 +171,20 @@ def test_counts_reflect_buckets():
     assert counts["pending"] == 1
     assert counts["active"] == 1
     assert counts["previous"] == 1
+
+
+def test_counts_include_pending_circle_member_invites():
+    state = {
+        "circleMemberInvites": [
+            {
+                "id": "invite_1",
+                "inviteeUserId": "user_a",
+                "status": "pending",
+            }
+        ],
+    }
+
+    assert _contributor(state).counts("user_a")["pending"] == 1
 
 
 def test_coordinate_free_guard_rejects_latitude():

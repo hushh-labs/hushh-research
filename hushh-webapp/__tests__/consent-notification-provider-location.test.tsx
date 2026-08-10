@@ -484,6 +484,43 @@ describe("global One Location notification provider", () => {
     );
   });
 
+  it("surfaces a targeted Circle invitation once with its People deep link", async () => {
+    renderProvider();
+    await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
+
+    const detail = {
+      notification: {
+        title: "Circle invitation",
+        body: "Ankit invited you to join Family.",
+      },
+      data: {
+        type: "location_circle_member_invite",
+        invite_id: "circle-invite-1",
+        circle_id: "circle-1",
+        inviter_display_label: "Ankit",
+        request_url:
+          "/one/location?tab=people&circleInviteId=circle-invite-1",
+      },
+    };
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("fcm-message", { detail }));
+      window.dispatchEvent(new CustomEvent("fcm-message", { detail }));
+    });
+
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).toHaveBeenCalledTimes(1);
+    expect(mocks.startTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId:
+          "one_location_workflow:location_circle_member_invite:circle-invite-1",
+        title: "Circle invitation",
+        description: "Ankit invited you to join Family.",
+        routeHref: detail.data.request_url,
+      }),
+    );
+  });
+
   it("does not surface live terminal notifications for an explicitly unwatched grant", async () => {
     markOneLocationGrantUnwatched("recipient-user", "grant-unwatched-1");
     renderProvider();

@@ -88,6 +88,17 @@ describe("CacheSyncService mutation cascades", () => {
     expect(patternArgs).toContain(`ria_clients_${userId}_`);
   });
 
+  it("onConnectionCapabilityMutated also settles the incoming-request list", () => {
+    // Answering a request resolves it, so the list it came from is stale too.
+    // That list is a connections cache, not a consent one, so it does not ride
+    // along on the consent cascade — left behind, the request the user just
+    // accepted keeps rendering as though it were still waiting.
+    CacheSyncService.onConnectionCapabilityMutated(userId);
+
+    const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
+    expect(invalidatedKeys).toContain(CACHE_KEYS.CONNECTIONS_INCOMING(userId));
+  });
+
   // ---------- 2. onPersonaStateChanged without preservePersonaState ----------
   it("onPersonaStateChanged invalidates PERSONA_STATE and RIA caches when preservePersonaState is falsy", () => {
     CacheSyncService.onPersonaStateChanged(userId);

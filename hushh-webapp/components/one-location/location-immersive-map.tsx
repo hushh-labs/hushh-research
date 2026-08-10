@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GoogleMap, LatLngBounds, type Marker } from "@capacitor/google-maps";
+import {
+  GoogleMap,
+  LatLngBounds,
+  type Circle,
+  type Marker,
+} from "@capacitor/google-maps";
 import { App as CapacitorApp } from "@capacitor/app";
 import {
   ChevronDown,
@@ -18,7 +23,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { NearbyCheckInSheet } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
+import {
+  NearbyCheckInSheet,
+  type NearbyCheckInPlaceFocus,
+} from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useRequireAuth } from "@/hooks/use-auth";
@@ -62,6 +70,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 
 const MAP_ID = "one-location-private-map";
+const NEARBY_CHECK_IN_RADIUS_METERS = 500;
 const MAP_ACCENT_CONTROL_CLASSNAME =
   "!border-[var(--app-accent-border)] !bg-[var(--app-accent-surface)] !text-[var(--app-accent-deep)] hover:!bg-[var(--app-accent-surface-strong)] dark:!text-[var(--app-accent-bright)]";
 const MAP_ACCENT_ACTIVE_CLASSNAME =
@@ -71,7 +80,12 @@ type RenderMarker = {
   key: string;
   point: PlainLocationPoint;
   label: string;
-  kind: "person" | "self";
+  /**
+   * `place` is the venue the owner is checking in to. It is deliberately
+   * distinct from `self`: the two are frequently a street apart, and collapsing
+   * them is what made the map unable to explain where a check-in actually is.
+   */
+  kind: "person" | "self" | "place";
   grantId?: string;
   tint?: { r: number; g: number; b: number; a: number };
 };
@@ -161,6 +175,79 @@ async function frameMarkers(
   await map.fitBounds(new LatLngBounds({ southwest, northeast, center }), 24);
 }
 
+function wrappedLongitude(longitude: number): number {
+  return ((((longitude + 180) % 360) + 360) % 360) - 180;
+}
+
+function radiusBounds(
+  point: { latitude: number; longitude: number },
+  radiusMeters: number,
+) {
+  const latitudeDelta = radiusMeters / 111_320;
+  const longitudeScale = Math.abs(
+    Math.cos((point.latitude * Math.PI) / 180),
+  );
+  const longitudeDelta = Math.min(
+    180,
+    radiusMeters / (111_320 * Math.max(longitudeScale, 0.000001)),
+  );
+  const southwest = {
+    lat: Math.max(-90, point.latitude - latitudeDelta),
+    lng:
+      longitudeDelta === 180
+        ? -180
+        : wrappedLongitude(point.longitude - longitudeDelta),
+  };
+  const northeast = {
+    lat: Math.min(90, point.latitude + latitudeDelta),
+    lng:
+      longitudeDelta === 180
+        ? 180
+        : wrappedLongitude(point.longitude + longitudeDelta),
+  };
+  return new LatLngBounds({
+    southwest,
+    northeast,
+    center: { lat: point.latitude, lng: point.longitude },
+  });
+}
+
+/**
+ * Bounds that contain two points with breathing room around them.
+ *
+ * Used to frame the owner and the place they are checking in to together: if
+ * either falls off-screen, the gap between them stops being legible, which is
+ * the one thing this view exists to show.
+ */
+function pairBounds(
+  first: { lat: number; lng: number },
+  second: { lat: number; lng: number },
+) {
+  const minimumSpanDegrees = 400 / 111_320;
+  const latitudePad = Math.max(
+    minimumSpanDegrees,
+    Math.abs(first.lat - second.lat) * 0.35,
+  );
+  const longitudePad = Math.max(
+    minimumSpanDegrees,
+    Math.abs(first.lng - second.lng) * 0.35,
+  );
+  return new LatLngBounds({
+    southwest: {
+      lat: Math.max(-90, Math.min(first.lat, second.lat) - latitudePad),
+      lng: wrappedLongitude(Math.min(first.lng, second.lng) - longitudePad),
+    },
+    northeast: {
+      lat: Math.min(90, Math.max(first.lat, second.lat) + latitudePad),
+      lng: wrappedLongitude(Math.max(first.lng, second.lng) + longitudePad),
+    },
+    center: {
+      lat: (first.lat + second.lat) / 2,
+      lng: (first.lng + second.lng) / 2,
+    },
+  });
+}
+
 /**
  * Full-screen private-map surface. It only receives ciphertext for active
  * recipient-scoped grants, decrypts it in foreground memory, and destroys both
@@ -181,6 +268,12 @@ export function LocationImmersiveMap() {
   const topControlsRef = useRef<HTMLDivElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
   const markerIdsRef = useRef<string[]>([]);
+  const markerGenerationRef = useRef(0);
+  const markerCommandRef = useRef<Promise<void>>(Promise.resolve());
+  const nearbyCircleIdsRef = useRef<string[]>([]);
+  const nearbyConnectorIdsRef = useRef<string[]>([]);
+  const nearbyCircleGenerationRef = useRef(0);
+  const nearbyCircleCommandRef = useRef<Promise<void>>(Promise.resolve());
   const markerByMapIdRef = useRef<Map<string, RenderMarker>>(new Map());
   const framedInitialMarkersRef = useRef(false);
   const refreshInFlightRef = useRef(false);
@@ -196,10 +289,6 @@ export function LocationImmersiveMap() {
     userId: auth.userId,
     vaultOwnerToken,
   });
-  nearbyConnectOwnerRef.current = {
-    userId: auth.userId,
-    vaultOwnerToken,
-  };
   const [demoMode, setDemoMode] = useState(initialDemoMode);
   const [acceptedRenderer, setAcceptedRenderer] = useState(false);
   const [preferences, setPreferences] = useState<OneLocationMapPreferences>({
@@ -222,20 +311,41 @@ export function LocationImmersiveMap() {
   const [status, setStatus] = useState<
     "idle" | "loading" | "ready" | "unavailable" | "error"
   >("idle");
+  // Why the map is unavailable. Both causes used to render the same card, which
+  // told the user "no location was captured or exposed" when their location was
+  // fine and the build simply had no Maps key — sending them to debug the wrong
+  // thing entirely.
+  const [unavailableReason, setUnavailableReason] = useState<
+    "maps-key" | "renderer"
+  >("maps-key");
   const [busy, setBusy] = useState<"presence" | "locate" | null>(null);
   const [nearbyConnectionBusyAlias, setNearbyConnectionBusyAlias] = useState<
     string | null
   >(null);
   const [nearbyCheckInOpen, setNearbyCheckInOpen] = useState(false);
+  const [nearbySearchPoint, setNearbySearchPoint] =
+    useState<PlainLocationPoint | null>(null);
+  const [nearbyPlaceFocus, setNearbyPlaceFocus] =
+    useState<NearbyCheckInPlaceFocus | null>(null);
   const [nearbyPresenceState, setNearbyPresenceState] =
     useState<OneLocationNearbyPresenceState>({
       presence: null,
       attendees: [],
     });
   const nearbyPresenceStateRef = useRef(nearbyPresenceState);
-  nearbyPresenceStateRef.current = nearbyPresenceState;
   const mountedRef = useRef(true);
   const rendererReady = acceptedRenderer || demoMode;
+
+  useEffect(() => {
+    nearbyConnectOwnerRef.current = {
+      userId: auth.userId,
+      vaultOwnerToken,
+    };
+  }, [auth.userId, vaultOwnerToken]);
+
+  useEffect(() => {
+    nearbyPresenceStateRef.current = nearbyPresenceState;
+  }, [nearbyPresenceState]);
 
   useEffect(() => {
     const action = searchParams.get("action");
@@ -510,6 +620,7 @@ export function LocationImmersiveMap() {
     return () => {
       mountedRef.current = false;
       markerIdsRef.current = [];
+      nearbyCircleIdsRef.current = [];
       markerByMapIdRef.current.clear();
       void mapRef.current?.destroy();
       mapRef.current = null;
@@ -591,6 +702,7 @@ export function LocationImmersiveMap() {
     if (!rendererReady || !mapElement.current) return;
     const apiKey = mapApiKey();
     if (!apiKey) {
+      setUnavailableReason("maps-key");
       setStatus("unavailable");
       return;
     }
@@ -651,7 +763,9 @@ export function LocationImmersiveMap() {
         setMapReady(true);
       })
       .catch(() => {
-        if (!cancelled) setStatus("unavailable");
+        if (cancelled) return;
+        setUnavailableReason("renderer");
+        setStatus("unavailable");
       });
     return () => {
       cancelled = true;
@@ -703,10 +817,65 @@ export function LocationImmersiveMap() {
     rendererReady,
   ]);
 
-  const visibleMarkers = useMemo(
-    () => (selfMarker ? [...markers, selfMarker] : markers),
-    [markers, selfMarker],
+  /**
+   * Accept a new focus only when something actually changed.
+   *
+   * The drawer republishes on every presence poll (every 15 s while checked
+   * in). Storing each fresh object would retear and redraw the circle, the
+   * connector and the pin on a timer, which reads as a flicker on the map.
+   */
+  const handlePlaceFocusChange = useCallback(
+    (focus: NearbyCheckInPlaceFocus | null) => {
+      setNearbyPlaceFocus((current) => {
+        if (current === focus) return current;
+        if (!current || !focus) return focus;
+        const unchanged =
+          current.placeId === focus.placeId &&
+          current.label === focus.label &&
+          current.latitude === focus.latitude &&
+          current.longitude === focus.longitude &&
+          current.distanceMeters === focus.distanceMeters &&
+          current.active === focus.active;
+        return unchanged ? current : focus;
+      });
+    },
+    [],
   );
+
+  /**
+   * The check-in venue as its own pin.
+   *
+   * Shown while the drawer is open (the place being chosen) and for as long as
+   * a check-in is live (the anchor). Kept separate from the "you" dot on
+   * purpose: the whole point is that the owner can see the gap between where
+   * they are standing and the place they are visible at.
+   */
+  const nearbyPlaceMarker = useMemo<RenderMarker | null>(() => {
+    if (!nearbyPlaceFocus) return null;
+    if (!nearbyCheckInOpen && !nearbyPlaceFocus.active) return null;
+    return {
+      key: `nearby-place:${nearbyPlaceFocus.placeId || "active"}`,
+      kind: "place",
+      label: nearbyPlaceFocus.label,
+      point: {
+        latitude: nearbyPlaceFocus.latitude,
+        longitude: nearbyPlaceFocus.longitude,
+        // A published venue location, not a reading from any receiver.
+        capturedAt: new Date(0).toISOString(),
+        sourcePlatform: "unknown",
+      },
+      tint: nearbyPlaceFocus.active
+        ? { r: 16, g: 185, b: 129, a: 255 }
+        : { r: 139, g: 92, b: 246, a: 255 },
+    };
+  }, [nearbyCheckInOpen, nearbyPlaceFocus]);
+
+  const visibleMarkers = useMemo(() => {
+    const next = [...markers];
+    if (selfMarker) next.push(selfMarker);
+    if (nearbyPlaceMarker) next.push(nearbyPlaceMarker);
+    return next;
+  }, [markers, nearbyPlaceMarker, selfMarker]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -724,10 +893,27 @@ export function LocationImmersiveMap() {
       const trayBottomInset = trayRect
         ? Math.max(0, window.innerHeight - trayRect.bottom)
         : 12;
+      const desktopCheckInOpen =
+        nearbyCheckInOpen && window.matchMedia("(min-width: 768px)").matches;
+      const mobileCheckInOpen =
+        nearbyCheckInOpen && window.matchMedia("(max-width: 767px)").matches;
+      const checkInSheet = mobileCheckInOpen
+        ? document.querySelector<HTMLElement>(
+            "[data-one-location-nearby-check-in-sheet]",
+          )
+        : null;
+      const mobileSheetInset = checkInSheet
+        ? Math.max(0, window.innerHeight - checkInSheet.getBoundingClientRect().top)
+        : 0;
       const padding = {
         top: Math.ceil(top + 12),
-        right: 20,
-        bottom: Math.ceil(trayBottomInset + COLLAPSED_TRAY_HEIGHT + 12),
+        right: desktopCheckInOpen ? 436 : 20,
+        bottom: Math.ceil(
+          Math.max(
+            trayBottomInset + COLLAPSED_TRAY_HEIGHT + 12,
+            mobileSheetInset + 12,
+          ),
+        ),
         left: 20,
       };
       const key = `${padding.top}:${padding.right}:${padding.bottom}:${padding.left}`;
@@ -749,36 +935,228 @@ export function LocationImmersiveMap() {
     // out on purpose: its expand/collapse animation must not drive the camera.
     const observer = new ResizeObserver(schedulePadding);
     if (topControlsRef.current) observer.observe(topControlsRef.current);
+    const checkInSheet = document.querySelector<HTMLElement>(
+      "[data-one-location-nearby-check-in-sheet]",
+    );
+    if (nearbyCheckInOpen && checkInSheet) observer.observe(checkInSheet);
     window.addEventListener("resize", schedulePadding);
     return () => {
       if (paddingTimer !== null) window.clearTimeout(paddingTimer);
       observer.disconnect();
       window.removeEventListener("resize", schedulePadding);
     };
-  }, [mapReady]);
+  }, [mapReady, nearbyCheckInOpen]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
+    const generation = ++nearbyCircleGenerationRef.current;
+    const searchPoint = nearbyCheckInOpen ? nearbySearchPoint : null;
+    const placeFocus =
+      nearbyCheckInOpen || nearbyPlaceFocus?.active ? nearbyPlaceFocus : null;
+    const placeCenter = placeFocus
+      ? { lat: placeFocus.latitude, lng: placeFocus.longitude }
+      : null;
+    // Discovery is anchored on the *place* once a check-in is live -- that is
+    // what the backend matches people against. While the owner is still
+    // choosing, it is anchored on them, because that is what bounds the search.
+    const circleCenter =
+      placeFocus?.active && placeCenter
+        ? placeCenter
+        : searchPoint
+          ? { lat: searchPoint.latitude, lng: searchPoint.longitude }
+          : placeCenter;
+    let addedIds: string[] = [];
+    let addedLineIds: string[] = [];
+
+    const enqueue = (command: () => Promise<void>): Promise<void> => {
+      const next = nearbyCircleCommandRef.current
+        .catch(() => undefined)
+        .then(command);
+      nearbyCircleCommandRef.current = next.catch(() => undefined);
+      return next;
+    };
+    const removeSafely = async (ids: string[], lineIds: string[]) => {
+      if (ids.length) await map.removeCircles(ids).catch(() => undefined);
+      if (lineIds.length)
+        await map.removePolylines(lineIds).catch(() => undefined);
+    };
+
+    void enqueue(async () => {
+      const previousIds = nearbyCircleIdsRef.current;
+      const previousLineIds = nearbyConnectorIdsRef.current;
+      nearbyCircleIdsRef.current = [];
+      nearbyConnectorIdsRef.current = [];
+      await removeSafely(previousIds, previousLineIds);
+      if (generation !== nearbyCircleGenerationRef.current || !circleCenter) {
+        return;
+      }
+
+      const active = Boolean(placeFocus?.active);
+      const circle: Circle = {
+        center: circleCenter,
+        radius: NEARBY_CHECK_IN_RADIUS_METERS,
+        fillColor: "var(--app-accent-surface)",
+        fillOpacity: 0.1,
+        strokeColor: "var(--app-accent)",
+        strokeOpacity: 0.85,
+        strokeWeight: 2,
+        clickable: false,
+        title: active
+          ? "500 m check-in area around your place"
+          : "500 m check-in search area",
+      };
+      addedIds = await map.addCircles([circle]);
+      if (generation !== nearbyCircleGenerationRef.current) {
+        await removeSafely(addedIds, []);
+        addedIds = [];
+        return;
+      }
+      nearbyCircleIdsRef.current = addedIds;
+
+      // Draw the gap the owner is being asked to confirm. Below ~25 m the two
+      // pins overlap and a line is just noise.
+      const connectorWorthDrawing =
+        searchPoint &&
+        placeCenter &&
+        (placeFocus?.distanceMeters ?? Number.POSITIVE_INFINITY) >= 25;
+      if (connectorWorthDrawing && searchPoint && placeCenter) {
+        addedLineIds = await map
+          .addPolylines([
+            {
+              path: [
+                { lat: searchPoint.latitude, lng: searchPoint.longitude },
+                placeCenter,
+              ],
+              strokeColor: "var(--app-accent)",
+              strokeOpacity: 0.65,
+              strokeWeight: 3,
+              geodesic: true,
+              clickable: false,
+            },
+          ])
+          .catch(() => [] as string[]);
+        if (generation !== nearbyCircleGenerationRef.current) {
+          await removeSafely([], addedLineIds);
+          addedLineIds = [];
+        } else {
+          nearbyConnectorIdsRef.current = addedLineIds;
+        }
+      }
+
+      // Frame both points when they differ, so the owner never has to hunt for
+      // the pin that is off-screen.
+      const bounds =
+        searchPoint && placeCenter
+          ? pairBounds(
+              { lat: searchPoint.latitude, lng: searchPoint.longitude },
+              placeCenter,
+            )
+          : radiusBounds(
+              {
+                latitude: circleCenter.lat,
+                longitude: circleCenter.lng,
+              },
+              NEARBY_CHECK_IN_RADIUS_METERS,
+            );
+      await map.fitBounds(bounds, 48);
+    }).catch(() => {
+      // Place discovery remains usable from the drawer if an older renderer
+      // cannot draw the visual boundary. Never convert this into map data.
+    });
+
+    return () => {
+      if (nearbyCircleGenerationRef.current === generation) {
+        nearbyCircleGenerationRef.current += 1;
+      }
+      void enqueue(async () => {
+        const ownsCurrentIds =
+          addedIds.length > 0 &&
+          addedIds.every((id) => nearbyCircleIdsRef.current.includes(id));
+        if (ownsCurrentIds) nearbyCircleIdsRef.current = [];
+        const ownsCurrentLineIds =
+          addedLineIds.length > 0 &&
+          addedLineIds.every((id) =>
+            nearbyConnectorIdsRef.current.includes(id),
+          );
+        if (ownsCurrentLineIds) nearbyConnectorIdsRef.current = [];
+        await removeSafely(addedIds, addedLineIds);
+        addedIds = [];
+        addedLineIds = [];
+      }).catch(() => undefined);
+    };
+  }, [mapReady, nearbyCheckInOpen, nearbyPlaceFocus, nearbySearchPoint]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    // Marker writes must be serialized. Two overlapping runs could each remove
+    // the ids they captured on entry and then add their own, so a batch added
+    // by the slower run stayed on the map with nothing tracking its ids --
+    // ghost pins that no later pass could remove. That showed up as a second
+    // "Your location" sitting where the device used to be. The check-in place
+    // pin made it routine: `visibleMarkers` now also changes on every place
+    // selection and presence poll, not just on a position update.
+    const generation = ++markerGenerationRef.current;
     let cancelled = false;
-    void (async () => {
-      if (markerIdsRef.current.length)
-        await map.removeMarkers(markerIdsRef.current);
-      const mapMarkers: Marker[] = visibleMarkers.map((marker) => ({
-        coordinate: { lat: marker.point.latitude, lng: marker.point.longitude },
+    const enqueue = (command: () => Promise<void>): Promise<void> => {
+      const next = markerCommandRef.current.catch(() => undefined).then(command);
+      markerCommandRef.current = next.catch(() => undefined);
+      return next;
+    };
+    void enqueue(async () => {
+      if (markerIdsRef.current.length) {
+        const stale = markerIdsRef.current;
+        markerIdsRef.current = [];
+        await map.removeMarkers(stale).catch(() => undefined);
+      }
+      if (generation !== markerGenerationRef.current) return;
+      const mapMarkers: Marker[] = visibleMarkers.map((marker) => {
         // Labels stay in the local HTML tray/search index. The native Google
         // renderer receives coordinates and a generic accessibility title,
         // never the private recipient name.
-        title: marker.kind === "self" ? "Your location" : "Private location",
-        snippet:
+        const title =
           marker.kind === "self"
-            ? "Your current location"
-            : "Sharing privately now",
-        tintColor: marker.tint,
-        zIndex: marker.kind === "self" ? 10 : 1,
-      }));
+            ? "Your location"
+            : marker.kind === "place"
+              ? // A public venue the owner picked, so its name may reach the
+                // renderer -- unlike a private recipient's label.
+                marker.label
+              : "Private location";
+        return {
+          coordinate: {
+            lat: marker.point.latitude,
+            lng: marker.point.longitude,
+          },
+          // `title` is only safe to send on native, where it fills the info
+          // window that opens on tap. The web renderer feeds it to the pin's
+          // *glyph* instead -- a slot meant for one character -- so any real
+          // title is painted across the map beside the pin. A place name plus
+          // its full postal address made a banner of it. Web keeps the plain
+          // coloured pin; the drawer already names both points in HTML.
+          ...(isNative()
+            ? {
+                title,
+                snippet:
+                  marker.kind === "self"
+                    ? "Your current location"
+                    : marker.kind === "place"
+                      ? "Your check-in place"
+                      : "Sharing privately now",
+              }
+            : {}),
+          tintColor: marker.tint,
+          zIndex:
+            marker.kind === "self" ? 10 : marker.kind === "place" ? 9 : 1,
+        };
+      });
       const ids = mapMarkers.length ? await map.addMarkers(mapMarkers) : [];
-      if (cancelled) return;
+      // A superseded run must take its own markers back off the map. Returning
+      // early here is what stranded them.
+      if (generation !== markerGenerationRef.current || cancelled) {
+        if (ids.length) await map.removeMarkers(ids).catch(() => undefined);
+        return;
+      }
       markerIdsRef.current = ids;
       markerByMapIdRef.current = new Map(
         ids.flatMap((id, index) => {
@@ -799,7 +1177,7 @@ export function LocationImmersiveMap() {
         framedInitialMarkersRef.current = true;
         await frameMarkers(map, visibleMarkers);
       }
-    })().catch(() => {
+    }).catch(() => {
       if (!cancelled) setStatus("error");
     });
     return () => {
@@ -1199,15 +1577,82 @@ export function LocationImmersiveMap() {
         {rendererReady ? (
           <ShellActionSurface
             className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
-            aria-label="Show my location"
+            aria-label={
+              busy === "locate" ? "Finding your location" : "Show my location"
+            }
+            aria-busy={busy === "locate"}
             data-testid="one-location-map-locate"
             disabled={busy === "locate"}
             onClick={() => void locateMe()}
           >
-            <LocateFixed className="h-5 w-5 stroke-[2.25]" />
+            {busy === "locate" ? (
+              <Loader2
+                className="h-5 w-5 animate-spin stroke-[2.25]"
+                aria-hidden="true"
+              />
+            ) : (
+              <LocateFixed className="h-5 w-5 stroke-[2.25]" />
+            )}
           </ShellActionSurface>
         ) : null}
       </div>
+      {/*
+        Two pins on one map need naming, or the owner cannot tell which is
+        "me" and which is "the place I'm checking in to" -- and those are
+        routinely a street apart.
+      */}
+      {rendererReady &&
+      (nearbyCheckInOpen || nearbyPlaceFocus?.active) &&
+      (nearbySearchPoint || nearbyPlaceFocus) ? (
+        <div
+          className="pointer-events-none absolute left-4 right-4 z-20 flex max-w-[18rem] flex-col gap-1.5 rounded-2xl border border-[var(--app-accent-border)] bg-background/90 px-3 py-2 text-xs font-semibold shadow-lg backdrop-blur-md md:right-auto"
+          style={{
+            top: "calc(max(1rem, env(safe-area-inset-top)) + 4.5rem)",
+          }}
+          data-testid="one-location-nearby-search-area-legend"
+        >
+          {nearbySearchPoint ? (
+            <span className="flex items-center gap-2">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full bg-[rgb(0,122,255)]"
+                aria-hidden="true"
+              />
+              <span className="truncate text-foreground">You are here</span>
+            </span>
+          ) : null}
+          {nearbyPlaceFocus ? (
+            <span
+              className="flex items-center gap-2"
+              data-testid="one-location-nearby-place-legend"
+            >
+              <span
+                className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                  nearbyPlaceFocus.active
+                    ? "bg-emerald-500"
+                    : "bg-violet-500"
+                }`}
+                aria-hidden="true"
+              />
+              <span className="truncate text-foreground">
+                {nearbyPlaceFocus.active ? "Checked in at " : "Checking in at "}
+                {nearbyPlaceFocus.label}
+              </span>
+            </span>
+          ) : null}
+          {nearbyPlaceFocus?.distanceMeters != null &&
+          nearbyPlaceFocus.distanceMeters >= 25 ? (
+            <span className="pl-[1.125rem] font-normal text-muted-foreground">
+              {nearbyPlaceFocus.distanceMeters < 1_000
+                ? `${nearbyPlaceFocus.distanceMeters} m`
+                : `${(nearbyPlaceFocus.distanceMeters / 1_000).toFixed(1)} km`}{" "}
+              from you
+            </span>
+          ) : null}
+          <span className="pl-[1.125rem] font-normal text-muted-foreground">
+            500 m {nearbyPlaceFocus?.active ? "match" : "search"} area
+          </span>
+        </div>
+      ) : null}
       {!rendererReady ? (
         <section
           className="absolute inset-x-0 z-20 rounded-none border border-border/60 bg-background/95 p-5 shadow-2xl backdrop-blur md:left-1/2 md:right-auto md:w-[min(52rem,calc(100%-4rem))] md:-translate-x-1/2 md:rounded-3xl"
@@ -1243,11 +1688,14 @@ export function LocationImmersiveMap() {
       {rendererReady && status === "unavailable" ? (
         <section className="absolute inset-x-4 bottom-4 z-20 rounded-3xl bg-background/95 p-5 shadow-xl">
           <h1 className="font-semibold">
-            Your Map needs secure map configuration
+            {unavailableReason === "maps-key"
+              ? "This build has no Maps key"
+              : "The map could not start"}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            No location was captured or exposed. Try again after the app’s
-            restricted Maps key is configured.
+            {unavailableReason === "maps-key"
+              ? "Your location is fine — this app build was packaged without its restricted Google Maps key, so the map cannot render. Nothing about your location was captured or shared."
+              : "The map renderer failed to load. Check your connection and try again — your location was not captured or shared."}
           </p>
         </section>
       ) : null}
@@ -1652,6 +2100,8 @@ export function LocationImmersiveMap() {
             closeNearbyCheckIn();
           }}
           onStateChange={handleNearbyStateChange}
+          onSearchAreaChange={setNearbySearchPoint}
+          onPlaceFocusChange={handlePlaceFocusChange}
         />
       ) : null}
     </main>

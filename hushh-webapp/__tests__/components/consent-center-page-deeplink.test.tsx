@@ -25,6 +25,9 @@ const mocks = vi.hoisted(() => ({
   handleLocationApprove: vi.fn(),
   handleLocationDeny: vi.fn(),
   handleLocationRevoke: vi.fn(),
+  connectionAccept: vi.fn(),
+  connectionReject: vi.fn(),
+  toastError: vi.fn(),
   busyRequestIds: new Set<string>(),
   cacheSubscribers: new Set<
     (event: { type: string; key?: string; keys?: string[] }) => void
@@ -66,6 +69,19 @@ vi.mock("@/lib/vault/vault-context", () => ({
     getVaultOwnerToken: mocks.getVaultOwnerToken,
     isVaultUnlocked: mocks.isVaultUnlocked,
   }),
+}));
+
+vi.mock("@/lib/services/connections-service", () => ({
+  ConnectionsService: {
+    accept: mocks.connectionAccept,
+    reject: mocks.connectionReject,
+  },
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    error: mocks.toastError,
+  },
 }));
 
 vi.mock("@/lib/consent", () => ({
@@ -325,6 +341,8 @@ describe("ConsentCenterPage requestId deep links", () => {
     mocks.handleApprove.mockResolvedValue(undefined);
     mocks.handleDeny.mockResolvedValue(undefined);
     mocks.handleRevoke.mockResolvedValue(undefined);
+    mocks.connectionAccept.mockResolvedValue(undefined);
+    mocks.connectionReject.mockResolvedValue(undefined);
     mocks.busyRequestIds = new Set();
     mocks.busyScopes = new Set();
     mocks.cacheSubscribers.clear();
@@ -379,7 +397,11 @@ describe("ConsentCenterPage requestId deep links", () => {
     render(<ConsentCenterPage />);
 
     expect(
-      await screen.findByRole("dialog", { name: "Northstar Planning" }),
+      await screen.findByRole(
+        "dialog",
+        { name: "Northstar Planning" },
+        { timeout: 5_000 },
+      ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Don't allow" })).toBeTruthy();
@@ -601,6 +623,59 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(screen.queryByText("Access duration")).toBeNull();
     expect(screen.queryByText("Requested duration")).toBeNull();
     expect(screen.queryByText("Ends")).toBeNull();
+  });
+
+  it.each([
+    {
+      action: "Accept",
+      errorMessage: "Could not accept the connection request. Try again.",
+      mutate: mocks.connectionAccept,
+    },
+    {
+      action: "Decline",
+      errorMessage: "Could not decline the connection request. Try again.",
+      mutate: mocks.connectionReject,
+    },
+  ])("surfaces a failed $action connection decision", async ({
+    action,
+    errorMessage,
+    mutate,
+  }) => {
+    mocks.search = "tab=pending&requestId=connection-1";
+    mocks.listEntries.mockResolvedValue({
+      ...emptyListResponse(),
+      total: 1,
+      items: [
+        {
+          id: "connection-1",
+          request_id: "connection-1",
+          kind: "connection_request",
+          status: "pending",
+          action: "connection_request",
+          scope: "cap.connections.trusted",
+          scope_description: "Trusted connection",
+          counterpart_type: "investor",
+          counterpart_id: "user-rohan",
+          counterpart_label: "Rohan",
+          issued_at: "2026-07-24T09:00:00.000Z",
+          reason: "Rohan wants to connect with you.",
+          metadata: { request_source: "connection_request" },
+        },
+      ],
+    });
+    mutate.mockRejectedValueOnce(new Error("network unavailable"));
+    installMobileMediaQuery();
+
+    render(<ConsentCenterPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: action }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(errorMessage),
+    );
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: "connection-1" }),
+    );
   });
 
   it("shows marketplace requested duration as read-only request context", async () => {

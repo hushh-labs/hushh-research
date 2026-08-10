@@ -949,6 +949,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         variant="icon"
                         aria-label="Go back"
                         onClick={handleTopShellBack}
+                        className="!text-[color:var(--app-accent)]"
                       >
                         <ArrowLeft className="h-5 w-5" />
                       </ShellActionSurface>

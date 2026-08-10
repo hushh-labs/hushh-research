@@ -225,7 +225,9 @@ export function KaiAnalysisPageContent() {
         setFocusedRunId(routeIntent.runId);
       }
       setShowHistoryWhileActive(false);
-      setWorkspaceTab("debate");
+      // Focusing a run defaults to its debate view, but never overrides a tab
+      // the URL names outright.
+      setWorkspaceTab(routeIntent.workspaceTab ?? "debate");
       requestAnimationFrame(() => {
         workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
       });
@@ -310,10 +312,15 @@ export function KaiAnalysisPageContent() {
   }, [liveIntentReady, setBusyOperation]);
 
   useEffect(() => {
+    // Arriving at a live run opens the debate view -- but this effect re-runs
+    // on every render that touches the run, so without the guard it reverted a
+    // deliberate switch (by hand or by voice) the instant it was made. A tab
+    // named in the URL is the person's own choice and stands.
+    if (searchParams.get("view")) return;
     if (!liveEntry && !resolvedEntry && liveIntentReady) {
       setWorkspaceTab("debate");
     }
-  }, [liveEntry, liveIntentReady, resolvedEntry]);
+  }, [liveEntry, liveIntentReady, resolvedEntry, searchParams]);
 
   useEffect(() => {
     if (!debateId || !userId || !vaultKey) {
@@ -436,23 +443,24 @@ export function KaiAnalysisPageContent() {
     (value: WorkspaceTab) => {
       setWorkspaceTab(value);
       const params = new URLSearchParams(searchParamsRef.current.toString());
-      const onDebateRoute = params.get("view") === "debate";
+      params.set("view", value);
       if (value === "debate") {
         // Debate is its own back-navigable route under Analysis.
-        params.set("view", "debate");
         router.push(
           buildKaiMarketRoute("analysis", Object.fromEntries(params.entries())),
           { scroll: false },
         );
-      } else if (onDebateRoute) {
-        // Leaving the debate route returns to the summary/detailed table.
-        params.delete("view");
+      } else {
+        // The table views name themselves in the URL too. They used to share
+        // one bare URL, which left nothing to hold them: any re-render could
+        // revert the tab, and the voice agent -- reading the same state -- saw
+        // its own "open summary" undone and retried it in a loop. Replace, not
+        // push, so summary <-> detailed does not stack history entries.
         router.replace(
           buildKaiMarketRoute("analysis", Object.fromEntries(params.entries())),
           { scroll: false },
         );
       }
-      // summary <-> detailed within the table view stays local-only state.
     },
     [router],
   );
@@ -508,13 +516,29 @@ export function KaiAnalysisPageContent() {
     setHistoryFallbackEntry(entry);
     setShowHistoryWhileActive(false);
     setWorkspaceTab((prev) => (prev === "debate" ? "summary" : prev));
-    setDebateIdParam(extractDebateId(entry));
+    // Unlike the fresh-context callers of setDebateIdParam (new ticker,
+    // close), this fires mid-view while the user is still looking at the
+    // run that just finished -- rebuilding params from scratch here wiped
+    // out `focus`/`run_id`/`view` and, lacking `{ scroll: false }`, forced
+    // an unflagged scroll-to-top right as the workspace pager was still
+    // animating to the summary pane, producing the stuck/glitched layout.
+    const params = new URLSearchParams(searchParamsRef.current.toString());
+    const nextDebateId = extractDebateId(entry);
+    if (nextDebateId) {
+      params.set("debate_id", nextDebateId);
+    } else {
+      params.delete("debate_id");
+    }
+    router.replace(
+      buildKaiMarketRoute("analysis", Object.fromEntries(params.entries())),
+      { scroll: false },
+    );
     if (summaryLoadingToastIdRef.current !== null) {
       toast.dismiss(summaryLoadingToastIdRef.current);
       summaryLoadingToastIdRef.current = null;
     }
     toast.success("Analysis saved to history.");
-  }, [setDebateIdParam]);
+  }, [router]);
 
   const hasFocusedRun = Boolean(focusedRunTask && !focusedRunTask.dismissedAt);
   const activeEntry = liveEntry || resolvedEntry;
@@ -608,6 +632,22 @@ export function KaiAnalysisPageContent() {
           : "Detailed View";
     const surfaceMode = showWorkspace ? "workspace" : "history";
     const actions = [
+      // Starting an analysis is reachable from this screen in both states: the
+      // ticker search that drives it lives in the shared Kai bottom bar, not in
+      // the panel body. It has to be published because a mounted inventory
+      // suppresses the route-contract fallback -- omitting it made One refuse
+      // "analyse NVDA" while standing on the very screen that runs it. Gated to
+      // mirror the action's own `analysis_idle_required` guard.
+      ...(activeRunTask
+        ? []
+        : [
+            {
+              id: "analysis.start",
+              actionId: "analysis.start",
+              label: "Start stock analysis",
+              purpose: "Open a stock preview so a debate can begin.",
+            },
+          ]),
       ...(showWorkspace
         ? [
             { id: "analysis.back_to_history", actionId: "analysis.back_to_history", label: "Back to history", purpose: "Return to saved analysis history." },
@@ -683,6 +723,10 @@ export function KaiAnalysisPageContent() {
         ? "This workspace runs and reviews ticker analysis across debate, summary, and detailed views."
         : "This screen keeps saved analysis history, preview cards, and active-analysis return points in one place.",
       primaryEntity: activeTicker || previewTickerFromQuery || null,
+      // A ticker is public and is the whole subject of this screen, so it is
+      // safe to say aloud. Without it One knew it was on Analysis but not
+      // which stock -- it could not answer "what am I looking at".
+      spokenSubject: activeTicker || previewTickerFromQuery || null,
       sections,
       actions,
       controls,

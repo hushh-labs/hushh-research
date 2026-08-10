@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -9,9 +10,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mapHarness = vi.hoisted(() => {
   const map = {
+    addCircles: vi.fn(async (_circles: unknown[]) => ["circle-0"]),
     addMarkers: vi.fn(async (markers: unknown[]) =>
       markers.map((_, index) => `marker-${index}`),
     ),
+    addPolylines: vi.fn(async (_lines: unknown[]) => ["polyline-0"]),
+    removePolylines: vi.fn(async () => undefined),
     destroy: vi.fn(async () => undefined),
     disableTouch: vi.fn(async () => undefined),
     disableClustering: vi.fn(async () => undefined),
@@ -19,6 +23,7 @@ const mapHarness = vi.hoisted(() => {
     enableClustering: vi.fn(async () => undefined),
     fitBounds: vi.fn(async () => undefined),
     removeMarkers: vi.fn(async () => undefined),
+    removeCircles: vi.fn(async () => undefined),
     setCamera: vi.fn(async () => undefined),
     setOnMarkerClickListener: vi.fn(async () => undefined),
     setPadding: vi.fn(async () => undefined),
@@ -56,6 +61,30 @@ const experienceHarness = vi.hoisted(() => ({
   demoMode: true,
   nearbyAvailable: false,
   query: "demo=people",
+  searchPoint: {
+    latitude: 37.776,
+    longitude: -122.418,
+    accuracyM: 12,
+    capturedAt: "2026-07-23T00:00:00.000Z",
+    sourcePlatform: "web" as const,
+  },
+  placeFocus: {
+    placeId: "hotel-two",
+    label: "Hotel Two",
+    // ~180 m north-east of the search point: the everyday case where the
+    // owner's position and their check-in place are not the same spot.
+    latitude: 37.7775,
+    longitude: -122.4172,
+    distanceMeters: 180,
+    active: false,
+  } as {
+    placeId: string;
+    label: string;
+    latitude: number;
+    longitude: number;
+    distanceMeters: number | null;
+    active: boolean;
+  },
 }));
 
 vi.mock("@capacitor/google-maps", () => ({
@@ -149,12 +178,17 @@ vi.mock(
     NearbyCheckInSheet: ({
       open,
       onStateChange,
+      onSearchAreaChange,
+      onPlaceFocusChange,
     }: {
       open: boolean;
       onStateChange: (state: unknown) => void;
+      onSearchAreaChange: (point: unknown) => void;
+      onPlaceFocusChange: (focus: unknown) => void;
     }) => (
       <div
         data-testid="nearby-check-in-sheet-mock"
+        data-one-location-nearby-check-in-sheet=""
         data-open={open ? "true" : "false"}
       >
         <button
@@ -167,7 +201,7 @@ vi.mock(
                 audience: "all_opted_in",
                 radiusMeters: 500,
                 allowConnectionRequests: true,
-                consentVersion: "one-location-nearby-presence-v2",
+                consentVersion: "one-location-nearby-presence-v3",
                 checkedInAt: "2026-07-31T00:00:00.000Z",
                 expiresAt: "2026-07-31T01:00:00.000Z",
                 placeLabel: "Event venue",
@@ -191,6 +225,34 @@ vi.mock(
         >
           Publish nearby state
         </button>
+        <button
+          type="button"
+          data-testid="publish-nearby-search-area"
+          onClick={() => onSearchAreaChange(experienceHarness.searchPoint)}
+        >
+          Publish search area
+        </button>
+        <button
+          type="button"
+          data-testid="clear-nearby-search-area"
+          onClick={() => onSearchAreaChange(null)}
+        >
+          Clear search area
+        </button>
+        <button
+          type="button"
+          data-testid="publish-nearby-place-focus"
+          onClick={() => onPlaceFocusChange(experienceHarness.placeFocus)}
+        >
+          Publish place focus
+        </button>
+        <button
+          type="button"
+          data-testid="clear-nearby-place-focus"
+          onClick={() => onPlaceFocusChange(null)}
+        >
+          Clear place focus
+        </button>
       </div>
     ),
   }),
@@ -212,13 +274,40 @@ import {
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
 
+const DEFAULT_PLACE_FOCUS = { ...experienceHarness.placeFocus };
+
 beforeEach(() => {
+  experienceHarness.placeFocus = { ...DEFAULT_PLACE_FOCUS };
   forgetOneLocationControlPreference("test-user");
   window.sessionStorage.clear();
   window.history.replaceState({}, "", "/one/location/map");
+  Object.defineProperty(window, "innerHeight", {
+    configurable: true,
+    value: 768,
+  });
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: vi.fn((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
   experienceHarness.demoMode = true;
   experienceHarness.nearbyAvailable = false;
   experienceHarness.query = "demo=people";
+  experienceHarness.searchPoint = {
+    latitude: 37.776,
+    longitude: -122.418,
+    accuracyM: 12,
+    capturedAt: "2026-07-23T00:00:00.000Z",
+    sourcePlatform: "web",
+  };
   class ResizeObserverStub {
     observe() {}
     disconnect() {}
@@ -533,6 +622,359 @@ describe("LocationImmersiveMap demo experience", () => {
     );
   });
 
+  it("renders and clears the transient 500 m check-in search circle", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    await waitFor(() => {
+      expect(mapHarness.map.addCircles).toHaveBeenCalledWith([
+        expect.objectContaining({
+          center: { lat: 37.776, lng: -122.418 },
+          radius: 500,
+          clickable: false,
+        }),
+      ]);
+    });
+    expect(
+      screen.getByTestId("one-location-nearby-search-area-legend"),
+    ).toHaveTextContent("500 m search area");
+    expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("clear-nearby-search-area"));
+    await waitFor(() => {
+      expect(mapHarness.map.removeCircles).toHaveBeenCalledWith(["circle-0"]);
+    });
+    expect(
+      screen.queryByTestId("one-location-nearby-search-area-legend"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("never strands markers when the set changes mid-write", async () => {
+    // Regression: a second "Your location" pin sat on the map where the device
+    // used to be. `addMarkers` is awaited, and a run superseded during that
+    // await returned without recording its ids -- so its markers stayed on the
+    // map with nothing able to remove them. Every place selection and presence
+    // poll changes the marker set, so this accumulated.
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+
+    const added: string[][] = [];
+    const removed: string[][] = [];
+    let seq = 0;
+    mapHarness.map.addMarkers.mockImplementation(async (markers: unknown[]) => {
+      // Stall so the next render supersedes this call while it is in flight.
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const ids = (markers as unknown[]).map(() => `m-${seq++}`);
+      added.push(ids);
+      return ids;
+    });
+    mapHarness.map.removeMarkers.mockImplementation(async (ids: string[]) => {
+      removed.push(ids);
+    });
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    // Churn the marker set faster than addMarkers resolves.
+    fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+    fireEvent.click(screen.getByTestId("clear-nearby-place-focus"));
+    fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+
+    await waitFor(() => {
+      expect(added.length).toBeGreaterThan(1);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    const live = new Set(added.flat());
+    for (const id of removed.flat()) live.delete(id);
+    // Exactly one batch may remain on the map: the current one.
+    expect(live.size).toBe(added.at(-1)?.length ?? 0);
+  });
+
+  it("pins the check-in place alongside the owner and names both", async () => {
+    // The owner's position and the venue they check in to are routinely a
+    // street apart. Showing only one of them left the map unable to say where
+    // a check-in actually was.
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+
+    await waitFor(() => {
+      const drawn = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as Array<{
+        coordinate: { lat: number; lng: number };
+        title?: string;
+        zIndex?: number;
+      }>;
+      // The place pin and the owner's pin are separate coordinates.
+      expect(
+        drawn.some(
+          (marker) =>
+            marker.coordinate.lat === 37.7775 &&
+            marker.coordinate.lng === -122.4172,
+        ),
+      ).toBe(true);
+      expect(
+        drawn.some(
+          (marker) =>
+            marker.coordinate.lat === 37.776 &&
+            marker.coordinate.lng === -122.418,
+        ),
+      ).toBe(true);
+      // On web the renderer paints `title` as the pin's glyph, so a title here
+      // becomes a caption smeared across the map -- a place name plus its full
+      // postal address in the worst case. Titles belong to native info windows.
+      expect(drawn.every((marker) => marker.title === undefined)).toBe(true);
+    });
+
+    // A connector makes the gap readable rather than leaving two loose pins.
+    await waitFor(() => {
+      expect(mapHarness.map.addPolylines).toHaveBeenCalledWith([
+        expect.objectContaining({
+          path: [
+            { lat: 37.776, lng: -122.418 },
+            { lat: 37.7775, lng: -122.4172 },
+          ],
+        }),
+      ]);
+    });
+
+    const legend = screen.getByTestId("one-location-nearby-search-area-legend");
+    expect(legend).toHaveTextContent("You are here");
+    expect(legend).toHaveTextContent("Checking in at Hotel Two");
+    expect(legend).toHaveTextContent("180 m from you");
+
+    fireEvent.click(screen.getByTestId("clear-nearby-place-focus"));
+    await waitFor(() => {
+      expect(mapHarness.map.removePolylines).toHaveBeenCalledWith([
+        "polyline-0",
+      ]);
+    });
+    expect(
+      screen.queryByTestId("one-location-nearby-place-legend"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("anchors the match circle on the place once a check-in is live", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+    experienceHarness.placeFocus = {
+      ...experienceHarness.placeFocus,
+      active: true,
+    };
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    mapHarness.map.addCircles.mockClear();
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+
+    // Co-presence is matched against the place, so that is what the 500 m ring
+    // has to describe -- not wherever the owner has since wandered.
+    await waitFor(() => {
+      expect(mapHarness.map.addCircles).toHaveBeenLastCalledWith([
+        expect.objectContaining({
+          center: { lat: 37.7775, lng: -122.4172 },
+          radius: 500,
+        }),
+      ]);
+    });
+    expect(
+      screen.getByTestId("one-location-nearby-search-area-legend"),
+    ).toHaveTextContent("Checked in at Hotel Two");
+  });
+
+  it("keeps the full search circle in the visible mobile viewport above the sheet", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 800,
+    });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn((query: string) => ({
+        matches: query.includes("max-width: 767px"),
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function getBoundingClientRect() {
+        const isCheckInSheet = this.hasAttribute(
+          "data-one-location-nearby-check-in-sheet",
+        );
+        const isPeopleTray =
+          this.getAttribute("data-testid") === "one-location-map-people-tray";
+        const top = isCheckInSheet ? 280 : isPeopleTray ? 732 : 0;
+        const bottom = isCheckInSheet ? 800 : isPeopleTray ? 788 : 56;
+        return {
+          x: 0,
+          y: top,
+          top,
+          right: 390,
+          bottom,
+          left: 0,
+          width: 390,
+          height: bottom - top,
+          toJSON: () => ({}),
+        };
+      },
+    );
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+
+    await waitFor(() => {
+      expect(mapHarness.map.setPadding).toHaveBeenCalledWith(
+        expect.objectContaining({
+          right: 20,
+          bottom: 532,
+        }),
+      );
+      expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+    });
+  });
+
+  it("frames a 500 m circle correctly across the antimeridian", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+    experienceHarness.searchPoint = {
+      ...experienceHarness.searchPoint,
+      latitude: 0,
+      longitude: 179.999,
+    };
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+
+    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalled());
+    const bounds = mapHarness.map.fitBounds.mock.calls.at(-1)?.[0] as {
+      value: {
+        southwest: { lng: number };
+        northeast: { lng: number };
+        center: { lng: number };
+      };
+    };
+    expect(bounds.value.center.lng).toBe(179.999);
+    expect(bounds.value.southwest.lng).toBeGreaterThan(
+      bounds.value.northeast.lng,
+    );
+  });
+
+  it("serializes circle framing so a stale fit cannot win a location race", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+    let resolveFirstFit: (() => void) | null = null;
+    mapHarness.map.fitBounds
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirstFit = resolve;
+          }),
+      )
+      .mockResolvedValue(undefined);
+
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalledTimes(1));
+
+    experienceHarness.searchPoint = {
+      ...experienceHarness.searchPoint,
+      latitude: 37.79,
+      longitude: -122.4,
+    };
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    expect(mapHarness.map.fitBounds).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveFirstFit?.());
+    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalledTimes(2));
+    const latestBounds = mapHarness.map.fitBounds.mock.calls.at(-1)?.[0] as {
+      value: { center: { lat: number; lng: number } };
+    };
+    expect(latestBounds.value.center).toEqual({ lat: 37.79, lng: -122.4 });
+  });
+
   it("resumes the existing nearby history boundary without pushing another sheet entry", async () => {
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
@@ -551,5 +993,51 @@ describe("LocationImmersiveMap demo experience", () => {
       expect(window.location.search).toBe("?action=check-in");
     });
     expect(pushState).not.toHaveBeenCalled();
+  });
+
+  it("shows a loading spinner on the Locate button while the position resolves", async () => {
+    render(<LocationImmersiveMap />);
+
+    const locate = await screen.findByTestId("one-location-map-locate");
+    // Any mount-time capture settles first, so the control starts idle.
+    await waitFor(() =>
+      expect(locate).not.toHaveAttribute("aria-busy", "true"),
+    );
+
+    let resolveCapture: (() => void) | undefined;
+    serviceHarness.captureCurrentPosition.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveCapture = () =>
+            resolve({
+              latitude: 37.776,
+              longitude: -122.418,
+              accuracyM: 12,
+              capturedAt: "2026-07-23T00:00:00.000Z",
+              sourcePlatform: "ios" as const,
+            });
+        }),
+    );
+
+    fireEvent.click(locate);
+
+    // Immediate feedback: the button disables, reports busy, and swaps the
+    // icon for an animated spinner while the lookup is in flight.
+    await waitFor(() => {
+      expect(locate).toBeDisabled();
+      expect(locate).toHaveAttribute("aria-busy", "true");
+    });
+    expect(locate.querySelector(".animate-spin")).not.toBeNull();
+
+    await act(async () => {
+      resolveCapture?.();
+      await Promise.resolve();
+    });
+
+    // Resolution clears the loading state cleanly.
+    await waitFor(() =>
+      expect(locate).toHaveAttribute("aria-busy", "false"),
+    );
+    expect(locate.querySelector(".animate-spin")).toBeNull();
   });
 });

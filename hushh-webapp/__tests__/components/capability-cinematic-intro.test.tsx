@@ -140,19 +140,41 @@ describe("CapabilityCinematicIntroGate", () => {
     expect(action.className).toContain("text-center");
   });
 
-  it("lets the shared flow shell own viewport clearance without clipping an inner surface", () => {
-    const gateSource = fs.readFileSync(
-      path.resolve(
-        process.cwd(),
-        "components/onboarding/setup/capability-cinematic-intro.tsx",
-      ),
-      "utf8",
+  it("top-anchors the shared intro instead of vertically centering the first setup screen", () => {
+    render(
+      <CapabilityCinematicIntroGate capabilityId="location">
+        <p>Location body</p>
+      </CapabilityCinematicIntroGate>,
     );
 
-    expect(gateSource).toContain(
-      "min-h-[calc(100dvh-var(--top-shell-reserved-height)-var(--app-scroll-bottom-pad,0px))]",
+    const intro = document.querySelector(
+      '[data-capability-cinematic-intro="location"]',
     );
-    expect(gateSource).not.toContain("overflow-hidden");
+    const shell = document.querySelector(
+      '[data-fullscreen-flow-shell="true"]',
+    );
+
+    expect(intro).toBeTruthy();
+    expect(shell).toBeTruthy();
+    expect(intro?.className).not.toContain("my-auto");
+    expect(shell?.className).not.toContain("justify-center");
+  });
+
+  it("does not add a second viewport-height centering layer when the intro is embedded", () => {
+    render(
+      <CapabilityCinematicIntroGate capabilityId="finance" embedded>
+        <p>Finance preferences</p>
+      </CapabilityCinematicIntroGate>,
+    );
+
+    const intro = document.querySelector(
+      '[data-capability-cinematic-intro="finance"]',
+    );
+
+    expect(intro).toBeTruthy();
+    expect(intro?.className).not.toContain("min-h-[calc(100dvh");
+    expect(intro?.className).not.toContain("justify-center");
+    expect(intro?.className).not.toContain("my-auto");
   });
 
   it("uses transparent, fixed provider mark cells rather than filled brand tiles", () => {

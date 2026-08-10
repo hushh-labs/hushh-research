@@ -153,7 +153,7 @@ export function StockComparisonPreview({
             <SurfaceInset className="p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                     Debate source
                   </p>
                   <p className="text-sm text-muted-foreground">
@@ -194,7 +194,7 @@ export function StockComparisonPreview({
             <SurfaceInset className="p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                     Live market
                   </p>
                   <h3 className="text-lg font-semibold text-foreground">
@@ -223,7 +223,7 @@ export function StockComparisonPreview({
 
             <SurfaceInset className="p-4">
               <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                   List comparison
                 </p>
                 <h3 className="text-lg font-semibold text-foreground">
@@ -256,7 +256,7 @@ export function StockComparisonPreview({
             <SurfaceInset className="p-4">
               <div className="space-y-3">
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                     Your advisor shared
                   </p>
                   <h3 className="text-base font-semibold text-foreground">{advisorSummary.source_label}</h3>

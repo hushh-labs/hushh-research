@@ -573,7 +573,14 @@ def test_search_directory_delegates_pagination_to_eligible_directory_query():
     def directory_search(owner_user_id: str, **options: object) -> dict[str, object]:
         calls.append((owner_user_id, options))
         return {
-            "items": [{"userId": "user-c", "displayName": "Cara"}],
+            "items": [
+                {
+                    "userId": "user-c",
+                    "displayName": "Cara",
+                    "maskedPhone": "******4455",
+                    "maskedEmail": "c***a@example.com",
+                }
+            ],
             "page": 2,
             "hasMore": True,
         }
@@ -591,6 +598,8 @@ def test_search_directory_delegates_pagination_to_eligible_directory_query():
                 "displayName": "Cara",
                 "photoUrl": None,
                 "email": None,
+                "maskedPhone": "******4455",
+                "maskedEmail": "c***a@example.com",
                 "relationship": "none",
             }
         ],

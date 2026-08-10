@@ -194,11 +194,11 @@ def test_agent_chat_classifies_adc_refresh_failure_as_managed_credentials_unavai
     error = _runtime_provider_error_from_exception(RefreshError("reauthentication required"))
 
     assert error.error_code == "AGENT_RUNTIME_MANAGED_CREDENTIALS_UNAVAILABLE"
-    assert error.message == "Hushh managed Gemini is not available in this environment."
+    assert error.message == "Hussh managed Gemini is not available in this environment."
     assert error.detail == {
         "error_type": "RefreshError",
         "likely_issue": "managed_google_credentials_unavailable",
-        "operator_hint": "Check Hushh managed Gemini credentials for this runtime.",
+        "operator_hint": "Check Hussh managed Gemini credentials for this runtime.",
     }
 
 

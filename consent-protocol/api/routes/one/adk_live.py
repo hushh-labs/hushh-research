@@ -86,6 +86,10 @@ from hushh_mcp.services.action_directive_ledger import (
     get_action_directive_store,
 )
 from hushh_mcp.services.action_gateway import get_action_gateway_action
+from hushh_mcp.services.live_voice_context import (
+    clear_live_voice_context,
+    publish_live_voice_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +129,7 @@ _INITIAL_GREETING_IDLE_SECONDS = 1.5
 _INITIAL_CONTEXT_WAIT_SECONDS = 2.5
 _RUNTIME_BOOTSTRAP_WAIT_SECONDS = 6.0
 _RUNTIME_BOOTSTRAP_CREDENTIAL_CAP = 12_000
+_RESUMPTION_HANDLE_CAP = 4_096
 _MAX_BROWSER_FRAME_CHARS = 1_000_000
 _MAX_REALTIME_AUDIO_BYTES = 512 * 1024
 _MAX_REALTIME_AUDIO_BASE64_CHARS = ((_MAX_REALTIME_AUDIO_BYTES + 2) // 3) * 4
@@ -148,6 +153,25 @@ def _decode_realtime_audio(data: str) -> bytes | None:
     return decoded
 
 
+async def _close_quietly(
+    websocket: WebSocket, *, code: int = 1000, reason: str | None = None
+) -> None:
+    """Best-effort close: the browser may already be gone by the time a
+    rejection path calls this (tab closed, network drop mid-handshake), which
+    hits a known websockets/uvicorn legacy-protocol bug -- close() raises
+    AttributeError('transfer_data_task') instead of a clean no-op when the
+    connection never finished setting up its transfer task
+    (https://github.com/python-websockets/websockets/issues/1396). There is no
+    one left to notify either way, so log and move on rather than let a
+    disconnected client turn an ordinary rejection into an unhandled
+    exception.
+    """
+    try:
+        await websocket.close(code=code, reason=reason or "")
+    except Exception:  # noqa: BLE001 - best-effort notification, client may be gone
+        logger.debug("one_adk_live_close_failed code=%s", code)
+
+
 async def _receive_runtime_bootstrap(
     websocket: WebSocket,
     *,
@@ -156,6 +180,7 @@ async def _receive_runtime_bootstrap(
     Literal["hushh_managed_vertex", "byok"],
     str | None,
     Literal["developer_api", "vertex_api_key"],
+    str | None,
     str | None,
     str | None,
 ]:
@@ -174,13 +199,19 @@ async def _receive_runtime_bootstrap(
         raise ValueError("runtime_bootstrap_required") from None
     if not isinstance(message, dict) or message.get("type") != "runtime_bootstrap":
         raise ValueError("runtime_bootstrap_required")
+    # A resumption handle from a previous socket for this same person. It is
+    # an opaque provider token, not a credential and not model context: it
+    # only lets a dropped conversation continue instead of starting over.
+    resumption_handle = str(message.get("resumption_handle") or "").strip()
+    if len(resumption_handle) > _RESUMPTION_HANDLE_CAP:
+        resumption_handle = ""
     mode = message.get("runtime_credential_mode")
     if mode == "hushh_managed_vertex":
         # Never accept a credential in managed mode, even if a buggy client
         # supplied one. This keeps the startup contract unambiguous.
         if message.get("runtime_credential") not in (None, ""):
             raise ValueError("runtime_bootstrap_invalid")
-        return "hushh_managed_vertex", None, "developer_api", None, None
+        return "hushh_managed_vertex", None, "developer_api", None, None, resumption_handle or None
     if mode != "byok" or not uid:
         raise ValueError("runtime_bootstrap_invalid")
     credential = message.get("runtime_credential")
@@ -197,10 +228,10 @@ async def _receive_runtime_bootstrap(
     if transport == "vertex_api_key":
         if not _VERTEX_PROJECT_RE.fullmatch(project) or not _VERTEX_LOCATION_RE.fullmatch(location):
             raise ValueError("runtime_bootstrap_invalid")
-        return "byok", credential, "vertex_api_key", project, location
+        return "byok", credential, "vertex_api_key", project, location, resumption_handle or None
     if project or location:
         raise ValueError("runtime_bootstrap_invalid")
-    return "byok", credential, "developer_api", None, None
+    return "byok", credential, "developer_api", None, None, resumption_handle or None
 
 
 class _InitialGreetingGate:
@@ -301,7 +332,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     await websocket.accept()
 
     if not one_voice_enabled():
-        await websocket.close(code=1011, reason="One voice is not enabled.")
+        await _close_quietly(websocket, code=1011, reason="One voice is not enabled.")
         return
 
     relay_ticket = websocket.query_params.get("relay_ticket")
@@ -309,7 +340,8 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     # (Postgres registry, migration 084; Redis swap seam documented there).
     accepted, uid, _persona_tier = await consume_relay_ticket_shared(relay_ticket)
     if not accepted:
-        await websocket.close(code=1008, reason="Voice relay ticket is expired.")
+        logger.info("one_adk_live_relay_ticket_rejected")
+        await _close_quietly(websocket, code=1008, reason="Voice relay ticket is expired.")
         return
 
     try:
@@ -319,6 +351,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             runtime_credential_transport,
             runtime_vertex_project,
             runtime_vertex_location,
+            resumption_handle,
         ) = await _receive_runtime_bootstrap(websocket, uid=uid)
         runner = build_one_live_runner(
             runtime_mode=runtime_mode,
@@ -331,10 +364,15 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         # Safe class-only close reasons. Never reflect the credential or a raw
         # provider response to the browser, logger, telemetry, or websocket.
         reason = str(exc)
+        logger.info("one_adk_live_runtime_bootstrap_rejected reason=%s", reason)
         if reason == "byok_live_unsupported":
-            await websocket.close(code=1008, reason="BYOK Live is unavailable. Use managed Gemini.")
+            await _close_quietly(
+                websocket, code=1008, reason="BYOK Live is unavailable. Use managed Gemini."
+            )
         else:
-            await websocket.close(code=1008, reason="Voice session configuration was not accepted.")
+            await _close_quietly(
+                websocket, code=1008, reason="Voice session configuration was not accepted."
+            )
         return
     finally:
         # Keep the raw key alive only through connection-local runner creation.
@@ -369,6 +407,21 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         response_modalities=[genai_types.Modality.AUDIO],
         input_audio_transcription=genai_types.AudioTranscriptionConfig(),
         output_audio_transcription=genai_types.AudioTranscriptionConfig(),
+        # No explicit trigger/target tokens: leaving both unset uses the
+        # provider's own defaults for when/how much to compress, per the
+        # documented "if not set" fallback on SlidingWindow.target_tokens.
+        context_window_compression=genai_types.ContextWindowCompressionConfig(
+            sliding_window=genai_types.SlidingWindow(),
+        ),
+        # Without this a dropped socket ends the conversation outright: a 1011,
+        # a network blip, or the provider's own scheduled disconnect all lost
+        # everything said so far. The provider issues a handle it will accept
+        # back, so a reconnect continues the same conversation instead of
+        # restarting it. Passing a handle from the browser resumes; passing
+        # none starts fresh and begins issuing handles for next time.
+        session_resumption=genai_types.SessionResumptionConfig(
+            handle=resumption_handle or None,
+        ),
     )
 
     await websocket.send_text(json.dumps({"setupComplete": {}}))
@@ -461,6 +514,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     # screen truly changed (never for the first frame; session state already
     # carries it for tools).
     last_injected_route_key: Optional[str] = None
+    last_injected_entry_key: Optional[str] = None
     first_app_context_seen = False
     # Action outcomes are accepted only when they match a directive forwarded
     # on this same authenticated WebSocket. This keeps arbitrary browser
@@ -473,14 +527,43 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     issued_goal_directives: dict[str, str] = {}
     issued_goal_runs: dict[str, dict[str, Any]] = {}
     issued_journey_started_at: dict[str, float] = {}
+    # Nothing upstream stops the model from calling the same action-producing
+    # tool again while an identical directive is still outstanding (the
+    # one-tool-call-per-turn rule is a prompt-level ask, not enforced). Each
+    # retry used to issue a brand-new directive and push a brand-new
+    # clientDirective, which the browser treats as superseding whatever
+    # confirmation card is currently up -- so a retrying model could blow away
+    # its own still-unanswered proposal before the person had a chance to tap
+    # it. Track a fingerprint per outstanding directive (same shape as the
+    # browser's own directiveFingerprint()) and skip re-issuing an identical
+    # one while it's still open.
+    issued_action_fingerprints: dict[str, str] = {}
     awaiting_goal_context: set[str] = set()
     initial_context_ready = asyncio.Event()
     latest_context: dict[str, Any] = {}
-    latest_context_id = ""
 
     async def _disarm_open_directives() -> None:
-        """Cancel proposals when fresh user intent supersedes the prior turn."""
+        """Cancel loose proposals when fresh user intent supersedes the prior turn.
+
+        Journey steps are deliberately exempt. ``voice_activity_start`` carries
+        no transcript and no intent, so it cannot tell "analyse Tesla instead"
+        from "did that work?" -- and treating both as supersession silently
+        abandoned a multi-step task the person had already asked for, mid-flight.
+        A journey now ends only when it completes or when the person explicitly
+        stops it (the goal's authored ``cancellation_contract.cancel_action_id``).
+
+        Confirmation safety is unchanged: every voice directive is issued with
+        ``trusted_activation_required``, so a directive can only ever be
+        confirmed by a real browser gesture. Speech could never confirm one.
+        """
         for stale_directive_id, stale_action_id in list(issued_action_directives.items()):
+            if stale_directive_id in issued_goal_directives:
+                logger.info(
+                    "one_adk_goal_decision goal=%s status=journey_directive_preserved action=%s",
+                    issued_goal_directives[stale_directive_id],
+                    stale_action_id,
+                )
+                continue
             try:
                 await get_action_directive_store().cancel_voice(
                     directive_id=stale_directive_id,
@@ -495,19 +578,30 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             issued_action_directives.pop(stale_directive_id, None)
             goal_id = issued_goal_directives.pop(stale_directive_id, None)
             if goal_id:
+                # Disarming an in-flight journey directive also drops its
+                # pending continuation. Speaking while a journey's navigation
+                # card is still open therefore cancels the whole journey, which
+                # is invisible in the log without this line.
+                logger.info(
+                    "one_adk_goal_decision goal=%s status=disarmed_by_new_intent action=%s",
+                    goal_id,
+                    stale_action_id,
+                )
                 awaiting_goal_context.discard(goal_id)
             issued_goal_runs.pop(stale_directive_id, None)
             issued_journey_started_at.pop(stale_directive_id, None)
+            issued_action_fingerprints.pop(stale_directive_id, None)
             gc_task = issued_directive_gc_tasks.pop(stale_directive_id, None)
             if gc_task is not None:
                 gc_task.cancel()
 
     async def pump_browser_to_queue() -> None:
-        nonlocal last_injected_route_key, first_app_context_seen, latest_context, latest_context_id
+        nonlocal last_injected_route_key, last_injected_entry_key
+        nonlocal first_app_context_seen, latest_context
         while True:
             raw = await websocket.receive_text()
             if not _browser_frame_within_bounds(raw):
-                await websocket.close(code=1009, reason="Voice frame is too large.")
+                await _close_quietly(websocket, code=1009, reason="Voice frame is too large.")
                 return
             try:
                 message = json.loads(raw)
@@ -543,9 +637,23 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # proposed or executed on the current screen.
                 sanitized_context = _sanitize_live_context(context_payload)
                 latest_context = sanitized_context
-                latest_context_id = context_id
                 state_delta[STATE_VOICE_CONTEXT] = sanitized_context
+                # run_live holds ONE invocation for this whole socket, so the
+                # session state below is frozen at connect time and the tools
+                # would keep reasoning about the screen the person started on.
+                # Publish the live view they actually read from.
+                publish_live_voice_context(session_id, sanitized_context)
                 canonical_screen = sanitized_context.get("screen")
+                # What the browser actually claimed vs what the index resolved.
+                # A journey waiting on a screen can only be debugged from the
+                # inputs: a stale publisher and a mis-resolved query look
+                # identical downstream, and both surface only as "settling".
+                logger.info(
+                    "one_adk_live_context_received family=%s query=%s -> screen=%s",
+                    _bounded_text(context_payload.get("route_family"), 64),
+                    _bounded_text(context_payload.get("route_query"), 64),
+                    canonical_screen,
+                )
                 if isinstance(canonical_screen, str) and canonical_screen:
                     state_delta[STATE_SCREEN] = canonical_screen
                 if state_delta:
@@ -618,6 +726,21 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     )
                     changed = route_key != last_injected_route_key
                     last_injected_route_key = route_key
+                    # Arriving somewhere new is a different event from the
+                    # content changing where the person already is. Both
+                    # refresh One's inventory, but only the former is an
+                    # entry: without this split, opening a preview on the
+                    # current screen re-fired the route's on-entry cue and
+                    # One announced a screen change that never happened.
+                    entry_key = ":".join(
+                        [
+                            str(sanitized_context.get("route_pattern") or ""),
+                            clean_screen,
+                            str(sanitized_context.get("route_instruction_id") or ""),
+                        ]
+                    )
+                    route_entered = entry_key != last_injected_entry_key
+                    last_injected_entry_key = entry_key
                     journey_waiting_for_settlement = any(
                         isinstance(run, dict)
                         and run.get("schema_version") == "one.settled_action_journey.v1"
@@ -630,7 +753,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     # not settled yet. The correlated settlement below is the
                     # only event allowed to make its next choice eligible.
                     if changed and not is_first and not journey_waiting_for_settlement:
-                        note_text = _compose_route_context_note(sanitized_context)
+                        note_text = _compose_route_context_note(
+                            sanitized_context, is_route_entry=route_entered
+                        )
                         if note_text:
                             queue.send_content(
                                 genai_types.Content(
@@ -644,6 +769,11 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     and clean_screen == "kai_analysis"
                 ):
                     awaiting_goal_context.discard("goal.analysis.start_debate")
+                    logger.info(
+                        "one_adk_goal_decision goal=goal.analysis.start_debate "
+                        "status=continuation_nudge_sent screen=%s",
+                        clean_screen,
+                    )
                     queue.send_content(
                         genai_types.Content(
                             role="user",
@@ -747,6 +877,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 if settlement is None:
                     logger.info("one_adk_live_invalid_action_settlement")
                     continue
+                issued_action_fingerprints.pop(settlement["directive_id"], None)
                 raw_settlement = raw_settlement if isinstance(raw_settlement, dict) else {}
                 receipt = _bounded_text(raw_settlement.get("receipt"), 256)
                 try:
@@ -788,15 +919,17 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     expected = expected if isinstance(expected, dict) else {}
                     expected_route = str(expected.get("route") or "")
                     expected_screen = str(expected.get("screen") or "")
+                    # The settlement already self-reports route_after/screen_after
+                    # at the same trust boundary as everything else in
+                    # _sanitize_action_settlement. Trusting those directly (instead
+                    # of requiring a SEPARATE app_context frame to have landed and
+                    # match destination_context_id) removes a race the live
+                    # confirm-tap path never actually satisfies today -- it never
+                    # populates destinationContextId at all, so this check was
+                    # unconditionally rejecting a real journey continuation.
                     context_matches = (
-                        bool(settlement.get("destination_context_id"))
-                        and settlement.get("destination_context_id") == latest_context_id
-                        and (
-                            not expected_route
-                            or latest_context.get("route_pattern") == expected_route
-                        )
-                        and (not expected_screen or latest_context.get("screen") == expected_screen)
-                    )
+                        not expected_route or settlement.get("route_after") == expected_route
+                    ) and (not expected_screen or settlement.get("screen_after") == expected_screen)
                     if not context_matches:
                         journey_destination_rejected = True
                         settlement = {
@@ -815,10 +948,15 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 if directive_gc_task is not None:
                     directive_gc_task.cancel()
                 logger.info(
-                    "one_adk_live_action_settled action=%s directive=%s status=%s",
+                    # reason/summary are what the browser refused with. Without
+                    # them a blocked settlement is unattributable: guard, screen
+                    # mismatch and executor error all read as "blocked".
+                    "one_adk_live_action_settled action=%s directive=%s status=%s reason=%s summary=%s",
                     settlement["action_id"],
                     settlement["directive_id"],
                     settlement["status"],
+                    _bounded_text(settlement.get("reason"), 64),
+                    _bounded_text(settlement.get("summary"), 160),
                 )
                 goal_id = issued_goal_directives.pop(settlement["directive_id"], None)
                 if (
@@ -827,6 +965,19 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     and settlement["status"] in {"succeeded", "started"}
                 ):
                     awaiting_goal_context.add(goal_id)
+                    logger.info(
+                        "one_adk_goal_decision goal=%s status=awaiting_destination_context", goal_id
+                    )
+                elif settlement["action_id"] == "route.kai_analysis":
+                    # The journey's own navigation settled but did NOT arm the
+                    # continuation. Without this, a lost goal linkage looks
+                    # exactly like a successful navigation in the log.
+                    logger.info(
+                        "one_adk_goal_decision goal=%s status=continuation_not_armed "
+                        "settlement_status=%s",
+                        goal_id,
+                        settlement["status"],
+                    )
                 settlement_state_delta: dict[str, Any] = {
                     "hussh:last_action_settlement": settlement
                 }
@@ -995,12 +1146,54 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             # Legacy/context-free clients still start; tools see an absent
             # voice context and report context_not_ready instead of refusing.
             logger.info("one_adk_live_started_without_initial_context")
+        # A model naming a tool that does not exist is ordinary LLM behaviour,
+        # not an exceptional condition. ADK raises ValueError from _get_tool,
+        # it escapes the live flow, and the whole pump dies -- so one bad guess
+        # ended the call. Observed: One called the action id
+        # 'analysis.open_summary_tab' as if it were a tool.
+        #
+        # Contain it here so a bad tool name costs a turn instead of a session.
+        # The browser is told the reason so it can resume rather than treating
+        # this as an ordinary close.
+        try:
+            await _pump_live_events()
+        except ValueError as tool_error:
+            logger.warning("one_adk_live_unknown_tool_call error=%s", str(tool_error)[:160])
+            await websocket.send_text(
+                json.dumps({"sessionEnded": {"reason": "unknown_tool_call", "resumable": True}})
+            )
+            return
+
+    async def _pump_live_events() -> None:
         async for event in runner.run_live(
             user_id=session_user,
             session_id=session_id,
             live_request_queue=queue,
             run_config=run_config,
         ):
+            # The provider hands out a token it will accept back on a new
+            # socket. Forward it so the browser can resume THIS conversation
+            # after a drop rather than starting a new one. It is opaque, and
+            # never becomes model context.
+            resumption_update = getattr(event, "live_session_resumption_update", None)
+            if resumption_update is not None and getattr(resumption_update, "resumable", False):
+                new_handle = _bounded_text(
+                    getattr(resumption_update, "new_handle", None), _RESUMPTION_HANDLE_CAP
+                )
+                if new_handle:
+                    await websocket.send_text(
+                        json.dumps({"sessionResumption": {"handle": new_handle}})
+                    )
+            # Advance warning that the provider is about to close. Telling the
+            # browser lets it reconnect on its own terms rather than
+            # discovering mid-sentence that the socket is gone.
+            go_away = getattr(event, "go_away", None)
+            if go_away is not None:
+                time_left = getattr(go_away, "time_left", None)
+                logger.info("one_adk_live_go_away time_left=%s", str(time_left)[:32])
+                await websocket.send_text(
+                    json.dumps({"goAway": {"timeLeft": str(time_left) if time_left else None}})
+                )
             if getattr(event, "interrupted", False):
                 await websocket.send_text(json.dumps({"serverContent": {"interrupted": True}}))
             input_tx = getattr(event, "input_transcription", None)
@@ -1054,6 +1247,32 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             _bounded_text(latest_context.get("context_revision"), 256)
                             or f"session:{session_id}"
                         )
+                        raw_slots = payload.get("slots")
+                        slots: dict[str, Any] = raw_slots if isinstance(raw_slots, dict) else {}
+                        # Same fingerprint shape as the browser's own
+                        # directiveFingerprint() -- key names/types only, never
+                        # values, so nothing sensitive (e.g. an OTP) is retained
+                        # even transiently.
+                        new_fingerprint = json.dumps(
+                            {"actionId": action_id, "slotKeys": sorted(slots.keys())},
+                            sort_keys=True,
+                        )
+                        duplicate_directive_id = next(
+                            (
+                                did
+                                for did, aid in issued_action_directives.items()
+                                if aid == action_id
+                                and issued_action_fingerprints.get(did) == new_fingerprint
+                            ),
+                            None,
+                        )
+                        if duplicate_directive_id:
+                            logger.info(
+                                "one_adk_live_directive_deduped action=%s directive=%s",
+                                action_id,
+                                duplicate_directive_id,
+                            )
+                            continue
                         try:
                             issued = await get_action_directive_store().issue(
                                 user_id=session_user,
@@ -1062,11 +1281,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                 action_id=action_id,
                                 context_revision=context_revision,
                                 action_contract=action,
-                                slots=(
-                                    payload.get("slots")
-                                    if isinstance(payload.get("slots"), dict)
-                                    else {}
-                                ),
+                                slots=slots,
                                 trusted_activation_required=True,
                             )
                         except Exception as error:  # fail closed on shared-store outage
@@ -1078,6 +1293,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             continue
                         directive_id = issued.directive_id
                         issued_action_directives[directive_id] = action_id
+                        issued_action_fingerprints[directive_id] = new_fingerprint
                         goal_id = _bounded_text(payload.get("goalId"), 128)
                         if goal_id:
                             issued_goal_directives[directive_id] = goal_id
@@ -1112,6 +1328,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                 issued_goal_directives.pop(did, None)
                                 expired_goal_run = issued_goal_runs.pop(did, None)
                                 issued_journey_started_at.pop(did, None)
+                                issued_action_fingerprints.pop(did, None)
                                 logger.warning(
                                     "one_adk_live_directive_timeout action=%s directive=%s",
                                     aid,
@@ -1197,10 +1414,10 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         if greeting_task is not None:
             greeting_task.cancel()
         queue.close()
-        try:
-            await websocket.close()
-        except Exception:  # noqa: BLE001 - already closed
-            pass
+        # Same lifetime as the session itself: the published live context is
+        # per-socket, so it must not outlive the socket that owns it.
+        clear_live_voice_context(session_id)
+        await _close_quietly(websocket)
         # Ephemeral session cleanup: without this, InMemorySessionService
         # accumulates one session per voice connection until process restart.
         try:

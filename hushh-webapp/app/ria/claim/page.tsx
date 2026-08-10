@@ -19,17 +19,25 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import {
+  formatAum,
+  RiaSecRecordSection,
+  titleCase,
+} from "@/components/ria/profile/ria-sec-record-section";
 import { useAuth } from "@/hooks/use-auth";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { toNanpDigits } from "@/lib/ria/ria-claim-entry";
 import { Button } from "@/lib/morphy-ux/button";
-import { ROUTES } from "@/lib/navigation/routes";
+import { normalizeInternalRouteHref, ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { useVault } from "@/lib/vault/vault-context";
 import {
   RiaApiError,
   RiaService,
@@ -50,27 +58,6 @@ function formatUsPhone(digits: string): string {
   if (digits.length <= 3) return digits;
   if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
-}
-
-function formatAum(aum: number | null | undefined): string | null {
-  if (!aum || aum <= 0) return null;
-  if (aum >= 1_000_000_000) return `$${(aum / 1_000_000_000).toFixed(1)}B AUM`;
-  if (aum >= 1_000_000) return `$${Math.round(aum / 1_000_000)}M AUM`;
-  return `$${Math.round(aum / 1_000)}K AUM`;
-}
-
-function titleCase(value: string | null | undefined): string {
-  const text = String(value ?? "").trim();
-  if (!text) return "";
-  const keepUpper = new Set(["llc", "lp", "llp", "pc", "pa", "ltd", "inc"]);
-  return text
-    .split(/\s+/)
-    .map((word) => {
-      const cleaned = word.replace(/[.,]+$/, "").toLowerCase();
-      if (keepUpper.has(cleaned)) return word.toLowerCase().replace(cleaned, cleaned.toUpperCase());
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(" ");
 }
 
 function FirmCard({ firm, adviserCount }: { firm: RiaClaimFirm; adviserCount?: number | null }) {
@@ -173,8 +160,20 @@ function CodeCells({
 
 export default function RiaClaimPage() {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const searchParams = useSearchParams();
+  const { user, phoneNumber: accountPhone, loading: authLoading } = useAuth();
+  const { vaultKey, vaultOwnerToken } = useVault();
   const { refresh: refreshPersonaState } = usePersonaState();
+  // Arrives pre-filled when the sign-up phone screen recognised this number.
+  // Someone who verified their phone on an earlier visit never sees that
+  // screen again, so fall back to the number already on their account — they
+  // should be recognised whenever they reach here, not only on first sign-up.
+  const seededPhone =
+    toNanpDigits(searchParams.get("phone")) ||
+    toNanpDigits(accountPhone || user?.phoneNumber);
+  // Where the person was before recognition pulled them here, so claiming
+  // hands them back rather than stranding them in the RIA workspace.
+  const returnTo = normalizeInternalRouteHref(searchParams.get("return_to"));
 
   const [step, setStep] = useState<ClaimStep>("phone");
   const [phoneDigits, setPhoneDigits] = useState("");
@@ -202,6 +201,9 @@ export default function RiaClaimPage() {
   const [verifyResult, setVerifyResult] = useState<RiaClaimVerifyResult | null>(null);
   const [pickCrd, setPickCrd] = useState<number | null>(null);
   const [completeResult, setCompleteResult] = useState<RiaClaimCompleteResult | null>(null);
+  // True when first-run setup still has steps left, so the done screen returns
+  // the person to the hub instead of ending their setup early.
+  const [rootSetupUnresolved, setRootSetupUnresolved] = useState(false);
 
   const submittingRef = useRef(false);
 
@@ -224,13 +226,14 @@ export default function RiaClaimPage() {
     return "Something went wrong. Try again.";
   };
 
-  const handleLookup = useCallback(async () => {
-    if (phoneDigits.length !== 10 || busy) return;
+  const handleLookup = useCallback(async (phoneOverride?: string) => {
+    const phone = phoneOverride ?? phoneDigits;
+    if (phone.length !== 10 || busy) return;
     setBusy(true);
     setError(null);
     try {
       const idToken = await getIdToken();
-      const result = await RiaService.claimLookup(idToken, { phone: phoneDigits });
+      const result = await RiaService.claimLookup(idToken, { phone });
       if (result.outcome === "invalid_phone") {
         setError("Enter a valid US phone number.");
         return;
@@ -255,35 +258,15 @@ export default function RiaClaimPage() {
     }
   }, [phoneDigits, busy, getIdToken]);
 
-  const beginClaim = useCallback(
-    async (type: ClaimType, candidateCrd: number | null) => {
-      if (!firmCrd || busy) return;
-      setBusy(true);
-      setError(null);
-      setClaimType(type);
-      setSelectedCandidateCrd(candidateCrd);
-      try {
-        const idToken = await getIdToken();
-        const start = await RiaService.claimOtpStart(idToken, { phone: phoneDigits });
-        setPhoneMasked(start.phone_masked ?? "");
-        if (start.eligible && start.verification_id) {
-          setVerificationId(start.verification_id);
-          setCodeLength(start.code_length ?? 6);
-          setOtpUnavailable(false);
-        } else {
-          setVerificationId(null);
-          setOtpUnavailable(true);
-        }
-        setCode("");
-        setStep("code");
-      } catch (err) {
-        setError(describeError(err));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [firmCrd, busy, phoneDigits, getIdToken],
-  );
+  // Recognised at sign-up: run the lookup immediately so the person lands on
+  // their firm instead of retyping the number they just verified.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (seededRef.current || !seededPhone || !user || authLoading) return;
+    seededRef.current = true;
+    setPhoneDigits(seededPhone);
+    void handleLookup(seededPhone);
+  }, [seededPhone, user, authLoading, handleLookup]);
 
   const completeClaim = useCallback(
     async (ticket: string, type: ClaimType, individualCrd: number | null) => {
@@ -303,10 +286,131 @@ export default function RiaClaimPage() {
       // adviser back into the onboarding wizard off a 30-min-TTL cache hit.
       if (user) {
         CacheSyncService.onPersonaStateChanged(user.uid);
+        // Claiming completes RIA setup just as the wizard does, so the Setup
+        // hub must stop listing it as remaining. syncSetupCapabilities REPLACES
+        // the stored set, so pass the union.
+        try {
+          const current = await PreVaultUserStateService.bootstrapState(user.uid, {
+            force: true,
+          });
+          if (!current.setupCapabilityIds.includes("ria")) {
+            await PreVaultUserStateService.syncSetupCapabilities(
+              user.uid,
+              Array.from(new Set([...current.setupCapabilityIds, "ria"])).sort(),
+            );
+          }
+          // Claiming is one capability inside first-run setup, not an exit from
+          // it. While the root setup is unresolved the person still has other
+          // steps to finish, so the done screen must hand them back to the hub
+          // rather than drop them into the RIA workspace.
+          setRootSetupUnresolved(!PreVaultUserStateService.isSetupResolved(current));
+        } catch {
+          // best-effort; the dashboard reconciles the count on next load.
+        }
       }
       await refreshPersonaState({ force: true });
     },
     [firmCrd, phoneDigits, getIdToken, refreshPersonaState, user],
+  );
+
+  // The regulator facts shown on the done screen also belong to the person's
+  // own encrypted knowledge store. That write needs the unlocked vault, which
+  // only this session has — fired when they act on the done screen, so the
+  // owner confirmation covers exactly the data they just looked at. Locked
+  // vault or any failure is silently fine: the server keeps a staged copy.
+  const factsPersistedRef = useRef(false);
+  const persistFactsToPkm = useCallback(() => {
+    const facts = completeResult?.facts;
+    if (factsPersistedRef.current || !facts || !user) return;
+    factsPersistedRef.current = true;
+    void RiaService.saveRegulatorProfile({
+      userId: user.uid,
+      vaultKey,
+      vaultOwnerToken,
+      facts,
+    }).catch(() => {
+      // Best-effort by design; the claim itself is already recorded.
+    });
+  }, [completeResult, user, vaultKey, vaultOwnerToken]);
+
+  /** Route a verify result onward: complete it, or ask which adviser. */
+  const settleVerifyResult = useCallback(
+    async (
+      result: RiaClaimVerifyResult,
+      type: ClaimType,
+      candidateCrd: number | null,
+    ) => {
+      setVerifyResult(result);
+      if (type === "firm") {
+        await completeClaim(result.claim_ticket, "firm", null);
+        return;
+      }
+      if (candidateCrd) {
+        await completeClaim(result.claim_ticket, "individual", candidateCrd);
+        return;
+      }
+      const roster = result.roster ?? [];
+      const soleEntry = roster.length === 1 ? roster[0] : undefined;
+      if (soleEntry?.individual_crd) {
+        await completeClaim(result.claim_ticket, "individual", soleEntry.individual_crd);
+        return;
+      }
+      setPickCrd(null);
+      setStep("pick");
+    },
+    [completeClaim],
+  );
+
+  const beginClaim = useCallback(
+    async (type: ClaimType, candidateCrd: number | null) => {
+      if (!firmCrd || busy) return;
+      setBusy(true);
+      setError(null);
+      setClaimType(type);
+      setSelectedCandidateCrd(candidateCrd);
+      try {
+        const idToken = await getIdToken();
+
+        // Always try the tokenless verify first: the server checks the number
+        // against its own record of the account phone and answers 422
+        // CLAIM_PROOF_REQUIRED when possession still needs proving. The client
+        // must not pre-gate this — useAuth().phoneNumber is stale right after
+        // sign-up verification, and a wrong guess forces a second passcode on
+        // a number proven moments ago. Cost: one extra round-trip, mismatch
+        // case only.
+        try {
+          const verified = await RiaService.claimVerify(idToken, {
+            phone: phoneDigits,
+            claim_type: type,
+            firm_crd: firmCrd,
+            individual_crd: type === "individual" ? candidateCrd : undefined,
+          });
+          await settleVerifyResult(verified, type, candidateCrd);
+          return;
+        } catch {
+          // Server said CLAIM_PROOF_REQUIRED (or was unreachable): possession
+          // must still be proven the normal way — fall through to the passcode.
+        }
+
+        const start = await RiaService.claimOtpStart(idToken, { phone: phoneDigits });
+        setPhoneMasked(start.phone_masked ?? "");
+        if (start.eligible && start.verification_id) {
+          setVerificationId(start.verification_id);
+          setCodeLength(start.code_length ?? 6);
+          setOtpUnavailable(false);
+        } else {
+          setVerificationId(null);
+          setOtpUnavailable(true);
+        }
+        setCode("");
+        setStep("code");
+      } catch (err) {
+        setError(describeError(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [firmCrd, busy, phoneDigits, getIdToken, settleVerifyResult],
   );
 
   const handleCodeFilled = useCallback(
@@ -325,23 +429,7 @@ export default function RiaClaimPage() {
           verification_id: verificationId,
           verification_code: filledCode,
         });
-        setVerifyResult(result);
-        if (claimType === "firm") {
-          await completeClaim(result.claim_ticket, "firm", null);
-          return;
-        }
-        if (selectedCandidateCrd) {
-          await completeClaim(result.claim_ticket, "individual", selectedCandidateCrd);
-          return;
-        }
-        const roster = result.roster ?? [];
-        const soleEntry = roster.length === 1 ? roster[0] : undefined;
-        if (soleEntry?.individual_crd) {
-          await completeClaim(result.claim_ticket, "individual", soleEntry.individual_crd);
-          return;
-        }
-        setPickCrd(null);
-        setStep("pick");
+        await settleVerifyResult(result, claimType, selectedCandidateCrd);
       } catch (err) {
         setCode("");
         setError(
@@ -354,7 +442,15 @@ export default function RiaClaimPage() {
         setBusy(false);
       }
     },
-    [firmCrd, verificationId, phoneDigits, claimType, selectedCandidateCrd, getIdToken, completeClaim],
+    [
+      firmCrd,
+      verificationId,
+      phoneDigits,
+      claimType,
+      selectedCandidateCrd,
+      getIdToken,
+      settleVerifyResult,
+    ],
   );
 
   useEffect(() => {
@@ -775,23 +871,57 @@ export default function RiaClaimPage() {
                   </div>
                 </div>
               </div>
+              {completeResult.dossier?.status === "queued" ? (
+                <p
+                  className="text-[13px] text-muted-foreground"
+                  data-testid="ria-claim-dossier-line"
+                >
+                  Your dossier is on its way to{" "}
+                  {completeResult.dossier.email_masked || "your email"}
+                </p>
+              ) : null}
+              {completeResult.facts ? (
+                <RiaSecRecordSection facts={completeResult.facts} />
+              ) : null}
               {!verified ? (
                 <p className="text-[13px] leading-relaxed text-muted-foreground">
                   Finish verification anytime from your profile.
                 </p>
               ) : null}
-              <div className="mx-auto w-full sm:max-w-[22rem]">
+              <div className="mx-auto w-full space-y-3 sm:max-w-[22rem]">
                 <Button
                   variant="blue-gradient"
                   effect="fill"
                   size="lg"
                   fullWidth
                   className="h-12 text-base"
-                  onClick={() => router.replace(ROUTES.RIA_PROFILE)}
+                  onClick={() => {
+                    persistFactsToPkm();
+                    router.replace(
+                      rootSetupUnresolved || returnTo
+                        ? returnTo || ROUTES.ONE_SETUP
+                        : ROUTES.RIA_PROFILE,
+                    );
+                  }}
                   data-voice-control-id="ria-claim-open-profile"
                 >
-                  Open your profile
+                  {rootSetupUnresolved || returnTo ? "Continue setup" : "Open your profile"}
                 </Button>
+                {rootSetupUnresolved || returnTo ? (
+                  <Button
+                    variant="none"
+                    effect="fade"
+                    size="lg"
+                    fullWidth
+                    className="h-12 text-base"
+                    onClick={() => {
+                      persistFactsToPkm();
+                      router.replace(ROUTES.RIA_PROFILE);
+                    }}
+                  >
+                    View profile
+                  </Button>
+                ) : null}
               </div>
             </div>
           ) : null}

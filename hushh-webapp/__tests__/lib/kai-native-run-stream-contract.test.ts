@@ -14,7 +14,7 @@ describe("Kai native debate run stream contract", () => {
     const apiService = read("lib/services/api-service.ts");
     const iosPlugin = read("ios/App/App/Plugins/KaiPlugin.swift");
     const androidPlugin = read(
-      "android/app/src/main/java/com/hushh/app/plugins/Kai/KaiPlugin.kt"
+      "android/app/src/main/java/com/hussh/app/plugins/Kai/KaiPlugin.kt"
     );
 
     expect(apiService).toContain("run_id: data.runId");

@@ -30,7 +30,30 @@ vi.mock("@/lib/services/api-service", () => ({
   },
 }));
 
-import { initializeFCM } from "@/lib/notifications/fcm-service";
+import {
+  initializeFCM,
+  resolveNativeConnectionRequestNotificationHref,
+} from "@/lib/notifications/fcm-service";
+
+describe("native connection notification routing", () => {
+  it("uses the backend-provided Connections route instead of Home", () => {
+    expect(
+      resolveNativeConnectionRequestNotificationHref({
+        type: "connection_request",
+        request_url: "/one/consent?tab=connections",
+      }),
+    ).toBe("/one/consent?tab=connections");
+  });
+
+  it("fails closed to Connections when the payload route is external", () => {
+    expect(
+      resolveNativeConnectionRequestNotificationHref({
+        type: "connection_request",
+        request_url: "https://example.com/untrusted",
+      }),
+    ).toBe("/one/consent?tab=connections");
+  });
+});
 
 describe("native FCM permission ownership", () => {
   beforeEach(() => {

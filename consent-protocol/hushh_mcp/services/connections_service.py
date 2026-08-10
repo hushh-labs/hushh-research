@@ -1744,6 +1744,8 @@ class ConnectionsService:
                     "displayName": p.get("displayName"),
                     "photoUrl": p.get("photoUrl"),
                     "email": p.get("email"),
+                    "maskedEmail": p.get("maskedEmail"),
+                    "maskedPhone": p.get("maskedPhone"),
                     "relationship": relationship(str(p.get("userId") or "")),
                 }
                 for p in people

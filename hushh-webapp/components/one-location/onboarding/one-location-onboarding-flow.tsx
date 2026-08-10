@@ -9,7 +9,16 @@ import {
   type ReactNode,
 } from "react";
 import { preload } from "react-dom";
-import { ArrowLeft, Check, Loader2, MapPin, UserPlus } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  Copy,
+  Loader2,
+  MapPin,
+  Share2,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
@@ -22,7 +31,12 @@ import type {
 } from "@/lib/services/connections-service";
 import { cn } from "@/lib/utils";
 
-type OnboardingScreen = "welcome" | "features" | "people" | "circle";
+type OnboardingScreen =
+  | "welcome"
+  | "features"
+  | "invite"
+  | "people"
+  | "circle";
 
 const LOCATION_SCREEN_TEST_IDS = Object.fromEntries(
   locationOnboardingContract.screens.map(({ key, testId }) => [key, testId]),
@@ -35,6 +49,18 @@ export type OneLocationOnboardingStart = "welcome" | "permissions";
 export type ConnectionRequestResult = {
   sentUserIds: string[];
   failedUserIds: string[];
+};
+
+/**
+ * The user's own Circle invite handle, surfaced on the onboarding "Invite"
+ * screen so a brand-new person can copy/share a joinable code before they even
+ * build a contact list. The parent (page.tsx) owns provisioning: it finds or
+ * creates the person's first Circle and returns its active member-visible code.
+ */
+export type OnboardingCircleInvite = {
+  circleId: string;
+  circleName: string;
+  code: string;
 };
 
 type CircleMember = {
@@ -68,6 +94,18 @@ type OneLocationOnboardingFlowProps = {
   onComplete: () => void | Promise<void>;
   onSkip?: () => void | Promise<void>;
   requireLocationToComplete?: boolean;
+  /**
+   * Find-or-create the person's first Circle and return its active,
+   * member-visible invite code. Called when the Invite screen opens so a
+   * brand-new person always has a code to copy/share.
+   */
+  onPrepareOnboardingCircleInvite?: () => Promise<OnboardingCircleInvite>;
+  /** Copy the invite code to the clipboard (parent owns the toast). */
+  onCopyOnboardingCircleCode?: (code: string) => Promise<void> | void;
+  /** Open the native/web share sheet with the invite code. */
+  onShareOnboardingCircleCode?: (
+    invite: OnboardingCircleInvite,
+  ) => Promise<void> | void;
 };
 
 const WELCOME_ORBIT_ITEMS = [
@@ -1320,6 +1358,152 @@ function FeaturesScreen({
   );
 }
 
+function formatCircleCode(code: string): string {
+  const compact = String(code || "")
+    .toUpperCase()
+    .replace(/[^0-9A-Z]/g, "");
+  if (!compact) return "";
+  return compact.replace(/(.{4})(?=.)/g, "$1-");
+}
+
+/**
+ * Third onboarding screen (before the contact list). A brand-new person always
+ * lands here with their own Circle invite code ready to copy/share, so friends
+ * can set up their One account and later join the Location Circle with it. The
+ * code is member-visible only and is never placed in a URL.
+ */
+function InviteScreen({
+  currentUserName,
+  invite,
+  loading,
+  error,
+  copied,
+  onRetry,
+  onCopy,
+  onShare,
+  onBack,
+  onSkip,
+  onContinue,
+  leaving,
+}: {
+  currentUserName: string;
+  invite: OnboardingCircleInvite | null;
+  loading: boolean;
+  error: string | null;
+  copied: boolean;
+  onRetry: () => void;
+  onCopy: () => void;
+  onShare: () => void;
+  onBack: () => void;
+  onSkip: () => void;
+  onContinue: () => void;
+  leaving: boolean;
+}) {
+  const firstName = safeName(currentUserName, "You").split(/\s+/)[0];
+  const formattedCode = invite ? formatCircleCode(invite.code) : "";
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
+      <header className="flex h-16 shrink-0 items-center justify-between px-5 pt-2">
+        <button
+          type="button"
+          onClick={onBack}
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
+          aria-label="Go back"
+        >
+          <ArrowLeft className="h-6 w-6" />
+        </button>
+        <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
+        <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+          <Users className="h-7 w-7" strokeWidth={2} />
+        </span>
+        <h1 className="mt-4 text-[32px] font-bold leading-[1.08] text-[#151b26] dark:text-[#f5f7fb]">
+          Share your circle code
+        </h1>
+        <p className="mt-2 text-[16px] leading-6 text-[#73777f] dark:text-[#b5bfcc]">
+          Send this code to your loved ones. When they set up One, they enter it
+          under &ldquo;Join a circle&rdquo; to connect with you.
+        </p>
+
+        <div
+          className="mt-7 rounded-[24px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center shadow-[0_10px_30px_rgba(29,45,68,0.08)] dark:border-white/[0.08] dark:bg-[#1c212a] dark:shadow-[0_10px_30px_rgba(0,0,0,0.22)]"
+          data-testid="one-location-onboarding-invite-card"
+        >
+          {loading ? (
+            <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86]">
+              <Loader2 className="h-5 w-5 animate-spin" /> Preparing your circle
+              code
+            </div>
+          ) : error ? (
+            <div className="flex min-h-32 flex-col items-center justify-center gap-3 text-center">
+              <p className="max-w-[260px] text-sm leading-5 text-[#6f7580]">
+                {error}
+              </p>
+              <button
+                type="button"
+                onClick={onRetry}
+                className="press-scale inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-bold text-[color:var(--app-accent-fg)]"
+              >
+                Try again
+              </button>
+            </div>
+          ) : invite ? (
+            <>
+              <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#96999e] dark:text-[#8d99a8]">
+                {invite.circleName}
+              </p>
+              <p
+                className="mt-3 select-all font-mono text-[30px] font-bold uppercase leading-none tracking-[0.14em] text-[#151b26] dark:text-[#f5f7fb]"
+                data-testid="one-location-onboarding-invite-code"
+              >
+                {formattedCode}
+              </p>
+              <p className="mt-3 text-[12px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
+                Expires in 72 hours. You can always get a fresh code later from
+                your circle.
+              </p>
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={onCopy}
+                  className="press-scale inline-flex h-12 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                >
+                  {copied ? (
+                    <Check className="h-5 w-5" strokeWidth={2.5} />
+                  ) : (
+                    <Copy className="h-5 w-5" strokeWidth={2} />
+                  )}
+                  {copied ? "Copied" : "Copy"}
+                </button>
+                <button
+                  type="button"
+                  onClick={onShare}
+                  className="press-scale inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)]"
+                >
+                  <Share2 className="h-5 w-5" strokeWidth={2} />
+                  Share
+                </button>
+              </div>
+            </>
+          ) : null}
+        </div>
+
+        <p className="mx-auto mt-5 max-w-[350px] text-center text-[12px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
+          Joining connects you as {firstName}&apos;s circle. Location and SMS
+          always stay private until each person chooses to share.
+        </p>
+      </div>
+      <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3">
+        <PrimaryButton onClick={onContinue}>
+          {invite ? "Next" : "Skip for now"}
+        </PrimaryButton>
+      </footer>
+    </div>
+  );
+}
+
 function SelectionMark({ selected }: { selected: boolean }) {
   return (
     <span
@@ -1696,6 +1880,9 @@ export function OneLocationOnboardingFlow({
   onComplete,
   onSkip = onComplete,
   requireLocationToComplete = false,
+  onPrepareOnboardingCircleInvite,
+  onCopyOnboardingCircleCode,
+  onShareOnboardingCircleCode,
 }: OneLocationOnboardingFlowProps) {
   for (const source of ONBOARDING_IMAGE_SOURCES) {
     preload(source, { as: "image", fetchPriority: "high" });
@@ -1705,6 +1892,22 @@ export function OneLocationOnboardingFlow({
     initialScreen(startAt),
   );
   const [circleMembers, setCircleMembers] = useState<CircleMember[]>([]);
+  // Invite screen (third step) state. The parent provisions the code; we cache
+  // it so navigating back/forward never refetches or rotates it.
+  const [circleInvite, setCircleInvite] =
+    useState<OnboardingCircleInvite | null>(null);
+  const [circleInviteLoading, setCircleInviteLoading] = useState(false);
+  const [circleInviteError, setCircleInviteError] = useState<string | null>(
+    null,
+  );
+  const [circleInviteCopied, setCircleInviteCopied] = useState(false);
+  const circleInvitePreparedRef = useRef(false);
+  const circleInviteInFlightRef = useRef(false);
+  const circleInviteCopiedTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const inviteScreenEnabled = Boolean(onPrepareOnboardingCircleInvite);
+
   const [selectedPeopleIds, setSelectedPeopleIds] = useState<string[]>([]);
   const [failedRequestCount, setFailedRequestCount] = useState(0);
   const [requestsSending, setRequestsSending] = useState(false);
@@ -1787,9 +1990,76 @@ export function OneLocationOnboardingFlow({
     void prepareSavedLocation();
   }, [locationGranted, prepareSavedLocation, screen]);
 
+  const prepareCircleInvite = useCallback(async () => {
+    if (!onPrepareOnboardingCircleInvite) return;
+    if (circleInviteInFlightRef.current) return;
+    circleInviteInFlightRef.current = true;
+    setCircleInviteLoading(true);
+    setCircleInviteError(null);
+    try {
+      const prepared = await onPrepareOnboardingCircleInvite();
+      circleInvitePreparedRef.current = true;
+      setCircleInvite(prepared);
+    } catch (error) {
+      setCircleInvite(null);
+      setCircleInviteError(
+        error instanceof Error && error.message
+          ? error.message
+          : "We couldn't prepare your circle code. Try again.",
+      );
+    } finally {
+      circleInviteInFlightRef.current = false;
+      setCircleInviteLoading(false);
+    }
+  }, [onPrepareOnboardingCircleInvite]);
+
+  // Provision the invite code once, the first time the Invite screen opens.
+  useEffect(() => {
+    if (screen !== "invite" || !inviteScreenEnabled) return;
+    if (circleInvitePreparedRef.current || circleInviteInFlightRef.current) {
+      return;
+    }
+    void prepareCircleInvite();
+  }, [inviteScreenEnabled, prepareCircleInvite, screen]);
+
+  useEffect(() => {
+    return () => {
+      if (circleInviteCopiedTimerRef.current) {
+        clearTimeout(circleInviteCopiedTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopyCircleInvite = useCallback(() => {
+    if (!circleInvite) return;
+    void Promise.resolve(
+      onCopyOnboardingCircleCode?.(circleInvite.code),
+    ).catch(() => {
+      /* parent surfaces its own failure toast */
+    });
+    setCircleInviteCopied(true);
+    if (circleInviteCopiedTimerRef.current) {
+      clearTimeout(circleInviteCopiedTimerRef.current);
+    }
+    circleInviteCopiedTimerRef.current = setTimeout(
+      () => setCircleInviteCopied(false),
+      2000,
+    );
+  }, [circleInvite, onCopyOnboardingCircleCode]);
+
+  const handleShareCircleInvite = useCallback(() => {
+    if (!circleInvite) return;
+    void Promise.resolve(
+      onShareOnboardingCircleCode?.(circleInvite),
+    ).catch(() => {
+      /* parent surfaces its own failure toast */
+    });
+  }, [circleInvite, onShareOnboardingCircleCode]);
+
   useEffect(() => {
     if (screen !== "circle") return;
     const delay = settlementRetryCount === 0 ? 4000 : 3000;
+
     const timer = window.setTimeout(() => {
       if (completionInFlightRef.current) return;
       completionInFlightRef.current = true;
@@ -1838,6 +2108,10 @@ export function OneLocationOnboardingFlow({
   };
 
   const backFromFeatures = () => {
+    // A dismissed location picker is reversible. When the owner goes back and
+    // returns to Features, prepare Location again; the parent still suppresses
+    // duplicate work after a confirmed save.
+    locationPreparationCompleteRef.current = false;
     if (startAt === "permissions") {
       void runBack();
       return;
@@ -1854,7 +2128,7 @@ export function OneLocationOnboardingFlow({
       void prepareSavedLocation();
       return;
     }
-    setScreen("people");
+    setScreen(inviteScreenEnabled ? "invite" : "people");
   };
 
   const handlePeopleContinue = (selectedIds: string[]) => {
@@ -1953,8 +2227,15 @@ export function OneLocationOnboardingFlow({
       <section
         className={cn(
           "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[#0c1017]",
+          // Features sizes off viewport HEIGHT so its artwork keeps its
+          // proportions on a short screen, but that left the whole panel a
+          // narrow strip on a wide one: `58dvh` shrinks as the window gets
+          // shorter, and 560px capped it however much room there was. Keep
+          // that behaviour where it earns its place -- phones and short
+          // windows -- and let a genuinely wide viewport use the width, the
+          // same way the SOS panel does.
           screen === "features"
-            ? "max-w-[min(560px,58dvh)] max-[431px]:max-w-none"
+            ? "max-w-[min(560px,58dvh)] max-[431px]:max-w-none lg:max-w-3xl"
             : "max-w-[480px]",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
@@ -1982,6 +2263,22 @@ export function OneLocationOnboardingFlow({
             onContinue={continueFromFeatures}
           />
         ) : null}
+        {screen === "invite" ? (
+          <InviteScreen
+            currentUserName={currentUserName}
+            invite={circleInvite}
+            loading={circleInviteLoading}
+            error={circleInviteError}
+            copied={circleInviteCopied}
+            onRetry={() => void prepareCircleInvite()}
+            onCopy={handleCopyCircleInvite}
+            onShare={handleShareCircleInvite}
+            onBack={() => setScreen("features")}
+            onSkip={() => void runSkip()}
+            onContinue={() => setScreen("people")}
+            leaving={leaving}
+          />
+        ) : null}
         {screen === "people" ? (
           <PeopleScreen
             people={people}
@@ -1990,7 +2287,9 @@ export function OneLocationOnboardingFlow({
             error={peopleError}
             initialSelectedIds={selectedPeopleIds}
             onRetry={onRetryPeople}
-            onBack={() => setScreen("features")}
+            onBack={() =>
+              setScreen(inviteScreenEnabled ? "invite" : "features")
+            }
             onSkip={handlePeopleSkip}
             leaving={leaving}
             onSelectionChange={setSelectedPeopleIds}

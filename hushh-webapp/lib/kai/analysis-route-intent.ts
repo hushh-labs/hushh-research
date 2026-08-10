@@ -36,12 +36,12 @@ export function deriveAnalysisRouteIntent(searchParams: URLSearchParams): Analys
 
   const showHistory =
     !focusActive && !hasRunIdParam && (view === "history" || view === "transcript");
+  // `focus`/`run_id` select the RUN; `view` selects the tab. Gating the tab on
+  // those two let `focus=active` silently pin the workspace to debate, so any
+  // deliberate switch -- by hand or by voice -- was reverted on the next
+  // render. An explicit view is the person's own choice and outranks them.
   const workspaceTab: AnalysisWorkspaceTabIntent | null =
-    !focusActive &&
-    !hasRunIdParam &&
-    (view === "debate" || view === "summary" || view === "detailed")
-      ? view
-      : null;
+    view === "debate" || view === "summary" || view === "detailed" ? view : null;
 
   return {
     shouldApply: true,

@@ -413,7 +413,7 @@ describe("native cold-audit and continuity contract", () => {
   });
 
   it("keeps Android cold audits debug-only, isolated, and terminally cleaned up", () => {
-    const activity = source("android/app/src/main/java/com/hushh/app/MainActivity.kt");
+    const activity = source("android/app/src/main/java/com/hussh/app/MainActivity.kt");
     const uiAudit = source("scripts/native/android-ui-interaction-audit.mjs");
     const routeAudit = source("scripts/native/android-route-audit.mjs");
 

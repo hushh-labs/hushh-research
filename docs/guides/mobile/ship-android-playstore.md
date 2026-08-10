@@ -18,7 +18,7 @@ beta, or production track).
 - **Workflow:** `.github/workflows/ship-android-playstore.yml` (`workflow_dispatch`).
 - **CLI Dispatcher:** `node scripts/release/dispatch-android-playstore.mjs` (or `npm run android:release:playstore`).
 - **Runner:** GitHub-hosted `ubuntu-latest`.
-- **Target:** package `com.hushh.app`, Google Play Console internal track (default), UAT backend + Firebase `hushh-pda-uat`.
+- **Target:** package `com.hussh.app` (Android only — iOS remains `com.hushh.app`), Google Play Console internal track (default), UAT backend + Firebase project `hushh-pda` (the Android Firebase config secret lives in `hushh-pda-uat` Secret Manager but its *content* is the `hushh-pda` project — there is one shared Firebase project across environments, not a separate UAT Firebase project).
 
 ## Version Cadence & Monotonic versionCode
 
@@ -45,7 +45,7 @@ All signing + Google Play Developer API material lives in **GCP Secret Manager**
 
 ### 1. Android Release Upload Keystore (.jks)
 
-Generate or locate the release upload keystore for `com.hushh.app`:
+Generate or locate the release upload keystore for `com.hussh.app` (the same keystore/alias is reused across the package rename — a keystore is not tied to a package name):
 
 ```bash
 # Generate upload keystore if not already created:

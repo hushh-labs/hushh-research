@@ -8,6 +8,8 @@ export interface DirectoryPerson {
   displayName: string | null;
   photoUrl: string | null;
   email: string | null;
+  maskedEmail?: string | null;
+  maskedPhone?: string | null;
   relationship: ConnectionRelationship;
 }
 
@@ -78,6 +80,21 @@ export interface ConnectionInformationScope {
 export interface ConnectionInformationScopeCatalog {
   counterpartUserId: string;
   items: ConnectionInformationScope[];
+}
+
+export interface ConnectionCircleSummary {
+  id: string;
+  name: string;
+}
+
+export interface ConnectionRemovalResult {
+  removed: number;
+  stillConnected?: boolean;
+  connectionKind?: string;
+  circles?: ConnectionCircleSummary[];
+  circleIds?: string[];
+  circleNames?: string[];
+  canRemoveDirect?: boolean;
 }
 
 function authHeaders(idToken: string): HeadersInit {
@@ -273,12 +290,31 @@ export class ConnectionsService {
   static async removeConnection(opts: {
     idToken: string;
     connectionId: string;
-  }): Promise<void> {
+  }): Promise<ConnectionRemovalResult> {
     const response = await ApiService.apiFetch(
       `/api/one/connections/${encodeURIComponent(opts.connectionId)}`,
       { method: "DELETE", headers: authHeaders(opts.idToken) },
     );
-    await jsonOrThrow<unknown>(response);
+    const payload = await jsonOrThrow<{ result?: ConnectionRemovalResult }>(
+      response,
+    );
+    const result = payload.result ?? { removed: 0 };
+    // Prefer canonical Circle objects; synthesize them from the legacy
+    // parallel arrays for old servers that predate `circles`, then derive
+    // both arrays back from the canonical list so callers see one truth.
+    const circles =
+      result.circles ??
+      result.circleIds?.map((id, index) => ({
+        id,
+        name: result.circleNames?.[index] ?? id,
+      }));
+    if (!circles) return result;
+    return {
+      ...result,
+      circles,
+      circleIds: circles.map((circle) => circle.id),
+      circleNames: circles.map((circle) => circle.name),
+    };
   }
 
   static async linkCircleInvite(opts: {

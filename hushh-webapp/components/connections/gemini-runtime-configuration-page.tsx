@@ -190,13 +190,16 @@ export function GeminiRuntimeConfigurationPage({
           title={setupMode ? "AI access" : "Gemini settings"}
           description={
             setupMode
-              ? "Choose Hushh managed Gemini or set up your own Gemini access. Your credential stays in this session until you finish setup."
+              ? "Choose Hussh managed Gemini or set up your own Gemini access. Your credential stays in this session until you finish setup."
               : "Choose how your private agent reaches Gemini."
           }
           accent="neutral"
         />
       </AppPageHeaderRegion>
-      <AppPageContentRegion>
+      {/* space-y-6 gives the Gemini and "Coming soon" groups the standard
+          surface rhythm; without it the two SettingsGroups render flush and the
+          "Coming soon" heading looks cramped against the Gemini card (#1940). */}
+      <AppPageContentRegion className="space-y-6">
         <GeminiRuntimeSettingsCard
           userId={user?.uid}
           vaultKey={vaultKey}
@@ -254,7 +257,7 @@ export function GeminiRuntimeConfigurationPage({
               ? "Set up your private vault"
               : "Open your private vault"
           }
-          description="Your Gemini access is encrypted in your private vault and is never stored by Hushh."
+          description="Your Gemini access is encrypted in your private vault and is never stored by Hussh."
           onSuccess={() => setUnlockOpen(false)}
         />
       ) : null}

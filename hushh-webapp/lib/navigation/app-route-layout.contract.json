@@ -137,6 +137,33 @@
     }
   },
   {
+    "route": "/circle/join",
+    "mode": "redirect",
+    "exemptionReason": "Public Circle join landing route reads the invite code from the query string and redirects into the in-app Join-with-code flow; it owns no signed-in app shell of its own.",
+    "voicePlaybook": {
+      "playbookId": "route.circle.join",
+      "purpose": "Help the person understand and use the circle join screen through its generated controls.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/developers",
     "mode": "redirect",
     "exemptionReason": "Compatibility route redirects to the canonical /welcome?tab=developers public workspace.",
@@ -1796,7 +1823,7 @@
       "playbookId": "route.one.setup.connections",
       "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.",
       "screen": "one_setup_connections",
-      "entryCue": "Choose Hushh managed Gemini now, or record BYOK and add the encrypted key after setup.",
+      "entryCue": "Choose Hussh managed Gemini now, or record BYOK and add the encrypted key after setup.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.finish_connections",
       "happyPathActionIds": [

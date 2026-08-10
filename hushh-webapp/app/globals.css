@@ -155,16 +155,32 @@ textarea {
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+@font-face {
+  font-family: "InterVariable";
+  src: url("/fonts/Inter/InterVariable.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 100 900;
+}
+
+@font-face {
+  font-family: "InterVariable";
+  src: url("/fonts/Inter/InterVariable-Italic.woff2") format("woff2");
+  font-display: swap;
+  font-style: italic;
+  font-weight: 100 900;
+}
+
 :root {
   /* Centralized app typography variables.
-   * Foundation v1.0 uses SF through the system stack only.
-   * Do not add @font-face or bundled SF font files. */
+   * Apple-system web pass uses the bundled Inter Variable family only. */
   --font-app-display:
-    "SF Pro Display", -apple-system, BlinkMacSystemFont, "Helvetica Neue",
+    "InterVariable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
   --font-app-body:
-    "SF Pro Text", -apple-system, BlinkMacSystemFont, "Helvetica Neue",
+    "InterVariable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
+  --font-app-text: var(--font-app-body);
   --font-app-heading: var(--font-app-display);
   --font-app-mono: var(--font-app-body);
 
@@ -267,6 +283,33 @@ textarea {
   --app-accent-fg: #ffffff; /* text on solid accent */
   --app-accent-hover: #0070ea; /* pressed/hover partner of the solid fill */
   --app-accent-ring: rgba(0, 122, 255, 0.25);
+
+  /* Apple Summer 2026 semantic refinement tokens. These intentionally alias
+     the existing Foundation system instead of creating a second design system. */
+  --app-screen-background: #ffffff;
+  --app-grouped-background: #f2f2f7;
+  --app-primary-surface: #ffffff;
+  --app-secondary-surface: #f9f9fb;
+  --app-elevated-surface: #ffffff;
+  --app-label: #1d1d1f;
+  --app-secondary-label: #8e8e93;
+  --app-tertiary-label: #aeaeb2;
+  --app-quaternary-label: #c7c7cc;
+  --app-separator: rgba(60, 60, 67, 0.1);
+  --app-opaque-separator: #e5e5ea;
+  --app-neutral-fill: rgba(120, 120, 128, 0.16);
+  --app-neutral-fill-strong: rgba(120, 120, 128, 0.2);
+  --app-icon-tile-background: #8e8e93;
+  --app-icon-tile-foreground: #ffffff;
+  --app-destructive: #ff3b30;
+  --app-success: #34c759;
+  --app-warning: #ff9500;
+  --app-purple: #af52de;
+  --app-info: var(--app-accent);
+  --app-focus-ring: rgba(0, 122, 255, 0.25);
+  --app-glass-surface: rgba(255, 255, 255, 0.78);
+  --app-glass-border: rgba(60, 60, 67, 0.18);
+  --app-glass-shadow: 0 10px 28px -24px rgba(0, 0, 0, 0.3);
   /* Hero gradient stops (intro "One" molten text + wordmark "ssh" + brand
      glyph strokes). Blue-to-dark: deep navy edges into the system blue with
      a bright shine band, so the foil stays legible on light canvases. */
@@ -340,17 +383,17 @@ textarea {
   --app-radius-none: 0px;
   --app-radius-xs: 5px;
   --app-radius-sm: 8px;
-  --app-radius-md: 11px;
+  --app-radius-md: 14px;
   --app-radius-lg: 18px;
   --app-radius-pill: 9999px;
 
   /* Shadow elevation scale — Apple iCloud single-shadow model */
   --theme-color-fillSecondary: rgba(120, 120, 128, 0.36);
-  --shadow-xs: 0 4px 12px 0 rgba(120, 120, 128, 0.08);
-  --shadow-sm: 0 8px 24px 0 rgba(120, 120, 128, 0.12);
-  --shadow-md: 0 11px 34px 0 var(--theme-color-fillSecondary);
-  --shadow-lg: 0 11px 34px 0 rgba(120, 120, 128, 0.22);
-  --shadow-xl: 0 16px 48px 0 rgba(120, 120, 128, 0.28);
+  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 2px 8px -6px rgba(0, 0, 0, 0.18);
+  --shadow-md: 0 8px 24px -22px rgba(0, 0, 0, 0.28);
+  --shadow-lg: 0 10px 28px -24px rgba(0, 0, 0, 0.32);
+  --shadow-xl: 0 12px 34px -28px rgba(0, 0, 0, 0.38);
 
   /* Product shadow — the ONE photographic drop-shadow (Apple grammar).
      Reserved for imagery resting on a surface (product renders, map badges
@@ -494,7 +537,7 @@ textarea {
     var(--top-shell-visual-height) + var(--top-subnav-total, 0px) +
       var(--top-content-safe-gap)
   );
-  --page-inline-gutter-standard: 12px;
+  --page-inline-gutter-standard: 20px;
   --page-surface-overscan: 0px;
   --page-surface-gap-standard: 16px;
   --page-surface-gap-compact: 12px;
@@ -502,7 +545,7 @@ textarea {
   --page-header-row-gap: 10px;
   --page-header-copy-gap: 4px;
   --page-header-actions-gap: 10px;
-  --page-header-section-gap: 14px;
+  --page-header-section-gap: 24px;
   --section-header-stack-gap: 8px;
   --section-header-row-gap: 10px;
   --section-header-copy-gap: 6px;
@@ -516,12 +559,63 @@ textarea {
   --surface-card-content-px: 14px;
   --surface-card-content-pb: 16px;
   --surface-inset-p: 14px;
-  --settings-group-stack-gap: 6px;
+  --settings-group-stack-gap: 8px;
   --settings-heading-stack-gap: 4px;
-  --settings-row-px: 12px;
-  --settings-row-py: 14px;
+  --settings-row-px: 16px;
+  --settings-row-py: 11px;
   --settings-row-gap: 12px;
   --settings-row-stack-gap: 10px;
+  --ios-account-screen-background: #f2f2f7;
+  --ios-account-card-background: #ffffff;
+  --ios-account-label: #1d1d1f;
+  --ios-account-secondary-label: #8e8e93;
+  --ios-account-tertiary-label: #aeaeb2;
+  --ios-account-separator: rgba(60, 60, 67, 0.1);
+  --ios-account-icon-tile-background: rgba(120, 120, 128, 0.12);
+  --ios-account-utility-icon-tile-background: #8e8e93;
+  --ios-account-utility-icon-glyph: #ffffff;
+  --ios-account-service-icon-tile-background: #1c1c1e;
+  --ios-account-service-icon-glyph: #ffffff;
+  --ios-account-accent: #007aff;
+  --ios-account-destructive: #ff3b30;
+  --ios-account-on-accent: #ffffff;
+  --ios-account-title-size: 34px;
+  --ios-account-title-line: 38.08px;
+  --ios-account-title-weight: 700;
+  --ios-account-title-tracking: -0.028em;
+  --ios-account-description-size: 15px;
+  --ios-account-description-line: 20.7px;
+  --ios-account-section-header-size: 15px;
+  --ios-account-section-header-line: 20px;
+  --ios-account-regular-weight: var(--foundation-body-weight);
+  --ios-account-medium-weight: 500;
+  --ios-account-row-title-size: 17px;
+  --ios-account-row-title-line: 24.5px;
+  --ios-account-row-title-tracking: -0.01em;
+  --ios-account-row-value-size: 17px;
+  --ios-account-row-value-line: 24.5px;
+  --ios-account-tab-label-size: 11px;
+  --ios-account-tab-label-line: 13.75px;
+  --ios-account-card-margin-inline: 0px;
+  --ios-account-card-outer-offset: 0px;
+  --ios-account-card-radius: 24px;
+  --ios-account-card-leading-inset: 20px;
+  --ios-account-row-min-height: 58px;
+  --ios-account-row-vertical-pad: 11px;
+  --ios-account-separator-thickness: 0.5px;
+  --ios-account-section-header-bottom-gap: 8px;
+  --ios-account-section-gap: 28px;
+  --ios-account-icon-tile-size: 34px;
+  --ios-account-icon-tile-radius: 8px;
+  --ios-account-icon-glyph-size: 20px;
+  --ios-account-separator-leading: calc(
+    var(--ios-account-card-leading-inset) + var(--ios-account-icon-tile-size) +
+      var(--settings-row-gap)
+  );
+  --ios-account-nav-material-background: rgba(255, 255, 255, 0.84);
+  --ios-account-nav-material-border: rgba(60, 60, 67, 0.18);
+  --ios-account-nav-material-blur: saturate(180%) blur(20px);
+  --ios-account-nav-material-shadow: none;
   --data-table-controls-gap: 16px;
   --data-table-cell-px: 12px;
   --data-table-cell-py: 10px;
@@ -595,6 +689,13 @@ textarea {
   --border: oklch(0.92 0.004 264);
   --input: oklch(0.87 0.006 264);
   --ring: var(--app-accent-ring);
+  /* Switch track — the iOS system palette, not a brand colour. A toggle is a
+     platform control before it is ours: users read green-means-on from the OS,
+     so every Switch shares these rather than each surface picking its own
+     approximation (this replaced a one-off emerald on the Location toggle). */
+  --switch-on: #34c759; /* iOS systemGreen, light */
+  --switch-off: #e9e9ea; /* iOS off-track, light */
+  --switch-thumb: #ffffff;
   --chart-1: oklch(0.663 0.096 71.6);
   --chart-2: oklch(0.754 0.085 67.1);
   --chart-3: oklch(0.62 0.19 155);
@@ -713,12 +814,8 @@ textarea {
   --app-card-surface-sticky-header-solid: #f6f7fb;
   --app-card-border-standard: rgba(60, 60, 67, 0.09);
   --app-card-border-strong: rgba(60, 60, 67, 0.18);
-  --app-card-shadow-standard:
-    0 1px 2px rgba(15, 23, 42, 0.04), 0 14px 32px -18px rgba(15, 23, 42, 0.18),
-    0 10px 18px -14px rgba(120, 120, 128, 0.16);
-  --app-card-shadow-feature:
-    0 2px 4px rgba(15, 23, 42, 0.06), 0 22px 48px -24px rgba(15, 23, 42, 0.22),
-    0 14px 24px -18px rgba(120, 120, 128, 0.18);
+  --app-card-shadow-standard: none;
+  --app-card-shadow-feature: 0 10px 30px -28px rgba(0, 0, 0, 0.32);
   --app-list-row-surface: color-mix(
     in srgb,
     var(--app-card-surface-default-solid) 90%,
@@ -727,20 +824,12 @@ textarea {
   --app-segmented-active-surface: #ffffff;
   --app-segmented-active-foreground: #000000;
   --app-segmented-active-border: #000000;
-  --app-shell-surface-bg: rgba(255, 255, 255, 0.9);
-  --app-shell-surface-bg-hover: rgba(255, 255, 255, 0.98);
-  --app-shell-surface-border: rgba(255, 255, 255, 0.68);
+  --app-shell-surface-bg: var(--app-glass-surface);
+  --app-shell-surface-bg-hover: rgba(255, 255, 255, 0.9);
+  --app-shell-surface-border: var(--app-glass-border);
   --app-shell-surface-foreground: #111827;
-  --app-shell-surface-fill: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.98) 0%,
-    rgba(255, 255, 255, 0.88) 100%
-  );
-  --app-shell-surface-shadow:
-    0 18px 36px -18px rgba(120, 120, 128, 0.28),
-    0 10px 18px -12px rgba(120, 120, 128, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.98),
-    inset 0 -0.5px 0 rgba(120, 120, 128, 0.09);
+  --app-shell-surface-fill: var(--app-glass-surface);
+  --app-shell-surface-shadow: var(--app-glass-shadow);
   --app-shell-surface-blur: 20px;
 }
 
@@ -756,6 +845,789 @@ textarea {
     --app-card-shadow-feature: 0 6px 18px 0 rgba(0, 0, 0, 0.4);
     --shadow-md: 0 4px 16px 0 rgba(0, 0, 0, 0.45);
   }
+}
+
+.dark {
+  --app-screen-background: #000000;
+  --app-grouped-background: #000000;
+  --app-primary-surface: #1c1c1e;
+  --app-secondary-surface: #2c2c2e;
+  --app-elevated-surface: #2c2c2e;
+  --app-label: #ffffff;
+  --app-secondary-label: #98989d;
+  --app-tertiary-label: #636366;
+  --app-quaternary-label: #48484a;
+  --app-separator: rgba(84, 84, 88, 0.65);
+  --app-opaque-separator: #38383a;
+  --app-neutral-fill: rgba(120, 120, 128, 0.24);
+  --app-neutral-fill-strong: rgba(120, 120, 128, 0.36);
+  --app-icon-tile-background: #636366;
+  --app-icon-tile-foreground: #ffffff;
+  --app-destructive: #ff453a;
+  --app-success: #30d158;
+  --app-warning: #ff9f0a;
+  --app-purple: #bf5af2;
+  --app-info: var(--app-accent);
+  --app-focus-ring: rgba(10, 132, 255, 0.3);
+  --app-glass-surface: rgba(28, 28, 30, 0.78);
+  --app-glass-border: rgba(84, 84, 88, 0.65);
+  --app-glass-shadow: 0 12px 32px -24px rgba(0, 0, 0, 0.85);
+  --ios-account-screen-background: #000000;
+  --ios-account-card-background: #1c1c1e;
+  --ios-account-label: #ffffff;
+  --ios-account-secondary-label: #98989d;
+  --ios-account-tertiary-label: #636366;
+  --ios-account-separator: rgba(84, 84, 88, 0.65);
+  --ios-account-icon-tile-background: rgba(120, 120, 128, 0.24);
+  --ios-account-utility-icon-tile-background: #636366;
+  --ios-account-utility-icon-glyph: #ffffff;
+  --ios-account-service-icon-tile-background: #3a3a3c;
+  --ios-account-service-icon-glyph: #ffffff;
+  --ios-account-accent: #0a84ff;
+  --ios-account-destructive: #ff453a;
+  --ios-account-on-accent: #ffffff;
+  --ios-account-nav-material-background: rgba(28, 28, 30, 0.82);
+  --ios-account-nav-material-border: rgba(84, 84, 88, 0.65);
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --ios-account-secondary-label: rgba(60, 60, 67, 0.72);
+    --ios-account-tertiary-label: rgba(60, 60, 67, 0.48);
+    --ios-account-separator: rgba(60, 60, 67, 0.42);
+  }
+
+  .dark {
+    --ios-account-secondary-label: rgba(235, 235, 245, 0.72);
+    --ios-account-tertiary-label: rgba(235, 235, 245, 0.48);
+    --ios-account-separator: rgba(84, 84, 88, 0.8);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --ios-account-nav-material-background: var(--ios-account-card-background);
+    --ios-account-nav-material-blur: none;
+  }
+}
+
+[data-profile-stack-screen="account"],
+[data-profile-stack-screen="panel:account"] {
+  color-scheme: light dark;
+  background: var(--ios-account-screen-background);
+  color: var(--ios-account-label);
+  font-optical-sizing: auto;
+}
+
+[data-profile-stack-screen="account"] [data-profile-stack-content],
+[data-profile-stack-screen="panel:account"] [data-profile-stack-content] {
+  max-width: 720px !important;
+  padding-inline: 0 !important;
+  padding-top: 0 !important;
+}
+
+[data-profile-stack-screen="account"] [data-profile-stack-header],
+[data-profile-stack-screen="panel:account"] [data-profile-stack-header] {
+  max-width: 720px !important;
+  padding-inline: 0 !important;
+}
+
+body:has([data-profile-account-preview-root]) nextjs-portal {
+  display: none !important;
+}
+
+.profile-account-screen {
+  color: var(--ios-account-label);
+  display: flex;
+  flex-direction: column;
+  padding-top: 20px;
+}
+
+.profile-account-nav {
+  align-items: center;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  min-height: 44px;
+  width: 100%;
+}
+
+.profile-account-back-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 9999px;
+  color: var(--ios-account-label);
+  display: inline-flex;
+  height: 44px;
+  justify-content: center;
+  padding: 0;
+  width: 44px;
+}
+
+.profile-account-back-button:hover {
+  background: var(--app-neutral-fill);
+}
+
+.profile-account-back-button:focus-visible {
+  outline: 2px solid var(--ios-account-accent);
+  outline-offset: 2px;
+}
+
+.profile-account-nav-title {
+  color: var(--ios-account-label);
+  font-family: var(--font-app-body);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 22px;
+  text-align: center;
+}
+
+.profile-account-hero {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  padding-top: 46px;
+  text-align: center;
+}
+
+.profile-account-avatar {
+  background: #d1d1d6;
+  border: 0;
+  border-radius: 9999px;
+  box-shadow: none;
+  color: var(--ios-account-label);
+  height: 96px;
+  overflow: hidden;
+  width: 96px;
+}
+
+.profile-account-avatar-fallback {
+  align-items: center;
+  background: #d1d1d6;
+  color: #ffffff;
+  display: flex;
+  font-family: var(--font-app-body);
+  font-size: 34px;
+  font-weight: 600;
+  height: 100%;
+  justify-content: center;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  width: 100%;
+}
+
+.profile-account-hero-copy {
+  margin-top: 20px;
+}
+
+.profile-account-hero-name {
+  color: var(--ios-account-label);
+  font-family: var(--font-app-display);
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.028em;
+  line-height: 1.12;
+  margin: 0;
+}
+
+.profile-account-hero-email {
+  color: var(--ios-account-secondary-label);
+  font-family: var(--font-app-body);
+  font-size: 17px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 24.5px;
+  margin: 6px 0 0;
+}
+
+.profile-account-content {
+  --settings-group-stack-gap: var(--ios-account-section-header-bottom-gap);
+  --settings-heading-stack-gap: 4px;
+  --settings-row-px: var(--ios-account-card-leading-inset);
+  --settings-row-py: var(--ios-account-row-vertical-pad);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ios-account-section-gap);
+  margin-top: 0;
+}
+
+.profile-account-content [data-testid="settings-group"] {
+  margin-inline: var(--ios-account-card-outer-offset);
+}
+
+.profile-account-content [data-slot="settings-group-heading"] {
+  color: #6e6e73 !important;
+  display: flex !important;
+  font-family: var(--font-app-body);
+  font-size: var(--ios-account-section-header-size) !important;
+  font-weight: var(--ios-account-medium-weight) !important;
+  letter-spacing: -0.01em !important;
+  line-height: var(--ios-account-section-header-line) !important;
+  padding-inline: 6px;
+  text-transform: none !important;
+}
+
+[data-profile-stack-screen="account"] [data-slot="settings-group-shell"],
+[data-profile-stack-screen="panel:account"] [data-slot="settings-group-shell"],
+.profile-account-content [data-slot="settings-group-shell"] {
+  --settings-group-radius: var(--ios-account-card-radius);
+  background: var(--ios-account-card-background);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+[data-profile-stack-screen="account"] [data-testid="settings-row"],
+[data-profile-stack-screen="panel:account"] [data-testid="settings-row"],
+.profile-account-content [data-testid="settings-row"] {
+  background: var(--ios-account-card-background);
+  min-height: var(--ios-account-row-min-height);
+}
+
+[data-profile-stack-screen="account"] [data-testid="settings-row"]::after,
+[data-profile-stack-screen="panel:account"] [data-testid="settings-row"]::after,
+.profile-account-content [data-testid="settings-row"]::after {
+  background: var(--ios-account-separator);
+  height: var(--ios-account-separator-thickness);
+  left: var(--ios-account-separator-leading);
+}
+
+[data-profile-stack-screen="account"] [data-slot="settings-row-icon"],
+[data-profile-stack-screen="panel:account"] [data-slot="settings-row-icon"],
+.profile-account-content [data-slot="settings-row-icon"] {
+  background: var(--ios-account-utility-icon-tile-background) !important;
+  border-radius: var(--ios-account-icon-tile-radius) !important;
+  color: var(--ios-account-utility-icon-glyph) !important;
+  height: var(--ios-account-icon-tile-size) !important;
+  width: var(--ios-account-icon-tile-size) !important;
+}
+
+[data-profile-stack-screen="account"] [data-slot="settings-row-icon"] svg,
+[data-profile-stack-screen="panel:account"] [data-slot="settings-row-icon"] svg,
+.profile-account-content [data-slot="settings-row-icon"] svg {
+  color: var(--ios-account-utility-icon-glyph) !important;
+  height: var(--ios-account-icon-glyph-size) !important;
+  stroke-width: 1.65 !important;
+  width: var(--ios-account-icon-glyph-size) !important;
+}
+
+[data-profile-stack-screen="account"] [data-icon-tone="blue"],
+[data-profile-stack-screen="panel:account"] [data-icon-tone="blue"],
+.profile-account-content [data-icon-tone="blue"],
+.profile-home-content [data-icon-tone="blue"] {
+  background: var(--ios-account-accent) !important;
+}
+
+[data-profile-stack-screen="account"] [data-icon-tone="green"],
+[data-profile-stack-screen="panel:account"] [data-icon-tone="green"],
+.profile-account-content [data-icon-tone="green"],
+.profile-home-content [data-icon-tone="green"] {
+  background: var(--app-success) !important;
+}
+
+[data-profile-stack-screen="account"] [data-icon-tone="orange"],
+[data-profile-stack-screen="panel:account"] [data-icon-tone="orange"],
+.profile-account-content [data-icon-tone="orange"],
+.profile-home-content [data-icon-tone="orange"] {
+  background: var(--app-warning) !important;
+}
+
+[data-profile-stack-screen="account"] [data-icon-tone="purple"],
+[data-profile-stack-screen="panel:account"] [data-icon-tone="purple"],
+.profile-account-content [data-icon-tone="purple"],
+.profile-home-content [data-icon-tone="purple"] {
+  background: var(--app-purple) !important;
+}
+
+[data-profile-stack-screen="account"] [data-icon-tone="red"],
+[data-profile-stack-screen="panel:account"] [data-icon-tone="red"],
+.profile-account-content [data-icon-tone="red"],
+.profile-home-content [data-icon-tone="red"] {
+  background: var(--app-destructive) !important;
+}
+
+[data-profile-stack-screen="account"] [data-icon-tone] svg,
+[data-profile-stack-screen="panel:account"] [data-icon-tone] svg,
+.profile-account-content [data-icon-tone] svg,
+.profile-home-content [data-icon-tone] svg {
+  color: #ffffff !important;
+}
+
+[data-profile-stack-screen="account"]
+  .profile-account-service-row
+  [data-slot="settings-row-icon"],
+[data-profile-stack-screen="panel:account"]
+  .profile-account-service-row
+  [data-slot="settings-row-icon"],
+.profile-account-content
+  .profile-account-service-row
+  [data-slot="settings-row-icon"] {
+  background: var(--ios-account-service-icon-tile-background) !important;
+  color: var(--ios-account-service-icon-glyph) !important;
+}
+
+[data-profile-stack-screen="account"] [data-slot="settings-row-title"],
+[data-profile-stack-screen="panel:account"] [data-slot="settings-row-title"],
+.profile-account-content [data-slot="settings-row-title"] {
+  color: var(--ios-account-label) !important;
+  font-size: var(--ios-account-row-title-size) !important;
+  font-weight: var(--ios-account-regular-weight) !important;
+  letter-spacing: var(--ios-account-row-title-tracking) !important;
+  line-height: var(--ios-account-row-title-line) !important;
+}
+
+[data-profile-stack-screen="account"]
+  [data-tone="destructive"]
+  [data-slot="settings-row-title"],
+[data-profile-stack-screen="panel:account"]
+  [data-tone="destructive"]
+  [data-slot="settings-row-title"],
+.profile-account-content
+  [data-tone="destructive"]
+  [data-slot="settings-row-title"] {
+  color: var(--ios-account-destructive) !important;
+}
+
+[data-profile-stack-screen="account"] [data-slot="settings-row-description"],
+[data-profile-stack-screen="panel:account"]
+  [data-slot="settings-row-description"],
+.profile-account-content [data-slot="settings-row-description"] {
+  color: var(--ios-account-secondary-label) !important;
+  font-size: var(--ios-account-description-size) !important;
+  font-weight: var(--ios-account-regular-weight) !important;
+  letter-spacing: 0 !important;
+  line-height: var(--ios-account-description-line) !important;
+}
+
+[data-profile-stack-screen="account"]
+  [data-tone="destructive"]
+  [data-slot="settings-row-icon"],
+[data-profile-stack-screen="account"]
+  [data-tone="destructive"]
+  [data-slot="settings-row-icon"]
+  svg,
+[data-profile-stack-screen="panel:account"]
+  [data-tone="destructive"]
+  [data-slot="settings-row-icon"],
+[data-profile-stack-screen="panel:account"]
+  [data-tone="destructive"]
+  [data-slot="settings-row-icon"]
+  svg,
+.profile-account-content
+  [data-tone="destructive"]
+  [data-slot="settings-row-icon"],
+.profile-account-content
+  [data-tone="destructive"]
+  [data-slot="settings-row-icon"]
+  svg {
+  color: var(--ios-account-utility-icon-glyph) !important;
+}
+
+[data-profile-stack-screen="account"]
+  [data-tone="destructive"]
+  [data-slot="settings-row-icon"],
+[data-profile-stack-screen="panel:account"]
+  [data-tone="destructive"]
+  [data-slot="settings-row-icon"],
+.profile-account-content
+  [data-tone="destructive"]
+  [data-slot="settings-row-icon"] {
+  background: var(--ios-account-destructive) !important;
+}
+
+.profile-account-content
+  .profile-account-reset-row
+  [data-slot="settings-row-icon"] {
+  background: var(--app-warning) !important;
+}
+
+.profile-account-content
+  .profile-account-reset-row
+  [data-slot="settings-row-title"] {
+  color: var(--ios-account-label) !important;
+}
+
+.profile-account-content
+  .profile-account-delete-row
+  [data-slot="settings-row-icon"] {
+  background: var(--ios-account-destructive) !important;
+}
+
+.profile-account-content
+  .profile-account-delete-row
+  [data-slot="settings-row-title"] {
+  color: var(--ios-account-destructive) !important;
+}
+
+[data-profile-stack-screen="account"]
+  [data-testid="settings-row"]
+  svg[class*="text-muted"],
+[data-profile-stack-screen="panel:account"]
+  [data-testid="settings-row"]
+  svg[class*="text-muted"],
+.profile-account-content [data-testid="settings-row"] svg[class*="text-muted"] {
+  color: var(--ios-account-tertiary-label);
+}
+
+.profile-account-inline-action {
+  color: var(--ios-account-accent);
+  font-size: var(--ios-account-row-title-size);
+  font-weight: var(--ios-account-regular-weight);
+  letter-spacing: var(--ios-account-row-title-tracking);
+  line-height: var(--ios-account-row-title-line);
+}
+
+.profile-account-row-value {
+  color: var(--ios-account-secondary-label);
+  display: block;
+  font-size: var(--ios-account-row-value-size);
+  font-weight: var(--ios-account-regular-weight);
+  line-height: var(--ios-account-row-value-line);
+  max-width: min(42vw, 18rem);
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 640px) {
+  .profile-account-row-value {
+    max-width: min(38vw, 22rem);
+  }
+}
+
+@media (min-width: 768px) {
+  .profile-account-screen {
+    padding-top: 24px;
+  }
+
+  .profile-account-hero {
+    padding-top: 52px;
+  }
+
+  .profile-account-avatar {
+    height: 120px;
+    width: 120px;
+  }
+
+  .profile-account-hero-copy {
+    margin-top: 22px;
+  }
+
+  .profile-account-hero-name {
+    font-size: 34px;
+  }
+
+  .profile-account-content {
+    margin-top: 0;
+  }
+}
+
+.profile-home-screen {
+  --settings-group-stack-gap: 8px;
+  --settings-heading-stack-gap: 6px;
+  --settings-row-px: 20px;
+  --settings-row-py: 10px;
+  --settings-row-gap: 12px;
+  color: var(--ios-account-label);
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--top-shell-reserved-height, 0px));
+  padding-bottom: calc(env(safe-area-inset-bottom) + 7.5rem);
+}
+
+.profile-home-screen .app-page-header-region {
+  margin-inline: auto;
+  max-width: 720px;
+}
+
+.profile-home-screen .app-page-content-region {
+  margin-inline: auto;
+  max-width: 720px;
+  width: 100%;
+}
+
+.profile-home-hero {
+  gap: 18px !important;
+  padding-top: clamp(24px, 5vh, 44px);
+}
+
+.profile-home-screen [data-profile-avatar-frame="true"] {
+  background: #d1d1d6 !important;
+  box-shadow: none !important;
+  height: 96px !important;
+  padding: 0 !important;
+  width: 96px !important;
+}
+
+.profile-home-screen [data-profile-avatar-frame="true"] > span {
+  background: var(--ios-account-accent) !important;
+  box-shadow: none !important;
+}
+
+.profile-home-screen [data-profile-avatar-frame="true"] [data-slot="avatar"],
+.profile-home-screen
+  [data-profile-avatar-frame="true"]
+  [data-slot="avatar-image"],
+.profile-home-screen
+  [data-profile-avatar-frame="true"]
+  [data-slot="avatar-fallback"] {
+  border-radius: 9999px;
+}
+
+.profile-home-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.profile-home-name {
+  color: var(--ios-account-label) !important;
+  font-family: var(--font-app-display);
+  font-size: 32px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+  line-height: 1.12 !important;
+}
+
+.profile-home-meta {
+  color: var(--ios-account-secondary-label) !important;
+  font-family: var(--font-app-body);
+  font-size: 17px !important;
+  font-weight: 400;
+  letter-spacing: 0 !important;
+  line-height: 24.5px !important;
+}
+
+.profile-home-meta svg {
+  color: var(--ios-account-secondary-label) !important;
+  height: 17px !important;
+  stroke-width: 1.65 !important;
+  width: 17px !important;
+}
+
+.profile-home-screen .surface-stack {
+  margin-inline: 0;
+  padding-inline: 0;
+}
+
+.profile-home-content {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  margin-top: 34px;
+  width: 100%;
+}
+
+.profile-home-content [data-testid="settings-group"] {
+  margin-inline: 0;
+}
+
+.profile-home-content [data-slot="settings-group-heading"] {
+  color: #6e6e73 !important;
+  font-family: var(--font-app-body);
+  font-size: var(--ios-account-section-header-size) !important;
+  font-weight: var(--ios-account-medium-weight) !important;
+  letter-spacing: -0.01em !important;
+  line-height: var(--ios-account-section-header-line) !important;
+  padding-inline: 6px;
+  text-transform: none !important;
+}
+
+.profile-home-content [data-slot="settings-group-shell"] {
+  --settings-group-radius: var(--ios-account-card-radius);
+  background: var(--ios-account-card-background);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.profile-home-content [data-testid="settings-row"] {
+  background: var(--ios-account-card-background);
+  min-height: 60px;
+}
+
+.profile-home-content [data-testid="settings-row"]::after {
+  background: var(--ios-account-separator);
+  height: var(--ios-account-separator-thickness);
+  left: var(--ios-account-separator-leading);
+}
+
+.profile-home-content [data-slot="settings-row-icon"] {
+  background: var(--ios-account-utility-icon-tile-background) !important;
+  border-radius: var(--ios-account-icon-tile-radius) !important;
+  color: var(--ios-account-utility-icon-glyph) !important;
+  height: var(--ios-account-icon-tile-size) !important;
+  width: var(--ios-account-icon-tile-size) !important;
+}
+
+.profile-home-content [data-slot="settings-row-icon"] svg {
+  color: var(--ios-account-utility-icon-glyph) !important;
+  height: var(--ios-account-icon-glyph-size) !important;
+  stroke-width: 1.65 !important;
+  width: var(--ios-account-icon-glyph-size) !important;
+}
+
+.profile-home-content [data-icon-tone="blue"] {
+  background: var(--ios-account-accent) !important;
+}
+
+.profile-home-content [data-icon-tone="green"] {
+  background: var(--app-success) !important;
+}
+
+.profile-home-content [data-icon-tone="orange"] {
+  background: var(--app-warning) !important;
+}
+
+.profile-home-content [data-icon-tone="purple"] {
+  background: var(--app-purple) !important;
+}
+
+.profile-home-content [data-icon-tone="red"] {
+  background: var(--app-destructive) !important;
+}
+
+.profile-home-content [data-icon-tone] svg {
+  color: #ffffff !important;
+}
+
+.profile-home-content [data-slot="settings-row-title"] {
+  color: var(--ios-account-label) !important;
+  font-family: var(--font-app-body);
+  font-size: var(--ios-account-row-title-size) !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+  line-height: var(--ios-account-row-title-line) !important;
+}
+
+.profile-home-content
+  [data-tone="destructive"]
+  [data-slot="settings-row-icon"] {
+  background: var(--ios-account-destructive) !important;
+  color: var(--ios-account-on-accent) !important;
+}
+
+.profile-home-content
+  [data-tone="destructive"]
+  [data-slot="settings-row-icon"]
+  svg {
+  color: var(--ios-account-on-accent) !important;
+}
+
+.profile-home-content
+  [data-tone="destructive"]
+  [data-slot="settings-row-title"] {
+  color: var(--ios-account-destructive) !important;
+}
+
+.profile-home-content [data-testid="settings-row"] svg[class*="text-muted"] {
+  color: var(--ios-account-secondary-label) !important;
+}
+
+body:has(.profile-home-screen) {
+  background: var(--ios-account-screen-background);
+}
+
+body:has(.profile-home-screen) .foundation-public-ambient {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .profile-home-screen {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 5rem);
+  }
+
+  .profile-home-hero {
+    padding-top: clamp(36px, 7vh, 64px);
+  }
+
+  .profile-home-screen [data-profile-avatar-frame="true"] {
+    height: 112px !important;
+    width: 112px !important;
+  }
+
+  .profile-home-name {
+    font-size: 34px !important;
+  }
+
+  .profile-home-content {
+    margin-top: 42px;
+  }
+}
+
+body:has(.profile-account-content) {
+  background: var(--ios-account-screen-background);
+}
+
+body:has(.profile-account-content) .foundation-public-ambient {
+  display: none;
+}
+
+body:has(.profile-account-content) [data-app-top-bar],
+body:has(.profile-account-content) .bottom-chrome-surface,
+body:has(.profile-account-content) .kai-bottom-nav-pill {
+  background: var(--ios-account-nav-material-background) !important;
+  border-color: var(--ios-account-nav-material-border) !important;
+  box-shadow: var(--ios-account-nav-material-shadow) !important;
+  -webkit-backdrop-filter: var(--ios-account-nav-material-blur);
+  backdrop-filter: var(--ios-account-nav-material-blur);
+}
+
+body:has(.profile-account-content)
+  .kai-bottom-nav-pill
+  [data-segment-indicator] {
+  background: transparent !important;
+  display: none;
+  box-shadow: none !important;
+  opacity: 0;
+}
+
+body:has(.profile-account-content)
+  .kai-bottom-nav-pill
+  [data-segment-active-pulse] {
+  animation: none;
+  background: transparent;
+}
+
+body:has(.profile-account-content) .kai-bottom-nav-pill [role="radio"] {
+  color: var(--ios-account-secondary-label) !important;
+  font-weight: var(--ios-account-medium-weight);
+}
+
+body:has(.profile-account-content)
+  .kai-bottom-nav-pill
+  [role="radio"][aria-checked="true"] {
+  color: var(--ios-account-accent) !important;
+  font-weight: var(--ios-account-medium-weight);
+}
+
+body:has(.profile-account-content) .kai-bottom-nav-pill [role="radio"] svg {
+  color: currentColor;
+  filter: none;
+  transform: none;
+}
+
+body:has(.profile-account-content)
+  .kai-bottom-nav-pill
+  [role="radio"]
+  > span:last-of-type {
+  font-size: var(--ios-account-tab-label-size);
+  font-weight: var(--ios-account-medium-weight);
+  line-height: var(--ios-account-tab-label-line);
+}
+
+body:has(.profile-account-content)
+  [data-testid="one-voice-agent-bar-start-icon"] {
+  color: var(--ios-account-secondary-label);
+}
+
+body:has(.profile-account-content)
+  [data-testid="one-voice-agent-bar-start-icon"]
+  > span:nth-of-type(2) {
+  font-size: var(--ios-account-description-size);
+  font-weight: var(--ios-account-regular-weight);
+  letter-spacing: var(--foundation-body-tracking);
+  line-height: var(--ios-account-description-line);
 }
 
 @media (min-width: 640px) {
@@ -2308,6 +3180,11 @@ html.native-ios [data-testid="one-location-onboarding"] {
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: var(--app-accent-ring);
+  /* iOS shifts systemGreen brighter in dark mode and darkens the off-track;
+     the thumb stays white in both appearances. */
+  --switch-on: #30d158; /* iOS systemGreen, dark */
+  --switch-off: #39393d; /* iOS off-track, dark */
+  --switch-thumb: #ffffff;
   /* Chart colors - higher lightness for contrast on dark card */
   --chart-1: oklch(0.797 0.112 76.3);
   --chart-2: oklch(0.663 0.096 71.6);
@@ -2393,25 +3270,17 @@ html.native-ios [data-testid="one-location-onboarding"] {
   --app-card-surface-sticky-header-solid: #2f2f31;
   --app-card-border-standard: transparent;
   --app-card-border-strong: rgba(255, 255, 255, 0.18);
-  --app-card-shadow-standard: 0 11px 34px 0 rgba(0, 0, 0, 0.65);
-  --app-card-shadow-feature: 0 11px 34px 0 rgba(0, 0, 0, 0.75);
+  --app-card-shadow-standard: none;
+  --app-card-shadow-feature: 0 12px 34px -30px rgba(0, 0, 0, 0.9);
   --app-segmented-active-surface: #2c2c2e;
   --app-segmented-active-foreground: #ffffff;
   --app-segmented-active-border: #ffffff;
-  --app-shell-surface-bg: rgba(38, 38, 41, 0.9);
+  --app-shell-surface-bg: var(--app-glass-surface);
   --app-shell-surface-bg-hover: rgba(48, 48, 52, 0.96);
   --app-shell-surface-border: rgba(255, 255, 255, 0.08);
   --app-shell-surface-foreground: #ffffff;
-  --app-shell-surface-fill: linear-gradient(
-    180deg,
-    rgba(72, 72, 74, 0.5) 0%,
-    rgba(38, 38, 41, 0) 100%
-  );
-  --app-shell-surface-shadow:
-    0 20px 42px -24px rgba(0, 0, 0, 0.96),
-    0 12px 22px -16px rgba(0, 0, 0, 0.82),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    inset 0 -0.5px 0 rgba(0, 0, 0, 0.38);
+  --app-shell-surface-fill: var(--app-glass-surface);
+  --app-shell-surface-shadow: var(--app-glass-shadow);
   --app-shell-surface-blur: 20px;
 }
 
@@ -2578,10 +3447,20 @@ html.native-ios [data-testid="one-location-onboarding"] {
      typography instead of inheriting title3 size and semibold weight. */
   [data-slot="settings-row-title"] {
     font-family: var(--font-app-body);
-    font-size: 0.9375rem !important;
-    line-height: 1.25 !important;
+    font-size: 17px !important;
+    line-height: 22px !important;
     font-weight: 400 !important;
     letter-spacing: 0 !important;
+  }
+
+  [data-slot="settings-group-heading"] {
+    font-family: var(--font-app-body);
+    color: #6e6e73 !important;
+    font-size: 15px !important;
+    line-height: 20px !important;
+    font-weight: 500 !important;
+    letter-spacing: -0.01em !important;
+    text-transform: none !important;
   }
 
   .app-section-heading,
@@ -2602,6 +3481,20 @@ html.native-ios [data-testid="one-location-onboarding"] {
     letter-spacing: var(--foundation-title1-tracking) !important;
   }
 
+  .app-page-shell
+    :is(
+      [data-profile-stack-screen="account"],
+      [data-profile-stack-screen="panel:account"]
+    )
+    [data-profile-stack-header]
+    h1 {
+    font-family: var(--font-app-display);
+    font-size: var(--ios-account-title-size) !important;
+    line-height: var(--ios-account-title-line) !important;
+    font-weight: var(--ios-account-title-weight) !important;
+    letter-spacing: var(--ios-account-title-tracking) !important;
+  }
+
   .app-page-shell h2,
   .app-page-shell [role="heading"][aria-level="2"] {
     font-family: var(--font-app-display);
@@ -2609,6 +3502,37 @@ html.native-ios [data-testid="one-location-onboarding"] {
     line-height: var(--foundation-title3-line) !important;
     font-weight: var(--foundation-title3-weight) !important;
     letter-spacing: var(--foundation-title3-tracking) !important;
+  }
+
+  .app-page-shell
+    .profile-account-content
+    [data-slot="settings-group-heading"][role="heading"][aria-level="2"] {
+    font-family: var(--font-app-body);
+    font-size: var(--ios-account-section-header-size) !important;
+    line-height: var(--ios-account-section-header-line) !important;
+    font-weight: var(--ios-account-medium-weight) !important;
+    letter-spacing: -0.01em !important;
+    color: #6e6e73 !important;
+    text-transform: none !important;
+  }
+
+  .app-page-shell .profile-account-content [data-slot="settings-row-title"],
+  .app-page-shell .profile-account-inline-action {
+    font-family: var(--font-app-body);
+    font-size: var(--ios-account-row-title-size) !important;
+    line-height: var(--ios-account-row-title-line) !important;
+    font-weight: var(--ios-account-regular-weight) !important;
+    letter-spacing: var(--ios-account-row-title-tracking) !important;
+  }
+
+  .app-page-shell
+    .profile-account-content
+    [data-slot="settings-row-description"] {
+    font-family: var(--font-app-body);
+    font-size: var(--ios-account-row-value-size) !important;
+    line-height: var(--ios-account-row-value-line) !important;
+    font-weight: var(--ios-account-regular-weight) !important;
+    letter-spacing: 0 !important;
   }
 
   /*
@@ -2675,7 +3599,7 @@ html.native-ios [data-testid="one-location-onboarding"] {
   }
   body {
     @apply bg-background text-foreground;
-    font-family: var(--font-sans), system-ui, sans-serif;
+    font-family: var(--font-app-body), system-ui, sans-serif;
     font-size: 1rem;
     line-height: 1.5;
     /* Safe-area padding is applied only on native shells (see html.native-ios). */
@@ -2812,7 +3736,8 @@ md-ripple.morphy-md-ripple {
   --ambient-chrome-material-bg: var(--app-layout-surface, var(--background));
   --ambient-chrome-material-fg: var(--foreground);
   --ambient-chrome-mask-blur: var(--app-shared-chrome-mask-blur);
-  --ambient-chrome-backdrop-filter: blur(var(--ambient-chrome-mask-blur)) saturate(1.3);
+  --ambient-chrome-backdrop-filter: blur(var(--ambient-chrome-mask-blur))
+    saturate(1.3);
   --ambient-chrome-wash: 58%;
   /* One feather profile drives both chrome edges. Edge classes may choose
      geometry, never their own opacity curve. */
@@ -2909,11 +3834,36 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   background-color: transparent;
   background-image: linear-gradient(
     to top,
-    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-solid), transparent) 0%,
-    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-dense), transparent) var(--ambient-chrome-fade-dense-stop),
-    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-mid), transparent) var(--ambient-chrome-fade-mid-stop),
-    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-soft), transparent) var(--ambient-chrome-fade-soft-stop),
-    color-mix(in srgb, var(--ambient-chrome-bg) var(--ambient-chrome-fade-trace), transparent) var(--ambient-chrome-fade-trace-stop),
+    color-mix(
+        in srgb,
+        var(--ambient-chrome-bg) var(--ambient-chrome-fade-solid),
+        transparent
+      )
+      0%,
+    color-mix(
+        in srgb,
+        var(--ambient-chrome-bg) var(--ambient-chrome-fade-dense),
+        transparent
+      )
+      var(--ambient-chrome-fade-dense-stop),
+    color-mix(
+        in srgb,
+        var(--ambient-chrome-bg) var(--ambient-chrome-fade-mid),
+        transparent
+      )
+      var(--ambient-chrome-fade-mid-stop),
+    color-mix(
+        in srgb,
+        var(--ambient-chrome-bg) var(--ambient-chrome-fade-soft),
+        transparent
+      )
+      var(--ambient-chrome-fade-soft-stop),
+    color-mix(
+        in srgb,
+        var(--ambient-chrome-bg) var(--ambient-chrome-fade-trace),
+        transparent
+      )
+      var(--ambient-chrome-fade-trace-stop),
     transparent 100%
   );
   /* `backdrop-filter` affects transparent pixels unless the element itself is
@@ -2923,18 +3873,24 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
     to top,
     #000 0%,
     #000 var(--ambient-chrome-fade-dense-stop),
-    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid)) var(--ambient-chrome-fade-mid-stop),
-    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft)) var(--ambient-chrome-fade-soft-stop),
-    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace)) var(--ambient-chrome-fade-trace-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid))
+      var(--ambient-chrome-fade-mid-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft))
+      var(--ambient-chrome-fade-soft-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace))
+      var(--ambient-chrome-fade-trace-stop),
     transparent 100%
   );
   mask-image: linear-gradient(
     to top,
     #000 0%,
     #000 var(--ambient-chrome-fade-dense-stop),
-    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid)) var(--ambient-chrome-fade-mid-stop),
-    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft)) var(--ambient-chrome-fade-soft-stop),
-    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace)) var(--ambient-chrome-fade-trace-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-mid))
+      var(--ambient-chrome-fade-mid-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-soft))
+      var(--ambient-chrome-fade-soft-stop),
+    rgba(0, 0, 0, var(--ambient-chrome-fade-mask-trace))
+      var(--ambient-chrome-fade-trace-stop),
     transparent 100%
   );
 }
@@ -3037,6 +3993,98 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 .dark .bar-glass::before {
   background-color: var(--app-bar-glass-bg-dark);
+}
+
+/* ── Floating frosted panel ── the voice approval card.
+
+   Follows the same rule as .bar-glass: the tint derives from the live theme
+   background, so the panel never reads milky against the page behind it. The
+   card previously set bg-white/95 next to backdrop-blur-xl -- at 95% opacity
+   there was nothing left for the blur to show, so it was a flat white sheet
+   wearing a glass class.
+
+   Unlike the chrome bars this one floats above content rather than capping
+   it, so it carries a specular rim and layered elevation instead of a mask.
+   The rim is what reads as thickness; without it a blurred panel just looks
+   out of focus. */
+.agent-approval-glass {
+  /* Built on --popover, the elevated-surface token, NOT --background. The
+     chrome bars derive their tint from the page background because they sit
+     over scrolling content; a panel floating over the flat page ground would
+     become the exact colour behind it and vanish. It did. */
+  --agent-approval-tint: color-mix(in oklab, var(--popover) 84%, transparent);
+  --agent-approval-blur: 16px;
+  /* Stand clear of the voice bar. Sitting flush against it read as one
+     welded block rather than a panel the bar had raised, and it left the
+     aurora halo with no ground to fall on. Set here rather than on the shell
+     because the bar has two layouts (fixed and slot) and only one of them
+     carries a gap. */
+  margin-bottom: 1rem;
+  --agent-approval-rim: rgba(255, 255, 255, 0.55);
+  --agent-approval-edge: rgba(0, 0, 0, 0.1);
+  --agent-approval-cast: rgba(0, 0, 0, 0.18);
+  /* The colour the glass carries, taken from .one-bar-aurora--active -- the
+     gold/indigo/pink the voice bar already wears while a conversation is
+     live. The card belongs to that same moment, so it should read as the same
+     material rather than as a generic accent panel that happened to appear. */
+  --agent-approval-hue-gold: rgba(212, 175, 106, 0.18);
+  --agent-approval-hue-indigo: rgba(129, 140, 248, 0.14);
+  --agent-approval-hue-pink: rgba(236, 72, 153, 0.11);
+  position: relative;
+  isolation: isolate;
+  background-color: var(--agent-approval-tint);
+  /* Three soft blooms from different corners rather than one flat wash: glass
+     picks up colour unevenly across its face, and an even tint reads as
+     coloured plastic. Stationary, unlike the bar's breathing aurora -- motion
+     on a dialog the person is being asked to read would fight the reading. */
+  background-image:
+    radial-gradient(120% 100% at 6% 0%, var(--agent-approval-hue-gold), transparent 55%),
+    radial-gradient(110% 100% at 100% 18%, var(--agent-approval-hue-indigo), transparent 58%),
+    radial-gradient(130% 120% at 62% 108%, var(--agent-approval-hue-pink), transparent 62%);
+  -webkit-backdrop-filter: blur(var(--agent-approval-blur)) saturate(180%);
+  backdrop-filter: blur(var(--agent-approval-blur)) saturate(180%);
+  border: 1px solid var(--agent-approval-edge);
+  /* The aurora halo, matching the glow the voice bar casts around itself.
+     Built from stacked coloured shadows rather than a blurred pseudo-element:
+     the card is GPU-promoted (translate3d) and so forms its own stacking
+     context, which would trap a z-index:-1 child in FRONT of the panel
+     instead of behind it. Shadows paint outside the border box regardless. */
+  box-shadow:
+    inset 0 1px 0 0 var(--agent-approval-rim),
+    0 0 22px -4px var(--agent-approval-hue-gold),
+    0 0 38px -8px var(--agent-approval-hue-indigo),
+    0 0 54px -10px var(--agent-approval-hue-pink),
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    0 8px 24px -6px var(--agent-approval-cast),
+    0 24px 48px -14px var(--agent-approval-cast);
+  /* Same GPU promotion the other glass surfaces take: a backdrop-filter that
+     repaints on scroll is the usual source of chrome jitter. */
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+.dark .agent-approval-glass {
+  --agent-approval-tint: color-mix(in oklab, var(--popover) 88%, transparent);
+  --agent-approval-rim: rgba(255, 255, 255, 0.16);
+  /* A dark panel on a dark page needs its edge lit, not merely outlined. */
+  --agent-approval-edge: rgba(255, 255, 255, 0.14);
+  --agent-approval-cast: rgba(0, 0, 0, 0.6);
+  /* A dark ground swallows tint, so the same hues sit stronger here. */
+  --agent-approval-hue-gold: rgba(212, 175, 106, 0.26);
+  --agent-approval-hue-indigo: rgba(129, 140, 248, 0.2);
+  --agent-approval-hue-pink: rgba(236, 72, 153, 0.16);
+}
+
+/* A translucent panel is a readability risk, not just a style: if the person
+   has asked for less transparency, honour it and fall back to a solid tint. */
+@media (prefers-reduced-transparency: reduce) {
+  .agent-approval-glass {
+    --agent-approval-tint: var(--popover);
+    background-image: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 .bar-glass-top::before {
@@ -3175,10 +4223,8 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   box-shadow: 0 11px 34px 0 var(--theme-color-boxShadow);
 }
 
-/* Flat bottom nav surface: matches the top app bar controls
-   (ShellActionSurface) - soft translucent track, no border/shadow/blur,
-   symmetric in light + dark. The segmented active indicator below keeps a
-   subtle highlight so the current route stays readable. */
+/* Flat bottom nav surface: outer material only. Selection is color, not a
+   separate filled pill or enlarged tab. */
 .bottom-chrome-surface,
 .kai-bottom-nav-pill {
   color: var(--foreground);
@@ -3190,45 +4236,18 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .kai-bottom-nav-pill [data-segment-indicator] {
-  background: color-mix(in srgb, var(--foreground) 8%, transparent) !important;
+  display: none;
+  background: transparent !important;
   border: 0;
   box-shadow: none !important;
 }
 
-@keyframes segmented-pill-active-content-pop {
-  0% {
-    transform: translateY(1px) scale(0.965);
-  }
-  56% {
-    transform: translateY(-1px) scale(1.035);
-  }
-  100% {
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes segmented-pill-active-pulse {
-  0% {
-    opacity: 0.32;
-    transform: scale(0.84);
-  }
-  54% {
-    opacity: 0.2;
-    transform: scale(1.08);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1.16);
-  }
-}
-
 .segmented-pill-active-choice {
-  animation: segmented-pill-active-content-pop 420ms
-    cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: none;
 }
 
 [data-segment-active-pulse] {
-  animation: segmented-pill-active-pulse 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3240,22 +4259,22 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 .kai-bottom-nav-pill [role="radio"] {
   color: color-mix(in srgb, var(--foreground) 70%, transparent) !important;
-  min-height: 48px;
-  gap: 0.2rem !important;
-  padding: 0.4rem 0.2rem 0.42rem !important;
+  min-height: 44px;
+  gap: 3px !important;
+  padding: 4px 2px !important;
   letter-spacing: 0;
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] {
   color: var(--app-accent) !important;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .kai-bottom-nav-pill [role="radio"] svg {
-  width: 21px;
-  height: 21px;
+  width: 22px;
+  height: 22px;
   opacity: 0.9;
-  stroke-width: 2.2;
+  stroke-width: 2;
   transform: translateY(0);
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -3263,25 +4282,23 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] svg {
   opacity: 1;
-  stroke-width: 2.6;
-  filter: drop-shadow(
-    0 3px 8px color-mix(in srgb, var(--app-accent) 28%, transparent)
-  );
-  transform: translateY(-0.5px);
+  stroke-width: 2;
+  filter: none;
+  transform: none;
 }
 
 .kai-bottom-nav-pill [role="radio"] > span:last-of-type {
   max-width: 100%;
-  font-size: 9.25px;
+  font-size: var(--ios-account-tab-label-size, 10px);
   font-weight: 500;
-  line-height: 1;
+  line-height: var(--ios-account-tab-label-line, 12px);
   letter-spacing: 0;
   text-wrap: nowrap;
   opacity: 0.92;
 }
 
 .kai-bottom-nav-pill [role="radio"][aria-checked="true"] > span:last-of-type {
-  font-weight: 600;
+  font-weight: 500;
   opacity: 1;
 }
 
@@ -4288,19 +5305,22 @@ body[data-persona-surface="ria"] {
 
 /* RIA primitive helper classes (composed by onboarding + surface restyles). */
 body[data-persona-surface="ria"] .ria-eyebrow {
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 2.4px;
-  text-transform: uppercase;
-  color: var(--ria-gold);
+  font-family: var(--font-app-body);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: #6e6e73;
 }
 body[data-persona-surface="ria"] .ria-sublabel {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 1.6px;
-  text-transform: uppercase;
-  color: var(--ria-sublabel);
+  font-family: var(--font-app-body);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: #6e6e73;
 }
 body[data-persona-surface="ria"] .ria-screen-title {
   font-family: var(--font-app-display, var(--font-app-heading));

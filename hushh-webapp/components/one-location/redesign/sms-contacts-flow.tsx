@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { ChevronLeft, Loader2 } from "lucide-react";
+import { ChevronLeft, Loader2, UsersRound } from "lucide-react";
 
 import {
   AlertDialog,
@@ -13,7 +13,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import type { OneLocationRecipient } from "@/lib/one-location/types";
+import type {
+  OneLocationCircleEligibleConnections,
+  OneLocationCircleSummary,
+  OneLocationRecipient,
+} from "@/lib/one-location/types";
+import { CircleGrowActions } from "@/components/one-location/redesign/circles/circle-grow-actions";
+
 
 const AVATAR_TONES = [
   "bg-[#2f80ed]",
@@ -25,15 +31,29 @@ const AVATAR_TONES = [
 
 type SmsContactsFlowProps = {
   recipients: OneLocationRecipient[];
+  circles: OneLocationCircleSummary[];
   selectedUserIds: string[];
   busyKey: string | null;
   onBack: () => void;
   onAdd: (recipientUserId: string) => void;
+  onAddCircle: (circleId: string) => Promise<void>;
   onRemove: (recipientUserId: string) => Promise<boolean>;
   recipientLabel: (recipient: OneLocationRecipient) => string;
   recipientSubtitle: (recipient: OneLocationRecipient) => string;
   isRecipientShareReady: (recipient: OneLocationRecipient) => boolean;
+  // Grow-this-Circle handlers so a user can invite loved ones or share the
+  // invite code right where they add a Circle to SMS contacts.
+  onShareCircleCode: (circleId: string) => Promise<void>;
+  onLoadCircleEligibleConnections: (
+    circleId: string,
+  ) => Promise<OneLocationCircleEligibleConnections>;
+  onInviteCircleConnections: (
+    circleId: string,
+    inviteeUserIds: string[],
+  ) => Promise<void>;
+  onCancelCircleMemberInvite: (inviteId: string) => Promise<void>;
 };
+
 
 function initials(value: string): string {
   const parts = value.trim().split(/\s+/).filter(Boolean);
@@ -76,10 +96,10 @@ function ContactRow({
         {initials(label)}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[15px] font-semibold text-[#17171c]">
+        <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
           {label}
         </span>
-        <span className="mt-0.5 block truncate text-[12px] text-black/45">
+        <span className="mt-0.5 block truncate text-[15px] leading-5 text-muted-foreground">
           {recipientSubtitle(recipient) || "Connected in One"}
         </span>
       </span>
@@ -88,7 +108,7 @@ function ContactRow({
           type="button"
           onClick={onAskRemove}
           disabled={busy}
-          className="press-scale flex h-8 min-w-[76px] items-center justify-center rounded-full border border-[#ff3b30]/35 bg-[#ffe9e9] px-3 text-[13px] font-semibold text-[#d70015] disabled:opacity-45 disabled:bg-[#f8f8f8]"
+          className="press-scale flex h-8 min-w-[76px] items-center justify-center rounded-full bg-[color:var(--app-destructive)]/10 px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:opacity-45"
         >
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Remove"}
         </button>
@@ -114,7 +134,7 @@ function ContactRow({
 
 function ContactGroup({ children }: { children: ReactNode }) {
   return (
-    <div className="divide-y divide-black/[0.055] overflow-hidden rounded-[15px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+    <div className="divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] shadow-none">
       {children}
     </div>
   );
@@ -122,15 +142,22 @@ function ContactGroup({ children }: { children: ReactNode }) {
 
 export function SmsContactsFlow({
   recipients,
+  circles,
   selectedUserIds,
   busyKey,
   onBack,
   onAdd,
+  onAddCircle,
   onRemove,
   recipientLabel,
   recipientSubtitle,
   isRecipientShareReady,
+  onShareCircleCode,
+  onLoadCircleEligibleConnections,
+  onInviteCircleConnections,
+  onCancelCircleMemberInvite,
 }: SmsContactsFlowProps) {
+
   const [pendingRemoval, setPendingRemoval] =
     useState<OneLocationRecipient | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -158,7 +185,7 @@ export function SmsContactsFlow({
 
   return (
     <section
-      className="fixed inset-0 z-[540] h-[100dvh] min-h-[100dvh] overflow-y-auto overscroll-none bg-[#f2f3f7] text-[#17171c]"
+      className="fixed inset-0 z-[540] h-[100dvh] min-h-[100dvh] overflow-y-auto overscroll-none bg-background text-foreground"
       data-ambient-chrome-ignore
       data-testid="sms-contacts-screen"
     >
@@ -167,20 +194,96 @@ export function SmsContactsFlow({
           type="button"
           onClick={onBack}
           aria-label="Back"
-          className="press-scale flex h-8 w-8 items-center justify-center rounded-full bg-black/[0.045]"
+          className="press-scale flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)]"
         >
           <ChevronLeft className="h-[19px] w-[19px]" />
         </button>
 
-        <h1 className="mt-3 !text-[29px] !font-bold !leading-tight !tracking-[-0.65px]">
+        <h1 className="mt-3 !text-[32px] !font-bold !leading-[1.08] !tracking-normal">
           SMS contacts
         </h1>
-        <p className="mt-1 max-w-[350px] text-[13px] leading-[1.45] text-black/47">
+        <p className="mt-2 max-w-[350px] text-[17px] leading-[24px] text-muted-foreground">
           These people are alerted with your live location the moment you send
           the SMS.
         </p>
 
-        <p className="mb-2 mt-6 px-1 text-[11px] font-bold uppercase tracking-[0.35px] text-black/40">
+        {circles.length ? (
+          <>
+            <p className="mb-2 mt-6 px-1 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+              Add a Circle
+            </p>
+            <ContactGroup>
+              {circles.map((circle, index) => {
+                const circleBusy = busyKey === `sms-circle:${circle.id}`;
+                return (
+                  <div
+                    key={circle.id}
+                    className={cn(
+                      "flex min-h-[64px] items-center gap-3 px-3.5 py-2.5",
+                      index < circles.length - 1 &&
+                        "border-b border-[color:var(--app-separator)]",
+                    )}
+                  >
+                    <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+                      <UsersRound className="h-[17px] w-[17px]" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
+                        {circle.name}
+                      </span>
+                      <span className="mt-0.5 block text-[15px] leading-5 text-muted-foreground">
+                        Add current ready members · {circle.memberCount} total
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      disabled={Boolean(busyKey)}
+                      onClick={() => void onAddCircle(circle.id)}
+                      className="press-scale flex h-8 min-w-[78px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:opacity-45"
+                    >
+                      {circleBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        "Add Circle"
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </ContactGroup>
+            <p className="mt-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
+              This adds a snapshot of current ready members. Anyone who joins
+              later is never added to SMS automatically.
+            </p>
+            {/* Grow a Circle in-context: invite an existing connection or share
+                the invite code so loved ones can join before they become SMS
+                contacts. Membership never auto-adds anyone to SMS. */}
+            {circles.map((circle) => (
+              <div key={`grow-${circle.id}`} className="mt-3 px-1">
+                <p className="mb-1.5 text-[13px] font-semibold leading-[18px] text-muted-foreground">
+                  Grow {circle.name}
+                </p>
+                <CircleGrowActions
+                  circleId={circle.id}
+                  circleName={circle.name}
+                  busy={Boolean(busyKey)}
+                  canInvite={
+                    circle.viewerCapabilities?.canInviteMembers ??
+                    circle.role === "owner"
+                  }
+                  onShareCode={onShareCircleCode}
+                  onLoadEligibleConnections={onLoadCircleEligibleConnections}
+                  onInviteConnections={onInviteCircleConnections}
+                  onCancelMemberInvite={onCancelCircleMemberInvite}
+                  testId={`sms-circle-grow-actions-${circle.id}`}
+                />
+              </div>
+            ))}
+          </>
+        ) : null}
+
+
+        <p className="mb-2 mt-6 px-1 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
           Alerted on SMS
         </p>
         {selected.length ? (
@@ -201,12 +304,12 @@ export function SmsContactsFlow({
             ))}
           </ContactGroup>
         ) : (
-          <div className="rounded-[15px] bg-white px-4 py-5 text-center text-[13px] leading-relaxed text-black/45">
+          <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-5 text-center text-[15px] leading-5 text-muted-foreground">
             No SMS contacts yet. Add someone from your circle below.
           </div>
         )}
 
-        <p className="mb-2 mt-6 px-1 text-[11px] font-bold uppercase tracking-[0.35px] text-black/40">
+        <p className="mb-2 mt-6 px-1 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
           Add from your circle
         </p>
         {available.length ? (
@@ -227,12 +330,12 @@ export function SmsContactsFlow({
             ))}
           </ContactGroup>
         ) : (
-          <div className="rounded-[15px] bg-white px-4 py-5 text-center text-[13px] text-black/45">
+          <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-5 text-center text-[15px] leading-5 text-muted-foreground">
             Everyone in your ready circle is already selected.
           </div>
         )}
 
-        <p className="mt-4 px-1 text-[12px] leading-[1.45] text-black/43">
+        <p className="mt-4 px-1 text-[13px] leading-[18px] text-muted-foreground">
           Only people in your circle can be SMS contacts. They&apos;re never
           notified unless you send the SMS.
         </p>
@@ -246,24 +349,24 @@ export function SmsContactsFlow({
       >
         <AlertDialogContent
           size="sm"
-          className="!bottom-0 !left-1/2 !top-auto !w-full !max-w-[430px] !-translate-x-1/2 !translate-y-0 !gap-0 !rounded-b-none !rounded-t-[24px] !border-0 !bg-white !px-4 !pb-[max(20px,env(safe-area-inset-bottom))] !pt-5 !shadow-none"
+          className="!bottom-0 !left-1/2 !top-auto !w-full !max-w-[430px] !-translate-x-1/2 !translate-y-0 !gap-0 !rounded-b-none !rounded-t-[24px] !border-0 !bg-[color:var(--app-card-surface-default-solid)] !px-4 !pb-[max(20px,env(safe-area-inset-bottom))] !pt-5 !shadow-none"
         >
           <AlertDialogHeader className="!place-items-center !text-center sm:!place-items-center sm:!text-center">
             <span
-              className="flex h-14 w-14 items-center justify-center rounded-full bg-[#f29918] text-xl font-semibold text-white"
+              className="flex h-[52px] w-[52px] items-center justify-center rounded-[16px] bg-[color:var(--app-warning)] text-xl font-semibold text-white"
               aria-hidden
             >
               {pendingRemoval ? initials(recipientLabel(pendingRemoval)) : "?"}
             </span>
-            <AlertDialogTitle className="mt-1 !text-center !text-[20px] !font-bold !leading-tight">
-              <span className="text-[#17171c]">
+            <AlertDialogTitle className="mt-1 !text-center !text-[22px] !font-bold !leading-[1.14]">
+              <span className="text-foreground">
                 Remove{" "}
                 {pendingRemoval
                   ? `${recipientLabel(pendingRemoval).split(/\s+/)[0]}?`
                   : "contact?"}
               </span>
             </AlertDialogTitle>
-            <AlertDialogDescription className="mt-1 !max-w-[290px] !text-center !text-[13px] !leading-[1.45] !text-[#17171c]">
+            <AlertDialogDescription className="mt-1 !max-w-[290px] !text-center !text-[15px] !leading-5 !text-muted-foreground">
               They&apos;ll no longer be alerted with your live location when you
               trigger SMS.
             </AlertDialogDescription>
@@ -276,7 +379,7 @@ export function SmsContactsFlow({
                 event.preventDefault();
                 void removePending();
               }}
-              className="!h-12 !rounded-full !bg-[#ff3b30] !text-[15px] !font-semibold !text-white hover:!bg-[#ff3b30]/90 disabled:!opacity-60"
+              className="!h-12 !rounded-full !bg-[color:var(--app-destructive)] !text-[15px] !font-semibold !text-white hover:!bg-[color:var(--app-destructive)]/90 disabled:!opacity-60"
             >
               {removing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -287,7 +390,7 @@ export function SmsContactsFlow({
             <AlertDialogCancel
               variant="secondary"
               disabled={removing}
-              className="!mt-0 !h-12 !rounded-full !border-0 !bg-[#efeff4] !text-[15px] !font-semibold !text-[#17171c] hover:!bg-[#e5e5ea] disabled:!opacity-60"
+              className="!mt-0 !h-12 !rounded-full !border-0 !bg-[color:var(--app-neutral-fill-strong)] !text-[15px] !font-semibold !text-foreground hover:!bg-[color:var(--app-neutral-fill-strong)]/80 disabled:!opacity-60"
             >
               Cancel
             </AlertDialogCancel>

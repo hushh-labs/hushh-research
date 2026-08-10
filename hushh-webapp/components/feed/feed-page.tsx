@@ -228,11 +228,10 @@ export function FeedPage() {
   );
 }
 
-/** Tiny sticky day / section divider — deliberately understated so the list
- *  reads as one continuous descending stream, not a stack of cards. */
+/** Sticky day / section divider that follows the shared readable label scale. */
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <h2 className="sticky top-[var(--top-shell-live-height)] z-10 bg-background/85 px-4 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground/55 backdrop-blur-md">
+    <h2 className="sticky top-[var(--top-shell-live-height)] z-10 bg-background/85 px-[6px] pb-2 pt-7 font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73] backdrop-blur-md">
       {children}
     </h2>
   );
