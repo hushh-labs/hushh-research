@@ -1421,13 +1421,13 @@
       "route_pattern": "/one/connect",
       "page_file": "app/one/connect/page.tsx",
       "route_mode": "standard",
-      "orchestration_class": "context_only",
+      "orchestration_class": "interactive",
       "instruction_id": "route.connect",
       "context_policy": "minimal",
       "voice_playbook": {
         "playbook_id": "route.connect",
-        "purpose": "Help the person understand and use the connect screen through its generated controls.",
-        "screen": "app",
+        "purpose": "Find people, send connection requests, and manage who you are connected to.",
+        "screen": "connect",
         "entry_cue": "",
         "proactivity": "ambient",
         "primary_action_id": null,
@@ -1449,15 +1449,21 @@
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "app",
-      "voice_contract_file": null,
-      "action_ids": [],
-      "action_coverage": "none",
+      "canonical_screen": "connect",
+      "voice_contract_file": "app/one/connect/page.voice-action-contract.json",
+      "action_ids": [
+        "connect.open_nearby",
+        "connect.open_people",
+        "connect.search_people",
+        "location.add_connections",
+        "route.one_connect"
+      ],
+      "action_coverage": "inherited",
       "delegation_policy": {
         "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
-      "trust_boundary": "none",
+      "trust_boundary": "auth",
       "native_surface_id": "native-route-connect"
     },
     {

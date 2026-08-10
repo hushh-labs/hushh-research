@@ -4,6 +4,7 @@
   "source_contracts": [
     "hushh-webapp/app/getting-started/page.voice-action-contract.json",
     "hushh-webapp/app/login/page.voice-action-contract.json",
+    "hushh-webapp/app/one/connect/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
     "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
     "hushh-webapp/app/one/location/page.voice-action-contract.json",
@@ -80,6 +81,31 @@
           ]
         },
         "speaker_persona": "one"
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_connect",
+      "surface_title": "Connect",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/one/connect/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one",
+        "guard_ids": [
+          "auth_signed_in"
+        ]
       },
       "orchestration": {
         "instruction_id": null,
@@ -1899,6 +1925,431 @@
             "type": "action",
             "action_id": "onboarding.back_to_intro",
             "label": "Back to welcome",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.one_connect",
+      "surface_id": "one_connect",
+      "label": "Open Connect",
+      "aliases": [
+        "open connect",
+        "connect",
+        "my connections",
+        "find people",
+        "add people",
+        "add a connection",
+        "connect with someone"
+      ],
+      "search_keywords": [
+        "connect",
+        "connections",
+        "people",
+        "add",
+        "find",
+        "invite"
+      ],
+      "meaning": "Opens Connect, where you find people, send connection requests and manage who you are connected to.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/connect"
+        ],
+        "screens": [
+          "connect",
+          "one_location",
+          "one_agents",
+          "one_pkm"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/connect"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "connection count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/connect"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_connect",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_connect",
+            "label": "Open Connect",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/connect",
+              "screen": "connect"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "connect.open_people",
+      "surface_id": "one_connect",
+      "label": "Open Connect people",
+      "aliases": [
+        "people tab",
+        "connect people",
+        "my connections",
+        "who am i connected to"
+      ],
+      "search_keywords": [
+        "people",
+        "connections",
+        "directory"
+      ],
+      "meaning": "Shows the People tab, which lists your connections and lets you search everyone you could connect with.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/connect"
+        ],
+        "screens": [
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "connect.open_people"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active connect tab",
+        "connection count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connect.open_people",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "connect.open_people",
+            "label": "Open Connect people",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "connect.open_nearby",
+      "surface_id": "one_connect",
+      "label": "Open advisors around you",
+      "aliases": [
+        "around you",
+        "nearby",
+        "advisors near me",
+        "who is nearby",
+        "nearby advisors"
+      ],
+      "search_keywords": [
+        "nearby",
+        "around",
+        "advisors",
+        "near me"
+      ],
+      "meaning": "Shows the Around you tab, which finds advisors near your current location.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/connect"
+        ],
+        "screens": [
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Device location permission is granted."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "connect.open_nearby"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active connect tab"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connect.open_nearby",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "connect.open_nearby",
+            "label": "Open advisors around you",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "connect.search_people",
+      "surface_id": "one_connect",
+      "label": "Search for someone to connect with",
+      "aliases": [
+        "search people",
+        "find someone",
+        "look someone up",
+        "search for a person"
+      ],
+      "search_keywords": [
+        "search",
+        "find",
+        "people",
+        "name"
+      ],
+      "meaning": "Puts the cursor in the people search box so a name can be typed. It does not search on its own.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/connect"
+        ],
+        "screens": [
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "connect.search_people"
+      },
+      "control_ids": [
+        "one-connect-search"
+      ],
+      "state_exposure": [
+        "active connect tab"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connect.search_people",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "connect.search_people",
+            "label": "Search for someone to connect with",
             "failure_behavior": "stop"
           }
         ],
@@ -4963,7 +5414,7 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/connect"
+          "/one/connect"
         ],
         "screens": [
           "one_location",
@@ -4986,7 +5437,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/connect"
+        "target": "/one/connect"
       },
       "control_ids": [
         "one-location-add-connections"
@@ -5001,7 +5452,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /connect"
+          "current route becomes /one/connect"
         ],
         "backend_effects": []
       },
@@ -5026,7 +5477,7 @@
             "label": "Add people to share location with",
             "failure_behavior": "stop",
             "settlement_target": {
-              "route": "/connect",
+              "route": "/one/connect",
               "screen": "one_location"
             }
           }

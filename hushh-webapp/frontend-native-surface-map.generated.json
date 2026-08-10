@@ -2263,8 +2263,8 @@
         },
         "voice_playbook": {
           "playbook_id": "route.connect",
-          "purpose": "Help the person understand and use the connect screen through its generated controls.",
-          "screen": "app",
+          "purpose": "Find people, send connection requests, and manage who you are connected to.",
+          "screen": "connect",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -2305,8 +2305,13 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/connect/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "connect.open_nearby",
+        "connect.open_people",
+        "connect.search_people",
+        "route.one_connect"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -8116,5 +8121,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "ecdb08c15bf8a7f7d032b1f63b021c65c1cc7eabd2a825cc44d498da0b4ae344"
+  "content_sha256": "e7aeed17a8011bc454f0afd7c3d582dd52de0dcc33f44eda7caf852844b7e4e2"
 }
