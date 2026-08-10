@@ -483,13 +483,21 @@ function prioritizeAvailableActionIds(
     ranked.length > STRUCTURED_CONTEXT_ARRAY_CAP &&
     process.env.NODE_ENV !== "production"
   ) {
-    console.debug(
-      "[VOICE_CONTEXT] available_action_ids overflow: keeping",
-      STRUCTURED_CONTEXT_ARRAY_CAP,
-      "of",
-      ranked.length,
-      "for screen",
-      screen,
+    // Loud, and it names what was lost. This was a console.debug, and the
+    // truncation it describes is invisible in the product: a dropped id comes
+    // back from the relay as `action_unavailable`, which reads as "this
+    // feature is broken" rather than "this screen declared more than the
+    // context can carry". Location growing to 19 actions is what found it.
+    //
+    // Route-executing actions survive the cut in practice, because the relay
+    // admits navigation from any screen whether or not it was submitted here.
+    // So the ids that genuinely go missing are the local handlers, which is
+    // what naming them makes obvious.
+    const dropped = ranked.slice(STRUCTURED_CONTEXT_ARRAY_CAP);
+    console.warn(
+      `[VOICE_CONTEXT] ${screen || "unknown screen"} declared ${ranked.length} ` +
+        `action ids but only ${STRUCTURED_CONTEXT_ARRAY_CAP} fit. ` +
+        `Dropped: ${dropped.join(", ")}`,
     );
   }
   // Screen-ranked segment first (original cap), then the reserved global

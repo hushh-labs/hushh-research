@@ -27,13 +27,34 @@ describe("navigation journeys", () => {
 
   it("stays in lockstep with the relay's own predicate", () => {
     // Both halves read the same generated contract. If this set ever differs
-    // from the backend's, one side will offer a journey the other refuses.
+    // from the backend's, one side offers a journey the other refuses -- so
+    // this list must be changed together with the relay's
+    // `_navigation_journey_definition`, and the same set is asserted there.
+    //
+    // The setup entries appeared once the route resolver stopped requiring a
+    // `route.` name prefix. Nothing named `route.*` opens /one/setup/location;
+    // `setup.open_location` does, and it navigates exactly the same way. While
+    // the prefix was the test, every setup screen looked unreachable and every
+    // action on one looked like a dead end.
     const journeys = listKaiActions()
       .map((action) => action.action_id)
       .filter((actionId) => resolveNavigationJourney(actionId) !== null)
       .sort();
 
-    expect(journeys).toEqual(["analysis.start"]);
+    expect(journeys).toEqual([
+      "analysis.start",
+      "setup.finish_connected_systems",
+      "setup.finish_connections",
+      "setup.finish_email",
+      "setup.finish_finance",
+      "setup.finish_location",
+      "setup.finish_ria",
+      "setup.skip_connected_systems",
+      "setup.skip_email",
+      "setup.skip_finance",
+      "setup.skip_location",
+      "setup.skip_ria",
+    ]);
   });
 
   it("never turns a route action into a journey to itself", () => {

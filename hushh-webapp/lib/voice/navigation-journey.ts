@@ -29,15 +29,18 @@ const JOURNEY_SLOT_MAX_CHARS = 64;
  * never means editing this file. Sorted for a deterministic choice when a
  * route has more than one navigation action.
  */
-function navigationActionForRoute(route: string): string | null {
+export function navigationActionForRoute(route: string): string | null {
   const cleanRoute = route.trim();
   if (!cleanRoute) return null;
   const candidates = listKaiActions()
     .filter((action) => {
-      if (!action.action_id.startsWith("route.")) return false;
       const target = action.execution_target;
       // Narrow off the unwired arm before reading a wired-only field.
       if (target.status !== "wired") return false;
+      // Any action that navigates to this route can walk someone there,
+      // whatever it is named. Requiring the `route.` name prefix here made
+      // whole destinations look unreachable: /one/setup/finance is opened by
+      // `setup.open_finance`, and /one/connect only by `route.one_connect`.
       return (
         target.path === "route" &&
         String(target.target || "").trim() === cleanRoute

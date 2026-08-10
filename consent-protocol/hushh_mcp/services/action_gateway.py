@@ -94,8 +94,44 @@ def get_action_gateway_action(action_id: str | None) -> dict[str, Any] | None:
 
 
 def is_navigation_action(entry: dict[str, Any] | None) -> bool:
-    if not entry or not str(entry.get("action_id") or "").startswith("route."):
+    """True when running ``entry`` only moves the person to another screen.
+
+    Navigation is admissible from any screen: it is how "go to profile" stays
+    proposable from a tab that has never heard of the profile. Everything else
+    has to be offered by the screen it belongs to.
+
+    Membership is a UNION of two tests, and both are load-bearing:
+
+    * ``execution_target.path == "route"`` -- the action navigates, whatever it
+      is called. Forty-one contracts navigate under a surface-scoped name
+      (``location.open_join_circle``, ``setup.open_finance``, the RIA workspace
+      tabs). Judging those by name alone made them ordinary screen inventory,
+      so they competed for the capped ``available_action_ids`` slots and were
+      simply refused once a surface declared more actions than the cap. That is
+      what broke "join a circle" on Location.
+    * the ``route.`` name prefix -- because seven navigation contracts do NOT
+      have a route path. ``route.profile``, ``route.consents`` and
+      ``route.analysis_history`` run through ``kai_command`` and ``route.back``
+      through ``voice_tool``. Dropping the prefix test in favour of the path
+      would have un-navigated exactly the cross-screen actions the reserved
+      global-navigation segment exists to protect.
+
+    Authority is unchanged either way: this decides what may be PROPOSED, and
+    ``run_app_action`` still re-validates screens and guards before anything
+    is parked as a directive.
+    """
+    if not entry:
         return False
-    return (entry.get("execution_target") or {}).get("status") == "wired" and str(
-        (entry.get("risk") or {}).get("execution_policy") or "allow_direct"
-    ) == "allow_direct"
+    execution_target = entry.get("execution_target") or {}
+    if execution_target.get("status") != "wired":
+        return False
+    navigates = (
+        str(entry.get("action_id") or "").startswith("route.")
+        or execution_target.get("path") == "route"
+    )
+    if not navigates:
+        return False
+    return (
+        str((entry.get("risk") or {}).get("execution_policy") or "allow_direct")
+        == "allow_direct"
+    )
