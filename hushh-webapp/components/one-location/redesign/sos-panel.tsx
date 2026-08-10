@@ -326,7 +326,7 @@ export function SosPanel({
       data-ambient-chrome-ignore
       data-testid="sms-safety-screen"
     >
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(52px,env(safe-area-inset-top))] lg:max-w-[720px] lg:px-6 lg:pt-[max(48px,env(safe-area-inset-top))]">
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(52px,env(safe-area-inset-top))] lg:max-w-[520px] lg:px-6 lg:pt-[max(48px,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={onClose}
@@ -346,13 +346,12 @@ export function SosPanel({
           </p>
         </header>
 
-        {/* On wide viewports (lg+) the primary press ring and the
-            message/controls column sit side by side so the safety screen fills
-            the space instead of a single narrow strip. Below lg it stays the
-            original stacked column, untouched. The <style> block inside is
-            display:none and never participates in the flex row. */}
-        <div className="flex flex-1 flex-col justify-center gap-7 pt-6 lg:grid lg:grid-cols-[240px_minmax(0,320px)] lg:items-center lg:justify-center lg:gap-8 lg:pt-2">
-          <div className="flex items-center justify-center py-4 lg:py-0">
+        {/* The emergency action is one centered stack: title/subtitle, then the
+            hold button immediately beneath it, then the message and recovery
+            controls. Keeping this single column prevents the SMS action from
+            reading like a separate desktop panel. */}
+        <div className="flex flex-1 flex-col items-center gap-5 pt-7 lg:justify-start lg:pt-8">
+          <div className="flex items-center justify-center">
             <div className="relative flex h-[224px] w-[224px] items-center justify-center">
             <span className="absolute inset-0 rounded-full border border-white/10" />
             <span className="absolute inset-[24px] rounded-full border border-white/15" />
@@ -443,7 +442,7 @@ export function SosPanel({
         `}</style>
 
 
-        <div className="w-full lg:max-w-[320px]">
+        <div className="w-full max-w-[360px]">
           {/* While an SMS/SOS session is live, the primary action becomes
               stopping it. Cancelling here revokes the location grants created by
               the alert AND clears the incident, so "SENT · Live now" resets and
