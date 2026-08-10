@@ -1320,6 +1320,28 @@ class TestNamedShareChain:
             "location.share_selected", start
         )
 
+    def test_every_required_slot_one_must_fill_is_spelled_out(self):
+        """Name the slot key, never imply it.
+
+        "call it with the name you heard" left the model to guess the key. It
+        guessed wrong, the journey answered ``input_needed slot=person``, and
+        One asked "who do you want to share with?" at someone who had just
+        said the name -- twice, because nothing about the retry differed.
+        analysis.start has always spelled out {'symbol': <ticker>}; this asserts
+        the same for every action the instruction tells One to start by name.
+        """
+        for action_id in ("location.select_share_recipient", "analysis.start"):
+            entry = get_action_gateway_action(action_id)
+            assert action_id in ONE_IDENTITY_INSTRUCTION, action_id
+            required = [
+                str(spec.get("slot"))
+                for spec in (entry.get("goal") or {}).get("required_inputs") or []
+                if spec.get("required") and not spec.get("default_value")
+            ]
+            assert required, action_id
+            for slot in required:
+                assert f"'{slot}':" in ONE_IDENTITY_INSTRUCTION, f"{action_id} slot {slot}"
+
     def test_the_question_is_forbidden_before_the_pick_settles(self):
         instruction = ONE_IDENTITY_INSTRUCTION
 
