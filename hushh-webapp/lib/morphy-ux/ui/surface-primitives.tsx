@@ -97,7 +97,7 @@ export function StatusPill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+        "ui-text-status inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[13px] leading-[18px]",
         palette,
         className,
       )}
@@ -186,7 +186,7 @@ export function PrivacyStatusCard({
           <ShieldCheck className="h-6 w-6" />
         </span>
         <div className="min-w-0">
-          <p className="text-lg font-semibold leading-tight tracking-tight text-foreground">
+          <p className="ui-text-row-label-emphasized">
             {headline}
           </p>
           {lines.map((line) => (
@@ -215,7 +215,7 @@ export function TrustNoteCard({
     <div className={cn(TRUST_SURFACE, "flex gap-3 p-3.5")}>
       <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
       <div>
-        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="ui-text-row-label-emphasized">{title}</p>
         <p className={MUTED_TEXT}>{description}</p>
       </div>
     </div>
@@ -233,8 +233,8 @@ export function WarningCard({
     <div className={cn(WARNING_SURFACE, "flex gap-3 p-3.5")}>
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
       <div>
-        <p className="text-sm font-semibold">{title}</p>
-        <p className="text-[15px] font-normal leading-[20px] opacity-90">
+        <p className="ui-text-row-label-emphasized">{title}</p>
+        <p className="ui-text-row-description opacity-90">
           {description}
         </p>
       </div>
@@ -310,7 +310,7 @@ export function QuickPathRow({
         {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-foreground">
+        <span className="ui-text-row-label-emphasized block">
           {title}
         </span>
         <span className={cn(MUTED_TEXT, "block")}>{description}</span>

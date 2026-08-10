@@ -33,6 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
+import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import {
   mergeRecipientsByUserId,
   type CircleRecipientSelection,
@@ -123,9 +124,9 @@ function isFreshReviewedPoint(
 /** Section label that follows the shared readable settings scale. */
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mb-2 mt-7 px-[6px] font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]">
+    <AppSectionLabel as="p" className="mb-2 mt-7 px-[6px]">
       {children}
-    </p>
+    </AppSectionLabel>
   );
 }
 

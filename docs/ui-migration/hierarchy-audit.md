@@ -1,6 +1,6 @@
 # UAT Global Hierarchy And Spacing Audit
 
-Status: Shared role foundation applied; rendered route verification is still pending.
+Status: Shared role foundation strengthened; rendered route verification is still pending.
 
 ## Visual Context
 
@@ -33,6 +33,10 @@ Implemented shared semantic role primitives in `hushh-webapp/components/app-ui/t
 | Helper text | `HelperText`, `.ui-text-helper-text` |
 | Button label | `ButtonLabel`, `.ui-text-button-label` |
 | Tab label | `TabLabel`, `.ui-text-tab-label` |
+| Input value | `InputValue`, `.ui-text-input-value` |
+| Status text | `StatusText`, `.ui-text-status` |
+| Caption text | `CaptionText`, `.ui-text-caption` |
+| Legal text | `LegalText`, `.ui-text-legal` |
 
 ## Shared Components Updated
 
@@ -47,6 +51,12 @@ Implemented shared semantic role primitives in `hushh-webapp/components/app-ui/t
 | `Button` | Base button typography now uses the shared button-label role. |
 | `TopShellTabs` | Inactive tab labels use semantic secondary color instead of low opacity. |
 | `TopShellBreadcrumbTrail` | Breadcrumb secondary labels and separators use semantic colors instead of opacity fading. |
+| `AppPageShell` | `reading`, `narrow`, and `profile` shells cap at `720px`; wider desktop space now remains surrounding whitespace. |
+| Shared `Input`, `Label`, `TabsTrigger`, `SegmentedTabs`, `SegmentedPill` | Uses semantic input/form/tab roles instead of route-local tiny text utilities. |
+| Location surface primitives | Status pills, privacy cards, trust/warning cards, and quick-path rows now use shared row/status roles. |
+| One agent roster | Uses the shared major section title role, keeps natural lowercase casing, and removes 10px compact metrics. |
+| Location SMS/SOS panel | Desktop composition is capped/tightened and sub-11px emergency metadata was removed without changing the emergency background or behavior. |
+| Feed, Location check-in/activity, RIA onboarding, Kai holding drawer, stream progress, public section kit | Replaced duplicated section-label recipes with the shared role/class. |
 | Morphy surface typography constants | `SCREEN_TITLE`, `SECTION_HEADING`, `MUTED_TEXT`, and `EYEBROW` now point at shared role classes. |
 
 ## Global Token Work
@@ -62,12 +72,13 @@ Added shared Apple iOS-first typography variables to `hushh-webapp/app/globals.c
 - helper text: 13px / 400 / 18px
 - button label: 17px / 600 / 22px
 - tab label: 11px / 500 / 13px, reserved for compact tab surfaces
+- status text: 13px / 600 / 18px, reserved for compact status chips and counters
 
 The end-of-file semantic typography guardrail intentionally overrides older `h1`/`h2` and `data-slot` fallback rules so shared role classes win consistently.
 
 ## Source Audit Findings
 
-Current source scan still shows route-local tiny and uppercase text usage, especially in dense finance tables, metadata badges, developer docs, Gmail receipts, marketplace cards, and chart labels. These are not all defects: some are true metadata, data-table headings, legal/microcopy, or compact badges. They remain pending until each route is rendered and classified by role.
+Current source scan still shows route-local tiny and uppercase text usage, especially in dense finance tables, metadata badges, developer docs, Gmail receipts, marketplace cards, chart labels, legacy Location map overlays, and onboarding microcopy. These are not all defects: some are true metadata, data-table headings, legal/microcopy, codes, initials, or compact badges. They remain pending until each route is rendered and classified by role.
 
 Known high-risk role mismatches still requiring rendered review:
 
@@ -78,17 +89,22 @@ Known high-risk role mismatches still requiring rendered review:
 - Developer docs hub labels.
 - One Location map overlays and onboarding sheets.
 
+Source guardrail added:
+
+- `npm run verify:design-system` now also runs `hushh-webapp/scripts/design/verify-apple-hierarchy.mjs`.
+- The guard verifies semantic role exports, section-label token values, shared/local section-label routing, no duplicated section-label recipe in audited components, no sub-11px text in shared/system UI primitives, and natural casing for the One agent roster heading.
+
 ## Verification
 
 Completed:
 
 - TypeScript check: `npm run typecheck`
 - Design-system check: `npm run verify:design-system`
-- Cache contract tests: `npm run verify:cache`
-- Docs check: `npm run verify:docs`
 - Lint: `npm run lint`
+- Docs check: `npm run verify:docs`
+- Cache contract tests: `npm run verify:cache`
 
-Blocked:
+Attempted:
 
 - Signed-in route rendering: `npm run verify:routes` is blocked locally because `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE` are not present in the maintainer-only environment.
 

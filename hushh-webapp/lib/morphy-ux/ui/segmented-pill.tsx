@@ -52,35 +52,35 @@ const SIZE_STYLES: Record<
 > = {
   compact: {
     container: "min-h-[36px] p-0.5",
-    button: "px-2 py-1 text-xs",
+    button: "px-2 py-1 ui-text-tab-label",
     icon: "xs",
-    label: "text-[11px] leading-none",
+    label: "leading-none",
     gap: "gap-1",
     stackedContainer: "min-h-[52px] p-0.5",
     stackedButton: "px-1 py-1",
-    stackedLabel: "text-[9.5px] leading-[1.05]",
+    stackedLabel: "text-[11px] leading-[13px]",
     stackedGap: "gap-0.5",
   },
   shell: {
     container: "min-h-[42px] p-1",
-    button: "px-2.5 py-1.5 text-xs",
+    button: "px-2.5 py-1.5 ui-text-tab-label",
     icon: "sm",
-    label: "text-xs leading-none",
+    label: "leading-none",
     gap: "gap-1.5",
     stackedContainer: "min-h-[64px] p-2",
     stackedButton: "min-h-11 px-1 py-1",
-    stackedLabel: "text-[10px] leading-3",
+    stackedLabel: "text-[11px] leading-[13px]",
     stackedGap: "gap-[3px]",
   },
   default: {
     container: "min-h-[45px] p-1",
-    button: "px-3 py-2 text-sm",
+    button: "px-3 py-2 ui-text-form-label",
     icon: "sm",
-    label: "text-sm",
+    label: "",
     gap: "gap-1.5",
     stackedContainer: "min-h-[64px] p-2",
     stackedButton: "min-h-11 px-2 py-1",
-    stackedLabel: "text-[10px] leading-3",
+    stackedLabel: "text-[11px] leading-[13px]",
     stackedGap: "gap-[3px]",
   },
 };
@@ -207,7 +207,7 @@ export const SegmentedPill = React.forwardRef<
                     />
                   ) : null}
                   {typeof option.badge === "number" && option.badge > 0 ? (
-                    <span className="absolute -right-1 -top-1 inline-flex h-3.5 min-w-[0.875rem] items-center justify-center rounded-full border border-background bg-red-500 px-1 text-[9px] font-bold leading-none text-white">
+                    <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-background bg-red-500 px-1 text-[11px] font-bold leading-none text-white">
                       {option.badge > 9 ? "9+" : option.badge}
                     </span>
                   ) : null}

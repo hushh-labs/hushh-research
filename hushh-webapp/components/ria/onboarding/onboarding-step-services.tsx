@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { RiaAiActionPill } from "@/components/ria/ui/ria-primitives";
@@ -33,16 +34,15 @@ function SectionLabel({
   children: React.ReactNode;
   htmlFor?: string;
 }) {
-  const cls =
-    "px-[6px] font-[family-name:var(--font-app-body)] text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73]";
-  if (htmlFor) {
-    return (
-      <label htmlFor={htmlFor} className={cn("block", cls)}>
-        {children}
-      </label>
-    );
-  }
-  return <p className={cls}>{children}</p>;
+  return (
+    <AppSectionLabel
+      as={htmlFor ? "label" : "p"}
+      htmlFor={htmlFor}
+      className="block px-[6px]"
+    >
+      {children}
+    </AppSectionLabel>
+  );
 }
 
 function TextRow({

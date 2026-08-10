@@ -7,6 +7,7 @@ import { Grid2X2, List, Search } from "lucide-react";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { MajorSectionTitle } from "@/components/app-ui/typography";
 import {
   getOneSetupCapability,
   isOneCapabilityEnabled,
@@ -385,7 +386,7 @@ function AgentMetricDisplay({
       <span
         className={cn(
           "shrink-0 font-semibold tabular-nums tracking-normal",
-          compact ? "text-[12px]" : "text-[15px]",
+          compact ? "text-[13px]" : "text-[15px]",
           metricClassName(mode),
         )}
       >
@@ -394,7 +395,7 @@ function AgentMetricDisplay({
       <span
         className={cn(
           "min-w-0 truncate font-normal text-muted-foreground",
-          compact ? "text-[10px]" : "text-[13px]",
+          compact ? "text-[12px]" : "text-[13px]",
           isPositiveMetric && "text-emerald-700/80 dark:text-emerald-300/85",
         )}
       >
@@ -575,12 +576,13 @@ export function OneAgentRoster({
       className="mx-auto w-full max-w-[720px]"
     >
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2
+        <MajorSectionTitle
+          as="h2"
           id="one-agents-heading"
-          className="text-[28px] font-bold leading-[34px] tracking-[-0.01em] text-foreground"
+          className="text-[28px] leading-[34px]"
         >
           agents ({modes.length})
-        </h2>
+        </MajorSectionTitle>
         <AgentRosterViewToggle value={view} onChange={selectView} />
       </div>
       <label className="relative mb-4 block">
