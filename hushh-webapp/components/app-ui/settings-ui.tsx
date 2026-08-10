@@ -189,6 +189,7 @@ export function SettingsGroup({
     separatorInset ?? presentation.separatorInset ?? false;
   const shell = (
     <div
+      data-ui-role="grouped-card"
       data-slot="settings-group-shell"
       className={cn(
         // Inset settings groups use the compact card radius and flat grouped
@@ -348,6 +349,7 @@ export function SettingsRow({
         <span className="inline-flex shrink-0 self-center">{leading}</span>
       ) : icon ? (
         <span
+          data-ui-role="settings-icon"
           data-slot="settings-row-icon"
           data-icon-tone={resolvedIconTone}
           className={cn(

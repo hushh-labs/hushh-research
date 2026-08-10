@@ -46,7 +46,7 @@ import {
   TaskFlowHeader,
   TrustNoteCard,
 } from "@/components/one-location/redesign/primitives";
-import { MUTED_TEXT, SECTION_HEADING } from "@/components/one-location/redesign/tokens";
+import { MUTED_TEXT, SECTION_TITLE } from "@/components/one-location/redesign/tokens";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnection,
@@ -169,7 +169,7 @@ export function CirclesSection({
     <div className="space-y-3" data-testid="one-location-named-circles">
       <div className="flex items-center justify-between gap-3 px-1">
         <div>
-          <h2 className={SECTION_HEADING}>
+          <h2 className={SECTION_TITLE}>
             Your circles
           </h2>
           <p className={cn(MUTED_TEXT, "mt-1")}>

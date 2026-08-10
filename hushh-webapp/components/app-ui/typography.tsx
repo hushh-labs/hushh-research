@@ -33,7 +33,7 @@ export const TYPOGRAPHY_CLASSNAMES = {
 const TYPOGRAPHY_ROLE_BY_CLASSNAME: Record<string, string> = {
   [TYPOGRAPHY_CLASSNAMES.largeTitle]: "large-title",
   [TYPOGRAPHY_CLASSNAMES.pageTitle]: "page-title",
-  [TYPOGRAPHY_CLASSNAMES.agentTitle]: "large-title",
+  [TYPOGRAPHY_CLASSNAMES.agentTitle]: "agent-title",
   [TYPOGRAPHY_CLASSNAMES.pageSubtitle]: "subtitle",
   [TYPOGRAPHY_CLASSNAMES.navigationTitle]: "nav-title",
   [TYPOGRAPHY_CLASSNAMES.identityName]: "identity-title",

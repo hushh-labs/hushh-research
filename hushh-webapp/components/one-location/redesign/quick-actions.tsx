@@ -82,6 +82,7 @@ export function QuickActionCard({
   return (
     <button
       type="button"
+      data-ui-role="grouped-card"
       onClick={interactive ? onClick : undefined}
       disabled={!interactive}
       aria-disabled={!interactive}

@@ -29,7 +29,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import {
-  ChevronRight,
   Link as LinkIcon,
   Lock,
   Map,
@@ -48,6 +47,11 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import {
+  MajorSectionTitle,
+  RowDescription,
+  RowLabel,
+} from "@/components/app-ui/typography";
 import type {
   OneLocationAccessRequest,
   OneLocationCircleInvite,
@@ -73,7 +77,7 @@ import {
   TrustNoteCard,
   WarningCard,
 } from "./primitives";
-import { MUTED_TEXT, SECTION_HEADING, SUBCARD_SURFACE } from "./tokens";
+import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import {
   RequestCard,
   SharedWithMeCard,
@@ -1665,7 +1669,7 @@ function PeopleHub({
             <Button
               onClick={onAddConnections}
               data-voice-control-id="one-location-add-connections"
-              className="h-11 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+              className="w-full"
             >
               <UsersRound className="mr-2 h-4 w-4" />
               Add Connections
@@ -1674,7 +1678,7 @@ function PeopleHub({
               variant="outline"
               onClick={onInvite}
               data-voice-control-id="one-location-action-invite"
-              className="h-10 rounded-full text-sm font-semibold"
+              className="w-full"
             >
               <UserPlus className="mr-2 h-4 w-4" />
               Invite trusted person
@@ -1684,7 +1688,7 @@ function PeopleHub({
                 variant="outline"
                 onClick={vm.onSyncContacts}
                 isLoading={vm.busy === "contactSync"}
-                className="h-10 rounded-full text-sm"
+                className="w-full"
               >
                 Sync contacts
               </Button>
@@ -1692,7 +1696,7 @@ function PeopleHub({
                 variant="outline"
                 onClick={vm.onShareToContacts}
                 isLoading={vm.busy === "contactInvite"}
-                className="h-10 rounded-full text-sm"
+                className="w-full"
               >
                 Share to contacts
               </Button>
@@ -1735,7 +1739,7 @@ function PeopleHub({
         <Button
           onClick={onAddConnections}
           data-voice-control-id="one-location-add-connections"
-          className="h-10 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+          className="w-full"
         >
           <UsersRound className="mr-2 h-4 w-4" />
           Add Connections
@@ -1744,7 +1748,7 @@ function PeopleHub({
           variant="outline"
           onClick={onInvite}
           data-voice-control-id="one-location-action-invite"
-          className="h-10 rounded-full border-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent)]"
+          className="w-full border-[color:var(--app-accent)] text-[color:var(--app-accent)]"
         >
           <UserPlus className="mr-2 h-4 w-4" />
           Invite trusted person
@@ -1754,7 +1758,7 @@ function PeopleHub({
             variant="outline"
             onClick={vm.onSyncContacts}
             isLoading={vm.busy === "contactSync"}
-            className="h-10 rounded-full text-sm"
+            className="w-full"
           >
             Sync contacts
           </Button>
@@ -1762,7 +1766,7 @@ function PeopleHub({
             variant="outline"
             onClick={vm.onShareToContacts}
             isLoading={vm.busy === "contactInvite"}
-            className="h-10 rounded-full text-sm"
+            className="w-full"
           >
             Share to contacts
           </Button>
@@ -1819,28 +1823,19 @@ function PeopleHub({
       )}
 
       {/* Ask someone to share — request another person's live location. */}
-      <button
-        type="button"
-        onClick={onAsk}
-        data-voice-control-id="one-location-action-ask"
-        className={cn(
-          "flex min-h-[60px] w-full items-center gap-3.5 p-3.5 text-left transition-colors hover:bg-foreground/[0.025]",
-          SUBCARD_SURFACE,
-        )}
-      >
-        <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12">
-          <Navigation className="h-[17px] w-[17px] text-[color:var(--app-accent)]" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[17px] font-normal leading-[22px] text-[color:var(--app-accent)]">
-            Ask someone to share
-          </span>
-          <span className="block text-[15px] leading-5 text-muted-foreground">
-            Send a request — they approve first.
-          </span>
-        </span>
-        <ChevronRight className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)]" />
-      </button>
+      <SettingsGroup separatorInset>
+        <SettingsRow
+          icon={Navigation}
+          iconTone="accent"
+          title="Ask someone to share"
+          description="Send a request — they approve first."
+          density="compact"
+          chevron
+          onClick={onAsk}
+          voiceControlId="one-location-action-ask"
+          voiceActionId="location.open_ask"
+        />
+      </SettingsGroup>
 
       {vm.requestedByMe.length ? (
         <SettingsGroup title="Requests sent" separatorInset>
@@ -1901,17 +1896,18 @@ function ActiveLinkRow({
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
+        <RowLabel as="p" className="truncate">
           {title}
-        </p>
-        <p className="mt-0.5 truncate text-[15px] leading-5 text-muted-foreground">
+        </RowLabel>
+        <RowDescription as="p" className="mt-0.5 truncate">
           {subtitle}
-        </p>
+        </RowDescription>
       </div>
       <Button
         variant="outline"
         onClick={onCopy}
-        className="h-9 shrink-0 rounded-full border-[color:var(--app-accent)] px-4 text-[14px] font-semibold text-[color:var(--app-accent)]"
+        size="sm"
+        className="shrink-0 border-[color:var(--app-accent)] px-4 text-[color:var(--app-accent)]"
       >
         Copy
       </Button>
@@ -1932,9 +1928,9 @@ function LinksHub({
 
   return (
     <div className="space-y-4">
-      <p className={cn(SECTION_HEADING, "px-[6px]")}>
+      <MajorSectionTitle as="h2" className="px-[6px]">
         Active links
-      </p>
+      </MajorSectionTitle>
 
       {hasLinks ? (
         <div className={cn("overflow-hidden px-3.5", SUBCARD_SURFACE)}>
@@ -1969,7 +1965,7 @@ function LinksHub({
       <Button
         onClick={onCreateTempLink}
         data-voice-control-id="one-location-action-temp-link"
-        className="h-12 w-full rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+        className="w-full"
       >
         <Plus className="mr-2 h-4 w-4" />
         Create a new link

@@ -1853,6 +1853,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     <div
       ref={agentBarShellRef}
       data-agent-bar-shell
+      data-ui-role="talk-to-one"
       data-agent-bar-layout={layout}
       data-ambient-chrome-ignore
       className={cn(
