@@ -112,9 +112,14 @@ export function PlacesNearby({
           ? { latitude: target.latitude, longitude: target.longitude }
           : { postalCode: target.postalCode };
 
+      /** Categories the provider refused, to tell a dead sweep from an empty one. */
+      const failed = new Set<string>();
+      let categoriesAnswered = 0;
+
       const accept = (category: string, items: PlaceCard[]) => {
         // A slower earlier sweep must never write into a newer one.
         if (token !== requestRef.current) return;
+        categoriesAnswered += 1;
         setByCategory((current) => ({ ...current, [category]: items }));
       };
 
@@ -140,10 +145,16 @@ export function PlacesNearby({
                 setAttribution(meta.attribution ?? null);
               },
               onCategory: accept,
-              // A single category failing is not a failed directory. The others
-              // are still a better answer than an error page, so this is
-              // swallowed on purpose rather than surfaced as the page's error.
-              onCategoryError: () => undefined,
+              // A single category failing is not a failed directory -- the
+              // others are still a better answer than an error page. But every
+              // category failing is not an empty neighbourhood, and saying
+              // "Nothing nearby" there tells the reader something false about
+              // the world instead of something true about us. Counted here,
+              // judged once the sweep ends.
+              onCategoryError: (category) => {
+                if (token !== requestRef.current) return;
+                failed.add(category);
+              },
             },
           });
         } catch (streamFailure) {
@@ -159,9 +170,17 @@ export function PlacesNearby({
           const fallback = await PlacesDirectoryService.searchNearby(shared);
           if (token !== requestRef.current) return;
           setAttribution(fallback.meta?.attribution ?? null);
+          for (const slug of fallback.failed ?? []) failed.add(slug);
           for (const group of fallback.groups) {
             accept(group.category, group.items);
           }
+        }
+
+        // Nothing answered and something refused: the provider is down, not the
+        // neighbourhood. Saying "Nothing nearby" here would be a claim about
+        // the world that we have no evidence for.
+        if (token === requestRef.current && categoriesAnswered === 0 && failed.size > 0) {
+          setError("Places are unavailable right now.");
         }
       } catch (caught) {
         if (controller.signal.aborted) return;
