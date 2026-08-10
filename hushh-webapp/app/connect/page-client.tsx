@@ -10,7 +10,7 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import { AdvisorsNearby } from "@/components/connect/advisors-nearby";
+import { NearbyDirectories } from "@/components/connect/nearby-directories";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
@@ -526,7 +526,7 @@ export default function ConnectPageClient() {
       spokenSubject: tab === "nearby" ? "Connect, Around you tab" : "Connect, People tab",
       sections: [
         { id: "people", title: "People", purpose: "Search everyone you could connect with, and manage existing connections." },
-        { id: "nearby", title: "Around you", purpose: "Find advisors near your current location." },
+        { id: "nearby", title: "Around you", purpose: "Find verified advisors and insurance agents, and businesses, near your current location." },
       ],
       actions: [
         { id: "connect.open_people", actionId: "connect.open_people", label: "Open Connect people", purpose: "Show connections and the people directory." },
@@ -551,7 +551,9 @@ export default function ConnectPageClient() {
       activeSection: tab === "nearby" ? "Around you" : "People",
       activeTab: tab,
       visibleModules:
-        tab === "nearby" ? ["Advisors near you"] : ["Your connections", "People directory"],
+        tab === "nearby"
+          ? ["Advisors near you", "Insurance agents near you", "Places near you"]
+          : ["Your connections", "People directory"],
       focusedWidget: tab === "nearby" ? "Around you tab" : "People tab",
       availableActions: ["Open Connect people", "Open advisors around you", "Search for someone to connect with"],
       activeControlId: null,
@@ -619,7 +621,7 @@ export default function ConnectPageClient() {
             />
 
             {tab === "nearby" ? (
-              <AdvisorsNearby getIdToken={getIdToken} />
+              <NearbyDirectories getIdToken={getIdToken} />
             ) : (
               <div className="space-y-4 sm:space-y-5">
             <SettingsGroup
