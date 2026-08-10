@@ -154,10 +154,10 @@ export function TopShellTabs({
             >
               <span
                 className={cn(
-                  "relative truncate text-[15px] tracking-[-0.01em] transition-[color,opacity] duration-150",
+                  "ui-text-form-label relative truncate transition-colors duration-150",
                   isActive
-                    ? "font-semibold text-current opacity-100"
-                    : "font-normal text-current opacity-55 hover:opacity-80",
+                    ? "font-semibold text-current"
+                    : "font-normal text-[color:var(--app-secondary-label)] hover:text-current",
                 )}
               >
                 {tab.label}

@@ -1,6 +1,6 @@
 # UAT Responsive Test Matrix
 
-Status: Not started.
+Status: Not complete.
 
 This matrix defines the required verification set for the Apple iOS-first migration. It does not mark any route complete by itself.
 
@@ -46,9 +46,15 @@ For every in-scope route:
 
 | Browser/platform | Status | Notes |
 | --- | --- | --- |
-| Local Chromium via Playwright | Not started | Fast regression baseline. |
+| Local Chromium via Playwright | Pending | Fast regression baseline. |
 | iOS Safari or equivalent device proof | Not started | Required before claiming UAT-complete. |
 | Desktop browser | Not started | Required for whitespace/constrained-column proof. |
+
+## Current Pass Status
+
+The shared typography/component pass is typechecked, but viewport rendering has not yet been completed for the full route matrix. No route should be moved to `Complete` in `route-matrix.md` until rendered proof exists.
+
+Local signed-in route verification attempted with `npm run verify:routes` and stopped before rendering because the required maintainer-only reviewer identity values were not available in this environment.
 
 ## Acceptance Rule
 

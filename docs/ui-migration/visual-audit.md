@@ -6,8 +6,9 @@ Scope: `hushh-webapp/app`, `hushh-webapp/components`, and `hushh-webapp/lib`.
 
 Source contract:
 
-- `C:\Users\jhumm\Downloads\APPLE-IOS-FIRST-PRODUCT-DESIGN-SYSTEM-v2.md`
-- `C:\Users\jhumm\Downloads\CODEX-UAT-ALL-SCREENS-MIGRATION-PROMPT (1).md`
+- `C:\Users\jhumm\Downloads\APPLE-IOS-FIRST-PRODUCT-DESIGN-SYSTEM-v2 (1).md`
+- `C:\Users\jhumm\Downloads\CODEX-UAT-ALL-SCREENS-MIGRATION-PROMPT (3).md`
+- `C:\Users\jhumm\Downloads\CODEX-GLOBAL-HIERARCHY-SPACING-AUDIT-PROMPT.md`
 
 Migration boundary:
 
@@ -147,6 +148,22 @@ Implement or normalize centrally before broad page polishing:
 - `AgentIconTile` and `CategoryIconTile`.
 - Button variants, form fields, segmented controls, search fields, status badges.
 - Empty, loading, error, sheet, dialog, toast, and bottom accessory primitives.
+
+## Shared Hierarchy Pass Outcome
+
+The current pass installed shared role primitives and wired the highest-leverage components first:
+
+- `hushh-webapp/components/app-ui/typography.tsx`
+- `hushh-webapp/components/app-ui/page-sections.tsx`
+- `hushh-webapp/components/app-ui/settings-ui.tsx`
+- `hushh-webapp/components/ui/field.tsx`
+- `hushh-webapp/components/ui/button.tsx`
+- `hushh-webapp/components/app-ui/top-shell-tabs.tsx`
+- `hushh-webapp/components/app-ui/top-app-bar.tsx`
+- `hushh-webapp/lib/morphy-ux/tokens/surfaces.ts`
+- `hushh-webapp/app/globals.css`
+
+`npm run typecheck`, `npm run verify:design-system`, `npm run verify:cache`, `npm run verify:docs`, and `npm run lint` passed after these shared changes. `npm run verify:routes` is blocked locally by missing maintainer-only reviewer identity values, so rendered route proof remains pending.
 
 ## Phase 1 Outcome
 

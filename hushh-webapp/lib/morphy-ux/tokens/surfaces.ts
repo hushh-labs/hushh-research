@@ -25,16 +25,13 @@ export const SUBCARD_SURFACE =
   "rounded-[var(--app-card-radius-compact,16px)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)]";
 
 /** Section heading (e.g. "Trusted Circle", "Device readiness"). */
-export const SECTION_HEADING =
-  "font-[family-name:var(--font-app-body)] text-[15px] font-[500] leading-[20px] tracking-[-0.01em] text-[#6E6E73]";
+export const SECTION_HEADING = "ui-text-section-label";
 
 /** Primary screen title (header). */
-export const SCREEN_TITLE =
-  "font-[family-name:var(--font-app-body)] text-[28px] font-bold leading-[34px] tracking-[-0.022em] text-foreground";
+export const SCREEN_TITLE = "ui-text-page-title";
 
 /** Muted secondary copy. */
-export const MUTED_TEXT =
-  "font-[family-name:var(--font-app-body)] text-[15px] font-normal leading-[20px] tracking-[-0.006em] text-[#8E8E93]";
+export const MUTED_TEXT = "ui-text-row-description";
 
 /**
  * Accent utility classes. These follow the active accent preference
@@ -57,8 +54,7 @@ export const PILL_NEUTRAL =
   "border-border/70 bg-muted/60 text-muted-foreground";
 
 /** Shared readable section label. */
-export const EYEBROW =
-  "font-[family-name:var(--font-app-body)] text-[15px] font-[500] leading-[20px] tracking-[-0.01em] text-[#6E6E73]";
+export const EYEBROW = "ui-text-section-label";
 
 /** Warning / caution banner surface. */
 export const WARNING_SURFACE =
