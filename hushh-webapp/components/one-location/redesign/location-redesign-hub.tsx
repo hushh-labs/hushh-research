@@ -79,12 +79,12 @@ import {
   TemporaryLinkCard,
   TrustedPersonCard,
 } from "./cards";
+// LocationTypeSelector stays exported from ./selectors, unused for now, so
+// PR #4767 can wire it back to a real precision mode without rebuilding it.
 import {
   DurationSelector,
-  LocationTypeSelector,
   PersonSearchInput,
   ReasonChips,
-  type LocationTypeValue,
   type ReasonValue,
 } from "./selectors";
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
@@ -634,10 +634,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   }, [pathname, router, searchParams]);
 
   const [shareStep, setShareStep] = useState<"person" | "details">("person");
-  const [shareLocationType, setShareLocationType] =
-    useState<LocationTypeValue>("precise");
-  const [temporaryLinkLocationType, setTemporaryLinkLocationType] =
-    useState<LocationTypeValue>("precise");
   const [reason, setReason] = useState<ReasonValue | null>("Safety check-in");
   const activeFlowRef = useRef<FlowKind>("none");
   const resetShareComposer = vm.resetShareComposer;
@@ -645,7 +641,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
 
   const resetShareLocalState = useCallback(() => {
     setShareStep("person");
-    setShareLocationType("precise");
   }, []);
   const resetShareDraft = useCallback(() => {
     resetShareLocalState();
@@ -825,7 +820,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       activeFlowRef.current = "none";
       pendingFlowRef.current = "none";
       setShareStep("person");
-      setShareLocationType("precise");
       if (nearbyPrivateCheckIn) {
         router.replace(nearbyCheckInReturnHref, { scroll: false });
         return;
@@ -863,8 +857,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             vm={vm}
             step={shareStep}
             setStep={setShareStep}
-            locationType={shareLocationType}
-            setLocationType={setShareLocationType}
             onClose={closeShareFlow}
           />
         ) : flow === "ask" ? (
@@ -984,12 +976,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             onManageSmsContacts={() => openFlow("sms-contacts")}
           />
         ) : (
-          <TemporaryLinkFlow
-            vm={vm}
-            locationType={temporaryLinkLocationType}
-            setLocationType={setTemporaryLinkLocationType}
-            onClose={closeFlow}
-          />
+          <TemporaryLinkFlow vm={vm} onClose={closeFlow} />
         )}
       </div>
     );
@@ -1996,19 +1983,33 @@ function SosFlow({
 /* SHARE FLOW                                                           */
 /* =================================================================== */
 
+/**
+ * Sharing has exactly one precision: the point the device gives us.
+ *
+ * This flow used to offer "Approximate area" beside "Precise live location",
+ * echo the choice back on the review step, and then discard it —
+ * `onConfirmShare` takes no arguments, the state never left this component,
+ * and `handleShare` published the raw captured point either way. There is no
+ * coarsening anywhere in the client, so "Approximate area" shared exact
+ * coordinates. A privacy control that does nothing is worse than no control:
+ * it is relied upon.
+ *
+ * The control is gone rather than repaired because the real implementation
+ * already exists in PR #4767 — grid-snapped areas with a radius, an update
+ * interval, and a recipient-visible `location_mode` on the grant so the other
+ * side can render an area instead of a confident, wrong pin. Coarsening here
+ * without that column would only move the deception to the recipient. Restore
+ * this when that lands.
+ */
 function ShareFlow({
   vm,
   step,
   setStep,
-  locationType,
-  setLocationType,
   onClose,
 }: {
   vm: LocationHubViewModel;
   step: "person" | "details";
   setStep: (s: "person" | "details") => void;
-  locationType: LocationTypeValue;
-  setLocationType: (v: LocationTypeValue) => void;
   onClose: () => void;
 }) {
   const filtered = vm.visibleShareRecipients;
@@ -2067,14 +2068,9 @@ function ShareFlow({
                 )
               }
             />
-            <ReviewRow
-              label="Location type"
-              value={
-                locationType === "precise"
-                  ? "Precise live location"
-                  : "Approximate area"
-              }
-            />
+            {/* No "Location type" row. It read back whichever option was
+                picked, which made the review step the most convincing part of
+                a promise nothing kept — see the note above ShareFlow. */}
             <ReviewRow
               label="Duration"
               value={durationLabel(vm.shareDurationHours)}
@@ -2111,10 +2107,6 @@ function ShareFlow({
         />
         <SectionCard>
           <div className="space-y-5">
-            <LocationTypeSelector
-              value={locationType}
-              onChange={setLocationType}
-            />
             <DurationSelector
               value={vm.shareDurationHours}
               onChange={vm.setShareDurationHours}
@@ -2563,15 +2555,12 @@ function InviteFlow({
 /* TEMPORARY LINK FLOW                                                  */
 /* =================================================================== */
 
+/** Same precision story as ShareFlow — see the note there. */
 function TemporaryLinkFlow({
   vm,
-  locationType,
-  setLocationType,
   onClose,
 }: {
   vm: LocationHubViewModel;
-  locationType: LocationTypeValue;
-  setLocationType: (v: LocationTypeValue) => void;
   onClose: () => void;
 }) {
   const created =
@@ -2634,13 +2623,8 @@ function TemporaryLinkFlow({
           ]}
         />
       </SectionCard>
-      <SectionCard title="Location type">
-        <LocationTypeSelector
-          value={locationType}
-          onChange={setLocationType}
-          label=""
-        />
-      </SectionCard>
+      {/* The temporary link shares the same precise point as everything else,
+          so it offers no precision card either. */}
       <TrustNoteCard
         title="Expires automatically"
         description="Public location links are safer when they expire quickly."
