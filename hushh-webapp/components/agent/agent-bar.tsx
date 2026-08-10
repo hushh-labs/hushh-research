@@ -591,9 +591,30 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
               typeof event.directive.payload?.contextRevision === "string"
                 ? event.directive.payload.contextRevision
                 : null;
-            // A model-selected action is always a proposal. Nothing executes
-            // until the person confirms from this trusted UI surface.
-            const needsConfirmation = true;
+            // Whether an action needs confirming is the CONTRACT's call, not a
+            // blanket one.
+            //
+            // This was hardcoded `true`, so all 144 actions raised a card --
+            // including the 111 the contract marks `allow_direct`. Opening
+            // Active shares asked "allow access to run this" before it would
+            // move a tab. That made `execution_policy` decorative at runtime
+            // and taught people to approve without reading, which is how a
+            // confirmation quietly stops being consent.
+            //
+            // Now `allow_direct` runs and the ten actions declaring
+            // `confirm_required` still stop and ask -- out loud, or on the
+            // card. Two deliberate ways back to true:
+            //
+            //   * an action the generated gateway does not know. Unknown is
+            //     not a licence; it asks.
+            //   * `trusted_activation_required`. Those open a provider window
+            //     and the BROWSER demands a fresh gesture, so a card is the
+            //     only thing that can produce one.
+            const directiveAction = actionId ? getKaiActionById(actionId) : null;
+            const needsConfirmation =
+              !directiveAction ||
+              directiveAction.execution_policy !== "allow_direct" ||
+              directiveAction.activation_policy === "trusted_activation_required";
             const goalId =
               typeof event.directive.payload?.goalId === "string"
                 ? event.directive.payload.goalId
