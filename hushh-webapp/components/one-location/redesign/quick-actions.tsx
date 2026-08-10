@@ -5,43 +5,46 @@
  *
  * PRESENTATION ONLY. A single reusable `QuickActionCard` renders every tile in
  * the "Quick actions" block so Check-In and Alert stay equal, responsive
- * controls. Each card is a 44px tinted icon circle + bold title + a footer row
- * (subtitle + circular chevron). Cards are prop-driven and delegate taps to the
- * hub.
+ * controls. Each card uses the shared typography roles and iOS grouped-card
+ * geometry. Cards are prop-driven and delegate taps to the hub.
  */
 
 import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 
+import {
+  CardTitle,
+  MajorSectionTitle,
+  RowDescription,
+} from "@/components/app-ui/typography";
 import { cn } from "@/lib/utils";
-import { MUTED_TEXT, SECTION_HEADING } from "./tokens";
 
 export type QuickActionTone = "green" | "red" | "blue" | "violet" | "slate";
 
 /**
- * Per-tone icon-circle palette, using the design's exact soft tints + saturated
- * foregrounds (with sensible dark-mode fallbacks).
+ * Per-tone semantic icon palette. The tile owns service/action color; labels
+ * stay neutral through the shared typography roles.
  */
 const TONE_STYLES: Record<QuickActionTone, { tile: string; icon: string }> = {
   green: {
-    tile: "bg-[#e5f4ea] dark:bg-emerald-400/15",
-    icon: "text-[#2ea44f] dark:text-emerald-300",
+    tile: "bg-[color:var(--app-success)]",
+    icon: "text-white",
   },
   red: {
-    tile: "bg-[#fdeeec] dark:bg-red-400/15",
-    icon: "text-[#e0342c] dark:text-red-300",
+    tile: "bg-[color:var(--app-destructive)]",
+    icon: "text-white",
   },
   blue: {
-    tile: "bg-[#e7f0fd] dark:bg-sky-400/15",
-    icon: "text-[#2f7cf6] dark:text-sky-300",
+    tile: "bg-[color:var(--app-accent)]",
+    icon: "text-white",
   },
   violet: {
-    tile: "bg-[#efeafc] dark:bg-violet-400/15",
-    icon: "text-[#7b5cf0] dark:text-violet-300",
+    tile: "bg-[color:var(--app-purple)]",
+    icon: "text-white",
   },
   slate: {
-    tile: "bg-[#eeeef2] dark:bg-white/10",
-    icon: "text-[#6b6b76] dark:text-slate-300",
+    tile: "bg-[color:var(--app-icon-tile-background)]",
+    icon: "text-white",
   },
 };
 
@@ -84,7 +87,7 @@ export function QuickActionCard({
       aria-disabled={!interactive}
       data-voice-control-id={controlId}
       className={cn(
-        "group flex h-full w-full min-w-0 flex-col gap-3 rounded-2xl bg-white p-3 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-all duration-200 dark:bg-[color:var(--app-card-surface-default-solid)]",
+        "group flex min-h-[120px] w-full min-w-0 flex-col gap-3 rounded-[22px] bg-white p-4 text-left shadow-none transition-all duration-200 dark:bg-[color:var(--app-card-surface-default-solid)]",
         interactive
           ? "cursor-pointer hover:-translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           : "cursor-not-allowed",
@@ -93,7 +96,7 @@ export function QuickActionCard({
       <div className="flex w-full items-start justify-between gap-2">
         <span
           className={cn(
-            "flex h-11 w-11 items-center justify-center rounded-full",
+            "flex h-[34px] w-[34px] items-center justify-center rounded-[9px] [&_svg]:h-[19px] [&_svg]:w-[19px]",
             palette.tile,
             palette.icon,
           )}
@@ -106,15 +109,12 @@ export function QuickActionCard({
       </div>
 
       <div className="mt-auto w-full min-w-0">
-        <p className="truncate text-[15px] font-bold leading-tight text-[#1c1c2e] dark:text-foreground">
+        <CardTitle as="p" className="truncate">
           {title}
-        </p>
-        {/* Subtitle spans the full card width (no chevron sharing the row) and
-            uses a compact size so the one-line description stays fully visible
-            on every device without truncating to an ellipsis. */}
-        <span className={cn(MUTED_TEXT, "mt-1.5 block truncate text-[13px] leading-[18px]")}>
+        </CardTitle>
+        <RowDescription as="span" className="mt-1 block truncate">
           {subtitle}
-        </span>
+        </RowDescription>
       </div>
     </button>
   );
@@ -125,19 +125,21 @@ export function QuickActionsSection({
   title = "Quick actions",
   children,
   columns = 3,
+  className,
 }: {
   title?: string;
   children: ReactNode;
   columns?: 2 | 3;
+  className?: string;
 }) {
   return (
-    <section className="space-y-3">
+    <section className={cn("space-y-4", className)}>
       <div className="flex items-center px-1">
-        <h2 className={SECTION_HEADING}>{title}</h2>
+        <MajorSectionTitle>{title}</MajorSectionTitle>
       </div>
       <div
         className={cn(
-          "grid auto-rows-fr gap-2.5",
+          "grid auto-rows-fr gap-3",
           columns === 2 ? "grid-cols-2" : "grid-cols-3",
         )}
       >

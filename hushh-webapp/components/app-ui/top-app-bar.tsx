@@ -383,7 +383,7 @@ function TopShellBreadcrumbTrail({
     <nav
       aria-label="Breadcrumb"
       data-testid="top-app-bar-breadcrumb-trail"
-      className="top-shell-ambient-ink pointer-events-auto flex min-w-0 items-center gap-1 text-[15px] font-medium text-current"
+      className="ui-text-navigation-title top-shell-ambient-ink pointer-events-auto flex min-w-0 items-center gap-1 text-current"
     >
       {items.map((item, index) => {
         const isLast = index === items.length - 1;
