@@ -174,8 +174,9 @@ export function TopShellTabs({
               }}
             >
               <span
+                data-ui-role="agent-tab-label"
                 className={cn(
-                  "ui-text-tab-label relative truncate transition-colors duration-150",
+                  "ui-text-agent-tab-label relative truncate transition-colors duration-150",
                   isActive
                     ? "text-[color:var(--app-accent)]"
                     : "text-[color:var(--app-secondary-label)] hover:text-current",
@@ -201,7 +202,7 @@ export function TopShellTabs({
               width: tabWidth,
             }}
           >
-            <span className="h-[2.5px] w-[max(28px,calc(100%-2rem))] rounded-full bg-[var(--app-accent)]" />
+            <span className="h-[3px] w-[max(28px,calc(100%-2rem))] rounded-full bg-[var(--app-accent)]" />
           </div>
         ) : null}
       </div>

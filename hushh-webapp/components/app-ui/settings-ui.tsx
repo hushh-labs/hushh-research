@@ -325,7 +325,7 @@ export function SettingsRow({
       : "group-data-[inset-separators=true]/settings-list:after:left-0";
   const rowShellClassName = cn(
     "group/settings-row relative isolate overflow-hidden bg-transparent",
-    resolvedDensity === "compact" && "[--settings-row-py:13px]",
+    resolvedDensity === "compact" && "[--settings-row-py:10px]",
     // iOS-style separator — active only inside SettingsGroup with
     // separatorInset and hidden on the final row. Its start is derived from
     // whether this row actually has a leading visual.

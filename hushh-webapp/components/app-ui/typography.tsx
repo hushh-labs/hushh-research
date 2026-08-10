@@ -25,6 +25,7 @@ export const TYPOGRAPHY_CLASSNAMES = {
   statusText: "ui-text-status",
   buttonLabel: "ui-text-button-label",
   tabLabel: "ui-text-tab-label",
+  agentTabLabel: "ui-text-agent-tab-label",
   caption: "ui-text-caption",
   legal: "ui-text-legal",
 } as const;
@@ -32,7 +33,7 @@ export const TYPOGRAPHY_CLASSNAMES = {
 const TYPOGRAPHY_ROLE_BY_CLASSNAME: Record<string, string> = {
   [TYPOGRAPHY_CLASSNAMES.largeTitle]: "large-title",
   [TYPOGRAPHY_CLASSNAMES.pageTitle]: "page-title",
-  [TYPOGRAPHY_CLASSNAMES.agentTitle]: "agent-title",
+  [TYPOGRAPHY_CLASSNAMES.agentTitle]: "large-title",
   [TYPOGRAPHY_CLASSNAMES.pageSubtitle]: "subtitle",
   [TYPOGRAPHY_CLASSNAMES.navigationTitle]: "nav-title",
   [TYPOGRAPHY_CLASSNAMES.identityName]: "identity-title",
@@ -50,6 +51,7 @@ const TYPOGRAPHY_ROLE_BY_CLASSNAME: Record<string, string> = {
   [TYPOGRAPHY_CLASSNAMES.statusText]: "body-strong",
   [TYPOGRAPHY_CLASSNAMES.buttonLabel]: "button-label",
   [TYPOGRAPHY_CLASSNAMES.tabLabel]: "tab-label",
+  [TYPOGRAPHY_CLASSNAMES.agentTabLabel]: "agent-tab-label",
   [TYPOGRAPHY_CLASSNAMES.caption]: "caption",
   [TYPOGRAPHY_CLASSNAMES.legal]: "legal-text",
 };
@@ -257,6 +259,15 @@ export function TabLabel(props: RoleTextProps) {
   return (
     <SemanticText
       roleClassName={TYPOGRAPHY_CLASSNAMES.tabLabel}
+      {...props}
+    />
+  );
+}
+
+export function AgentTabLabel(props: RoleTextProps) {
+  return (
+    <SemanticText
+      roleClassName={TYPOGRAPHY_CLASSNAMES.agentTabLabel}
       {...props}
     />
   );

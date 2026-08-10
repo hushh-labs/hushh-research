@@ -44,6 +44,7 @@ for (const exportName of [
   "StatusText",
   "ButtonLabel",
   "TabLabel",
+  "AgentTabLabel",
   "CaptionText",
   "LegalText",
 ]) {
@@ -83,6 +84,12 @@ for (const [token, value] of [
   ["--type-helper-text-tracking", "0"],
   ["--type-legal-text-size", "11px"],
   ["--type-legal-text-line", "15px"],
+  ["--type-tab-label-size", "11px"],
+  ["--type-tab-label-line", "13px"],
+  ["--type-tab-label-weight", "500"],
+  ["--type-agent-tab-label-size", "17px"],
+  ["--type-agent-tab-label-line", "22px"],
+  ["--type-agent-tab-label-weight", "500"],
 ]) {
   if (!globals.includes(`${token}: ${value};`)) {
     failures.push(`app/globals.css: ${token} must stay ${value}`);
@@ -200,6 +207,7 @@ for (const [key, uiRole] of [
   ["helperText", "helper-text"],
   ["buttonLabel", "button-label"],
   ["tabLabel", "tab-label"],
+  ["agentTabLabel", "agent-tab-label"],
   ["legal", "legal-text"],
 ]) {
   if (!typographySource.includes(`[TYPOGRAPHY_CLASSNAMES.${key}]: "${uiRole}"`)) {
