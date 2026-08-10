@@ -19,6 +19,7 @@ import type {
   OneLocationRecipient,
 } from "@/lib/one-location/types";
 import { CircleGrowActions } from "@/components/one-location/redesign/circles/circle-grow-actions";
+import { MUTED_TEXT, SECTION_HEADING } from "@/components/one-location/redesign/tokens";
 
 
 const AVATAR_TONES = [
@@ -209,7 +210,7 @@ export function SmsContactsFlow({
 
         {circles.length ? (
           <>
-            <p className="mb-2 mt-6 px-1 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+            <p className={cn(SECTION_HEADING, "mb-2 mt-6 px-[6px]")}>
               Add a Circle
             </p>
             <ContactGroup>
@@ -251,7 +252,7 @@ export function SmsContactsFlow({
                 );
               })}
             </ContactGroup>
-            <p className="mt-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
+            <p className={cn(MUTED_TEXT, "mt-2 px-1")}>
               This adds a snapshot of current ready members. Anyone who joins
               later is never added to SMS automatically.
             </p>
@@ -260,7 +261,7 @@ export function SmsContactsFlow({
                 contacts. Membership never auto-adds anyone to SMS. */}
             {circles.map((circle) => (
               <div key={`grow-${circle.id}`} className="mt-3 px-1">
-                <p className="mb-1.5 text-[13px] font-semibold leading-[18px] text-muted-foreground">
+                <p className={cn(SECTION_HEADING, "mb-1.5")}>
                   Grow {circle.name}
                 </p>
                 <CircleGrowActions
@@ -283,7 +284,7 @@ export function SmsContactsFlow({
         ) : null}
 
 
-        <p className="mb-2 mt-6 px-1 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+        <p className={cn(SECTION_HEADING, "mb-2 mt-6 px-[6px]")}>
           Alerted on SMS
         </p>
         {selected.length ? (
@@ -309,7 +310,7 @@ export function SmsContactsFlow({
           </div>
         )}
 
-        <p className="mb-2 mt-6 px-1 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+        <p className={cn(SECTION_HEADING, "mb-2 mt-6 px-[6px]")}>
           Add from your circle
         </p>
         {available.length ? (
@@ -335,7 +336,7 @@ export function SmsContactsFlow({
           </div>
         )}
 
-        <p className="mt-4 px-1 text-[13px] leading-[18px] text-muted-foreground">
+        <p className={cn(MUTED_TEXT, "mt-4 px-1")}>
           Only people in your circle can be SMS contacts. They&apos;re never
           notified unless you send the SMS.
         </p>

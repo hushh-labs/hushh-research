@@ -580,22 +580,22 @@ export function SosPanel({
                       <span className="block text-[15px] font-semibold">
                         Copy emergency number
                       </span>
-                      <span className="block truncate text-[10px] text-white/75">
+                      <span className="block truncate text-[12px] text-white/75">
                         {emergency.countryName} · {emergency.number}
                       </span>
                     </span>
                   </button>
-                  <span className="mt-1 block text-[11px] leading-tight text-white/75">
+                  <span className="mt-1 block text-[13px] leading-[18px] text-white/75">
                     Windows browsers cannot open emergency dialers directly. Call {emergency.number}
                     from your phone now.
                   </span>
                   {windowsCopyStatus === "copied" ? (
-                    <span className="mt-1 block text-[11px] leading-tight text-[color:var(--app-success)]">
+                    <span className="mt-1 block text-[13px] leading-[18px] text-[color:var(--app-success)]">
                       Number copied to clipboard.
                     </span>
                   ) : null}
                   {windowsCopyStatus === "error" ? (
-                    <span className="mt-1 block text-[11px] leading-tight text-[#ff9a75]">
+                    <span className="mt-1 block text-[13px] leading-[18px] text-[#ff9a75]">
                       Could not copy. Please open your phone dialer manually.
                     </span>
                   ) : null}

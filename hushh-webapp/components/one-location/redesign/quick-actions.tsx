@@ -14,7 +14,7 @@ import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { SECTION_HEADING } from "./tokens";
+import { MUTED_TEXT, SECTION_HEADING } from "./tokens";
 
 export type QuickActionTone = "green" | "red" | "blue" | "violet" | "slate";
 
@@ -104,7 +104,7 @@ export function QuickActionCard({
         {/* Subtitle spans the full card width (no chevron sharing the row) and
             uses a compact size so the one-line description stays fully visible
             on every device without truncating to an ellipsis. */}
-        <span className="mt-1.5 block truncate text-[11px] leading-tight text-black/50 dark:text-muted-foreground">
+        <span className={cn(MUTED_TEXT, "mt-1.5 block truncate text-[13px] leading-[18px]")}>
           {subtitle}
         </span>
       </div>

@@ -30,10 +30,11 @@ export const SECTION_HEADING =
 
 /** Primary screen title (header). */
 export const SCREEN_TITLE =
-  "text-2xl font-semibold leading-tight tracking-tight text-foreground";
+  "font-[family-name:var(--font-app-body)] text-[28px] font-bold leading-[34px] tracking-[-0.022em] text-foreground";
 
 /** Muted secondary copy. */
-export const MUTED_TEXT = "text-sm leading-snug text-muted-foreground";
+export const MUTED_TEXT =
+  "font-[family-name:var(--font-app-body)] text-[15px] font-normal leading-[20px] tracking-[-0.006em] text-[#8E8E93]";
 
 /**
  * Accent utility classes. These follow the active accent preference
