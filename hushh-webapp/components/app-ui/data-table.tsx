@@ -91,7 +91,10 @@ interface DataTableProps<TData, TValue> {
   filterKey?: string;
   filterOptions?: { label: string; value: string }[];
   filterPlaceholder?: string;
-  onRowClick?: (row: TData) => void;
+  onRowClick?: (
+    row: TData,
+    event: React.MouseEvent<HTMLTableRowElement> | React.KeyboardEvent<HTMLTableRowElement>,
+  ) => void;
   initialPageSize?: number;
   pageSizeOptions?: number[];
   rowClassName?: (row: TData) => string;
@@ -372,19 +375,27 @@ export function DataTable<TData, TValue>({
                       ? (e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            onRowClick(row.original);
+                            onRowClick(row.original, e);
                           }
                         }
                       : undefined
                   }
                   className={cn(
                     onRowClick
-                      ? "cursor-pointer transition-[background-color,transform] duration-200 ease-out hover:-translate-y-px hover:bg-foreground/[0.045] active:translate-y-0 active:bg-foreground/[0.065]"
+                      ? "cursor-pointer transition-[background-color] duration-200 ease-out hover:bg-foreground/[0.045] active:bg-foreground/[0.065]"
                       : "transition-[background-color] duration-200 ease-out hover:bg-foreground/[0.032]",
                     rowClassName?.(row.original),
                   )}
                   onClick={
-                    onRowClick ? () => onRowClick(row.original) : undefined
+                    onRowClick
+                      ? (event) => {
+                          const target = event.target as HTMLElement | null;
+                          if (target?.closest("button, a, input, select, textarea, [role='menuitem']")) {
+                            return;
+                          }
+                          onRowClick(row.original, event);
+                        }
+                      : undefined
                   }
                 >
                   {row.getVisibleCells().map((cell) => (
