@@ -336,20 +336,27 @@ ONE_IDENTITY_INSTRUCTION: str = (
     # question and then stop talking.
     # Sharing a location with a NAMED person. The one question exists to catch
     # a mis-heard name, not to ask permission -- so it has to name the person
-    # the app actually matched, which One only knows after the select step has
-    # run. Two tool calls, but the person is asked exactly once.
+    # the app MATCHED, and One does not know that name until the select step
+    # has actually run in the browser. Navigating there is a separate beat,
+    # which is why this reads as three tool calls: the person is still asked
+    # exactly once, at the end, standing on the screen that shows the answer.
     "To share location with someone the person NAMES ('share my location with "
-    "Sarah for an hour'), do it in two steps and ask exactly one question. "
-    "First call start_app_goal with location.select_share_recipient and the "
-    "name you heard -- start_app_goal, not run_app_action, because that "
-    "action is an authored journey: it opens Location for you when the person "
-    "is somewhere else, which is most of the time they ask for this. "
-    "Its result tells you who the app MATCHED. Then ask one "
-    "short question naming that person and the duration -- 'Share your "
-    "location with Sarah Chen for one hour?' -- using the matched name, not "
-    "the name you heard, because the whole point is to let them catch a wrong "
-    "match. Wait for their answer. On yes, call run_app_action with "
-    "location.share_selected and the duration. If the result says several "
+    "Sarah for an hour'), navigate first, then ask. Call start_app_goal with "
+    "location.select_share_recipient and the name you heard -- start_app_goal, "
+    "not run_app_action, because that action is an authored journey: it opens "
+    "Location for you when the person is somewhere else, which is most of the "
+    "time they ask for this. It answers 'navigation_started', which means the "
+    "screen is opening and NOTHING has been matched yet. Say nothing about a "
+    "recipient at this point and ask no question: you have only the name you "
+    "heard, and repeating it back proves nothing. Wait for the goal runner's "
+    "note that the destination has settled, then call continue_app_goal -- "
+    "that is what actually runs the pick. Its settlement report is the first "
+    "and only place the MATCHED name appears. Only now ask one short question "
+    "naming that person and the duration -- 'Share your location with Sarah "
+    "Chen for one hour?' -- using the matched name from that report, never the "
+    "name you heard, because letting them catch a wrong match is the entire "
+    "point of asking. Wait for their answer. On yes, call run_app_action with "
+    "location.share_selected and the duration. If the report says several "
     "people matched, ask which one and select again; never pick for them. If "
     "it says nobody matched, say so and stop.\n\n"
     "When an action needs confirmation, ASK FOR IT OUT LOUD as one short "

@@ -1295,3 +1295,35 @@ class TestNavigationActionMembership:
             entry = get_action_gateway_action(action_id)
             assert entry is not None, f"{action_id} missing from the gateway"
             assert not is_navigation_action(entry), f"{action_id} must not be navigation"
+
+
+class TestNamedShareChain:
+    """"Share my location with Sarah" is navigate-first, ask-second.
+
+    The single question exists to catch a MIS-HEARD name, so it is worth
+    nothing unless it says the name the app matched. One does not have that
+    name when the journey starts: ``start_app_goal`` issues the route step and
+    answers ``navigation_started``, and the pick only runs later, under
+    ``continue_app_goal``. An instruction that promised the match up front left
+    One with nothing to ask from but the word it heard -- so it asked "which
+    Sarah did you mean?", from a screen showing no Sarahs at all.
+    """
+
+    def test_the_start_of_the_chain_is_not_treated_as_a_match(self):
+        instruction = ONE_IDENTITY_INSTRUCTION
+
+        assert "navigate first, then ask" in instruction
+        assert "NOTHING has been matched yet" in instruction
+        # The two beats, in order, both named.
+        start = instruction.index("location.select_share_recipient")
+        assert instruction.index("continue_app_goal", start) < instruction.index(
+            "location.share_selected", start
+        )
+
+    def test_the_question_is_forbidden_before_the_pick_settles(self):
+        instruction = ONE_IDENTITY_INSTRUCTION
+
+        assert "ask no question" in instruction
+        assert "never the" in instruction and "name you heard" in instruction
+        # The matched name has exactly one source, and it is not a tool return.
+        assert "settlement report is the first and only place" in instruction
