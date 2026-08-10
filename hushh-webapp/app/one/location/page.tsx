@@ -393,6 +393,7 @@ const LOCATION_VOICE_ACTIONS = [
   { id: "location.refresh", actionId: "location.refresh", label: "Refresh location", purpose: "Reload location sharing state." },
   { id: "location.pause_updates", actionId: "location.pause_updates", label: "Pause my location", purpose: "Stop sending location updates from this device." },
   { id: "location.resume_updates", actionId: "location.resume_updates", label: "Resume my location", purpose: "Turn location updates back on for this device." },
+  { id: "location.share_selected", actionId: "location.share_selected", label: "Share with the people I picked", purpose: "Start the share with whoever is already selected, for a duration you say." },
 ];
 
 const LOCATION_VOICE_CONTROLS = [
@@ -415,6 +416,7 @@ const LOCATION_VOICE_CONTROLS = [
   // switch is not already in. It is rendered in the header and again in
   // Settings, so both places answer to the same id.
   { id: "one-location-updates-toggle", label: "Location updates", purpose: "Pause or resume location updates from this device.", actionId: "location.pause_updates", role: "switch" },
+  { id: "one-location-confirm-share", label: "Start sharing", purpose: "Send the share to the selected people.", actionId: "location.share_selected", role: "button" },
 ];
 
 type BusyState =
@@ -3398,15 +3400,38 @@ export function OneLocationAgentPageContent({
     setRequestMessage("");
   }, []);
 
-  const handleShare = useCallback(async () => {
-    if (
-      !vaultOwnerToken ||
-      !shareReadySelectedRecipients.length ||
-      setupNeededSelectedRecipients.length ||
-      shareMessage.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH ||
-      locationPermissionBlocksSharing(permission)
-    )
-      return;
+  // `durationOverride` exists for the voice path. Setting `shareDurationHours`
+  // and then calling this would read the pre-render value, so the duration
+  // travels as an argument rather than through state it cannot see yet. Taps
+  // pass nothing and keep using whatever the composer shows.
+  const handleShare = useCallback(
+    async (durationOverride?: string): Promise<LocalOnboardingActionResult> => {
+      const effectiveDurationHours = durationOverride ?? shareDurationHours;
+    if (!vaultOwnerToken) {
+      return { status: "blocked", summary: "Unlock One before sharing your location." };
+    }
+    if (!shareReadySelectedRecipients.length) {
+      return {
+        status: "blocked",
+        summary:
+          "Nobody is selected yet. Pick who you want to share with, then say share again.",
+      };
+    }
+    if (setupNeededSelectedRecipients.length) {
+      return {
+        status: "blocked",
+        summary: "Someone you picked still needs to finish their Location setup.",
+      };
+    }
+    if (shareMessage.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH) {
+      return { status: "blocked", summary: "The note on this share is too long." };
+    }
+    if (locationPermissionBlocksSharing(permission)) {
+      return {
+        status: "blocked",
+        summary: "Sharing needs device Location permission.",
+      };
+    }
     setBusy("share");
     let successCount = 0;
     let recipientFailureCount = 0;
@@ -3417,7 +3442,10 @@ export function OneLocationAgentPageContent({
         autoOpenSettings: true,
       });
       if (!readiness.ready || !readiness.point) {
-        return;
+        return {
+          status: "blocked",
+          summary: "Sharing needs device Location permission.",
+        };
       }
       const point = readiness.point;
       for (const recipient of shareReadySelectedRecipients) {
@@ -3426,7 +3454,7 @@ export function OneLocationAgentPageContent({
             vaultOwnerToken,
             recipientUserId: recipient.userId,
             recipientKeyId: recipient.keyId,
-            durationHours: Number(shareDurationHours),
+            durationHours: Number(effectiveDurationHours),
             reason: shareMessage.trim() || undefined,
             shareKind: "share",
             sourceCircleId:
@@ -3451,25 +3479,29 @@ export function OneLocationAgentPageContent({
         selected_count: shareReadySelectedRecipients.length,
         success_count: successCount,
         failure_count: recipientFailureCount,
-        duration_bucket: oneLocationDurationBucket(shareDurationHours),
+        duration_bucket: oneLocationDurationBucket(effectiveDurationHours),
         review_required: shareReviewOpen,
       });
+      const durationLabel =
+        DURATION_OPTIONS.find(
+          (option) => option.value === String(effectiveDurationHours),
+        )?.label ?? `${effectiveDurationHours} hours`;
+      let summary: string;
       if (recipientFailureCount) {
-        toast.warning(
-          `Location shared with ${peopleCountLabel(successCount)}. ${recipientFailureCount} ${
-            recipientFailureCount === 1 ? "person was" : "people were"
-          } no longer ready.`,
-        );
+        summary = `Location shared with ${peopleCountLabel(successCount)} for ${durationLabel}. ${recipientFailureCount} ${
+          recipientFailureCount === 1 ? "person was" : "people were"
+        } no longer ready.`;
+        toast.warning(summary);
       } else {
-        toast.success(
-          `Location shared with ${peopleCountLabel(successCount)}.`,
-        );
+        summary = `Location shared with ${peopleCountLabel(successCount)} for ${durationLabel}.`;
+        toast.success(summary);
       }
       resetShareComposer();
       // Signal the redesign hub to close the 3-step share flow and return to
       // the main One Location screen now that sharing finished.
       setShareCompletedTick((value) => value + 1);
       await refresh();
+      return { status: "succeeded", summary };
     } catch (error) {
       const failureCount =
         recipientFailureCount ||
@@ -3481,29 +3513,32 @@ export function OneLocationAgentPageContent({
         selected_count: shareReadySelectedRecipients.length,
         success_count: successCount,
         failure_count: failureCount,
-        duration_bucket: oneLocationDurationBucket(shareDurationHours),
+        duration_bucket: oneLocationDurationBucket(effectiveDurationHours),
         review_required: shareReviewOpen,
       });
-      toast.error(
-        error instanceof Error ? error.message : "Could not share location.",
-      );
+      const message =
+        error instanceof Error ? error.message : "Could not share location.";
+      toast.error(message);
+      return { status: "failed", summary: message };
     } finally {
       setBusy(null);
     }
-  }, [
-    ensureForegroundLocationReady,
-    namedCircleShareContext,
-    permission,
-    publishEnvelopeWithRetry,
-    refresh,
-    resetShareComposer,
-    setupNeededSelectedRecipients.length,
-    shareDurationHours,
-    shareMessage,
-    shareReviewOpen,
-    shareReadySelectedRecipients,
-    vaultOwnerToken,
-  ]);
+    },
+    [
+      ensureForegroundLocationReady,
+      namedCircleShareContext,
+      permission,
+      publishEnvelopeWithRetry,
+      refresh,
+      resetShareComposer,
+      setupNeededSelectedRecipients.length,
+      shareDurationHours,
+      shareMessage,
+      shareReviewOpen,
+      shareReadySelectedRecipients,
+      vaultOwnerToken,
+    ],
+  );
 
   const resolveSosLocation = useCallback(() => {
     const inFlight = sosLocationResolutionRef.current;
@@ -6814,6 +6849,27 @@ export function OneLocationAgentPageContent({
     "location.resume_updates",
     () => handleShowMyLiveLocation(),
   );
+
+  // Sharing a live location is the most consequential thing this surface can
+  // do, so voice is given exactly one half of it: the duration, and the word
+  // go. WHO it goes to is never a slot. The recipients come from what the
+  // person has selected in the composer with their own hands, and if that is
+  // empty this refuses and says so rather than choosing anyone.
+  //
+  // That division is what makes a spoken share safe without a name resolver:
+  // the worst a misheard sentence can do is send to the people already on
+  // screen for the wrong number of hours, which the person is looking at.
+  useLocalOnboardingActionHandler("location.share_selected", (slots) => {
+    const requested = String(slots?.duration_hours ?? "").trim();
+    // Only the durations the composer itself offers. An unrecognised value is
+    // ignored in favour of what is on screen rather than coerced into some
+    // nearest number the person never asked for.
+    const duration = DURATION_OPTIONS.some((option) => option.value === requested)
+      ? requested
+      : undefined;
+    if (duration) setShareDurationHours(duration);
+    return handleShare(duration);
+  });
 
   const handleAutoShareChange = useCallback(
     (enabled: boolean) => {

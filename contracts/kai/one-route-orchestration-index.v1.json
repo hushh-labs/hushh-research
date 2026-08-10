@@ -2778,6 +2778,7 @@
         "location.pause_updates",
         "location.refresh",
         "location.resume_updates",
+        "location.share_selected",
         "route.one_location"
       ],
       "action_coverage": "inherited",

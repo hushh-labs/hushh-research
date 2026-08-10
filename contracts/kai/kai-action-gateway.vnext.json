@@ -5819,6 +5819,131 @@
       }
     },
     {
+      "action_id": "location.share_selected",
+      "surface_id": "one_location",
+      "label": "Share with the people I picked",
+      "aliases": [
+        "share with them",
+        "share with the people i picked",
+        "send it",
+        "share for an hour",
+        "share my location with these people",
+        "confirm the share"
+      ],
+      "search_keywords": [
+        "share",
+        "send",
+        "confirm",
+        "duration",
+        "selected"
+      ],
+      "meaning": "Shares your live location with the people already selected in the share composer, for the length of time you say. It never chooses who: if nobody is selected it stops and asks you to pick someone first.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.share_selected"
+      },
+      "control_ids": [
+        "one-location-confirm-share"
+      ],
+      "state_exposure": [
+        "selected recipient count",
+        "share duration"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.share_selected",
+        "required_inputs": [
+          {
+            "name": "duration_hours",
+            "prompt": "For how long? You can say 15 minutes, 30 minutes, 1 hour, 4 hours or 24 hours.",
+            "required": false,
+            "slot": "duration_hours",
+            "resolver": "location_share_duration",
+            "options": [
+              "0.25",
+              "0.5",
+              "1",
+              "4",
+              "24"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "duration_hours": "location_share_duration"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.share_selected",
+            "label": "Share with the people I picked",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "location.resume_updates",
       "surface_id": "one_location",
       "label": "Resume my location",
