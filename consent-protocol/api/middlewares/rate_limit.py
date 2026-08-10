@@ -127,6 +127,12 @@ class RateLimits:
     # at this rate has no reason to be held to a different rate on the other.
     ONE_INSURANCE_AGENTS_DIRECTORY_READ = "20/minute"  # noqa: S105
 
+    # Places directory (Google Places proxy) on the same Connect tab. One open
+    # of a category is one provider call, and a reader flicking along the chip
+    # rail spends one per chip, so this sits above the two registry directories
+    # rather than beside them. It is still far below what scraping would need.
+    ONE_PLACES_DIRECTORY_READ = "40/minute"  # noqa: S105
+
     # Preference Subscription Fabric (PCHP RFC-002).
     # FABRIC_READ is the third-party-facing, monetizable subscriber read path;
     # it must be firmly bounded per principal so no brand can drain an owner's

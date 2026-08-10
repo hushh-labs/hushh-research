@@ -896,12 +896,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             recipientLabel={vm.recipientLabel}
             recipientSubtitle={vm.recipientSubtitle}
             isRecipientShareReady={vm.isRecipientShareReady}
-            onShareCircleCode={vm.onShareNamedCircleCodeById}
-            onLoadCircleEligibleConnections={
-              vm.onLoadNamedCircleEligibleConnections
-            }
-            onInviteCircleConnections={vm.onInviteNamedCircleConnections}
-            onCancelCircleMemberInvite={vm.onCancelNamedCircleMemberInvite}
           />
 
         ) : flow === "create-circle" ? (
@@ -1028,6 +1022,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               onOpenActiveShares={() => openFlow("active-shares")}
               onOpenSharedWithMe={() => openFlow("shared-with-me")}
               onOpenNeedsReview={() => openFlow("needs-review")}
+              onRequestLocation={() => openFlow("ask")}
               onOpenSettings={() => openFlow("settings")}
             />
           </LocationHubPanel>
@@ -1078,6 +1073,7 @@ function NowHub({
   onOpenActiveShares,
   onOpenSharedWithMe,
   onOpenNeedsReview,
+  onRequestLocation,
   onOpenSettings,
 }: {
   vm: LocationHubViewModel;
@@ -1089,6 +1085,7 @@ function NowHub({
   onOpenActiveShares: () => void;
   onOpenSharedWithMe: () => void;
   onOpenNeedsReview: () => void;
+  onRequestLocation: () => void;
   onOpenSettings: () => void;
 }) {
   return (
@@ -1155,6 +1152,21 @@ function NowHub({
           onClick={onOpenNeedsReview}
           voiceControlId="one-location-action-needs-review"
           voiceActionId="location.open_needs_review"
+        />
+        {/* Asking someone to share was reachable only from the People tab, so
+            the Now tab listed every way to give a location out and none to ask
+            for one. Same flow and same voice control id as that entry -- this
+            is an additional way in, not a second implementation. */}
+        <SettingsRow
+          icon={Send}
+          iconTone="accent"
+          title="Request Location"
+          density="compact"
+          chevron
+          onClick={onRequestLocation}
+          testId="one-location-request-row"
+          voiceControlId="one-location-action-ask"
+          voiceActionId="location.open_ask"
         />
         <SettingsRow
           icon={Lock}

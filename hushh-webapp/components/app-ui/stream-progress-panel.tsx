@@ -16,6 +16,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
+import { HelperText } from "@/components/app-ui/typography";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { cn } from "@/lib/utils";
 
@@ -230,7 +231,7 @@ export function AppStreamPanel({
               )
             ) : null}
             {statusMessage ? (
-              <p className="text-xs text-muted-foreground">{statusMessage}</p>
+              <HelperText>{statusMessage}</HelperText>
             ) : null}
             {progressItems.length > 0 ? (
               <AppStreamSection

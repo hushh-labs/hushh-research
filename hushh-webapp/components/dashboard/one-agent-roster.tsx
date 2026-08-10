@@ -7,7 +7,7 @@ import { Grid2X2, List, Search } from "lucide-react";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { MajorSectionTitle } from "@/components/app-ui/typography";
+import { PageTitle } from "@/components/app-ui/typography";
 import {
   getOneSetupCapability,
   isOneCapabilityEnabled,
@@ -379,23 +379,37 @@ function AgentMetricDisplay({
     <span
       data-testid={isTopWinner ? "one-finance-top-winner-kpi" : undefined}
       className={cn(
-        "inline-flex min-w-0 items-baseline gap-1 whitespace-nowrap leading-tight",
-        compact ? "justify-center" : "justify-end",
+        "inline-flex min-w-0 items-baseline gap-1 leading-tight",
+        // Grid tiles are a 3-column layout on narrow iOS viewports, where a
+        // multi-word metric like "0 requests to review" cannot fit on one line.
+        // Allow it to wrap and center within the cell instead of overflowing
+        // (the old whitespace-nowrap + truncate clipped it past the left edge).
+        // List mode keeps the single-line, right-aligned, truncating treatment.
+        compact
+          ? "max-w-full flex-wrap justify-center"
+          : "justify-end whitespace-nowrap",
       )}
     >
       <span
+        data-ui-role="body-strong"
         className={cn(
-          "shrink-0 font-semibold tabular-nums tracking-normal",
-          compact ? "text-[13px]" : "text-[15px]",
+          "ui-text-status shrink-0 tabular-nums",
           metricClassName(mode),
         )}
       >
         {mode.primaryMetric.value}
       </span>
       <span
+        data-ui-role="trailing-value"
         className={cn(
-          "min-w-0 truncate font-normal text-muted-foreground",
-          compact ? "text-[12px]" : "text-[13px]",
+          // Grid (compact) wraps and centers so multi-word metrics like
+          // "0 requests to review" never clip on narrow iOS. List keeps the
+          // single-line truncating treatment; typography comes from the shared
+          // trailing-value role.
+          "ui-text-trailing-value",
+          compact
+            ? "min-w-0 whitespace-normal text-center [overflow-wrap:anywhere]"
+            : "min-w-0 truncate",
           isPositiveMetric && "text-emerald-700/80 dark:text-emerald-300/85",
         )}
       >
@@ -437,7 +451,7 @@ function AgentGridItem({
         className="relative z-10"
       />
       <span className="relative z-10 min-w-0">
-        <span className="block truncate text-[15px] font-normal leading-[20px] tracking-normal text-foreground">
+        <span className="ui-text-row-label block truncate" data-ui-role="body">
           {mode.title}
         </span>
         <AgentMetricDisplay mode={mode} compact />
@@ -576,13 +590,12 @@ export function OneAgentRoster({
       className="mx-auto w-full max-w-[720px]"
     >
       <div className="mb-4 flex items-center justify-between gap-3">
-        <MajorSectionTitle
+        <PageTitle
           as="h2"
           id="one-agents-heading"
-          className="text-[28px] leading-[34px]"
         >
-          agents ({modes.length})
-        </MajorSectionTitle>
+          Agents ({modes.length})
+        </PageTitle>
         <AgentRosterViewToggle value={view} onChange={selectView} />
       </div>
       <label className="relative mb-4 block">
@@ -594,10 +607,11 @@ export function OneAgentRoster({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="search agents"
-          aria-label="search agents"
+          placeholder="Search agents"
+          aria-label="Search agents"
+          data-ui-role="input-text"
           data-testid="one-agents-search"
-          className="h-11 w-full rounded-[16px] border-0 bg-[color:var(--app-card-surface-compact)] py-2 pl-11 pr-4 text-[17px] font-normal leading-[22px] tracking-normal text-foreground outline-none ring-1 ring-border/55 placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
+          className="ui-text-input-value h-11 w-full rounded-[16px] border-0 bg-[color:var(--app-card-surface-compact)] py-2 pl-11 pr-4 outline-none ring-1 ring-border/55 placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
         />
       </label>
       <div

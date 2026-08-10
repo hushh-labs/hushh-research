@@ -18,7 +18,12 @@ import {
   CARD_SURFACE,
   SUBCARD_SURFACE,
 } from "@/components/one-location/redesign/tokens";
-import { SectionLabel } from "@/components/app-ui/typography";
+import {
+  CaptionText,
+  HelperText,
+  RowDescription,
+  SectionLabel,
+} from "@/components/app-ui/typography";
 
 const ACTIVITY_RANGE_OPTIONS: {
   value: OneLocationActivityRange;
@@ -74,15 +79,15 @@ function ActivityMetricTile({
 }) {
   return (
     <div className={cn("min-w-0 p-3.5", SUBCARD_SURFACE)}>
-      <p className="text-[12px] font-normal leading-4 tracking-normal text-muted-foreground">
+      <HelperText>
         {label}
-      </p>
+      </HelperText>
       <p className="mt-1 text-[24px] font-semibold leading-none text-foreground">
         {value}
       </p>
-      <p className="mt-1 break-words text-[12px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">
+      <HelperText className="mt-1 break-words [overflow-wrap:anywhere]">
         {detail}
-      </p>
+      </HelperText>
     </div>
   );
 }
@@ -102,9 +107,9 @@ function EmptyActivityState({
       <p className="text-[15px] font-semibold leading-5 text-foreground">
         {title}
       </p>
-      <p className="max-w-[320px] text-[13px] leading-[18px] text-muted-foreground">
+      <RowDescription className="max-w-[320px]">
         {description}
-      </p>
+      </RowDescription>
     </div>
   );
 }
@@ -235,14 +240,14 @@ export function OneLocationActivityDashboard({
                         ) : null}
                       </div>
                     </div>
-                    <span className="max-w-full truncate text-[11px] font-normal leading-4 text-muted-foreground">
+                    <CaptionText className="max-w-full truncate">
                       {bucket.label}
-                    </span>
+                    </CaptionText>
                   </div>
                 );
               })}
             </div>
-            <div className="mt-3 flex flex-wrap gap-2 text-[12px] font-normal leading-4 text-muted-foreground">
+            <HelperText as="div" className="mt-3 flex flex-wrap gap-2">
               <span className="inline-flex items-center gap-1">
                 <span className="h-2 w-2 rounded-full bg-[color:var(--app-success)]" />
                 Shares
@@ -255,7 +260,7 @@ export function OneLocationActivityDashboard({
                 <span className="h-2 w-2 rounded-full bg-[color:var(--app-warning)]" />
                 Links
               </span>
-            </div>
+            </HelperText>
           </div>
         ) : (
           <EmptyActivityState
@@ -267,9 +272,9 @@ export function OneLocationActivityDashboard({
 
         {recentEvents.length ? (
           <div className="space-y-2">
-            <p className="ml-1 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+            <SectionLabel as="p" className="ml-1">
               Recent history
-            </p>
+            </SectionLabel>
             <div className="min-w-0 space-y-2">
               {recentEvents.map((event) => (
                 <div
@@ -288,9 +293,9 @@ export function OneLocationActivityDashboard({
                     <p className="break-words text-[15px] font-semibold leading-5 text-foreground [overflow-wrap:anywhere]">
                       {event.title}
                     </p>
-                    <p className="mt-0.5 break-words text-[13px] leading-[18px] text-muted-foreground [overflow-wrap:anywhere]">
+                    <RowDescription className="mt-0.5 break-words [overflow-wrap:anywhere]">
                       {event.detail}
-                    </p>
+                    </RowDescription>
                   </div>
                 </div>
               ))}

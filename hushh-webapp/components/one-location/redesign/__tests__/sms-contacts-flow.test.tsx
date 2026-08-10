@@ -4,7 +4,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 
 import { describe, expect, it, vi } from "vitest";
@@ -189,62 +188,26 @@ describe("SmsContactsFlow", () => {
     );
   });
 
-  it("shares the Circle invite code in-context from the grow actions", async () => {
-    const onShareCircleCode = vi.fn().mockResolvedValue(undefined);
-    render(
-      <SmsContactsFlow
-        {...baseProps}
-        onShareCircleCode={onShareCircleCode}
-      />,
-    );
+  it("keeps Circle growth off this screen", () => {
+    // This screen answers one question: who gets the alert. A per-Circle
+    // "Invite people / Share code" block for every Circle pushed the contact
+    // lists below the fold and mixed a membership task into a contact-picking
+    // one. Growing a Circle belongs to the People tab, which owns membership.
+    render(<SmsContactsFlow {...baseProps} />);
 
-    const grow = screen.getByTestId("sms-circle-grow-actions-circle-1");
-    fireEvent.click(within(grow).getByRole("button", { name: /Share code/i }));
+    expect(
+      screen.queryByTestId("sms-circle-grow-actions-circle-1"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Grow /)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Invite people/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Share code/i }),
+    ).not.toBeInTheDocument();
 
-    await waitFor(() =>
-      expect(onShareCircleCode).toHaveBeenCalledWith("circle-1"),
-    );
-  });
-
-  it("invites an existing connection to grow the Circle without leaving SMS", async () => {
-    const onLoadCircleEligibleConnections = vi.fn().mockResolvedValue({
-      eligibleConnections: [
-        {
-          connectionId: "conn-1",
-          userId: "asha-user",
-          displayName: "Asha Meena",
-        },
-      ],
-      pendingInvites: [],
-      remainingCapacity: 1,
-    });
-    const onInviteCircleConnections = vi.fn().mockResolvedValue(undefined);
-
-    render(
-      <SmsContactsFlow
-        {...baseProps}
-        onLoadCircleEligibleConnections={onLoadCircleEligibleConnections}
-        onInviteCircleConnections={onInviteCircleConnections}
-      />,
-    );
-
-    const grow = screen.getByTestId("sms-circle-grow-actions-circle-1");
-    fireEvent.click(
-      within(grow).getByRole("button", { name: /Invite people/i }),
-    );
-
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: /Asha Meena Connected on One/i,
-      }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
-
-    await waitFor(() =>
-      expect(onInviteCircleConnections).toHaveBeenCalledWith("circle-1", [
-        "asha-user",
-      ]),
-    );
+    // The contact lists it exists for are untouched.
+    expect(screen.getByText("Add a Circle")).toBeInTheDocument();
   });
 });
 

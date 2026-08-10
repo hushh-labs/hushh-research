@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useMemo, useRef, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type CSSProperties,
+} from "react";
 import { useRouter } from "next/navigation";
 
 import type { TopShellTabSet } from "@/lib/navigation/top-shell-tabs";
@@ -69,6 +75,21 @@ export function TopShellTabs({
   const tabWidth = `${100 / tabSet.tabs.length}%`;
   const tabSwipeState = useTopShellTabSwipeState(tabSet.id);
   const indicatorTransform = `translate3d(calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%), 0, 0)`;
+
+  // Keep the shared swipe-position variable in sync with the committed active
+  // tab. Taps go through `selectIndex`, which already snaps the indicator, but
+  // when the active tab changes by any other path -- a deep link like
+  // `?tab=history`, a back/forward navigation, or external route state -- the
+  // persisted position variable can retain the PREVIOUS index. The transform
+  // only falls back to `activeIndex` while that variable is unset, so a stale
+  // value would leave the underline resting under the wrong tab until the next
+  // tap. Re-sync here (never mid-drag) so the resting indicator always matches
+  // the selected tab. Inert during drags and no-op when already aligned.
+  useEffect(() => {
+    if (tabSwipeState.isDragging) return;
+    if (Math.abs(tabSwipeState.position - activeIndex) < 0.001) return;
+    setTopShellTabSwipeState(tabSet.id, activeIndex, false);
+  }, [activeIndex, tabSet.id, tabSwipeState.isDragging, tabSwipeState.position]);
 
   const selectIndex = useCallback(
     (index: number, focus: boolean) => {

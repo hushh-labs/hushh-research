@@ -4,16 +4,22 @@ import { useEffect, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  CaptionText,
+  PageSubtitle,
+  RowDescription,
+} from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
 
 /**
  * The presentational parts every "near you" directory shares.
  *
- * Two directories now hang off the Connect tab — advisers from BrokerCheck and
- * insurance agencies from the Nationwide locator — and they ask the reader for
- * exactly the same things: permission to use location, a ZIP when that fails,
- * a way out of an empty result, and the source credit. Only the copy and the
- * test ids differ, so those are props and the behaviour is written once.
+ * Three directories now hang off the Connect tab — advisers from BrokerCheck,
+ * insurance agencies from the Nationwide locator, and businesses from Google
+ * Places — and they ask the reader for exactly the same things: permission to
+ * use location, a ZIP when that fails, a way out of an empty result, and the
+ * source credit. Only the copy and the test ids differ, so those are props and
+ * the behaviour is written once.
  *
  * `testId` is threaded through rather than derived so each directory keeps its
  * own stable hooks; a shared "directory-empty" would make a failing test
@@ -124,7 +130,7 @@ export function DirectoryAttributionFooter({
 
   return (
     <footer className="mx-auto max-w-[30rem] text-center" data-testid={testId}>
-      <p className="type-caption text-muted-foreground">
+      <CaptionText as="p">
         <a
           href={attribution.sourceUrl}
           target="_blank"
@@ -159,12 +165,12 @@ export function DirectoryAttributionFooter({
             </a>
           </>
         ) : null}
-      </p>
+      </CaptionText>
       {retrievedLabel ? (
-        <p className="type-caption mt-1 text-muted-foreground/70">
+        <CaptionText as="p" className="mt-1">
           Retrieved {retrievedLabel}
           {stale ? " · cached" : ""}
-        </p>
+        </CaptionText>
       ) : null}
     </footer>
   );
@@ -189,7 +195,7 @@ export function QuietBlock({
     >
       <h2 className="type-title3 text-foreground">{title}</h2>
       {subtitle ? (
-        <p className="mt-2 type-callout text-muted-foreground">{subtitle}</p>
+        <PageSubtitle className="mt-2">{subtitle}</PageSubtitle>
       ) : null}
       {children ? <div className="mt-6 w-full">{children}</div> : null}
     </section>
@@ -231,9 +237,9 @@ export function LocationPrompt({
       <h2 className="type-title2 text-foreground">
         {denied ? "Location is off" : heading}
       </h2>
-      <p className="mt-2 type-callout text-muted-foreground">
+      <PageSubtitle className="mt-2">
         {denied ? "Search by ZIP instead." : "See who's close by."}
-      </p>
+      </PageSubtitle>
 
       {denied ? null : (
         <Button
@@ -265,10 +271,10 @@ export function LocationPrompt({
           variant="none"
           effect="fade"
           size="sm"
-          className="mt-3 text-muted-foreground"
+          className="mt-3"
           onClick={() => setShowPostal(true)}
         >
-          Use a ZIP
+          <RowDescription>Use a ZIP</RowDescription>
         </Button>
       )}
     </section>
