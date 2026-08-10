@@ -1852,6 +1852,21 @@ html.kb-open [data-agent-bar-shell][data-agent-bar-layout="fixed"] {
     transform 150ms ease;
 }
 
+/* Same keyboard-avoidance for the persistent bottom shell (bottom nav + the
+ * in-slot "Talk to One" bar) and its ambient fade. That stack lifts by
+ * --kb-height when the on-screen keyboard opens, which rode it UP directly over
+ * a focused bottom input (e.g. Connect's people search, Share location). Hide
+ * the whole bottom chrome while a real keyboard is open so the input is never
+ * occluded; it returns on blur. Only active under html.kb-open (native +
+ * mobile web) → byte-for-byte inert on desktop. See mobile-bug-log B21. */
+html.kb-open [data-app-bottom-shell],
+html.kb-open .ambient-chrome-mask--bottom {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+
 
 
 .app-page-shell {
