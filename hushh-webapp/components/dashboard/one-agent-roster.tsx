@@ -395,7 +395,7 @@ function AgentMetricDisplay({
       <span
         className={cn(
           "min-w-0 truncate font-normal text-muted-foreground",
-          compact ? "text-[12px]" : "text-[13px]",
+          compact ? "text-[13px]" : "text-[15px] leading-[21px]",
           isPositiveMetric && "text-emerald-700/80 dark:text-emerald-300/85",
         )}
       >

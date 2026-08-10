@@ -55,6 +55,8 @@ for (const exportName of [
 
 const globals = read("app/globals.css");
 for (const [token, value] of [
+  ["--type-page-subtitle-size", "16px"],
+  ["--type-page-subtitle-line", "22px"],
   ["--type-section-label-size", "15px"],
   ["--type-section-label-line", "20px"],
   ["--type-section-label-weight", "500"],
@@ -66,6 +68,14 @@ for (const [token, value] of [
   if (!globals.includes(`${token}: ${value};`)) {
     failures.push(`app/globals.css: ${token} must stay ${value}`);
   }
+}
+
+if (!/\.type-caption\s*\{[^}]*text-transform:\s*none;/s.test(globals)) {
+  failures.push("app/globals.css: legacy type-caption must preserve natural casing");
+}
+
+if (!globals.includes(".app-page-shell")) {
+  failures.push("app/globals.css: app shell must keep scoped readable-text guardrails");
 }
 
 for (const repoPath of [
@@ -96,10 +106,13 @@ for (const repoPath of [
   "components/ui/label.tsx",
   "components/ui/tabs.tsx",
   "components/app-ui/stream-progress-panel.tsx",
+  "components/app-ui/section-toc.tsx",
   "lib/morphy-ux/ui/surface-primitives.tsx",
   "lib/morphy-ux/ui/segmented-tabs.tsx",
   "lib/morphy-ux/ui/segmented-pill.tsx",
   "components/dashboard/one-agent-roster.tsx",
+  "components/connect/nearby-directory-ui.tsx",
+  "components/one-location/activity-dashboard.tsx",
 ]) {
   const source = read(repoPath);
   for (const tinyClass of [

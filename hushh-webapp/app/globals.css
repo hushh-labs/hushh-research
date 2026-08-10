@@ -277,6 +277,8 @@ textarea {
   --type-row-label-weight: 400;
   --type-row-label-emphasis-weight: 600;
   --type-row-label-tracking: -0.01em;
+  --type-page-subtitle-size: 16px;
+  --type-page-subtitle-line: 22px;
   --type-row-description-size: 15px;
   --type-row-description-line: 21px;
   --type-row-description-weight: 400;
@@ -5166,11 +5168,12 @@ html[data-accent="gold"].dark {
   }
 
   .type-caption {
-    font-size: var(--foundation-caption-size);
-    font-weight: var(--foundation-caption-weight);
-    line-height: var(--foundation-caption-line);
-    letter-spacing: var(--foundation-caption-tracking);
-    text-transform: uppercase;
+    color: var(--app-secondary-label);
+    font-size: var(--type-helper-text-size);
+    font-weight: 400;
+    line-height: var(--type-helper-text-line);
+    letter-spacing: -0.003em;
+    text-transform: none;
   }
 
   .type-micro {
@@ -5563,10 +5566,10 @@ body[data-persona-surface="ria"] {
 :is(.ui-text-page-subtitle) {
   color: var(--app-secondary-label) !important;
   font-family: var(--font-app-body) !important;
-  font-size: 15px !important;
+  font-size: var(--type-page-subtitle-size) !important;
   font-weight: 400 !important;
   letter-spacing: -0.006em !important;
-  line-height: 21px !important;
+  line-height: var(--type-page-subtitle-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
 }
@@ -5712,6 +5715,40 @@ body[data-persona-surface="ria"] {
   letter-spacing: 0 !important;
   line-height: 16px !important;
   opacity: 1 !important;
+}
+
+.app-page-shell
+  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-xs"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-[10px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-[11px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-[12px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[#8E8E93]"][class*="text-[12px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[#96999e]"][class*="text-[12px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[#5b6472]"][class*="text-[12px]"] {
+  color: var(--app-secondary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-helper-text-size) !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.003em !important;
+  line-height: var(--type-helper-text-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+.app-page-shell
+  :is(p, span, div, h2, h3, label)[class*="uppercase"][class*="text-muted-foreground"],
+.app-page-shell
+  :is(p, span, div, h2, h3, label)[class*="uppercase"][class*="text-[#96999e]"],
+.app-page-shell
+  :is(p, span, div, h2, h3, label)[class*="uppercase"][class*="text-[#8b93a1]"] {
+  letter-spacing: 0 !important;
+  text-transform: none !important;
 }
 
 [data-testid="settings-row"][data-tone="destructive"]
