@@ -468,3 +468,27 @@ describe("SosPanel", () => {
     expect(container.querySelector('[class*="lg:grid-cols-[280px_minmax(0,360px)]"]')).not.toBeNull();
   });
 });
+
+describe("SosPanel — no editing while the alert is live", () => {
+  it("closes every way of editing the message while the alert is live", () => {
+    render(<SosPanel {...baseProps} active />);
+
+    // The three ways in: two presets and the custom toggle. Cancel is the only
+    // escape, so none of these may respond while an alert is out.
+    expect(screen.getByRole("button", { name: "Come get me" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "I'm not safe" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Short text message" }),
+    ).toBeDisabled();
+    expect(screen.getByTestId("sos-cancel-alert")).toBeTruthy();
+  });
+
+  it("leaves the message editable when nothing is live", () => {
+    render(<SosPanel {...baseProps} />);
+
+    expect(
+      screen.getByRole("button", { name: "Come get me" }),
+    ).not.toBeDisabled();
+    expect(screen.queryByTestId("sos-sent-message")).toBeNull();
+  });
+});
