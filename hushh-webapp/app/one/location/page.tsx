@@ -159,7 +159,9 @@ import {
 } from "@/lib/one-location/location-readiness";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
+  openContactPermissionSettings,
   syncOneLocationContactSignals,
+  OneLocationContactSyncError,
   type OneLocationContactSignalResult,
 } from "@/lib/one-location/contact-signals";
 import { OneLocationActivityDashboard } from "@/components/one-location/activity-dashboard";
@@ -455,6 +457,7 @@ type OneLocationContactSignalStatus =
   | "matched"
   | "empty"
   | "unavailable"
+  | "restricted"
   | "denied"
   | "error";
 
@@ -465,6 +468,10 @@ type OneLocationContactSignalState = {
   totalContacts: number;
   inviteCandidateCount: number;
   sourcePlatform?: OneLocationContactSignalResult["sourcePlatform"];
+  /** Only part of the contact book was readable, so "no matches" is not final. */
+  limited?: boolean;
+  /** The contact book was larger than the read or lookup caps. */
+  truncated?: boolean;
   error?: string | null;
   syncedAt?: string | null;
 };
@@ -475,6 +482,8 @@ const INITIAL_CONTACT_SIGNAL_STATE: OneLocationContactSignalState = {
   matchedCount: 0,
   totalContacts: 0,
   inviteCandidateCount: 0,
+  limited: false,
+  truncated: false,
   error: null,
   syncedAt: null,
 };
@@ -4511,7 +4520,12 @@ export function OneLocationAgentPageContent({
 
     try {
       const idToken = await auth.user.getIdToken();
-      const result = await syncOneLocationContactSignals({ idToken });
+      const result = await syncOneLocationContactSignals({
+        idToken,
+        // Tells the normalizer which region a bare "9876543210" belongs to.
+        // Without it every 10-digit contact was read as North American.
+        accountPhoneNumber: auth.user.phoneNumber,
+      });
       const nextStatus: OneLocationContactSignalStatus =
         result.matchedUserIds.length > 0 ? "matched" : "empty";
       setContactSignal({
@@ -4521,6 +4535,8 @@ export function OneLocationAgentPageContent({
         totalContacts: result.totalContacts,
         inviteCandidateCount: result.inviteCandidateCount,
         sourcePlatform: result.sourcePlatform,
+        limited: result.limited,
+        truncated: result.truncated,
         error: null,
         syncedAt: new Date().toISOString(),
       });
@@ -4531,6 +4547,9 @@ export function OneLocationAgentPageContent({
         contact_count_bucket: contactCountBucket(result.totalContacts),
         matched_count: result.matchedUserIds.length,
         invite_candidate_count: result.inviteCandidateCount,
+        contact_region: result.region ?? "unknown",
+        partial_access: result.limited,
+        truncated: result.truncated,
       });
       if (result.matchedUserIds.length > 0) {
         toast.success(
@@ -4538,43 +4557,53 @@ export function OneLocationAgentPageContent({
             result.matchedUserIds.length,
           )} added as a contact signal.`,
         );
+      } else if (result.limited) {
+        // Partial access means the scan only saw the contacts the OS shared,
+        // so "no matches" says nothing about the rest of the book.
+        toast.info("No matches in the contacts you shared.", {
+          description:
+            "Hussh could only read the contacts you picked. Share more to widen the search.",
+          action: {
+            label: "Settings",
+            onClick: () => void openContactPermissionSettings(),
+          },
+        });
       } else {
         toast.info("No One users matched from this contact scan.");
       }
     } catch (error) {
+      const failure =
+        error instanceof OneLocationContactSyncError ? error.failure : "error";
       const message = oneLocationErrorMessage(
         error,
         "Could not sync contacts.",
       );
-      const normalized = message.toLowerCase();
-      const status: OneLocationContactSignalStatus =
-        normalized.includes("denied") || normalized.includes("permission")
-          ? "denied"
-          : normalized.includes("native") ||
-              normalized.includes("mobile") ||
-              normalized.includes("unavailable") ||
-              normalized.includes("web view")
-            ? "unavailable"
-            : "error";
       setContactSignal((current) => ({
         ...current,
-        status,
+        status: failure,
         error: message,
         syncedAt: new Date().toISOString(),
       }));
       trackEvent("one_location_contact_signal_synced", {
         route_id: "one_location",
-        result:
-          status === "denied" || status === "unavailable"
-            ? "expected_error"
-            : "error",
+        result: failure === "error" ? "error" : "expected_error",
         source_platform: contactSignal.sourcePlatform ?? "unknown",
         contact_count_bucket: contactCountBucket(contactSignal.totalContacts),
         matched_count: contactSignal.matchedCount,
         invite_candidate_count: contactSignal.inviteCandidateCount,
+        failure_reason: failure,
       });
-      if (status === "unavailable") {
-        toast.info("Contact sync is available in the iOS and Android app.");
+      if (failure === "denied") {
+        // The OS will not prompt again, so a retry button would do nothing.
+        // Settings is the only route back.
+        toast.error(message, {
+          action: {
+            label: "Open Settings",
+            onClick: () => void openContactPermissionSettings(),
+          },
+        });
+      } else if (failure === "unavailable") {
+        toast.info(message);
       } else {
         toast.error(message);
       }

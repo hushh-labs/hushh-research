@@ -730,6 +730,10 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/iam/marketplace/opt-in",
   },
   {
+    regex: /^\/api\/iam\/contact-discoverability(?:\?.*)?$/i,
+    template: "/api/iam/contact-discoverability",
+  },
+  {
     regex: /^\/api\/ria\/onboarding\/submit(?:\?.*)?$/i,
     template: "/api/ria/onboarding/submit",
   },
