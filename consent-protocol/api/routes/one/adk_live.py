@@ -929,9 +929,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     # unconditionally rejecting a real journey continuation.
                     context_matches = (
                         not expected_route or settlement.get("route_after") == expected_route
-                    ) and (
-                        not expected_screen or settlement.get("screen_after") == expected_screen
-                    )
+                    ) and (not expected_screen or settlement.get("screen_after") == expected_screen)
                     if not context_matches:
                         journey_destination_rejected = True
                         settlement = {
@@ -1160,9 +1158,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         try:
             await _pump_live_events()
         except ValueError as tool_error:
-            logger.warning(
-                "one_adk_live_unknown_tool_call error=%s", str(tool_error)[:160]
-            )
+            logger.warning("one_adk_live_unknown_tool_call error=%s", str(tool_error)[:160])
             await websocket.send_text(
                 json.dumps({"sessionEnded": {"reason": "unknown_tool_call", "resumable": True}})
             )

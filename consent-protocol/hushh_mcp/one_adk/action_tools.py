@@ -61,10 +61,42 @@ _MAX_QUERY_FILLER = 4
 # unrelated actions to the front of a bounded result list.
 _QUERY_STOPWORDS = frozenset(
     {
-        "the", "a", "an", "my", "me", "i", "you", "can", "could", "would",
-        "please", "for", "to", "of", "on", "in", "at", "and", "or", "is",
-        "it", "this", "that", "with", "do", "does", "want", "need", "get",
-        "show", "let", "us", "we", "how", "what", "one",
+        "the",
+        "a",
+        "an",
+        "my",
+        "me",
+        "i",
+        "you",
+        "can",
+        "could",
+        "would",
+        "please",
+        "for",
+        "to",
+        "of",
+        "on",
+        "in",
+        "at",
+        "and",
+        "or",
+        "is",
+        "it",
+        "this",
+        "that",
+        "with",
+        "do",
+        "does",
+        "want",
+        "need",
+        "get",
+        "show",
+        "let",
+        "us",
+        "we",
+        "how",
+        "what",
+        "one",
     }
 )
 # Prefer what One can act on now when relevance ties.
@@ -509,9 +541,7 @@ def _navigation_action_for_route(route: str) -> str | None:
     return sorted(candidates)[0] if candidates else None
 
 
-def _navigation_journey_definition(
-    entry: dict[str, Any], action_id: str
-) -> dict[str, Any] | None:
+def _navigation_journey_definition(entry: dict[str, Any], action_id: str) -> dict[str, Any] | None:
     """Return an authored navigate-then-execute journey for ``action_id``.
 
     The complement of ``_settled_journey_definition``: that shape runs an
@@ -782,8 +812,7 @@ async def start_app_goal(
     return {
         "status": "navigation_started",
         "message": (
-            f"Opening the {destination_screen.replace('_', ' ')} screen, "
-            "then I will continue."
+            f"Opening the {destination_screen.replace('_', ' ')} screen, then I will continue."
         ),
         "goal_id": goal_id,
     }
@@ -923,8 +952,7 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
     return {
         "status": "preview_started",
         "message": (
-            "The journey's step is open on the screen. It waits for the person's "
-            "confirmation."
+            "The journey's step is open on the screen. It waits for the person's confirmation."
         ),
         "goal_id": goal_id,
     }

@@ -504,4 +504,3 @@ def sanitize_action_settlement(
         "screen_after": bounded_text(payload.get("screenAfter"), 64),
         "destination_context_id": bounded_text(payload.get("destinationContextId"), 128),
     }
-

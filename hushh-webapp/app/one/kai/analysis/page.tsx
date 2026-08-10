@@ -28,7 +28,12 @@ import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { useAuth } from "@/lib/firebase/auth-context";
-import { KaiHistoryService, type AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
+import {
+  findAnalysisHistoryEntryByRouteId,
+  getAnalysisHistoryEntryRouteId,
+  KaiHistoryService,
+  type AnalysisHistoryEntry,
+} from "@/lib/services/kai-history-service";
 import { showDebateAlreadyRunningToast } from "@/lib/kai/debate-run-notifications";
 import { trackEvent } from "@/lib/observability/client";
 import { trackInvestorActivationCompleted } from "@/lib/observability/growth";
@@ -82,6 +87,10 @@ function formatCurrency(value: number | null): string {
 function extractDebateId(entry: AnalysisHistoryEntry | null): string | null {
   if (!entry || typeof entry !== "object") return null;
   const rawCard = (entry.raw_card || {}) as Record<string, unknown>;
+  const debateRunId = rawCard.debate_run_id;
+  if (typeof debateRunId === "string" && debateRunId.trim()) {
+    return debateRunId.trim();
+  }
   const diagnostics = rawCard.stream_diagnostics as Record<string, unknown> | undefined;
   const streamId = diagnostics?.stream_id;
   if (typeof streamId === "string" && streamId.trim()) {
@@ -159,6 +168,7 @@ export function KaiAnalysisPageContent() {
   const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
 
   const debateId = searchParams.get("debate_id");
+  const analysisEntryId = searchParams.get("analysis_id");
 
   const [resolvedEntry, setResolvedEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [resolvingEntry, setResolvingEntry] = useState(false);
@@ -323,7 +333,7 @@ export function KaiAnalysisPageContent() {
   }, [liveEntry, liveIntentReady, resolvedEntry, searchParams]);
 
   useEffect(() => {
-    if (!debateId || !userId || !vaultKey) {
+    if ((!debateId && !analysisEntryId) || !userId || !vaultKey) {
       setResolvedEntry(null);
       setResolvingEntry(false);
       return;
@@ -343,9 +353,11 @@ export function KaiAnalysisPageContent() {
         });
         if (cancelled) return;
 
-        const match = Object.values(allHistory)
-          .flat()
-          .find((entry) => extractDebateId(entry) === debateId);
+        const match = analysisEntryId
+          ? findAnalysisHistoryEntryByRouteId(allHistory, analysisEntryId)
+          : Object.values(allHistory)
+              .flat()
+              .find((entry) => extractDebateId(entry) === debateId) ?? null;
         setResolvedEntry(match || null);
       } finally {
         if (!cancelled) {
@@ -359,7 +371,7 @@ export function KaiAnalysisPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [debateId, userId, vaultKey, vaultOwnerToken]);
+  }, [analysisEntryId, debateId, userId, vaultKey, vaultOwnerToken]);
 
   const handleSelectTicker = useCallback(
     (ticker: string) => {
@@ -393,9 +405,14 @@ export function KaiAnalysisPageContent() {
       setFocusedRunTask(null);
       setShowHistoryWhileActive(false);
       setWorkspaceTab("summary");
-      setDebateIdParam(extractDebateId(entry));
+      router.push(
+        buildKaiMarketRoute("analysis", {
+          analysis_id: getAnalysisHistoryEntryRouteId(entry),
+        }),
+        { scroll: false },
+      );
     },
-    [setAnalysisParams, setDebateIdParam]
+    [router, setAnalysisParams]
   );
 
   const handleCloseLiveDebate = useCallback(() => {
