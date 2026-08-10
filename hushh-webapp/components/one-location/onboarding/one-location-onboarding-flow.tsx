@@ -2210,10 +2210,15 @@ export function OneLocationOnboardingFlow({
       });
   };
 
-  // Keep the people-screen Skip path aligned with Continue so neither control
-  // can bypass the minimum-one-contact onboarding requirement.
+  // Skip leaves onboarding without adding anyone. It used to call Continue so
+  // that neither control could bypass a minimum-one-contact requirement, but
+  // that made the button lie: a person with nobody selected tapped Skip and got
+  // "Choose at least one contact" back, with no way forward. Requiring a
+  // contact to finish setup is the friction this screen was meant to avoid, and
+  // contacts can be added later from Connect. Continue still enforces the
+  // minimum, so the choice stays deliberate rather than accidental.
   const handlePeopleSkip = () => {
-    handlePeopleContinue(selectedPeopleIds);
+    void runSkip();
   };
 
   return (

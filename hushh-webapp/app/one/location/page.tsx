@@ -7630,8 +7630,17 @@ export function OneLocationAgentPageContent({
           onComplete={dismissLocationOnboarding}
           onSkip={skipLocationOnboarding}
           requireLocationToComplete={mode === "setup"}
+          // The circle code is minted server-side and every circle route is
+          // behind `require_vault_owner_token`, so there is nothing to show
+          // before the vault exists. Onboarding runs without one in `setup`
+          // mode, where this used to reach the Invite screen and fail with
+          // "Unlock One before preparing your circle code" -- a dead end during
+          // the very flow that creates the vault. Withholding the callback
+          // makes the flow omit that screen entirely (`inviteScreenEnabled`),
+          // so setup goes features -> people, and the code becomes available
+          // the moment the vault exists and onboarding is re-entered.
           onPrepareOnboardingCircleInvite={
-            handlePrepareOnboardingCircleInvite
+            vaultOwnerToken ? handlePrepareOnboardingCircleInvite : undefined
           }
           onCopyOnboardingCircleCode={handleCopyNamedCircleCode}
           onShareOnboardingCircleCode={handleShareOnboardingCircleInvite}
