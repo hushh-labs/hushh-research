@@ -1,5 +1,6 @@
 "use client";
 
+import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { useRequireAuth } from "@/hooks/use-auth";
 
@@ -16,12 +17,29 @@ import { useRequireAuth } from "@/hooks/use-auth";
 export default function OneLocationCheckInPage() {
   const auth = useRequireAuth();
 
-  // Owner-scoped like the map route: decrypted markers, nearby attendees and
-  // pending location work must never survive an account switch.
   return (
-    <LocationImmersiveMap
-      key={auth.userId ?? "anonymous"}
-      surface="check-in"
-    />
+    <>
+      {/* Its own marker rather than the map's: native route auditing should be
+          able to tell these two screens apart, which is the whole point of
+          giving check-in its own route. */}
+      <NativeRouteMarker
+        routeId="/one/location/check-in"
+        marker="native-route-one-location-check-in"
+        authState={
+          auth.loading
+            ? "pending"
+            : auth.isAuthenticated
+              ? "authenticated"
+              : "anonymous"
+        }
+        dataState="loaded"
+      />
+      {/* Owner-scoped like the map route: decrypted markers, nearby attendees
+          and pending location work must never survive an account switch. */}
+      <LocationImmersiveMap
+        key={auth.userId ?? "anonymous"}
+        surface="check-in"
+      />
+    </>
   );
 }

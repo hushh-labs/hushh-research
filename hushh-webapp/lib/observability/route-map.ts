@@ -57,6 +57,7 @@ export const ROUTE_ID_VALUES = [
   "one_marketplace",
   "one_location",
   "one_location_map",
+  "one_location_check_in",
   "one_location_public_request",
   "one_location_circle_invite",
   "one_location_circle_join",
@@ -194,6 +195,9 @@ export function resolveRouteId(pathname: string): RouteId {
   }
   if (pathname === ROUTES.ONE_KYC) return "one_kyc";
   if (pathname === ROUTES.ONE_LOCATION_MAP) return "one_location_map";
+  // Its own id rather than the map's: these are separate screens now, and
+  // folding them together would hide the split from every page-view metric.
+  if (pathname === ROUTES.ONE_LOCATION_CHECK_IN) return "one_location_check_in";
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
   if (pathname.startsWith("/one/location/request/"))
     return "one_location_public_request";
