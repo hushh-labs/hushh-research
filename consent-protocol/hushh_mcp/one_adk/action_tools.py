@@ -468,12 +468,27 @@ async def run_app_action(
         # server-injected system turn after a tool call. Nudging here means
         # One offers a next step after every governed action it runs, not
         # only after an onboarding screen change.
+        # Waiting for a confirmation that is never coming is a loop, not
+        # patience. This told One to "wait for explicit confirmation and the
+        # correlated settlement" on every action -- true while every action
+        # raised a card, and false the moment confirmation was removed. One
+        # waited, heard nothing, proposed again, and said the same sentence
+        # each time. Reported as the share request getting stuck in a loop.
+        #
+        # Only the trusted-activation pair still has anything to wait for.
         "next_step": (
-            "Wait for explicit confirmation and the correlated browser action "
-            "settlement before saying "
-            f"{label} completed. Then acknowledge only the reported outcome "
-            "and, if there is an obvious next step, offer it before waiting to "
-            "be asked."
+            (
+                "The app is showing the person a control they must tap for "
+                f"{label}. Say so once and then wait; do not propose it again."
+            )
+            if trusted_activation
+            else (
+                f"{label} is already running. Wait for its settlement before "
+                "saying it completed, say nothing further until that arrives, "
+                "and do not call this action again -- calling it twice would "
+                "do it twice. Then acknowledge only the reported outcome and, "
+                "if there is an obvious next step, offer it."
+            )
         ),
     }
 
