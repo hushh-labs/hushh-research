@@ -774,20 +774,47 @@ class TestRunAppAction:
 
 class TestSettledActionJourneys:
     def test_every_generated_action_has_one_consistent_voice_boundary(self):
-        """All journeys consume these flags, never their own local policy."""
+        """All journeys consume these flags, never their own local policy.
+
+        Confirmation is off. Voice does not ask, because being asked "are you
+        sure?" after saying the thing out loud is what people find most tiring
+        about talking to this app, and a spoken yes to a question One just
+        asked carries nothing the original sentence did not. That is a product
+        decision, made explicitly.
+
+        `trusted_activation_required` is the one survivor and is a different
+        kind of thing entirely: those two actions open a browser popup, which
+        platforms allow only during a fresh user gesture. Dropping it would
+        break sign-in rather than streamline it.
+        """
+        confirming = 0
         for entry in list_action_gateway_actions():
             flags = _directive_flags(entry)
-            expected_confirmation = (
-                entry.get("execution_policy") == "confirm_required"
-                or entry.get("activation_policy") == "trusted_activation_required"
-            )
-            assert flags["needsConfirmation"] is expected_confirmation, entry["action_id"]
-            assert flags["trustedActivationRequired"] is (
-                entry.get("activation_policy") == "trusted_activation_required"
-            ), entry["action_id"]
+            trusted = entry.get("activation_policy") == "trusted_activation_required"
+            assert flags["needsConfirmation"] is trusted, entry["action_id"]
+            assert flags["trustedActivationRequired"] is trusted, entry["action_id"]
+            confirming += 1 if flags["needsConfirmation"] else 0
+        # Small and deliberate. If this grows, someone has reintroduced asking
+        # by authoring an activation policy rather than by deciding to.
+        assert confirming == 2
 
     @pytest.mark.asyncio
-    async def test_high_risk_location_share_requires_spoken_confirmation(self):
+    async def test_high_risk_location_share_runs_without_asking(self):
+        """Even the highest-risk share no longer stops to ask.
+
+        This test asserted the opposite until confirmation was removed
+        product-wide. Renamed rather than deleted, because the change of mind
+        is the interesting part: sharing a live location is the most
+        consequential thing this surface does, and it now runs on the sentence
+        alone.
+
+        What carries the safety instead is one step earlier and narrower.
+        `location.select_share_recipient` resolves exactly one named person or
+        refuses, naming the candidates when a name is ambiguous, and speaks
+        the MATCHED name back before anything is sent. The check moved from
+        "are you sure?" to "did I hear the right person?", which is the
+        question that was ever actually load-bearing.
+        """
         state = {
             _STATE_SCREEN: "one_location",
             "hussh:voice_context": {
@@ -804,9 +831,9 @@ class TestSettledActionJourneys:
             _tool_context(state),
         )
 
-        assert result["status"] == "confirm_pending"
+        assert result["status"] == "ready_to_run"
         payload = state[f"{_STATE_PENDING_DIRECTIVE}:location.share_selected"]["payload"]
-        assert payload["needsConfirmation"] is True
+        assert payload["needsConfirmation"] is False
         assert payload["trustedActivationRequired"] is False
 
     @pytest.mark.asyncio
@@ -898,7 +925,15 @@ class TestSettledActionJourneys:
         assert search["trustedActivationRequired"] is False
 
     @pytest.mark.asyncio
-    async def test_connect_request_requires_spoken_confirmation_after_navigation(self):
+    async def test_connect_request_runs_on_arrival_without_asking(self):
+        """The escort still navigates first; it just no longer stops to ask.
+
+        Asserted a confirmation until confirmation was removed product-wide.
+        The half worth keeping is the ORDER: the escort step carries no
+        confirmation and the request step is minted only after arriving on
+        Connect, so a request is never issued from a screen that cannot show
+        who it is going to.
+        """
         state = {
             _STATE_SCREEN: "one_agents",
             "hussh:voice_context": {
@@ -931,7 +966,7 @@ class TestSettledActionJourneys:
             f"{_STATE_PENDING_DIRECTIVE}:goal:{started['goal_id']}:preview"
         ]["payload"]
         assert request["actionId"] == "connect.send_request"
-        assert request["needsConfirmation"] is True
+        assert request["needsConfirmation"] is False
         assert request["trustedActivationRequired"] is False
 
     @pytest.mark.asyncio

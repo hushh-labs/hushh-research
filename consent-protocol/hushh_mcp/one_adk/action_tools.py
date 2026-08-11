@@ -179,9 +179,24 @@ def _directive_flags(entry: dict[str, Any] | None) -> dict[str, bool]:
     trusted_activation = (
         str(entry.get("activation_policy") or "") == "trusted_activation_required"
     )
-    confirm_required = str(entry.get("execution_policy") or "allow_direct") == "confirm_required"
+    # Voice does not ask. `confirm_required` no longer raises a card, because
+    # being asked "are you sure?" after saying a thing out loud is the thing
+    # people find most tiring about talking to this app -- and a spoken yes to
+    # a question One just asked adds no information the sentence did not
+    # already carry. Product owner's call, made explicitly and more than once.
+    #
+    # `trusted_activation_required` survives, and is a different kind of thing.
+    # The two provider sign-ins open a browser popup, which platforms permit
+    # only during a fresh user gesture; removing that would not streamline
+    # sign-in, it would break it. Two actions of 151.
+    #
+    # What this costs, stated rather than buried: a misheard sentence now runs
+    # a `confirm_required` action directly, including submitting a phone code
+    # and starting a location share. The mitigation is elsewhere and
+    # deliberate -- destructive actions resolve exactly one named target or
+    # refuse, and ambiguity names the candidates rather than picking one.
     return {
-        "needsConfirmation": confirm_required or trusted_activation,
+        "needsConfirmation": trusted_activation,
         "trustedActivationRequired": trusted_activation,
     }
 
