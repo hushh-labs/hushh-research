@@ -68,6 +68,15 @@ ALTER TABLE connected_system_intents
   ADD COLUMN IF NOT EXISTS client_operation_id TEXT,
   ADD COLUMN IF NOT EXISTS approval_challenge_id TEXT;
 
+-- UAT and production run migrations with --migration-mode replay, so every
+-- statement here has to survive a second application. Everything else in this
+-- file already does (IF NOT EXISTS on every table, index and column); this
+-- ALTER did not, and Postgres has no ADD CONSTRAINT IF NOT EXISTS. The first
+-- replay after this migration landed failed the whole UAT deploy with
+-- DuplicateObjectError, which blocks the release before anything ships.
+ALTER TABLE connected_system_intents
+  DROP CONSTRAINT IF EXISTS connected_system_intents_crm_zk_shape;
+
 ALTER TABLE connected_system_intents
   ADD CONSTRAINT connected_system_intents_crm_zk_shape CHECK (
     delivery_mode <> 'crm-zk.v1'
