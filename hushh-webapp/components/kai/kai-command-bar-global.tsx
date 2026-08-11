@@ -387,6 +387,7 @@ export function KaiCommandBarGlobal() {
       appRuntimeState={appRuntimeState}
       capabilityState={canonicalAgentRuntime?.capabilityState}
       surfaceMetadata={getVoiceSurfaceMetadata()}
+      userId={userId || null}
       portfolioTickers={portfolioTickers}
     />
   );
