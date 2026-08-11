@@ -219,10 +219,14 @@ describe("Connect — People", () => {
     });
 
     expect(result).toMatchObject({ status: "succeeded" });
+    // Reads the whole result set for the name, not its first three rows. The
+    // old limit-3 read refused outright whenever `hasMore` was true, so it
+    // could not tell "no such person" from "not on the first page" -- and it
+    // gave the same answer to both, about people who were plainly there.
     expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({
       query: "Person 9",
       page: 1,
-      limit: 3,
+      limit: 50,
     });
     expect(mocks.sendRequest).toHaveBeenCalledWith(
       expect.objectContaining({

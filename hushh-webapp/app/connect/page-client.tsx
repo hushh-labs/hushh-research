@@ -77,6 +77,18 @@ const PAGE_SIZE_OPTIONS = [8, 16, 24, 50] as const;
 const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
 
 /**
+ * Bounds on resolving ONE spoken name against the directory.
+ *
+ * Wide enough that the answer is about the person rather than about where
+ * they happened to land in a result set, and bounded because the directory is
+ * every account on Hussh — a runaway loop here would be worse than a refusal.
+ * 250 rows for a single queried name is far past the point where a name is
+ * still identifying anyway; beyond that, ambiguity is the honest answer.
+ */
+const DIRECTORY_RESOLVE_PAGE_SIZE = 50;
+const DIRECTORY_RESOLVE_MAX_PAGES = 5;
+
+/**
  * Match a spoken name against a list the server just returned.
  *
  * Deliberately more forgiving than `connect.send_request`'s exact
@@ -644,25 +656,46 @@ export default function ConnectPageClient() {
 
     try {
       const idToken = await user.getIdToken();
-      const page = await ConnectionsService.searchDirectory({
-        idToken,
-        query: spokenName,
-        page: 1,
-        limit: 3,
-      });
-      const exactMatches = page.items.filter(
-        (candidate) =>
-          candidate.displayName?.trim().localeCompare(spokenName, undefined, {
-            sensitivity: "accent",
-          }) === 0,
-      );
-      // The directory is paginated. A first page with one exact display name
-      // is not proof that no matching person exists on a later page, so never
-      // send while the query is incomplete.
-      if (page.hasMore || exactMatches.length !== 1) {
+      // Read the whole result set for this name, not its first three rows.
+      //
+      // This searched page 1 at limit 3 and refused outright whenever
+      // `hasMore` was true, so it could never tell "no such person" from "not
+      // on the first page" -- and it answered both with "I could not identify
+      // one exact person by that name", about people who were plainly there.
+      // Bounded, because a directory is unbounded and a runaway loop here
+      // would be worse than a refusal.
+      const candidates: DirectoryPerson[] = [];
+      for (let pageNumber = 1; pageNumber <= DIRECTORY_RESOLVE_MAX_PAGES; pageNumber += 1) {
+        const page = await ConnectionsService.searchDirectory({
+          idToken,
+          query: spokenName,
+          page: pageNumber,
+          limit: DIRECTORY_RESOLVE_PAGE_SIZE,
+        });
+        candidates.push(...page.items);
+        if (!page.hasMore) break;
+      }
+      // Same matcher the cancel and remove actions use: exact wins outright,
+      // and only when nothing is exact does a prefix or whole-word match
+      // count, so "Sarah" finds "Sarah Chen" without "Chen" matching every
+      // Chen. Requiring full-name equality made the person say a name the way
+      // the directory happens to store it, which is not something they can
+      // know.
+      const exactMatches = matchByName(candidates, spokenName, (c) => c.displayName);
+      if (exactMatches.length === 0) {
         return {
           status: "blocked",
-          summary: "I could not identify one exact person by that name. Search Connect and say their full name.",
+          summary: `I could not find anyone called ${spokenName} in Connect.`,
+        };
+      }
+      if (exactMatches.length > 1) {
+        // Name them. "Be more specific" is not actionable when the person
+        // cannot see which people the words could have meant.
+        return {
+          status: "blocked",
+          summary: `More than one person matches that name: ${exactMatches
+            .map((c) => c.displayName ?? "someone")
+            .join(", ")}. Say which one.`,
         };
       }
       const person = exactMatches[0];

@@ -7057,9 +7057,18 @@ export function OneLocationAgentPageContent({
     const matchedName = recipientLabel(match).trim();
     return {
       status: "succeeded" as const,
+      // Say the matched name and keep going. This used to end "ask the person
+      // to confirm that is who they meant", which was the design when the
+      // question existed to catch a mis-heard name -- but a spoken yes to a
+      // question One just asked adds nothing the original sentence did not,
+      // and it was the last thing standing between this flow and hands-free.
+      //
+      // Naming the match out loud still does the work the question was for:
+      // the person hears "Abdul Rashid" when they said "Abdul", and a wrong
+      // match is audible at the moment it happens rather than after.
       summary: matchedName
-        ? `Matched ${matchedName}. Ask the person to confirm that is who they meant, and for how long, then start the share.`
-        : "Matched one person. Ask the person to confirm who they meant, then start the share.",
+        ? `Matched ${matchedName}. Now start the share with location.share_selected and the duration they asked for; say who it is going to as you do it.`
+        : "Matched one person. Now start the share with location.share_selected and the duration they asked for.",
     };
   });
 
