@@ -6,12 +6,63 @@ their own Vertex ADC; **B** is Anypoint with their own AI key and user-controlle
 infrastructure. The hussh-managed pod is the simulation tier and appears here only as the
 reference implementation everything else is measured against.
 
-**Stated once, up front:** neither column has production evidence. No pod has served a turn,
-in any environment, for anyone. `AnypointBackend._execute` still raises when live.
-`UserGcpBackend.provision` no longer does — it creates the pod through the same
-`GcpRunClient` the managed tier uses, on a short-lived impersonated token — but it has not
-yet run against a real user project, so "implemented" is the claim and "proven" is not.
-This compares two designs, one of which is further along.
+**Stated once, up front:** no pod has served a turn, in any environment, for anyone.
+`AnypointBackend._execute` still raises when live. `UserGcpBackend` no longer does, and as
+of **2026-08-11** its bootstrap has been **executed against a real, separate GCP project**
+(`hushh-byoc-test`) — all thirteen steps green, verified by reading the project back rather
+than by trusting the return value. So the BYOC column now has infrastructure evidence and
+still has no turn evidence. This compares two designs, one of which is materially further
+along.
+
+### What executing it found — four defects no green gate could have caught
+
+The bootstrap was complete, tested and gate-green before any of this. Every defect below
+was found by pointing it at a real project, and each is recorded because the *class* of
+failure recurs.
+
+| Found | Why the test suite could not see it |
+|---|---|
+| `services:batchEnable` is a **long-running operation**; the applier raced past it and six later steps failed on APIs that were on a minute later | A fake returns 200 instantly. Only a real API has a "started" that is not a "done". |
+| `cloudresourcemanager.googleapis.com` was **not in `REQUIRED_SERVICES`**, though the bootstrap's own last step calls it | Nothing enumerated the hosts the plan calls. A guard now does, so this cannot recur. |
+| Cloud Storage encrypts as a **per-project service agent**, which needed `cryptoKeyEncrypterDecrypter` on the key before a CMEK bucket could exist | The agent's address embeds the project *number*; it is not knowable at render time and had to be looked up. |
+| Creating a pod that runs as the pod account needs **`iam.serviceAccounts.actAs`**, which `roles/iam.serviceAccountAdmin` does not carry | Nothing in the plan said "and then Cloud Run refuses". A control create without a runAs identity was refused too, which is how it was narrowed. |
+
+The `actAs` fix is bound to **the single service account the bootstrap just created**, not
+granted at project level. Project-level `roles/iam.serviceAccountUser` would have been one
+line shorter and would have let hushh act as every service account the person owns.
+
+### And one the live run corrected in the design, not the code
+
+The custody module documented the pod's data key as *"generated once, at bootstrap"* by
+hushh's impersonated token. Against a real project that returned:
+
+```
+403 Permission 'cloudkms.cryptoKeyVersions.useToEncrypt' denied
+```
+
+The bootstrap account holds `roles/cloudkms.admin` — it may create and administer the key —
+and deliberately holds neither encrypter nor decrypter, so it cannot use it. The documented
+flow was impossible. **The fix was not to widen the permission**, which would have put the
+plaintext key in hushh's hands at wrap time. The pod now mints and wraps its own key on
+first boot, with `ifGenerationMatch=0` so two cold starts cannot write two keys and orphan
+each other's records.
+
+That makes Zero Knowledge a property of the IAM policy the bootstrap writes rather than a
+claim in a docstring: hushh can build the key and provably cannot open it.
+
+### The render was the real gap
+
+`byoc_key_env` was correct and **had no caller**. `render_deploy_config` reused the managed
+renderer wholesale, so a BYOC pod was rendered with hushh's bucket (`hushh-pda-dev-pod-state`),
+hushh-derived plaintext log and memory keys sitting in a service description inside the
+user's cloud, and **no runtime identity** — meaning the project's default compute account,
+which inherits none of the least-privilege IAM the bootstrap writes. All three are fixed and
+asserted against the rendered artifact rather than the helper.
+
+This is the recurring failure in this codebase stated once more: **a subsystem that is
+complete, tested and green, that nothing calls.** "Has a production caller" is the bar.
+`UserGcpBootstrap` itself still does not have one — today its only caller is the journey
+harness — and that is the next thing to close, not a detail.
 
 ## What earns a pod, per path — the rule, and why it differs
 

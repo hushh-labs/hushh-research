@@ -424,17 +424,27 @@ def resolve_pod_memory_service() -> Optional[Any]:
 
     import os
 
+    from hushh_mcp.services.byoc_key_custody import (  # noqa: PLC0415
+        byoc_custody_configured,
+        resolve_pod_memory_key,
+    )
+
     hushh_id = (os.environ.get("HUSSH_ID") or "").strip()
-    pod_key_b64 = (os.environ.get("HUSSH_POD_MEMORY_KEY") or "").strip()
-    if not hushh_id or not pod_key_b64:
+    # A BYOC pod has no HUSSH_POD_MEMORY_KEY and must not: it derives one from the key
+    # it unwrapped for itself. Reading the env directly here is what made the plaintext
+    # variable look mandatory, which is how it ended up rendered into a user's project.
+    has_key = byoc_custody_configured() or bool(
+        (os.environ.get("HUSSH_POD_MEMORY_KEY") or "").strip()
+    )
+    if not hushh_id or not has_key:
         logger.warning(
             "pod_memory.disabled reason=missing_identity_or_key hushh_id_present=%s key_present=%s",
             bool(hushh_id),
-            bool(pod_key_b64),
+            has_key,
         )
         return None
     try:
-        pod_key = base64.b64decode(pod_key_b64)
+        pod_key = resolve_pod_memory_key()
         return build_pod_memory_service(hushh_id=hushh_id, pod_key=pod_key, log=_resolve_log())
     except Exception:  # noqa: BLE001 -- fail-safe: never block pod startup on memory
         logger.exception("pod_memory.build_failed hushh_id=%s", hushh_id)

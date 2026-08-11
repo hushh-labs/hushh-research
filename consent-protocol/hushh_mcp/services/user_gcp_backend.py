@@ -35,6 +35,7 @@ import logging
 import re
 from typing import Any, Optional
 
+from hushh_mcp.services.byoc_key_custody import byoc_key_env
 from hushh_mcp.services.compute_backend import (
     BACKEND_USER_GCP,
     BackendHandle,
@@ -56,6 +57,62 @@ _SLUG = re.compile(r"[^a-z0-9-]+")
 
 def _slug(hushh_id: str) -> str:
     return _SLUG.sub("-", str(hushh_id or "").lower()).strip("-")[:40]
+
+
+#: Env the MANAGED tier ships that a BYOC pod must never receive. Two are plaintext
+#: keys derived from hushh's master; the third points at hushh's own bucket. Listed by
+#: name rather than filtered by pattern, so adding a managed-only variable later is a
+#: decision someone makes here instead of an omission nobody notices.
+_MANAGED_ONLY_ENV = frozenset(
+    {
+        "HUSSH_POD_LOG_KEY",
+        "HUSSH_POD_MEMORY_KEY",
+        "POD_STORAGE_GCS_BUCKET",
+        "POD_STORAGE_GCS_PREFIX",
+        "POD_STORAGE_BACKEND",
+        "POD_AGENT_MEMORY_ENABLED",
+    }
+)
+
+
+async def _create_once_iam_settles(create: Any) -> None:
+    """Create the pod, retrying ONLY the IAM race the bootstrap opens for itself.
+
+    The bootstrap grants itself ``actAs`` on the pod's service account moments before
+    this call uses it, and IAM is eventually consistent. A live run against a real
+    project did exactly that and was refused::
+
+        403 Permission 'iam.serviceaccounts.actAs' denied on service account one-pod-...
+
+    The same call, repeated after the binding had propagated, returned 200. So this
+    retries that one message and nothing else: a 403 that does not name ``actAs`` is a
+    genuine authorization failure -- a revoked grant, a missing role -- and retrying it
+    would turn an answer the operator needs into a delay before the same answer.
+    """
+    import asyncio  # noqa: PLC0415
+
+    delays = UserGcpBackend._ACTAS_BACKOFF_SECONDS
+    for attempt, delay in enumerate((*delays, None)):
+        try:
+            await create()
+            return
+        except Exception as exc:  # noqa: BLE001 -- narrowed immediately below
+            if delay is None or not _is_actas_propagation(exc):
+                raise
+            logger.info(
+                "user_gcp_backend.actas_not_propagated attempt=%s sleeping=%ss",
+                attempt + 1,
+                delay,
+            )
+            await asyncio.sleep(delay)
+
+
+def _is_actas_propagation(exc: Exception) -> bool:
+    """Is this the specific, transient 403 that a just-written actAs binding produces?"""
+    response = getattr(exc, "response", None)
+    if getattr(response, "status_code", None) != 403:
+        return False
+    return "actas" in (getattr(response, "text", "") or "").lower()
 
 
 class _StaticToken:
@@ -126,10 +183,61 @@ class UserGcpBackend:
         )
 
     def render_deploy_config(self, spec: PodSpec) -> dict[str, Any]:
-        """The Cloud Run service for the pod — rendered against the USER's project."""
+        """The Cloud Run service for the pod — rendered against the USER's project.
+
+        Reusing the managed renderer and adjusting it is deliberate: the two tiers must
+        differ in exactly the places BYOC requires and nowhere else, and a second
+        renderer would drift. But the managed renderer emits hushh's OWN durable block,
+        and shipping that into a user's project produced three violations of the thing
+        BYOC promises. Rendering it and reading it back is how they were found:
+
+        * ``POD_STORAGE_GCS_BUCKET`` named ``hushh-pda-dev-pod-state`` — the person's
+          history would have been written into **hushh's** bucket.
+        * ``HUSSH_POD_LOG_KEY`` and ``HUSSH_POD_MEMORY_KEY`` carried plaintext keys
+          derived from hushh's HKDF master, sitting in a service description in the
+          user's cloud, readable by anyone with ``run.services.get``.
+        * ``serviceAccountName`` was unset, so the pod would have run as the project's
+          **default compute** account — with none of the least-privilege IAM the
+          bootstrap writes, and considerably more besides.
+
+        ``byoc_key_env`` existed to prevent the first two and had no caller. This is it.
+        """
         cfg: dict[str, Any] = self._inner.render_deploy_config(spec)
         # Mark tenancy so the artifact is unambiguously user-owned.
         cfg["metadata"]["labels"]["hussh-tenancy"] = "user-owned"
+
+        slug = _slug(spec.hushh_id)
+        project = self._user_project or "<user-project>"
+        region = spec.region or self._user_region
+        container = cfg["spec"]["template"]["spec"]["containers"][0]
+
+        # The pod runs as its own least-privilege identity, the one the bootstrap
+        # created and bound to this person's key and bucket.
+        cfg["spec"]["template"]["spec"]["serviceAccountName"] = (
+            f"one-pod-{slug}@{project}.iam.gserviceaccount.com"
+        )
+
+        kept = [e for e in container.get("env", []) if e["name"] not in _MANAGED_ONLY_ENV]
+        kept.extend(
+            [
+                {"name": "POD_STORAGE_BACKEND", "value": "commit_log"},
+                # The user's own CMEK bucket, created by their own bootstrap.
+                {"name": "POD_STORAGE_GCS_BUCKET", "value": f"one-pod-{slug}-blobs"},
+                {"name": "POD_STORAGE_GCS_PREFIX", "value": f"pods/{spec.hushh_id}"},
+                {"name": "POD_AGENT_MEMORY_ENABLED", "value": "true"},
+            ]
+        )
+        # Two addresses in place of two secrets. The pod mints and wraps its own key on
+        # first boot; the memory key is derived from it inside the pod.
+        kept.extend(
+            byoc_key_env(
+                kms_key=(
+                    f"projects/{project}/locations/{region}"
+                    f"/keyRings/hushh-one/cryptoKeys/one-pod-{slug}-key"
+                )
+            )
+        )
+        container["env"] = kept
         return cfg
 
     def render_bootstrap_plan(self, spec: PodSpec) -> dict[str, Any]:
@@ -341,6 +449,8 @@ class UserGcpBackend:
             project=self._user_project, region=self._user_region, credentials=_StaticToken(token)
         )
 
+    _ACTAS_BACKOFF_SECONDS: tuple[float, ...] = (5.0, 10.0, 20.0, 30.0)
+
     async def _execute_live(self, spec: PodSpec) -> BackendHandle:
         import asyncio  # noqa: PLC0415
 
@@ -350,7 +460,9 @@ class UserGcpBackend:
 
         existing = await asyncio.to_thread(client.get_service, name)
         if existing is None:
-            await asyncio.to_thread(client.create_service, config)
+            await _create_once_iam_settles(
+                lambda: asyncio.to_thread(client.create_service, config)
+            )
         else:
             await asyncio.to_thread(
                 client.replace_service, name, client.merge_for_replace(existing, config)
