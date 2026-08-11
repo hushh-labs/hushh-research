@@ -76,6 +76,25 @@ function circleKindLabel(kind: OneLocationCircleKind): string {
   return "Other";
 }
 
+/**
+ * Subtitle for the "Your circles" list row, e.g. "Friends · 2 members".
+ *
+ * Counts OTHER members (everyone except the viewer) so it matches the Circle
+ * Detail subtitle, which filters out the current user. The backend
+ * `memberCount` includes the viewer — always a member of a circle shown in
+ * their own list — so subtracting one yields the same number both places.
+ * `Math.max(0, ...)` guards a transient zero.
+ */
+function circleListMemberCountLabel(
+  kind: OneLocationCircleKind,
+  memberCount: number,
+): string {
+  const others = Math.max(0, memberCount - 1);
+  return `${circleKindLabel(kind)} · ${others} ${
+    others === 1 ? "member" : "members"
+  }`;
+}
+
 function circleFlowErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim()
     ? error.message
@@ -309,9 +328,10 @@ export function CirclesSection({
                 </span>
               }
               title={circle.name}
-              description={`${circleKindLabel(circle.kind)} · ${circle.memberCount} ${
-                circle.memberCount === 1 ? "member" : "members"
-              }`}
+              description={circleListMemberCountLabel(
+                circle.kind,
+                circle.memberCount,
+              )}
               trailing={circle.role === "owner" ? "Owner" : "Member"}
               chevron
               onClick={() => onOpen(circle.id)}
@@ -837,17 +857,15 @@ export function CircleDetailFlow({
     circle?.inviteCodeNeedsOwnerRotation,
   );
   const members = useMemo(() => circle?.members ?? [], [circle?.members]);
-  // The Circle Detail subtitle counts OTHER people in the circle, not the
-  // viewer. `circle.memberCount` from the backend includes the owner/self, so a
-  // brand-new circle with only its creator read "· 1 members". Exclude the
-  // owner role and the current user so an empty circle shows "0 members" and
-  // the count only reflects people who have actually joined.
+  // Single source of truth for the member count shown on BOTH the "Your
+  // circles" list row and this detail subtitle: the number of OTHER people in
+  // the circle (everyone except the viewer). `circle.memberCount` from the
+  // backend includes the viewer, so the list row subtracts one; here we filter
+  // the loaded members by the current user id, which yields the same number.
+  // Excluding only the current user (not the owner role) keeps the two views
+  // in agreement for members viewing a circle they do not own.
   const externalMembersCount = useMemo(
-    () =>
-      members.filter(
-        (member) =>
-          member.role !== "owner" && member.userId !== currentUserId,
-      ).length,
+    () => members.filter((member) => member.userId !== currentUserId).length,
     [members, currentUserId],
   );
 
