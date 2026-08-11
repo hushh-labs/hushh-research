@@ -3173,6 +3173,9 @@ class PersonalKnowledgeModelService:
         if not canonical_domain or not normalized_path:
             result["message"] = "Domain and section are required."
             return result
+        if not is_public_pkm_projection_allowed(canonical_domain):
+            result["message"] = "This domain requires consent and cannot be published publicly."
+            return result
         manifest = await self.get_domain_manifest(user_id, canonical_domain)
         if not manifest:
             result["message"] = f"No manifest found for {canonical_domain}."

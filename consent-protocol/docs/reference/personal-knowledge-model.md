@@ -167,6 +167,18 @@ tokens, and encrypted device-local locators, but never document bytes, extracted
 text, plaintext paths or titles, recipient emails, provider identifiers, or raw
 content hashes.
 
+Hermes seals that local Source Library state with versioned AES-GCM keys derived
+from the unlocked vault key and a separate local-custody secret. The latter is a
+macOS Data Protection Keychain generic-password item configured for
+`WhenUnlockedThisDeviceOnly` and local user presence; it is cached only for the
+unlocked bridge session and is zeroized on lock, revocation, profile change, or
+disconnect. It is not an enclave-resident `SecKey`: the implementation must not
+claim Secure Enclave storage until a non-exportable `SecKey` adapter and its
+device re-enrollment lifecycle are shipped. Missing local custody with existing
+ciphertext fails closed as recovery/rebuild required rather than rotating a key.
+SQLite uses sealed fields and keyed lookup tokens, not full-page database
+encryption; its opaque mapping state remains rebuildable.
+
 Every `attr.source_library.*` form is non-discoverable, non-requestable, and
 non-authorizing. Source Library manifests expose no top-level consent scopes or
 externalizable paths, and the public-profile projection plane remains disabled.

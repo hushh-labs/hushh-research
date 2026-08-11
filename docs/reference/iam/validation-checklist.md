@@ -75,6 +75,17 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
     artifact state. Creating or deleting only a SQLite share row is never sufficient.
 19. Source Library SQLite contains no plaintext file paths, titles, recipient
     emails, provider identifiers, document bytes, extracted text, or raw hashes.
+20. Source Library ciphertext uses both the active vault key and the profile-bound
+    device-custody secret; wrong profile, user, device, purpose, or AAD fails closed.
+21. Missing device custody with existing Source Library ciphertext reports recovery
+    required and never silently creates a replacement key. Lock, revocation,
+    profile change, and disconnect zeroize custody; disconnect also removes the
+    local Source Library plane after confirmation.
+22. A completed V2 custody migration rejects replayed V1 envelopes. The Keychain
+    item is verified on signed macOS with Data Protection Keychain,
+    `WhenUnlockedThisDeviceOnly`, non-synchronizable, and local-user-presence
+    semantics. It is not described as Secure Enclave storage without a
+    non-exportable `SecKey` implementation.
 
 ## Ecosystem Checks
 

@@ -139,6 +139,9 @@ Private data is always consent-gated and scoped.
    Filesystem-first sharing uses a pinned object revision plus an opaque `share_ref`
    and owner-bound mounted target. A SQLite row is neither access authority nor
    revocation proof, and Hermes does not claim verified provider ACL recipients.
+   Hermes additionally derives local Source Library encryption from the unlocked
+   vault key plus a device-only, local-user-presence Data Protection Keychain
+   secret. This is Keychain protection, not a Secure Enclave key claim.
 
 ### Device-to-Device Capability Tokens
 

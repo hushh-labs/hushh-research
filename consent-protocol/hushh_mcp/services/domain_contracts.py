@@ -322,6 +322,7 @@ DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
     ),
 }
 
+
 def normalize_domain_key(domain: str) -> str:
     return str(domain or "").strip().lower()
 
