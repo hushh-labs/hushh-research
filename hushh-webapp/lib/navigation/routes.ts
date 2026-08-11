@@ -127,6 +127,13 @@ export const ROUTES = {
   ONE_LOCATION: "/one/location",
   /** Immersive, consented multi-person Location map. */
   ONE_LOCATION_MAP: "/one/location/map",
+  /**
+   * Nearby check-in. Its own destination, not a drawer over the map: the map
+   * shows people who already share with you, while check-in makes you briefly
+   * discoverable to opted-in people at a place. They were one screen and read
+   * as the same feature.
+   */
+  ONE_LOCATION_CHECK_IN: "/one/location/check-in",
   LEGACY_GMAIL: "/gmail",
   LEGACY_PKM: "/pkm",
   LEGACY_CONNECTED_SYSTEMS: "/connected-systems",

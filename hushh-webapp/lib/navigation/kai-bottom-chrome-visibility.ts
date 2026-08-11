@@ -2,8 +2,16 @@ import { useEffect, useSyncExternalStore } from "react";
 
 const MIN_SCROLL_Y_FOR_SHOW = 10;
 const JITTER_DELTA_PX = 1.5;
+// Cumulative displacement (px) the gesture must travel in a single direction
+// before the bottom chrome starts hiding/revealing. Per-frame deltas above the
+// jitter floor but below this threshold (slow "micro-scroll" gestures on iOS)
+// previously nudged progress 1:1 every frame, so the bar drifted down / collapsed
+// prematurely while barely scrolling. We accumulate directional distance and only
+// begin moving once it clears this commit threshold; direction reversals reset it.
+const MIN_SCROLL_THRESHOLD_PX = 15;
 const PROGRESS_EPSILON = 0.001;
 const SCROLL_TRAVEL_PX = 84;
+
 const APP_SCROLL_ROOT_SELECTOR = '[data-app-scroll-root="true"]';
 
 type Listener = () => void;
@@ -134,10 +142,26 @@ export function onScroll(y: number): void {
   }
 
   const direction = delta > 0 ? 1 : -1;
-  state.direction = direction;
+  // A direction reversal restarts the commit budget so the bar responds
+  // promptly when the user changes scroll direction, but a fresh slow drag in
+  // one direction must still travel MIN_SCROLL_THRESHOLD_PX before anything moves.
+  if (direction !== state.direction) {
+    state.direction = direction;
+    state.directionalDistance = 0;
+  }
   state.directionalDistance += Math.abs(delta);
-  // Follow the thumb directly. This avoids an iOS-only lag window where the
-  // gesture has ended but the fixed controls are still animating under a tap.
+
+  // Velocity/displacement gate: hold the bar pinned until the gesture has
+  // committed enough distance in this direction. Without this, slow
+  // micro-scrolls (each frame just over the jitter floor) nudged progress 1:1
+  // every frame and the bar drifted/collapsed prematurely.
+  if (state.directionalDistance < MIN_SCROLL_THRESHOLD_PX) {
+    return;
+  }
+
+  // Once committed, follow the thumb directly. This avoids an iOS-only lag
+  // window where the gesture has ended but the fixed controls are still
+  // animating under a tap.
   setTargetProgress(state.progress + delta / SCROLL_TRAVEL_PX);
 }
 

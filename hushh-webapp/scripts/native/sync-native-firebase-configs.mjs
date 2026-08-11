@@ -81,10 +81,14 @@ export function syncNativeFirebaseConfigs({
     );
   }
 
+  // Android ships as com.hussh.app; only iOS is com.hushh.app. This check used
+  // the iOS bundle id, so it accepted a google-services.json with no client for
+  // the package Android actually builds as, and Gradle then failed at
+  // processDebugGoogleServices with "No matching client found".
   const packages = androidPackageNames(androidSource);
-  if (!packages.has("com.hushh.app")) {
+  if (!packages.has("com.hussh.app")) {
     throw new Error(
-      "Android Firebase config does not contain package_name com.hushh.app."
+      "Android Firebase config does not contain package_name com.hussh.app."
     );
   }
 

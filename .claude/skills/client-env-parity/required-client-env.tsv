@@ -1,0 +1,31 @@
+# Client credentials that MUST reach a shipping build.
+#
+# Every NEXT_PUBLIC_* value is baked in at BUILD time. Each lane copies its own
+# explicit list, so a value can be correct in Secret Manager and still be absent
+# from one lane's build. That absence is silent — the client reads "" and the
+# feature degrades instead of erroring.
+#
+# Columns (tab-separated):
+#   VAR <TAB> LANES <TAB> WHY
+#
+# LANES is a comma-separated subset of: web, ios-testflight, ios-appstore
+# Use "all" for every lane.
+#
+# Add a row whenever the client starts reading a new NEXT_PUBLIC_* that a real
+# user journey depends on. The row is the thing that makes check.sh protect it.
+# Do NOT add local-only or test-only vars — they would make this file noisy and
+# the check ignorable, which is how the original bug survived.
+
+NEXT_PUBLIC_BACKEND_URL	all	Without it the app cannot reach the vault; every screen dies.
+NEXT_PUBLIC_APP_ENV	all	Selects runtime profile; wrong value points a build at the wrong environment.
+NEXT_PUBLIC_APP_URL	all	Absolute links, deep links, and redirect targets.
+NEXT_PUBLIC_FIREBASE_API_KEY	all	Sign-in fails entirely without it.
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN	all	Sign-in fails entirely without it.
+NEXT_PUBLIC_FIREBASE_PROJECT_ID	all	Sign-in fails entirely without it.
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET	all	File and media reads fail.
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID	all	Push registration fails.
+NEXT_PUBLIC_FIREBASE_APP_ID	all	Sign-in fails entirely without it.
+NEXT_PUBLIC_FIREBASE_VAPID_KEY	all	Web push token cannot be minted.
+NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY	all	Maps JS in the WKWebView (onboarding location picker, LiveMap). Missing = silent iframe fallback. This is the 2026-08-11 incident.
+NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY	ios-testflight,ios-appstore	Native Maps SDK for the "Your Map" immersive view.
+NEXT_PUBLIC_OBSERVABILITY_ENABLED	all	Without it a broken build reports nothing and the failure stays invisible.

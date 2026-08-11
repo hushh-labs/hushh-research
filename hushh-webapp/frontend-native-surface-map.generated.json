@@ -3982,6 +3982,68 @@
       }
     },
     {
+      "route": "/one/location/check-in",
+      "page_file": "app/one/location/check-in/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": null,
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.location.check-in",
+          "purpose": "Let the person pick a real place within 500 m and become briefly discoverable to opted-in people there. Distinct from the map, which shows only people who already share with this account.",
+          "screen": "one_location_check_in",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain that nearby check-in is unavailable on this account.",
+            "cancelled": "Return to the Location hub.",
+            "failed": "Keep the chosen place selected and offer a retry.",
+            "timeout": "Keep the place list visible and offer a retry.",
+            "callback_error": "Return to the Location hub.",
+            "route_mismatch": "Use the verified current route."
+          },
+          "completion_boundary": "A foreground fix is captured to list nearby places and, at confirmation, to anchor the check-in. Nothing is published until the person confirms; nearby people receive a display name only.",
+          "next_route": "/one/location",
+          "return_policy": "return_to_hub",
+          "out_of_scope_behavior": "Answer naturally without inventing a check-in control."
+        }
+      },
+      "native": {
+        "route": "/one/location/check-in",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Flocation%2Fcheck-in",
+        "expectedMarker": "native-route-one-location-check-in",
+        "expectedRoute": "/one/location/check-in",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/location/invite/[token]",
       "page_file": "app/one/location/invite/[token]/page.tsx",
       "physical_page_exists": true,
@@ -8132,5 +8194,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "ee5fa10c4dfa88de78dc8c91c1738e6e9e0f4cca2483bfcd921b5587cafabbc7"
+  "content_sha256": "0fd7c4cf65e26d43d5d8c3c2d696fae9c3aa17657e0e0bf89df5378c9f544dea"
 }
