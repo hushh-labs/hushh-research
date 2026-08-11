@@ -97,6 +97,7 @@ tests/test_pod_fleet_wiring.py
 tests/test_pod_heartbeat_loop.py
 tests/test_pod_heartbeat_route.py
 tests/test_pod_hub_data_path.py
+tests/test_pod_identity_byoc_binding.py
 tests/test_pod_image_build_contract.py
 tests/test_pod_key_collection.py
 tests/test_pod_key_custody.py

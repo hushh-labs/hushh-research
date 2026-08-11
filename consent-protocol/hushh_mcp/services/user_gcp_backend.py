@@ -519,8 +519,33 @@ class UserGcpBackend:
                 "image": self._image,
                 "keyless": True,
                 "credential": "impersonated bootstrap SA, 15-minute token",
+                # WHICH service account this pod runs as, recorded because on BYOC it
+                # is the only thing that can tell one person's pod from another's.
+                #
+                # On the managed tier every pod shares one account -- which is exactly
+                # what lets that account hold no project roles -- so the hub's identity
+                # check can only ever prove "a hussh pod is calling", never which. The
+                # asserted HusshID header is therefore compared against nothing.
+                #
+                # A BYOC pod runs as an account in the OWNER's project, derived per
+                # person. Recording it here is what lets `verify_pod_identity` bind the
+                # asserted HusshID to a verified email instead of trusting the header
+                # -- the first point in this system where that header becomes a control
+                # rather than a consistency check.
+                "runtime_service_account": self._pod_service_account(spec),
             },
         )
+
+    def _pod_service_account(self, spec: PodSpec) -> str:
+        """The account this person's pod runs as, in their own project.
+
+        Derived, not stored: `render_bootstrap_plan` already builds the same string
+        from the same two inputs, and two places computing an identity from the same
+        rule is one place too many to keep in agreement. Kept next to the plan so a
+        change to the naming rule cannot silently desynchronise the account the
+        bootstrap creates from the account the hub will later trust.
+        """
+        return f"one-pod-{_slug(spec.hushh_id)}@{self._user_project}.iam.gserviceaccount.com"
 
     async def deprovision(self, external_agent_id: str) -> None:
         if self._live:

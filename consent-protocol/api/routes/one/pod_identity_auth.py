@@ -80,8 +80,60 @@ async def verify_pod_identity(request: Request, authorization: Optional[str]) ->
         logger.info("pod_hub_auth.verify_failed %s", type(exc).__name__)
         return None
 
-    if str(claims.get("email") or "") != allowed or not claims.get("email_verified"):
-        logger.warning("pod_hub_auth.rejected_identity email_matches=false")
+    email = str(claims.get("email") or "")
+    if not claims.get("email_verified"):
+        logger.warning("pod_hub_auth.rejected_identity reason=email_unverified")
         return None
-    logger.info("pod_hub_auth.accepted asserted_agent_id=%s", asserted)
-    return asserted
+
+    if email == allowed:
+        # MANAGED / SIMULATION TIER. Every pod shares this one account -- which is
+        # exactly what lets it hold no project roles -- so a match proves "a hussh pod
+        # is calling" and never *which*. `asserted` is therefore returned unverified
+        # here, as it always has been: both halves come from the same caller, so this
+        # is a consistency check against misconfiguration, not a second independent
+        # verification. Do not document it as one.
+        logger.info("pod_hub_auth.accepted tier=managed asserted_agent_id=%s", asserted)
+        return asserted
+
+    # BYOC. The pod runs as an account in the OWNER's project, derived per person, so
+    # the email is no longer fleet-shared and CAN distinguish one pod from another.
+    # Binding it to the HusshID this caller asserts turns the header into a real
+    # control for the first time: presenting user B's token no longer lets a caller
+    # assert user A, because A's row records a different account.
+    #
+    # Reached only when the fleet account did not match, so the managed tier pays no
+    # registry read on any call -- and BYOC pays one only on the path that would
+    # otherwise have been an outright rejection.
+    bound = await _bound_service_account(asserted)
+    if bound and email == bound:
+        logger.info("pod_hub_auth.accepted tier=byoc asserted_agent_id=%s", asserted)
+        return asserted
+
+    logger.warning("pod_hub_auth.rejected_identity reason=email_not_bound")
+    return None
+
+
+async def _bound_service_account(hushh_id: str) -> Optional[str]:
+    """The service account recorded for this HusshID's pod, if any.
+
+    Returns None -- never raises -- on any failure. A registry hiccup must not become
+    an authentication BYPASS, and it must not become an outage either: None simply
+    means the caller is not recognised, which is the same fail-closed answer this
+    function gives for an unknown pod.
+    """
+    if not hushh_id:
+        return None
+    try:
+        from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
+            PersonalAgentRegistryRepo,
+        )
+
+        row = await PersonalAgentRegistryRepo().get_by_hushh_id(hushh_id)
+    except Exception as exc:  # noqa: BLE001 - an unreadable registry is not a pod
+        logger.warning("pod_hub_auth.registry_read_failed %s", type(exc).__name__)
+        return None
+    metadata = (row or {}).get("backend_metadata")
+    if not isinstance(metadata, dict):
+        return None
+    account = str(metadata.get("runtime_service_account") or "").strip()
+    return account or None
