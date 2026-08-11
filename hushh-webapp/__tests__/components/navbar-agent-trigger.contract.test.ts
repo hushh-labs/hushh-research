@@ -79,7 +79,7 @@ describe("Navbar bottom chrome contract", () => {
     const bottomChromeMotion = read(
       "lib/navigation/kai-bottom-chrome-visibility.ts",
     );
-    expect(bottomChromeMotion).toContain("Follow the thumb directly");
+    expect(bottomChromeMotion).toContain("follow the thumb directly");
     expect(agentBar).not.toContain('aria-label="Talk to your agent"');
     expect(agentBar).not.toContain("<Mic");
 
