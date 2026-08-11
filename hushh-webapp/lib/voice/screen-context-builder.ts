@@ -25,6 +25,12 @@ import type {
 } from "@/lib/voice/voice-ui-state-machine";
 
 export const STRUCTURED_CONTEXT_ARRAY_CAP = 10;
+// A surface's own declared inventory before ranking. Deliberately far above
+// what any surface declares today (Location, the largest, publishes 21), so it
+// bounds a runaway publisher without ever deciding which actions the model is
+// allowed to see. That decision belongs to prioritizeAvailableActionIds and the
+// two caps applied after it.
+export const PUBLISHED_ACTION_IDS_CAP = 64;
 /**
  * available_action_ids carries the screen-ranked list PLUS a reserved global
  * navigation segment, so it gets a wider cap than other context arrays. The
@@ -709,15 +715,19 @@ export function buildStructuredScreenContext(args: {
   const activeInteractionLayer = publishedSurface?.interactionLayer || null;
   const underlyingActionsAvailable =
     !activeInteractionLayer || !activeInteractionLayer.blocksUnderlyingActions;
-  // Deduplicated but NOT yet capped. The generic 10-wide cap used to apply
-  // here, before prioritizeAvailableActionIds ever saw the list -- so ranking
-  // written specifically to keep local handlers from being cut was handed a
-  // list they had already been cut from, and its "what was lost" warning could
-  // never fire. On Location that meant the model was told the screen offers ten
-  // ways to open a tab and nothing that does anything: the surface publishes 18
-  // controls whose first ten are all `location.open_*`, leaving pause_updates,
-  // share_selected and select_share_recipient permanently invisible. Cap once,
-  // after ranking, at AVAILABLE_ACTION_IDS_CAP.
+  // Deduplicated, and bounded only against a runaway surface -- never tightly
+  // enough to decide WHICH actions the model sees. Ranking owns that, and the
+  // real limits (10 for the screen segment, AVAILABLE_ACTION_IDS_CAP overall)
+  // are applied after it.
+  //
+  // This has been wrong twice, the same way. The generic 10-wide cap applied
+  // here first, so ranking written to protect local handlers was handed a list
+  // they had already been cut from -- on Location the model was told the screen
+  // offers ten ways to open a tab and nothing that acts. Re-capping at 18 then
+  // fixed share_selected and select_share_recipient but still lost
+  // `location.resume_updates`, because the surface's 18 controls fill the bound
+  // before its `actions` array is even reached. A pre-cap that can silently
+  // drop a wired handler is the bug, whatever its number.
   const publishedActionIds = uniqueStrings(
     [
       ...(publishedSurface?.controls || [])
@@ -727,7 +737,7 @@ export function buildStructuredScreenContext(args: {
         .map((action) => action.actionId || action.id)
         .filter((actionId): actionId is string => Boolean(actionId)),
     ],
-    AVAILABLE_ACTION_IDS_CAP,
+    PUBLISHED_ACTION_IDS_CAP,
   );
   // A mounted surface with a declared inventory is authoritative for what is
   // executable now. Route contracts are the fallback only for pages that do

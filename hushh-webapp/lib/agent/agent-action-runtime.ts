@@ -87,27 +87,31 @@ function isActionInActiveInventory(
         activeLayer.agentContinuity !== "interactive"),
   );
 
-  // Executing BY navigating is what makes an action reachable from anywhere,
-  // not what it is called. The name prefix was a proxy for that, and a wrong
-  // one: /one/location is opened by `location.open_now`, /one/setup/finance
-  // only by `setup.open_finance`, and neither is named `route.*`. The relay
-  // already admits both -- `is_navigation_action` keys on
-  // `execution_target.path` -- so the two halves disagreed about which
-  // navigations exist, and `action_gateway.py` documents at length why the
-  // prefix test is the wrong one.
+  // Navigation is reachable from any screen. Deciding WHICH actions count as
+  // navigation has to match `is_navigation_action` in action_gateway.py
+  // exactly, because the relay offers an action on that basis and the browser
+  // refuses it on this one -- so any gap between the two predicates is an
+  // action One proposes and the app then rejects.
   //
-  // What the disagreement cost: escorting someone to Location resolves to
-  // `location.open_now` (the resolver sorts alphabetically and it sorts before
-  // `route.one_location`), the browser refused it as "not available on this
-  // screen", and so the journey's own FIRST step was blocked. Someone asked to
-  // share their location and nothing moved.
+  // The union is load-bearing in BOTH directions, and this file has now had it
+  // wrong each way round:
+  //
+  //   - Testing only the NAME missed `location.open_share` and
+  //     `setup.open_finance`, which navigate but are surface-named. That
+  //     blocked a journey's own first step: One escorted someone to Location
+  //     and the browser refused to go.
+  //   - Testing only the PATH then missed the five wired `route.*` actions
+  //     whose path is `kai_command` or `voice_tool` -- route.profile,
+  //     route.consents, route.back, route.analysis_history, route.kai_import.
+  //     Those had worked for months on the name test alone.
   if (!routeIsBlockedByActiveLayer) {
     const action = getKaiActionById(input.actionId);
     if (
       action &&
       action.execution_policy === "allow_direct" &&
       action.execution_target.status === "wired" &&
-      action.execution_target.path === "route"
+      (action.action_id.startsWith("route.") ||
+        action.execution_target.path === "route")
     ) {
       return true;
     }

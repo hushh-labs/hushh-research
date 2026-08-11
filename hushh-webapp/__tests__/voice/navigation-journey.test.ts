@@ -262,4 +262,42 @@ describe("the action that walks someone to a journey's destination", () => {
       expect(action?.execution_policy, actionId).toBe("allow_direct");
     });
   });
+
+  it("admits BOTH shapes of navigation, matching the relay's own predicate", () => {
+    // `is_navigation_action` in action_gateway.py accepts a wired allow_direct
+    // action that is EITHER named `route.*` OR executes by path "route". The
+    // browser has now had this wrong in each direction, and either way the
+    // relay offers an action the app then refuses:
+    //
+    //   name-only -- missed `location.open_share` and `setup.open_finance`,
+    //     which navigate but are surface-named, so a journey's own first step
+    //     was blocked and "share my location with <name>" never left /one.
+    //   path-only -- missed the five wired `route.*` actions whose path is
+    //     kai_command or voice_tool (route.profile, route.consents,
+    //     route.back, route.analysis_history, route.kai_import), which had
+    //     worked for months on the name test alone.
+    //
+    // Both sets are non-empty, which is precisely why neither test alone is
+    // sufficient and why this asserts the union rather than either half.
+    const wiredDirect = listKaiActions().filter(
+      (action) =>
+        action.execution_target.status === "wired" &&
+        action.execution_policy === "allow_direct",
+    );
+    const nameOnly = wiredDirect.filter(
+      (a) => a.action_id.startsWith("route.") && a.execution_target.path !== "route",
+    );
+    const pathOnly = wiredDirect.filter(
+      (a) => !a.action_id.startsWith("route.") && a.execution_target.path === "route",
+    );
+
+    expect(nameOnly.length).toBeGreaterThan(0);
+    expect(pathOnly.length).toBeGreaterThan(0);
+    expect(nameOnly.map((a) => a.action_id)).toEqual(
+      expect.arrayContaining(["route.profile", "route.consents", "route.back"]),
+    );
+    expect(pathOnly.map((a) => a.action_id)).toEqual(
+      expect.arrayContaining(["location.open_share"]),
+    );
+  });
 });
