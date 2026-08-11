@@ -20,6 +20,7 @@ loaded through ``hushh_mcp.services.action_gateway``) is the routing authority:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
@@ -31,7 +32,10 @@ from hushh_mcp.services.action_gateway import (
     is_navigation_action,
     list_action_gateway_actions,
 )
-from hushh_mcp.services.live_voice_context import read_live_voice_context
+from hushh_mcp.services.live_voice_context import (
+    read_completed_action,
+    read_live_voice_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +148,20 @@ def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
     return {str(value).strip() for value in ids if isinstance(value, str) and value.strip()}
 
 
+def _slot_fingerprint(slots: dict[str, Any]) -> str:
+    """Stable identity for one action's inputs.
+
+    Same shape the relay's directive dedupe uses, so "already done" means the
+    same thing on both sides. Values are included, not just keys: sharing with
+    Sarah and sharing with Abdul are different requests, and only the second
+    should get through after the first has landed.
+    """
+    return json.dumps(
+        {str(key): str(value) for key, value in sorted((slots or {}).items())},
+        sort_keys=True,
+    )
+
+
 def _missing_required_slot(entry: dict[str, Any], slots: dict[str, Any]) -> dict[str, Any] | None:
     """First required goal input absent from ``slots`` (defaults count as filled)."""
     goal = entry.get("goal") or {}
@@ -232,6 +250,34 @@ async def run_app_action(
             "message": (
                 "The app is still publishing its screen state. Acknowledge the "
                 "request, wait a moment, and retry this exact action."
+            ),
+        }
+    # Already done, this turn, with these exact inputs.
+    #
+    # A tool cannot see settlements through `tool_context.state` -- it is
+    # frozen when the streaming invocation opens -- so `run_app_action` had no
+    # way to know the thing it was about to park a directive for had just
+    # succeeded. Live, that produced a hard loop: the share went through, the
+    # composer cleared its selection the way it always does after a send, and
+    # One (never having learned it worked) tried again, found an empty
+    # composer, was told "nobody is selected yet", and tried again.
+    #
+    # Refused HERE rather than by injecting a note into the live turn.
+    # Injection preempts One mid-sentence and loops; a tool return reaches the
+    # model where its turn already ends.
+    session_id = getattr(getattr(tool_context, "session", None), "id", None)
+    completed_fingerprint = read_completed_action(session_id, clean_id)
+    if completed_fingerprint is not None and completed_fingerprint == _slot_fingerprint(
+        clean_slots
+    ):
+        logger.info("one_adk_action_decision action=%s status=already_completed", clean_id)
+        return {
+            "status": "already_completed",
+            "message": (
+                f"{clean_id} already succeeded a moment ago with these exact "
+                "inputs, and doing it again would do it twice. Tell the person "
+                "what was done, once, and stop. Only run it again if they ask "
+                "for it again."
             ),
         }
     if isinstance(context, dict) and context.get("pending_settlement") is True:

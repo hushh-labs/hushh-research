@@ -71,6 +71,7 @@ from api.routes.one.relay_auth import (
     resolve_optional_uid,
     resolve_persona_tier,
 )
+from hushh_mcp.one_adk.action_tools import _slot_fingerprint
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
@@ -87,8 +88,10 @@ from hushh_mcp.services.action_directive_ledger import (
 )
 from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.services.live_voice_context import (
+    clear_completed_actions,
     clear_live_voice_context,
     publish_live_voice_context,
+    record_completed_action,
 )
 
 logger = logging.getLogger(__name__)
@@ -631,6 +634,11 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     # browser's own directiveFingerprint()) and skip re-issuing an identical
     # one while it's still open.
     issued_action_fingerprints: dict[str, str] = {}
+    # Slot VALUES per directive. The dedupe fingerprint above carries slot
+    # keys only, which cannot tell "share for 15 minutes" from "share for an
+    # hour" -- fine for suppressing a duplicate still in flight, too coarse for
+    # deciding an action has already been done.
+    issued_action_slots: dict[str, str] = {}
     # Directives parked with needsConfirmation:false. They raise no card, so
     # they mint no receipt, so the ledger's confirmed-path settle can never
     # close them -- and their settlements were refused, discarding the outcome
@@ -693,6 +701,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             issued_journey_started_at.pop(stale_directive_id, None)
             issued_action_fingerprints.pop(stale_directive_id, None)
             issued_direct_run_directives.discard(stale_directive_id)
+            issued_action_slots.pop(stale_directive_id, None)
             gc_task = issued_directive_gc_tasks.pop(stale_directive_id, None)
             if gc_task is not None:
                 gc_task.cancel()
@@ -901,6 +910,11 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # unconsumed proposal from the prior turn before the model
                 # receives the replacement intent.
                 await _disarm_open_directives()
+                # New speech is a new request. Saying "share with Sarah" twice
+                # on purpose must work the second time -- the already-done
+                # guard exists only to stop One repeating ITSELF inside one
+                # uninterrupted turn, never to stop a person repeating theirs.
+                clear_completed_actions(session_id)
                 greeting_gate.cancel_for_visitor_activity()
                 _cancel_pending_greeting()
                 queue.send_activity_start()
@@ -982,6 +996,15 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     logger.info("one_adk_live_invalid_action_settlement")
                     continue
                 issued_action_fingerprints.pop(settlement["directive_id"], None)
+                settled_slots = issued_action_slots.pop(settlement["directive_id"], "")
+                # A tool cannot learn this any other way: `tool_context.state`
+                # froze when the streaming invocation opened. Without it One
+                # re-ran work it had already completed -- the share landed, the
+                # composer cleared, and every retry found nothing selected.
+                if settlement["status"] in {"succeeded", "started", "noop"}:
+                    record_completed_action(
+                        session_id, settlement["action_id"], settled_slots
+                    )
                 raw_settlement = raw_settlement if isinstance(raw_settlement, dict) else {}
                 receipt = _bounded_text(raw_settlement.get("receipt"), 256)
                 try:
@@ -1269,6 +1292,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 text = message.get("text")
                 if isinstance(text, str) and text.strip():
                     await _disarm_open_directives()
+                    clear_completed_actions(session_id)
                     greeting_gate.cancel_for_visitor_activity()
                     _cancel_pending_greeting()
                     queue.send_content(
@@ -1478,6 +1502,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                         directive_id = issued.directive_id
                         issued_action_directives[directive_id] = action_id
                         issued_action_fingerprints[directive_id] = new_fingerprint
+                        issued_action_slots[directive_id] = _slot_fingerprint(slots)
                         # Remembered at ISSUE time, from the payload this relay
                         # parked itself. Asking the settling frame whether it
                         # needed confirming would let the browser decide its own

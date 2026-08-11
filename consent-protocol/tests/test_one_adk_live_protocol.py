@@ -629,3 +629,59 @@ def test_the_hold_never_resurrects_a_cue_that_speech_already_cancelled():
     gate.cancel_for_visitor_activity()
 
     assert gate.schedule() is None
+
+
+def test_an_action_that_already_succeeded_is_not_run_again():
+    """The stop condition that a re-entering model cannot talk its way past.
+
+    Live, One shared a location successfully, the composer cleared its
+    selection the way it always does after a send, and One -- which had no way
+    to learn it had succeeded -- tried again. Every retry found an empty
+    composer, settled "nobody is selected yet", and it tried again. A hard
+    loop, on an action that had already worked.
+
+    A tool cannot see settlements through `tool_context.state`: that froze when
+    the streaming invocation opened. This is the seam that carries it.
+    """
+    from hushh_mcp.services.live_voice_context import (
+        clear_completed_actions,
+        read_completed_action,
+        record_completed_action,
+    )
+
+    session = "session-loop-test"
+    clear_completed_actions(session)
+    assert read_completed_action(session, "location.share_selected") is None
+
+    record_completed_action(session, "location.share_selected", '{"duration_hours": "0.25"}')
+    assert (
+        read_completed_action(session, "location.share_selected")
+        == '{"duration_hours": "0.25"}'
+    )
+    # Scoped to the action. Finishing a share says nothing about a pause.
+    assert read_completed_action(session, "location.pause_updates") is None
+    # And to the session, so one person's completed work never suppresses
+    # another's identical request.
+    assert read_completed_action("someone-else", "location.share_selected") is None
+
+    clear_completed_actions(session)
+    assert read_completed_action(session, "location.share_selected") is None
+
+
+def test_the_guard_distinguishes_different_inputs_to_the_same_action():
+    """Repeating an action with DIFFERENT inputs is a new request, not a loop.
+
+    The relay's directive dedupe fingerprints slot KEYS only, which cannot
+    tell "share for 15 minutes" from "share for an hour" -- fine for
+    suppressing a duplicate still in flight, far too coarse for deciding
+    something has already been done. This guard fingerprints values.
+    """
+    from hushh_mcp.one_adk.action_tools import _slot_fingerprint
+
+    quarter_hour = _slot_fingerprint({"duration_hours": "0.25"})
+    an_hour = _slot_fingerprint({"duration_hours": "1"})
+    assert quarter_hour != an_hour
+    # Stable regardless of dict ordering, or the same request would look new.
+    assert _slot_fingerprint({"a": "1", "b": "2"}) == _slot_fingerprint({"b": "2", "a": "1"})
+    # Naming a different person is a different request, and must get through.
+    assert _slot_fingerprint({"person": "Sarah"}) != _slot_fingerprint({"person": "Abdul"})
