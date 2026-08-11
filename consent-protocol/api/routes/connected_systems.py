@@ -127,6 +127,42 @@ class CrmZkApprovalProofRequest(BaseModel):
     )
 
 
+class CrmZkUatSearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    object_type: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("objectType", "object_type"),
+        max_length=80,
+    )
+    return_fields: list[str] = Field(
+        validation_alias=AliasChoices("returnFields", "return_fields"),
+        min_length=1,
+        max_length=128,
+    )
+    encrypted_fields: dict[str, Any] = Field(
+        validation_alias=AliasChoices("encryptedFields", "encrypted_fields")
+    )
+
+
+class CrmZkUatUpdateIntentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    object_type: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("objectType", "object_type"),
+        max_length=80,
+    )
+    field_names: list[str] = Field(
+        validation_alias=AliasChoices("fieldNames", "field_names"),
+        min_length=1,
+        max_length=128,
+    )
+    encrypted_fields: dict[str, Any] = Field(
+        validation_alias=AliasChoices("encryptedFields", "encrypted_fields")
+    )
+
+
 class CrmDeleteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -443,6 +479,69 @@ async def update_connected_system_record_intent_crm_zk(
         _raise_connected_system_error(error)
 
 
+@router.get("/{system_id}/crm-zk-uat/config")
+async def get_connected_system_crm_zk_uat_config(
+    system_id: str = Path(..., min_length=1, max_length=128),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    _ = _user_id(token_data)
+    try:
+        return get_connected_systems_service().crm_zk_uat_configuration(system_id=system_id)
+    except ConnectedSystemsError as error:
+        _raise_connected_system_error(error)
+
+
+@router.post("/{system_id}/records/search-zk-uat")
+async def search_connected_system_record_crm_zk_uat(
+    body: CrmZkUatSearchRequest,
+    system_id: str = Path(..., min_length=1, max_length=128),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    service = get_connected_systems_service()
+    try:
+        mapping = await _require_schema_mapping(
+            service=service, system_id=system_id, object_type=body.object_type
+        )
+        search_field_names = [
+            str(mapping[name])
+            for name in ("email", "phone")
+            if str(mapping.get(name) or "").strip()
+        ]
+        return await service.search_record_crm_zk_uat(
+            user_id=_user_id(token_data),
+            system_id=system_id,
+            object_type=body.object_type,
+            return_fields=body.return_fields,
+            search_field_names=search_field_names,
+            encrypted_fields=body.encrypted_fields,
+        )
+    except ConnectedSystemsError as error:
+        _raise_connected_system_error(error)
+
+
+@router.post("/{system_id}/records/update-intents-zk-uat")
+async def update_connected_system_record_intent_crm_zk_uat(
+    body: CrmZkUatUpdateIntentRequest,
+    system_id: str = Path(..., min_length=1, max_length=128),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    service = get_connected_systems_service()
+    try:
+        mapping = await _require_schema_mapping(
+            service=service, system_id=system_id, object_type=body.object_type
+        )
+        return await service.create_crm_zk_uat_update_intent(
+            user_id=_user_id(token_data),
+            system_id=system_id,
+            object_type=body.object_type,
+            field_names=body.field_names,
+            encrypted_fields=body.encrypted_fields,
+            locked_field_names=set(mapping.values()),
+        )
+    except ConnectedSystemsError as error:
+        _raise_connected_system_error(error)
+
+
 @router.delete("/{system_id}/record-binding")
 async def disconnect_connected_system_record_binding(
     system_id: str = Path(..., min_length=1, max_length=128),
@@ -662,6 +761,20 @@ async def approve_connected_system_crm_zk_intent(
             system_id=system_id,
             intent_id=intent_id,
             approval_proof=body.approval_proof,
+        )
+    except ConnectedSystemsError as error:
+        _raise_connected_system_error(error)
+
+
+@router.post("/{system_id}/intents/{intent_id}/approve-zk-uat")
+async def approve_connected_system_crm_zk_uat_intent(
+    system_id: str = Path(..., min_length=1, max_length=128),
+    intent_id: str = Path(..., min_length=1, max_length=128),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        return await get_connected_systems_service().approve_crm_zk_uat_intent(
+            user_id=_user_id(token_data), system_id=system_id, intent_id=intent_id
         )
     except ConnectedSystemsError as error:
         _raise_connected_system_error(error)
