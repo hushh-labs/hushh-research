@@ -26,7 +26,7 @@ describe("private-agent action confirmation contract", () => {
     expect(source).toContain("setPendingAppAction(null);");
   });
 
-  it("treats new voice intent as cancellation and requires a second run tap", () => {
+  it("keeps voice confirmation fail-closed but executes after one spoken yes", () => {
     const source = fs.readFileSync(
       path.join(root, "components/agent/agent-bar.tsx"),
       "utf8",
@@ -39,12 +39,19 @@ describe("private-agent action confirmation contract", () => {
     expect(source).toContain('clearJourneyGrant("new_user_intent")');
     expect(source).toContain('"confirmation_superseded"');
     expect(source).toContain('"superseded_by_new_directive"');
-    expect(source).toContain("const needsConfirmation = true;");
-    expect(source).toContain("Authorized. Tap Run to execute.");
+    expect(source).toContain("event.directive.payload?.needsConfirmation !== false");
+    expect(source).toContain("Say yes to run this, or no to cancel.");
+    expect(source).toContain("settlePendingConfirmationRef.current(true);");
+    expect(source).not.toContain("Allow access to complete this");
+    expect(source).not.toContain(' : "Run"');
     expect(source).toContain("if (!pending.receipt)");
     expect(source).toContain("confirmationTransport.confirmActionDirective({");
     expect(source).not.toContain("void confirmDirective({");
     expect(source).toContain("event.directive.delegateAgentId ?? null");
     expect(source).toContain("kind: event.directive.kind,");
+    const bindingCheck = source.indexOf("if (!directiveId || !contextRevision)");
+    const supersession = source.indexOf('"superseded_by_new_directive"');
+    expect(bindingCheck).toBeGreaterThan(-1);
+    expect(supersession).toBeGreaterThan(bindingCheck);
   });
 });

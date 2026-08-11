@@ -2078,9 +2078,12 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "connect.cancel_request",
           "connect.open_nearby",
           "connect.open_people",
+          "connect.remove_connection",
           "connect.search_people",
+          "connect.send_request",
           "location.add_connections",
           "route.one_connect"
         ],
@@ -2888,6 +2891,7 @@
       "voice": {
         "action_ids": [
           "location.add_connections",
+          "location.add_emergency_contact",
           "location.chat.turn",
           "location.open_active_shares",
           "location.open_ask",
@@ -2906,7 +2910,14 @@
           "location.open_sms_contacts",
           "location.open_sos",
           "location.open_temporary_link",
+          "location.pause_updates",
           "location.refresh",
+          "location.remove_emergency_contact",
+          "location.resume_updates",
+          "location.select_share_recipient",
+          "location.set_auto_share",
+          "location.share_selected",
+          "location.stop_sos",
           "route.one_location"
         ],
         "delegate_agent_ids": [
@@ -4612,21 +4623,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "67ed674be9cfe964e7e8c3cc6d58d286f37a099448c24ebea86df7bc1ec6c008",
+    "action_gateway": "82499f8e5b3d3bd8c4786efe2204280cf2b07491e077c5207cdfcc6a85da0953",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
     "cache_manifest": "10c2f6644a392c85a57b65c04457bfaab5c605b6448651a7eb1db39697aa55f5",
     "data_plane": "270affce3a97bcbde752a465927f065005176f0ddc69aeb9419e6605bbc4f94d",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "823cea99e91f20e95144a97f2e691e354f85d3fa76c83c92cfede3bd4c29f283",
-    "route_index": "15cd0cf0bd4a8b4b4e49ffddc4acc01b9f7356453b9cd3ec57e268a163df706b",
+    "one_specialist_tools": "36c045c32bf380e72429c1402ed29298c1c5561fbb0ad1ab56c25b8649e59f49",
+    "route_index": "12e5b027bb806ccc4ebe2c0f975e65ade48394e876ec63608968a89750e748b6",
     "route_layout": "074616efd1e8efddd5cc09df8576bb3d5293070355cd04d42d023930fa47bf62",
-    "surface_map": "ec315dc74d897890fada813452654506ffe1132ba388aa62322422ee2a49a437",
+    "surface_map": "37e5c6418f184d37ed539560e30e6aefeb79924277aefb517c27308fb9007078",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 140,
+    "actions": 151,
     "agents": 18,
     "aliases": 3,
     "decision_required": 2,

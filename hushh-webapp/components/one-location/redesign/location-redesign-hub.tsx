@@ -169,6 +169,8 @@ export type LocationHubViewModel = {
   revokingGrantId: string | null;
   /** Bumped on each successful share so the hub can close the share flow. */
   shareCompletedTick: number;
+  /** Where a completed share should land, when not the clean hub. */
+  shareCompletedDestination?: string | null;
 
   /* device + self location */
   readiness: {
@@ -528,6 +530,10 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
           onCheckedChange={handleLocationChange}
           disabled={toggling || refreshing}
           aria-label={locationOn ? "Turn location off" : "Turn location on"}
+          // The same pair of contract actions the Settings toggle carries.
+          // Both are the same control in two places, so voice can offer
+          // pause/resume from the Now tab without opening Settings first.
+          data-voice-control-id="one-location-updates-toggle"
           // No colour override: the shared Switch already carries the iOS
           // system green, so this toggle reads the same as every other one.
           className={cn(toggling && "animate-pulse")}
@@ -830,6 +836,14 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         router.replace(nearbyCheckInReturnHref, { scroll: false });
         return;
       }
+      // An authored landing wins over the clean-up below, and has to be
+      // decided HERE rather than pushed by the caller: this effect calls
+      // router.replace on the very next render, so anything the caller
+      // navigated to would simply be replaced away.
+      if (vm.shareCompletedDestination) {
+        router.replace(vm.shareCompletedDestination, { scroll: false });
+        return;
+      }
       // Drop the action param so the hub URL is clean after a completed share.
       if ((searchParams.get(FLOW_ACTION_PARAM) || "").trim()) {
         const params = new URLSearchParams(searchParams.toString());
@@ -841,6 +855,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     }
   }, [
     vm.shareCompletedTick,
+    vm.shareCompletedDestination,
     nearbyCheckInReturnHref,
     nearbyPrivateCheckIn,
     pathname,
@@ -1418,11 +1433,14 @@ function LocationToggle({
   onChange,
   label,
   disabled = false,
+  voiceControlId,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
   disabled?: boolean;
+  /** Anchors contract actions to this control so voice offers them only here. */
+  voiceControlId?: string;
 }) {
   return (
     <button
@@ -1431,6 +1449,7 @@ function LocationToggle({
       aria-checked={checked}
       aria-label={label}
       disabled={disabled}
+      data-voice-control-id={voiceControlId}
       onClick={() => onChange(!checked)}
       className={cn(
         "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-200",
@@ -1494,6 +1513,7 @@ function LocationSettingsFlow({
               }}
               label="Pause my location"
               disabled={BUSY(vm, "selfLocation")}
+              voiceControlId="one-location-updates-toggle"
             />
           }
           density="compact"
@@ -2121,6 +2141,7 @@ function ShareFlow({
           <Button
             onClick={vm.onConfirmShare}
             isLoading={vm.busy === "share"}
+            data-voice-control-id="one-location-confirm-share"
             className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
           >
             Start sharing
@@ -2285,6 +2306,7 @@ function ShareFlow({
       <PersonSearchInput
         value={vm.shareRecipientSearch}
         onChange={vm.setShareRecipientSearch}
+        voiceControlId="one-location-share-recipient-search"
       />
       {filtered.length ? (
         <div className={PEOPLE_LIST_SCROLL_CLASS}>

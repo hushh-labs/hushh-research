@@ -256,6 +256,57 @@ class ActionDirectiveStore:
         if not (result.data or []):
             raise ActionDirectiveAuthorityError("directive cannot be settled")
 
+    async def settle_direct(
+        self,
+        *,
+        directive_id: str,
+        user_id: str,
+        action_id: str,
+        context_revision: str,
+        status: Literal["succeeded", "failed", "cancelled"],
+        reason_code: str,
+    ) -> None:
+        """Close a directive that was issued with no confirmation step.
+
+        ``settle`` above proves a human gesture: it matches the receipt hash
+        minted by ``confirm`` and demands state 'consumed'. A directive parked
+        as ``needsConfirmation: false`` never raises a card, so it never mints
+        a receipt and never leaves 'issued' -- and its settlement was refused
+        outright. That silently discarded the outcome of almost every action:
+        the browser really ran them, and the relay dropped the only frame that
+        could tell One so.
+
+        Authority here is the same binding minus the gesture. The directive id
+        was minted by this relay for this socket, and the settling frame must
+        still match its user, action and context revision. ``state = 'issued'``
+        makes it close exactly once, so a replayed frame finds nothing. What is
+        given up is proof that a finger moved -- which is precisely what these
+        actions are declared not to require.
+        """
+        result = await self._execute(
+            """
+            UPDATE one_action_directive_ledger
+            SET state = 'settled', settlement_status = :status,
+                settlement_reason_code = :reason_code, settled_at = NOW()
+            WHERE directive_id = :directive_id
+              AND user_id = :user_id
+              AND action_id = :action_id
+              AND context_revision = :context_revision
+              AND state = 'issued'
+            RETURNING directive_id
+            """,
+            {
+                "directive_id": directive_id,
+                "user_id": user_id,
+                "action_id": action_id,
+                "context_revision": context_revision,
+                "status": status,
+                "reason_code": reason_code[:64],
+            },
+        )
+        if not (result.data or []):
+            raise ActionDirectiveAuthorityError("directive cannot be settled")
+
     async def cancel_open_for_conversation(self, *, user_id: str, conversation_id: str) -> None:
         """Disarm prior proposals when the user starts another chat turn."""
         await self._execute(

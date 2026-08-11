@@ -47,7 +47,20 @@ export function navigationActionForRoute(route: string): string | null {
       );
     })
     .map((action) => action.action_id)
-    .sort();
+    // Prefer a `route.*` escort when the destination has one, matching
+    // `_navigation_action_for_route` in action_tools.py. Plain alphabetical
+    // order picked `location.open_now` over `route.one_location` and -- worse
+    // -- `location.add_connections` to escort a CONNECT journey, purely
+    // because "location" sorts before "route". Both navigate correctly, but
+    // only the `route.*` ones are in GLOBAL_NAV_ACTION_IDS, so they are the
+    // ones guaranteed to be offered from any screen. Alphabetical still breaks
+    // ties within each group, so the choice stays deterministic.
+    .sort((left, right) => {
+      const leftIsRoute = left.startsWith("route.");
+      const rightIsRoute = right.startsWith("route.");
+      if (leftIsRoute !== rightIsRoute) return leftIsRoute ? -1 : 1;
+      return left.localeCompare(right);
+    });
   return candidates[0] ?? null;
 }
 

@@ -1086,3 +1086,80 @@ describe("buildStructuredScreenContext", () => {
     });
   });
 });
+
+describe("a surface that declares more controls than the context can carry", () => {
+  beforeEach(() => {
+    clearVoiceSurfaceMetadata();
+  });
+
+  it("keeps the actions that DO something when the openers outnumber the cap", () => {
+    // Location's real shape: 18 controls whose first ten all open a tab, with
+    // every acting handler declared last. `publishedActionIds` was capped at
+    // 10 BEFORE ranking, so the ranking written to protect local handlers was
+    // handed a list they had already been cut from -- and its "what was lost"
+    // warning could never fire, because the list arrived pre-truncated.
+    //
+    // The model was therefore told this screen offers ten ways to open a tab
+    // and nothing that acts. Every acting request came back
+    // `action_unavailable`, which reads as a broken feature rather than as a
+    // full array. Existing fixtures all publish 2-3 controls, so nothing here
+    // ever exercised the cap.
+    window.history.pushState({}, "", "/one/location");
+    publishVoiceSurfaceMetadata("test_surface", {
+      screenId: "one_location",
+      controls: [
+        ...[
+          "location.open_share",
+          "location.open_map",
+          "location.open_active_shares",
+          "location.open_shared_with_me",
+          "location.open_needs_review",
+          "location.open_settings",
+          "location.open_check_in",
+          "location.open_sos",
+          "location.open_ask",
+          "location.open_invite",
+          "location.open_create_circle",
+          "location.open_join_circle",
+        ].map((actionId) => ({ id: actionId, actionId, label: actionId })),
+        // Declared last, exactly as the surface declares them.
+        {
+          id: "one-location-updates-toggle",
+          actionId: "location.pause_updates",
+          label: "Location updates",
+        },
+        {
+          id: "one-location-confirm-share",
+          actionId: "location.share_selected",
+          label: "Start sharing",
+        },
+        {
+          id: "one-location-share-recipient-search",
+          actionId: "location.select_share_recipient",
+          label: "Search trusted people",
+        },
+      ],
+    });
+
+    const snapshot = buildOneVoiceContextSnapshot({
+      appRuntimeState: makeRuntimeState("/one/location", "one_location"),
+    });
+
+    // The whole point of the surface. Sharing is what someone asks Location
+    // for out loud; being unable to offer it is the feature not existing.
+    expect(snapshot.available_action_ids).toContain("location.share_selected");
+    expect(snapshot.available_action_ids).toContain(
+      "location.select_share_recipient",
+    );
+    expect(snapshot.available_action_ids).toContain("location.pause_updates");
+    // Still bounded -- this fixes an ordering bug, it does not lift the cap.
+    expect(snapshot.available_action_ids.length).toBeLessThanOrEqual(
+      STRUCTURED_CONTEXT_ARRAY_CAP,
+    );
+    // And the openers are what yields, since navigation is admitted from any
+    // screen whether or not this surface submitted it.
+    expect(snapshot.available_action_ids).not.toContain(
+      "location.open_join_circle",
+    );
+  });
+});

@@ -2307,9 +2307,12 @@
       },
       "voice_action_contract_file": "app/one/connect/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "connect.cancel_request",
         "connect.open_nearby",
         "connect.open_people",
+        "connect.remove_connection",
         "connect.search_people",
+        "connect.send_request",
         "route.one_connect"
       ],
       "api_dependencies": [],
@@ -3906,6 +3909,7 @@
       "voice_action_contract_file": "app/one/location/page.voice-action-contract.json",
       "voice_action_contract_ids": [
         "location.add_connections",
+        "location.add_emergency_contact",
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
@@ -3923,7 +3927,14 @@
         "location.open_sms_contacts",
         "location.open_sos",
         "location.open_temporary_link",
-        "location.refresh"
+        "location.pause_updates",
+        "location.refresh",
+        "location.remove_emergency_contact",
+        "location.resume_updates",
+        "location.select_share_recipient",
+        "location.set_auto_share",
+        "location.share_selected",
+        "location.stop_sos"
       ],
       "api_dependencies": [
         {
@@ -8183,5 +8194,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "40268eea3e1edfa4ba2e984936b248c9c7105def78eafc9c3d240ebe23a1aaaa"
+  "content_sha256": "0fd7c4cf65e26d43d5d8c3c2d696fae9c3aa17657e0e0bf89df5378c9f544dea"
 }

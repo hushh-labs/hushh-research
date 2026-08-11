@@ -18,6 +18,10 @@ from typing import Any, Callable
 from sqlalchemy import text
 
 from db.db_client import get_db
+from hushh_mcp.services.connection_graph_service import (
+    ORIGIN_DIRECT_REQUEST,
+    ensure_connection_origin,
+)
 from hushh_mcp.services.feed_service import FeedService
 
 logger = logging.getLogger(__name__)
@@ -1443,6 +1447,28 @@ class ConnectionsService:
                 """,
                 {"a": user_a, "b": user_b},
             )
+            # Location eligibility needs BOTH an active `connections` row and
+            # an active non-circle origin. Acceptance wrote only the first, so
+            # a person could be connected in Connect and simply absent from
+            # Location's recipient list -- surfacing as "nobody in your
+            # connections matches that name" about someone plainly there, and
+            # leaving "connect with X, then share my location with X" broken at
+            # a step that looked like it had succeeded.
+            #
+            # Recorded through the graph service that owns origins rather than
+            # by writing the table here, and inside the same transaction that
+            # activates the connection, so the two can never disagree. The
+            # helper is idempotent, which matters because acceptance is
+            # retryable.
+            graph_connection = getattr(self, "_transaction_connection", None)
+            if graph_connection is not None:
+                ensure_connection_origin(
+                    graph_connection,
+                    user_a_id=user_a,
+                    user_b_id=user_b,
+                    kind=ORIGIN_DIRECT_REQUEST,
+                    source_ref=str(req.get("id") or "") or None,
+                )
             # Mirror both directional trusted edges so location/SOS readers keep working.
             self._mirror_trusted_edge(requester, user_id)
             self._mirror_trusted_edge(user_id, requester)
