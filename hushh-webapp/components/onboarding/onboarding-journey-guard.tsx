@@ -13,6 +13,7 @@ import {
   isOnboardingAdmissionExemptRoute,
   isOneSetupRoute,
   isOneSetupSurfaceRoute,
+  normalizeStaticExportPathname,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
@@ -123,8 +124,13 @@ export function OnboardingJourneyGuard({
     persistentSetupResolved ||
       (cachedState && PreVaultUserStateService.isSetupResolved(cachedState)),
   );
+  // Finance setup remains a valid, bounded capability entry after the one-time
+  // root journey is dismissed. Root completion (including Skip) is not the
+  // durable Finance completion signal.
+  const isPostRootFinanceSetup =
+    normalizeStaticExportPathname(pathname) === ROUTES.ONE_SETUP_FINANCE;
   const shouldEjectSetupSurface = Boolean(
-    setupSurface && setupDismissed,
+    setupSurface && setupDismissed && !isPostRootFinanceSetup,
   );
 
   useEffect(() => {

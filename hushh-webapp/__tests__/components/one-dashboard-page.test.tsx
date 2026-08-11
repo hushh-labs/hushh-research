@@ -49,7 +49,7 @@ describe("OneDashboardPage", () => {
     window.localStorage.clear();
   });
 
-  it("routes home tiles to the product surface once onboarding is dismissed", () => {
+  it("keeps unfinished Finance actionable after root onboarding is dismissed", () => {
     const userId = "dashboard-dismissed-user";
     OneSetupCompletionHintService.markResolved(userId); // dismissed
 
@@ -63,12 +63,12 @@ describe("OneDashboardPage", () => {
       />,
     );
 
-    // Profile-only: a not-configured tile opens the capability's own screen,
-    // never /one/setup/* (which the guard would eject a dismissed user from).
+    // Root onboarding completion is not Finance completion. The resolver's
+    // actionable state must still lead to the bounded Finance setup workspace.
     const financeLink = screen.getByRole("link", { name: "Open Finance" });
-    const href = financeLink.getAttribute("href") ?? "";
-    expect(href).not.toBe(buildOneSetupCapabilityRoute("finance"));
-    expect(href.startsWith("/one/setup")).toBe(false);
+    expect(financeLink.getAttribute("href")).toBe(
+      buildOneSetupCapabilityRoute("finance"),
+    );
   });
 
   it("renders the primary One agent modes with route targets", () => {

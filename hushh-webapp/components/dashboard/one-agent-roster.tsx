@@ -274,6 +274,11 @@ function buildModes(
 
     const isActionable =
       "isActionable" in display ? (display as any).isActionable : true;
+    const opensSetup = Boolean(
+      setupCapability &&
+        isActionable &&
+        (!setupDismissed || capability.id === "finance"),
+    );
 
     const primaryMetric =
       cachedMetrics[capability.id] ??
@@ -286,14 +291,12 @@ function buildModes(
       id: capability.id,
       title: capability.title,
       description: capability.description,
-      // Once onboarding is dismissed, a home tile for a not-yet-configured
-      // capability opens the capability's OWN screen — never the setup hub.
-      // Setup is reachable only via Profile → "Set Up One" (post-onboarding),
-      // and routing a tile into a setup surface would be ejected by the guard.
-      href:
-        !setupDismissed && setupCapability && isActionable
-          ? buildOneSetupCapabilityRoute(capability.id)
-          : capability.href,
+      // Root onboarding dismissal normally opens the product workspace.
+      // Finance remains an exception while its own resolver says setup is
+      // actionable: root completion or Skip is not Finance completion.
+      href: opensSetup
+        ? buildOneSetupCapabilityRoute(capability.id)
+        : capability.href,
       icon: capability.icon,
       statusTone: display.tone,
       primaryMetric,
