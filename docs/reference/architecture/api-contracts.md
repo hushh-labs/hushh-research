@@ -425,6 +425,15 @@ Macy's compatibility aliases only and are routed through the same schema
 validation. Create, update, and delete are auditable, idempotently approved
 intents. Only intent approval issues the registered direct MCP mutation.
 
+Two mutually exclusive encrypted profiles are default-off per connector.
+`crm-zk.v1` is the stronger production-candidate contract with authenticated
+metadata and signatures. `crm-zk-uat.v1` is a MuleSoft compatibility profile
+for sandbox conformance only: X25519, direct SHA-256 of the shared secret, and
+AES-256-GCM without AAD. It encrypts `searchFields`, read `returnFields`, and
+update `additionalFields`; it relies on Hussh owner authentication/approval and
+the authenticated gateway transport. It must not be described as independent
+cryptographic authorization, replay-proof, or production-ready.
+
 A successful exact-bound-id read with a valid registered response contract and
 an empty record collection returns `bindingStatus=remote_record_missing`.
 Malformed responses and transport, authorization, timeout, or MCP tool failures
@@ -448,6 +457,10 @@ active binding exists.
 | POST | `/api/connected-systems/{system_id}/records/delete` | Compatibility path that creates a reviewable delete intent; it never deletes immediately |
 | POST | `/api/connected-systems/{system_id}/intents/{intent_id}/approve` | Idempotently approve and execute a pending mutation through its registered MCP tool |
 | POST | `/api/connected-systems/{system_id}/intents/{intent_id}/reject` | Reject a pending intent without calling MCP |
+| GET | `/api/connected-systems/{system_id}/crm-zk-uat/config` | Return the registry-pinned sandbox recipient key for `crm-zk-uat.v1`; never accepts a request-supplied key or connector configuration |
+| POST | `/api/connected-systems/{system_id}/records/search-zk-uat` | Relay encrypted verified-profile `searchFields` only for an already owner-bound sandbox record; Hussh supplies the bound record ID and MuleSoft must reject any lookup result for another record |
+| POST | `/api/connected-systems/{system_id}/records/update-intents-zk-uat` | Create a ciphertext-only pending update intent from `{ objectType, fieldNames, encryptedFields }`; no record ID or field value is browser-controlled plaintext |
+| POST | `/api/connected-systems/{system_id}/intents/{intent_id}/approve-zk-uat` | Execute the already-reviewed opaque update once through Hussh's authenticated, idempotent approval lifecycle; accepts no approval proof body and returns a metadata-only acknowledgement |
 
 Registry activation is not an API. Operators use the local, ignored
 `crm-registry.v1` descriptor with

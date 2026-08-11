@@ -1002,9 +1002,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # re-ran work it had already completed -- the share landed, the
                 # composer cleared, and every retry found nothing selected.
                 if settlement["status"] in {"succeeded", "started", "noop"}:
-                    record_completed_action(
-                        session_id, settlement["action_id"], settled_slots
-                    )
+                    record_completed_action(session_id, settlement["action_id"], settled_slots)
                 raw_settlement = raw_settlement if isinstance(raw_settlement, dict) else {}
                 receipt = _bounded_text(raw_settlement.get("receipt"), 256)
                 try:
@@ -1127,9 +1125,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     # no second publish. The live snapshot is already
                     # sanitized and `continue_app_goal` will still verify its
                     # fresh revision before issuing the destination action.
-                    if _goal_continuation_is_already_ready(
-                        latest_context, continuation_screen
-                    ):
+                    if _goal_continuation_is_already_ready(latest_context, continuation_screen):
                         awaiting_goal_context.pop(goal_id, None)
                         continuation_ready_now = True
                         logger.info(

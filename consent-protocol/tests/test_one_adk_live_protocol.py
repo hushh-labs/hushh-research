@@ -531,14 +531,18 @@ def test_a_journey_waits_for_the_screen_its_own_run_names():
     # and nothing happen on it, which is indistinguishable from success.
     run = _navigation_run("goal.location.select_share_recipient", "one_location")
 
-    assert _navigation_continuation_screen(
-        "goal.location.select_share_recipient", run, "succeeded"
-    ) == "one_location"
-    assert _navigation_continuation_screen(
-        "goal.analysis.start_debate",
-        _navigation_run("goal.analysis.start_debate", "kai_analysis"),
-        "started",
-    ) == "kai_analysis"
+    assert (
+        _navigation_continuation_screen("goal.location.select_share_recipient", run, "succeeded")
+        == "one_location"
+    )
+    assert (
+        _navigation_continuation_screen(
+            "goal.analysis.start_debate",
+            _navigation_run("goal.analysis.start_debate", "kai_analysis"),
+            "started",
+        )
+        == "kai_analysis"
+    )
 
 
 def test_a_journey_releases_when_destination_context_precedes_route_settlement():
@@ -546,12 +550,8 @@ def test_a_journey_releases_when_destination_context_precedes_route_settlement()
     # before it emits `action_settled`. The relay must treat that latest,
     # already-sanitized snapshot as sufficient rather than wait forever for a
     # second app_context frame.
-    assert _goal_continuation_is_already_ready(
-        {"screen": "one_location"}, "one_location"
-    )
-    assert not _goal_continuation_is_already_ready(
-        {"screen": "one_location"}, "connect"
-    )
+    assert _goal_continuation_is_already_ready({"screen": "one_location"}, "one_location")
+    assert not _goal_continuation_is_already_ready({"screen": "one_location"}, "connect")
     assert not _goal_continuation_is_already_ready({}, "one_location")
 
 
@@ -561,17 +561,24 @@ def test_a_settled_action_step_is_never_mistaken_for_another_cue_to_act():
     # to hear -- re-arming here would send it back to run the step it just ran.
     ran = _navigation_run("goal.location.select_share_recipient", "one_location", step_cursor=1)
 
-    assert _navigation_continuation_screen(
-        "goal.location.select_share_recipient", ran, "succeeded"
-    ) is None
+    assert (
+        _navigation_continuation_screen("goal.location.select_share_recipient", ran, "succeeded")
+        is None
+    )
 
 
 def test_a_navigation_that_did_not_arrive_continues_nothing():
     run = _navigation_run("goal.location.select_share_recipient", "one_location")
 
     # Nothing to stand on, so there is nothing to run there.
-    assert _navigation_continuation_screen("goal.location.select_share_recipient", run, "blocked") is None
-    assert _navigation_continuation_screen("goal.location.select_share_recipient", run, "failed") is None
+    assert (
+        _navigation_continuation_screen("goal.location.select_share_recipient", run, "blocked")
+        is None
+    )
+    assert (
+        _navigation_continuation_screen("goal.location.select_share_recipient", run, "failed")
+        is None
+    )
     # A directive with no goal behind it is an ordinary action, not a journey.
     assert _navigation_continuation_screen(None, run, "succeeded") is None
     # The settled-choice journey shape has its own continuation path.
@@ -654,10 +661,7 @@ def test_an_action_that_already_succeeded_is_not_run_again():
     assert read_completed_action(session, "location.share_selected") is None
 
     record_completed_action(session, "location.share_selected", '{"duration_hours": "0.25"}')
-    assert (
-        read_completed_action(session, "location.share_selected")
-        == '{"duration_hours": "0.25"}'
-    )
+    assert read_completed_action(session, "location.share_selected") == '{"duration_hours": "0.25"}'
     # Scoped to the action. Finishing a share says nothing about a pause.
     assert read_completed_action(session, "location.pause_updates") is None
     # And to the session, so one person's completed work never suppresses
