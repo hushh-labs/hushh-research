@@ -1619,7 +1619,12 @@ export function LocationImmersiveMap({
       />
       <div
         ref={topControlsRef}
-        className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))]"
+        // z-30 (above the z-20 map loading/error overlay and people tray): at
+        // equal z-index the later-in-DOM full-screen overlay painted on top of
+        // the close X and could swallow the tap that dismisses the map. Keeping
+        // the controls strictly above every map layer guarantees the back/X and
+        // locate buttons stay tappable in every state (loading, error, tray open).
+        className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))]"
       >
         <ShellActionSurface
           className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
