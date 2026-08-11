@@ -634,6 +634,40 @@ export default function ConnectPageClient() {
           summary: "I could not identify one exact person by that name.",
         };
       }
+      // The backend already distinguishes these four, and collapsing them lost
+      // the only part the person needed. "A new connection request is not
+      // available" was returned when they were ALREADY connected -- which is
+      // success -- and equally when the other party had yet to accept, when
+      // the person had an invitation of their own sitting unread, and when
+      // something had genuinely gone wrong. Reported as One saying it needed
+      // approval for something already done.
+      //
+      // Only `none` sends. The rest each mean something specific and are said
+      // plainly, because two of them are not problems at all.
+      if (person.relationship === "connected") {
+        return {
+          // `succeeded`, not `blocked`. The person asked to be connected to
+          // someone they are already connected to: the thing they wanted is
+          // true, so anything that sounds like a refusal is a lie about their
+          // own account. (A local handler has no `noop`; the settlement enum
+          // does, but this layer only speaks started/succeeded/blocked/failed.)
+          status: "succeeded",
+          summary: `You are already connected to ${person.displayName}, so there was nothing to send.`,
+        };
+      }
+      if (person.relationship === "pending_outgoing") {
+        return {
+          status: "blocked",
+          // The honest boundary: nothing the app or One can do advances this.
+          summary: `You already asked ${person.displayName} to connect, and it is waiting on them to accept. Nobody here can move that along.`,
+        };
+      }
+      if (person.relationship === "pending_incoming") {
+        return {
+          status: "blocked",
+          summary: `${person.displayName} has already asked to connect with you. Open Connect and accept their request instead of sending one back.`,
+        };
+      }
       if (person.relationship !== "none") {
         return {
           status: "blocked",
