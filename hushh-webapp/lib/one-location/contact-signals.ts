@@ -168,3 +168,84 @@ export async function openContactPermissionSettings(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * How a completed sync should be reported, and what the user can do about it.
+ *
+ * Kept pure and separate from the toast so the wording is testable. It exists
+ * because a partial read was being reported as if it were a whole one: the web
+ * Contact Picker and iOS limited access both return only a hand-picked subset,
+ * yet a match count phrased as "3 people added" reads as though the entire
+ * address book was searched.
+ */
+export type ContactSyncRemedy =
+  /** Re-run the picker so more contacts can be included (web). */
+  | "pick_more"
+  /** Open OS settings to widen contact access (iOS limited access). */
+  | "open_settings"
+  | null;
+
+export type ContactSyncOutcome = {
+  title: string;
+  description?: string;
+  remedy: ContactSyncRemedy;
+};
+
+function peopleLabel(count: number): string {
+  return count === 1 ? "1 person" : `${count} people`;
+}
+
+function contactsLabel(count: number): string {
+  return count === 1 ? "1 contact" : `${count} contacts`;
+}
+
+export function describeContactSyncOutcome(
+  result: Pick<
+    OneLocationContactSignalResult,
+    "matchedUserIds" | "totalContacts" | "sourcePlatform" | "limited" | "truncated"
+  >,
+): ContactSyncOutcome {
+  const matched = result.matchedUserIds.length;
+
+  // The picker grants per-invocation and has no settings page to open, so
+  // offering "Settings" there sends the user somewhere that cannot help —
+  // openAppSettings resolves false on web. Re-running the picker is the only
+  // real remedy. iOS limited access is the opposite: the subset is sticky
+  // until it is widened in Settings.
+  const remedy: ContactSyncRemedy = !result.limited
+    ? null
+    : result.sourcePlatform === "web"
+      ? "pick_more"
+      : "open_settings";
+
+  if (result.limited) {
+    const scanned = contactsLabel(result.totalContacts);
+    return {
+      title: matched
+        ? `${matched} of the ${scanned} you shared ${matched === 1 ? "is" : "are"} on Hushh`
+        : `None of the ${scanned} you shared are on Hushh yet`,
+      description:
+        remedy === "pick_more"
+          ? "Only the contacts you picked were checked, not your whole address book."
+          : "Only the contacts you shared with Hushh were checked.",
+      remedy,
+    };
+  }
+
+  if (!matched) {
+    return {
+      title: "No One users matched from this contact scan.",
+      remedy: null,
+    };
+  }
+
+  return {
+    title: `${peopleLabel(matched)} added as a contact signal.`,
+    // A truncated read is still a partial answer, just for a different reason:
+    // the book was larger than the caps rather than deliberately narrowed.
+    description: result.truncated
+      ? "Your address book was larger than the sync limit, so some contacts were not checked."
+      : undefined,
+    remedy: null,
+  };
+}
