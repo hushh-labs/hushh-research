@@ -3058,7 +3058,7 @@ function ProfilePageContent() {
   };
 
   const accountContent = (
-    <div className="profile-account-content">
+    <div className="profile-account-content space-y-4">
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={User}
@@ -4014,7 +4014,7 @@ function ProfilePageContent() {
 
       <AppPageContentRegion>
         <SurfaceStack compact>
-          <div className="profile-home-content">
+          <div className="profile-home-content space-y-4 sm:space-y-5">
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
                 icon={UserRound}

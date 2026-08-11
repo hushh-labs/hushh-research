@@ -54,27 +54,4 @@ describe("Profile canonical page layout", () => {
       'className="profile-home-meta inline-flex max-w-full',
     );
   });
-
-  it("keeps Profile and Account spacing on the shared settings rhythm", () => {
-    const profileSource = readFileSync(
-      join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
-      "utf8",
-    );
-    const stackSource = readFileSync(
-      join(process.cwd(), "components/profile/profile-stack-navigator.tsx"),
-      "utf8",
-    );
-    const globals = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
-
-    expect(profileSource).toContain('className="profile-account-content"');
-    expect(profileSource).toContain('className="profile-home-content"');
-    expect(profileSource).not.toContain("profile-account-content space-y");
-    expect(profileSource).not.toContain("profile-home-content space-y");
-    expect(stackSource).not.toContain("+12rem");
-    expect(globals).toContain(
-      ".profile-account-content > [data-testid=\"settings-group\"]:first-child",
-    );
-    expect(globals).toContain("font-size: var(--type-section-label-size) !important;");
-    expect(globals).toContain("color: var(--app-section-label) !important;");
-  });
 });
