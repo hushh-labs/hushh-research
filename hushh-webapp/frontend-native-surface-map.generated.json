@@ -7487,7 +7487,7 @@
         "app_page_shell": false,
         "page_header": false,
         "settings_ui": false,
-        "shared_loader": true,
+        "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": null,
@@ -8512,5 +8512,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "6d1365f89c02d68697100e20382668ce874339844497d63938a56e6e1c5db06f"
+  "content_sha256": "5613f8af6b53687283e6d65ed60bf0635824188e7e93ebbb35070c1f71027f9e"
 }
