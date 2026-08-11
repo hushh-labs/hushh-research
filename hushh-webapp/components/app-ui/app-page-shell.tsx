@@ -51,6 +51,15 @@ type AppPageShellProps<T extends ElementType> = {
   as?: T;
   width?: AppPageShellWidth;
   density?: AppPageDensity;
+  /**
+   * Let the page height fit its content instead of being stretched to fill the
+   * viewport. Sparse screens (empty states, short lists) otherwise force a
+   * full-height shell, producing a large dead scroll region above the floating
+   * "Talk to One" bar. Opt-in so content-rich pages that anchor a bottom
+   * element to the viewport are unaffected.
+   */
+  fitContent?: boolean;
+
   nativeTest?: {
     routeId: string;
     marker: string;
@@ -69,6 +78,7 @@ export function AppPageShell<T extends ElementType = "main">({
   as,
   width = "standard",
   density = "compact",
+  fitContent = false,
   nativeTest,
   className,
   children,
@@ -82,10 +92,12 @@ export function AppPageShell<T extends ElementType = "main">({
         "app-page-shell",
         APP_SHELL_FRAME_CLASSNAME, // 3. Added the missing framing class
         APP_SHELL_MAX_WIDTHS[width], // 4. Utilizing Tailwind utility classes over inline styles
+        fitContent && "app-page-shell--fit-content",
         className
       )}
       data-app-density={density}
       data-app-shell-width={width}
+      data-app-shell-fit-content={fitContent ? "true" : undefined}
       data-top-content-anchor="true"
       {...props}
     >
