@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
 import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import { ROUTES } from "@/lib/navigation/routes";
 import type { FeedItem, FeedSourceDomain } from "@/lib/services/feed-service";
@@ -155,6 +156,24 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         description: `${who} denied your location request.`,
         href: ROUTES.ONE_LOCATION,
       };
+    case "circle_member_invited": {
+      const circleName = metadataString(item.metadata, "circle_name");
+      const inviteId = metadataString(item.metadata, "invite_id");
+      return {
+        icon,
+        domainLabel,
+        label: "Circle invitation",
+        description: circleName
+          ? `You were invited to join ${circleName}.`
+          : "You were invited to join a Circle.",
+        href: inviteId
+          ? buildOneLocationWorkflowHref({
+              circleInviteId: inviteId,
+              section: "people",
+            })
+          : ROUTES.ONE_LOCATION,
+      };
+    }
     case "kai_analysis_completed": {
       const ticker = metadataString(item.metadata, "ticker");
       return {

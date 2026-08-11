@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
-import { MapPin, ShieldCheck, Siren, TrendingUp, UserRound } from "lucide-react";
+import {
+  MapPin,
+  ShieldCheck,
+  Siren,
+  TrendingUp,
+  UserRound,
+  Users,
+} from "lucide-react";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -49,6 +56,7 @@ import {
 } from "@/lib/one-location/encryption";
 import type {
   OneLocationAccessRequest,
+  OneLocationCircleMemberInvite,
   OneLocationGrant,
 } from "@/lib/one-location/types";
 import { buildOneLocationNotificationHref } from "@/lib/one-location/notifications";
@@ -309,6 +317,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const locationRequests = locationResource.data?.requests;
   const receivedGrants = locationResource.data?.receivedGrants;
   const myRecipientKey = locationResource.data?.myRecipientKey;
+  const circleMemberInvites = locationResource.data?.circleMemberInvites;
   const locationRefresh = locationResource.refresh;
   const connectionRequests = connectionsResource.data;
   const connectionsRefresh = connectionsResource.refresh;
@@ -531,6 +540,59 @@ export function useFeedActionables(): UseFeedActionablesResult {
       });
     }
 
+    // Circle invitations — inline Accept / Decline. The state read already
+    // scopes these to incoming + pending, but re-filter so a widened server
+    // response can never surface someone else's invite as actionable here.
+    const pendingCircleInvites = (circleMemberInvites ?? []).filter(
+      (invite: OneLocationCircleMemberInvite) =>
+        invite.inviteeUserId === userId && invite.status === "pending",
+    );
+    for (const invite of pendingCircleInvites) {
+      const label = invite.inviterDisplayName?.trim() || "Someone";
+      const circleName = invite.circleName?.trim() || "a Circle";
+      items.push({
+        id: `circle-invite:${invite.id}`,
+        icon: Users,
+        iconTone: "blue",
+        title: label,
+        description: `Invited you to join ${circleName}.`,
+        actions: [
+          {
+            key: "decline",
+            label: "Decline",
+            tone: "ghost",
+            disabled: !vaultOwnerToken,
+            confirm: true,
+            run: async () => {
+              if (!vaultOwnerToken) return;
+              await OneLocationService.declineNamedCircleMemberInvite({
+                vaultOwnerToken,
+                inviteId: invite.id,
+              });
+              if (userId) OneLocationStateResource.invalidate(userId);
+              await locationRefresh({ force: true });
+            },
+          },
+          {
+            key: "accept",
+            label: "Accept",
+            tone: "primary",
+            disabled: !vaultOwnerToken,
+            run: async () => {
+              if (!vaultOwnerToken) return;
+              await OneLocationService.acceptNamedCircleMemberInvite({
+                vaultOwnerToken,
+                inviteId: invite.id,
+              });
+              if (userId) OneLocationStateResource.invalidate(userId);
+              await locationRefresh({ force: true });
+            },
+          },
+        ],
+        sortAt: toTimestamp(invite.createdAt) || Date.now(),
+      });
+    }
+
     // Scoped connection requests require the Consent Center review surface.
     // A feed shortcut must never turn an omitted scope decision into a silent
     // decline (or, worse, an implied approval).
@@ -716,6 +778,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     locationRequests,
     receivedGrants,
     smsEmergencyAddresses,
+    circleMemberInvites,
     locationRefresh,
     openAnalysis,
     pendingConsentCount,
