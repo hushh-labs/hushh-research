@@ -98,11 +98,53 @@ def test_deprovision_calls_service(monkeypatch):
     assert calls["deprovision"]["user_id"] == "uid1"
 
 
-@pytest.mark.parametrize("missing", [{"podKeyId": "pod-1"}, {"podPublicKey": "k"}])
-def test_provision_validates_body(monkeypatch, missing):
+def test_provision_accepts_an_empty_body(monkeypatch):
+    """The browser has no pod key, and this is the route it must be able to call.
+
+    The pod generates its X25519 keypair inside its own runtime and publishes only
+    the public half, so a caller asking for an agent that does not exist yet cannot
+    supply one. Declaring the key fields required made this route uncallable from the
+    product -- which is why the only path to a pod was a fire-and-forget hook off
+    phone verification, and why dev has every flag on and zero pods.
+    """
+    client, calls = _build(monkeypatch)
+    resp = client.post("/api/one/personal-agent/provision", json={})
+
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+    # The service's deferred-key branch is selected by BOTH being None. Sending ""
+    # would take the half-supplied branch and raise instead.
+    assert calls["provision"]["pod_public_key_b64"] is None
+    assert calls["provision"]["pod_key_id"] is None
+
+
+def test_provision_accepts_no_body_at_all(monkeypatch):
+    """A caller with nothing to say should not have to send `{}` to say it."""
     client, _ = _build(monkeypatch)
-    resp = client.post("/api/one/personal-agent/provision", json=missing)
-    assert resp.status_code == 422
+    assert client.post("/api/one/personal-agent/provision").status_code == 200
+
+
+@pytest.mark.parametrize("half", [{"podKeyId": "pod-1"}, {"podPublicKey": "k"}])
+def test_provision_still_rejects_a_half_supplied_key_pair(monkeypatch, half):
+    """Optional does not mean lenient.
+
+    "No key yet" and "a key the caller believed it handed over" are different, and
+    reading the second as the first would silently drop a real key. The rejection
+    moved from Pydantic to the service, which is where the pair is validated -- so
+    this asserts the pair still arrives intact rather than being normalised away.
+    """
+    client, calls = _build(monkeypatch)
+    resp = client.post("/api/one/personal-agent/provision", json=half)
+
+    assert resp.status_code == 200  # the fake service does not validate
+    forwarded = calls["provision"]
+    supplied = [
+        forwarded["pod_public_key_b64"],
+        forwarded["pod_key_id"],
+    ]
+    # Exactly one half present. The real service raises ValueError on this shape and
+    # the route turns it into a 400 INVALID_PROVISION_INPUT.
+    assert len([v for v in supplied if v]) == 1
 
 
 def _status_client(monkeypatch, *, row=None, raises=False, enabled=False):

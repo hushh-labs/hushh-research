@@ -3448,6 +3448,55 @@ export class ApiService {
    * wrong" during the window when a person is most likely to assume the latter.
    */
   /**
+   * Ask for the caller's own private agent to be stood up.
+   *
+   * Takes the VAULT_OWNER token, not the Firebase one: creating compute that will
+   * hold this person's sealed holdings is an owner act, and the backend gates it on
+   * `require_vault_owner_token` plus a verified phone.
+   *
+   * Sends no pod key. The pod generates its own keypair inside its runtime and
+   * publishes the public half afterwards; the browser has none and never will. The
+   * backend parks the row in `connecting` and completes the handshake on the status
+   * poll the dashboard is already running.
+   *
+   * A pod is billable compute. `capped` comes back when the fleet ceiling is reached
+   * — the caller must render that as "capped", never as a failure.
+   */
+  static async provisionPersonalAgent(input: {
+    vaultOwnerToken: string;
+    signal?: AbortSignal;
+  }): Promise<{
+    success?: boolean;
+    status?: string;
+    capped?: boolean;
+    hushhId?: string | null;
+  }> {
+    const response = await ApiService.apiFetch("/api/one/personal-agent/provision", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...ApiService.getAuthHeaders(input.vaultOwnerToken),
+      },
+      body: JSON.stringify({}),
+      signal: input.signal,
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        detail?: { code?: string; message?: string } | string;
+      } | null;
+      const detail = payload?.detail;
+      if (typeof detail === "object" && detail?.code) {
+        // PHONE_NOT_VERIFIED and INVALID_PROVISION_INPUT both arrive this way, and
+        // the person can act on the first — so name it rather than flattening both
+        // into one unhelpful failure.
+        throw new Error(`${detail.code}:${detail.message || ""}`);
+      }
+      throw new Error(`AGENT_PROVISION_FAILED:${response.status}`);
+    }
+    return response.json();
+  }
+
+  /**
    * The caller's own personal-agent state.
    *
    * This lives here rather than as a bare `apiJson` in the follow hook because

@@ -33,8 +33,30 @@ router = APIRouter(prefix="/api/one/personal-agent", tags=["personal-agent"])
 
 
 class ProvisionRequest(BaseModel):
-    pod_public_key: str = Field(..., alias="podPublicKey", min_length=1, max_length=256)
-    pod_key_id: str = Field(..., alias="podKeyId", min_length=1, max_length=128)
+    """What a caller may supply when asking for their own agent.
+
+    Both key fields are OPTIONAL, and that is the point: a pod generates its X25519
+    keypair inside its own runtime and publishes only the public half, so a browser
+    has no pod public key and structurally cannot have one before the pod exists.
+
+    Declaring them required made this route uncallable from the product. The service
+    has always implemented the deferred-key path -- it provisions the host, parks the
+    row in `connecting`, and `collect_pod_key_if_pending` completes the handshake on
+    the same status poll the UI is already doing -- but no route could express it. So
+    the only way a pod could ever come into existence was a fire-and-forget hook off
+    phone verification whose exceptions are swallowed. That is why dev has every flag
+    on and zero pods.
+
+    A HALF-supplied pair is still rejected, by the service rather than here
+    (`personal_agent_provisioning_service.py`): "no key yet" and "a key the caller
+    believed it handed over" are different, and reading the second as the first would
+    silently drop it.
+    """
+
+    pod_public_key: str | None = Field(
+        default=None, alias="podPublicKey", min_length=1, max_length=256
+    )
+    pod_key_id: str | None = Field(default=None, alias="podKeyId", min_length=1, max_length=128)
     pod_key_wrapping_alg: str = Field(
         default=WRAPPING_ALG,
         alias="podKeyWrappingAlg",
@@ -206,7 +228,10 @@ async def personal_agent_status_route(
 
 @router.post("/provision")
 async def provision_personal_agent(
-    payload: ProvisionRequest = Body(...),
+    # Defaulted, not required: every field on ProvisionRequest is now optional, so an
+    # owner asking for an agent has nothing they are obliged to send. Requiring a body
+    # to carry no information is a 422 for punctuation.
+    payload: ProvisionRequest = Body(default_factory=ProvisionRequest),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """Stand up the caller's own agent. Requires the owner's VAULT_OWNER token."""
