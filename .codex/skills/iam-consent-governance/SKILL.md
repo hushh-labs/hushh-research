@@ -35,6 +35,7 @@ Non-owned surfaces:
 1. Consent-scope, actor-model, and verification-gate changes.
 2. IAM runtime surface and marketplace access contract work.
 3. IAM docs and code alignment across frontend and backend.
+4. Opaque object-share references that must remain separate from `attr.*` scopes.
 
 ## Do Not Use
 
@@ -56,6 +57,7 @@ Non-owned surfaces:
 1. Confirm whether the change is about actor model, scope catalog, verification gate, or runtime surface.
 2. Keep IAM docs, code, and validation checklists aligned in the same change.
 3. Treat vault and PKM boundary questions as `vault-pkm-governance` work when they become primary.
+4. Reject every Source Library `attr.*` form; a local share row is mapping state, not access or revocation authority.
 
 ## Handoff Rules
 
@@ -68,4 +70,5 @@ Non-owned surfaces:
 ```bash
 cd consent-protocol && python3 -m pytest tests/test_granular_scopes.py -q
 cd consent-protocol && python3 -m pytest tests/test_ria_iam_routes.py -q
+cd consent-protocol && python3 -m pytest tests/test_source_library_scope_policy.py -q
 ```

@@ -21,7 +21,12 @@ from enum import Enum
 from typing import Any, Optional
 
 from db.db_client import JsonParam, get_db
-from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_manifest_path
+from hushh_mcp.consent.pkm_scope_policy import (
+    is_externalizable_pkm_manifest_path,
+    is_private_pkm_export_scope,
+    is_public_pkm_projection_allowed,
+    is_source_library_pkm_scope,
+)
 from hushh_mcp.consent.scope_helpers import scope_matches
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_REGISTRY,
@@ -31,6 +36,7 @@ from hushh_mcp.services.domain_contracts import (
     canonical_top_level_domain,
     current_domain_contract_version,
     is_allowed_top_level_domain,
+    is_owner_managed_reserved_domain,
     validate_dynamic_top_level_domain,
 )
 from hushh_mcp.services.pkm_mutation_contracts import (
@@ -536,14 +542,17 @@ class PersonalKnowledgeModelService:
         )
 
     @classmethod
-    def _is_externalizable_manifest_path(cls, path: str, *, path_type: str = "leaf") -> bool:
+    def _is_externalizable_manifest_path(
+        cls,
+        path: str,
+        *,
+        domain: str,
+        path_type: str = "leaf",
+    ) -> bool:
         normalized = cls._normalize_manifest_path(path)
         if not normalized or path_type != "leaf":
             return False
-        # Analysis history is encrypted private source material.  It can inform
-        # a compact decision projection, but raw cards and debate transcripts
-        # must never become a PCHP/MCP export leaf.
-        if is_private_pkm_manifest_path(domain="financial", path=normalized):
+        if not is_externalizable_pkm_manifest_path(domain=domain, path=normalized):
             return False
         return not any(
             segment in cls._EXTERNALIZABLE_BLOCKED_PATH_PARTS for segment in normalized.split(".")
@@ -624,13 +633,19 @@ class PersonalKnowledgeModelService:
         if action not in {"match_existing_domain", "create_domain", "extend_domain"}:
             action = "match_existing_domain"
 
+        canonical_domain = validate_dynamic_top_level_domain(domain, allow_internal=True)
         try:
             target_domain = validate_dynamic_top_level_domain(
                 str(source.get("target_domain") or domain),
                 allow_internal=True,
             )
         except ValueError:
-            target_domain = validate_dynamic_top_level_domain(domain, allow_internal=True)
+            target_domain = canonical_domain
+        if is_owner_managed_reserved_domain(canonical_domain):
+            target_domain = canonical_domain
+            action = "match_existing_domain"
+        elif is_owner_managed_reserved_domain(target_domain):
+            target_domain = canonical_domain
         json_paths = cls._normalize_path_list(source.get("json_paths"))
         top_level_scope_paths = cls._normalize_path_list(source.get("top_level_scope_paths"))
         externalizable_paths = cls._normalize_path_list(source.get("externalizable_paths"))
@@ -668,8 +683,15 @@ class PersonalKnowledgeModelService:
                     if isinstance(path, str) and path.strip()
                 }
             )
+        top_level_scope_paths = [
+            path
+            for path in top_level_scope_paths
+            if cls._is_externalizable_manifest_path(path, domain=canonical_domain)
+        ]
         externalizable_paths = [
-            path for path in externalizable_paths if cls._is_externalizable_manifest_path(path)
+            path
+            for path in externalizable_paths
+            if cls._is_externalizable_manifest_path(path, domain=canonical_domain)
         ]
 
         normalized_sensitivity_labels: dict[str, str] = {}
@@ -729,7 +751,7 @@ class PersonalKnowledgeModelService:
                     path_type="leaf",
                     exposure_eligibility=(
                         path in set(decision.get("externalizable_paths", []))
-                        and self._is_externalizable_manifest_path(path)
+                        and self._is_externalizable_manifest_path(path, domain=domain)
                     ),
                     consent_label=path.replace(".", " ").replace("_", " ").title(),
                     sensitivity_label=decision.get("sensitivity_labels", {}).get(path),
@@ -749,6 +771,11 @@ class PersonalKnowledgeModelService:
                     if descriptor.json_path
                 }
             )
+        top_level_scope_paths = [
+            path
+            for path in top_level_scope_paths
+            if self._is_externalizable_manifest_path(path, domain=domain)
+        ]
 
         externalizable_paths = self._normalize_path_list(
             source.get("externalizable_paths") or decision.get("externalizable_paths")
@@ -760,6 +787,7 @@ class PersonalKnowledgeModelService:
                 if descriptor.exposure_eligibility
                 and self._is_externalizable_manifest_path(
                     descriptor.json_path,
+                    domain=domain,
                     path_type=descriptor.path_type,
                 )
             )
@@ -771,6 +799,7 @@ class PersonalKnowledgeModelService:
                     if path in normalized_paths
                     and self._is_externalizable_manifest_path(
                         path,
+                        domain=domain,
                         path_type=normalized_paths[path].path_type,
                     )
                 }
@@ -2247,6 +2276,8 @@ class PersonalKnowledgeModelService:
         manifest: DomainManifest,
     ) -> None:
         try:
+            if is_source_library_pkm_scope(f"attr.{domain}.*"):
+                return
             from hushh_mcp.services.consent_db import ConsentDBService
 
             consent_service = ConsentDBService()
@@ -2254,7 +2285,7 @@ class PersonalKnowledgeModelService:
             if not active_tokens:
                 return
 
-            candidate_scopes = {f"attr.{domain}.*", "pkm.read"}
+            candidate_scopes = {f"attr.{domain}.*"}
             candidate_scopes.update(
                 {
                     f"attr.{domain}.{path}.*"
@@ -2269,6 +2300,7 @@ class PersonalKnowledgeModelService:
                     if isinstance(path, str) and path.strip()
                 }
             )
+            candidate_scopes.add("pkm.read")
             trigger_paths = sorted(
                 {
                     str(path).strip()
@@ -2323,6 +2355,8 @@ class PersonalKnowledgeModelService:
         manifest: DomainManifest,
     ) -> list[str]:
         """Resolve only v2 continuous exports eligible for atomic refresh scheduling."""
+        if is_source_library_pkm_scope(f"attr.{domain}.*"):
+            return []
         from hushh_mcp.services.consent_db import ConsentDBService
 
         consent_service = ConsentDBService()
@@ -2338,6 +2372,7 @@ class PersonalKnowledgeModelService:
             for path in manifest.externalizable_paths
             if isinstance(path, str) and path.strip()
         )
+        candidate_scopes.add("pkm.read")
         refresh_tokens: list[str] = []
         for token in active_tokens:
             granted_scope = str(token.get("scope") or "").strip()
@@ -2631,6 +2666,15 @@ class PersonalKnowledgeModelService:
         if not normalized_scope_path:
             normalized_scope_path = "profile"
         target_scope = f"attr.{canonical_domain}.{normalized_scope_path}.*"
+        if is_private_pkm_export_scope(target_scope):
+            return {
+                "active_recipient_count": 0,
+                "recipient_labels": [],
+                "enters_next_export_revision": False,
+                "summary": "No active recipients are affected.",
+                "affected_grant_ids": [],
+                "affected_export_ids": [],
+            }
 
         from hushh_mcp.services.consent_db import ConsentDBService
 
@@ -2926,7 +2970,10 @@ class PersonalKnowledgeModelService:
                 and leaf_count > 0
                 and projection.get("consumer_visible") is not False
                 and projection.get("internal_only") is not True
-                and self._is_externalizable_manifest_path(top_level_path)
+                and self._is_externalizable_manifest_path(
+                    top_level_path,
+                    domain=canonical_domain,
+                )
             )
 
         manageable_by_handle: dict[str, ScopeRegistryEntry] = {}
@@ -3126,6 +3173,9 @@ class PersonalKnowledgeModelService:
         if not canonical_domain or not normalized_path:
             result["message"] = "Domain and section are required."
             return result
+        if not is_public_pkm_projection_allowed(canonical_domain):
+            result["message"] = "This domain requires consent and cannot be published publicly."
+            return result
         manifest = await self.get_domain_manifest(user_id, canonical_domain)
         if not manifest:
             result["message"] = f"No manifest found for {canonical_domain}."
@@ -3250,6 +3300,8 @@ class PersonalKnowledgeModelService:
         row = dict(rows[0])
         if not str(row.get("publication_provenance") or "").strip():
             return None
+        if not is_public_pkm_projection_allowed(str(row.get("domain") or "")):
+            return None
         payload = row.get("projection_payload")
         if isinstance(payload, str):
             try:
@@ -3267,7 +3319,7 @@ class PersonalKnowledgeModelService:
     ) -> list[dict[str, Any]]:
         """Owner-only publication status; never returns projection plaintext."""
         canonical_domain = self._canonicalize_domain_key(domain)
-        if not canonical_domain:
+        if not canonical_domain or not is_public_pkm_projection_allowed(canonical_domain):
             return []
         try:
             result = await self._execute_query(

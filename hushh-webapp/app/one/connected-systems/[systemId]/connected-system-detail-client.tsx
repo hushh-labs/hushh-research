@@ -29,7 +29,7 @@ export function ConnectedSystemDetailClient({
   routeId?: "/one/connected-systems" | "/one/connected-systems/[systemId]";
 }) {
   const { user, phoneNumber } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultKey, vaultOwnerToken } = useVault();
   const searchParams = useSearchParams();
   const [showUnlock, setShowUnlock] = useState(false);
   const [system, setSystem] = useState<ConnectedSystemSummary | null>(null);
@@ -96,6 +96,7 @@ export function ConnectedSystemDetailClient({
       <AppPageContentRegion>
         <ConnectedSystemsPanel
           cacheUserId={user?.uid}
+          vaultKey={vaultKey}
           vaultOwnerToken={vaultOwnerToken}
           onRequestUnlock={() => setShowUnlock(true)}
           mode="detail"

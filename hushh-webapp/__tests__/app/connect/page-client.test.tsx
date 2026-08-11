@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.routerPush, replace: vi.fn(), back: vi.fn() }),
+  usePathname: () => "/one/connect",
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -66,6 +67,7 @@ vi.mock("sonner", () => ({
 }));
 
 import ConnectPageClient from "@/app/connect/page-client";
+import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 
 function person(userId: string, displayName: string) {
   return {
@@ -105,7 +107,11 @@ describe("Connect — People", () => {
     });
     expect(mocks.searchDirectory.mock.calls[0][0].query).toBe("");
 
-    expect(await screen.findByText("Suggested")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "A few people on Hussh. Search by name to find someone specific.",
+      ),
+    ).toBeTruthy();
     expect(screen.getByText("Person 0")).toBeTruthy();
   });
 
@@ -115,7 +121,11 @@ describe("Connect — People", () => {
     // by default, and a way through it.
     render(<ConnectPageClient />);
 
-    expect(await screen.findByText("Suggested")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "A few people on Hussh. Search by name to find someone specific.",
+      ),
+    ).toBeTruthy();
     expect(screen.getByText("Page 1")).toBeTruthy();
     expect(screen.getByLabelText("People per page")).toBeTruthy();
     // hasMore is true in the fixture, so forward is offered and back is not.
@@ -160,10 +170,175 @@ describe("Connect — People", () => {
     expect(searched.limit).toBe(8);
     expect(searched.page).toBe(1);
 
-    // "People" is also the tab label, so the sample heading going away is the
-    // unambiguous signal that this is no longer the bounded surface.
-    await waitFor(() => expect(screen.queryByText("Suggested")).toBeNull());
+    // The empty-query description disappearing is the unambiguous signal that
+    // this is no longer the bounded discovery surface.
+    await waitFor(() =>
+      expect(
+        screen.queryByText(
+          "A few people on Hussh. Search by name to find someone specific.",
+        ),
+      ).toBeNull(),
+    );
     expect(await screen.findByText("Page 1")).toBeTruthy();
+  });
+
+  it("runs a spoken name through the governed Connect search handler", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const search = resolveLocalOnboardingHandler("connect.search_people");
+    expect(search).not.toBeNull();
+    act(() => {
+      expect(search!({ person: "Person 9" })).toMatchObject({
+        status: "succeeded",
+      });
+    });
+
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+    expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({
+      query: "Person 9",
+      page: 1,
+    });
+  });
+
+  it("sends a confirmed request only to one exact spoken name", async () => {
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Person 9")],
+      hasMore: false,
+      page: 1,
+    });
+    mocks.sendRequest.mockResolvedValue({ id: "request-9" });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
+    expect(sendRequest).not.toBeNull();
+    let result: Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
+    await act(async () => {
+      result = await sendRequest!({ person: "Person 9" });
+    });
+
+    expect(result).toMatchObject({ status: "succeeded" });
+    // Searches ONE word, then decides here. The server predicate is a single
+    // substring test on display_name, so sending the whole spoken name makes
+    // the entire name have to appear exactly as stored -- "Abdul Rashid"
+    // finds nobody when the directory holds "Abdul R.". Sending the longest
+    // word maximises what comes back; choosing between candidates happens in
+    // the browser, where the full name is available.
+    expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({
+      query: "Person",
+      page: 1,
+      limit: 50,
+    });
+    expect(mocks.sendRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        addresseeUserId: "u9",
+        requestedScopeHandles: [],
+        offeredScopeHandles: [],
+      }),
+    );
+  });
+
+  it("refuses to guess between similar directory matches before sending", async () => {
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Person 9"), person("u10", "Person 9")],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
+    expect(sendRequest).not.toBeNull();
+    const result = await sendRequest!({ person: "Person 9" });
+
+    expect(result).toMatchObject({ status: "blocked" });
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+  });
+
+  it("finds someone whose stored name is not how it was spoken", async () => {
+    // The bug this whole resolver exists for. The server matches a single
+    // substring against display_name, so "Abdul Rashid" reaches nobody when
+    // the directory holds "Abdul R." -- and the person is sitting in the list
+    // on screen the whole time.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Abdul R.")],
+      hasMore: false,
+      page: 1,
+    });
+    mocks.sendRequest.mockResolvedValue({ id: "request-9" });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
+    let result: Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
+    await act(async () => {
+      result = await sendRequest!({ person: "Abdul Rashid" });
+    });
+
+    expect(result).toMatchObject({ status: "succeeded" });
+    // Searched the longest word, not the whole phrase.
+    expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({ query: "Rashid" });
+    expect(mocks.sendRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ addresseeUserId: "u9" }),
+    );
+  });
+
+  it("finds someone whose stored name is longer than what was spoken", async () => {
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Abdul Kumar Rashid")],
+      hasMore: false,
+      page: 1,
+    });
+    mocks.sendRequest.mockResolvedValue({ id: "request-9" });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
+    let result: Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
+    await act(async () => {
+      result = await sendRequest!({ person: "Abdul Rashid" });
+    });
+
+    expect(result).toMatchObject({ status: "succeeded" });
+  });
+
+  it("still refuses to choose between two people the words could mean", async () => {
+    // Widening how names match must never widen who gets a request. Two
+    // plausible people is a question, not a coin toss.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Abdul Rashid"), person("u10", "Abdul Rashida")],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
+    let result: Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
+    await act(async () => {
+      result = await sendRequest!({ person: "Abdul" });
+    });
+
+    expect(result).toMatchObject({ status: "blocked" });
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+  });
+
+  it("refuses a first-page match when the directory has more results", async () => {
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Person 9")],
+      hasMore: true,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
+    expect(sendRequest).not.toBeNull();
+    const result = await sendRequest!({ person: "Person 9" });
+
+    expect(result).toMatchObject({ status: "blocked" });
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
   });
 
   it("says who was searched for when a search matches nobody", async () => {
@@ -182,24 +357,70 @@ describe("Connect — People", () => {
     expect(await screen.findByText('No one matches "Nobody"')).toBeTruthy();
   });
 
-  /**
-   * Bulk selection is deliberately unreachable: the entry point was removed
-   * because selecting many people at once was not a clear answer to finding
-   * the right one, and it invited fanning out requests instead of searching.
-   *
-   * This pins the removal rather than the old behaviour. The selection state,
-   * the per-row checkboxes and the bulk request handler are all still in the
-   * component on purpose, so restoring the control is a one-line change -- but
-   * while it is hidden that path has no coverage, and the previous test for it
-   * ("drops selections the new result set no longer shows") went with the
-   * button. Reinstating the control should reinstate that test.
-   */
-  it("does not offer bulk selection", async () => {
+  it("caps bulk connection requests at 20 people", async () => {
+    const bulkPeople = Array.from({ length: 21 }, (_, index) =>
+      person(`bulk-${index}`, `Bulk person ${index}`),
+    );
+    mocks.searchDirectory.mockResolvedValue({
+      items: bulkPeople,
+      hasMore: false,
+      page: 1,
+    });
+    mocks.sendRequest.mockResolvedValue({ id: "request" });
+    render(<ConnectPageClient />);
+    expect(await screen.findByText("Bulk person 0")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select people" }));
+
+    for (let index = 0; index < 20; index += 1) {
+      fireEvent.click(screen.getByLabelText(`Select Bulk person ${index}`));
+    }
+
+    expect(screen.getByText("Connect to Selected (20/20)")).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Select Bulk person 20") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    fireEvent.click(screen.getByLabelText("Select Bulk person 0"));
+    expect(
+      (screen.getByLabelText("Select Bulk person 20") as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+    fireEvent.click(screen.getByLabelText("Select Bulk person 0"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect to Selected (20/20)" }));
+
+    await waitFor(() => expect(mocks.sendRequest).toHaveBeenCalledTimes(20));
+
+    expect(mocks.sendRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ addresseeUserId: "bulk-0" }),
+    );
+    expect(mocks.sendRequest).not.toHaveBeenCalledWith(
+      expect.objectContaining({ addresseeUserId: "bulk-20" }),
+    );
+  });
+
+  it("drops a selection that is no longer visible in the directory", async () => {
     render(<ConnectPageClient />);
     expect(await screen.findByText("Person 0")).toBeTruthy();
 
-    expect(screen.queryByText("Select")).toBeNull();
-    expect(screen.queryByText("Select All")).toBeNull();
-    expect(screen.queryByLabelText("Select Person 0")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Select people" }));
+    fireEvent.click(screen.getByLabelText("Select Person 0"));
+    expect(screen.getByText("Connect to Selected (1/20)")).toBeTruthy();
+
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Person 9")],
+      hasMore: false,
+      page: 1,
+    });
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "Person 9" },
+    });
+
+    expect(await screen.findByText("Person 9")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByText("Connect to Selected (1/20)")).toBeNull(),
+    );
   });
 });

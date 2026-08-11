@@ -73,6 +73,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
       <div
         ref={shellRef}
         data-app-bottom-shell
+        data-ui-role="bottom-shell"
         data-bottom-shell-navigation-hidden={
           model.navigationHidden || undefined
         }

@@ -10,7 +10,7 @@ import time
 from typing import Optional, Tuple, Union
 
 from hushh_mcp.config import APP_SIGNING_KEY, DEFAULT_CONSENT_TOKEN_EXPIRY_MS
-from hushh_mcp.constants import CONSENT_TOKEN_PREFIX, RETIRED_SCOPE_VALUES, ConsentScope
+from hushh_mcp.constants import CONSENT_TOKEN_PREFIX, ConsentScope
 from hushh_mcp.types import AgentID, HushhConsentToken, UserID
 
 logger = logging.getLogger(__name__)
@@ -145,7 +145,7 @@ def issue_token(
     else:
         scope_str = scope
 
-    if scope_str in RETIRED_SCOPE_VALUES:
+    if ConsentScope.is_retired_scope(scope_str):
         raise ValueError(f"SCOPE_RETIRED: {scope_str}")
     if not ConsentScope.validate(scope_str):
         raise ValueError(f"Unknown or invalid active scope: {scope_str!r}")
@@ -186,7 +186,7 @@ def _scope_str_to_enum(scope_str: str) -> ConsentScope:
     Dynamic scopes (attr.*) map to PKM_READ.
     Unknown static scopes are rejected instead of silently escalating to PKM_READ.
     """
-    if scope_str in RETIRED_SCOPE_VALUES:
+    if ConsentScope.is_retired_scope(scope_str):
         raise ValueError(f"SCOPE_RETIRED: {scope_str}")
     try:
         return ConsentScope(scope_str)
@@ -267,7 +267,7 @@ def validate_token(
         # Retired authority strings remain readable in immutable audit rows but
         # can never authorize a live request. Check only after signature and
         # expiry validation so an untrusted token cannot probe policy details.
-        if scope_str in RETIRED_SCOPE_VALUES:
+        if ConsentScope.is_retired_scope(scope_str):
             return False, "SCOPE_RETIRED", None
 
         # Map scope string to enum only after authenticity/policy checks.

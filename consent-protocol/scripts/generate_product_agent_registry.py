@@ -12,6 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = ROOT.parent
 AGENTS_ROOT = ROOT / "hushh_mcp" / "agents"
 OUTPUT = REPO_ROOT / "contracts" / "agents" / "product-agent-registry.v2.json"
+# The backend image is built with Docker context `consent-protocol`, so the
+# repo-root copy above is not in the image at all. Mirror it inside the context.
+# See hushh_mcp/services/generated_contracts.py for the full reasoning.
+BACKEND_OUTPUT = ROOT / "contracts" / "agents" / "product-agent-registry.v2.json"
+OUTPUTS = (OUTPUT, BACKEND_OUTPUT)
 
 sys.path.insert(0, str(ROOT))
 
@@ -29,7 +34,10 @@ def build_registry() -> dict[str, object]:
             )
         seen_ids[manifest.id] = path
         projection = manifest.model_dump(mode="json", exclude={"system_instruction"})
-        projection["manifest_path"] = str(path.relative_to(REPO_ROOT))
+        # as_posix, not str: the artifact is committed and CI verifies it with
+        # --check on Linux, so a Windows run must not rewrite every path to
+        # backslashes and make the check fail for everyone.
+        projection["manifest_path"] = path.relative_to(REPO_ROOT).as_posix()
         projection["system_instruction_sha256"] = (
             __import__("hashlib").sha256(manifest.system_instruction.encode("utf-8")).hexdigest()
         )
@@ -52,14 +60,21 @@ def main() -> int:
     args = parser.parse_args()
     rendered = render(build_registry())
     if args.check:
-        if not OUTPUT.exists() or OUTPUT.read_text(encoding="utf-8") != rendered:
-            print(f"stale product-agent registry: {OUTPUT}", file=sys.stderr)
+        stale = [
+            target
+            for target in OUTPUTS
+            if not target.exists() or target.read_text(encoding="utf-8") != rendered
+        ]
+        if stale:
+            for target in stale:
+                print(f"stale product-agent registry: {target}", file=sys.stderr)
             return 1
         print(f"Product-agent registry is current ({len(build_registry()['agents'])} agents).")
         return 0
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(rendered, encoding="utf-8")
-    print(f"Generated {OUTPUT.relative_to(REPO_ROOT)}")
+    for target in OUTPUTS:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(rendered, encoding="utf-8")
+        print(f"Generated {target.relative_to(REPO_ROOT)}")
     return 0
 
 

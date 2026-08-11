@@ -30,8 +30,15 @@ const FIELD_TRIGGER_CLASSNAME =
 const COMMAND_ITEM_CLASSNAME =
   "rounded-[18px] border border-transparent px-3 py-3 transition-colors duration-300 hover:bg-primary/10 hover:text-foreground aria-selected:border-primary/25 aria-selected:bg-primary/15 aria-selected:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
 
+// Mobile: these editors top-anchor the sheet. The offset must clear the iOS
+// status bar / Dynamic Island even on routes where the top shell is hidden
+// (e.g. RIA Picks), where `--top-shell-reserved-height` collapses toward 0 and
+// left the header flush at 0.75rem under the clock. `max(...)` floors the
+// offset at the probe-backed safe-area inset (min 44px on iOS native, 0 on
+// desktop → inert on web) so the header is always tappable/readable. The
+// max-height subtracts that same inset so a tall sheet can't grow back over it.
 const COMMAND_SHELL_CLASSNAME =
-  "chrome-glass-surface top-[calc(var(--top-shell-reserved-height,0px)+0.75rem)] max-h-[min(70dvh,32rem)] w-[calc(100%-1rem)] translate-y-0 rounded-[28px] border border-white/55 p-0 shadow-2xl sm:top-1/2 sm:w-full sm:max-w-[52rem] sm:max-h-[min(76dvh,38rem)] sm:-translate-y-1/2 lg:max-w-[58rem] dark:border-white/12";
+  "chrome-glass-surface top-[calc(max(var(--app-safe-area-top-effective,0px),var(--top-shell-reserved-height,0px))+0.75rem)] max-h-[calc(100dvh-max(var(--app-safe-area-top-effective,0px),var(--top-shell-reserved-height,0px))-1.5rem)] w-[calc(100%-1rem)] translate-y-0 rounded-[28px] border border-white/55 p-0 shadow-2xl sm:top-1/2 sm:w-full sm:max-w-[52rem] sm:max-h-[min(76dvh,38rem)] sm:-translate-y-1/2 lg:max-w-[58rem] dark:border-white/12";
 
 export type CommandPickerOption<T = unknown> = {
   value: string;

@@ -220,6 +220,26 @@ describe("PlacesNearby", () => {
     expect(screen.queryByTestId("places-error")).toBeNull();
   });
 
+  it("asks for a postcode, not a US ZIP, because Places is worldwide", async () => {
+    // BrokerCheck and the Nationwide locator are US registers and correctly say
+    // "ZIP". Google Places is not, so this input must not tell a reader in
+    // Bengaluru or Berlin that the surface is not for them. `inputMode` also
+    // has to allow letters, or a UK postcode cannot be typed on a phone.
+    mocks.locationState = {
+      status: "denied",
+      permission: "denied",
+      snapshot: null,
+      error: null,
+    };
+    render(<PlacesNearby getIdToken={getIdToken} />);
+
+    const input = screen.getByTestId("places-postal-input") as HTMLInputElement;
+    expect(input.getAttribute("placeholder")).toBe("Postcode");
+    expect(input.getAttribute("aria-label")).toBe("Postcode");
+    expect(input.getAttribute("inputmode")).toBe("text");
+    expect(screen.queryByText(/ZIP/)).toBeNull();
+  });
+
   it("offers a ZIP search when the device says no", async () => {
     mocks.locationState = {
       status: "denied",

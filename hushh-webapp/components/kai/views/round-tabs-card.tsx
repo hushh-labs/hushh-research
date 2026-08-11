@@ -84,18 +84,29 @@ export function RoundTabsCard({
   className,
 }: RoundTabsCardProps) {
   const [currentTab, setCurrentTab] = useState<string>(activeAgent || "fundamental");
+  // Once the user manually taps a tab, honor THEIR selection instead of the
+  // live stream's `activeAgent`. Without this, tapping "Sentiment" while the
+  // fundamental agent is still streaming was ignored (handleTabChange returned
+  // early) and the next `activeAgent` prop from polling snapped the tab back --
+  // the "bounce". The pin auto-follows again only until the first manual tap.
+  const [userPinned, setUserPinned] = useState(false);
 
   useEffect(() => {
-    if (activeAgent && activeAgent !== currentTab) {
+    // Auto-advance to the live agent only while the user has not taken manual
+    // control of the tabs.
+    if (!userPinned && activeAgent && activeAgent !== currentTab) {
       setCurrentTab(activeAgent);
     }
-  }, [activeAgent, currentTab]);
+  }, [activeAgent, currentTab, userPinned]);
+
+  // The displayed tab: the user's pinned choice wins; otherwise follow the
+  // live agent, then the local default.
+  const selectedTab = userPinned ? currentTab : activeAgent || currentTab;
 
   const handleTabChange = (val: string) => {
-    if (activeAgent) {
-      onTabChange?.(val);
-      return;
-    }
+    // A tap always wins and pins, whether or not a live run is streaming, so
+    // the selection can never revert under the user.
+    setUserPinned(true);
     setCurrentTab(val);
     onTabChange?.(val);
   };
@@ -169,7 +180,7 @@ export function RoundTabsCard({
 
       {!isCollapsed && (
         <MorphyCardContent>
-          <Tabs value={activeAgent || currentTab} onValueChange={handleTabChange} className="w-full">
+          <Tabs value={selectedTab} onValueChange={handleTabChange} className="w-full">
             <TabsList className="mb-4 grid h-10 w-full grid-cols-3 items-stretch gap-1">
               {AGENT_ORDER.map((agent) => {
                 const config = AGENT_CONFIG[agent];
@@ -178,32 +189,43 @@ export function RoundTabsCard({
                 const isAgentActive = state?.stage === "active";
                 const isAgentError = state?.stage === "error";
 
+                const hasStatusIndicator =
+                  isAgentComplete || isAgentError || isAgentActive;
+
                 return (
                   <TabsTrigger
                     key={agent}
                     value={agent}
                     className={cn(
                       // Center reliably inside the fixed grid cell and keep the
-                      // layout stable between active/inactive. min-w-0 + the
-                      // grid cell handle responsiveness on narrow iPhones.
-                      "flex h-8 min-h-0 w-full min-w-0 items-center justify-center gap-1 px-1.5 text-center text-[11px] leading-none sm:text-xs",
+                      // layout stable between active/inactive. `whitespace-nowrap`
+                      // keeps each label ("Fundamental"/"Sentiment"/"Valuation")
+                      // on one line; the tighter padding + 11px size fit all
+                      // three full labels across a 3-col grid on narrow iPhones
+                      // instead of the previous mid-word "Funda…" truncation.
+                      "flex h-8 min-h-0 w-full min-w-0 items-center justify-center gap-1 whitespace-nowrap px-1 text-center text-[11px] leading-none sm:text-xs",
                       isAgentComplete &&
                         "data-[state=active]:text-emerald-700 dark:data-[state=active]:text-emerald-300"
                     )}
                   >
                     <span className="min-w-0 truncate">{config.label}</span>
-                    <span className="inline-flex h-3 w-3 shrink-0 items-center justify-center">
-                      {isAgentComplete ? (
-                        <Icon icon={CheckCircle2} size="xs" className="text-emerald-500" />
-                      ) : isAgentError ? (
-                        <Icon icon={AlertCircle} size="xs" className="text-red-500" />
-                      ) : isAgentActive ? (
-                        <span className="relative flex h-2 w-2">
-                          <span className={cn("animate-ping absolute inline-flex h-full w-full rounded-full opacity-75", config.bgDot)} />
-                          <span className={cn("relative inline-flex rounded-full h-2 w-2", config.bgDot)} />
-                        </span>
-                      ) : null}
-                    </span>
+                    {/* Only reserve the status glyph's width when a status
+                        actually exists, so an idle tab gives its full width to
+                        the label instead of a permanently empty 12px gutter. */}
+                    {hasStatusIndicator ? (
+                      <span className="inline-flex h-3 w-3 shrink-0 items-center justify-center">
+                        {isAgentComplete ? (
+                          <Icon icon={CheckCircle2} size="xs" className="text-emerald-500" />
+                        ) : isAgentError ? (
+                          <Icon icon={AlertCircle} size="xs" className="text-red-500" />
+                        ) : (
+                          <span className="relative flex h-2 w-2">
+                            <span className={cn("animate-ping absolute inline-flex h-full w-full rounded-full opacity-75", config.bgDot)} />
+                            <span className={cn("relative inline-flex rounded-full h-2 w-2", config.bgDot)} />
+                          </span>
+                        )}
+                      </span>
+                    ) : null}
                   </TabsTrigger>
                 );
               })}

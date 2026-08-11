@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import copy
 import json
 import logging
+import os
 import re
+import secrets
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,6 +17,20 @@ from typing import Any
 from uuid import uuid4
 
 from db.db_client import DatabaseExecutionError, get_db
+from hushh_mcp.services.crm_zk_v1 import (
+    CRM_ZK_V1_PROFILE,
+    CrmZkApprovalProof,
+    CrmZkBindingContext,
+    CrmZkEncryptedFields,
+    CrmZkValidationError,
+    canonical_json_bytes,
+    p256_spki_fingerprint,
+    sha256_digest,
+    sign_server_context,
+    validate_approval_proof,
+    validate_encrypted_fields,
+    validate_partner_response_envelope,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -634,6 +651,13 @@ def _schema_fields_from_schema_result(
         createable = _descriptor_bool(descriptor, "createable", "isCreateable")
         updateable = _descriptor_bool(descriptor, "updateable", "isUpdateable")
         descriptor_required = _descriptor_bool(descriptor, "required", "isRequired")
+        defaulted_on_create = _descriptor_bool(
+            descriptor,
+            "defaultedOnCreate",
+            "defaulted_on_create",
+            "serverManaged",
+            "systemManaged",
+        )
         # CRM schemas often expose a catalogue before they expose field-level
         # access metadata. Keep that metadata optional: an omitted access bit
         # means "not declared", not an inferred deny or allow. Operation tool
@@ -667,6 +691,7 @@ def _schema_fields_from_schema_result(
                 "updateable": updateable,
                 "writable": writable,
                 "immutable": immutable,
+                "defaultedOnCreate": defaulted_on_create,
                 "permissionsDeclared": permissions_declared,
                 "constraints": _schema_constraints_from_descriptor(descriptor),
                 "source": source,
@@ -752,6 +777,26 @@ def _approval_id() -> str:
 
 def _binding_id() -> str:
     return f"csb_{uuid4().hex}"
+
+
+def _zk_context_id() -> str:
+    return f"czkc_{uuid4().hex}"
+
+
+def _zk_challenge_id() -> str:
+    return f"czka_{uuid4().hex}"
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _random_b64(byte_count: int = 32) -> str:
+    return base64.b64encode(secrets.token_bytes(byte_count)).decode("ascii")
+
+
+def _sha256_b64(value: str) -> str:
+    return sha256_digest(value.encode("ascii"))
 
 
 def _safe_error_message(error: Exception) -> str:
@@ -965,6 +1010,12 @@ class ConnectedSystemDefinition:
     # credentials; both make cache invalidation deterministic for aliased IDs.
     registry_id: str | None = None
     configuration_revision: int = 1
+    # CRM ZK is opt-in per registry row. The public X25519 recipient key and
+    # MuleSoft response-signing key are pinned from the registry, never copied
+    # from a browser envelope. Connector configuration remains server-owned.
+    crm_zk_v1_enabled: bool = False
+    mulesoft_connector_ref: str | None = None
+    crm_zk_recipient_key: dict[str, Any] | None = None
 
     def operation(self, operation: str) -> dict[str, Any] | None:
         return next(
@@ -974,6 +1025,27 @@ class ConnectedSystemDefinition:
                 if str(tool.get("operation") or "").strip() == operation
             ),
             None,
+        )
+
+    def crm_zk_tool_name(self, operation: str) -> str | None:
+        if not self.crm_zk_v1_enabled or operation not in {"read", "update"}:
+            return None
+        tool = self.operation(operation) or {}
+        name = str(tool.get("crmZkToolName") or "").strip()
+        return name or None
+
+    def crm_zk_ready(self, operation: str) -> bool:
+        key = self.crm_zk_recipient_key or {}
+        return bool(
+            self.crm_zk_v1_enabled
+            and self.mulesoft_connector_ref
+            and self.crm_zk_tool_name(operation)
+            and key.get("keyId")
+            and key.get("publicKey")
+            and key.get("publicKeyFingerprint")
+            and key.get("responseSigningKeyId")
+            and key.get("responseSigningPublicKey")
+            and key.get("responseSigningKeyFingerprint")
         )
 
     def operation_endpoint(self, operation: str) -> str | None:
@@ -1048,6 +1120,12 @@ class ConnectedSystemDefinition:
                 ],
                 "primaryObject": self.object_type_default,
                 "version": "crm-operation-contract.v1",
+            },
+            "crmZk": {
+                "enabled": self.crm_zk_v1_enabled,
+                "profile": "crm-zk.v1" if self.crm_zk_v1_enabled else None,
+                "readReady": self.crm_zk_ready("read"),
+                "updateReady": self.crm_zk_ready("update"),
             },
         }
 
@@ -1139,6 +1217,7 @@ class ExternalCrmStreamableMcpAdapter:
         timeout_seconds: float,
         retry_count: int,
         arguments: dict[str, Any],
+        replace_tool_arguments: bool = False,
     ) -> dict[str, Any]:
         # Only idempotent discovery/read operations may retry. Retrying a write
         # without a connector idempotency contract could duplicate a CRM record.
@@ -1151,6 +1230,7 @@ class ExternalCrmStreamableMcpAdapter:
                     arguments,
                     endpoint=endpoint,
                     timeout_seconds=timeout_seconds,
+                    replace_tool_arguments=replace_tool_arguments,
                 )
             except ConnectedSystemsError as error:
                 last_error = error
@@ -1165,6 +1245,7 @@ class ExternalCrmStreamableMcpAdapter:
         *,
         endpoint: str | None = None,
         timeout_seconds: float | None = None,
+        replace_tool_arguments: bool = False,
     ) -> dict[str, Any]:
         resolved_endpoint = endpoint or self.endpoint
         if not resolved_endpoint:
@@ -1179,10 +1260,17 @@ class ExternalCrmStreamableMcpAdapter:
         if resolved_endpoint.startswith("registry://"):
             return self._call_registry_tool(name, arguments)
 
-        tool_arguments = {
-            **_deepcopy_json(self.tool_arguments),
-            **_deepcopy_json(arguments),
-        }
+        # CRM ZK calls are allowed to use only a trusted connector reference.
+        # Do not merge the legacy registry credentials/URLs into their MCP
+        # arguments: MuleSoft resolves those from its own secret store.
+        tool_arguments = (
+            _deepcopy_json(arguments)
+            if replace_tool_arguments
+            else {
+                **_deepcopy_json(self.tool_arguments),
+                **_deepcopy_json(arguments),
+            }
+        )
 
         async def _run() -> dict[str, Any]:
             from mcp.client.session import ClientSession
@@ -1337,6 +1425,11 @@ class ConnectedSystemIntentStore:
     def get_intent(self, *, user_id: str, system_id: str, intent_id: str) -> dict[str, Any] | None:
         raise NotImplementedError
 
+    def get_zk_intent_by_client_operation(
+        self, *, user_id: str, system_id: str, client_operation_id: str
+    ) -> dict[str, Any] | None:
+        raise NotImplementedError
+
     def update_intent(self, *, intent_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         raise NotImplementedError
 
@@ -1380,6 +1473,38 @@ class ConnectedSystemIntentStore:
         """Retire a stale local pointer without deleting the remote record."""
         raise NotImplementedError
 
+    # CRM ZK state is intentionally separate from legacy request/readback JSON.
+    # Each operation has a short-lived context and approval proof is one-time.
+    def upsert_owner_signing_key(self, key: dict[str, Any]) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def get_owner_signing_key(self, *, user_id: str, key_id: str) -> dict[str, Any] | None:
+        raise NotImplementedError
+
+    def create_zk_context(self, context: dict[str, Any]) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def get_zk_context(
+        self, *, context_id: str, user_id: str, system_id: str
+    ) -> dict[str, Any] | None:
+        raise NotImplementedError
+
+    def consume_zk_context(self, *, context_id: str, user_id: str, system_id: str) -> bool:
+        raise NotImplementedError
+
+    def create_approval_challenge(self, challenge: dict[str, Any]) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def get_approval_challenge(
+        self, *, challenge_id: str, user_id: str, system_id: str, intent_id: str
+    ) -> dict[str, Any] | None:
+        raise NotImplementedError
+
+    def consume_approval_challenge(
+        self, *, challenge_id: str, user_id: str, system_id: str, intent_id: str
+    ) -> bool:
+        raise NotImplementedError
+
 
 class InMemoryConnectedSystemIntentStore(ConnectedSystemIntentStore):
     """Test and local fallback store."""
@@ -1388,6 +1513,9 @@ class InMemoryConnectedSystemIntentStore(ConnectedSystemIntentStore):
         self.intents: dict[str, dict[str, Any]] = {}
         self.audit_events: list[dict[str, Any]] = []
         self.bindings: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self.owner_signing_keys: dict[tuple[str, str], dict[str, Any]] = {}
+        self.zk_contexts: dict[str, dict[str, Any]] = {}
+        self.approval_challenges: dict[str, dict[str, Any]] = {}
 
     def create_intent(self, intent: dict[str, Any]) -> dict[str, Any]:
         self.intents[intent["intent_id"]] = _deepcopy_json(intent)
@@ -1400,6 +1528,21 @@ class InMemoryConnectedSystemIntentStore(ConnectedSystemIntentStore):
         if intent.get("user_id") != user_id or intent.get("system_id") != system_id:
             return None
         return _deepcopy_json(intent)
+
+    def get_zk_intent_by_client_operation(
+        self, *, user_id: str, system_id: str, client_operation_id: str
+    ) -> dict[str, Any] | None:
+        return next(
+            (
+                _deepcopy_json(intent)
+                for intent in self.intents.values()
+                if intent.get("user_id") == user_id
+                and intent.get("system_id") == system_id
+                and intent.get("delivery_mode") == "crm-zk.v1"
+                and intent.get("client_operation_id") == client_operation_id
+            ),
+            None,
+        )
 
     def claim_pending_intent(self, *, intent_id: str, approval_id: str) -> dict[str, Any]:
         intent = self.intents.get(intent_id)
@@ -1508,6 +1651,95 @@ class InMemoryConnectedSystemIntentStore(ConnectedSystemIntentStore):
         self.bindings[key] = next_binding
         return _deepcopy_json(next_binding)
 
+    def upsert_owner_signing_key(self, key: dict[str, Any]) -> dict[str, Any]:
+        for existing_key, existing in list(self.owner_signing_keys.items()):
+            if existing_key[0] == key["user_id"] and existing_key != (
+                key["user_id"],
+                key["key_id"],
+            ):
+                self.owner_signing_keys[existing_key] = {**existing, "status": "retired"}
+        stored = {**_deepcopy_json(key), "status": "active", "created_at": _now_iso()}
+        self.owner_signing_keys[(key["user_id"], key["key_id"])] = stored
+        return _deepcopy_json(stored)
+
+    def get_owner_signing_key(self, *, user_id: str, key_id: str) -> dict[str, Any] | None:
+        key = self.owner_signing_keys.get((user_id, key_id))
+        return _deepcopy_json(key) if key and key.get("status") == "active" else None
+
+    def create_zk_context(self, context: dict[str, Any]) -> dict[str, Any]:
+        stored = {**_deepcopy_json(context), "consumed_at": None, "created_at": _now_iso()}
+        self.zk_contexts[context["context_id"]] = stored
+        return _deepcopy_json(stored)
+
+    def get_zk_context(
+        self, *, context_id: str, user_id: str, system_id: str
+    ) -> dict[str, Any] | None:
+        context = self.zk_contexts.get(context_id)
+        if (
+            not context
+            or context.get("user_id") != user_id
+            or context.get("system_id") != system_id
+        ):
+            return None
+        return _deepcopy_json(context)
+
+    def consume_zk_context(self, *, context_id: str, user_id: str, system_id: str) -> bool:
+        context = self.zk_contexts.get(context_id)
+        if (
+            not context
+            or context.get("user_id") != user_id
+            or context.get("system_id") != system_id
+            or context.get("consumed_at")
+        ):
+            return False
+        context["consumed_at"] = _now_iso()
+        return True
+
+    def create_approval_challenge(self, challenge: dict[str, Any]) -> dict[str, Any]:
+        for challenge_id, existing in list(self.approval_challenges.items()):
+            if existing.get("intent_id") == challenge["intent_id"] and not existing.get(
+                "consumed_at"
+            ):
+                self.approval_challenges[challenge_id] = {**existing, "consumed_at": _now_iso()}
+        stored = {**_deepcopy_json(challenge), "consumed_at": None, "created_at": _now_iso()}
+        self.approval_challenges[challenge["challenge_id"]] = stored
+        return _deepcopy_json(stored)
+
+    def get_approval_challenge(
+        self, *, challenge_id: str, user_id: str, system_id: str, intent_id: str
+    ) -> dict[str, Any] | None:
+        challenge = self.approval_challenges.get(challenge_id)
+        if not challenge or any(
+            challenge.get(key) != expected
+            for key, expected in {
+                "user_id": user_id,
+                "system_id": system_id,
+                "intent_id": intent_id,
+            }.items()
+        ):
+            return None
+        return _deepcopy_json(challenge)
+
+    def consume_approval_challenge(
+        self, *, challenge_id: str, user_id: str, system_id: str, intent_id: str
+    ) -> bool:
+        challenge = self.approval_challenges.get(challenge_id)
+        if (
+            not challenge
+            or challenge.get("consumed_at")
+            or any(
+                challenge.get(key) != expected
+                for key, expected in {
+                    "user_id": user_id,
+                    "system_id": system_id,
+                    "intent_id": intent_id,
+                }.items()
+            )
+        ):
+            return False
+        challenge["consumed_at"] = _now_iso()
+        return True
+
 
 class DatabaseConnectedSystemIntentStore(ConnectedSystemIntentStore):
     def __init__(self, db: Any | None = None):
@@ -1536,6 +1768,12 @@ class DatabaseConnectedSystemIntentStore(ConnectedSystemIntentStore):
               readback_payload_json,
               field_names_json,
               result_payload_json,
+              delivery_mode,
+              encrypted_fields_json,
+              zk_metadata_json,
+              envelope_digest,
+              client_operation_id,
+              approval_challenge_id,
               error_code,
               error_message,
               updated_at
@@ -1554,6 +1792,12 @@ class DatabaseConnectedSystemIntentStore(ConnectedSystemIntentStore):
               :readback_payload_json,
               :field_names_json,
               :result_payload_json,
+              :delivery_mode,
+              :encrypted_fields_json,
+              :zk_metadata_json,
+              :envelope_digest,
+              :client_operation_id,
+              :approval_challenge_id,
               :error_code,
               :error_message,
               NOW()
@@ -1575,6 +1819,24 @@ class DatabaseConnectedSystemIntentStore(ConnectedSystemIntentStore):
             LIMIT 1
             """,
             {"intent_id": intent_id, "user_id": user_id, "system_id": system_id},
+        ).data
+        return _intent_from_db_row(rows[0]) if rows else None
+
+    def get_zk_intent_by_client_operation(
+        self, *, user_id: str, system_id: str, client_operation_id: str
+    ) -> dict[str, Any] | None:
+        rows = self.db.execute_raw(
+            """
+            SELECT * FROM connected_system_intents
+            WHERE user_id = :user_id AND system_id = :system_id
+              AND delivery_mode = 'crm-zk.v1' AND client_operation_id = :client_operation_id
+            LIMIT 1
+            """,
+            {
+                "user_id": user_id,
+                "system_id": system_id,
+                "client_operation_id": client_operation_id,
+            },
         ).data
         return _intent_from_db_row(rows[0]) if rows else None
 
@@ -1617,6 +1879,12 @@ class DatabaseConnectedSystemIntentStore(ConnectedSystemIntentStore):
                 result_class = :result_class,
                 result_payload_json = :result_payload_json,
                 readback_result_json = :readback_result_json,
+                delivery_mode = :delivery_mode,
+                encrypted_fields_json = :encrypted_fields_json,
+                zk_metadata_json = :zk_metadata_json,
+                envelope_digest = :envelope_digest,
+                client_operation_id = :client_operation_id,
+                approval_challenge_id = :approval_challenge_id,
                 error_code = :error_code,
                 error_message = :error_message,
                 updated_at = NOW()
@@ -1697,6 +1965,149 @@ class DatabaseConnectedSystemIntentStore(ConnectedSystemIntentStore):
             {"user_id": user_id, "system_id": system_id, "object_type": object_type},
         ).data
         return _binding_from_db_row(rows[0]) if rows else None
+
+    def upsert_owner_signing_key(self, key: dict[str, Any]) -> dict[str, Any]:
+        rows = self.db.execute_raw(
+            """
+            WITH retired AS (
+              UPDATE connected_system_owner_signing_keys
+              SET status = 'retired', retired_at = NOW()
+              WHERE user_id = :user_id AND key_id <> :key_id AND status = 'active'
+            ), upserted AS (
+              INSERT INTO connected_system_owner_signing_keys (
+                user_id, key_id, public_key_spki, public_key_fingerprint, algorithm, status, created_at, retired_at, revoked_at
+              ) VALUES (
+                :user_id, :key_id, :public_key_spki, :public_key_fingerprint, 'ECDSA-P256-SHA256', 'active', NOW(), NULL, NULL
+              )
+              ON CONFLICT (user_id, key_id) DO UPDATE SET
+                public_key_spki = EXCLUDED.public_key_spki,
+                public_key_fingerprint = EXCLUDED.public_key_fingerprint,
+                status = 'active', retired_at = NULL, revoked_at = NULL
+              RETURNING *
+            ) SELECT * FROM upserted
+            """,
+            {
+                "user_id": key["user_id"],
+                "key_id": key["key_id"],
+                "public_key_spki": key["public_key_spki"],
+                "public_key_fingerprint": key["public_key_fingerprint"],
+            },
+        ).data
+        return _owner_signing_key_from_db_row(rows[-1]) if rows else key
+
+    def get_owner_signing_key(self, *, user_id: str, key_id: str) -> dict[str, Any] | None:
+        rows = self.db.execute_raw(
+            """
+            SELECT * FROM connected_system_owner_signing_keys
+            WHERE user_id = :user_id AND key_id = :key_id AND status = 'active'
+            LIMIT 1
+            """,
+            {"user_id": user_id, "key_id": key_id},
+        ).data
+        return _owner_signing_key_from_db_row(rows[0]) if rows else None
+
+    def create_zk_context(self, context: dict[str, Any]) -> dict[str, Any]:
+        rows = self.db.execute_raw(
+            """
+            INSERT INTO connected_system_zk_contexts (
+              context_id, user_id, system_id, action, object_type, record_id,
+              field_names_json, schema_fingerprint, configuration_revision,
+              recipient_key_id, recipient_key_fingerprint, client_operation_id, context_digest,
+              context_signer_key_id, context_signature, expires_at
+            ) VALUES (
+              :context_id, :user_id, :system_id, :action, :object_type, :record_id,
+              :field_names_json, :schema_fingerprint, :configuration_revision,
+              :recipient_key_id, :recipient_key_fingerprint, :client_operation_id, :context_digest,
+              :context_signer_key_id, :context_signature,
+              to_timestamp(:expires_at_ms / 1000.0)
+            ) RETURNING *
+            """,
+            _zk_context_to_db_params(context),
+        ).data
+        return _zk_context_from_db_row(rows[0]) if rows else context
+
+    def get_zk_context(
+        self, *, context_id: str, user_id: str, system_id: str
+    ) -> dict[str, Any] | None:
+        rows = self.db.execute_raw(
+            """
+            SELECT * FROM connected_system_zk_contexts
+            WHERE context_id = :context_id AND user_id = :user_id AND system_id = :system_id
+            LIMIT 1
+            """,
+            {"context_id": context_id, "user_id": user_id, "system_id": system_id},
+        ).data
+        return _zk_context_from_db_row(rows[0]) if rows else None
+
+    def consume_zk_context(self, *, context_id: str, user_id: str, system_id: str) -> bool:
+        rows = self.db.execute_raw(
+            """
+            UPDATE connected_system_zk_contexts SET consumed_at = NOW()
+            WHERE context_id = :context_id AND user_id = :user_id AND system_id = :system_id
+              AND consumed_at IS NULL AND expires_at > NOW()
+            RETURNING context_id
+            """,
+            {"context_id": context_id, "user_id": user_id, "system_id": system_id},
+        ).data
+        return bool(rows)
+
+    def create_approval_challenge(self, challenge: dict[str, Any]) -> dict[str, Any]:
+        rows = self.db.execute_raw(
+            """
+            WITH retired AS (
+              UPDATE connected_system_intent_approval_challenges
+              SET consumed_at = NOW()
+              WHERE intent_id = :intent_id AND consumed_at IS NULL
+            )
+            INSERT INTO connected_system_intent_approval_challenges (
+              challenge_id, intent_id, user_id, system_id, envelope_digest, nonce_hash, expires_at
+            ) VALUES (
+              :challenge_id, :intent_id, :user_id, :system_id, :envelope_digest, :nonce_hash,
+              to_timestamp(:expires_at_ms / 1000.0)
+            ) RETURNING *
+            """,
+            challenge,
+        ).data
+        return _approval_challenge_from_db_row(rows[0]) if rows else challenge
+
+    def get_approval_challenge(
+        self, *, challenge_id: str, user_id: str, system_id: str, intent_id: str
+    ) -> dict[str, Any] | None:
+        rows = self.db.execute_raw(
+            """
+            SELECT * FROM connected_system_intent_approval_challenges
+            WHERE challenge_id = :challenge_id AND user_id = :user_id
+              AND system_id = :system_id AND intent_id = :intent_id
+            LIMIT 1
+            """,
+            {
+                "challenge_id": challenge_id,
+                "user_id": user_id,
+                "system_id": system_id,
+                "intent_id": intent_id,
+            },
+        ).data
+        return _approval_challenge_from_db_row(rows[0]) if rows else None
+
+    def consume_approval_challenge(
+        self, *, challenge_id: str, user_id: str, system_id: str, intent_id: str
+    ) -> bool:
+        rows = self.db.execute_raw(
+            """
+            UPDATE connected_system_intent_approval_challenges SET consumed_at = NOW()
+            WHERE challenge_id = :challenge_id AND user_id = :user_id
+              AND system_id = :system_id AND intent_id = :intent_id
+              AND consumed_at IS NULL AND expires_at > NOW()
+            RETURNING challenge_id
+            """,
+            {
+                "challenge_id": challenge_id,
+                "user_id": user_id,
+                "system_id": system_id,
+                "intent_id": intent_id,
+            },
+        ).data
+        return bool(rows)
 
     def list_bindings(self, *, user_id: str) -> list[dict[str, Any]]:
         rows = self.db.execute_raw(
@@ -1845,6 +2256,12 @@ def _intent_to_db_params(intent: dict[str, Any]) -> dict[str, Any]:
         "result_class": intent.get("result_class"),
         "result_payload_json": intent.get("result_payload") or {},
         "readback_result_json": intent.get("readback_result") or {},
+        "delivery_mode": intent.get("delivery_mode") or "legacy",
+        "encrypted_fields_json": intent.get("encrypted_fields"),
+        "zk_metadata_json": intent.get("zk_metadata"),
+        "envelope_digest": intent.get("envelope_digest"),
+        "client_operation_id": intent.get("client_operation_id"),
+        "approval_challenge_id": intent.get("approval_challenge_id"),
         "error_code": intent.get("error_code"),
         "error_message": intent.get("error_message"),
     }
@@ -1868,6 +2285,12 @@ def _intent_from_db_row(row: dict[str, Any]) -> dict[str, Any]:
         "result_class": row.get("result_class"),
         "result_payload": _ensure_dict(row.get("result_payload_json")),
         "readback_result": _ensure_dict(row.get("readback_result_json")),
+        "delivery_mode": str(row.get("delivery_mode") or "legacy"),
+        "encrypted_fields": _ensure_dict(row.get("encrypted_fields_json")),
+        "zk_metadata": _ensure_dict(row.get("zk_metadata_json")),
+        "envelope_digest": row.get("envelope_digest"),
+        "client_operation_id": row.get("client_operation_id"),
+        "approval_challenge_id": row.get("approval_challenge_id"),
         "error_code": row.get("error_code"),
         "error_message": row.get("error_message"),
         "created_at": _to_iso(row.get("created_at")),
@@ -1898,6 +2321,84 @@ def _binding_from_db_row(row: dict[str, Any]) -> dict[str, Any]:
         "created_at": _to_iso(row.get("created_at")),
         "updated_at": _to_iso(row.get("updated_at")),
         "deleted_at": _to_iso(row.get("deleted_at")),
+    }
+
+
+def _owner_signing_key_from_db_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "user_id": row.get("user_id"),
+        "key_id": row.get("key_id"),
+        "public_key_spki": row.get("public_key_spki"),
+        "public_key_fingerprint": row.get("public_key_fingerprint"),
+        "status": row.get("status"),
+    }
+
+
+def _zk_context_to_db_params(context: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "context_id": context["context_id"],
+        "user_id": context["user_id"],
+        "system_id": context["system_id"],
+        "action": context["action"],
+        "object_type": context["object_type"],
+        "record_id": context["record_id"],
+        "field_names_json": list(context.get("field_names") or []),
+        "schema_fingerprint": context.get("schema_fingerprint"),
+        "configuration_revision": context["configuration_revision"],
+        "recipient_key_id": context["recipient_key_id"],
+        "recipient_key_fingerprint": context["recipient_key_fingerprint"],
+        "client_operation_id": context["client_operation_id"],
+        "context_digest": context["context_digest"],
+        "context_signer_key_id": context["context_signer_key_id"],
+        "context_signature": context["context_signature"],
+        "expires_at_ms": context["expires_at_ms"],
+    }
+
+
+def _zk_context_from_db_row(row: dict[str, Any]) -> dict[str, Any]:
+    expires = row.get("expires_at")
+    expires_at_ms = (
+        int(expires.timestamp() * 1000)
+        if isinstance(expires, datetime)
+        else int(row.get("expires_at_ms") or 0)
+    )
+    return {
+        "context_id": row.get("context_id"),
+        "user_id": row.get("user_id"),
+        "system_id": row.get("system_id"),
+        "action": row.get("action"),
+        "object_type": row.get("object_type"),
+        "record_id": row.get("record_id"),
+        "field_names": [str(field) for field in _ensure_list(row.get("field_names_json"))],
+        "schema_fingerprint": row.get("schema_fingerprint"),
+        "configuration_revision": int(row.get("configuration_revision") or 1),
+        "recipient_key_id": row.get("recipient_key_id"),
+        "recipient_key_fingerprint": row.get("recipient_key_fingerprint"),
+        "client_operation_id": row.get("client_operation_id"),
+        "context_digest": row.get("context_digest"),
+        "context_signer_key_id": row.get("context_signer_key_id"),
+        "context_signature": row.get("context_signature"),
+        "expires_at_ms": expires_at_ms,
+        "consumed_at": _to_iso(row.get("consumed_at")),
+    }
+
+
+def _approval_challenge_from_db_row(row: dict[str, Any]) -> dict[str, Any]:
+    expires = row.get("expires_at")
+    expires_at_ms = (
+        int(expires.timestamp() * 1000)
+        if isinstance(expires, datetime)
+        else int(row.get("expires_at_ms") or 0)
+    )
+    return {
+        "challenge_id": row.get("challenge_id"),
+        "intent_id": row.get("intent_id"),
+        "user_id": row.get("user_id"),
+        "system_id": row.get("system_id"),
+        "envelope_digest": row.get("envelope_digest"),
+        "nonce_hash": row.get("nonce_hash"),
+        "expires_at_ms": expires_at_ms,
+        "consumed_at": _to_iso(row.get("consumed_at")),
     }
 
 
@@ -1982,10 +2483,23 @@ class ConnectedSystemsService:
         return config
 
     async def _call_operation(
-        self, *, system: ConnectedSystemDefinition, operation: str, payload: dict[str, Any]
+        self,
+        *,
+        system: ConnectedSystemDefinition,
+        operation: str,
+        payload: dict[str, Any],
+        tool_name: str | None = None,
+        replace_tool_arguments: bool = False,
     ) -> dict[str, Any]:
         config = self._require_operation(system, operation)
         adapter = self._adapter_for_system(system)
+        effective_payload = _deepcopy_json(payload)
+        if system.mulesoft_connector_ref and not replace_tool_arguments:
+            # Every MuleSoft connector owns target/connection selection through
+            # connectorRef. Never forward a backend target label as tool input,
+            # including for the current plaintext create/delete compatibility
+            # path.
+            effective_payload.pop("target", None)
         # The production adapter is operation-driven. The narrow legacy fallback
         # keeps injected test adapters compatible while all real registry calls
         # use the mapped tool name and endpoint.
@@ -1997,11 +2511,12 @@ class ConnectedSystemsService:
                 endpoint = str(adapter.endpoint)
             result = await adapter.call_operation(
                 operation=operation,
-                tool_name=str(config.get("name") or ""),
+                tool_name=tool_name or str(config.get("name") or ""),
                 endpoint=endpoint,
                 timeout_seconds=system.timeout_seconds,
                 retry_count=system.retry_count,
-                arguments=payload,
+                arguments=effective_payload,
+                replace_tool_arguments=replace_tool_arguments,
             )
         else:
             legacy_method = {
@@ -2011,7 +2526,7 @@ class ConnectedSystemsService:
                 "update": "update_record",
                 "delete": "delete_record",
             }[operation]
-            result = await getattr(adapter, legacy_method)(payload)
+            result = await getattr(adapter, legacy_method)(effective_payload)
         if result.get("isError"):
             raise ConnectedSystemsError(
                 _mcp_error_message(result),
@@ -2043,6 +2558,780 @@ class ConnectedSystemsService:
 
     def get_system(self, system_id: str) -> ConnectedSystemDefinition:
         return self._resolve_system(system_id)
+
+    def _require_crm_zk_system(
+        self, *, system_id: str, operation: str
+    ) -> ConnectedSystemDefinition:
+        system = self.get_system(system_id)
+        if not system.crm_zk_ready(operation):
+            raise ConnectedSystemConfigurationError(
+                "This connected system is not yet configured for CRM ZK.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UNAVAILABLE",
+            )
+        return system
+
+    def crm_zk_configuration(self, *, system_id: str) -> dict[str, Any]:
+        """Return pinned public crypto material after VAULT_OWNER authentication.
+
+        This deliberately excludes CRM hostnames, endpoints, OAuth material,
+        targets, and raw CRM record identifiers. The recipient and response
+        signing keys are registry-pinned; callers cannot select either key.
+        """
+        system = self._require_crm_zk_system(system_id=system_id, operation="read")
+        if not system.crm_zk_ready("update"):
+            raise ConnectedSystemConfigurationError(
+                "CRM ZK update is not yet configured for this connected system.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UPDATE_UNAVAILABLE",
+            )
+        key = system.crm_zk_recipient_key or {}
+        return {
+            "profile": CRM_ZK_V1_PROFILE,
+            "hkdf": {
+                "hash": "SHA-256",
+                "salt": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                "info": "crm-zk.v1:key-wrap",
+                "lengthBytes": 32,
+            },
+            "configurationRevision": system.configuration_revision,
+            "recipientKey": {
+                "keyId": key["keyId"],
+                "publicKey": key["publicKey"],
+                "fingerprint": key["publicKeyFingerprint"],
+            },
+            "responseSigningKey": {
+                "keyId": key["responseSigningKeyId"],
+                "publicKey": key["responseSigningPublicKey"],
+                "fingerprint": key["responseSigningKeyFingerprint"],
+                "algorithm": "ECDSA-P256-SHA256-P1363",
+            },
+        }
+
+    def register_crm_zk_owner_signing_key(
+        self, *, user_id: str, key_id: str, public_key_spki: str
+    ) -> dict[str, Any]:
+        try:
+            fingerprint = p256_spki_fingerprint(public_key_spki)
+        except CrmZkValidationError as error:
+            raise ConnectedSystemValidationError(
+                "The owner signing key is invalid.",
+                code="CONNECTED_SYSTEM_CRM_ZK_SIGNING_KEY_INVALID",
+            ) from error
+        cleaned_key_id = _clean_text(key_id, max_length=160)
+        if not cleaned_key_id:
+            raise ConnectedSystemValidationError(
+                "A signing key id is required.", code="CONNECTED_SYSTEM_CRM_ZK_SIGNING_KEY_INVALID"
+            )
+        stored = self._store_call(
+            self.store.upsert_owner_signing_key,
+            {
+                "user_id": user_id,
+                "key_id": cleaned_key_id,
+                "public_key_spki": public_key_spki,
+                "public_key_fingerprint": fingerprint,
+            },
+        )
+        return {
+            "keyId": stored.get("key_id"),
+            "fingerprint": stored.get("public_key_fingerprint"),
+            "algorithm": "ECDSA-P256-SHA256-P1363",
+            "status": stored.get("status") or "active",
+        }
+
+    async def prepare_crm_zk_context(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        operation: str,
+        object_type: str | None,
+        field_names: list[str],
+        locked_field_names: set[str] | None = None,
+    ) -> dict[str, Any]:
+        """Allocate a signed server binding before browser encryption starts."""
+        system = self._require_crm_zk_system(system_id=system_id, operation=operation)
+        object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
+        record_id = self._require_bound_record_id(
+            user_id=user_id, system_id=system_id, object_type=object_type_value
+        )
+        schema = await self.get_schema(
+            system_id=system_id, object_type=object_type_value, require_fresh=True
+        )
+        self._require_schema_action(schema, operation)
+        allowed_fields = self._crm_zk_allowed_field_names(
+            schema=schema,
+            requested=field_names,
+            operation=operation,
+            locked_field_names=locked_field_names or set(),
+        )
+        key = system.crm_zk_recipient_key or {}
+        binding = CrmZkBindingContext(
+            contextId=_zk_context_id(),
+            systemId=system.system_id,
+            operation=operation,
+            objectType=str(schema["objectType"]),
+            recordId=record_id,
+            fieldNames=allowed_fields,
+            schemaFingerprint=str(schema.get("schemaFingerprint") or "") or None,
+            configurationRevision=system.configuration_revision,
+            recipientKeyId=str(key["keyId"]),
+            recipientKeyFingerprint=str(key["publicKeyFingerprint"]),
+            clientOperationId=f"czko_{uuid4().hex}",
+            expiresAtMs=_now_ms() + 5 * 60 * 1000,
+        )
+        context_digest = sha256_digest(canonical_json_bytes(binding))
+        signature, signer_key_id = self._sign_crm_zk_context(binding)
+        stored = {
+            "context_id": binding.context_id,
+            "user_id": user_id,
+            "system_id": system.system_id,
+            "action": operation,
+            "object_type": binding.object_type,
+            "record_id": record_id,
+            "field_names": list(binding.field_names),
+            "schema_fingerprint": binding.schema_fingerprint,
+            "configuration_revision": binding.configuration_revision,
+            "recipient_key_id": binding.recipient_key_id,
+            "recipient_key_fingerprint": binding.recipient_key_fingerprint,
+            "client_operation_id": binding.client_operation_id,
+            "context_digest": context_digest,
+            "context_signer_key_id": signer_key_id,
+            "context_signature": signature,
+            "expires_at_ms": binding.expires_at_ms,
+        }
+        self._store_call(self.store.create_zk_context, stored)
+        # The browser receives only a digest that commits to the record binding,
+        # never a request-selectable raw CRM id. MuleSoft receives the signed
+        # full context later from this backend when the opaque envelope relays.
+        return {
+            "profile": CRM_ZK_V1_PROFILE,
+            "contextId": binding.context_id,
+            "contextDigest": context_digest,
+            "systemId": binding.system_id,
+            "operation": binding.operation,
+            "objectType": binding.object_type,
+            "fieldNames": list(binding.field_names),
+            "schemaFingerprint": binding.schema_fingerprint,
+            "configurationRevision": binding.configuration_revision,
+            "recipientKeyId": binding.recipient_key_id,
+            "recipientKeyFingerprint": binding.recipient_key_fingerprint,
+            "clientOperationId": binding.client_operation_id,
+            "expiresAtMs": binding.expires_at_ms,
+            "contextSignerKeyId": signer_key_id,
+            # This cannot authorize a browser-selected record: the partner sees
+            # the complete signed context only through the backend relay.
+            "contextSignature": signature,
+        }
+
+    def _sign_crm_zk_context(self, context: CrmZkBindingContext) -> tuple[str, str]:
+        key_material = str(os.getenv("CRM_ZK_CONTEXT_SIGNING_PRIVATE_KEY_B64") or "").strip()
+        key_id = str(os.getenv("CRM_ZK_CONTEXT_SIGNING_KEY_ID") or "").strip()
+        if not key_material or not key_id:
+            raise ConnectedSystemConfigurationError(
+                "CRM ZK context signing is not configured.",
+                code="CONNECTED_SYSTEM_CRM_ZK_CONTEXT_SIGNING_UNCONFIGURED",
+            )
+        try:
+            return sign_server_context(context=context, private_key_pkcs8_b64=key_material), key_id
+        except CrmZkValidationError as error:
+            raise ConnectedSystemConfigurationError(
+                "CRM ZK context signing is not configured.",
+                code="CONNECTED_SYSTEM_CRM_ZK_CONTEXT_SIGNING_UNCONFIGURED",
+            ) from error
+
+    @staticmethod
+    def _crm_zk_allowed_field_names(
+        *,
+        schema: dict[str, Any],
+        requested: list[str],
+        operation: str,
+        locked_field_names: set[str],
+    ) -> list[str]:
+        if not isinstance(requested, list) or not requested or len(requested) > 128:
+            raise ConnectedSystemValidationError(
+                "Select one or more CRM fields.", code="CONNECTED_SYSTEM_CRM_ZK_FIELD_NAMES_INVALID"
+            )
+        descriptors = [
+            field for field in _ensure_list(schema.get("fields")) if isinstance(field, dict)
+        ]
+        by_any_name: dict[str, dict[str, Any]] = {}
+        for field in descriptors:
+            for candidate in (field.get("key"), field.get("name")):
+                candidate_text = _clean_text(candidate, max_length=80)
+                if candidate_text:
+                    by_any_name[candidate_text] = field
+        resolved: list[str] = []
+        for raw in requested:
+            descriptor = by_any_name.get(_clean_text(raw, max_length=80))
+            if not descriptor:
+                raise ConnectedSystemValidationError(
+                    "A selected CRM field is not available in the active schema.",
+                    code="CONNECTED_SYSTEM_SCHEMA_FIELD_UNAVAILABLE",
+                )
+            name = _clean_text(descriptor.get("name") or descriptor.get("key"), max_length=80)
+            if not name or name in resolved:
+                raise ConnectedSystemValidationError(
+                    "CRM fields must be unique.", code="CONNECTED_SYSTEM_CRM_ZK_FIELD_NAMES_INVALID"
+                )
+            if operation == "update" and (
+                descriptor.get("readOnly") is True
+                or descriptor.get("identityField") is True
+                or name in locked_field_names
+            ):
+                raise ConnectedSystemValidationError(
+                    "A selected CRM field cannot be updated.",
+                    code="CONNECTED_SYSTEM_SCHEMA_FIELD_READ_ONLY",
+                )
+            resolved.append(name)
+        return resolved
+
+    def _load_crm_zk_context(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        context_id: str,
+        operation: str,
+        require_unconsumed: bool = True,
+    ) -> tuple[dict[str, Any], CrmZkBindingContext]:
+        stored = self._store_call(
+            self.store.get_zk_context,
+            context_id=context_id,
+            user_id=user_id,
+            system_id=system_id,
+        )
+        if not stored:
+            raise ConnectedSystemValidationError(
+                "The CRM ZK context is unavailable. Start a fresh request.",
+                code="CONNECTED_SYSTEM_CRM_ZK_CONTEXT_INVALID",
+            )
+        if (
+            stored.get("action") != operation
+            or (require_unconsumed and stored.get("consumed_at"))
+            or int(stored.get("expires_at_ms") or 0) <= _now_ms()
+        ):
+            raise ConnectedSystemValidationError(
+                "The CRM ZK context has expired. Start a fresh request.",
+                code="CONNECTED_SYSTEM_CRM_ZK_CONTEXT_EXPIRED",
+            )
+        try:
+            binding = CrmZkBindingContext(
+                contextId=str(stored["context_id"]),
+                systemId=str(stored["system_id"]),
+                operation=str(stored["action"]),
+                objectType=str(stored["object_type"]),
+                recordId=str(stored["record_id"]),
+                fieldNames=list(stored.get("field_names") or []),
+                schemaFingerprint=stored.get("schema_fingerprint"),
+                configurationRevision=int(stored["configuration_revision"]),
+                recipientKeyId=str(stored["recipient_key_id"]),
+                recipientKeyFingerprint=str(stored["recipient_key_fingerprint"]),
+                clientOperationId=str(stored["client_operation_id"]),
+                expiresAtMs=int(stored["expires_at_ms"]),
+            )
+        except Exception as error:  # pragma: no cover - DB corruption fail-closed
+            raise ConnectedSystemConfigurationError(
+                "The CRM ZK context is invalid.", code="CONNECTED_SYSTEM_CRM_ZK_CONTEXT_INVALID"
+            ) from error
+        digest = sha256_digest(canonical_json_bytes(binding))
+        if digest != stored.get("context_digest"):
+            raise ConnectedSystemConfigurationError(
+                "The CRM ZK context integrity check failed.",
+                code="CONNECTED_SYSTEM_CRM_ZK_CONTEXT_INVALID",
+            )
+        return stored, binding
+
+    def _validated_crm_zk_envelope(
+        self,
+        *,
+        user_id: str,
+        encrypted_fields: dict[str, Any],
+        binding: CrmZkBindingContext,
+    ) -> tuple[CrmZkEncryptedFields, str]:
+        try:
+            parsed = CrmZkEncryptedFields.model_validate(encrypted_fields)
+        except Exception as error:
+            raise ConnectedSystemValidationError(
+                "The CRM ZK envelope is invalid.", code="CONNECTED_SYSTEM_CRM_ZK_ENVELOPE_INVALID"
+            ) from error
+        owner_key = self._store_call(
+            self.store.get_owner_signing_key,
+            user_id=user_id,
+            key_id=parsed.owner_signer_key_id,
+        )
+        if not owner_key:
+            raise ConnectedSystemValidationError(
+                "The CRM ZK owner signing key is not active.",
+                code="CONNECTED_SYSTEM_CRM_ZK_SIGNING_KEY_UNAVAILABLE",
+            )
+        try:
+            envelope = validate_encrypted_fields(
+                encrypted_fields=parsed,
+                context=binding,
+                owner_signing_public_key_spki=str(owner_key["public_key_spki"]),
+            )
+            return envelope, str(owner_key["public_key_spki"])
+        except CrmZkValidationError as error:
+            raise ConnectedSystemValidationError(
+                "The CRM ZK envelope could not be authenticated.",
+                code="CONNECTED_SYSTEM_CRM_ZK_ENVELOPE_INVALID",
+            ) from error
+
+    @staticmethod
+    def _assert_crm_zk_context_current(
+        *, system: ConnectedSystemDefinition, binding: CrmZkBindingContext
+    ) -> None:
+        key = system.crm_zk_recipient_key or {}
+        if (
+            binding.configuration_revision != system.configuration_revision
+            or binding.recipient_key_id != key.get("keyId")
+            or binding.recipient_key_fingerprint != key.get("publicKeyFingerprint")
+        ):
+            raise ConnectedSystemValidationError(
+                "The CRM ZK connector changed. Start a fresh request.",
+                code="CONNECTED_SYSTEM_CRM_ZK_CONTEXT_STALE",
+            )
+
+    async def read_bound_record_crm_zk(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        encrypted_fields: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Relay an authenticated encrypted read for the owner-bound record."""
+        context_id = _clean_text(
+            encrypted_fields.get("contextId") or encrypted_fields.get("context_id"), max_length=160
+        )
+        system = self._require_crm_zk_system(system_id=system_id, operation="read")
+        stored, binding = self._load_crm_zk_context(
+            user_id=user_id, system_id=system_id, context_id=context_id, operation="read"
+        )
+        self._assert_crm_zk_context_current(system=system, binding=binding)
+        envelope, owner_signing_public_key_spki = self._validated_crm_zk_envelope(
+            user_id=user_id, encrypted_fields=encrypted_fields, binding=binding
+        )
+        if not self._store_call(
+            self.store.consume_zk_context,
+            context_id=context_id,
+            user_id=user_id,
+            system_id=system_id,
+        ):
+            raise ConnectedSystemValidationError(
+                "The CRM ZK read was already used. Start a fresh read.",
+                code="CONNECTED_SYSTEM_CRM_ZK_CONTEXT_CONSUMED",
+            )
+        response = await self._call_crm_zk_partner(
+            system=system,
+            operation="read",
+            binding=binding,
+            stored_context=stored,
+            envelope=envelope,
+            owner_signing_public_key_spki=owner_signing_public_key_spki,
+        )
+        return {
+            "profile": CRM_ZK_V1_PROFILE,
+            "contextId": binding.context_id,
+            "envelopeDigest": envelope.digest(),
+            # Opaque response data is returned only in this HTTP response and
+            # never written to an intent, audit row, cache, or telemetry.
+            "encryptedFields": response,
+        }
+
+    async def create_crm_zk_update_intent(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        encrypted_fields: dict[str, Any],
+    ) -> dict[str, Any]:
+        context_id = _clean_text(
+            encrypted_fields.get("contextId") or encrypted_fields.get("context_id"), max_length=160
+        )
+        system = self._require_crm_zk_system(system_id=system_id, operation="update")
+        stored, binding = self._load_crm_zk_context(
+            user_id=user_id, system_id=system_id, context_id=context_id, operation="update"
+        )
+        self._assert_crm_zk_context_current(system=system, binding=binding)
+        existing = self._store_call(
+            self.store.get_zk_intent_by_client_operation,
+            user_id=user_id,
+            system_id=system_id,
+            client_operation_id=binding.client_operation_id,
+        )
+        if existing:
+            return self._public_intent(existing)
+        envelope, owner_signing_public_key_spki = self._validated_crm_zk_envelope(
+            user_id=user_id, encrypted_fields=encrypted_fields, binding=binding
+        )
+        if not self._store_call(
+            self.store.consume_zk_context,
+            context_id=context_id,
+            user_id=user_id,
+            system_id=system_id,
+        ):
+            existing = self._store_call(
+                self.store.get_zk_intent_by_client_operation,
+                user_id=user_id,
+                system_id=system_id,
+                client_operation_id=binding.client_operation_id,
+            )
+            if existing:
+                return self._public_intent(existing)
+            raise ConnectedSystemValidationError(
+                "The CRM ZK context was already used. Start a fresh update.",
+                code="CONNECTED_SYSTEM_CRM_ZK_CONTEXT_CONSUMED",
+            )
+        return self._create_intent(
+            user_id=user_id,
+            system=system,
+            action="update",
+            object_type=binding.object_type,
+            request_payload={},
+            readback_payload={},
+            field_names=list(binding.field_names),
+            record_id=binding.record_id,
+            delivery_mode=CRM_ZK_V1_PROFILE,
+            encrypted_fields=envelope.model_dump(mode="json", by_alias=True),
+            zk_metadata={
+                "profile": CRM_ZK_V1_PROFILE,
+                "contextId": binding.context_id,
+                "contextDigest": stored["context_digest"],
+                "contextSignerKeyId": stored["context_signer_key_id"],
+                "recipientKeyId": binding.recipient_key_id,
+                "recipientKeyFingerprint": binding.recipient_key_fingerprint,
+                "ownerSignerKeyId": envelope.owner_signer_key_id,
+                "ownerSignerPublicKeySpki": owner_signing_public_key_spki,
+            },
+            envelope_digest=envelope.digest(),
+            client_operation_id=binding.client_operation_id,
+        )
+
+    def create_crm_zk_approval_challenge(
+        self, *, user_id: str, system_id: str, intent_id: str
+    ) -> dict[str, Any]:
+        intent = self._get_pending_intent(user_id=user_id, system_id=system_id, intent_id=intent_id)
+        if intent.get("delivery_mode") != CRM_ZK_V1_PROFILE:
+            raise ConnectedSystemValidationError(
+                "This approval challenge is only for CRM ZK intents.",
+                code="CONNECTED_SYSTEM_CRM_ZK_INTENT_REQUIRED",
+            )
+        expires_at_ms = _now_ms() + 2 * 60 * 1000
+        nonce = _random_b64()
+        challenge = self._store_call(
+            self.store.create_approval_challenge,
+            {
+                "challenge_id": _zk_challenge_id(),
+                "intent_id": intent_id,
+                "user_id": user_id,
+                "system_id": system_id,
+                "envelope_digest": str(intent.get("envelope_digest") or ""),
+                "nonce_hash": _sha256_b64(nonce),
+                "expires_at_ms": expires_at_ms,
+            },
+        )
+        # The raw nonce is returned once. The database stores only its digest.
+        return {
+            "challengeId": challenge["challenge_id"],
+            "intentId": intent_id,
+            "envelopeDigest": challenge["envelope_digest"],
+            "nonce": nonce,
+            "expiresAtMs": expires_at_ms,
+        }
+
+    async def approve_crm_zk_intent(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        intent_id: str,
+        approval_proof: dict[str, Any],
+    ) -> dict[str, Any]:
+        system = self._require_crm_zk_system(system_id=system_id, operation="update")
+        existing = self._store_call(
+            self.store.get_intent, user_id=user_id, system_id=system_id, intent_id=intent_id
+        )
+        if not existing:
+            raise ConnectedSystemNotFoundError("CRM intent was not found.")
+        if existing.get("delivery_mode") != CRM_ZK_V1_PROFILE:
+            raise ConnectedSystemValidationError(
+                "This approval proof is only for CRM ZK intents.",
+                code="CONNECTED_SYSTEM_CRM_ZK_INTENT_REQUIRED",
+            )
+        if existing.get("status") in TERMINAL_INTENT_STATUSES:
+            return self._public_intent(existing)
+        if existing.get("status") != "pending":
+            return self._public_intent(existing)
+        try:
+            proof = CrmZkApprovalProof.model_validate(approval_proof)
+        except Exception as error:
+            raise ConnectedSystemValidationError(
+                "The CRM ZK approval proof is invalid.",
+                code="CONNECTED_SYSTEM_CRM_ZK_APPROVAL_PROOF_INVALID",
+            ) from error
+        challenge = self._store_call(
+            self.store.get_approval_challenge,
+            challenge_id=proof.challenge_id,
+            user_id=user_id,
+            system_id=system_id,
+            intent_id=intent_id,
+        )
+        metadata = _ensure_dict(existing.get("zk_metadata"))
+        owner_key = self._store_call(
+            self.store.get_owner_signing_key,
+            user_id=user_id,
+            key_id=proof.owner_signer_key_id,
+        )
+        if (
+            not challenge
+            or challenge.get("consumed_at")
+            or challenge.get("envelope_digest") != existing.get("envelope_digest")
+            or metadata.get("ownerSignerKeyId") != proof.owner_signer_key_id
+            or not owner_key
+            or _sha256_b64(proof.nonce) != challenge.get("nonce_hash")
+        ):
+            raise ConnectedSystemValidationError(
+                "The CRM ZK approval challenge is invalid or expired.",
+                code="CONNECTED_SYSTEM_CRM_ZK_APPROVAL_CHALLENGE_INVALID",
+            )
+        try:
+            validate_approval_proof(
+                proof=proof,
+                intent_id=intent_id,
+                envelope_digest=str(existing.get("envelope_digest") or ""),
+                challenge_id=str(challenge["challenge_id"]),
+                # The store holds only a nonce digest. After its digest matches
+                # this proof, use the proof nonce solely for signature bytes.
+                challenge_nonce=proof.nonce,
+                challenge_expires_at_ms=int(challenge["expires_at_ms"]),
+                owner_signing_public_key_spki=str(owner_key["public_key_spki"]),
+            )
+        except CrmZkValidationError as error:
+            raise ConnectedSystemValidationError(
+                "The CRM ZK approval proof could not be authenticated.",
+                code="CONNECTED_SYSTEM_CRM_ZK_APPROVAL_PROOF_INVALID",
+            ) from error
+        if not self._store_call(
+            self.store.consume_approval_challenge,
+            challenge_id=proof.challenge_id,
+            user_id=user_id,
+            system_id=system_id,
+            intent_id=intent_id,
+        ):
+            raise ConnectedSystemValidationError(
+                "The CRM ZK approval challenge was already used or expired.",
+                code="CONNECTED_SYSTEM_CRM_ZK_APPROVAL_CHALLENGE_INVALID",
+            )
+        approval = _approval_id()
+        intent = self._store_call(
+            self.store.claim_pending_intent, intent_id=intent_id, approval_id=approval
+        )
+        if intent.get("approval_id") != approval:
+            return self._public_intent(intent)
+        try:
+            self._require_bound_record_id(
+                user_id=user_id,
+                system_id=system_id,
+                object_type=str(intent["object_type"]),
+                supplied_record_id=str(intent.get("record_id") or ""),
+            )
+            stored, binding = self._load_crm_zk_context(
+                user_id=user_id,
+                system_id=system_id,
+                context_id=str(metadata.get("contextId") or ""),
+                operation="update",
+                require_unconsumed=False,
+            )
+            if stored.get("context_digest") != metadata.get("contextDigest"):
+                raise ConnectedSystemConfigurationError(
+                    "The CRM ZK intent context changed.",
+                    code="CONNECTED_SYSTEM_CRM_ZK_CONTEXT_INVALID",
+                )
+            self._assert_crm_zk_context_current(system=system, binding=binding)
+            schema = await self.get_schema(
+                system_id=system_id, object_type=binding.object_type, require_fresh=True
+            )
+            if (
+                binding.schema_fingerprint
+                and str(schema.get("schemaFingerprint") or "") != binding.schema_fingerprint
+            ):
+                raise ConnectedSystemValidationError(
+                    "The CRM field schema changed. Review and submit a fresh update.",
+                    code="CONNECTED_SYSTEM_CRM_ZK_SCHEMA_STALE",
+                )
+            try:
+                envelope = CrmZkEncryptedFields.model_validate(intent.get("encrypted_fields") or {})
+            except Exception as error:  # pragma: no cover - durable corruption fail-closed
+                raise ConnectedSystemConfigurationError(
+                    "The stored CRM ZK envelope is invalid.",
+                    code="CONNECTED_SYSTEM_CRM_ZK_ENVELOPE_INVALID",
+                ) from error
+            encrypted_response = await self._call_crm_zk_partner(
+                system=system,
+                operation="update",
+                binding=binding,
+                stored_context=stored,
+                envelope=envelope,
+                owner_signing_public_key_spki=str(owner_key["public_key_spki"]),
+                approval_proof=proof,
+                intent_id=intent_id,
+                approval_id=approval,
+            )
+            updated = self._store_call(
+                self.store.update_intent,
+                intent_id=intent_id,
+                updates={
+                    "status": "succeeded",
+                    "approval_id": approval,
+                    "result_class": "succeeded",
+                    # Persist only metadata; partner encrypted readback is
+                    # returned below and never becomes durable backend state.
+                    "result_payload": {"profile": CRM_ZK_V1_PROFILE, "accepted": True},
+                    "readback_result": {"resultClass": "encrypted_response_returned"},
+                    "error_code": None,
+                    "error_message": None,
+                },
+            )
+            self._audit_for_intent(
+                updated,
+                mcp_result_class="succeeded",
+                readback_result_class="encrypted_response_returned",
+                status="succeeded",
+                metadata={
+                    "profile": CRM_ZK_V1_PROFILE,
+                    "envelope_digest": intent.get("envelope_digest"),
+                },
+            )
+            public = self._public_intent(updated)
+            public["encryptedResponse"] = encrypted_response
+            return public
+        except Exception as error:
+            # Partner/protocol failures can include opaque base64 fragments in
+            # their provider text. CRM ZK returns a stable code-only message.
+            safe_message = "CRM ZK approval could not be completed."
+            updated = self._store_call(
+                self.store.update_intent,
+                intent_id=intent_id,
+                updates={
+                    "status": "failed",
+                    "approval_id": approval,
+                    "error_code": getattr(error, "code", "CONNECTED_SYSTEM_CRM_ZK_APPROVAL_FAILED"),
+                    "error_message": safe_message,
+                },
+            )
+            self._audit_for_intent(
+                updated,
+                mcp_result_class="failed",
+                readback_result_class=None,
+                status="failed",
+                metadata={"profile": CRM_ZK_V1_PROFILE, "error_code": updated.get("error_code")},
+            )
+            if isinstance(error, ConnectedSystemsError):
+                raise
+            raise ConnectedSystemsError(
+                "CRM ZK intent approval failed.", code="CONNECTED_SYSTEM_CRM_ZK_APPROVAL_FAILED"
+            ) from error
+
+    async def _call_crm_zk_partner(
+        self,
+        *,
+        system: ConnectedSystemDefinition,
+        operation: str,
+        binding: CrmZkBindingContext,
+        stored_context: dict[str, Any],
+        envelope: CrmZkEncryptedFields,
+        owner_signing_public_key_spki: str,
+        approval_proof: CrmZkApprovalProof | None = None,
+        intent_id: str | None = None,
+        approval_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Call a dedicated MuleSoft tool with no CRM credentials or URLs."""
+        tool_name = system.crm_zk_tool_name(operation)
+        if not tool_name or not system.mulesoft_connector_ref:
+            raise ConnectedSystemConfigurationError(
+                "CRM ZK partner routing is not configured.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UNAVAILABLE",
+            )
+        request: dict[str, Any] = {
+            "profile": CRM_ZK_V1_PROFILE,
+            "connectorRef": system.mulesoft_connector_ref,
+            "operation": operation,
+            "bindingContext": binding.model_dump(mode="json", by_alias=True),
+            "contextDigest": stored_context["context_digest"],
+            "contextSignerKeyId": stored_context["context_signer_key_id"],
+            "contextSignature": stored_context["context_signature"],
+            "encryptedFields": envelope.model_dump(mode="json", by_alias=True),
+            # The partner must verify this registered public key matches the
+            # ownerSignerKeyId in the envelope before accepting its signature.
+            "ownerSignerPublicKeySpki": owner_signing_public_key_spki,
+        }
+        if approval_proof is not None:
+            request.update(
+                {
+                    "intentId": intent_id,
+                    "approvalId": approval_id,
+                    "approvalProof": approval_proof.model_dump(mode="json", by_alias=True),
+                }
+            )
+        try:
+            result = await self._call_operation(
+                system=system,
+                operation=operation,
+                payload=request,
+                tool_name=tool_name,
+                replace_tool_arguments=True,
+            )
+        except ConnectedSystemsError as error:
+            # Never forward partner diagnostic strings because they can include
+            # opaque envelope fragments. The browser has a stable retry code.
+            raise ConnectedSystemsError(
+                "CRM ZK partner request failed.",
+                code="CONNECTED_SYSTEM_CRM_ZK_PARTNER_FAILED",
+                status_code=502,
+            ) from error
+        payload = _ensure_dict(result.get("payload"))
+        response_candidate = payload.get("encryptedFields")
+        if not isinstance(response_candidate, dict):
+            raise ConnectedSystemConfigurationError(
+                "CRM ZK partner returned no authenticated encrypted response.",
+                code="CONNECTED_SYSTEM_CRM_ZK_PARTNER_RESPONSE_INVALID",
+                status_code=502,
+            )
+        key = system.crm_zk_recipient_key or {}
+        try:
+            response = validate_partner_response_envelope(
+                response=response_candidate,
+                context=binding,
+                expected_client_ephemeral_public_key=envelope.client_ephemeral_public_key,
+                response_signing_key_id=str(key["responseSigningKeyId"]),
+                response_signing_public_key_spki=str(key["responseSigningPublicKey"]),
+            )
+        except CrmZkValidationError as error:
+            raise ConnectedSystemConfigurationError(
+                "CRM ZK partner returned an unauthenticated encrypted response.",
+                code="CONNECTED_SYSTEM_CRM_ZK_PARTNER_RESPONSE_INVALID",
+                status_code=502,
+            ) from error
+        # Transport stays camelCase for browser callers. Canonical signing is
+        # deliberately over the normalized snake_case wire model in crm_zk_v1.
+        return {
+            "profile": response.profile,
+            "direction": response.direction,
+            "contextId": response.context_id,
+            "contextDigest": response.context_digest,
+            "envelopeId": response.envelope_id,
+            "clientOperationId": response.client_operation_id,
+            "expiresAtMs": response.expires_at_ms,
+            "recipientClientEphemeralPublicKey": response.recipient_client_ephemeral_public_key,
+            "wrappedPayloadKey": response.wrapped_payload_key,
+            "wrappedKeyIv": response.wrapped_key_iv,
+            "wrappedKeyTag": response.wrapped_key_tag,
+            "payloadIv": response.payload_iv,
+            "payloadTag": response.payload_tag,
+            "ciphertext": response.ciphertext,
+            "aadSha256": response.aad_sha256,
+            "responseSignerKeyId": response.response_signer_key_id,
+            "responseSignature": response.response_signature,
+        }
 
     def list_record_binding_statuses(self, *, user_id: str) -> dict[str, Any]:
         """Return safe owner-scoped binding states without CRM ids or values."""
@@ -2512,6 +3801,7 @@ class ConnectedSystemsService:
                 if (
                     field.get("required")
                     and field.get("identityField") is not True
+                    and field.get("defaultedOnCreate") is not True
                     and str(field["name"]).lower() not in supplied
                 )
             ]
@@ -2705,6 +3995,11 @@ class ConnectedSystemsService:
         locked_field_names: set[str] | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
+        if system.crm_zk_v1_enabled:
+            raise ConnectedSystemBlockedError(
+                "This CRM requires the crm-zk.v1 update protocol.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UPDATE_REQUIRED",
+            )
         self._require_operation(system, "update")
         object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
         record_id_value = self._require_bound_record_id(
@@ -2960,6 +4255,11 @@ class ConnectedSystemsService:
         return_fields: list[str] | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
+        if system.crm_zk_v1_enabled:
+            raise ConnectedSystemBlockedError(
+                "This CRM requires the crm-zk.v1 bound-read protocol.",
+                code="CONNECTED_SYSTEM_CRM_ZK_READ_REQUIRED",
+            )
         object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
         record_id = self._require_bound_record_id(
             user_id=user_id,
@@ -3201,6 +4501,21 @@ class ConnectedSystemsService:
                     "last_intent_id": None,
                 },
             )
+        if system.crm_zk_v1_enabled:
+            # Verified-identity discovery remains a deliberately narrow
+            # server-side exception. A ZK connector never receives plaintext
+            # CRM fields on this route; the browser must issue a fresh bound
+            # crm-zk.v1 read after it receives binding metadata.
+            return {
+                "systemId": system_id,
+                "target": system.target,
+                "objectType": object_type_value,
+                "resultClass": read.get("resultClass"),
+                "recordId": record_id or None,
+                "servedFromBinding": False,
+                "bindingStatus": "active" if binding else "unbound",
+                "binding": self._public_binding(binding) if binding else None,
+            }
         return {
             **read,
             "servedFromBinding": False,
@@ -3607,6 +4922,11 @@ class ConnectedSystemsService:
         readback_payload: dict[str, Any],
         field_names: list[str],
         record_id: str | None,
+        delivery_mode: str = "legacy",
+        encrypted_fields: dict[str, Any] | None = None,
+        zk_metadata: dict[str, Any] | None = None,
+        envelope_digest: str | None = None,
+        client_operation_id: str | None = None,
     ) -> dict[str, Any]:
         deduped_fields = list(dict.fromkeys(field_names))
         intent = {
@@ -3625,6 +4945,12 @@ class ConnectedSystemsService:
             "result_class": None,
             "result_payload": {},
             "readback_result": {},
+            "delivery_mode": delivery_mode,
+            "encrypted_fields": _deepcopy_json(encrypted_fields) if encrypted_fields else None,
+            "zk_metadata": _deepcopy_json(zk_metadata) if zk_metadata else None,
+            "envelope_digest": envelope_digest,
+            "client_operation_id": client_operation_id,
+            "approval_challenge_id": None,
             "error_code": None,
             "error_message": None,
             "created_at": _now_iso(),
@@ -3791,6 +5117,8 @@ class ConnectedSystemsService:
             "status": intent["status"],
             "recordId": intent.get("record_id"),
             "approvalId": intent.get("approval_id"),
+            "deliveryMode": intent.get("delivery_mode") or "legacy",
+            "envelopeDigest": intent.get("envelope_digest"),
             "fieldNames": intent.get("field_names") or [],
             "payloadSummary": _payload_summary(intent),
             "resultClass": intent.get("result_class"),
@@ -3842,6 +5170,13 @@ class ConnectedSystemsService:
 
 
 def _payload_summary(intent: dict[str, Any]) -> dict[str, Any]:
+    if intent.get("delivery_mode") == "crm-zk.v1":
+        metadata = _ensure_dict(intent.get("zk_metadata"))
+        return {
+            "profile": "crm-zk.v1",
+            "contextId": metadata.get("contextId"),
+            "fieldNames": intent.get("field_names") or [],
+        }
     payload = intent.get("request_payload") or {}
     summary = {
         "target": payload.get("target"),

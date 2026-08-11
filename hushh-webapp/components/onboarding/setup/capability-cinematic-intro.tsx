@@ -163,7 +163,7 @@ export function CapabilityCinematicIntroGate({
 
   const content = (
     <section
-      className="motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-col items-start"
+      className="motion-step-enter relative mx-auto flex min-h-[calc(100dvh-16rem)] w-full max-w-[36rem] flex-col items-center justify-center text-center"
       aria-labelledby={`capability-intro-${capabilityId}`}
       data-capability-cinematic-intro={capabilityId}
     >
@@ -197,7 +197,13 @@ export function CapabilityCinematicIntroGate({
           ))}
         </ul>
       ) : null}
-      <p className="type-subhead text-muted-foreground">One · {copy.title}</p>
+      {/* Eyebrow was `text-muted-foreground`, which reads as heavily faded /
+          low-contrast on the light onboarding background. Use the primary
+          foreground token at reduced weight so it stays legible in both themes
+          without hardcoding a slate color that would break dark mode. */}
+      <p className="type-subhead font-medium text-foreground/80">
+        One · {copy.title}
+      </p>
       <h1
         id={`capability-intro-${capabilityId}`}
         className="mt-4 max-w-[16ch] text-balance type-display text-foreground"

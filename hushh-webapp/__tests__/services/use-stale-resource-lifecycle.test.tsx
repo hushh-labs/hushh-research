@@ -78,6 +78,42 @@ describe("useStaleResource lifecycle", () => {
     expect(load).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps loading while a loader hydrates cache before its authority settles", async () => {
+    const hydrated = { source: "device" };
+    const authoritative = { source: "network" };
+    let resolveLoad!: (value: typeof authoritative) => void;
+    const load = vi.fn(
+      () =>
+        new Promise<typeof authoritative>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() =>
+      useStaleResource({
+        cacheKey: "hydrating-key",
+        enabled: true,
+        load,
+      }),
+    );
+
+    expect(result.current.loading).toBe(true);
+    await act(async () => {
+      getCache().set("hydrating-key", hydrated);
+    });
+
+    expect(result.current.data).toEqual(hydrated);
+    expect(result.current.loading).toBe(true);
+
+    await act(async () => {
+      getCache().set("hydrating-key", authoritative);
+      resolveLoad(authoritative);
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.data).toEqual(authoritative);
+  });
+
   // 2 – Warm cache: data available immediately without loading phase
   it("returns cached data immediately on warm cache", async () => {
     const payload = { cached: true };

@@ -4,16 +4,11 @@ SPDX-License-Identifier: Apache-2.0
 Deterministic golden-vector emitter for Hushh Consent Tokens (HCT).
 
 The output JSON is committed at consent-protocol/tests/fixtures/hct_golden_vectors.json
-and consumed by two parity gates:
+and consumed by the canonical Python parity gate:
 
 1. ``tests/test_token_golden_parity.py`` re-runs this emitter and diffs the
    result against the committed JSON. Catches Python-side regressions in
    ``hushh_mcp.consent.token._sign`` or the canonical payload format.
-
-2. ``apps/one-mac/Tests/OneConsentTests/GoldenVectorTests.swift`` loads the
-   same JSON and asserts the Swift port produces byte-identical token
-   strings for each input. Catches Swift-side drift from the canonical
-   Python contract.
 
 The signing key, timestamps, and inputs are all fixed so the JSON is
 reproducible byte-for-byte across runs and machines.

@@ -49,19 +49,30 @@ export function DirectoryLoadingRows({ testId }: { testId: string }) {
 /**
  * The one way in when coordinates cannot answer the question — location was
  * refused, or the coordinates are real but the directory covers nobody there.
- * Both sources are US-only, so anyone outside the US has working GPS and an
- * empty list; a ZIP is the only thing that helps them.
+ *
+ * The label is a prop because the three directories do not share a geography.
+ * BrokerCheck and the Nationwide locator are US registers, so "ZIP" is the
+ * honest word there and anyone outside the US has working GPS and an empty
+ * list. Places is worldwide, so calling its input a ZIP tells a reader in
+ * Bengaluru or Berlin that the surface is not for them, which is false. The
+ * default stays "ZIP" so the two US directories are untouched.
  */
 export function PostalCodeForm({
   busy,
   initialValue = "",
   onSearch,
   testId,
+  label = "ZIP",
+  numericOnly = true,
 }: {
   busy: boolean;
   initialValue?: string;
   onSearch: (postalCode: string) => void;
   testId: string;
+  /** Shown as placeholder and accessible name. "ZIP" for US-only directories. */
+  label?: string;
+  /** US and Indian codes are digits; UK and Canadian ones are not. */
+  numericOnly?: boolean;
 }) {
   const [postalCode, setPostalCode] = useState(initialValue);
 
@@ -77,9 +88,9 @@ export function PostalCodeForm({
       <Input
         value={postalCode}
         onChange={(event) => setPostalCode(event.target.value)}
-        placeholder="ZIP"
-        inputMode="numeric"
-        aria-label="ZIP code"
+        placeholder={label}
+        inputMode={numericOnly ? "numeric" : "text"}
+        aria-label={label}
         className="h-11"
         data-testid={testId}
       />
@@ -212,6 +223,8 @@ export function LocationPrompt({
   testId,
   useLocationTestId,
   postalInputTestId,
+  postalLabel = "ZIP",
+  postalNumericOnly = true,
 }: {
   denied: boolean;
   busy: boolean;
@@ -222,6 +235,9 @@ export function LocationPrompt({
   testId: string;
   useLocationTestId: string;
   postalInputTestId: string;
+  /** See PostalCodeForm: "ZIP" is only honest for the two US registers. */
+  postalLabel?: string;
+  postalNumericOnly?: boolean;
 }) {
   const [showPostal, setShowPostal] = useState(denied);
 
@@ -238,7 +254,7 @@ export function LocationPrompt({
         {denied ? "Location is off" : heading}
       </h2>
       <PageSubtitle className="mt-2">
-        {denied ? "Search by ZIP instead." : "See who's close by."}
+        {denied ? `Search by ${postalLabel.toLowerCase()} instead.` : "See who's close by."}
       </PageSubtitle>
 
       {denied ? null : (
@@ -263,6 +279,8 @@ export function LocationPrompt({
             busy={busy}
             onSearch={onSearchPostalCode}
             testId={postalInputTestId}
+            label={postalLabel}
+            numericOnly={postalNumericOnly}
           />
         </div>
       ) : (

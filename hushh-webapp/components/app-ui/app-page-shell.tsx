@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 
 export type AppPageShellWidth =
   | "reading"
+  | "agent"
   | "standard"
   | "expanded"
   | "narrow"
@@ -23,6 +24,7 @@ export type AppPageDensity = "compact" | "comfortable";
 // 2. Mapped directly to Tailwind classes instead of raw string values
 export const APP_SHELL_MAX_WIDTHS: Record<AppPageShellWidth, string> = {
   reading: "max-w-[720px]",
+  agent: "max-w-[880px]",
   narrow: "max-w-[720px]",
   profile: "max-w-[720px]",
   standard: "max-w-[90rem]",

@@ -16,9 +16,16 @@ const gatewayPath = path.join(
   repoRoot,
   "contracts/kai/kai-action-gateway.vnext.json",
 );
+// One copy per Docker build context: the repo-root original, the webapp's, and
+// the backend's. `deploy/backend.cloudbuild.yaml` builds with context
+// `consent-protocol`, so anything outside it simply is not in the image.
 const outputs = [
   path.join(repoRoot, "contracts/kai/one-route-orchestration-index.v1.json"),
   path.join(appRoot, "contracts/kai/one-route-orchestration-index.v1.json"),
+  path.join(
+    repoRoot,
+    "consent-protocol/contracts/kai/one-route-orchestration-index.v1.json",
+  ),
 ];
 
 function stable(value) {

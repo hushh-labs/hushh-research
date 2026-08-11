@@ -192,10 +192,10 @@ export default function PublicLocationRequestPageClient() {
               <div className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                 Location
               </div>
-              <h1 className="mt-1 text-[32px] font-bold leading-[1.08] tracking-normal sm:text-[34px]">
+              <h1 className="ui-text-agent-title mt-1">
                 View shared location
               </h1>
-              <p className="mt-3 text-[17px] leading-[24px] text-muted-foreground">
+              <p className="mt-3 text-[15px] font-normal leading-[20px] text-muted-foreground">
                 {loading
                   ? "Checking public location link."
                   : error

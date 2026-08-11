@@ -207,6 +207,47 @@ describe("One Voice realtime transports", () => {
     });
   });
 
+  it("preserves the live route snapshot when consent changes mid-call", () => {
+    const transport = new GeminiLiveTransport();
+    const send = vi.fn();
+    const context = {
+      snapshot_id: "ctx-location-1",
+      route: {
+        screen: "one_location",
+        route_family: "/one/location",
+        playbook_id: "route.one.location",
+      },
+      revisions: { route: 1, ui: 1 },
+      auth: { signed_in: true },
+      persona: { active: "investor" },
+      voice: { state: "listening" },
+      available_action_ids: ["location.select_share_recipient"],
+      ui: { visible_modules: [], visible_control_ids: [] },
+      pending_settlement: false,
+      cache: { freshness: "fresh", vault_ready: true, portfolio_ready: false },
+      onboarding: { phase: "root_completion" },
+    };
+    const testTransport = transport as unknown as {
+      ws: { readyState: number; send: (message: string) => void };
+      setupComplete: boolean;
+      latestContext: typeof context;
+    };
+    testTransport.ws = { readyState: WebSocket.OPEN, send };
+    testTransport.setupComplete = true;
+    testTransport.latestContext = context;
+
+    expect(transport.updateConsentToken("consent-token")).toBe(true);
+    expect(JSON.parse(send.mock.calls[0][0])).toMatchObject({
+      type: "app_context",
+      appContext: {
+        screen: "one_location",
+        route_family: "/one/location",
+        available_action_ids: ["location.select_share_recipient"],
+        consent_token: "consent-token",
+      },
+    });
+  });
+
   it("does not accept the first spoken turn until the initial route context is acknowledged", async () => {
     const onEvent = vi.fn();
     const transport = new GeminiLiveTransport({ onEvent });

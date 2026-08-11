@@ -326,7 +326,7 @@ export function SosPanel({
       data-ambient-chrome-ignore
       data-testid="sms-safety-screen"
     >
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(52px,env(safe-area-inset-top))] lg:max-w-[720px] lg:px-6 lg:pt-[max(48px,env(safe-area-inset-top))]">
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(44px,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={onClose}
@@ -336,24 +336,23 @@ export function SosPanel({
           <ChevronLeft className="h-6 w-6" strokeWidth={2} />
         </button>
 
-        <header className="mt-4 px-3 text-center lg:mt-1">
-          <h1 className="whitespace-nowrap !text-[32px] !font-bold !leading-[1.08] !tracking-normal">
+        <header className="mt-4 px-3 text-center">
+          <h1 className="whitespace-nowrap !text-[28px] !font-bold !leading-[34px] !tracking-normal">
             SMS · Save my Soul
           </h1>
-          <p className="mx-auto mt-2 max-w-[310px] text-[17px] leading-[24px] text-white/70">
+          <p className="mx-auto mt-2 max-w-[310px] text-[15px] font-normal leading-[20px] text-white/70">
             Press and hold. An SMS with your live location goes to your people —
             even with no internet.
           </p>
         </header>
 
-        {/* On wide viewports (lg+) the primary press ring and the
-            message/controls column sit side by side so the safety screen fills
-            the space instead of a single narrow strip. Below lg it stays the
-            original stacked column, untouched. The <style> block inside is
-            display:none and never participates in the flex row. */}
-        <div className="flex flex-1 flex-col justify-center gap-7 pt-6 lg:grid lg:grid-cols-[240px_minmax(0,320px)] lg:items-center lg:justify-center lg:gap-8 lg:pt-2">
-          <div className="flex items-center justify-center py-4 lg:py-0">
-            <div className="relative flex h-[224px] w-[224px] items-center justify-center">
+        {/* The emergency action is one centered stack: title/subtitle, then the
+            hold button immediately beneath it, then the message and recovery
+            controls. Keeping this single column prevents the SMS action from
+            reading like a separate desktop panel. */}
+        <div className="flex flex-col items-center gap-4 pt-5">
+          <div className="flex items-center justify-center">
+            <div className="relative flex h-[204px] w-[204px] items-center justify-center">
             <span className="absolute inset-0 rounded-full border border-white/10" />
             <span className="absolute inset-[24px] rounded-full border border-white/15" />
 
@@ -364,17 +363,17 @@ export function SosPanel({
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[136px] w-[136px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite]"
+                  className="absolute h-[128px] w-[128px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite]"
                 />
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[136px] w-[136px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:0.73s]"
+                  className="absolute h-[128px] w-[128px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:0.73s]"
                 />
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[136px] w-[136px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:1.46s]"
+                  className="absolute h-[128px] w-[128px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:1.46s]"
                 />
               </>
             ) : null}
@@ -399,7 +398,7 @@ export function SosPanel({
               onKeyUp={handleKeyUp}
               onContextMenu={(event) => event.preventDefault()}
               className={cn(
-                "relative z-10 flex h-[136px] w-[136px] touch-none select-none flex-col items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black",
+                "relative z-10 flex h-[128px] w-[128px] touch-none select-none flex-col items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black",
                 progress > 0 && progress < 1 && "scale-[1.035]",
                 (active || busy) && "[animation:sosCorePulse_2.2s_ease-in-out_infinite]",
                 disabled && "cursor-not-allowed",
@@ -411,7 +410,7 @@ export function SosPanel({
                     : undefined,
               }}
             >
-              <span className="text-[31px] font-bold leading-none">
+              <span className="text-[28px] font-bold leading-[34px] tracking-normal">
                 {active ? "SENT" : "SMS"}
               </span>
               <span className="mt-1.5 text-[12px] text-white/85">
@@ -443,7 +442,7 @@ export function SosPanel({
         `}</style>
 
 
-        <div className="w-full lg:max-w-[320px]">
+        <div className="w-full max-w-[360px]">
           {/* While an SMS/SOS session is live, the primary action becomes
               stopping it. Cancelling here revokes the location grants created by
               the alert AND clears the incident, so "SENT · Live now" resets and
@@ -511,7 +510,7 @@ export function SosPanel({
                   )
                 }
                 className={cn(
-                  "press-scale h-10 rounded-full border text-[13px] font-semibold",
+                  "press-scale h-11 rounded-full border text-[15px] font-semibold leading-5",
                   messageSelection === option
                     ? "border-white bg-white text-black"
                     : "border-white/5 bg-[#1c1c1e] text-white",
@@ -531,7 +530,7 @@ export function SosPanel({
                 )
               }
               className={cn(
-                "press-scale col-span-2 h-10 rounded-full border text-[13px] font-semibold",
+                "press-scale col-span-2 h-11 rounded-full border text-[15px] font-semibold leading-5",
                 messageSelection === "custom"
                   ? "border-white bg-white text-black"
                   : "border-white/5 bg-[#1c1c1e] text-white",
@@ -564,7 +563,7 @@ export function SosPanel({
                   className={cn(
                     // pr-14 reserves the send button's column so typed text
                     // never runs underneath it.
-                    "min-h-[72px] w-full resize-none rounded-2xl border bg-[#1c1c1e] py-3 pl-3.5 pr-14 text-[14px] leading-relaxed text-white outline-none placeholder:text-white/40 focus:border-white/55",
+                    "min-h-[72px] w-full resize-none rounded-2xl border bg-[#1c1c1e] py-3 pl-3.5 pr-14 text-[17px] leading-[22px] text-white outline-none placeholder:text-white/40 focus:border-white/55",
                     customMessageLimitExceeded
                       ? "border-[color:var(--app-destructive)]"
                       : "border-white/10",

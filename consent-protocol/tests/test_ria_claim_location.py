@@ -359,9 +359,16 @@ async def test_completing_a_claim_hands_the_derived_location_to_the_iam_service(
     async def _no_enrichment(*_args, **_kwargs):
         return None
 
+    async def _location_without_lookup(location, _reference_metadata):
+        return {**location, "latitude": None, "longitude": None}
+
     service = RIAClaimService(client=_FakeIdentityClient(), iam_service=_FakeIamService())
     monkeypatch.setattr(service, "_dispatch_dossier", _no_dossier)
     monkeypatch.setattr(service, "_record_claim_enrichment", _no_enrichment)
+    monkeypatch.setattr(
+        "hushh_mcp.services.ria_claim_service.enrich_business_location",
+        _location_without_lookup,
+    )
 
     await service.complete(
         user_id=_USER_ID,
