@@ -131,6 +131,17 @@ Private data is always consent-gated and scoped.
    authorization failure: the backend reports a typed recovery state, and only
    explicit `VAULT_OWNER` confirmation may transition the local pointer from
    `active` to `disconnected`. This never invokes remote deletion.
+9. `source_library` is a fixed, owner-managed PKM capability boundary. Every
+   `attr.source_library.*` form is non-discoverable and non-authorizing, and the
+   domain cannot publish a public-profile projection. Mounted provider files remain
+   authoritative blobs; encrypted PKM holds private semantic/control memory; and
+   profile-scoped SQLite holds only rebuildable opaque mapping and operation state.
+   Filesystem-first sharing uses a pinned object revision plus an opaque `share_ref`
+   and owner-bound mounted target. A SQLite row is neither access authority nor
+   revocation proof, and Hermes does not claim verified provider ACL recipients.
+   Hermes additionally derives local Source Library encryption from the unlocked
+   vault key plus a device-only, local-user-presence Data Protection Keychain
+   secret. This is Keychain protection, not a Secure Enclave key claim.
 
 ### Device-to-Device Capability Tokens
 

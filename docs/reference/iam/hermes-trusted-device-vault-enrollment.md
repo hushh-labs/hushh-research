@@ -152,11 +152,27 @@ macOS Keychain stores:
 - the Firebase refresh credential;
 - the random local envelope-wrapping key.
 
+For the private Source Library plane, Hermes also uses a distinct random local
+custody secret in the macOS Data Protection Keychain. It is configured as
+`WhenUnlockedThisDeviceOnly`, non-synchronizable, and local-user-presence
+protected. Source Library AES-GCM keys derive from both that secret and the
+unlocked vault key, with profile, owner, device, purpose, and record identity
+bound as authenticated data. The secret is cached only while the bridge is
+unlocked, then zeroized on lock, profile change, revocation, or disconnect.
+
+This is device-bound Keychain + LocalAuthentication protection, **not** a
+non-exportable Secure Enclave key. A future Secure Enclave `SecKey` adapter
+would require a new device registration and recovery lifecycle; it is not
+silently substituted for the current custody contract.
+
 The Hermes profile stores only:
 
 - server-verified non-secret identity metadata;
 - the AES-GCM-encrypted vault-key envelope;
 - ciphertext-only PKM replicas and metadata cursor.
+- encrypted Source Library records, artifacts, and sealed SQLite columns; the
+  rebuildable SQLite mapping plane retains only opaque references and lifecycle
+  metadata in plaintext.
 
 The raw vault key and short-lived tokens stay in process memory. Native PKM
 writes remain proposal-first. The local approval shows affected domain and
@@ -175,12 +191,13 @@ recompute; they never silently overwrite newer information.
 | Remote vault appears during first-vault creation | Do not replace it; restart normal enrollment |
 | Remote vault persists but local envelope fails | Report remote creation and re-enroll with the passphrase |
 | Keychain unavailable or locked | Fail closed without local envelope |
+| Source Library custody missing with existing ciphertext | Fail closed as recovery/rebuild required; never generate a replacement secret |
 | Device revoked | Block refresh, owner-capability issuance, unlock recovery, and writes |
 | PKM compatibility validation fails | Keep the bridge locked and update client/server contract |
 
 Disconnect revokes the remote device, removes the native connector
 registration, deletes the local envelope and ciphertext replica, removes
-related Keychain entries, and clears in-memory credentials. Hosted MCP and
+related Keychain entries and the local Source Library plane, and clears in-memory credentials. Hosted MCP and
 existing vault wrappers remain unchanged.
 
 ## UAT Verification
@@ -197,6 +214,9 @@ Verification requires:
 7. disconnect and remote revocation proof;
 8. confirmation that logs and artifacts contain no credentials or decrypted
    PKM information.
+9. signed macOS proof that Source Library custody is a Data Protection Keychain,
+   device-only, local-user-presence item; cancellation and locked-device access
+   fail closed.
 
 Production selection must use an allowlisted immutable environment bundle. It
 must not accept arbitrary origins, and switching environments requires

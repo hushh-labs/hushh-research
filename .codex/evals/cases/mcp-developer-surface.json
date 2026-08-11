@@ -19,10 +19,6 @@
       {
         "prompt": "run a scoped consent export check with the Hushh Consent MCP lifecycle tool",
         "owner": "hushh-consent-mcp"
-      },
-      {
-        "prompt": "wire the local MCP HTTP host on the Mac to mint CRT tokens for the OpenClaw DataSourceBinding",
-        "owner": "desktop-mac-mcp-host"
       }
     ]
   }

@@ -17,23 +17,28 @@
   "required_reads": [
     "docs/project_context_map.md",
     "docs/reference/iam/README.md",
+    "docs/reference/iam/consent-scope-catalog.md",
     "docs/reference/iam/validation-checklist.md",
-    "consent-protocol/docs/reference/consent-protocol.md"
+    "consent-protocol/docs/reference/consent-protocol.md",
+    "consent-protocol/docs/reference/personal-knowledge-model.md"
   ],
   "required_commands": [
     "./bin/hushh codex route-task security-consent-audit",
     "./bin/hushh docs verify",
-    "./bin/hushh protocol test-ci"
+    "./bin/hushh protocol test-ci",
+    "cd consent-protocol && python3 -m pytest tests/test_source_library_scope_policy.py -q"
   ],
   "verification_bundle": {
     "id": "security-consent-audit",
     "commands": [
       "./bin/hushh docs verify",
       "./bin/hushh protocol test-ci",
+      "cd consent-protocol && python3 -m pytest tests/test_source_library_scope_policy.py -q",
       "cd consent-protocol && python3 scripts/verify_adk_a2a_compliance.py"
     ],
     "tests": [
-      "./bin/hushh protocol test-ci"
+      "./bin/hushh protocol test-ci",
+      "cd consent-protocol && python3 -m pytest tests/test_source_library_scope_policy.py -q"
     ]
   },
   "deliverables": [
@@ -45,6 +50,7 @@
   "impact_fields": [
     "API/schema/type changes",
     "PKM effects",
+    "Blob, PKM, SQLite index, and object-share authority",
     "Docs updated",
     "Verification commands executed"
   ],
@@ -58,6 +64,7 @@
   "common_failures": [
     "treating signed-in as consent",
     "allowing delegated scope escalation",
-    "ignoring vault or PKM boundary docs"
+    "ignoring vault or PKM boundary docs",
+    "treating a reserved PKM capability or object reference as a shareable attr scope"
   ]
 }

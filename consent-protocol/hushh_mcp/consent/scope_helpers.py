@@ -30,6 +30,9 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
     """
     generator = get_scope_generator()
 
+    if ConsentScope.is_retired_scope(scope):
+        raise ValueError(f"SCOPE_RETIRED: {scope}")
+
     # Master scope
     if scope == "vault.owner":
         return ConsentScope.VAULT_OWNER
@@ -65,8 +68,6 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
         "cap.pkm.marketplace.view": ConsentScope.CAP_PKM_MARKETPLACE_VIEW,
         "cap.pkm.marketplace.manage": ConsentScope.CAP_PKM_MARKETPLACE_MANAGE,
     }
-    if scope in RETIRED_SCOPE_VALUES:
-        raise ValueError(f"SCOPE_RETIRED: {scope}")
     if scope.startswith("agent."):
         resolved = _AGENT_SCOPE_MAP.get(scope)
         if resolved is None:
@@ -103,7 +104,7 @@ def scope_matches(granted_scope: str, requested_scope: str) -> bool:
     """
     # Historical strings are display/audit-only and never authorize access,
     # even when both sides contain the same retired value.
-    if granted_scope in RETIRED_SCOPE_VALUES or requested_scope in RETIRED_SCOPE_VALUES:
+    if ConsentScope.is_retired_scope(granted_scope) or requested_scope in RETIRED_SCOPE_VALUES:
         return False
 
     # Exact match

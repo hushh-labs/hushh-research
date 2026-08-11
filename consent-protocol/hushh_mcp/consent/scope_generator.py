@@ -463,6 +463,10 @@ class DynamicScopeGenerator:
             scope = str(entry.get("scope") or "").strip()
             if not scope:
                 return
+            # Manifest/index rows are policy input, not authority. A stale or
+            # forged row cannot revive a domain that is private by contract.
+            if is_private_pkm_export_scope(scope):
+                return
             # Every entry produced by this generator is a manifest-derived
             # dynamic scope.  Keep the canonical scope and the existing
             # discovery provenance byte-for-byte stable; this additive marker
@@ -959,6 +963,8 @@ class DynamicScopeGenerator:
             return False
         domain = self._normalize_domain_key(domain)
         if not domain:
+            return False
+        if is_private_pkm_export_scope(scope):
             return False
 
         # If no user_id, just validate format

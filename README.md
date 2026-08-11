@@ -150,7 +150,7 @@ timeline
   section Phase 3: Enterprise Relays
     MuleSoft Omni Gateway & Salesforce : DocuSign & Agreement Execution : PKM Slice Marketplace
   section Phase 4: On-Device & Hardware
-    BYOA & Local MLX Inference : One Mac Desktop App : Ambient Wearable Contracts (Meta Glasses)
+    BYOA & Local MLX Inference : Local Agent Adapters : Ambient Wearable Contracts (Meta Glasses)
 ```
 
 ### 🟢 Phase 1: Trust Infrastructure & Protocol (Shipped / Current)
@@ -171,7 +171,7 @@ timeline
 
 ### 🔵 Phase 4: On-Device Compute & Hardware Horizons (Future / R&D)
 - **BYOA & Local Inference:** MLX / on-device execution for zero-network privacy.
-- **One Mac Native App:** macOS desktop connector and local knowledge base.
+- **Local Agent Adapters:** Owner-controlled local information sources and on-device execution.
 - **Ambient Intelligence & Wearables:** Ambient wearable agent contracts (Meta Glasses, App Intents).
 
 ---
