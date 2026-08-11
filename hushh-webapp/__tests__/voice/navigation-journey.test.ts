@@ -41,12 +41,11 @@ describe("navigation journeys", () => {
       .filter((actionId) => resolveNavigationJourney(actionId) !== null)
       .sort();
 
-    // Location's two acting actions joined the set when they were authored
-    // with a settlement_target. They are the first journeys whose destination
-    // action changes device state rather than opening a preview, and they are
-    // deliberately the only two Location has: `location.share_selected` is
-    // left out, because escorting a share would mean arriving at the composer
-    // and firing it at whoever was still selected in it.
+    // Location's acting actions joined the set when they were authored with a
+    // settlement_target. They are the journeys whose destination action changes
+    // device state rather than opening a preview. `location.share_selected` is
+    // deliberately left out, because escorting a share would mean arriving at
+    // the composer and firing it at whoever was still selected in it.
     expect(journeys).toEqual([
       "analysis.start",
       // Connect's lifecycle pair. Both resolve one exact person from a
@@ -68,8 +67,15 @@ describe("navigation journeys", () => {
       // would let "remove Sarah" report success about somebody who was never
       // on it.
       "location.add_emergency_contact",
+      // Circles. Escorted for the same reason as everything else here: the
+      // person asks from wherever they are, and the handler that does the work
+      // only exists on Location. Adding is an invitation the other person has
+      // to accept, which is why it settles rather than reporting done.
+      "location.add_to_circle",
+      "location.create_circle",
       "location.pause_updates",
       "location.remove_emergency_contact",
+      "location.remove_from_circle",
       "location.resume_updates",
       // Escorted because selecting someone sends nothing. Asked from another
       // screen it was simply unavailable, which broke "share my location with

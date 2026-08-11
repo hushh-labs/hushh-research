@@ -3910,6 +3910,8 @@
       "voice_action_contract_ids": [
         "location.add_connections",
         "location.add_emergency_contact",
+        "location.add_to_circle",
+        "location.create_circle",
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
@@ -3930,6 +3932,7 @@
         "location.pause_updates",
         "location.refresh",
         "location.remove_emergency_contact",
+        "location.remove_from_circle",
         "location.resume_updates",
         "location.select_share_recipient",
         "location.set_auto_share",
@@ -8194,5 +8197,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "0fd7c4cf65e26d43d5d8c3c2d696fae9c3aa17657e0e0bf89df5378c9f544dea"
+  "content_sha256": "1f256e37608f4017e95ab152c174b0761ced0fe8bd60a29593e8e33810f76c7b"
 }

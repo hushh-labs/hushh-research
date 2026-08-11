@@ -120,7 +120,10 @@ function matchByName<T>(
       // "Abdul R." and "Abdul R" and "Abdul R,"; nobody says the full stop,
       // and leaving it in means "r." can never be recognised as the start of
       // "rashid".
-      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      // \p{M} is kept deliberately: Devanagari and Arabic vowel signs are
+      // marks, not letters, so dropping them shreds "परिवार" into "पर व र" and
+      // a name written in an Indic script can never match itself.
+      .replace(/[^\p{L}\p{N}\p{M}\s]/gu, " ")
       .replace(/\s+/g, " ")
       .trim();
   const target = normalize(spoken);

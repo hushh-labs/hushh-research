@@ -7016,6 +7016,378 @@
       }
     },
     {
+      "action_id": "location.create_circle",
+      "surface_id": "one_location",
+      "label": "Create a new circle",
+      "aliases": [
+        "create a circle called",
+        "make a circle called",
+        "start a new circle named",
+        "new circle called",
+        "make me a circle"
+      ],
+      "search_keywords": [
+        "create",
+        "circle",
+        "group",
+        "new",
+        "name"
+      ],
+      "meaning": "Creates a circle with the name the person says, without opening the create-circle screen. A new circle starts empty; people join only after they accept an invitation.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.create_circle"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "circle names"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.create_circle",
+        "required_inputs": [
+          {
+            "name": "name",
+            "prompt": "What should the circle be called?",
+            "required": true,
+            "slot": "name",
+            "resolver": "spoken_circle_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "name": "spoken_circle_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Create a new circle",
+            "failure_behavior": "stop",
+            "action_id": "location.create_circle",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.add_to_circle",
+      "surface_id": "one_location",
+      "label": "Add someone to a circle",
+      "aliases": [
+        "add to my circle",
+        "add them to the circle",
+        "put in my circle",
+        "invite to my circle",
+        "add someone to the circle"
+      ],
+      "search_keywords": [
+        "add",
+        "invite",
+        "circle",
+        "member",
+        "group"
+      ],
+      "meaning": "Invites one of your connections to join a circle. They are not in the circle until they accept, so this sends an invitation rather than adding them outright. Only people already connected to you can be invited.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.add_to_circle"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "circle names",
+        "circle member count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.add_to_circle",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Who should I invite to the circle?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          },
+          {
+            "name": "circle",
+            "prompt": "Which circle?",
+            "required": false,
+            "slot": "circle",
+            "resolver": "spoken_circle_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name",
+          "circle": "spoken_circle_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Add someone to a circle",
+            "failure_behavior": "stop",
+            "action_id": "location.add_to_circle",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.remove_from_circle",
+      "surface_id": "one_location",
+      "label": "Remove someone from a circle",
+      "aliases": [
+        "remove from my circle",
+        "take them out of the circle",
+        "remove someone from the circle",
+        "drop from my circle",
+        "take them off the circle"
+      ],
+      "search_keywords": [
+        "remove",
+        "circle",
+        "member",
+        "group",
+        "delete"
+      ],
+      "meaning": "Removes one person from a circle, so they stop receiving your location through it. The circle itself and its other members are left untouched.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.remove_from_circle"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "circle names",
+        "circle member count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.remove_from_circle",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Who should I remove from the circle?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          },
+          {
+            "name": "circle",
+            "prompt": "Which circle?",
+            "required": false,
+            "slot": "circle",
+            "resolver": "spoken_circle_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name",
+          "circle": "spoken_circle_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Remove someone from a circle",
+            "failure_behavior": "stop",
+            "action_id": "location.remove_from_circle",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.one_agents",
       "surface_id": "one_agents",
       "label": "Open Agents",
