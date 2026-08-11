@@ -6674,6 +6674,238 @@
       }
     },
     {
+      "action_id": "location.add_emergency_contact",
+      "surface_id": "one_location",
+      "label": "Add an emergency contact",
+      "aliases": [
+        "add emergency contact",
+        "make them an emergency contact",
+        "add to my sos list",
+        "emergency contact"
+      ],
+      "search_keywords": [
+        "emergency",
+        "sos",
+        "contact",
+        "add"
+      ],
+      "meaning": "Adds one person to the list who receive your location by SMS if you trigger an SOS. Only people who have finished their own Location setup can be added.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.add_emergency_contact"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "emergency contact count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.add_emergency_contact",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Who should I add as an emergency contact?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Add an emergency contact",
+            "failure_behavior": "stop",
+            "action_id": "location.add_emergency_contact",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.remove_emergency_contact",
+      "surface_id": "one_location",
+      "label": "Remove an emergency contact",
+      "aliases": [
+        "remove emergency contact",
+        "take them off my sos list",
+        "stop them getting my sos",
+        "remove from emergency contacts"
+      ],
+      "search_keywords": [
+        "emergency",
+        "sos",
+        "contact",
+        "remove"
+      ],
+      "meaning": "Removes one person from the list who receive your location by SMS if you trigger an SOS.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.remove_emergency_contact"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "emergency contact count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.remove_emergency_contact",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Which emergency contact should I remove?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Remove an emergency contact",
+            "failure_behavior": "stop",
+            "action_id": "location.remove_emergency_contact",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "location.resume_updates",
       "surface_id": "one_location",
       "label": "Resume my location",

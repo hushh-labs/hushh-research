@@ -60,7 +60,16 @@ describe("navigation journeys", () => {
       "connect.remove_connection",
       "connect.search_people",
       "connect.send_request",
+      // Emergency contacts. Adding resolves against people ELIGIBLE to
+      // receive an SOS -- someone who has not finished their own Location
+      // setup cannot receive one, and adding them would build a list that
+      // quietly does not work when it is needed. Removing resolves only
+      // against the list itself, because matching the wider connection list
+      // would let "remove Sarah" report success about somebody who was never
+      // on it.
+      "location.add_emergency_contact",
       "location.pause_updates",
+      "location.remove_emergency_contact",
       "location.resume_updates",
       // Escorted because selecting someone sends nothing. Asked from another
       // screen it was simply unavailable, which broke "share my location with

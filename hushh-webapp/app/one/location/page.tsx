@@ -7106,6 +7106,128 @@ export function OneLocationAgentPageContent({
     };
   });
 
+  useLocalOnboardingActionHandler("location.add_emergency_contact", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim().toLowerCase();
+    if (!spoken) {
+      return {
+        status: "blocked" as const,
+        summary: "Say who you want as an emergency contact.",
+      };
+    }
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see who you are connected to while the vault is locked.",
+      };
+    }
+    // Resolved against the people who are ELIGIBLE to receive an SOS, not the
+    // whole connection list. Someone who has not finished their own Location
+    // setup cannot receive one, and adding them would build an emergency
+    // contact list that quietly does not work when it is needed.
+    const matches = sosActionRecipients.filter((recipient) =>
+      recommendationSearchText(recipient).includes(spoken),
+    );
+    if (matches.length === 0) {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody in your connections can receive an SOS under that name.",
+      };
+    }
+    if (matches.length > 1) {
+      return {
+        status: "blocked" as const,
+        summary: `More than one person matches that name: ${matches
+          .map((recipient) => recipientLabel(recipient).trim())
+          .filter(Boolean)
+          .join(", ")}. Say which one.`,
+      };
+    }
+    const match = matches[0];
+    const matchedUserId = match?.userId;
+    if (!match || !matchedUserId) {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody in your connections matches that name.",
+      };
+    }
+    if (smsContactUserIds.includes(matchedUserId)) {
+      return {
+        status: "succeeded" as const,
+        summary: `${recipientLabel(match).trim()} is already one of your emergency contacts.`,
+      };
+    }
+    const added = await handleAddSmsContact(matchedUserId);
+    if (!added) {
+      return {
+        status: "failed" as const,
+        summary: "Could not add that emergency contact.",
+      };
+    }
+    return {
+      status: "succeeded" as const,
+      summary: `${recipientLabel(match).trim()} will now be sent your location if you trigger an SOS.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.remove_emergency_contact", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim().toLowerCase();
+    if (!spoken) {
+      return {
+        status: "blocked" as const,
+        summary: "Say which emergency contact to remove.",
+      };
+    }
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see your emergency contacts while the vault is locked.",
+      };
+    }
+    // Only the people actually ON the list. Matching the wider connection list
+    // would let "remove Sarah" report success about somebody who was never an
+    // emergency contact, leaving the real list untouched and the person
+    // believing otherwise.
+    const matches = smsActionRecipients.filter((recipient) =>
+      recommendationSearchText(recipient).includes(spoken),
+    );
+    if (matches.length === 0) {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody by that name is one of your emergency contacts.",
+      };
+    }
+    if (matches.length > 1) {
+      return {
+        status: "blocked" as const,
+        summary: `More than one emergency contact matches that name: ${matches
+          .map((recipient) => recipientLabel(recipient).trim())
+          .filter(Boolean)
+          .join(", ")}. Say which one.`,
+      };
+    }
+    const match = matches[0];
+    const matchedUserId = match?.userId;
+    if (!match || !matchedUserId) {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody by that name is one of your emergency contacts.",
+      };
+    }
+    const removed = await handleRemoveSmsContact(matchedUserId);
+    if (!removed) {
+      return {
+        status: "failed" as const,
+        summary: "Could not remove that emergency contact.",
+      };
+    }
+    return {
+      status: "succeeded" as const,
+      summary: `${recipientLabel(match).trim()} will no longer be sent your location in an SOS.`,
+    };
+  });
+
   useLocalOnboardingActionHandler("location.set_auto_share", async (slots) => {
     const spoken = String(slots?.enabled ?? "").trim().toLowerCase();
     const turnOn = ["on", "true", "yes", "enable", "enabled", "resume"].includes(spoken);

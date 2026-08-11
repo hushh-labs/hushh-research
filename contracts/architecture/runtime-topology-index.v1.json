@@ -2891,6 +2891,7 @@
       "voice": {
         "action_ids": [
           "location.add_connections",
+          "location.add_emergency_contact",
           "location.chat.turn",
           "location.open_active_shares",
           "location.open_ask",
@@ -2911,6 +2912,7 @@
           "location.open_temporary_link",
           "location.pause_updates",
           "location.refresh",
+          "location.remove_emergency_contact",
           "location.resume_updates",
           "location.select_share_recipient",
           "location.set_auto_share",
@@ -4598,21 +4600,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "f6e6c4474f3ca1f4f9610e94c35aa93b301e4f79bc61e9de0d6cb5508a6d2865",
+    "action_gateway": "82499f8e5b3d3bd8c4786efe2204280cf2b07491e077c5207cdfcc6a85da0953",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
     "cache_manifest": "53a4bec80f5e2b26de1a00542b8d3ea0566fb891c084038f1ea9f72ec2ae3ed8",
     "data_plane": "270affce3a97bcbde752a465927f065005176f0ddc69aeb9419e6605bbc4f94d",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "4393da84bc08f4b1fb7d0f0be6fd2acf77432bd612dee79815b2c405f41cbf5d",
-    "route_index": "d0223ee32dbb8d9439abe2eb657fba04da9bfec5c981d5ac9ebe7503f2592f1a",
+    "route_index": "1526e9f2eaa20dcd7ed1d582046ba2fb1f1be8ab3497abe2fe982ba6866a6276",
     "route_layout": "b6c70ecb3225501b773ed2f6ea25018620e4e940f64d8b400962b39f5209ba0e",
-    "surface_map": "33d9d1ef9d2e2aa7e7e192a935221b4ba5d51c1069267afd442cb491a8df949d",
+    "surface_map": "e3452d50b52166060e80a7bc70374133204052ef740a97d5c4812a6000d60f93",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 149,
+    "actions": 151,
     "agents": 18,
     "aliases": 3,
     "decision_required": 2,
