@@ -7074,6 +7074,60 @@ export function OneLocationAgentPageContent({
     return { ...result, routeAfter: landOn, screenAfter: "one_location" };
   });
 
+  useLocalOnboardingActionHandler("location.stop_sos", async () => {
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary: "Unlock One before stopping an SOS.",
+      };
+    }
+    const incident = sosIncident;
+    if (!incident?.grantIds.length) {
+      return {
+        status: "blocked" as const,
+        summary: "There is no SOS running to stop.",
+      };
+    }
+    const grantCount = incident.grantIds.length;
+    // Reuses the screen's own teardown rather than revoking here. That loop
+    // tolerates a grant that has already expired and keeps tearing the rest
+    // down, which is the behaviour worth having: a half-stopped SOS is the
+    // worst outcome, so one failure must not abandon the others.
+    await handleStopSos();
+    return {
+      status: "succeeded" as const,
+      // Says what was torn down, not that every recipient definitely lost
+      // access -- individual revokes are best-effort by design and a claim
+      // stronger than that would be one this cannot actually check.
+      summary:
+        grantCount === 1
+          ? "Stopped the SOS and revoked the share it created."
+          : `Stopped the SOS and revoked the ${grantCount} shares it created.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.set_auto_share", async (slots) => {
+    const spoken = String(slots?.enabled ?? "").trim().toLowerCase();
+    const turnOn = ["on", "true", "yes", "enable", "enabled", "resume"].includes(spoken);
+    const turnOff = ["off", "false", "no", "disable", "disabled", "stop"].includes(spoken);
+    // Never guess a disclosure setting. An unrecognised word here would
+    // otherwise fall to a default, and one of the two defaults silently starts
+    // sending live updates to every approved share.
+    if (!turnOn && !turnOff) {
+      return {
+        status: "blocked" as const,
+        summary: "Say whether automatic sharing should be on or off.",
+      };
+    }
+    handleAutoShareChange(turnOn);
+    return {
+      status: "succeeded" as const,
+      summary: turnOn
+        ? "Automatic sharing is on. Approved shares will now receive live updates."
+        : "Automatic sharing is off. Shares will only update when you explicitly share.",
+    };
+  });
+
   const handleAutoShareChange = useCallback(
     (enabled: boolean) => {
       automaticPrivatePublishingAllowedRef.current =

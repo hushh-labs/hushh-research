@@ -68,6 +68,13 @@ describe("navigation journeys", () => {
       // deliberately absent: arriving and FIRING is the thing that must not
       // happen unattended.
       "location.select_share_recipient",
+      // Two settings-shaped actions whose handlers already existed on the
+      // screen with no way to reach them by speaking. Both are
+      // confirm_required: stopping an SOS ends a live emergency broadcast,
+      // and automatic sharing decides whether approved people keep receiving
+      // updates without you doing anything.
+      "location.set_auto_share",
+      "location.stop_sos",
       "setup.finish_connected_systems",
       "setup.finish_connections",
       "setup.finish_email",

@@ -6443,6 +6443,237 @@
       }
     },
     {
+      "action_id": "location.stop_sos",
+      "surface_id": "one_location",
+      "label": "Stop the active SOS",
+      "aliases": [
+        "stop sos",
+        "cancel sos",
+        "end the emergency",
+        "stop the emergency",
+        "i am safe now"
+      ],
+      "search_keywords": [
+        "stop",
+        "cancel",
+        "sos",
+        "emergency",
+        "end"
+      ],
+      "meaning": "Ends an SOS that is currently running and revokes every location share it created. It does not tell anyone you are safe.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.stop_sos"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active sos incident"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.stop_sos",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Stop the active SOS",
+            "failure_behavior": "stop",
+            "action_id": "location.stop_sos",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.set_auto_share",
+      "surface_id": "one_location",
+      "label": "Turn automatic location sharing on or off",
+      "aliases": [
+        "automatic sharing",
+        "auto share",
+        "keep updating my location",
+        "stop updating automatically",
+        "live updates"
+      ],
+      "search_keywords": [
+        "automatic",
+        "auto",
+        "live",
+        "updates",
+        "setting",
+        "privacy"
+      ],
+      "meaning": "Controls whether people you have already approved keep receiving live updates, or only see your location when you explicitly share it. It does not create or end any share.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.set_auto_share"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "automatic sharing enabled"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.set_auto_share",
+        "required_inputs": [
+          {
+            "name": "enabled",
+            "prompt": "Should automatic sharing be on or off?",
+            "required": true,
+            "slot": "enabled",
+            "resolver": "on_or_off",
+            "options": [
+              "on",
+              "off"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "enabled": "on_or_off"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Turn automatic location sharing on or off",
+            "failure_behavior": "stop",
+            "action_id": "location.set_auto_share",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "location.resume_updates",
       "surface_id": "one_location",
       "label": "Resume my location",

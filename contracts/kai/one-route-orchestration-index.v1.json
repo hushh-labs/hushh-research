@@ -2782,7 +2782,9 @@
         "location.refresh",
         "location.resume_updates",
         "location.select_share_recipient",
+        "location.set_auto_share",
         "location.share_selected",
+        "location.stop_sos",
         "route.one_location"
       ],
       "action_coverage": "inherited",
