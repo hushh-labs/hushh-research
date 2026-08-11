@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CalendarPlus, Clock3 } from "lucide-react";
 
 import { CalendarAgentPage } from "@/components/calendar/calendar-agent-page";
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
@@ -27,7 +28,32 @@ export function CalendarOnboardingSetupClient() {
   }
 
   return (
-    <CapabilityCinematicIntroGate capabilityId="calendar">
+    <CapabilityCinematicIntroGate
+      capabilityId="calendar"
+      introSupplement={
+        <div
+          className="grid overflow-hidden rounded-[var(--app-radius-md)] border border-border/60 bg-card/50 text-left sm:grid-cols-2"
+          aria-label="What Calendar can do"
+        >
+          <div className="border-b border-border/60 p-4 sm:border-b-0 sm:border-r">
+            <Clock3 className="size-4 text-primary" aria-hidden />
+            <p className="mt-2 font-semibold text-foreground">Find time</p>
+            <p className="mt-1 text-sm leading-5 text-muted-foreground">
+              See availability without the back-and-forth.
+            </p>
+          </div>
+          <div className="p-4">
+            <CalendarPlus className="size-4 text-primary" aria-hidden />
+            <p className="mt-2 font-semibold text-foreground">
+              Schedule with control
+            </p>
+            <p className="mt-1 text-sm leading-5 text-muted-foreground">
+              One always asks before making a change.
+            </p>
+          </div>
+        </div>
+      }
+    >
       <CalendarAgentPage
         journeyVariant="onboarding"
         onConnectionStateChange={setConnected}

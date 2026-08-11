@@ -101,6 +101,20 @@ describe("OneAuthGate", () => {
     expect(screen.getByText("oauth callback")).toBeTruthy();
   });
 
+  it("shows the Calendar connection workspace after OAuth without reopening the vault", () => {
+    mocks.pathname = "/one/calendar";
+
+    render(
+      <OneAuthGate>
+        <div>calendar connection</div>
+      </OneAuthGate>,
+    );
+
+    expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
+    expect(screen.getByTestId("phone-mandate-guard")).toBeTruthy();
+    expect(screen.getByText("calendar connection")).toBeTruthy();
+  });
+
   it("lets a signed-in user approve a trusted device without unlocking the browser vault", () => {
     mocks.pathname = "/one/profile/security/devices/authorize";
 

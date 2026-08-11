@@ -28,7 +28,10 @@ _AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - OAuth endpoint, not a credential
 _REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 _USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
-_RETURN_PATH = "/profile/google/oauth/return"
+# Calendar is a first-class One agent. Keep its provider callback on the same
+# canonical One route declared by the web navigation contract; the old
+# `/profile/...` page remains only as a compatibility handler for old links.
+_RETURN_PATH = "/one/profile/google/oauth/return"
 _SERVICE_SCOPES: dict[GoogleService, dict[str, tuple[str, ...]]] = {
     "gmail": {"read": ("https://www.googleapis.com/auth/gmail.readonly",)},
     "calendar": {

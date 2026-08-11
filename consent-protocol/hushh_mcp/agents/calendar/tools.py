@@ -43,6 +43,7 @@ def _timezone(tool_context: ToolContext) -> str:
 def _connection_directive(
     tool_context: ToolContext, *, access_level: str, message: str
 ) -> dict[str, Any]:
+    needs_scheduling = access_level == "manage"
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = {
         "kind": "action",
         "delegateAgentId": "agent_calendar",
@@ -50,13 +51,17 @@ def _connection_directive(
             "type": "calendar.connect",
             "accessLevel": access_level,
             "summary": message,
-            "confirmLabel": "Connect Calendar",
+            "confirmLabel": (
+                "Allow Calendar scheduling" if needs_scheduling else "Connect Calendar"
+            ),
         },
     }
     return {
         "status": "connection_required",
         "message": message,
-        "next_step": "The app is showing a Connect Calendar control. Ask the user to use it.",
+        "next_step": (
+            "The app is showing a Calendar authorization control. Ask the user to approve it."
+        ),
     }
 
 

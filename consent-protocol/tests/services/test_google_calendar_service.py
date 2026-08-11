@@ -27,6 +27,13 @@ class _Connections:
         return "access-token"
 
 
+class _ReadOnlyConnections:
+    async def access_token(self, **_: object) -> str:
+        raise GoogleConnectionError(
+            "Additional Google Calendar permission is required", status_code=403
+        )
+
+
 def test_google_oauth_token_envelope_binds_aad(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GMAIL_OAUTH_TOKEN_KEY", base64.urlsafe_b64encode(b"a" * 32).decode())
     service = GoogleConnectionService(db=_Db())
@@ -55,7 +62,7 @@ def test_calendar_callback_derives_from_frontend_origin_without_reusing_gmail_pa
     )
 
     assert GoogleConnectionService(db=_Db())._configured_redirect() == (
-        "https://uat.one.hushh.ai/profile/google/oauth/return"
+        "https://uat.one.hushh.ai/one/profile/google/oauth/return"
     )
 
 
@@ -80,6 +87,26 @@ def test_calendar_proposal_requires_timezone_and_confirmation_record() -> None:
     assert result["confirmation_required"] is True
     assert result["proposal_id"].startswith("gcal_")
     assert any("INSERT INTO google_calendar_action_proposals" in sql for sql, _ in db.calls)
+
+
+def test_calendar_proposal_requires_management_access_before_persisting() -> None:
+    db = _Db()
+    service = GoogleCalendarService(db=db, connections=_ReadOnlyConnections())
+
+    with pytest.raises(GoogleConnectionError, match="Additional Google Calendar permission"):
+        asyncio.run(
+            service.propose(
+                user_id="user-1",
+                action="create",
+                payload={
+                    "title": "Planning session",
+                    "start_at": "2026-08-11T10:00:00+05:30",
+                    "end_at": "2026-08-11T10:30:00+05:30",
+                },
+            )
+        )
+
+    assert not any("INSERT INTO google_calendar_action_proposals" in sql for sql, _ in db.calls)
 
 
 def test_calendar_proposal_rejects_naive_time() -> None:

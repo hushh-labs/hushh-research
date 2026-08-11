@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import { CalendarAgentPage } from "@/components/calendar/calendar-agent-page";
 import { useAuth } from "@/hooks/use-auth";
 import { consumeCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -26,9 +26,16 @@ function GoogleOAuthReturnContent() {
       .then(() => router.replace(destination))
       .catch(() => router.replace(`${destination}?calendar=error`));
   }, [loading, router, search, user]);
-  return <HushhLoader label="Finishing Google Calendar connection…" />;
+  // Stay on the Calendar surface while the backend exchanges the code and
+  // stores the encrypted refresh token. This is deliberately not a blank
+  // callback/loading screen between Google and the connected Calendar state.
+  return <CalendarAgentPage connectionPending />;
 }
 
 export default function GoogleOAuthReturnPage() {
-  return <Suspense fallback={<HushhLoader label="Finishing Google Calendar connection…" />}><GoogleOAuthReturnContent /></Suspense>;
+  return (
+    <Suspense fallback={<CalendarAgentPage connectionPending />}>
+      <GoogleOAuthReturnContent />
+    </Suspense>
+  );
 }

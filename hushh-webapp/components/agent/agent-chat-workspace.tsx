@@ -121,9 +121,11 @@ import {
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
+import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import { runLocationDirective, type DelegateResult } from "@/lib/agent/specialist-directive-runtime";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
+import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { cn } from "@/lib/utils";
 import { useConsentActions, type PendingConsent } from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
@@ -4267,8 +4269,31 @@ export function AgentChatWorkspace({
                       const payload = directive.directive.payload as Record<string, unknown>;
                       const type = String(payload.type ?? "");
                       if (type === "calendar.connect") {
-                        setPendingSpecialistDirective(null);
-                        router.push(ROUTES.CALENDAR);
+                        if (!user?.uid) {
+                          addErrorMessage("Sign in again before connecting Google Calendar.");
+                          return;
+                        }
+                        setSpecialistBusy(true);
+                        try {
+                          const accessLevel =
+                            payload.accessLevel === "manage" ? "manage" : "read";
+                          clearCalendarSetupOAuthReturn();
+                          const start = await GoogleCalendarService.startConnect({
+                            idToken: await user.getIdToken(),
+                            userId: user.uid,
+                            accessLevel,
+                          });
+                          setPendingSpecialistDirective(null);
+                          window.location.assign(start.authorize_url);
+                        } catch (error) {
+                          addErrorMessage(
+                            error instanceof Error
+                              ? error.message
+                              : "Unable to request Google Calendar permission.",
+                          );
+                        } finally {
+                          setSpecialistBusy(false);
+                        }
                         return;
                       }
                       if (type !== "calendar.execute_proposal") {

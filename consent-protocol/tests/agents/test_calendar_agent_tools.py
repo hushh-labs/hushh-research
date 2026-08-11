@@ -83,3 +83,30 @@ def test_calendar_write_only_creates_a_confirmation_directive(monkeypatch) -> No
     assert directive["payload"]["type"] == "calendar.execute_proposal"
     assert calendar.proposal_payload is not None
     assert str(calendar.proposal_payload["start_at"]).endswith("+05:30")
+
+
+class _ReadOnlyCalendar:
+    async def propose(self, **kwargs: object) -> dict[str, object]:
+        raise GoogleConnectionError(
+            "Additional Google Calendar permission is required", status_code=403
+        )
+
+
+def test_calendar_write_permission_becomes_an_incremental_oauth_directive(monkeypatch) -> None:  # noqa: ANN001
+    context = _context()
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: _ReadOnlyCalendar())
+
+    result = asyncio.run(
+        tools.propose_calendar_event(
+            context,
+            title="Planning",
+            start_at="2026-08-11T10:00:00+05:30",
+            end_at="2026-08-11T10:30:00+05:30",
+        )
+    )
+
+    assert result["status"] == "connection_required"
+    directive = context.state["hussh:pending_directive:calendar"]
+    assert directive["payload"]["type"] == "calendar.connect"
+    assert directive["payload"]["accessLevel"] == "manage"
+    assert directive["payload"]["confirmLabel"] == "Allow Calendar scheduling"

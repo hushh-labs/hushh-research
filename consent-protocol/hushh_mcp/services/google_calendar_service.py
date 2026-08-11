@@ -187,6 +187,13 @@ class GoogleCalendarService:
         payload: dict[str, Any],
     ) -> dict[str, Any]:
         self._purge_expired_proposals(user_id=user_id)
+        # A create proposal previously needed no Google call, so a read-only
+        # connection reached the confirmation screen and failed only after the
+        # owner pressed Schedule. Verify the management grant before creating
+        # any proposal so the agent can request the incremental scope instead.
+        await self.connections.access_token(
+            user_id=user_id, service="calendar", access_level="manage"
+        )
         plan = self._validate_plan(action=action, payload=payload)
         expected_etag: str | None = None
         if action != "create":
