@@ -934,6 +934,21 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             : typeof event.directive.payload?.type === "string"
               ? event.directive.payload.type
               : "this";
+        // SOS dispatches for real: `sos_panic` captures the current position
+        // and publishes it to every ready emergency contact
+        // (specialist-directive-runtime.ts). The visible control requires a
+        // two-second press-and-hold precisely so that cannot happen by
+        // accident -- and a spoken "yes", or a tap on a card One put there,
+        // is not that gesture. The two paths were quietly enforcing different
+        // standards for the same irreversible act.
+        //
+        // Voice's job here is to get someone to the control fast, not to
+        // stand in for it. Open SOS and stop; the press-and-hold stays the
+        // only thing that sends.
+        if (delegateAgentId === "agent_location" && directiveType === "sos_panic") {
+          router.push("/one/location?action=sos");
+          return;
+        }
         const handoff = createHandoff({
           reason: "action_requires_chat",
           transcript: null,
