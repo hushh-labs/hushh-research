@@ -349,7 +349,20 @@ const LOCATION_TAB_MODULES: Readonly<Record<string, string[]>> = {
   links: ["Temporary links"],
 };
 
-const LOCATION_FLOW_LABELS: Readonly<Record<string, string>> = {
+/**
+ * Exported for the contract-parity test, not for reuse.
+ *
+ * This map is load-bearing for voice in a way nothing about it advertises. A
+ * `?action=` flow's label becomes `visibleModules`, which feeds the relay's
+ * `content_key`, which is what makes a route-context note fire when the ROUTE
+ * has not changed -- opening a flow on a screen the person is already
+ * standing on. `?action=` itself never reaches the relay: `sanitizeRouteQuery`
+ * allowlists tab/view/focus/source/category and drops the rest.
+ *
+ * So a flow with no entry here is invisible to One. That is how voice learns
+ * the SOS control was opened, and there is nothing else carrying it.
+ */
+export const LOCATION_FLOW_LABELS: Readonly<Record<string, string>> = {
   share: "Share location",
   ask: "Ask for someone's location",
   invite: "Invite someone",
