@@ -1437,6 +1437,32 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                 action_id,
                                 duplicate_directive_id,
                             )
+                            # Dedupe used to drop the repeat and say nothing.
+                            # But run_app_action had already answered the model
+                            # `confirm_pending`, so from One's side the proposal
+                            # succeeded -- and it asked again, out loud, every
+                            # time. Reported live as the agent "repeating the
+                            # same line without pause"; the card on screen was
+                            # correct throughout, only the narration doubled.
+                            #
+                            # Swallowing the directive is right. Swallowing it
+                            # without telling the model is what makes it repeat.
+                            queue.send_content(
+                                genai_types.Content(
+                                    role="user",
+                                    parts=[
+                                        genai_types.Part(
+                                            text=(
+                                                "[Directive ledger - not user speech] That exact "
+                                                "confirmation is already on screen and still "
+                                                "waiting. Do not propose it again and do not "
+                                                "repeat the question. Say nothing further until "
+                                                "its settlement arrives."
+                                            )
+                                        )
+                                    ],
+                                )
+                            )
                             continue
                         try:
                             issued = await get_action_directive_store().issue(

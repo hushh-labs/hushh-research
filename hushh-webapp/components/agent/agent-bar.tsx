@@ -493,6 +493,16 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         // through to be treated as ordinary speech, exactly as before.
         if (pendingConfirmationRef.current) {
           const answer = classifySpokenConfirmation(event.text);
+          // The only record that a spoken yes was even considered. Without it
+          // a confirmation settled by tap and one settled by voice are the
+          // same success in every log, so "I had to click" could not be told
+          // apart from "the classifier declined the utterance" -- and the
+          // whole hands-free claim rested on not knowing the difference.
+          // Word count only; the transcript itself never goes to telemetry.
+          console.info(
+            `[VOICE_CONFIRM] action=${pendingConfirmationRef.current.actionId} ` +
+              `classified=${answer} words=${event.text.trim().split(/\s+/).length}`,
+          );
           if (answer === "affirm" || answer === "decline") {
             appendMirrorEvent({
               role: "user",

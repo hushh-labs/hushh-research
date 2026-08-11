@@ -3442,7 +3442,14 @@ export function OneLocationAgentPageContent({
     if (!vaultOwnerToken) {
       return { status: "blocked", summary: "Unlock One before sharing your location." };
     }
-    if (!shareReadySelectedRecipients.length) {
+    // Test the SELECTION, not the share-ready subset of it. Those differ
+    // whenever someone is picked who has not finished their own Location
+    // setup, and reading the subset made this answer "nobody is selected"
+    // about a person who was visibly selected on screen -- sending the voice
+    // chain back to pick someone it had already picked. Observed live: the
+    // pick settled "Matched Abdul Rashid", and the share that followed it
+    // said nobody was selected.
+    if (!selectedShareRecipients.length) {
       return {
         status: "blocked",
         summary:
@@ -3450,9 +3457,17 @@ export function OneLocationAgentPageContent({
       };
     }
     if (setupNeededSelectedRecipients.length) {
+      // Name them. The person picked this contact by name a moment ago, so
+      // the name is already theirs and already spoken; "someone you picked"
+      // leaves them guessing which of several it means.
+      const blockedNames = setupNeededSelectedRecipients
+        .map((recipient) => recipientLabel(recipient).trim())
+        .filter(Boolean);
       return {
         status: "blocked",
-        summary: "Someone you picked still needs to finish their Location setup.",
+        summary: blockedNames.length
+          ? `${blockedNames.join(", ")} still needs to finish their own Location setup before you can share with them.`
+          : "Someone you picked still needs to finish their Location setup.",
       };
     }
     if (shareMessage.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH) {
@@ -3563,7 +3578,10 @@ export function OneLocationAgentPageContent({
       publishEnvelopeWithRetry,
       refresh,
       resetShareComposer,
-      setupNeededSelectedRecipients.length,
+      // The whole list, not just its length: the blocked message now names
+      // who is holding the share up.
+      setupNeededSelectedRecipients,
+      selectedShareRecipients,
       shareDurationHours,
       shareMessage,
       shareReviewOpen,
