@@ -115,6 +115,7 @@ tests/test_pod_relay.py
 tests/test_pod_server.py
 tests/test_pod_spec_deployment_axes.py
 tests/test_pod_storage.py
+tests/test_pod_turn_grounding.py
 tests/test_pod_turn_relay.py
 tests/test_pod_turn_route.py
 tests/test_portfolio_stream_quality_rules.py

@@ -8,21 +8,33 @@ Meanwhile ``/health`` advertised ``["one","kai","nav","kyc"]`` from a hardcoded
 literal, and a live-validation document quoted that string as proof of life. The
 whole per-user-pod architecture rested on a capability nothing had ever exercised.
 
-This is First Light: the smallest honest thing that proves a pod can run a real
-turn. Deliberately narrow — no streaming, no relay, no grounding — so that when it
-fails, the failure is attributable to the agent running in a pod and not to
-transport, ownership, or PKM.
+This began as First Light: the smallest honest thing that proves a pod can run a real
+turn, deliberately narrow so that a failure was attributable to the agent running in a
+pod rather than to transport, ownership, or PKM.
 
 What it does NOT do, on purpose
 -------------------------------
 * **No streaming.** The events are collected into one JSON response. SSE through
   the relay is the next milestone and has its own failure modes.
-* **No grounding.** ``pkm_context=None``, and the response says ``grounded: false``
-  rather than letting a caller assume the agent knew anything about its owner. A
-  pod cannot ground until it has a durable key and a populated store; claiming
-  otherwise here would be the same lie the health literal was telling.
 * **No durable history.** ``InMemorySessionService`` — ``DatabaseSessionService``
   needs a database URL a pod will never hold.
+
+Grounding: solved without weakening the boundary
+------------------------------------------------
+This route used to pass ``pkm_context=None`` and report ``grounded: false``, on the
+reasoning that a pod cannot ground until it has a durable key and a populated store.
+That reasoning had a false premise: it assumed the POD must be the one to read PKM.
+
+It does not have to be. The browser already decrypts the owner's turn projection from
+their own unlocked vault and already sends it to the hub on every Agent Chat turn. The
+hub couriers that same value here. The projection is opened by the owner's key on the
+owner's device, so Zero Knowledge is preserved exactly — the pod grounds without ever
+holding a database credential, which is the property that makes it a private agent.
+
+``grounded`` is now DERIVED from what actually reached the runtime, never asserted. A
+hardcoded value was honest while the turn was ungrounded by construction and would
+have become a lie the moment a projection started arriving — the same failure shape as
+the ``/health`` roster literal that reported four agents from a pod running none.
 
 Consent: the pod ASKS, it does not verify
 -----------------------------------------
@@ -76,6 +88,15 @@ class PodTurnRequest(BaseModel):
     )
     vertex_project: Optional[str] = Field(default=None, alias="vertexProject", max_length=64)
     vertex_location: Optional[str] = Field(default=None, alias="vertexLocation", max_length=64)
+    # The owner's consented turn projection, opened by their key on their own device
+    # and couriered here by the hub. A pod grounds on this rather than reading PKM
+    # itself: it holds no database credential BY DESIGN, and the browser already
+    # computes exactly this value for every hub turn.
+    #
+    # 20000 matches the hub's cap so the two paths cannot disagree about what fits.
+    pkm_context: Optional[str] = Field(
+        default=None, alias="pkmContext", max_length=20000
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -169,6 +190,9 @@ async def run_pod_turn(
 
     provider, model = _resolve_model()
     runtime_mode = _resolve_runtime_mode(payload)
+    # Normalised once: an all-whitespace projection is not grounding, and letting it
+    # count would report `grounded: true` for a turn that learned nothing.
+    grounding = (payload.pkm_context or "").strip() or None
 
     chunks: list[str] = []
     directives: list[Any] = []
@@ -181,8 +205,14 @@ async def run_pod_turn(
             history=[],
             timezone=payload.timezone,
             screen_context=None,
-            # First Light is UNGROUNDED and reports it. See the module docstring.
-            pkm_context=None,
+            # Grounded on the owner's OWN projection, opened by their key on their own
+            # device and couriered here by the hub. The pod holds no database
+            # credential by design, so this is what makes a pod turn grounded without
+            # weakening the boundary that makes it a private agent.
+            pkm_context=grounding,
+            # When there is none, say WHY rather than leaving the model to infer it
+            # from silence -- the same honesty the hub path now carries.
+            grounding_reason=None if grounding else "no consented projection was sent with this turn",
             runtime_provider=provider,
             runtime_model=model,
             runtime_mode=runtime_mode,
@@ -207,9 +237,12 @@ async def run_pod_turn(
         "text": text,
         "model": model,
         "provider": provider,
-        # Stated, not implied. A caller must be able to tell that this answer came
-        # from an agent that knows nothing about its owner yet.
-        "grounded": False,
+        # DERIVED, never asserted. This was hardcoded False while the turn was
+        # ungrounded by construction, which was honest then and would be a lie the
+        # moment a projection started arriving. Deriving it from what actually
+        # reached the runtime means the field cannot drift from the behaviour --
+        # the same reason `/health` stopped reporting a hand-written roster.
+        "grounded": bool(grounding),
         "directiveCount": len(directives),
         # Whose model answered. Stated, because "your AI" is a product promise and a
         # cost boundary, not an implementation detail.

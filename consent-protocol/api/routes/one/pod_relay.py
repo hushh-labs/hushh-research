@@ -233,6 +233,22 @@ class PodTurnRelayRequest(BaseModel):
     )
     vertex_project: Optional[str] = Field(default=None, alias="vertexProject", max_length=30)
     vertex_location: Optional[str] = Field(default=None, alias="vertexLocation", max_length=64)
+    # The owner's consented turn projection, decrypted client-side from their own
+    # unlocked vault -- the SAME value the browser already computes and already
+    # sends to the hub on every Agent Chat turn.
+    #
+    # This is what makes a pod turn grounded without the pod holding PKM or reaching
+    # Postgres, and it preserves Zero Knowledge exactly: the projection is opened by
+    # the owner's key on the owner's device, and the hub is a courier for a value it
+    # could already see on the hub path.
+    #
+    # `exclude=True` for the same reason as the credential above: it is the person's
+    # holdings, and a request dump must not be able to carry it into a log line.
+    # 20000 matches the hub's own cap in agent_chat, so a projection the hub accepts
+    # cannot be 422'd here and surface as an opaque relay refusal.
+    pkm_context: Optional[str] = Field(
+        default=None, alias="pkmContext", max_length=20000, exclude=True
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -323,6 +339,7 @@ async def relay_pod_turn(
         "runtimeCredentialTransport": payload.runtime_credential_transport,
         "vertexProject": payload.vertex_project,
         "vertexLocation": payload.vertex_location,
+        "pkmContext": payload.pkm_context,
     }
     status, answer = await _proxy_post(
         url,

@@ -3547,12 +3547,16 @@ export class ApiService {
     runtimeCredentialTransport?: "developer_api" | "vertex_api_key";
     vertexProject?: string | null;
     vertexLocation?: string | null;
+    pkmContext?: string | null;
     signal?: AbortSignal;
   }): Promise<{
     hushhId: string;
     text: string;
     model: string;
     provider: string;
+    // DERIVED by the pod from whether a projection actually reached its runtime,
+    // never asserted. Render it rather than assuming — an ungrounded answer is a
+    // real state and the person should be able to tell.
     grounded: boolean;
     runtimeMode: string;
   }> {
@@ -3576,6 +3580,12 @@ export class ApiService {
             input.runtimeCredentialTransport || undefined,
           vertexProject: input.vertexProject || undefined,
           vertexLocation: input.vertexLocation || undefined,
+          // The owner's consented turn projection, decrypted here from their own
+          // unlocked vault — the same value this client already sends to the hub on
+          // every Agent Chat turn. Sending it is what makes a pod turn grounded
+          // WITHOUT the pod holding PKM or reaching a database, so Zero Knowledge is
+          // preserved: it is opened by the owner's key on the owner's device.
+          pkmContext: input.pkmContext || undefined,
         }),
         signal: input.signal,
       },
