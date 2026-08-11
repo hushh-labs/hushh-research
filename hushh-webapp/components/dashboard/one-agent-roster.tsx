@@ -523,11 +523,10 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       title={mode.description}
       data-testid={`one-agent-list-row-${mode.id}`}
       className={cn(
-        "group/agent-row relative grid min-h-[64px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(108px,150px)_16px] items-center gap-x-3 overflow-hidden px-4 text-left outline-none",
+        "group/agent-row relative grid min-h-[64px] w-full grid-cols-[40px_minmax(0,1fr)_auto_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
         "transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-        "sm:grid-cols-[40px_minmax(0,1fr)_minmax(160px,210px)_16px]",
       )}
     >
       <span className="relative z-10 flex items-center justify-center">
@@ -548,7 +547,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       >
         {mode.title}
       </span>
-      <span className="relative z-10 min-w-0">
+      <span className="relative z-10 flex min-w-0 max-w-[148px] justify-end">
         <AgentMetric mode={mode} />
       </span>
       <ChevronRight
@@ -658,17 +657,12 @@ export function OneAgentRoster({
     <section
       aria-labelledby="one-agents-heading"
       data-testid="one-agents-section"
-      className="mx-auto w-full max-w-[900px]"
+      className="mx-auto w-full max-w-[880px]"
     >
-      <div className="mb-5 flex items-center justify-between gap-3">
-        {/* Compact, tracked, gray section label per the reference design.
-            Casing stays natural ("Agents (N)"): the design-system guard
-            (verify-apple-hierarchy) requires shared/system UI to preserve
-            natural casing, so no letter-case transform is applied here. */}
-
+      <div className="mb-4 flex items-center justify-between gap-3">
         <h2
           id="one-agents-heading"
-          className="min-w-0 truncate text-[14px] font-bold tracking-[0.02em] text-[#8E8E93]"
+          className="min-w-0 truncate text-[28px] font-bold leading-[34px] tracking-normal text-[#1D1D1F]"
         >
           Agents ({modes.length})
         </h2>
@@ -702,7 +696,7 @@ export function OneAgentRoster({
           >
             <div
               data-agent-roster-layout="grouped-icon-grid"
-              className="grid w-full grid-cols-3 gap-1.5 sm:grid-cols-4 sm:gap-2.5"
+              className="grid w-full grid-cols-[repeat(3,104px)] justify-center gap-x-2 gap-y-2 min-[430px]:grid-cols-[repeat(3,112px)] sm:grid-cols-[repeat(4,128px)] sm:gap-x-2.5 sm:gap-y-3"
             >
               {visibleModes.map((mode) => (
                 <AgentGridItem key={mode.id} mode={mode} />

@@ -48,9 +48,9 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
-  MajorSectionTitle,
   RowDescription,
   RowLabel,
+  SectionTitle,
 } from "@/components/app-ui/typography";
 import type {
   OneLocationAccessRequest,
@@ -1990,9 +1990,9 @@ function LinksHub({
 
   return (
     <div className="space-y-4">
-      <MajorSectionTitle as="h2" className="px-[6px]">
+      <SectionTitle as="h2" className="px-[6px]">
         Active links
-      </MajorSectionTitle>
+      </SectionTitle>
 
       {hasLinks ? (
         <div className={cn("overflow-hidden px-3.5", SUBCARD_SURFACE)}>

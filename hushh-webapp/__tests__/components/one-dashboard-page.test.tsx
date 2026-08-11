@@ -270,8 +270,8 @@ describe("OneDashboardPage", () => {
     const grid = container.querySelector(
       '[data-agent-roster-layout="grouped-icon-grid"]',
     );
-    expect(grid?.className).toContain("grid-cols-3");
-    expect(grid?.className).toContain("sm:grid-cols-4");
+    expect(grid?.className).toContain("grid-cols-[repeat(3,104px)]");
+    expect(grid?.className).toContain("sm:grid-cols-[repeat(4,128px)]");
   });
 
   it("restores a saved list view without replaying a view-change animation", () => {

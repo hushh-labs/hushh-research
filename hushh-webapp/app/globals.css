@@ -247,14 +247,18 @@ textarea {
   /* Apple iOS-first semantic type roles. These are the shared source of truth
      for app UI hierarchy; components opt into roles instead of restating
      route-specific font sizes. */
-  --type-large-page-title-size: 34px;
-  --type-large-page-title-line: 41px;
+  --type-large-page-title-size: 28px;
+  --type-large-page-title-line: 34px;
   --type-large-page-title-weight: 700;
   --type-large-page-title-tracking: normal;
   --type-page-title-size: 28px;
   --type-page-title-line: 34px;
   --type-page-title-weight: 700;
   --type-page-title-tracking: normal;
+  --type-agent-title-size: 28px;
+  --type-agent-title-line: 34px;
+  --type-agent-title-weight: 700;
+  --type-agent-title-tracking: normal;
   --type-navigation-title-size: 17px;
   --type-navigation-title-line: 22px;
   --type-navigation-title-weight: 600;
@@ -5537,10 +5541,10 @@ body[data-persona-surface="ria"] {
 :is(.ui-text-agent-title) {
   color: var(--app-label) !important;
   font-family: var(--font-app-display) !important;
-  font-size: var(--type-page-title-size) !important;
-  font-weight: var(--type-page-title-weight) !important;
-  letter-spacing: var(--type-page-title-tracking) !important;
-  line-height: var(--type-page-title-line) !important;
+  font-size: var(--type-agent-title-size) !important;
+  font-weight: var(--type-agent-title-weight) !important;
+  letter-spacing: var(--type-agent-title-tracking) !important;
+  line-height: var(--type-agent-title-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
 }
