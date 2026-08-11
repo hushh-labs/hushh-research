@@ -1452,8 +1452,10 @@
       "canonical_screen": "connect",
       "voice_contract_file": "app/one/connect/page.voice-action-contract.json",
       "action_ids": [
+        "connect.cancel_request",
         "connect.open_nearby",
         "connect.open_people",
+        "connect.remove_connection",
         "connect.search_people",
         "connect.send_request",
         "location.add_connections",

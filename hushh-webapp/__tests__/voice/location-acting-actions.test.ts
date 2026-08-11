@@ -112,8 +112,11 @@ describe("how these actions can be reached", () => {
       const journey = resolveNavigationJourney(actionId);
       expect(journey?.destinationRoute).toBe("/one/location");
       expect(journey?.destinationScreen).toBe("one_location");
-      // Resolved from the contract, never named in code.
-      expect(journey?.navigationActionId).toBe("location.open_now");
+      // Resolved from the contract, never named in code, and preferring the
+      // `route.*` escort over `location.open_now`: both open /one/location,
+      // but only `route.one_location` is in the browser's global-navigation
+      // set, so it is the one guaranteed to be offered from any screen.
+      expect(journey?.navigationActionId).toBe("route.one_location");
     });
   });
 

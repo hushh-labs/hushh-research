@@ -2078,9 +2078,12 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "connect.cancel_request",
           "connect.open_nearby",
           "connect.open_people",
+          "connect.remove_connection",
           "connect.search_people",
+          "connect.send_request",
           "location.add_connections",
           "route.one_connect"
         ],
@@ -4593,21 +4596,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "4bb44912b6f1966ac1d229641d3b63888c0915a5ad75bf3fcbc405ad58d496f3",
+    "action_gateway": "bea4f56d7b659eb6d6005e56372f8dedf4d8016ff36e287ecf0ac9bf89c72059",
     "agent_registry": "265873a584dd79064d13211294a30c1074749cc105f2b6c1f53d7148e3cd7f18",
     "cache_manifest": "53a4bec80f5e2b26de1a00542b8d3ea0566fb891c084038f1ea9f72ec2ae3ed8",
     "data_plane": "270affce3a97bcbde752a465927f065005176f0ddc69aeb9419e6605bbc4f94d",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "db446ebab406c6f63cf09f08ec37011e05085460d45d7079844184b114880a2a",
-    "route_index": "0a22107bb7d0343c7938f9f3692ab41c2460f82e01c1ceab9477f382d6d9848f",
+    "one_specialist_tools": "277cf3044842a59263401a156f3fd547ca64ba0d29df33f2462f60a0863a956a",
+    "route_index": "2dad8ee6198037d6825e6f5662fc690de2d876f6315050cce5f6056ed2f3fb95",
     "route_layout": "b6c70ecb3225501b773ed2f6ea25018620e4e940f64d8b400962b39f5209ba0e",
-    "surface_map": "bf731f5b42df9c418756e4eaa26f24bc3858510919a13a19538731dc5ff3acaa",
+    "surface_map": "3e0dbabbe4d1394eb8262dc5e1ba2faf609b233b22b360adddb6146639c2a99b",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 144,
+    "actions": 147,
     "agents": 18,
     "aliases": 3,
     "decision_required": 2,

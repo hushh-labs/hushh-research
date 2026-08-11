@@ -1145,8 +1145,12 @@ class TestContractDrivenNavigationJourneys:
             assert journey is not None, action_id
             assert journey["destination_route"] == "/one/location"
             assert journey["destination_screen"] == "one_location"
-            # Resolved from the gateway, never named in code.
-            assert journey["navigation_action_id"] == "location.open_now"
+            # Resolved from the gateway, never named in code, and preferring
+            # the `route.*` escort over `location.open_now`: both open
+            # /one/location, but only `route.one_location` is in the browser's
+            # global-navigation set, so it is the one guaranteed to be offered
+            # from whatever screen the person is standing on.
+            assert journey["navigation_action_id"] == "route.one_location"
             assert _is_journey_startable(entry) is True
 
     def test_a_share_is_never_escorted_to_the_composer(self):

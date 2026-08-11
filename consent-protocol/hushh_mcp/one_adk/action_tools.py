@@ -591,7 +591,18 @@ def _navigation_action_for_route(route: str) -> str | None:
             continue
         if str(target.get("target") or "").strip() == clean_route:
             candidates.append(action_id)
-    return sorted(candidates)[0] if candidates else None
+    # Prefer a `route.*` escort when the destination has one. Plain alphabetical
+    # order picked `location.open_now` over `route.one_location`, and -- worse --
+    # `location.add_connections` to escort a CONNECT journey, purely because
+    # "location" sorts before "route". Both navigate correctly, but only the
+    # `route.*` ones are in the browser's global-navigation set, so they are the
+    # ones guaranteed to be offered from any screen. Deterministic either way:
+    # alphabetical still breaks ties inside each group.
+    return (
+        sorted(candidates, key=lambda action: (not action.startswith("route."), action))[0]
+        if candidates
+        else None
+    )
 
 
 def _navigation_journey_definition(entry: dict[str, Any], action_id: str) -> dict[str, Any] | None:

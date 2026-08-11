@@ -2514,6 +2514,240 @@
       }
     },
     {
+      "action_id": "connect.cancel_request",
+      "surface_id": "one_connect",
+      "label": "Cancel a connection request you sent",
+      "aliases": [
+        "cancel my request",
+        "withdraw my request",
+        "take back my connection request",
+        "never mind that request"
+      ],
+      "search_keywords": [
+        "cancel",
+        "withdraw",
+        "request",
+        "pending",
+        "connection"
+      ],
+      "meaning": "Withdraws a connection request you already sent to one exact person, before they have accepted it. It does not affect anyone who is already connected to you.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/connect"
+        ],
+        "screens": [
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "connect.cancel_request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending outgoing request count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/connect"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connect.cancel_request",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Whose request should I cancel?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Cancel a connection request you sent",
+            "failure_behavior": "stop",
+            "action_id": "connect.cancel_request",
+            "settlement_target": {
+              "route": "/one/connect",
+              "screen": "connect"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "connect.remove_connection",
+      "surface_id": "one_connect",
+      "label": "Remove a connection",
+      "aliases": [
+        "remove connection",
+        "disconnect from",
+        "unconnect",
+        "remove them from my connections"
+      ],
+      "search_keywords": [
+        "remove",
+        "disconnect",
+        "delete",
+        "connection",
+        "unfriend"
+      ],
+      "meaning": "Ends an existing connection with one exact person. They stop being someone you can share things with, including your location. It does not notify them and it does not block them.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/connect"
+        ],
+        "screens": [
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "connect.remove_connection"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "connection count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/connect"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connect.remove_connection",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Who should I remove from your connections?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Remove a connection",
+            "failure_behavior": "stop",
+            "action_id": "connect.remove_connection",
+            "settlement_target": {
+              "route": "/one/connect",
+              "screen": "connect"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.kai_analysis",
       "surface_id": "kai_analysis",
       "label": "Open Analysis Surface",

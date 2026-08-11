@@ -49,8 +49,15 @@ describe("navigation journeys", () => {
     // and firing it at whoever was still selected in it.
     expect(journeys).toEqual([
       "analysis.start",
+      // Connect's lifecycle pair. Both resolve one exact person from a
+      // server-authoritative list rather than from whatever the directory
+      // happens to be showing, and both are confirm_required: cancelling
+      // withdraws something the other person may be about to accept, and
+      // removing ends the connection Location sharing depends on.
+      "connect.cancel_request",
       "connect.open_nearby",
       "connect.open_people",
+      "connect.remove_connection",
       "connect.search_people",
       "connect.send_request",
       "location.pause_updates",

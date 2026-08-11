@@ -76,6 +76,44 @@ const SUGGESTED_PEOPLE_LIMIT = 8;
 const PAGE_SIZE_OPTIONS = [8, 16, 24, 50] as const;
 const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
 
+/**
+ * Match a spoken name against a list the server just returned.
+ *
+ * Deliberately more forgiving than `connect.send_request`'s exact
+ * `localeCompare`, and deliberately narrower than the Location composer's
+ * search. Someone says "Sarah", not "Sarah Chen", and refusing that is a
+ * refusal the person cannot act on -- they said the name they know. But
+ * matching on anything other than the NAME (headline, relationship, any other
+ * recommendation text) is how a search returns a person nobody asked for.
+ *
+ * Exact wins outright. Only when nothing matches exactly does a prefix or
+ * word-boundary match count, and every candidate is returned so the caller can
+ * refuse an ambiguous one rather than picking. Nothing here decides; it
+ * reports how many the words could mean.
+ */
+function matchByName<T>(
+  rows: readonly T[],
+  spoken: string,
+  nameOf: (row: T) => string | null | undefined,
+): T[] {
+  const normalize = (value: string) =>
+    value
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  const target = normalize(spoken);
+  if (!target) return [];
+  const named = rows.filter((row) => normalize(String(nameOf(row) ?? "")).length > 0);
+  const exact = named.filter((row) => normalize(String(nameOf(row))) === target);
+  if (exact.length > 0) return exact;
+  return named.filter((row) => {
+    const name = normalize(String(nameOf(row)));
+    return name.startsWith(`${target} `) || name.split(" ").includes(target);
+  });
+}
+
 export default function ConnectPageClient() {
   const { user } = useRequireAuth();
   const router = useRouter();
@@ -689,6 +727,111 @@ export default function ConnectPageClient() {
           error instanceof Error
             ? error.message
             : "Could not send the connection request.",
+      };
+    }
+  });
+
+  useLocalOnboardingActionHandler("connect.cancel_request", async (slots) => {
+    const spokenName = typeof slots.person === "string" ? slots.person.trim() : "";
+    if (!user) {
+      return { status: "blocked", summary: "Sign in before cancelling a request." };
+    }
+    if (!spokenName) {
+      return { status: "blocked", summary: "Say whose request you want to cancel." };
+    }
+    try {
+      const idToken = await user.getIdToken();
+      // Ask the server for the outgoing requests rather than matching against
+      // whatever the directory happens to be showing. `connect.send_request`
+      // resolves through a page-1/limit-3 search, which cannot tell "no such
+      // person" from "not on the first page"; cancelling the wrong request, or
+      // refusing to cancel a real one, are both worse than a slower lookup.
+      const outgoing = await ConnectionsService.listRequests({
+        idToken,
+        direction: "outgoing",
+      });
+      const matches = matchByName(outgoing, spokenName, (request) =>
+        request.counterpartDisplayName,
+      );
+      if (matches.length === 0) {
+        return {
+          status: "blocked",
+          summary: `You have no pending request to ${spokenName}.`,
+        };
+      }
+      if (matches.length > 1) {
+        return {
+          status: "blocked",
+          summary: `More than one pending request matches that name: ${matches
+            .map((request) => request.counterpartDisplayName ?? "someone")
+            .join(", ")}. Say which one.`,
+        };
+      }
+      const request = matches[0]!;
+      await ConnectionsService.cancel({ idToken, requestId: request.id });
+      CacheSyncService.onConnectionCapabilityMutated(user.uid);
+      await loadOutgoingRequestIds();
+      return {
+        status: "succeeded",
+        summary: `Cancelled your connection request to ${request.counterpartDisplayName ?? spokenName}.`,
+      };
+    } catch (error) {
+      return {
+        status: "failed",
+        summary:
+          error instanceof Error ? error.message : "Could not cancel that request.",
+      };
+    }
+  });
+
+  useLocalOnboardingActionHandler("connect.remove_connection", async (slots) => {
+    const spokenName = typeof slots.person === "string" ? slots.person.trim() : "";
+    if (!user) {
+      return { status: "blocked", summary: "Sign in before removing a connection." };
+    }
+    if (!spokenName) {
+      return { status: "blocked", summary: "Say who you want to remove." };
+    }
+    try {
+      const idToken = await user.getIdToken();
+      const existing = await ConnectionsService.listConnections({ idToken });
+      const matches = matchByName(existing, spokenName, (entry) => entry.displayName);
+      if (matches.length === 0) {
+        return {
+          status: "blocked",
+          summary: `${spokenName} is not one of your connections.`,
+        };
+      }
+      if (matches.length > 1) {
+        return {
+          status: "blocked",
+          summary: `More than one connection matches that name: ${matches
+            .map((entry) => entry.displayName ?? "someone")
+            .join(", ")}. Say which one.`,
+        };
+      }
+      const connection = matches[0]!;
+      await ConnectionsService.removeConnection({
+        idToken,
+        connectionId: connection.connectionId,
+      });
+      setConnections((prev) =>
+        prev.filter((c) => c.connectionId !== connection.connectionId),
+      );
+      CacheSyncService.onConnectionCapabilityMutated(user.uid);
+      return {
+        status: "succeeded",
+        // Say the consequence, not just the fact. Removing a connection also
+        // removes them from everywhere that connection was the prerequisite --
+        // Location sharing above all -- and someone who only meant to tidy a
+        // list should hear that before they discover it.
+        summary: `Removed ${connection.displayName ?? spokenName}. They can no longer be picked for location sharing.`,
+      };
+    } catch (error) {
+      return {
+        status: "failed",
+        summary:
+          error instanceof Error ? error.message : "Could not remove that connection.",
       };
     }
   });

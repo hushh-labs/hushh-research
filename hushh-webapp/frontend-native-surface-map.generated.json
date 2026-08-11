@@ -2307,8 +2307,10 @@
       },
       "voice_action_contract_file": "app/one/connect/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "connect.cancel_request",
         "connect.open_nearby",
         "connect.open_people",
+        "connect.remove_connection",
         "connect.search_people",
         "connect.send_request",
         "route.one_connect"
@@ -8126,5 +8128,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "72667fac2826251a6a9c8ee647fe77a49af1e9eb27a86beb79f2976b4adff59c"
+  "content_sha256": "926a128cad31d7b4528109a18d264205cf9f1d9b7db632a064d208d4809b41bb"
 }
