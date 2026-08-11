@@ -36,6 +36,19 @@ Define canonical scope families and template policy for Investor + RIA consent r
    scopes; only the capability owner can activate a requested handle, and an
    offered handle requires recipient opt-in. Proposal metadata never contains
    PKM content or authorizes an `attr.*` export.
+8. `source_library` is a reserved owner-managed capability boundary, not a
+   shareable PKM scope. Every `attr.source_library.*` form is non-discoverable,
+   non-requestable, non-issuable, and non-authorizing.
+
+### Source Library object-share boundary
+
+Source Library sharing addresses one pinned file revision or one reviewed
+knowledge artifact through an opaque `share_ref` and an owner-bound mounted
+share target. The reference is local mapping state; it does not become an
+`attr.*` scope, reveal PKM content, grant a provider ACL, or prove that a named
+recipient can access the target. Publication and revocation complete only when
+the deterministic filesystem operation succeeds and the resulting artifact
+state is reconciled.
 
 ## Display Metadata Contract
 
@@ -210,6 +223,8 @@ network, or cross-process specialist boundaries. See
 5. Unverified `ria` requester is rejected.
 6. Bundle-driven requests must expand to canonical scopes before token issuance.
 7. Disabled PKM top-level sections must not be surfaced as discoverable scopes.
+8. Source Library discovery must return no `attr.source_library.*` scope; stale
+   grants, tokens, registries, and forged manifests cannot restore one.
 
 ## Audit Metadata Contract
 

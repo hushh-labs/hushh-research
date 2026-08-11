@@ -33,7 +33,8 @@
   "required_commands": [
     "cd consent-protocol && python3 -m pytest tests/test_vault.py -q",
     "cd hushh-webapp && npm run verify:cache",
-    "./bin/hushh codex data-model-audit"
+    "./bin/hushh codex data-model-audit",
+    "cd consent-protocol && python3 -m pytest tests/test_source_library_scope_policy.py -q"
   ],
   "verification_bundles": [
     {
@@ -41,12 +42,14 @@
       "commands": [
         "cd consent-protocol && python3 -m pytest tests/test_vault.py -q",
         "cd hushh-webapp && npm run verify:cache",
-        "./bin/hushh codex data-model-audit"
+        "./bin/hushh codex data-model-audit",
+        "cd consent-protocol && python3 -m pytest tests/test_source_library_scope_policy.py -q"
       ],
       "tests": [
         "cd consent-protocol && python3 -m pytest tests/test_vault.py -q",
         "cd hushh-webapp && npm run verify:cache",
-        "./bin/hushh codex data-model-audit"
+        "./bin/hushh codex data-model-audit",
+        "cd consent-protocol && python3 -m pytest tests/test_source_library_scope_policy.py -q"
       ]
     }
   ],
@@ -66,6 +69,7 @@
   ],
   "risk_tags": [
     "pkm-boundary-drift",
-    "encrypted-data-drift"
+    "encrypted-data-drift",
+    "source-library-authority-drift"
   ]
 }

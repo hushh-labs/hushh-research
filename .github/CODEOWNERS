@@ -40,12 +40,6 @@
 # Scripts and utilities
 /scripts/ @hushh-labs/allowed-maintainers-to-approve
 
-# Native macOS app (One for macOS)
-/apps/one-mac/ @hushh-labs/allowed-maintainers-to-approve
-/.codex/skills/desktop-mac/ @hushh-labs/allowed-maintainers-to-approve
-/.codex/skills/desktop-mac-connectors/ @hushh-labs/allowed-maintainers-to-approve
-/.codex/skills/desktop-mac-mcp-host/ @hushh-labs/allowed-maintainers-to-approve
-
 # ---------------------------------------------------------------------------
 # PROTECTED GOVERNANCE & DEPLOY-AUTHORITY SURFACES
 # These define who may merge, deploy, and edit the pipeline itself. They are

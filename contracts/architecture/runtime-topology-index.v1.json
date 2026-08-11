@@ -650,15 +650,27 @@
       "primary_access_path": "Connected Systems read/create/update approval audit, owner-confirmed local disconnect, and CRM readback result classification"
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "connected_system_owner_signing_keys"
+      ],
+      "id": "connected_system_owner_key_metadata",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Connected Systems CRM-ZK owner public-key registration, signature verification, rotation, and revocation"
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "connected_system_intents",
-        "connected_system_record_bindings"
+        "connected_system_record_bindings",
+        "connected_system_zk_contexts",
+        "connected_system_intent_approval_challenges"
       ],
       "id": "connected_system_workflows",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows"
+      "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows, including CRM-ZK request contexts and one-time local-owner approval challenges"
     },
     {
       "data_class": "audit_regulated",
@@ -716,12 +728,13 @@
       "data_class": "reference",
       "exact_tables": [
         "enterprise_crm_registry",
-        "crm_operation_endpoints"
+        "crm_operation_endpoints",
+        "crm_zk_recipient_keys"
       ],
       "id": "enterprise_crm_registry",
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
-      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL + per-operation MCP tool catalog for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)"
+      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL, per-operation MCP tool catalog, and CRM-ZK recipient public-key registry for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)"
     },
     {
       "data_class": "audit_regulated",
@@ -4629,7 +4642,7 @@
     "action_gateway": "dd85216277605d4b0f7efee7b92546749f0b3c403d6a0296df1a210ef6034c22",
     "agent_registry": "d314300c0b773ea2f4bda36584f3ae515a1272e19043f320b89e604910df3142",
     "cache_manifest": "10c2f6644a392c85a57b65c04457bfaab5c605b6448651a7eb1db39697aa55f5",
-    "data_plane": "270affce3a97bcbde752a465927f065005176f0ddc69aeb9419e6605bbc4f94d",
+    "data_plane": "38beb4b9f6a35936e2ad2a860e058cd92fbb6488f92a6fd1641caec090b1b202",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "36c045c32bf380e72429c1402ed29298c1c5561fbb0ad1ab56c25b8649e59f49",
     "route_index": "e8945cb8b2eebc57c32c2220973140dcb688d5f31b7e05427c49ae17114874d8",
@@ -4648,6 +4661,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 121,
     "semantic_routes": 14,
-    "table_families": 43
+    "table_families": 44
   }
 }

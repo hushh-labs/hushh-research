@@ -76,6 +76,9 @@ const SUGGESTED_PEOPLE_LIMIT = 8;
 const PAGE_SIZE_OPTIONS = [8, 16, 24, 50] as const;
 const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
 
+/** Maximum number of connection requests the People bulk action can send. */
+const MAX_BULK_CONNECTION_REQUESTS = 20;
+
 /**
  * Bounds on resolving ONE spoken name against the directory.
  *
@@ -505,9 +508,18 @@ export default function ConnectPageClient() {
 
   const handleConnectMultiple = useCallback(async () => {
     if (!user || selectedUserIds.size === 0) return;
+    const selectedPeople = people.filter((p) => selectedUserIds.has(p.userId));
+
+    // Keep the dispatch boundary bounded even if selection state is restored or
+    // changed outside the row controls.
+    if (selectedPeople.length > MAX_BULK_CONNECTION_REQUESTS) {
+      toast.error(`Select no more than ${MAX_BULK_CONNECTION_REQUESTS} people at a time.`);
+      return;
+    }
+
     setIsConnectingMultiple(true);
     let successCount = 0;
-    const selectedPeople = people.filter((p) => selectedUserIds.has(p.userId));
+    const successfulUserIds = new Set<string>();
     
     try {
       const idToken = await user.getIdToken();
@@ -524,6 +536,7 @@ export default function ConnectPageClient() {
               ...current,
               [person.userId]: request.id,
             }));
+            successfulUserIds.add(person.userId);
             successCount++;
           } catch (_err) {
             console.error(`Failed to send request to ${person.userId}`, _err);
@@ -533,7 +546,7 @@ export default function ConnectPageClient() {
       
       setPeople((prev) =>
         prev.map((p) =>
-          selectedUserIds.has(p.userId) && p.relationship === "none"
+          successfulUserIds.has(p.userId) && p.relationship === "none"
             ? { ...p, relationship: "pending_outgoing" }
             : p,
         ),
@@ -591,6 +604,30 @@ export default function ConnectPageClient() {
   // Present connections in a stable, predictable order: alphabetical by the
   // name the user sees (case-insensitive), falling back to the userId when a
   // display name is absent. Locale compare keeps accented names sensibly placed.
+  // Present the People directory in the same predictable order as connections:
+  // alphabetical (A-Z) by the visible name, case/accent-insensitive. When a
+  // search query is active, names that START with the query rank above inner
+  // matches (so "Ab" surfaces "Abdul" before "Zab…"), then A-Z within each
+  // group. The server can return directory rows in relevance/insertion order,
+  // which read as unsorted in the list; this makes the rendered order stable.
+  const sortedPeople = useMemo(() => {
+    const q = trimmedQuery.toLowerCase();
+    const nameOf = (person: DirectoryPerson) =>
+      (person.displayName || person.email || person.userId)
+        .trim()
+        .toLowerCase();
+    return [...people].sort((a, b) => {
+      const nameA = nameOf(a);
+      const nameB = nameOf(b);
+      if (q) {
+        const startsA = nameA.startsWith(q);
+        const startsB = nameB.startsWith(q);
+        if (startsA !== startsB) return startsA ? -1 : 1;
+      }
+      return nameA.localeCompare(nameB, undefined, { sensitivity: "base" });
+    });
+  }, [people, trimmedQuery]);
+
   const sortedConnections = useMemo(
     () =>
       [...connections].sort((a, b) =>
@@ -1092,25 +1129,30 @@ export default function ConnectPageClient() {
                     }}
                   />
                 </div>
-                {/*
-                  The Select / Select All controls are intentionally not
-                  rendered. Bulk-selecting people was not a clear answer to the
-                  problem it was reaching for -- finding the right person in a
-                  list that grows with every signup -- and shipping it invited
-                  people to fan out requests rather than helping them search.
-
-                  The machinery below is deliberately left in place: selection
-                  mode, the per-row checkboxes, and the bulk request action all
-                  still work, and `isSelectionMode` simply has no way to become
-                  true from the UI. Restoring the entry point is a one-line
-                  change if a clearer design arrives. Do not delete the state or
-                  the bulk handler on the grounds that they look unreachable.
-                */}
+                <Button
+                  type="button"
+                  variant="none"
+                  effect="fill"
+                  size="sm"
+                  disabled={loading || people.length === 0}
+                  onClick={() => {
+                    setIsSelectionMode((current) => !current);
+                    setSelectedUserIds(new Set());
+                  }}
+                >
+                  {isSelectionMode ? "Cancel selection" : "Select people"}
+                </Button>
               </div>
               <SettingsGroup
                 title="People"
                 description={
-                  hasQuery
+                  isSelectionMode
+                    ? (
+                        <span id="connect-selection-limit">
+                          Select up to {MAX_BULK_CONNECTION_REQUESTS} people to send connection requests.
+                        </span>
+                      )
+                    : hasQuery
                     ? "Send a connection request to someone you know."
                     : "A few people on Hussh. Search by name to find someone specific."
                 }
@@ -1146,11 +1188,14 @@ export default function ConnectPageClient() {
                     />
                   )
                 ) : (
-                  people.map((person) => {
+                  sortedPeople.map((person) => {
                     const cta = relationshipCta(person.relationship);
                     const title =
                       person.displayName || person.email || person.userId;
                     const description = getDirectoryPersonDescription(person);
+                    const isSelected = selectedUserIds.has(person.userId);
+                    const selectionLimitReached =
+                      selectedUserIds.size >= MAX_BULK_CONNECTION_REQUESTS;
                     return (
                       <SettingsRow
                         key={person.userId}
@@ -1162,13 +1207,25 @@ export default function ConnectPageClient() {
                         trailing={
                           isSelectionMode ? (
                             <Checkbox
-                              checked={selectedUserIds.has(person.userId)}
-                              disabled={person.relationship !== "none"}
+                              checked={isSelected}
+                              disabled={
+                                person.relationship !== "none" ||
+                                (!isSelected && selectionLimitReached)
+                              }
+                              aria-describedby="connect-selection-limit"
                               onCheckedChange={(checked) => {
-                                const next = new Set(selectedUserIds);
-                                if (checked) next.add(person.userId);
-                                else next.delete(person.userId);
-                                setSelectedUserIds(next);
+                                setSelectedUserIds((current) => {
+                                  const next = new Set(current);
+                                  if (checked) {
+                                    if (next.size >= MAX_BULK_CONNECTION_REQUESTS) {
+                                      return current;
+                                    }
+                                    next.add(person.userId);
+                                  } else {
+                                    next.delete(person.userId);
+                                  }
+                                  return next;
+                                });
                               }}
                               aria-label={`Select ${title}`}
                             />
@@ -1275,7 +1332,7 @@ export default function ConnectPageClient() {
                     >
                       {isConnectingMultiple
                         ? "Sending requests…"
-                        : `Connect to Selected (${selectedUserIds.size})`}
+                        : `Connect to Selected (${selectedUserIds.size}/${MAX_BULK_CONNECTION_REQUESTS})`}
                     </Button>
                   </div>
                 )}
