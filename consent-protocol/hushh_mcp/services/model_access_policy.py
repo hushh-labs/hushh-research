@@ -164,7 +164,7 @@ def model_access_for(backend_id: str, provider: str) -> ModelAccessVerdict:
     # honest answer is hushh's own — so the fleet flag must still govern it. Letting
     # `""` mean "serviceable" would have removed that control for exactly the
     # deployments that never configured one, which is backwards.
-    if backend in (BACKEND_GCP, BACKEND_NULL, ""):
+    if backend in (BACKEND_GCP, BACKEND_NULL, "none", ""):
         if managed:
             from hushh_mcp.runtime_settings import pod_managed_model_enabled  # noqa: PLC0415
 
@@ -176,8 +176,8 @@ def model_access_for(backend_id: str, provider: str) -> ModelAccessVerdict:
                     "a managed pod may reach the fleet's model"
                     if allowed
                     else (
-                        "pod_managed_model_enabled is off, so a managed pod would boot, "
-                        "warm, heartbeat and refuse every turn at full price"
+                        "a private agent on hushh's own model access is not enabled yet — "
+                        "connect your own AI key to continue"
                     )
                 ),
                 activation_order=AGENT_ACTIVATION_ORDER if allowed else (),

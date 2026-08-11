@@ -40,7 +40,7 @@ async def test_text_runtime_replays_history_and_extracts_generated_directive(mon
     observed: dict = {}
 
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None):
             assert app_name == ONE_APP_NAME
             observed["agent"] = agent
             self.session_service = session_service
@@ -236,7 +236,7 @@ async def test_managed_text_runtime_never_replays_after_tool_boundary(monkeypatc
 
 async def test_text_runtime_emits_non_partial_final_memory_summary(monkeypatch):
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None):
             self.session_service = session_service
 
         async def run_async(self, **kwargs):  # noqa: ANN003
@@ -310,7 +310,7 @@ async def test_bounded_adk_events_times_out_stalled_followup(monkeypatch):
 
 async def test_text_runtime_rejects_silent_model_completion(monkeypatch):
     class _FakeRunner:
-        def __init__(self, *, app_name, agent, session_service):
+        def __init__(self, *, app_name, agent, session_service, memory_service=None):
             self.session_service = session_service
 
         async def run_async(self, **kwargs):  # noqa: ANN003

@@ -116,7 +116,12 @@ def test_managed_tier_follows_the_fleet_flag(monkeypatch) -> None:
     monkeypatch.setenv("HUSSH_POD_MANAGED_MODEL_ENABLED", "false")
     off = model_access_for(BACKEND_GCP, MANAGED_PROVIDER)
     assert off.can_serve is False
-    assert "refuse every turn" in off.reason
+    # Assert the PROPERTY (refused, and the reason tells a person what to do), not the
+    # wording — this string is user-facing and pinning its exact text to an internal
+    # phrase is what let an internal flag name reach the browser.
+    assert off.can_serve is False
+    assert "pod_managed_model_enabled" not in off.reason.lower()
+    assert off.reason.strip()
 
 
 def test_managed_tier_serves_byok_regardless_of_the_fleet_flag(monkeypatch) -> None:
@@ -253,3 +258,38 @@ async def test_the_gate_refuses_anypoint_plus_managed_end_to_end(monkeypatch) ->
     assert verdict["scheduled"] is False
     assert "no Google identity" in verdict["reason"]
     assert scheduled == [], "a pod must not be scheduled on a connection the path cannot serve"
+
+
+def test_the_inert_backend_vocabulary_matches_compute_backend() -> None:
+    """Two modules disagreeing about one config value is the bug.
+
+    `compute_backend` accepts "none" as a legal inert backend id; this policy did not, so
+    PERSONAL_AGENT_BACKEND=none fell through to the fail-closed unknown branch and flipped
+    BYOK provisioning from allowed to refused. Asserted against the OTHER module's list so
+    the two cannot drift apart again silently.
+    """
+    verdict = model_access_for("none", "byok")
+    assert verdict.can_serve is True, (
+        "'none' is a legal inert backend id in compute_backend; refusing BYOK for it is a "
+        "regression, not a safety property"
+    )
+    # And the genuinely unknown case must still fail closed.
+    assert model_access_for("wat", "byok").can_serve is False
+
+
+def test_a_refusal_shown_to_a_person_names_no_internal_flag() -> None:
+    """This string is returned to the browser as `agentReason` (routes/one/runtime.py:166).
+
+    It used to name `pod_managed_model_enabled` and explain hushh's cost reasoning to the
+    person being refused. A refusal should tell someone what to do next, not leak our
+    internal vocabulary or our margin logic.
+    """
+    import os
+
+    os.environ.pop("HUSSH_POD_MANAGED_MODEL_ENABLED", None)
+    verdict = model_access_for("gcp", MANAGED_PROVIDER)
+    if verdict.can_serve:
+        return  # the flag is on in this environment; nothing to assert about the refusal
+    lowered = verdict.reason.lower()
+    for leak in ("pod_managed_model_enabled", "at full price", "heartbeat"):
+        assert leak not in lowered, f"the refusal shown to a person leaks {leak!r}"

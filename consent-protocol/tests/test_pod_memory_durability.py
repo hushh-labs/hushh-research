@@ -15,6 +15,7 @@ across in Python; only the log is.
 from __future__ import annotations
 
 import asyncio
+import base64
 import sys
 from pathlib import Path
 
@@ -339,3 +340,30 @@ def test_resolving_pod_memory_never_breaks_a_turn(monkeypatch) -> None:
         "hushh_mcp.services.pod_memory_service.resolve_pod_memory_service", explode
     )
     assert text_runtime._resolve_pod_memory_service() is None
+
+
+def test_the_hub_never_receives_a_memory_service(monkeypatch) -> None:
+    """The property that actually protects Agent Chat, pinned.
+
+    The guard above asserts the CALL passes memory_service. It would pass unchanged if the
+    hub started receiving a live memory service — which is the one outcome that would
+    matter, because the hub is multi-tenant and a PodMemoryService is keyed to a single
+    HUSSH_ID. Set HUSSH_POD_MODE on a hub revision and every person's Agent Chat turn would
+    share one owner's memory.
+
+    Nothing else in the suite covers this: tests/test_one_memory_service.py exercises the
+    VOICE runner's _build_one_memory_service, not the text runtime's resolver.
+    """
+    from hushh_mcp.one_adk import text_runtime
+
+    monkeypatch.delenv("HUSSH_POD_MODE", raising=False)
+    # Deliberately hostile: every OTHER pod variable set, so only the pod_mode gate is
+    # standing between the hub and a memory service.
+    monkeypatch.setenv("POD_AGENT_MEMORY_ENABLED", "1")
+    monkeypatch.setenv("HUSSH_ID", "HA1HUBLEAKPROBE1")
+    monkeypatch.setenv("HUSSH_POD_MEMORY_KEY", base64.b64encode(b"\x05" * 32).decode())
+
+    assert text_runtime._resolve_pod_memory_service() is None, (
+        "the hub resolved a memory service — a multi-tenant process would then hold one "
+        "person's memory and serve it to everyone"
+    )

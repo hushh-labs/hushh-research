@@ -212,7 +212,10 @@ async def test_managed_does_not_provision_while_a_pod_cannot_serve_it(monkeypatc
     # answers differ -- "the fleet flag is off" and "CloudHub has no Vertex at all"
     # are different facts and a shared sentence hid that. Asserting the substance
     # keeps this test about behaviour rather than about wording.
-    assert "pod_managed_model_enabled is off" in result["reason"]
+    # The refusal must carry a reason a person can act on, and must not name the flag —
+    # this value is returned to the browser as `agentReason`.
+    assert result["reason"].strip()
+    assert "pod_managed_model_enabled" not in result["reason"].lower()
     assert identity.scheduled == []
 
 
