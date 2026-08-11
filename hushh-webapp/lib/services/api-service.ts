@@ -3320,6 +3320,122 @@ export class ApiService {
   }
 
   /**
+   * The pre-filled, editable name we suggest for a person's own cloud project.
+   *
+   * Stable for a given person, so reloading the page or retrying a failed creation
+   * shows the same name. A suggestion that changed under someone between seeing it
+   * and accepting it would be a poor thing to do to a person naming infrastructure
+   * they are about to own.
+   */
+  static async suggestByocProject(): Promise<{
+    projectId: string;
+    displayName: string;
+    editable: boolean;
+    rationale: string;
+    creationModes: string[];
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/project/suggest",
+      {
+        method: "GET",
+        headers: {
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+      },
+    );
+    if (!response.ok) {
+      throw new Error("BYOC_SUGGESTION_UNAVAILABLE");
+    }
+    return response.json();
+  }
+
+  /**
+   * Is this name one Google will accept, and is it free?
+   *
+   * `available` is deliberately tri-state. `null` means "we could not determine it",
+   * which is NOT the same as taken — Google answers 403 both for "exists but hidden"
+   * and for "you may not look". Rendering `null` as unavailable would tell a person a
+   * perfectly free name is used, and they would rename their cloud for no reason.
+   */
+  static async checkByocProject(projectId: string): Promise<{
+    projectId: string;
+    valid: boolean;
+    available: boolean | null;
+    reason: string;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/project/check",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({ projectId }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error("BYOC_CHECK_FAILED");
+    }
+    return response.json();
+  }
+
+  /**
+   * What creating this project would involve — without creating it.
+   *
+   * Returns the guided route (a console link and a `gcloud` line the person runs
+   * themselves) and, when they have named an organization or folder, the disclosure
+   * for letting hushh create it instead. Both come back together on purpose: the
+   * larger permission should be read next to the alternative that avoids it.
+   */
+  static async planByocProject(input: {
+    projectId: string;
+    displayName?: string;
+    parentType?: "organization" | "folder";
+    parentId?: string;
+  }): Promise<{
+    guided: {
+      mode: string;
+      projectId: string;
+      consoleUrl: string;
+      cliCommand: string;
+      billingNote: string;
+      whatHushhGets: string;
+    };
+    delegated: Record<string, string>;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/project/plan",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          projectId: input.projectId,
+          displayName: input.displayName ?? "",
+          parentType: input.parentType ?? null,
+          parentId: input.parentId ?? "",
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error("BYOC_PLAN_FAILED");
+    }
+    return response.json();
+  }
+
+  /**
    * Run one turn on this person's own pod, through the private relay.
    *
    * The pod is `internal` ingress with no public binding, so the hub is the only

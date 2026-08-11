@@ -307,3 +307,138 @@ async def validate_gemini_credential(
     )
     logger.info("runtime.ai_connection_verified provision=%s", verdict.get("reason"))
     return GeminiCredentialValidationResponse(status="ready")
+
+
+# --- BYOC: naming and creating the project a person's pod will live in --------------
+#
+# The frontend asks one question -- "what should we call your cloud?" -- and these three
+# routes are behind it. They are deliberately separate from the two connection routes
+# above: choosing a runtime is a per-turn credential decision, whereas this creates
+# infrastructure a person will own long after they stop using hushh.
+#
+# None of these provisions a pod. Naming a project is not a working AI connection, so
+# `ai_connection_gate` is untouched by them -- the rule that a pod is earned by a
+# connection and never by a form still holds.
+
+
+class ByocProjectSuggestionResponse(BaseModel):
+    projectId: str
+    displayName: str
+    editable: bool
+    rationale: str
+    creationModes: list[str]
+
+
+class ByocProjectCheckRequest(BaseModel):
+    projectId: str = Field(min_length=1, max_length=64)
+
+
+class ByocProjectCheckResponse(BaseModel):
+    projectId: str
+    valid: bool
+    # Tri-state on purpose: None means "could not determine", which is NOT "taken".
+    # Rendering it as unavailable would tell people a free name is used.
+    available: bool | None
+    reason: str
+
+
+class ByocProjectPlanRequest(BaseModel):
+    projectId: str = Field(min_length=1, max_length=64)
+    displayName: str = Field(default="", max_length=64)
+    parentType: Literal["organization", "folder"] | None = None
+    parentId: str = Field(default="", max_length=64)
+
+
+@router.get("/byoc/project/suggest", response_model=ByocProjectSuggestionResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def suggest_byoc_project(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> ByocProjectSuggestionResponse:
+    """The pre-filled, editable name we put in the field.
+
+    Stable for a given person: reload, come back tomorrow, retry a failed creation --
+    same name. A suggestion that changed under someone between seeing it and accepting
+    it would be a poor thing to do to a person naming infrastructure they will own.
+    """
+    from hushh_mcp.services.user_gcp_project import (
+        CREATION_DELEGATED,
+        CREATION_GUIDED,
+        suggest_project_id,
+    )
+
+    suggestion = suggest_project_id(firebase_uid)
+    return ByocProjectSuggestionResponse(
+        **suggestion.as_dict(),
+        creationModes=[CREATION_GUIDED, CREATION_DELEGATED],
+    )
+
+
+@router.post("/byoc/project/check", response_model=ByocProjectCheckResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def check_byoc_project(
+    request: Request,
+    body: ByocProjectCheckRequest,
+    _firebase_uid: str = Depends(require_firebase_auth),
+) -> ByocProjectCheckResponse:
+    """Validity now, availability best-effort.
+
+    Validity is Google's own rule set and is decided locally, so a person hears about a
+    bad name while typing rather than after committing to it. Availability needs a
+    network call and cannot be answered definitively by anyone but Google at creation
+    time -- see `check_project_id` for why 403 is reported as "unknown".
+    """
+    from hushh_mcp.services.user_gcp_project import check_project_id, validate_project_id
+
+    verdict = validate_project_id(body.projectId)
+    if verdict.valid:
+        try:
+            verdict = await asyncio.to_thread(check_project_id, body.projectId)
+        except Exception:  # noqa: BLE001 - an unreachable probe is not a validation error
+            logger.info("byoc_project.check_probe_unavailable")
+    return ByocProjectCheckResponse(**verdict.as_dict())
+
+
+@router.post("/byoc/project/plan")
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def plan_byoc_project(
+    request: Request,
+    body: ByocProjectPlanRequest,
+    _firebase_uid: str = Depends(require_firebase_auth),
+) -> dict:
+    """What creating this project will involve -- WITHOUT creating it.
+
+    Returns the guided instructions always, and, when the person has named a parent,
+    the disclosure for the delegated route beside them. Both are returned together on
+    purpose: the larger permission should be read next to the alternative that avoids
+    it, not discovered after choosing.
+
+    This route creates nothing. Delegated creation is a separate, explicit action.
+    """
+    from hushh_mcp.services.user_gcp_project import (
+        delegated_creation_disclosure,
+        guided_creation_instructions,
+        validate_project_id,
+    )
+
+    verdict = validate_project_id(body.projectId)
+    if not verdict.valid:
+        raise HTTPException(status_code=422, detail={"code": "INVALID_PROJECT_ID", "reason": verdict.reason})
+
+    plan: dict = {
+        "guided": guided_creation_instructions(
+            project_id=verdict.project_id, display_name=body.displayName
+        )
+    }
+    if body.parentType and body.parentId:
+        plan["delegated"] = delegated_creation_disclosure(
+            parent_type=body.parentType, parent_id=body.parentId
+        )
+    else:
+        plan["delegated"] = {
+            "unavailable": (
+                "Tell us which organization or folder to create it in, and we will show "
+                "you exactly what that would let hushh do."
+            )
+        }
+    return plan
