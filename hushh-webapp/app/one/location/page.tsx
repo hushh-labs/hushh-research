@@ -7916,7 +7916,7 @@ export function OneLocationAgentPageContent({
         className="relative isolate"
         nativeTest={nativeTestConfig}
       >
-        <AppPageContentRegion className="min-w-0 space-y-6 overflow-x-hidden">
+        <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden">
           {/* Only surface the load-failure banner on a genuine cold load (no
               data yet). Once `state` is populated the hub is fully usable, so a
               transient failure from the 5s background poll must NOT flash a

@@ -266,7 +266,7 @@ export function EmptyState({
       )}
     >
       {icon ? <div className="text-muted-foreground">{icon}</div> : null}
-      <p className="ui-text-card-title">
+      <p className="ui-text-headline">
         {title}
       </p>
       {description ? <p className={MUTED_TEXT}>{description}</p> : null}

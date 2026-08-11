@@ -13,9 +13,9 @@ import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 
 import {
-  CardTitle,
   MajorSectionTitle,
   RowDescription,
+  RowLabel,
 } from "@/components/app-ui/typography";
 import { cn } from "@/lib/utils";
 
@@ -88,7 +88,7 @@ export function QuickActionCard({
       aria-disabled={!interactive}
       data-voice-control-id={controlId}
       className={cn(
-        "group flex min-h-[120px] w-full min-w-0 flex-col gap-3 rounded-[20px] bg-white p-4 text-left shadow-none transition-all duration-200 dark:bg-[color:var(--app-card-surface-default-solid)]",
+        "group flex min-h-[96px] w-full min-w-0 flex-col gap-2.5 rounded-[var(--app-card-radius-standard,24px)] bg-white p-3.5 text-left shadow-[var(--app-card-shadow-standard)] transition-all duration-200 dark:bg-[color:var(--app-card-surface-default-solid)]",
         interactive
           ? "cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           : "cursor-not-allowed",
@@ -97,7 +97,7 @@ export function QuickActionCard({
       <div className="flex w-full items-start justify-between gap-2">
         <span
           className={cn(
-            "flex h-[34px] w-[34px] items-center justify-center rounded-[9px] [&_svg]:h-[19px] [&_svg]:w-[19px]",
+            "flex h-[38px] w-[38px] items-center justify-center rounded-[12px] [&_svg]:h-[20px] [&_svg]:w-[20px]",
             palette.tile,
             palette.icon,
           )}
@@ -110,9 +110,9 @@ export function QuickActionCard({
       </div>
 
       <div className="mt-auto w-full min-w-0">
-        <CardTitle as="p" className="truncate">
+        <RowLabel as="p" className="truncate">
           {title}
-        </CardTitle>
+        </RowLabel>
         <RowDescription as="span" className="mt-1 block truncate">
           {subtitle}
         </RowDescription>
@@ -134,7 +134,7 @@ export function QuickActionsSection({
   className?: string;
 }) {
   return (
-    <section className={cn("space-y-4", className)}>
+    <section className={cn("space-y-3", className)}>
       <div className="flex items-center px-1">
         <MajorSectionTitle>{title}</MajorSectionTitle>
       </div>

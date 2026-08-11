@@ -6,6 +6,7 @@ import { ChevronRight, Grid2X2, List, Search } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { LargeTitle } from "@/components/app-ui/typography";
 import {
   getOneSetupCapability,
   isOneCapabilityEnabled,
@@ -420,9 +421,7 @@ function AgentMetric({
       <span
         data-ui-role="body-strong"
         className={cn(
-          compact
-            ? "shrink-0 tabular-nums text-[15px] font-semibold leading-5 tracking-[-0.006em]"
-            : "shrink-0 tabular-nums text-[15px] font-semibold leading-5 tracking-[-0.006em]",
+          "shrink-0 tabular-nums text-[15px] font-semibold leading-5 tracking-normal",
           metricValueClassName(valueTone),
         )}
       >
@@ -431,9 +430,7 @@ function AgentMetric({
       <span
         data-ui-role="trailing-value"
         className={cn(
-          compact
-            ? "min-w-0 text-[15px] font-normal leading-5 tracking-[-0.006em]"
-            : "min-w-0 text-[15px] font-normal leading-5 tracking-[-0.006em]",
+          "min-w-0 text-[15px] font-normal leading-5 tracking-normal",
           compact
             ? "min-w-0 whitespace-normal text-center [overflow-wrap:anywhere]"
             : "truncate",
@@ -479,7 +476,7 @@ function AgentGridItem({
       />
       <span className="relative z-10 min-w-0">
         <span
-          className="block truncate text-[17px] font-normal leading-[22px] tracking-[-0.006em] text-[#1D1D1F] dark:text-[#F5F5F7]"
+          className="ui-text-row-label block truncate"
           data-ui-role="body"
         >
           {mode.title}
@@ -499,11 +496,11 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       title={mode.description}
       data-testid={`one-agent-list-row-${mode.id}`}
       className={cn(
-        "group/agent-row relative grid min-h-[60px] w-full grid-cols-[36px_minmax(0,1fr)_minmax(108px,150px)_16px] items-center gap-x-3 overflow-hidden px-4 text-left outline-none",
+        "group/agent-row relative grid min-h-[64px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(108px,150px)_16px] items-center gap-x-3 overflow-hidden px-4 text-left outline-none",
         "transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-        "sm:grid-cols-[36px_minmax(0,1fr)_minmax(160px,210px)_16px]",
+        "sm:grid-cols-[40px_minmax(0,1fr)_minmax(160px,210px)_16px]",
       )}
     >
       <span className="relative z-10 flex items-center justify-center">
@@ -520,7 +517,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       </span>
       <span
         data-ui-role="row-label"
-        className="relative z-10 min-w-0 truncate text-[17px] font-normal leading-[22px] tracking-[-0.006em] text-[#1D1D1F] dark:text-[#F5F5F7]"
+        className="ui-text-row-label relative z-10 min-w-0 truncate"
       >
         {mode.title}
       </span>
@@ -637,17 +634,9 @@ export function OneAgentRoster({
       className="mx-auto w-full max-w-[900px]"
     >
       <div className="mb-5 flex items-center justify-between gap-3">
-        <h2
-          id="one-agents-heading"
-          className="min-w-0"
-        >
-          <span
-            className="ui-text-page-title block truncate"
-            data-ui-role="page-title"
-          >
-            Agents ({modes.length})
-          </span>
-        </h2>
+        <LargeTitle as="h2" id="one-agents-heading" className="min-w-0 truncate">
+          Agents ({modes.length})
+        </LargeTitle>
         <AgentRosterViewToggle value={view} onChange={selectView} />
       </div>
       <label className="relative mb-4 block">
@@ -674,7 +663,7 @@ export function OneAgentRoster({
         {view === "grid" ? (
           <div
             data-testid="one-agents-grid"
-            className="rounded-[22px] bg-white p-2 shadow-none dark:bg-[#1C1C1E]"
+            className="rounded-[var(--app-card-radius-standard,24px)] bg-white p-2 shadow-[var(--app-card-shadow-standard)] dark:bg-[#1C1C1E]"
           >
             <div
               data-agent-roster-layout="grouped-icon-grid"
@@ -688,7 +677,7 @@ export function OneAgentRoster({
         ) : (
           <div
             data-testid="one-agents-list"
-            className="group/agent-list overflow-hidden rounded-[22px] bg-white shadow-none dark:bg-[#1C1C1E]"
+            className="group/agent-list overflow-hidden rounded-[var(--app-card-radius-standard,24px)] bg-white shadow-[var(--app-card-shadow-standard)] dark:bg-[#1C1C1E]"
           >
             {visibleModes.map((mode) => (
               <AgentListRow key={mode.id} mode={mode} />
