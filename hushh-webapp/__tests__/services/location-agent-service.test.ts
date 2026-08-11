@@ -73,6 +73,19 @@ describe("OneLocationService", () => {
     expect(mockApiJson.mock.calls[0]?.[1]?.body).not.toContain("private");
   });
 
+  it("reads the focused recipient list for a voice selection", async () => {
+    mockApiJson.mockResolvedValueOnce({
+      recipients: [{ userId: "user_b", displayName: "Person B" }],
+    });
+
+    await expect(OneLocationService.listRecipients("vault-token")).resolves.toEqual([
+      { userId: "user_b", displayName: "Person B" },
+    ]);
+    expect(mockApiJson).toHaveBeenCalledWith("/api/one/location/recipients", {
+      headers: { Authorization: "Bearer vault-token" },
+    });
+  });
+
   it("stores encrypted envelopes without plaintext coordinates", async () => {
     mockApiJson.mockResolvedValueOnce({ envelope: { id: "env_1" } });
 

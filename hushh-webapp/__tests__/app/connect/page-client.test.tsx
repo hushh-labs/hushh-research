@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.routerPush, replace: vi.fn(), back: vi.fn() }),
+  usePathname: () => "/one/connect",
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -66,6 +67,7 @@ vi.mock("sonner", () => ({
 }));
 
 import ConnectPageClient from "@/app/connect/page-client";
+import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 
 function person(userId: string, displayName: string) {
   return {
@@ -105,7 +107,11 @@ describe("Connect — People", () => {
     });
     expect(mocks.searchDirectory.mock.calls[0][0].query).toBe("");
 
-    expect(await screen.findByText("Suggested")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "A few people on Hussh. Search by name to find someone specific.",
+      ),
+    ).toBeTruthy();
     expect(screen.getByText("Person 0")).toBeTruthy();
   });
 
@@ -115,7 +121,11 @@ describe("Connect — People", () => {
     // by default, and a way through it.
     render(<ConnectPageClient />);
 
-    expect(await screen.findByText("Suggested")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "A few people on Hussh. Search by name to find someone specific.",
+      ),
+    ).toBeTruthy();
     expect(screen.getByText("Page 1")).toBeTruthy();
     expect(screen.getByLabelText("People per page")).toBeTruthy();
     // hasMore is true in the fixture, so forward is offered and back is not.
@@ -160,10 +170,101 @@ describe("Connect — People", () => {
     expect(searched.limit).toBe(8);
     expect(searched.page).toBe(1);
 
-    // "People" is also the tab label, so the sample heading going away is the
-    // unambiguous signal that this is no longer the bounded surface.
-    await waitFor(() => expect(screen.queryByText("Suggested")).toBeNull());
+    // The empty-query description disappearing is the unambiguous signal that
+    // this is no longer the bounded discovery surface.
+    await waitFor(() =>
+      expect(
+        screen.queryByText(
+          "A few people on Hussh. Search by name to find someone specific.",
+        ),
+      ).toBeNull(),
+    );
     expect(await screen.findByText("Page 1")).toBeTruthy();
+  });
+
+  it("runs a spoken name through the governed Connect search handler", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const search = resolveLocalOnboardingHandler("connect.search_people");
+    expect(search).not.toBeNull();
+    act(() => {
+      expect(search!({ person: "Person 9" })).toMatchObject({
+        status: "succeeded",
+      });
+    });
+
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+    expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({
+      query: "Person 9",
+      page: 1,
+    });
+  });
+
+  it("sends a confirmed request only to one exact spoken name", async () => {
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Person 9")],
+      hasMore: false,
+      page: 1,
+    });
+    mocks.sendRequest.mockResolvedValue({ id: "request-9" });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
+    expect(sendRequest).not.toBeNull();
+    let result: Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
+    await act(async () => {
+      result = await sendRequest!({ person: "Person 9" });
+    });
+
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({
+      query: "Person 9",
+      page: 1,
+      limit: 3,
+    });
+    expect(mocks.sendRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        addresseeUserId: "u9",
+        requestedScopeHandles: [],
+        offeredScopeHandles: [],
+      }),
+    );
+  });
+
+  it("refuses to guess between similar directory matches before sending", async () => {
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Person 9"), person("u10", "Person 9")],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
+    expect(sendRequest).not.toBeNull();
+    const result = await sendRequest!({ person: "Person 9" });
+
+    expect(result).toMatchObject({ status: "blocked" });
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+  });
+
+  it("refuses a first-page match when the directory has more results", async () => {
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Person 9")],
+      hasMore: true,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
+    expect(sendRequest).not.toBeNull();
+    const result = await sendRequest!({ person: "Person 9" });
+
+    expect(result).toMatchObject({ status: "blocked" });
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
   });
 
   it("says who was searched for when a search matches nobody", async () => {

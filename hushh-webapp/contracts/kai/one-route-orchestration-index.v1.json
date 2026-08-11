@@ -1455,6 +1455,7 @@
         "connect.open_nearby",
         "connect.open_people",
         "connect.search_people",
+        "connect.send_request",
         "location.add_connections",
         "route.one_connect"
       ],

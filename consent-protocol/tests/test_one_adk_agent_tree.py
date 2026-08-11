@@ -26,6 +26,7 @@ from hushh_mcp.one_adk.action_tools import (
     _STATE_GOAL_RUN,
     _STATE_PENDING_DIRECTIVE,
     _STATE_SCREEN,
+    _directive_flags,
     _is_journey_startable,
     _journey_slots,
     _navigation_journey_definition,
@@ -50,7 +51,7 @@ from hushh_mcp.one_adk.agent_tree import (
     get_one_runner,
     open_screen,
 )
-from hushh_mcp.services.action_gateway import get_action_gateway_action
+from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
 from hushh_mcp.services.live_voice_context import (
     clear_live_voice_context,
     publish_live_voice_context,
@@ -772,6 +773,162 @@ class TestRunAppAction:
 
 
 class TestSettledActionJourneys:
+    def test_every_generated_action_has_one_consistent_voice_boundary(self):
+        """All journeys consume these flags, never their own local policy."""
+        for entry in list_action_gateway_actions():
+            flags = _directive_flags(entry)
+            expected_confirmation = (
+                entry.get("execution_policy") == "confirm_required"
+                or entry.get("activation_policy") == "trusted_activation_required"
+            )
+            assert flags["needsConfirmation"] is expected_confirmation, entry["action_id"]
+            assert flags["trustedActivationRequired"] is (
+                entry.get("activation_policy") == "trusted_activation_required"
+            ), entry["action_id"]
+
+    @pytest.mark.asyncio
+    async def test_high_risk_location_share_requires_spoken_confirmation(self):
+        state = {
+            _STATE_SCREEN: "one_location",
+            "hussh:voice_context": {
+                "route_pattern": "/one/location",
+                "screen": "one_location",
+                "context_revision": "location-2",
+                "available_action_ids": ["location.share_selected"],
+            },
+        }
+
+        result = await run_app_action(
+            "location.share_selected",
+            {"duration_hours": "0.25"},
+            _tool_context(state),
+        )
+
+        assert result["status"] == "confirm_pending"
+        payload = state[f"{_STATE_PENDING_DIRECTIVE}:location.share_selected"]["payload"]
+        assert payload["needsConfirmation"] is True
+        assert payload["trustedActivationRequired"] is False
+
+    @pytest.mark.asyncio
+    async def test_location_named_share_journey_stamps_safe_flags_on_both_steps(self):
+        state = {
+            _STATE_SCREEN: "one_agents",
+            "hussh:voice_context": {
+                "route_pattern": "/one",
+                "screen": "one_agents",
+                "context_revision": "source-1",
+                "available_action_ids": ["route.profile"],
+            },
+        }
+
+        started = await start_app_goal(
+            "location.select_share_recipient",
+            {"person": "Sarah"},
+            _tool_context(state),
+        )
+
+        assert started["status"] == "navigation_started"
+        escort = state[f"{_STATE_PENDING_DIRECTIVE}:goal:{started['goal_id']}"]["payload"]
+        assert escort["actionId"] == "location.open_now"
+        assert escort["needsConfirmation"] is False
+        assert escort["trustedActivationRequired"] is False
+
+        state[_STATE_SCREEN] = "one_location"
+        state["hussh:voice_context"] = {
+            "route_pattern": "/one/location",
+            "screen": "one_location",
+            "context_revision": "location-2",
+            "available_action_ids": ["location.select_share_recipient"],
+        }
+        continued = await continue_app_goal(_tool_context(state))
+
+        assert continued["status"] == "preview_started"
+        select = state[
+            f"{_STATE_PENDING_DIRECTIVE}:goal:{started['goal_id']}:preview"
+        ]["payload"]
+        assert select["actionId"] == "location.select_share_recipient"
+        assert select["needsConfirmation"] is False
+        assert select["trustedActivationRequired"] is False
+
+    @pytest.mark.asyncio
+    async def test_connect_spoken_search_navigates_then_runs_hands_free(self):
+        """A spoken name remains attached through the fresh Connect context."""
+        state = {
+            _STATE_SCREEN: "one_agents",
+            "hussh:voice_context": {
+                "route_pattern": "/one",
+                "screen": "one_agents",
+                "context_revision": "source-1",
+                "available_action_ids": ["route.profile"],
+            },
+        }
+
+        started = await start_app_goal(
+            "connect.search_people",
+            {"person": "Avery"},
+            _tool_context(state),
+        )
+
+        assert started["status"] == "navigation_started"
+        escort = state[f"{_STATE_PENDING_DIRECTIVE}:goal:{started['goal_id']}"]["payload"]
+        assert escort["needsConfirmation"] is False
+        assert escort["trustedActivationRequired"] is False
+
+        state[_STATE_SCREEN] = "connect"
+        state["hussh:voice_context"] = {
+            "route_pattern": "/one/connect",
+            "screen": "connect",
+            "context_revision": "connect-2",
+            "available_action_ids": ["connect.search_people"],
+        }
+        continued = await continue_app_goal(_tool_context(state))
+
+        assert continued["status"] == "preview_started"
+        search = state[
+            f"{_STATE_PENDING_DIRECTIVE}:goal:{started['goal_id']}:preview"
+        ]["payload"]
+        assert search["actionId"] == "connect.search_people"
+        assert search["slots"] == {"person": "Avery"}
+        assert search["needsConfirmation"] is False
+        assert search["trustedActivationRequired"] is False
+
+    @pytest.mark.asyncio
+    async def test_connect_request_requires_spoken_confirmation_after_navigation(self):
+        state = {
+            _STATE_SCREEN: "one_agents",
+            "hussh:voice_context": {
+                "route_pattern": "/one",
+                "screen": "one_agents",
+                "context_revision": "source-1",
+                "available_action_ids": ["route.profile"],
+            },
+        }
+
+        started = await start_app_goal(
+            "connect.send_request",
+            {"person": "Avery"},
+            _tool_context(state),
+        )
+        escort = state[f"{_STATE_PENDING_DIRECTIVE}:goal:{started['goal_id']}"]["payload"]
+        assert escort["needsConfirmation"] is False
+
+        state[_STATE_SCREEN] = "connect"
+        state["hussh:voice_context"] = {
+            "route_pattern": "/one/connect",
+            "screen": "connect",
+            "context_revision": "connect-2",
+            "available_action_ids": ["connect.send_request"],
+        }
+        continued = await continue_app_goal(_tool_context(state))
+
+        assert continued["status"] == "preview_started"
+        request = state[
+            f"{_STATE_PENDING_DIRECTIVE}:goal:{started['goal_id']}:preview"
+        ]["payload"]
+        assert request["actionId"] == "connect.send_request"
+        assert request["needsConfirmation"] is True
+        assert request["trustedActivationRequired"] is False
+
     @pytest.mark.asyncio
     async def test_same_context_revision_cannot_continue_a_claim_journey(self):
         state = {
@@ -1186,6 +1343,27 @@ class TestLiveContextFreshness:
         # analysis.confirm_preview is on_screen ONLY in the published context.
         assert by_id["analysis.confirm_preview"]["availability"] == "on_screen"
         assert by_id["analysis.start"]["availability"] == "on_screen"
+
+    @pytest.mark.asyncio
+    async def test_execution_uses_the_relay_screen_over_frozen_state(self):
+        tool_context = self._ctx("one_agents")
+        publish_live_voice_context(
+            "voice_test_session",
+            {
+                "route_pattern": "/one/kai?tab=analysis",
+                "screen": "kai_analysis",
+                "context_revision": "fresh",
+                "available_action_ids": ["analysis.start"],
+            },
+        )
+
+        result = await run_app_action(
+            "analysis.start",
+            {"symbol": "NVDA"},
+            tool_context,
+        )
+
+        assert result["status"] == "ready_to_run"
 
     @pytest.mark.asyncio
     async def test_session_state_still_answers_when_nothing_is_published(self):

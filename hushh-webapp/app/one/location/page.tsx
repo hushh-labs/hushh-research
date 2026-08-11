@@ -6929,14 +6929,38 @@ export function OneLocationAgentPageContent({
   // And it stops at selected. A misheard name becomes a wrong face on screen,
   // in front of someone who can see it, rather than a live location already
   // sent to the wrong person.
-  useLocalOnboardingActionHandler("location.select_share_recipient", (slots) => {
+  useLocalOnboardingActionHandler("location.select_share_recipient", async (slots) => {
     const spoken = String(slots?.person ?? "").trim().toLowerCase();
     if (!spoken) {
       return { status: "blocked" as const, summary: "Say who you want to share with." };
     }
-    const matches = rankedRecipients.filter((recipient) =>
+    let matches = rankedRecipients.filter((recipient) =>
       recommendationSearchText(recipient).includes(spoken),
     );
+    // A navigation journey can arrive before the full Location workspace
+    // snapshot has finished loading. Do one focused, server-authoritative
+    // recipient read before concluding that the named connection is absent.
+    // This stays inside the browser's existing vault-authorized boundary; the
+    // private agent still receives only the words the person spoke.
+    if (matches.length === 0 && vaultOwnerToken) {
+      try {
+        const freshRecipients = await OneLocationService.listRecipients(
+          vaultOwnerToken,
+        );
+        matches = rankRecipientsForRecommendation(
+          enrichRecipientsWithContactSignal(
+            freshRecipients,
+            contactMatchedUserIds,
+          ),
+          contactMatchedUserIds,
+        ).filter((recipient) => recommendationSearchText(recipient).includes(spoken));
+      } catch {
+        return {
+          status: "blocked" as const,
+          summary: "Location is still loading your connections. Please try that name again in a moment.",
+        };
+      }
+    }
     if (matches.length === 0) {
       return {
         status: "blocked" as const,

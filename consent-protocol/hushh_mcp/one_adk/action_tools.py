@@ -164,6 +164,28 @@ def _missing_required_slot(entry: dict[str, Any], slots: dict[str, Any]) -> dict
     return None
 
 
+def _directive_flags(entry: dict[str, Any] | None) -> dict[str, bool]:
+    """Return the generated contract's browser-execution boundary.
+
+    Goal steps bypass ``run_app_action`` when they construct a route or
+    continuation directive, so they must stamp the same flags. The browser
+    intentionally fails closed when either flag is missing.
+    """
+    if not isinstance(entry, dict):
+        return {
+            "needsConfirmation": True,
+            "trustedActivationRequired": True,
+        }
+    trusted_activation = (
+        str(entry.get("activation_policy") or "") == "trusted_activation_required"
+    )
+    confirm_required = str(entry.get("execution_policy") or "allow_direct") == "confirm_required"
+    return {
+        "needsConfirmation": confirm_required or trusted_activation,
+        "trustedActivationRequired": trusted_activation,
+    }
+
+
 async def run_app_action(
     action_id: str, slots: dict[str, Any], tool_context: ToolContext
 ) -> dict[str, Any]:
@@ -235,7 +257,7 @@ async def run_app_action(
             "message": "Phone verification is already complete.",
         }
 
-    policy = str((entry.get("risk") or {}).get("execution_policy") or "allow_direct")
+    policy = str(entry.get("execution_policy") or "allow_direct")
     label = str(entry.get("label") or clean_id)
     if policy == "manual_only":
         screens = (entry.get("scope") or {}).get("screens") or []
@@ -327,7 +349,14 @@ async def run_app_action(
     # setup hub. Actions with no declared screens are screen-agnostic (global
     # navigation) and always allowed; if we don't know the current screen we
     # cannot judge reachability, so we allow.
-    current_screen = str(tool_context.state.get(_STATE_SCREEN) or "").strip()
+    # The relay publishes the current screen for this long-lived Live turn;
+    # `tool_context.state` is the session snapshot from connect time and can
+    # still name the source screen after an authored route settlement.
+    current_screen = str(
+        (context.get("screen") if isinstance(context, dict) else None)
+        or tool_context.state.get(_STATE_SCREEN)
+        or ""
+    ).strip()
     action_screens = {
         str(s).strip() for s in ((entry.get("scope") or {}).get("screens") or []) if str(s).strip()
     }
@@ -350,7 +379,6 @@ async def run_app_action(
             "reachable_screens": sorted(action_screens),
         }
 
-    activation_policy = str(entry.get("activation_policy") or "none")
     missing = _missing_required_slot(entry, clean_slots)
     if missing is not None:
         logger.info("one_adk_action_decision action=%s status=input_needed", clean_id)
@@ -388,26 +416,9 @@ async def run_app_action(
     # gateway does not know (unknown is not a licence) and
     # trusted_activation_required, whose provider window the browser will only
     # open on a fresh human gesture.
-    trusted_activation = activation_policy == "trusted_activation_required"
-    # Voice runs what it is asked to run. `execution_policy` no longer gates a
-    # directive: the product decision is that One acts, and that a person who
-    # said "share my location with Sarah" should not then be asked whether
-    # they meant it.
-    #
-    # Two exceptions survive, and neither is a policy choice:
-    #
-    #   * trusted_activation_required -- the provider window is opened by the
-    #     BROWSER, which checks navigator.userActivation and refuses without a
-    #     fresh gesture. No consent model satisfies this; it is a platform rule.
-    #   * an action the generated gateway does not know. Not caution about the
-    #     person, but about ourselves: an unrecognised id has no authored
-    #     policy to have relaxed, and running it would be executing something
-    #     no contract describes.
-    #
-    # What still stands between a misheard sentence and an irreversible act is
-    # narrower now: the classifier that reads a spoken answer, the slot
-    # allowlists, and the handlers' own refusals. Those carry the whole weight.
-    needs_confirmation = entry is None or trusted_activation
+    flags = _directive_flags(entry)
+    trusted_activation = flags["trustedActivationRequired"]
+    needs_confirmation = flags["needsConfirmation"]
     directive_payload: dict[str, Any] = {
         "actionId": clean_id,
         "slots": clean_slots,
@@ -852,11 +863,13 @@ async def start_app_goal(
         return await continue_app_goal(tool_context)
 
     navigation_action_id = navigation_journey["navigation_action_id"]
+    navigation_flags = _directive_flags(get_action_gateway_action(navigation_action_id))
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:goal:{goal_id}"] = {
         "kind": "action",
         "payload": {
             "actionId": navigation_action_id,
             "slots": {},
+            **navigation_flags,
             "goalId": goal_id,
             "goalRun": run,
         },
@@ -989,6 +1002,7 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
         }
 
     slots = run.get("slots") if isinstance(run.get("slots"), dict) else {}
+    action_flags = _directive_flags(get_action_gateway_action(journey_action_id))
     next_run = {
         **run,
         "step_cursor": 1,
@@ -1001,6 +1015,7 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
         "payload": {
             "actionId": journey_action_id,
             "slots": slots,
+            **action_flags,
             "goalId": goal_id,
             "goalRun": next_run,
         },

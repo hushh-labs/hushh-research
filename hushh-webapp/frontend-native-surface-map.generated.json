@@ -2310,6 +2310,7 @@
         "connect.open_nearby",
         "connect.open_people",
         "connect.search_people",
+        "connect.send_request",
         "route.one_connect"
       ],
       "api_dependencies": [],
@@ -8125,5 +8126,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "e920fb64246c7f84e56304c8abb46b2aa11570ffde563d6343aa4a1f13c0c094"
+  "content_sha256": "72667fac2826251a6a9c8ee647fe77a49af1e9eb27a86beb79f2976b4adff59c"
 }

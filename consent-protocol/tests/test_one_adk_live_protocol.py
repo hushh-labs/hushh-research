@@ -5,6 +5,7 @@ import pytest
 from api.routes.one.adk_live import (
     _GOAL_CONTINUATION_NOTE,
     _close_quietly,
+    _goal_continuation_is_already_ready,
     _InitialGreetingGate,
     _navigation_continuation_screen,
     _receive_runtime_bootstrap,
@@ -538,6 +539,20 @@ def test_a_journey_waits_for_the_screen_its_own_run_names():
         _navigation_run("goal.analysis.start_debate", "kai_analysis"),
         "started",
     ) == "kai_analysis"
+
+
+def test_a_journey_releases_when_destination_context_precedes_route_settlement():
+    # Agent Bar publishes and receives the destination context acknowledgement
+    # before it emits `action_settled`. The relay must treat that latest,
+    # already-sanitized snapshot as sufficient rather than wait forever for a
+    # second app_context frame.
+    assert _goal_continuation_is_already_ready(
+        {"screen": "one_location"}, "one_location"
+    )
+    assert not _goal_continuation_is_already_ready(
+        {"screen": "one_location"}, "connect"
+    )
+    assert not _goal_continuation_is_already_ready({}, "one_location")
 
 
 def test_a_settled_action_step_is_never_mistaken_for_another_cue_to_act():

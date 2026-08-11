@@ -181,6 +181,22 @@ def _navigation_continuation_screen(
     return str(goal_run.get("expected_screen") or "").strip() or None
 
 
+def _goal_continuation_is_already_ready(
+    latest_context: Any, continuation_screen: str | None
+) -> bool:
+    """Whether the destination context arrived before its route settlement.
+
+    The browser publishes the destination context and waits for its ack before
+    it reports the route directive settled. That ordering is valid and must
+    release the parked goal without requiring an unrelated later context frame.
+    """
+    return bool(
+        continuation_screen
+        and isinstance(latest_context, dict)
+        and latest_context.get("screen") == continuation_screen
+    )
+
+
 def _browser_frame_within_bounds(raw: str) -> bool:
     return len(raw) <= _MAX_BROWSER_FRAME_CHARS
 
@@ -636,9 +652,10 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         A journey now ends only when it completes or when the person explicitly
         stops it (the goal's authored ``cancellation_contract.cancel_action_id``).
 
-        Confirmation safety is unchanged: every voice directive is issued with
-        ``trusted_activation_required``, so a directive can only ever be
-        confirmed by a real browser gesture. Speech could never confirm one.
+        The directive payload carries the generated activation boundary. Only
+        browser APIs that require a fresh user gesture retain
+        ``trusted_activation_required``; ordinary confirm-required actions can
+        be confirmed from the person's own voice transcript.
         """
         for stale_directive_id, stale_action_id in list(issued_action_directives.items()):
             if stale_directive_id in issued_goal_directives:
@@ -1072,6 +1089,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 continuation_screen = _navigation_continuation_screen(
                     goal_id, issued_goal_runs.get(settlement["directive_id"]), settlement["status"]
                 )
+                continuation_ready_now = False
                 if continuation_screen is not None and goal_id:
                     awaiting_goal_context[goal_id] = continuation_screen
                     logger.info(
@@ -1080,6 +1098,23 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                         goal_id,
                         continuation_screen,
                     )
+                    # The browser acknowledges destination context *before*
+                    # it settles the navigation directive. Waiting only for a
+                    # later context frame strands the goal: there normally is
+                    # no second publish. The live snapshot is already
+                    # sanitized and `continue_app_goal` will still verify its
+                    # fresh revision before issuing the destination action.
+                    if _goal_continuation_is_already_ready(
+                        latest_context, continuation_screen
+                    ):
+                        awaiting_goal_context.pop(goal_id, None)
+                        continuation_ready_now = True
+                        logger.info(
+                            "one_adk_goal_decision goal=%s status=continuation_nudge_sent "
+                            "screen=%s source=settlement",
+                            goal_id,
+                            continuation_screen,
+                        )
                 elif _is_navigation_step_settlement(
                     issued_goal_runs.get(settlement["directive_id"])
                 ):
@@ -1203,6 +1238,13 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                         ],
                     )
                 )
+                if continuation_ready_now:
+                    queue.send_content(
+                        genai_types.Content(
+                            role="user",
+                            parts=[genai_types.Part(text=_GOAL_CONTINUATION_NOTE)],
+                        )
+                    )
                 continue
             if message.get("type") == "app_speech" or "appSpeech" in message:
                 text = message.get("text")
@@ -1405,7 +1447,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                 context_revision=context_revision,
                                 action_contract=action,
                                 slots=slots,
-                                trusted_activation_required=True,
+                                trusted_activation_required=(
+                                    payload.get("trustedActivationRequired") is True
+                                ),
                             )
                         except Exception as error:  # fail closed on shared-store outage
                             logger.warning(

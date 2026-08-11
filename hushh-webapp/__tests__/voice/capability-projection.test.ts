@@ -92,6 +92,11 @@ describe("capability projection", () => {
     expect(project("analysis.start").status).toBe("cross_surface_journey");
   });
 
+  it("treats generated route behavior as cross-surface regardless of its id", () => {
+    expect(project("location.open_now").status).toBe("cross_surface_journey");
+    expect(project("setup.open_finance").status).toBe("cross_surface_journey");
+  });
+
   it("keeps completed setup acknowledgement terminal", () => {
     expect(project("setup.hub_master_ack").status).toBe("terminal");
   });

@@ -312,4 +312,52 @@ describe("executeAgentGatewayAction", () => {
       unregisterLocalOnboardingHandler("onboarding.claim_one", handler);
     }
   });
+
+  it("waits for a started local mutation after a later voice abort", async () => {
+    const router = { push: vi.fn() };
+    const controller = new AbortController();
+    let finish:
+      | ((value: { status: "succeeded"; summary: string }) => void)
+      | null = null;
+    const handler = vi.fn(
+      () =>
+        new Promise<{ status: "succeeded"; summary: string }>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    registerLocalOnboardingHandler("onboarding.claim_one", handler);
+
+    try {
+      const resultPromise = executeAgentGatewayAction({
+        actionId: "onboarding.claim_one",
+        slots: {},
+        signal: controller.signal,
+        userId: "",
+        router,
+        appRuntimeState: runtimeState({
+          auth: { signed_in: false, user_id: null },
+          vault: {
+            unlocked: false,
+            token_available: false,
+            token_valid: false,
+          },
+          route: { pathname: "/", screen: "one_intro", subview: null },
+        }),
+        hasPortfolioData: false,
+        busyOperations: {},
+        setAnalysisParams: vi.fn(),
+      });
+
+      await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1));
+      controller.abort();
+      finish?.({ status: "succeeded", summary: "Sign-in opened." });
+
+      await expect(resultPromise).resolves.toMatchObject({
+        status: "succeeded",
+        actionId: "onboarding.claim_one",
+      });
+    } finally {
+      unregisterLocalOnboardingHandler("onboarding.claim_one", handler);
+    }
+  });
 });

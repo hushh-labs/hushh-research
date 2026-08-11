@@ -49,6 +49,10 @@ describe("navigation journeys", () => {
     // and firing it at whoever was still selected in it.
     expect(journeys).toEqual([
       "analysis.start",
+      "connect.open_nearby",
+      "connect.open_people",
+      "connect.search_people",
+      "connect.send_request",
       "location.pause_updates",
       "location.resume_updates",
       // Escorted because selecting someone sends nothing. Asked from another
@@ -73,6 +77,30 @@ describe("navigation journeys", () => {
 
   it("never turns a route action into a journey to itself", () => {
     expect(resolveNavigationJourney("route.kai_analysis")).toBeNull();
+  });
+
+  it("walks to Connect before performing a local Connect action", () => {
+    const journey = resolveNavigationJourney("connect.search_people");
+    expect(journey).toMatchObject({
+      goalId: "goal.connect.search_people",
+      destinationRoute: "/one/connect",
+      destinationScreen: "connect",
+    });
+    expect(getKaiActionById(journey!.navigationActionId)?.execution_target.path).toBe(
+      "route",
+    );
+  });
+
+  it("keeps a connection request as its own confirmed journey step", () => {
+    const journey = resolveNavigationJourney("connect.send_request");
+    expect(journey).toMatchObject({
+      goalId: "goal.connect.send_request",
+      destinationRoute: "/one/connect",
+      destinationScreen: "connect",
+    });
+    expect(getKaiActionById("connect.send_request")?.execution_policy).toBe(
+      "confirm_required",
+    );
   });
 
   it("never turns a route-executing action into a journey to itself", () => {
@@ -189,5 +217,49 @@ describe("journey approval plans", () => {
   it("has no plan for an action that is not a journey", () => {
     expect(resolveJourneyPlan("route.kai_analysis")).toBeNull();
     expect(resolveJourneyPlan("analysis.confirm_preview")).toBeNull();
+  });
+});
+
+/**
+ * The escort's own first step has to be runnable from wherever the person is
+ * standing, or the journey is blocked before it starts.
+ */
+describe("the action that walks someone to a journey's destination", () => {
+  it("is admitted from any screen because it navigates, whatever it is named", () => {
+    // The browser exempted navigation from the screen-inventory check by NAME
+    // (`actionId.startsWith("route.")`), while the relay exempts it by
+    // BEHAVIOUR (`execution_target.path == "route"`). Location's escort
+    // resolves to `location.open_now` -- the resolver sorts alphabetically and
+    // it sorts before `route.one_location` -- so the browser refused the
+    // journey's first step as "not available on this screen", and "share my
+    // location with <name>" died on the launch pad with the person still on
+    // /one.
+    const escort = resolveNavigationJourney("location.select_share_recipient");
+    expect(escort?.navigationActionId).toBe("location.open_now");
+
+    const action = getKaiActionById(escort!.navigationActionId);
+    // Everything the browser's exemption now tests, and nothing about naming.
+    expect(action?.execution_target.path).toBe("route");
+    expect(action?.execution_target.status).toBe("wired");
+    expect(action?.execution_policy).toBe("allow_direct");
+    expect(action?.action_id.startsWith("route.")).toBe(false);
+  });
+
+  it("holds for every journey's escort, not just Location's", () => {
+    // Any escort that fails these is unrunnable off its own screen, which
+    // makes its whole journey unreachable from anywhere else -- the exact
+    // failure this pins, generalised.
+    const escorts = listKaiActions()
+      .map((entry) => resolveNavigationJourney(entry.action_id))
+      .filter((journey): journey is NonNullable<typeof journey> => journey !== null)
+      .map((journey) => journey.navigationActionId);
+    expect(escorts.length).toBeGreaterThan(0);
+
+    escorts.forEach((actionId) => {
+      const action = getKaiActionById(actionId);
+      expect(action?.execution_target.path, actionId).toBe("route");
+      expect(action?.execution_target.status, actionId).toBe("wired");
+      expect(action?.execution_policy, actionId).toBe("allow_direct");
+    });
   });
 });

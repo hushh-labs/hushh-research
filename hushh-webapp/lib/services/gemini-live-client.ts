@@ -234,6 +234,8 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private sourceSeq = 0;
   /** Snapshot captured at start(), pushed as app_context after setup. */
   private startContext: OneVoiceContextSnapshot | null = null;
+  /** Most recent full snapshot; token refreshes must never replace it with {}. */
+  private latestContext: OneVoiceContextSnapshot | null = null;
   /**
    * Audio must not reach One until the relay has accepted the initial redacted
    * route and action inventory. Without this barrier a fast first utterance
@@ -333,6 +335,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
     const context = options?.context ?? null;
     this.startContext = context;
+    this.latestContext = context;
     this.consentToken = options?.consentToken ?? null;
     this.runtimeCredentialMode =
       options?.runtimeCredentialMode === "byok"
@@ -1015,6 +1018,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   updateContext(context: OneVoiceContextSnapshot): boolean {
+    this.latestContext = context;
     if (!this.setupComplete) {
       // Keep the newest route snapshot while the socket is opening. Otherwise
       // setupComplete would publish the stale screen captured by start().
@@ -1092,7 +1096,12 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const trimmed = consentToken?.trim() || null;
     if (trimmed === this.consentToken) return false;
     this.consentToken = trimmed;
-    return this.sendAppContext({});
+    // An authority-only update must retain the current route, inventory, and
+    // context revision. Sending `{}` here caused the relay to sanitize an
+    // empty screen and wipe a live Location journey mid-call.
+    return this.latestContext
+      ? this.sendSnapshotContext(this.latestContext)
+      : false;
   }
 
   reportActionSettlement(settlement: OneVoiceActionSettlement): boolean {

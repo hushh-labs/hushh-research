@@ -241,8 +241,8 @@ export default function ConnectPageClient() {
       person: DirectoryPerson,
       requestedScopeHandles: string[] = [],
       offeredScopeHandles: string[] = [],
-    ) => {
-      if (!user) return;
+    ): Promise<boolean> => {
+      if (!user) return false;
       try {
         setBusyId(person.userId);
         const idToken = await user.getIdToken();
@@ -266,12 +266,14 @@ export default function ConnectPageClient() {
         setScopeDraft(null);
         CacheSyncService.onConnectionCapabilityMutated(user.uid);
         toast.success("Connection request sent");
+        return true;
       } catch (sendError) {
         toast.error(
           sendError instanceof Error
             ? sendError.message
             : "Failed to send request",
         );
+        return false;
       } finally {
         setBusyId(null);
       }
@@ -531,7 +533,8 @@ export default function ConnectPageClient() {
       actions: [
         { id: "connect.open_people", actionId: "connect.open_people", label: "Open Connect people", purpose: "Show connections and the people directory." },
         { id: "connect.open_nearby", actionId: "connect.open_nearby", label: "Open advisors around you", purpose: "Show advisors near you." },
-        { id: "connect.search_people", actionId: "connect.search_people", label: "Search for someone to connect with", purpose: "Put the cursor in the people search box." },
+        { id: "connect.search_people", actionId: "connect.search_people", label: "Search for someone to connect with", purpose: "Search the directory for the spoken name." },
+        { id: "connect.send_request", actionId: "connect.send_request", label: "Send a connection request", purpose: "Send a request to one exact name after the person confirms by voice." },
       ],
       // Only the search box carries a `data-voice-control-id` anchor. The tab
       // strip is the shared SegmentedTabs, which has no per-option control id,
@@ -579,12 +582,81 @@ export default function ConnectPageClient() {
     setTab("nearby");
     return { status: "succeeded", summary: "Advisors around you opened." };
   });
-  useLocalOnboardingActionHandler("connect.search_people", () => {
-    // Focus only. Typing the name is the person's to do -- One filling the box
-    // would be searching the directory on their behalf.
+  useLocalOnboardingActionHandler("connect.search_people", (slots) => {
+    // The model provides only the words it heard. This mounted surface resolves
+    // those words against the directory it already holds; no account id or
+    // contact information crosses the voice boundary.
+    const person = typeof slots.person === "string" ? slots.person.trim() : "";
+    if (!person) {
+      return { status: "blocked", summary: "Say the name to search for in Connect." };
+    }
     setTab("people");
+    setQuery(person);
     searchInputRef.current?.focus();
-    return { status: "succeeded", summary: "People search focused." };
+    return { status: "succeeded", summary: "Searching Connect for the name you gave." };
+  });
+  useLocalOnboardingActionHandler("connect.send_request", async (slots) => {
+    const spokenName = typeof slots.person === "string" ? slots.person.trim() : "";
+    if (!user) {
+      return { status: "blocked", summary: "Sign in before sending a connection request." };
+    }
+    if (!spokenName) {
+      return { status: "blocked", summary: "Say the person's full name before sending a request." };
+    }
+
+    try {
+      const idToken = await user.getIdToken();
+      const page = await ConnectionsService.searchDirectory({
+        idToken,
+        query: spokenName,
+        page: 1,
+        limit: 3,
+      });
+      const exactMatches = page.items.filter(
+        (candidate) =>
+          candidate.displayName?.trim().localeCompare(spokenName, undefined, {
+            sensitivity: "accent",
+          }) === 0,
+      );
+      // The directory is paginated. A first page with one exact display name
+      // is not proof that no matching person exists on a later page, so never
+      // send while the query is incomplete.
+      if (page.hasMore || exactMatches.length !== 1) {
+        return {
+          status: "blocked",
+          summary: "I could not identify one exact person by that name. Search Connect and say their full name.",
+        };
+      }
+      const person = exactMatches[0];
+      if (!person) {
+        return {
+          status: "blocked",
+          summary: "I could not identify one exact person by that name.",
+        };
+      }
+      if (person.relationship !== "none") {
+        return {
+          status: "blocked",
+          summary: "A new connection request is not available for that person.",
+        };
+      }
+      const sent = await sendConnectionRequest(person);
+      if (!sent) {
+        return { status: "failed", summary: "Could not send the connection request." };
+      }
+      return {
+        status: "succeeded",
+        summary: `Connection request sent to ${person.displayName}.`,
+      };
+    } catch (error) {
+      return {
+        status: "failed",
+        summary:
+          error instanceof Error
+            ? error.message
+            : "Could not send the connection request.",
+      };
+    }
   });
 
   return (
