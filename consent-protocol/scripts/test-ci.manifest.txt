@@ -61,6 +61,7 @@ tests/test_mcp_public_contract_v030.py
 tests/test_mcp_public_tools_v030.py
 tests/test_mcp_remote_endpoint.py
 tests/test_model_access_policy.py
+tests/test_no_orphaned_agents.py
 tests/test_one_grounding_honesty.py
 tests/test_one_location_db_error_detail_cwe209.py
 tests/test_one_location_routes.py
