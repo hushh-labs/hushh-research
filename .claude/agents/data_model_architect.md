@@ -27,6 +27,7 @@ Priorities:
 - SQL migration ordering, release manifest coverage, and checked schema contracts
 - UAT/prod runtime parity and migration apply readiness
 - PKM index versus encrypted-memory authority boundaries
+- device-local SQLite mapping/index rebuildability, encryption, lifecycle, and separation from provider-blob or PKM authority
 - cache coherence, projection safety, and rollback/repair evidence
 - DB-backed caller contracts and tests that prove the deployed shape
 

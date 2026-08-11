@@ -120,6 +120,7 @@ class TestStaticScopes:
     def test_external_requestable_scope_contract(self):
         assert ConsentScope.is_external_requestable_scope("cap.one.invoke")
         assert ConsentScope.is_external_requestable_scope("attr.financial.portfolio.*")
+        assert not ConsentScope.is_external_requestable_scope("attr.source_library.knowledge.*")
         assert not ConsentScope.is_external_requestable_scope("attr.financial.*")
         assert not ConsentScope.is_external_requestable_scope("attr.financial.portfolio.value")
         assert not ConsentScope.is_external_requestable_scope("pkm.read")
@@ -185,3 +186,8 @@ class TestDynamicScopes:
         assert (
             ConsentScope.check_access("attr.subscriptions.netflix", ["attr.financial.*"]) is False
         )
+
+    def test_retired_source_library_grant_never_authorizes(self):
+        scope = "attr.source_library.knowledge.*"
+        assert ConsentScope.check_access(scope, [scope]) is False
+        assert ConsentScope.check_access(scope, ["vault.owner"]) is True

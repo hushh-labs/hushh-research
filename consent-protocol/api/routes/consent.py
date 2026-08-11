@@ -37,7 +37,10 @@ from hushh_mcp.consent.export_envelope import (
     scope_handle_for_machine_scope,
     validate_export_envelope_submission,
 )
-from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
+from hushh_mcp.consent.pkm_scope_policy import (
+    consent_token_scope_value,
+    is_private_pkm_export_scope,
+)
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
 from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
@@ -455,7 +458,7 @@ async def lookup_pending_consents(
             request_id_value,
             **_identifier_filter_kwargs(userId, owned_identifiers),
         )
-        if pending:
+        if pending and not is_private_pkm_export_scope(str(pending.get("scope") or "")):
             items.append(pending)
         else:
             missing_request_ids.append(request_id_value)
@@ -1607,12 +1610,20 @@ async def get_consent_export_data(
     valid, reason, token_obj = await validate_token_with_db(consent_token)
     if not valid:
         logger.warning("consent.export_invalid_token reason=%s", reason)
+        if reason == "SCOPE_RETIRED":
+            raise HTTPException(
+                status_code=410,
+                detail={
+                    "error_code": "SCOPE_RETIRED",
+                    "message": "This export is no longer available.",
+                },
+            )
         raise HTTPException(
             status_code=401,
             detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    if token_obj is not None and is_private_pkm_export_scope(str(token_obj.scope or "")):
+    if token_obj is not None and is_private_pkm_export_scope(consent_token_scope_value(token_obj)):
         raise HTTPException(
             status_code=410,
             detail={
@@ -1629,6 +1640,14 @@ async def get_consent_export_data(
     if not export_data:
         logger.warning("No active export data found for token")
         raise HTTPException(status_code=404, detail="No export data for this token")
+    if is_private_pkm_export_scope(str(export_data.get("scope") or "")):
+        raise HTTPException(
+            status_code=410,
+            detail={
+                "error_code": "SCOPE_RETIRED",
+                "message": "This export is no longer available.",
+            },
+        )
     if not export_data.get("is_strict_zero_knowledge"):
         raise HTTPException(
             status_code=410,
@@ -1776,12 +1795,20 @@ async def upload_refreshed_export(
     valid, reason, token_obj = await validate_token_with_db(consent_token)
     if not valid or token_obj is None:
         logger.warning("consent.export_refresh.token_invalid reason=%s", reason)
+        if reason == "SCOPE_RETIRED":
+            raise HTTPException(
+                status_code=410,
+                detail={
+                    "error_code": "SCOPE_RETIRED",
+                    "message": "This export cannot be refreshed.",
+                },
+            )
         raise HTTPException(
             status_code=401,
             detail="Invalid or expired consent token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    if is_private_pkm_export_scope(str(token_obj.scope or "")):
+    if is_private_pkm_export_scope(consent_token_scope_value(token_obj)):
         raise HTTPException(
             status_code=410,
             detail={"error_code": "SCOPE_RETIRED", "message": "This export cannot be refreshed."},
@@ -1792,6 +1819,11 @@ async def upload_refreshed_export(
     existing_export = await service.get_consent_export(consent_token)
     if not existing_export:
         raise HTTPException(status_code=404, detail="Consent export no longer exists")
+    if is_private_pkm_export_scope(str(existing_export.get("scope") or "")):
+        raise HTTPException(
+            status_code=410,
+            detail={"error_code": "SCOPE_RETIRED", "message": "This export cannot be refreshed."},
+        )
     if existing_export.get("refresh_policy") != "continuous_until_expiry":
         raise HTTPException(
             status_code=409,

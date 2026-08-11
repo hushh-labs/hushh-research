@@ -31,6 +31,8 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 2. Duration cap enforcement blocks values above `365d`.
 3. Scope validator blocks out-of-family scope requests.
 4. Revoked/expired relationships lose data access immediately.
+5. Every `attr.source_library.*` scope is rejected at discovery, request,
+   approval, token validation, export, download, refresh, and public projection.
 
 ## Security and Privacy Checks
 
@@ -64,6 +66,15 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 15. GPS-only nearby simulation is unavailable in production even when its
     mode is misconfigured; Check out remains available while discovery is
     disabled.
+16. Forged or stale Source Library manifests, paths, scope-registry rows, grants,
+    and tokens cannot expose any Source Library branch or revive retired exports.
+17. Source Library share targets are explicitly owner-bound, share operations pin
+    the reviewed item revision, and audience labels remain provider-managed rather
+    than verified ACL claims.
+18. Source Library publication and revocation are proven by the reconciled target
+    artifact state. Creating or deleting only a SQLite share row is never sufficient.
+19. Source Library SQLite contains no plaintext file paths, titles, recipient
+    emails, provider identifiers, document bytes, extracted text, or raw hashes.
 
 ## Ecosystem Checks
 

@@ -37,6 +37,7 @@ Non-owned surfaces:
 1. Vault encryption, unlock, wrapper, and metadata-boundary work.
 2. PKM storage, manifest, revision, and information-boundary changes.
 3. Vault/PKM docs and implementation alignment across frontend and backend.
+4. Provider blob, private PKM, and rebuildable local SQLite authority boundaries.
 
 ## Do Not Use
 
@@ -62,6 +63,7 @@ Non-owned surfaces:
 6. Keep diagnostics out of consumer UI and plaintext out of chat, docs, commits, tests, logs, and model prompts.
 7. Treat PKM visibility as `private`, `consent_required`, or `default_available`; the last is an owner-published safe projection, never raw PKM.
 8. Route reviewer runtime proof and upgrade acceptance to their dedicated spokes.
+9. Keep Source Library provider files authoritative, its PKM memory private, and its SQLite mapping non-authoritative and rebuildable.
 
 ## Handoff Rules
 
@@ -76,4 +78,5 @@ Non-owned surfaces:
 cd consent-protocol && python3 -m pytest tests/test_vault.py -q
 cd hushh-webapp && npm run verify:cache
 ./bin/hushh codex data-model-audit
+cd consent-protocol && python3 -m pytest tests/test_source_library_scope_policy.py -q
 ```

@@ -176,7 +176,8 @@ def test_refresh_upload_rejects_nonshareable_source_library_scope(monkeypatch):
             None,
             SimpleNamespace(
                 user_id="user_123",
-                scope="attr.source_library.catalog.*",
+                scope="pkm.read",
+                scope_str="attr.source_library.knowledge.*",
             ),
         )
 

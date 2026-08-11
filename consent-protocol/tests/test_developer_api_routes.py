@@ -820,6 +820,7 @@ def test_request_consent_creates_pending_request(monkeypatch):
     "blocked_scope",
     (
         "attr.source_library.*",
+        "attr.source_library.knowledge.*",
         "attr.source_library.catalog.*",
         "attr.source_library.provenance.*",
         "attr.source_library.audit.*",
@@ -1890,6 +1891,35 @@ def test_get_consent_status_pending_request_does_not_return_event_token(monkeypa
     assert payload["consent_token"] is None
 
 
+def test_get_consent_status_projects_source_library_authority_as_revoked(monkeypatch):
+    class _UnexpectedConsentDBService:
+        def __init__(self):
+            raise AssertionError("retired Source Library status must fail before storage lookup")
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "ConsentDBService", _UnexpectedConsentDBService)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    response = TestClient(_build_app()).get(
+        "/api/v1/consent-status",
+        params={
+            "token": "hdk_demo",
+            "user_id": "user_123",
+            "scope": "attr.source_library.knowledge.*",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "revoked"
+    assert payload["scope"] == "attr.source_library.knowledge.*"
+    assert payload["granted_scope"] is None
+    assert payload["consent_token"] is None
+
+
 def test_developer_consent_status_payload_only_returns_token_after_grant():
     principal = _fake_principal()
 
@@ -2424,7 +2454,7 @@ def test_scoped_export_returns_envelope_metadata_and_inline_ciphertext(monkeypat
         async def get_consent_export(self, token_id: str):
             assert token_id == consent_token
             return {
-                "scope": "attr.financial.*",
+                "scope": "attr.financial.portfolio.*",
                 "encrypted_data": "ciphertext",
                 "iv": "iv",
                 "tag": "tag",
@@ -2459,15 +2489,15 @@ def test_scoped_export_returns_envelope_metadata_and_inline_ciphertext(monkeypat
 
     async def _validate(token: str, expected_scope=None):  # noqa: ANN001
         assert token == consent_token
-        assert expected_scope == "attr.financial.profile.*"
+        assert expected_scope == "attr.financial.portfolio.holdings.*"
         return (
             True,
             None,
             SimpleNamespace(
                 user_id="user_123",
                 agent_id="developer:app_demo_123",
-                scope_str="attr.financial.*",
-                scope=SimpleNamespace(value="attr.financial.*"),
+                scope_str="attr.financial.portfolio.*",
+                scope=SimpleNamespace(value="attr.financial.portfolio.*"),
                 expires_at=123456789,
             ),
         )
@@ -2486,15 +2516,15 @@ def test_scoped_export_returns_envelope_metadata_and_inline_ciphertext(monkeypat
         json={
             "user_id": "user_123",
             "consent_token": consent_token,
-            "expected_scope": "attr.financial.profile.*",
+            "expected_scope": "attr.financial.portfolio.holdings.*",
         },
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "success"
-    assert payload["granted_scope"] == "attr.financial.*"
-    assert payload["expected_scope"] == "attr.financial.profile.*"
+    assert payload["granted_scope"] == "attr.financial.portfolio.*"
+    assert payload["expected_scope"] == "attr.financial.portfolio.holdings.*"
     assert payload["coverage_kind"] == "superset"
     assert payload["export_generated_at"] == "2026-03-24 18:30:00+00:00"
     assert payload["encrypted_data"] == "ciphertext"
@@ -2506,7 +2536,7 @@ def test_scoped_export_returns_envelope_metadata_and_inline_ciphertext(monkeypat
     event = audit_events[0]
     assert event["action"] == "READ"
     assert event.get("request_id") is None
-    assert event["scope"] == "attr.financial.*"
+    assert event["scope"] == "attr.financial.portfolio.*"
     assert event["metadata"]["event_schema"] == "consent_export_read/v1"
     assert event["metadata"]["grant_ref"] == "req_existing_1234"
     assert event["metadata"]["coverage_kind"] == "superset"
@@ -2522,7 +2552,7 @@ def test_scoped_export_fails_closed_when_read_audit_is_unavailable(monkeypatch):
     class _FakeConsentDBService:
         async def get_consent_export(self, _token_id: str):
             return {
-                "scope": "attr.financial.*",
+                "scope": "attr.financial.portfolio.*",
                 "encrypted_data": "must-not-be-released",
                 "is_strict_zero_knowledge": True,
                 "envelope_version": 2,
@@ -2537,15 +2567,15 @@ def test_scoped_export_fails_closed_when_read_audit_is_unavailable(monkeypatch):
             raise RuntimeError("audit unavailable")
 
     async def _validate(_token: str, expected_scope=None):  # noqa: ANN001
-        assert expected_scope == "attr.financial.*"
+        assert expected_scope == "attr.financial.portfolio.*"
         return (
             True,
             None,
             SimpleNamespace(
                 user_id="user_123",
                 agent_id="developer:app_demo_123",
-                scope_str="attr.financial.*",
-                scope=SimpleNamespace(value="attr.financial.*"),
+                scope_str="attr.financial.portfolio.*",
+                scope=SimpleNamespace(value="attr.financial.portfolio.*"),
                 expires_at=123456789,
             ),
         )
@@ -2563,7 +2593,7 @@ def test_scoped_export_fails_closed_when_read_audit_is_unavailable(monkeypatch):
         json={
             "user_id": "user_123",
             "consent_token": consent_token,
-            "expected_scope": "attr.financial.*",
+            "expected_scope": "attr.financial.portfolio.*",
         },
     )
 
@@ -2580,7 +2610,7 @@ def test_scoped_export_invalidates_legacy_export(monkeypatch):
         async def get_consent_export(self, token_id: str):
             assert token_id == consent_token
             return {
-                "scope": "attr.financial.*",
+                "scope": "attr.financial.portfolio.*",
                 "encrypted_data": "ciphertext",
                 "iv": "iv",
                 "tag": "tag",
@@ -2594,15 +2624,15 @@ def test_scoped_export_invalidates_legacy_export(monkeypatch):
 
     async def _validate(token: str, expected_scope=None):  # noqa: ANN001
         assert token == consent_token
-        assert expected_scope == "attr.financial.*"
+        assert expected_scope == "attr.financial.portfolio.*"
         return (
             True,
             None,
             SimpleNamespace(
                 user_id="user_123",
                 agent_id="developer:app_demo_123",
-                scope_str="attr.financial.*",
-                scope=SimpleNamespace(value="attr.financial.*"),
+                scope_str="attr.financial.portfolio.*",
+                scope=SimpleNamespace(value="attr.financial.portfolio.*"),
                 expires_at=123456789,
             ),
         )
@@ -2621,7 +2651,7 @@ def test_scoped_export_invalidates_legacy_export(monkeypatch):
         json={
             "user_id": "user_123",
             "consent_token": consent_token,
-            "expected_scope": "attr.financial.*",
+            "expected_scope": "attr.financial.portfolio.*",
         },
     )
 

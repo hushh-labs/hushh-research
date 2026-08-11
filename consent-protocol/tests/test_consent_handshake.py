@@ -259,6 +259,7 @@ def test_vault_userid_query_params_reject_oversized_values_before_service(monkey
     (
         "attr.financial.*",
         "attr.source_library.*",
+        "attr.source_library.knowledge.*",
         "attr.source_library.catalog.*",
         "attr.source_library.provenance.*",
         "attr.source_library.audit.*",
@@ -364,6 +365,17 @@ def test_pending_lookup_resolves_cross_linked_request_ids(monkeypatch):
             },
         },
     )
+    fake_db._add_pending(
+        "req_retired_source_library",
+        {
+            "request_id": "req_retired_source_library",
+            "user_id": "investor_1",
+            "agent_id": "developer:legacy-source-library",
+            "scope": "attr.source_library.knowledge.*",
+            "issued_at": issued_at,
+            "poll_timeout_at": issued_at + 60000,
+        },
+    )
 
     app = _build_app()
     client = TestClient(app)
@@ -374,13 +386,17 @@ def test_pending_lookup_resolves_cross_linked_request_ids(monkeypatch):
             ("userId", "investor_1"),
             ("request_id", "req_email_scope"),
             ("request_id", "req_email_scope"),
+            ("request_id", "req_retired_source_library"),
             ("request_id", "missing_scope"),
         ],
     )
 
     assert resp.status_code == 200
     payload = resp.json()
-    assert payload["missing_request_ids"] == ["missing_scope"]
+    assert payload["missing_request_ids"] == [
+        "req_retired_source_library",
+        "missing_scope",
+    ]
     assert len(payload["items"]) == 1
     item = payload["items"][0]
     assert item["request_id"] == "req_email_scope"
