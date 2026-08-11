@@ -8,6 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const WEBAPP_ROOT = path.resolve(REPO_ROOT, "hushh-webapp");
+const BACKEND_ROOT = path.resolve(REPO_ROOT, "consent-protocol");
 const CONTRACT_SUFFIX = ".voice-action-contract.json";
 const GATEWAY_OUTPUT_PATH = path.resolve(
   REPO_ROOT,
@@ -15,6 +16,17 @@ const GATEWAY_OUTPUT_PATH = path.resolve(
 );
 const WEBAPP_GATEWAY_OUTPUT_PATH = path.resolve(
   WEBAPP_ROOT,
+  "contracts/kai/kai-action-gateway.vnext.json",
+);
+// Each deployable gets the gateway inside its OWN Docker build context, because
+// that is the only thing its image can COPY. `deploy/backend.cloudbuild.yaml`
+// builds with context `consent-protocol`, so a backend that reads the repo-root
+// copy resolves a path that does not exist in the image and silently serves zero
+// actions — which is exactly how every deployed environment ran with voice
+// actions dead while localhost worked. The frontend has always had its own copy
+// for the same reason; this is the backend's.
+const BACKEND_GATEWAY_OUTPUT_PATH = path.resolve(
+  BACKEND_ROOT,
   "contracts/kai/kai-action-gateway.vnext.json",
 );
 const CAPABILITY_GUARD_COVERAGE_PATH = path.resolve(
@@ -868,6 +880,7 @@ async function main() {
   const outputResults = await Promise.all([
     writeIfChanged(GATEWAY_OUTPUT_PATH, gatewayText, checkOnly),
     writeIfChanged(WEBAPP_GATEWAY_OUTPUT_PATH, gatewayText, checkOnly),
+    writeIfChanged(BACKEND_GATEWAY_OUTPUT_PATH, gatewayText, checkOnly),
   ]);
 
   if (checkOnly) {

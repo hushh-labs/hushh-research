@@ -228,6 +228,7 @@ import type {
   OneLocationCircleInvitePreview,
   OneLocationCircleKind,
   OneLocationCircleMemberInvite,
+  OneLocationCircleSummary,
   OneLocationEncryptedEnvelope,
   OneLocationGrant,
   OneLocationPublicInvite,
@@ -803,6 +804,64 @@ function isShareReadyRecipient(
 
 function peopleCountLabel(count: number): string {
   return count === 1 ? "1 person" : `${count} people`;
+}
+
+/** Normalize a spoken or stored name: no case, no accents, no punctuation. */
+export function normalizeSpokenName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    // Punctuation out so "Mum & Dad" and "Mum and Dad" are not two different
+    // circles to a speaker. Unicode classes, not [a-z0-9]: a circle named in
+    // Hindi or Arabic must stay matchable rather than normalizing to nothing.
+    // \p{M} is load-bearing -- Devanagari vowel signs are marks, not letters,
+    // so without it "परिवार" shreds into "पर व र" and never matches itself.
+    .replace(/[^\p{L}\p{N}\p{M}\s]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+/**
+ * Resolve a spoken circle name against the circles the person actually has.
+ *
+ * Tiered on purpose. A plain substring scan would let "family" resolve
+ * "Extended family trip" even when a circle literally called "Family" exists,
+ * and the person would then be editing the wrong group's membership without
+ * ever being told. Exact wins, then a whole-word prefix, and only then a
+ * contained match. Ambiguity within a tier is returned as ambiguity rather than
+ * being broken arbitrarily by array order.
+ */
+export function matchCircleByName<T extends { name: string }>(
+  circles: readonly T[],
+  spoken: string,
+): { match: T | null; ambiguous: T[] } {
+  const target = normalizeSpokenName(spoken);
+  if (!target) return { match: null, ambiguous: [] };
+  const indexed = circles.map((circle) => ({
+    circle,
+    normalized: normalizeSpokenName(circle.name),
+  }));
+
+  const tiers = [
+    indexed.filter((entry) => entry.normalized === target),
+    indexed.filter(
+      (entry) =>
+        entry.normalized.startsWith(`${target} `) ||
+        entry.normalized.endsWith(` ${target}`) ||
+        entry.normalized.split(" ").includes(target),
+    ),
+    indexed.filter((entry) => entry.normalized.includes(target)),
+  ];
+
+  for (const tier of tiers) {
+    const [only] = tier;
+    if (only && tier.length === 1) return { match: only.circle, ambiguous: [] };
+    if (tier.length > 1) {
+      return { match: null, ambiguous: tier.map((entry) => entry.circle) };
+    }
+  }
+  return { match: null, ambiguous: [] };
 }
 
 function oneLocationDurationBucket(value: string): OneLocationDurationBucket {
@@ -7329,6 +7388,301 @@ export function OneLocationAgentPageContent({
         : "Automatic sharing is off. Shares will only update when you explicitly share.",
     };
   });
+
+  /**
+   * Shared by the add/remove circle voice handlers.
+   *
+   * Returns either the single circle the person meant, or the sentence One
+   * should say instead of guessing. Membership changes are irreversible from
+   * the other person's side, so an ambiguous circle name must stop the action
+   * rather than resolve to whichever circle happens to sort first.
+   */
+  const resolveVoiceCircle = useCallback(
+    (
+      spoken: string,
+    ): { circle: OneLocationCircleSummary } | { blocked: string } => {
+      const circleNames = namedCircles.map((circle) => circle.name).join(", ");
+      if (!namedCircles.length) {
+        return {
+          blocked: "You do not have any circles yet. Say create a circle first.",
+        };
+      }
+      if (!spoken) {
+        // One circle means there is nothing to disambiguate, so not naming it is
+        // unambiguous rather than incomplete.
+        const [onlyCircle] = namedCircles;
+        if (onlyCircle && namedCircles.length === 1) {
+          return { circle: onlyCircle };
+        }
+        return { blocked: `Say which circle: ${circleNames}.` };
+      }
+      const { match, ambiguous } = matchCircleByName(namedCircles, spoken);
+      if (ambiguous.length) {
+        return {
+          blocked: `More than one circle matches that: ${ambiguous
+            .map((circle) => circle.name)
+            .join(", ")}. Say which one.`,
+        };
+      }
+      if (!match) {
+        return {
+          blocked: `You do not have a circle by that name. Your circles are: ${circleNames}.`,
+        };
+      }
+      return { circle: match };
+    },
+    [namedCircles],
+  );
+
+  useLocalOnboardingActionHandler("location.create_circle", async (slots) => {
+    const spokenName = String(slots?.name ?? "").trim();
+    if (!spokenName) {
+      return {
+        status: "blocked" as const,
+        summary: "Say what you want to call the circle.",
+      };
+    }
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot create a circle while the vault is locked.",
+      };
+    }
+    const spokenKind = String(slots?.kind ?? "")
+      .trim()
+      .toLowerCase();
+    const kind: OneLocationCircleKind =
+      spokenKind === "family"
+        ? "family"
+        : spokenKind === "friends"
+          ? "friends"
+          : "other";
+    // Exact name only. A near match must still create the circle the person
+    // asked for; silently treating "Family trip" as the existing "Family" would
+    // leave them adding people to the wrong group.
+    const duplicate = namedCircles.find(
+      (circle) =>
+        normalizeSpokenName(circle.name) === normalizeSpokenName(spokenName),
+    );
+    if (duplicate) {
+      return {
+        status: "succeeded" as const,
+        summary: `You already have a circle called ${duplicate.name}.`,
+      };
+    }
+    try {
+      const circle = await handleCreateNamedCircle(spokenName, kind);
+      return {
+        status: "succeeded" as const,
+        summary: `Created the circle ${circle.name}. Nobody is in it yet -- say who to add.`,
+      };
+    } catch (error) {
+      return {
+        status: "failed" as const,
+        summary: oneLocationErrorMessage(error, "Could not create the circle."),
+      };
+    }
+  });
+
+  useLocalOnboardingActionHandler("location.add_to_circle", async (slots) => {
+    const spokenPerson = String(slots?.person ?? "").trim();
+    if (!spokenPerson) {
+      return {
+        status: "blocked" as const,
+        summary: "Say who you want to add to the circle.",
+      };
+    }
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see your circles while the vault is locked.",
+      };
+    }
+    const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+    if ("blocked" in resolved) {
+      return { status: "blocked" as const, summary: resolved.blocked };
+    }
+    const circle = resolved.circle;
+    if (circle.viewerCapabilities?.canInviteMembers === false) {
+      return {
+        status: "blocked" as const,
+        summary: `You cannot invite people to ${circle.name}. Only its owner can.`,
+      };
+    }
+    let eligible: OneLocationCircleEligibleConnections;
+    try {
+      eligible = await handleLoadNamedCircleEligibleConnections(circle.id);
+    } catch (error) {
+      return {
+        status: "failed" as const,
+        summary: oneLocationErrorMessage(
+          error,
+          "Could not check who can be added to that circle.",
+        ),
+      };
+    }
+    const target = normalizeSpokenName(spokenPerson);
+    // Answer about an invitation that already exists rather than sending a
+    // second one the other person would see twice.
+    const alreadyInvited = eligible.pendingInvites.find(
+      (invite) =>
+        invite.status === "pending" &&
+        normalizeSpokenName(String(invite.inviteeDisplayName ?? "")).includes(
+          target,
+        ),
+    );
+    if (alreadyInvited) {
+      return {
+        status: "succeeded" as const,
+        summary: `${alreadyInvited.inviteeDisplayName} already has a pending invitation to ${circle.name}.`,
+      };
+    }
+    // Server-authoritative: eligible connections already exclude current
+    // members and anyone not connected, so a match here is genuinely addable.
+    const matches = eligible.eligibleConnections.filter((connection) =>
+      normalizeSpokenName(connection.displayName).includes(target),
+    );
+    if (matches.length === 0) {
+      return {
+        status: "blocked" as const,
+        summary: `Nobody who can be added to ${circle.name} matches that name. They have to be connected to you and not already in it.`,
+      };
+    }
+    if (matches.length > 1) {
+      return {
+        status: "blocked" as const,
+        summary: `More than one person matches that name: ${matches
+          .map((connection) => connection.displayName)
+          .join(", ")}. Say which one.`,
+      };
+    }
+    if (eligible.remainingCapacity < 1) {
+      return {
+        status: "blocked" as const,
+        summary: `${circle.name} is already at its member limit.`,
+      };
+    }
+    const invitee = matches[0];
+    if (!invitee) {
+      return {
+        status: "blocked" as const,
+        summary: `Nobody who can be added to ${circle.name} matches that name.`,
+      };
+    }
+    try {
+      await handleInviteNamedCircleConnections(circle.id, [invitee.userId]);
+    } catch (error) {
+      return {
+        status: "failed" as const,
+        summary: oneLocationErrorMessage(
+          error,
+          "Could not send that circle invitation.",
+        ),
+      };
+    }
+    scheduleNamedCircleStateRefresh();
+    // "Invited", never "added". Joining is the other person's decision, and
+    // reporting it as done would claim a consent that has not been given.
+    return {
+      status: "succeeded" as const,
+      summary: `Invited ${invitee.displayName} to ${circle.name}. They join once they accept.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler(
+    "location.remove_from_circle",
+    async (slots) => {
+      const spokenPerson = String(slots?.person ?? "").trim();
+      if (!spokenPerson) {
+        return {
+          status: "blocked" as const,
+          summary: "Say who you want to remove from the circle.",
+        };
+      }
+      if (!vaultOwnerToken) {
+        return {
+          status: "blocked" as const,
+          summary:
+            "Unlock One first -- I cannot see your circles while the vault is locked.",
+        };
+      }
+      const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+      if ("blocked" in resolved) {
+        return { status: "blocked" as const, summary: resolved.blocked };
+      }
+      const circle = resolved.circle;
+      if (circle.viewerCapabilities?.canManageCircle === false) {
+        return {
+          status: "blocked" as const,
+          summary: `You cannot change who is in ${circle.name}. Only its owner can.`,
+        };
+      }
+      let detail: OneLocationCircleDetail;
+      try {
+        detail = await handleLoadNamedCircle(circle.id);
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(
+            error,
+            "Could not load who is in that circle.",
+          ),
+        };
+      }
+      const target = normalizeSpokenName(spokenPerson);
+      // Only people actually IN the circle. Matching the wider connection list
+      // would let "remove Sarah" report success about somebody who was never a
+      // member, leaving the real membership untouched and the person believing
+      // otherwise.
+      const matches = detail.members.filter((member) =>
+        normalizeSpokenName(member.displayName).includes(target),
+      );
+      if (matches.length === 0) {
+        return {
+          status: "blocked" as const,
+          summary: `Nobody in ${circle.name} matches that name.`,
+        };
+      }
+      if (matches.length > 1) {
+        return {
+          status: "blocked" as const,
+          summary: `More than one person in ${circle.name} matches that name: ${matches
+            .map((member) => member.displayName)
+            .join(", ")}. Say which one.`,
+        };
+      }
+      const member = matches[0];
+      if (!member) {
+        return {
+          status: "blocked" as const,
+          summary: `Nobody in ${circle.name} matches that name.`,
+        };
+      }
+      if (member.role === "owner") {
+        return {
+          status: "blocked" as const,
+          summary: `${member.displayName} owns ${circle.name}, so they cannot be removed from it.`,
+        };
+      }
+      try {
+        await handleRemoveNamedCircleMember(circle.id, member.userId);
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(
+            error,
+            "Could not remove that person from the circle.",
+          ),
+        };
+      }
+      return {
+        status: "succeeded" as const,
+        summary: `Removed ${member.displayName} from ${circle.name}. They no longer get your location through it.`,
+      };
+    },
+  );
 
   const handleAutoShareChange = useCallback(
     (enabled: boolean) => {

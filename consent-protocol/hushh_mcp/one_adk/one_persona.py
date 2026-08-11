@@ -20,13 +20,8 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from pathlib import Path
 
-# Repo-root anchored: this file is consent-protocol/hushh_mcp/one_adk/one_persona.py
-# parents[0]=one_adk, [1]=hushh_mcp, [2]=consent-protocol, [3]=repo root.
-_REGISTRY_PATH = (
-    Path(__file__).resolve().parents[3] / "contracts" / "agents" / "product-agent-registry.v2.json"
-)
+from hushh_mcp.services.generated_contracts import generated_contract_path
 
 # Curated from the canonical docs above. Durable identity and values, not
 # per-turn data. Kept tight so the static system-prompt prefix stays cacheable.
@@ -77,8 +72,9 @@ def _load_registry_agents() -> dict[str, dict]:
     Degrades gracefully: a missing or malformed contract file must never break
     One's runtime, it only drops the generated catalog.
     """
+    registry_path = generated_contract_path("agents", "product-agent-registry.v2.json")
     try:
-        payload = json.loads(_REGISTRY_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(registry_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     agents = payload.get("agents") if isinstance(payload, dict) else None
