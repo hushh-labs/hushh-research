@@ -828,6 +828,16 @@ export function LocationImmersiveMap({
     return () => {
       cancelled = true;
       setMapReady(false);
+      // Destroy the native map instance and drop the ref on teardown. Without
+      // this, closing Your Map left the @capacitor/google-maps instance
+      // (registered under MAP_ID) alive; re-opening then raced a fresh create()
+      // against the stale instance and rendered a blank canvas the second time.
+      // Nulling the ref also stops the unmount effect from double-destroying it.
+      const staleMap = mapRef.current;
+      mapRef.current = null;
+      markerIdsRef.current = [];
+      markerByMapIdRef.current.clear();
+      void staleMap?.destroy();
     };
   }, [auth.userId, rendererReady]);
 
