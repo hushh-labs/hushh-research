@@ -411,7 +411,7 @@ function AgentMetric({
     <span
       data-testid={isTopWinner ? "one-finance-top-winner-kpi" : undefined}
       className={cn(
-        "inline-flex w-full min-w-0 items-baseline gap-[5px] text-right",
+        "inline-flex w-full min-w-0 items-baseline gap-1 text-right",
         compact
           ? "max-w-full flex-wrap justify-center"
           : "justify-end whitespace-nowrap",
@@ -420,7 +420,9 @@ function AgentMetric({
       <span
         data-ui-role="body-strong"
         className={cn(
-          "shrink-0 tabular-nums text-[15px] font-semibold leading-5 tracking-[-0.006em]",
+          compact
+            ? "shrink-0 tabular-nums text-[15px] font-semibold leading-5 tracking-[-0.006em]"
+            : "shrink-0 tabular-nums text-[15px] font-semibold leading-5 tracking-[-0.006em]",
           metricValueClassName(valueTone),
         )}
       >
@@ -429,7 +431,9 @@ function AgentMetric({
       <span
         data-ui-role="trailing-value"
         className={cn(
-          "min-w-0 text-[15px] font-normal leading-5 tracking-[-0.006em]",
+          compact
+            ? "min-w-0 text-[15px] font-normal leading-5 tracking-[-0.006em]"
+            : "min-w-0 text-[15px] font-normal leading-5 tracking-[-0.006em]",
           compact
             ? "min-w-0 whitespace-normal text-center [overflow-wrap:anywhere]"
             : "truncate",
@@ -474,7 +478,10 @@ function AgentGridItem({
         className="relative z-10"
       />
       <span className="relative z-10 min-w-0">
-        <span className="ui-text-row-label block truncate" data-ui-role="body">
+        <span
+          className="block truncate text-[17px] font-normal leading-[22px] tracking-[-0.006em] text-[#1D1D1F] dark:text-[#F5F5F7]"
+          data-ui-role="body"
+        >
           {mode.title}
         </span>
         <AgentMetric mode={mode} compact />
@@ -492,11 +499,11 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       title={mode.description}
       data-testid={`one-agent-list-row-${mode.id}`}
       className={cn(
-        "group/agent-row relative grid min-h-16 w-full grid-cols-[40px_minmax(0,1fr)_minmax(120px,160px)_16px] items-center gap-x-[14px] overflow-hidden px-4 text-left outline-none",
+        "group/agent-row relative grid min-h-[60px] w-full grid-cols-[36px_minmax(0,1fr)_minmax(108px,150px)_16px] items-center gap-x-3 overflow-hidden px-4 text-left outline-none",
         "transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-        "sm:grid-cols-[40px_minmax(0,1fr)_minmax(170px,220px)_16px]",
+        "sm:grid-cols-[36px_minmax(0,1fr)_minmax(160px,210px)_16px]",
       )}
     >
       <span className="relative z-10 flex items-center justify-center">
@@ -513,7 +520,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       </span>
       <span
         data-ui-role="row-label"
-        className="relative z-10 min-w-0 truncate text-[17px] font-medium leading-[22px] tracking-[-0.01em] text-[#1D1D1F] dark:text-[#F5F5F7]"
+        className="relative z-10 min-w-0 truncate text-[17px] font-normal leading-[22px] tracking-[-0.006em] text-[#1D1D1F] dark:text-[#F5F5F7]"
       >
         {mode.title}
       </span>
@@ -522,11 +529,11 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       </span>
       <ChevronRight
         aria-hidden
-        className="relative z-10 h-4 w-4 text-[#C7C7CC] [stroke-width:1.8]"
+        className="relative z-10 h-4 w-4 text-[#C7C7CC] [stroke-width:1.7]"
       />
       <span
         aria-hidden
-        className="pointer-events-none absolute bottom-0 left-[68px] right-4 h-px bg-[rgba(60,60,67,.12)] group-last/agent-list:hidden"
+        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[rgba(60,60,67,.12)] group-last/agent-list:hidden"
       />
       <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
@@ -632,15 +639,13 @@ export function OneAgentRoster({
       <div className="mb-5 flex items-center justify-between gap-3">
         <h2
           id="one-agents-heading"
-          aria-label={`Agents (${modes.length})`}
-          className="flex min-w-0 items-baseline gap-2"
+          className="min-w-0"
         >
-          {/* Agents ({modes.length}) is split visually so the count can stay subordinate. */}
-          <span className="text-[34px] font-bold leading-[41px] tracking-[-0.03em] text-[#1D1D1F] dark:text-[#F5F5F7]">
-            Agents
-          </span>
-          <span className="text-[17px] font-medium leading-[22px] text-[#8E8E93]">
-            ({modes.length})
+          <span
+            className="ui-text-page-title block truncate"
+            data-ui-role="page-title"
+          >
+            Agents ({modes.length})
           </span>
         </h2>
         <AgentRosterViewToggle value={view} onChange={selectView} />

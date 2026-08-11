@@ -3995,7 +3995,7 @@ function ProfilePageContent() {
         >
           <ProfileAvatarEditor />
           <div className="profile-home-copy min-w-0 max-w-full space-y-1.5">
-            <h1 className="profile-home-name text-[28px] font-medium leading-[1.08] tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
+            <h1 className="profile-home-name ui-text-identity-name [overflow-wrap:anywhere]">
               {user.displayName || "User"}
             </h1>
             <div

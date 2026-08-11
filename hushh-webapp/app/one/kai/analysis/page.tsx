@@ -1148,7 +1148,7 @@ export function KaiAnalysisPageContent() {
                   <div
                     role="heading"
                     aria-level={2}
-                    className="text-[20px] font-medium leading-tight tracking-normal text-foreground sm:text-[22px]"
+                    className="ui-text-major-section-title"
                   >
                     {activeTicker}
                   </div>

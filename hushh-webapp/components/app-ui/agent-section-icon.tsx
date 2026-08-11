@@ -60,12 +60,12 @@ const ICON_SIZE_CLASS = {
     pixels: 40,
   },
   roster: {
-    surface: "h-10 w-10",
-    lucideSurface: "h-10 w-10 rounded-[10px]",
+    surface: "h-9 w-9",
+    lucideSurface: "h-9 w-9 rounded-[9px]",
     imageSurface: "rounded-[10px]",
-    lucide: "h-5 w-5",
+    lucide: "h-[17px] w-[17px]",
     image: "h-full w-full object-contain",
-    pixels: 40,
+    pixels: 36,
   },
 } as const;
 
@@ -74,7 +74,7 @@ const PROFILE_ICON_RADIUS_CLASS: Record<AgentSectionIconSize, string> = {
   launcher: "rounded-[17px] sm:rounded-[20px]",
   topbar: "rounded-[10px]",
   menu: "rounded-[11px]",
-  roster: "rounded-[10px]",
+  roster: "rounded-[9px]",
 };
 
 type AgentSectionIconSize = keyof typeof ICON_SIZE_CLASS;
@@ -154,7 +154,7 @@ export function AgentSectionIcon({
         <Icon
           className={cn(
             classes.lucide,
-            "[stroke-width:1.8]",
+            size === "roster" ? "[stroke-width:1.7]" : "[stroke-width:1.8]",
             active
               ? glyphContrast === "inverted"
                 ? "!text-white dark:!text-[#1d1d1f]"

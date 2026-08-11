@@ -185,10 +185,10 @@ export function SmsContactsFlow({
           <ChevronLeft className="h-[19px] w-[19px]" />
         </button>
 
-        <h1 className="mt-3 !text-[32px] !font-bold !leading-[1.08] !tracking-normal">
+        <h1 className="mt-3 !text-[28px] !font-bold !leading-[34px] !tracking-[-0.025em]">
           SMS contacts
         </h1>
-        <p className="mt-2 max-w-[350px] text-[17px] leading-[24px] text-muted-foreground">
+        <p className="mt-2 max-w-[350px] text-[15px] font-normal leading-[20px] text-muted-foreground">
           These people are alerted with your live location the moment you send
           the SMS.
         </p>
@@ -341,7 +341,7 @@ export function SmsContactsFlow({
             >
               {pendingRemoval ? initials(recipientLabel(pendingRemoval)) : "?"}
             </span>
-            <AlertDialogTitle className="mt-1 !text-center !text-[22px] !font-bold !leading-[1.14]">
+            <AlertDialogTitle className="mt-1 !text-center !text-[20px] !font-semibold !leading-[25px] !tracking-[-0.016em]">
               <span className="text-foreground">
                 Remove{" "}
                 {pendingRemoval

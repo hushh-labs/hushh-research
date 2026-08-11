@@ -337,10 +337,10 @@ export function SosPanel({
         </button>
 
         <header className="mt-4 px-3 text-center lg:mt-1">
-          <h1 className="whitespace-nowrap !text-[32px] !font-bold !leading-[1.08] !tracking-normal">
+          <h1 className="whitespace-nowrap !text-[28px] !font-bold !leading-[34px] !tracking-[-0.025em]">
             SMS · Save my Soul
           </h1>
-          <p className="mx-auto mt-2 max-w-[310px] text-[17px] leading-[24px] text-white/70">
+          <p className="mx-auto mt-2 max-w-[310px] text-[15px] font-normal leading-[20px] text-white/70">
             Press and hold. An SMS with your live location goes to your people —
             even with no internet.
           </p>
@@ -350,9 +350,9 @@ export function SosPanel({
             hold button immediately beneath it, then the message and recovery
             controls. Keeping this single column prevents the SMS action from
             reading like a separate desktop panel. */}
-        <div className="flex flex-1 flex-col items-center gap-5 pt-7 lg:justify-start lg:pt-8">
+        <div className="flex flex-col items-center gap-4 pt-5 lg:pt-5">
           <div className="flex items-center justify-center">
-            <div className="relative flex h-[224px] w-[224px] items-center justify-center">
+            <div className="relative flex h-[204px] w-[204px] items-center justify-center">
             <span className="absolute inset-0 rounded-full border border-white/10" />
             <span className="absolute inset-[24px] rounded-full border border-white/15" />
 
@@ -363,17 +363,17 @@ export function SosPanel({
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[136px] w-[136px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite]"
+                  className="absolute h-[128px] w-[128px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite]"
                 />
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[136px] w-[136px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:0.73s]"
+                  className="absolute h-[128px] w-[128px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:0.73s]"
                 />
                 <span
                   aria-hidden="true"
                   data-sos-pulse
-                  className="absolute h-[136px] w-[136px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:1.46s]"
+                  className="absolute h-[128px] w-[128px] rounded-full bg-[color:var(--app-destructive)]/40 [animation:sosRadarPulse_2.2s_ease-out_infinite] [animation-delay:1.46s]"
                 />
               </>
             ) : null}
@@ -398,7 +398,7 @@ export function SosPanel({
               onKeyUp={handleKeyUp}
               onContextMenu={(event) => event.preventDefault()}
               className={cn(
-                "relative z-10 flex h-[136px] w-[136px] touch-none select-none flex-col items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black",
+                "relative z-10 flex h-[128px] w-[128px] touch-none select-none flex-col items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black",
                 progress > 0 && progress < 1 && "scale-[1.035]",
                 (active || busy) && "[animation:sosCorePulse_2.2s_ease-in-out_infinite]",
                 disabled && "cursor-not-allowed",
@@ -410,7 +410,7 @@ export function SosPanel({
                     : undefined,
               }}
             >
-              <span className="text-[31px] font-bold leading-none">
+              <span className="text-[28px] font-bold leading-[34px] tracking-[-0.025em]">
                 {active ? "SENT" : "SMS"}
               </span>
               <span className="mt-1.5 text-[12px] text-white/85">

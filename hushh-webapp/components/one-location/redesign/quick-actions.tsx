@@ -88,7 +88,7 @@ export function QuickActionCard({
       aria-disabled={!interactive}
       data-voice-control-id={controlId}
       className={cn(
-        "group flex min-h-[120px] w-full min-w-0 flex-col gap-3 rounded-[22px] bg-white p-4 text-left shadow-none transition-all duration-200 dark:bg-[color:var(--app-card-surface-default-solid)]",
+        "group flex min-h-[120px] w-full min-w-0 flex-col gap-3 rounded-[20px] bg-white p-4 text-left shadow-none transition-all duration-200 dark:bg-[color:var(--app-card-surface-default-solid)]",
         interactive
           ? "cursor-pointer active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           : "cursor-not-allowed",
