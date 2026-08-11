@@ -601,6 +601,30 @@ export default function ConnectPageClient() {
   // Present connections in a stable, predictable order: alphabetical by the
   // name the user sees (case-insensitive), falling back to the userId when a
   // display name is absent. Locale compare keeps accented names sensibly placed.
+  // Present the People directory in the same predictable order as connections:
+  // alphabetical (A-Z) by the visible name, case/accent-insensitive. When a
+  // search query is active, names that START with the query rank above inner
+  // matches (so "Ab" surfaces "Abdul" before "Zab…"), then A-Z within each
+  // group. The server can return directory rows in relevance/insertion order,
+  // which read as unsorted in the list; this makes the rendered order stable.
+  const sortedPeople = useMemo(() => {
+    const q = trimmedQuery.toLowerCase();
+    const nameOf = (person: DirectoryPerson) =>
+      (person.displayName || person.email || person.userId)
+        .trim()
+        .toLowerCase();
+    return [...people].sort((a, b) => {
+      const nameA = nameOf(a);
+      const nameB = nameOf(b);
+      if (q) {
+        const startsA = nameA.startsWith(q);
+        const startsB = nameB.startsWith(q);
+        if (startsA !== startsB) return startsA ? -1 : 1;
+      }
+      return nameA.localeCompare(nameB, undefined, { sensitivity: "base" });
+    });
+  }, [people, trimmedQuery]);
+
   const sortedConnections = useMemo(
     () =>
       [...connections].sort((a, b) =>
@@ -1161,7 +1185,7 @@ export default function ConnectPageClient() {
                     />
                   )
                 ) : (
-                  people.map((person) => {
+                  sortedPeople.map((person) => {
                     const cta = relationshipCta(person.relationship);
                     const title =
                       person.displayName || person.email || person.userId;
