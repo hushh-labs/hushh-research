@@ -6866,15 +6866,33 @@ export function OneLocationAgentPageContent({
 
     setBusy("selfLocation");
     automaticPrivatePublishingAllowedRef.current = false;
-    try {
-      if (nearbyCheckInAvailable && vaultOwnerToken) {
+    // Nearby checkout is attempted first and is allowed to fail on its own.
+    //
+    // It used to sit inside the main try, so a throw from either nearby call
+    // abandoned the WHOLE pause -- including the local pause, which would
+    // have worked. Observed live: every spoken "pause my location" settled
+    // `failed` with "you may still be visible nearby", while resume always
+    // succeeded. Resume touches nearby not at all, which is the entire
+    // asymmetry: the failure was never about pausing.
+    //
+    // Hiding locally is the part the person asked for and the part that can
+    // still be delivered, so it is no longer held hostage to the other. What
+    // is NOT done is call it a clean pause when the nearby half failed --
+    // that would be the one lie this action must never tell.
+    let nearbyCheckoutFailed = false;
+    if (nearbyCheckInAvailable && vaultOwnerToken) {
+      try {
         const nearby = await OneLocationService.getNearbyPresence({
           vaultOwnerToken,
         });
         if (nearby.presence) {
           await OneLocationService.checkoutNearby({ vaultOwnerToken });
         }
+      } catch {
+        nearbyCheckoutFailed = true;
       }
+    }
+    try {
       updateOneLocationControlState(auth.userId, (current) => ({
         ...current,
         paused: true,
@@ -6885,6 +6903,17 @@ export function OneLocationAgentPageContent({
       clearMyLocationPreview();
       setBackgroundShareEnabled(false);
       setMyLocationError(null);
+      if (nearbyCheckoutFailed) {
+        // Both halves of the truth, in the order that matters: what is now
+        // private, then what is not. Told as `succeeded` because the thing
+        // asked for did happen -- reporting failure would send someone to
+        // retry a pause that is already in effect, while the part that is
+        // actually still exposed goes unmentioned.
+        const message =
+          "Location updates are paused on this device, but I could not check you out of nearby presence -- you may still be visible to people around you.";
+        toast.error(message);
+        return { status: "succeeded", summary: message };
+      }
       toast.success("Location updates are paused on this device.");
       return {
         status: "succeeded",
