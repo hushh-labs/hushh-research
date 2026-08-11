@@ -67,6 +67,11 @@ _MANAGED_ONLY_ENV = frozenset(
     {
         "HUSSH_POD_LOG_KEY",
         "HUSSH_POD_MEMORY_KEY",
+        # Mounted by reference from HUSHH's Secret Manager. Cloud Run resolves a
+        # secretKeyRef against the project the service runs in, so the managed name
+        # cannot resolve in a user's project -- and should not: this key signs the
+        # person's own consent tokens and receipts, so it is theirs.
+        "APP_SIGNING_KEY",
         "POD_STORAGE_GCS_BUCKET",
         "POD_STORAGE_GCS_PREFIX",
         "POD_STORAGE_BACKEND",
@@ -236,6 +241,16 @@ class UserGcpBackend:
                     f"/keyRings/hushh-one/cryptoKeys/one-pod-{slug}-key"
                 )
             )
+        )
+        # The pod's own signing key, from the person's own Secret Manager, created by
+        # their own bootstrap. Mounted by reference: the value never enters the artifact.
+        kept.append(
+            {
+                "name": "APP_SIGNING_KEY",
+                "valueFrom": {
+                    "secretKeyRef": {"name": f"one-pod-{slug}-signing-key", "key": "latest"}
+                },
+            }
         )
         container["env"] = kept
         return cfg
@@ -468,7 +483,12 @@ class UserGcpBackend:
                 client.replace_service, name, client.merge_for_replace(existing, config)
             )
 
-        ready = await asyncio.to_thread(client.wait_ready, name)
+        # `wait_ready` returns (ready, service_json). Binding it to one name left `ready`
+        # holding the TUPLE -- which is truthy whatever it contains, so a pod that failed
+        # its startup probe was reported `live`, and `service_url` was handed a tuple and
+        # raised. The managed tier unpacks it correctly (`gcp_backend.py:566`); this path
+        # did not, and only a pod that genuinely failed to boot could show the difference.
+        ready, svc = await asyncio.to_thread(client.wait_ready, name)
         # The hushh gateway is invited onto this ONE service. Without it the pod exists
         # and is reachable by nobody, which reads as a provisioning success and behaves
         # as a dead agent -- the same failure the managed tier hit and logged for.
@@ -483,7 +503,7 @@ class UserGcpBackend:
                 name,
             )
 
-        url = client.service_url(ready)
+        url = client.service_url(svc)
         return BackendHandle(
             external_agent_id=name,
             a2a_route=f"{A2A_ADDRESS_BASE}/{spec.hushh_id}",

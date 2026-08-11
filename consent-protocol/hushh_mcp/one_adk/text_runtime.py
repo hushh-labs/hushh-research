@@ -345,6 +345,18 @@ async def _stream_one_text_turn_once(
             )
         ),
         session_service=session_service,
+        # The pod's ONLY turn path runs through here, and this argument was absent --
+        # so `resolve_pod_memory_service` had no caller inside a pod at all. Its only
+        # other caller is `get_one_runner`, reached from `adk_live`, which
+        # `pod_server` does not mount. The sealed commit log, the per-owner key, the
+        # hydrate-on-first-use replay were all real and all reachable by nothing: a pod
+        # wrote no memory and recalled none, while every part of the machinery for it
+        # passed its tests.
+        #
+        # Unconditional on purpose. `resolve_pod_memory_service` checks `pod_mode()`
+        # first and returns None in the hub, which is exactly today's hub behaviour --
+        # so this changes the pod and provably nothing else.
+        memory_service=_resolve_pod_memory_service(),
     )
     sanitized_context = dict(screen_context or {})
     session = await session_service.create_session(
@@ -438,6 +450,24 @@ async def _stream_one_text_turn_once(
         round((time.perf_counter() - started_at) * 1000),
         len(emitted_directives),
     )
+
+
+def _resolve_pod_memory_service():
+    """The pod's memory service, or None everywhere else.
+
+    Fail-safe by construction: a pod that cannot resolve its memory must still answer,
+    so any failure here degrades to a memoryless turn rather than a failed one. The
+    resolver already fails safe internally; this guards the import as well.
+    """
+    try:
+        from hushh_mcp.services.pod_memory_service import (  # noqa: PLC0415
+            resolve_pod_memory_service,
+        )
+
+        return resolve_pod_memory_service()
+    except Exception:  # noqa: BLE001 -- never block a turn on memory
+        logger.exception("one_text.pod_memory_unavailable")
+        return None
 
 
 async def stream_one_text_turn(

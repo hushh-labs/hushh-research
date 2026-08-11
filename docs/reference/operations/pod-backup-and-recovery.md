@@ -119,16 +119,34 @@ would have been satisfied by gunicorn's bind before the worker died.)
 renderer, and BYOC — where the log key must come from the person's own KMS key rather than
 any hushh-held master. See §5.
 
-### 5. The user-owned GCP bootstrap designs the substrate and never connects it
+### 5. The user-owned GCP bootstrap designs the substrate — and now connects it (fixed 2026-08-11)
 
-`UserGcpBackend.render_bootstrap_plan` provisions seven resources in the person's own
-project — a per-user KMS key, a CMEK-encrypted GCS bucket, a least-privilege pod service
-account, the Cloud Run service, a Pub/Sub topic, a subscription, and a Cloud Scheduler job
-that re-arms the Gmail watch before its 7-day expiry — and grants the pod
-`roles/storage.objectAdmin` on that bucket.
+`UserGcpBackend.render_bootstrap_plan` provisions the person's own KMS key, a
+CMEK-encrypted GCS bucket, a least-privilege pod service account, the Cloud Run service, a
+Pub/Sub topic, a subscription, a Cloud Scheduler job that re-arms the Gmail watch before
+its 7-day expiry, and (added 2026-08-11) a Secret Manager entry holding the pod's own
+signing key — and grants the pod exactly the IAM to match.
 
-It never sets `POD_STORAGE_GCS_BUCKET` to the bucket's name. The substrate and the pod are
-both correct and are not introduced to each other.
+**Until 2026-08-11 it never set `POD_STORAGE_GCS_BUCKET` to that bucket.** Worse than
+disconnected: `render_deploy_config` reused the managed renderer wholesale, so a BYOC pod
+was rendered pointing at **hushh's** bucket, carrying **hushh-derived plaintext** log and
+memory keys, and with **no runtime identity** — meaning the project's default compute
+account. `byoc_key_env`, the function written to prevent exactly the first two, had no
+caller.
+
+All of it is now joined and asserted against the rendered artifact rather than the helper.
+Verified live in `hushh-byoc-test`: a pod ran as `one-pod-…@<user-project>`, wrote to
+`one-pod-…-blobs`, carried `HUSSH_POD_KMS_KEY` and no plaintext key of any kind, and
+passed an HTTP `/health` startup probe.
+
+**Custody changed with it, and the change was forced by execution.** This runbook and the
+custody module both said the log key was wrapped "at bootstrap" by hushh's impersonated
+token. Against a real project that returns `403 useToEncrypt denied`: the bootstrap account
+holds `cloudkms.admin` and deliberately neither encrypter nor decrypter, so it cannot use
+the key it creates. The pod now mints and wraps its own key on **first boot**, guarded by
+`ifGenerationMatch=0` so two cold starts cannot write two keys and orphan each other's
+records. Hushh's inability to read a person's history is now a property of the IAM policy
+the bootstrap writes, not a sentence in a document.
 
 ## Answering the question directly: is GCS required?
 

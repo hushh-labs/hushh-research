@@ -988,3 +988,111 @@ def test_the_memory_key_is_derived_in_the_pod_and_differs_from_the_log_key() -> 
     assert len(memory) == 32
     assert memory != dek, "a memory key usable as a log key is one key wearing two hats"
     assert derive_memory_key(dek) == memory, "derivation must be stable across boots"
+
+
+# -- the pod's signing key, which is where BYOC's first pod actually died --------------
+#
+# The pod booted in the user's project, pulled the image, and crash-looped on
+# "APP_SIGNING_KEY must be set in .env and at least 32 characters long". Cloud Run
+# resolves a secretKeyRef against the project the service RUNS in, so the managed tier's
+# secret name cannot resolve in a user's project -- and should not, since this key signs
+# that person's own consent tokens, grants, receipts and audit chain.
+
+
+def test_the_signing_key_is_mounted_from_the_users_own_secret_manager(monkeypatch) -> None:
+    monkeypatch.setenv("HUSSH_POD_SIGNING_KEY_SECRET", "hussh-one-pod-signing-key")
+    env = _byoc_pod(monkeypatch)["containers"][0]["env"]
+    signing = [e for e in env if e["name"] == "APP_SIGNING_KEY"]
+    assert len(signing) == 1, "exactly one APP_SIGNING_KEY, not the managed one as well"
+    ref = signing[0]["valueFrom"]["secretKeyRef"]
+    assert ref["name"] == f"one-pod-{HUSHH_ID.lower()}-signing-key"
+    # By reference, never by value: the key must not appear in the artifact.
+    assert "value" not in signing[0]
+
+
+def test_the_signing_key_is_never_rendered_into_the_plan() -> None:
+    """`apply(dry_run=True)` returns every step for review. A key in the plan is a key
+    in whatever printed it, so the material is generated at apply time instead."""
+    calls = _boot(_Session([]), bootstrap_sa=BOOTSTRAP_SA).plan_calls(_plan())
+    seed = next(c for c in calls if c["step"] == "pod_signing_secret_version")
+    assert seed["kind"] == "generate_secret_version"
+    assert "body" not in seed and "payload" not in seed
+    blob = json.dumps(calls)
+    assert "payload" not in blob
+
+
+def test_a_rerun_does_not_rotate_the_signing_key() -> None:
+    """This key signs receipts already written. A silent second version invalidates them."""
+    session = _Session(
+        [_Response(200, {"name": "operations/x", "done": True})] + [_Response(200, {})] * 30,
+        routes={"/versions": _Response(200, {"versions": [{"name": "…/versions/1"}]})},
+    )
+    result = _boot(session, bootstrap_sa=BOOTSTRAP_SA).apply(_plan(), dry_run=False)
+    seed = next(s for s in result["steps"] if s["step"] == "pod_signing_secret_version")
+    assert seed["ok"] is True
+    assert "not rotated" in seed["detail"]
+    assert not [c for c in session.calls if ":addVersion" in c["url"]]
+
+
+def test_a_signing_key_is_seeded_once_when_the_secret_is_empty() -> None:
+    session = _Session(
+        [_Response(200, {"name": "operations/x", "done": True})] + [_Response(200, {})] * 30,
+        routes={"/versions": _Response(200, {})},
+    )
+    result = _boot(session, bootstrap_sa=BOOTSTRAP_SA).apply(_plan(), dry_run=False)
+    assert next(s for s in result["steps"] if s["step"] == "pod_signing_secret_version")["ok"]
+    added = [c for c in session.calls if ":addVersion" in c["url"]]
+    assert len(added) == 1
+    payload = json.loads(added[0]["data"])["payload"]["data"]
+    value = base64.b64decode(payload)
+    # Cloud Run mounts this as an env var and refuses non-UTF8 with "Instance startup
+    # will now abort" -- which is exactly how the first BYOC pod died. Printable, and
+    # comfortably past the 32 characters the app demands.
+    assert value.decode("ascii").isprintable()
+    assert len(value) >= 32
+
+
+def test_an_unreadable_version_list_refuses_to_add_a_key() -> None:
+    """Not knowing whether a key exists is not the same as knowing there is none."""
+    session = _Session(
+        [_Response(200, {"name": "operations/x", "done": True})] + [_Response(200, {})] * 30,
+        routes={"/versions": _Response(403, text="denied")},
+    )
+    result = _boot(session, bootstrap_sa=BOOTSTRAP_SA).apply(_plan(), dry_run=False)
+    seed = next(s for s in result["steps"] if s["step"] == "pod_signing_secret_version")
+    assert seed["ok"] is False
+    assert "already written" in seed["detail"]
+    assert not [c for c in session.calls if ":addVersion" in c["url"]]
+
+
+async def test_a_pod_that_fails_its_startup_probe_is_not_reported_live() -> None:
+    """`wait_ready` returns (ready, service). Binding it to ONE name is the whole bug.
+
+    A tuple is truthy whatever it holds, so `status="live" if ready else ...` reported
+    `live` for a pod that had just failed its startup probe — the same "Ready is not
+    serving" failure this codebase already learned once, reintroduced by an unpacking
+    mistake rather than by a wrong health check. It surfaced only when a real BYOC pod
+    genuinely refused to boot.
+    """
+    class _Client:
+        def get_service(self, _name):
+            return None
+
+        def create_service(self, _cfg):
+            return {}
+
+        def wait_ready(self, _name):
+            return False, {"status": {"conditions": [{"type": "Ready", "status": "False"}]}}
+
+        def set_invoker_binding(self, *_a, **_k):
+            return True
+
+        @staticmethod
+        def service_url(svc):
+            return ((svc or {}).get("status") or {}).get("url")
+
+    backend = UserGcpBackend(user_project=USER_PROJECT, image="img", live=True)
+    backend._client = lambda: _Client()  # noqa: SLF001
+    handle = await backend._execute_live(_spec())  # noqa: SLF001
+    assert handle.status != "live", "a pod that failed its startup probe is not live"
+    assert handle.backend_metadata["url"] == ""

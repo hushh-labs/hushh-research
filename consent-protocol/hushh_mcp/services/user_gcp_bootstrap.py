@@ -39,6 +39,7 @@ whole applier is reviewable -- and testable -- without a user project in existen
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import time
@@ -70,6 +71,10 @@ BOOTSTRAP_ROLES: tuple[tuple[str, str], ...] = (
     ("roles/pubsub.admin", "create the mail doorbell topic and subscription"),
     ("roles/cloudscheduler.admin", "re-arm the Gmail watch before its 7-day expiry"),
     ("roles/resourcemanager.projectIamAdmin", "bind the pod SA to exactly those resources"),
+    (
+        "roles/secretmanager.admin",
+        "create the pod's own signing key INSIDE your project, so it is yours and not hushh's",
+    ),
 )
 
 #: The APIs a pod's resources need. Enabled BY the bootstrap rather than asked of the
@@ -92,6 +97,11 @@ REQUIRED_SERVICES: tuple[str, ...] = (
     # that enables every API except the one it itself depends on is a subtle kind of
     # incomplete, and only a live run finds it.
     "cloudresourcemanager.googleapis.com",
+    # The pod refuses to import without APP_SIGNING_KEY, and Cloud Run resolves a
+    # secretKeyRef against the project the service runs in -- so a BYOC pod's key must
+    # live in the USER's Secret Manager. Found the only way it could be: the pod booted,
+    # crash-looped on "APP_SIGNING_KEY must be set", and said so in its own logs.
+    "secretmanager.googleapis.com",
 )
 
 
@@ -351,6 +361,30 @@ class UserGcpBootstrap:
                 "tolerate": [409],
             },
             {
+                "step": "pod_signing_secret",
+                "method": "POST",
+                "url": f"https://secretmanager.googleapis.com/v1/projects/{project}/secrets",
+                "params": {"secretId": f"{pod_sa_id}-signing-key"},
+                "body": {"replication": {"automatic": {}}},
+                "tolerate": [409],
+            },
+            {
+                # The material is generated HERE, at apply time, and deliberately never
+                # appears in the rendered plan: `apply(dry_run=True)` returns every step
+                # verbatim for review, so a key in the plan would be a key in whatever
+                # printed it.
+                #
+                # Idempotent by inspection, not by tolerating an error: a re-run must not
+                # rotate this key. APP_SIGNING_KEY is the HMAC key behind consent tokens,
+                # grants, receipts and the audit chain, so rotating it silently would
+                # invalidate every receipt the pod had already written.
+                "step": "pod_signing_secret_version",
+                "kind": "generate_secret_version",
+                "secret": f"projects/{project}/secrets/{pod_sa_id}-signing-key",
+                "depends_on": "pod_signing_secret",
+                "tolerate": [],
+            },
+            {
                 "step": "mail_topic",
                 "method": "PUT",
                 "url": f"https://pubsub.googleapis.com/v1/projects/{project}/topics/{topic}",
@@ -413,6 +447,30 @@ class UserGcpBootstrap:
                         "role": "roles/cloudkms.cryptoKeyEncrypter",
                         "members": [f"serviceAccount:{pod_sa}"],
                     },
+                ],
+                "tolerate": [],
+            }
+        )
+        calls.append(
+            {
+                "step": "iam_pod_sa_on_signing_secret",
+                "kind": "merge_binding",
+                "depends_on": "pod_signing_secret",
+                "read_method": "GET",
+                "read_url": (
+                    f"https://secretmanager.googleapis.com/v1/projects/{project}"
+                    f"/secrets/{pod_sa_id}-signing-key:getIamPolicy"
+                ),
+                "write_url": (
+                    f"https://secretmanager.googleapis.com/v1/projects/{project}"
+                    f"/secrets/{pod_sa_id}-signing-key:setIamPolicy"
+                ),
+                "policy_envelope": "policy",
+                "bindings": [
+                    {
+                        "role": "roles/secretmanager.secretAccessor",
+                        "members": [f"serviceAccount:{pod_sa}"],
+                    }
                 ],
                 "tolerate": [],
             }
@@ -510,6 +568,13 @@ class UserGcpBootstrap:
                 merged = self._merge_binding(call, headers)
                 results.append(merged)
                 if not merged["ok"]:
+                    unmet.add(call["step"])
+                continue
+
+            if call.get("kind") == "generate_secret_version":
+                seeded = self._seed_secret_version(call, headers)
+                results.append(seeded)
+                if not seeded["ok"]:
                     unmet.add(call["step"])
                 continue
 
@@ -652,6 +717,85 @@ class UserGcpBootstrap:
                 f"{int(_OPERATION_DEADLINE_SECONDS)}s. The steps that depend on it were "
                 "not attempted, because they would fail on APIs that are still turning on."
             ),
+        }
+
+    def _seed_secret_version(
+        self, call: dict[str, Any], headers: dict[str, str]
+    ) -> dict[str, Any]:
+        """Put one random secret into the USER's Secret Manager, once and only once.
+
+        This is the pod's ``APP_SIGNING_KEY``. It cannot follow the log key's pattern of
+        being minted by the pod itself, because the application refuses to *import*
+        without it -- there is no moment when pod code is running and the key is absent.
+        So the bootstrap generates it, and the honest statement of the trade is: hushh's
+        process holds these bytes for the length of one HTTPS request and writes them
+        only into the user's own project. Nothing here persists them anywhere else, and
+        the rendered plan never contains them.
+
+        A re-run must NOT rotate it. This key signs consent tokens, grants, receipts and
+        the audit chain, so a silent second version would invalidate every receipt the
+        pod had already written. Existing versions are therefore checked first, and a
+        secret that already has one is a no-op rather than a fresh write.
+        """
+        import secrets  # noqa: PLC0415
+
+        listing = self._session.request(
+            "GET",
+            f"https://secretmanager.googleapis.com/v1/{call['secret']}/versions",
+            headers=headers,
+            params={"filter": "state:ENABLED"},
+            data=None,
+            timeout=60,
+        )
+        if getattr(listing, "status_code", 0) != 200:
+            return {
+                "step": call["step"],
+                "status": getattr(listing, "status_code", 0),
+                "ok": False,
+                "detail": (
+                    "could not check for an existing signing key. Refusing to add one: "
+                    "a second version would invalidate every receipt already written."
+                ),
+            }
+        if _json_or_empty(listing).get("versions"):
+            return {
+                "step": call["step"],
+                "status": 200,
+                "ok": True,
+                "detail": "signing key already present -- not rotated",
+            }
+
+        added = self._session.request(
+            "POST",
+            f"https://secretmanager.googleapis.com/v1/{call['secret']}:addVersion",
+            headers=headers,
+            params=None,
+            # A secret mounted as an env var must be UTF-8 TEXT. Secret Manager's
+            # `payload.data` is base64 only for transport, so sending
+            # b64(random_bytes) stores raw bytes as the value -- and Cloud Run refused
+            # the pod with "Secret ... contains non-UTF8 data. Instance startup will
+            # now abort." Generating printable material and transport-encoding THAT is
+            # the difference. 48 url-safe bytes render as 64 characters, comfortably
+            # past the 32 the app requires.
+            data=json.dumps(
+                {
+                    "payload": {
+                        "data": base64.b64encode(
+                            secrets.token_urlsafe(48).encode("ascii")
+                        ).decode("ascii")
+                    }
+                }
+            ),
+            timeout=60,
+        )
+        code = getattr(added, "status_code", 0)
+        ok = code in (200, 201)
+        # Never echo the response body: on this one call it describes the secret.
+        return {
+            "step": call["step"],
+            "status": code,
+            "ok": ok,
+            "detail": "" if ok else "could not add the signing key version",
         }
 
     def _lookup_member(self, lookup: dict[str, Any], headers: dict[str, str]) -> str:

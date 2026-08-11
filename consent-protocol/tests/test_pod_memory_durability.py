@@ -273,3 +273,69 @@ def test_memory_records_do_not_disturb_other_log_kinds(tmp_path: Path) -> None:
         assert len(hits.memories) == 1
 
     asyncio.run(run())
+
+
+# -- the caller that did not exist -----------------------------------------------------
+
+
+def test_the_pods_turn_constructs_its_runner_with_a_memory_service() -> None:
+    """Everything below this line was real, and a pod still remembered nothing.
+
+    The sealed commit log, the per-owner derived key, hydrate-on-first-use replay, the
+    env that carries them — all built, all tested, all deployed. And
+    `resolve_pod_memory_service` had exactly one caller, `get_one_runner`, reached only
+    from `adk_live`, which `pod_server` does not mount. The pod's own turn path built a
+    `Runner` without a `memory_service` argument at all.
+
+    Asserted structurally rather than behaviourally on purpose: the defect was a missing
+    keyword argument, so the assertion that catches it is about the call, and driving a
+    full ADK turn to observe the same fact would test the model, not the wiring.
+
+    The intro runtime is checked too, in the opposite direction. It serves an
+    unauthenticated visitor with no owner, so giving it a memory service would be a
+    defect of its own — and this test failing on it would mean somebody had.
+    """
+    import ast
+    import inspect
+
+    from hushh_mcp.one_adk import text_runtime
+
+    tree = ast.parse(inspect.getsource(text_runtime))
+    by_function = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for call in ast.walk(node):
+                if isinstance(call, ast.Call) and getattr(call.func, "id", "") == "Runner":
+                    by_function.setdefault(node.name, []).append(
+                        {kw.arg for kw in call.keywords}
+                    )
+
+    owner_bound = by_function.get("_stream_one_text_turn_once")
+    assert owner_bound, "the owner-bound turn must construct a Runner"
+    for kwargs in owner_bound:
+        assert "memory_service" in kwargs, (
+            "the pod's only turn path builds a Runner without memory_service — "
+            "a pod that writes no memory and recalls none"
+        )
+
+    for kwargs in by_function.get("stream_one_intro_text_turn", []):
+        assert "memory_service" not in kwargs, (
+            "the intro runtime serves an anonymous visitor; it has no owner to remember"
+        )
+
+
+def test_resolving_pod_memory_never_breaks_a_turn(monkeypatch) -> None:
+    """A pod that cannot resolve memory must still answer.
+
+    Memory is an enhancement to a turn; refusing the turn because the enhancement is
+    unavailable trades a degraded answer for no answer.
+    """
+    from hushh_mcp.one_adk import text_runtime
+
+    def explode():
+        raise RuntimeError("storage unreachable")
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.pod_memory_service.resolve_pod_memory_service", explode
+    )
+    assert text_runtime._resolve_pod_memory_service() is None
