@@ -172,6 +172,12 @@ LANE_RULES: tuple[dict[str, Any], ...] = (
             "cloud projection",
             "local-first",
             "cache coherence",
+            "sqlite",
+            "mapping layer",
+            "mapping state",
+            "local index",
+            "rebuildable index",
+            "share reference",
         ),
         "path_prefixes": (
             "consent-protocol/db/",

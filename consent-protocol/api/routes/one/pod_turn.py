@@ -233,6 +233,25 @@ async def run_pod_turn(
         ) from exc
 
     text = "".join(chunks).strip()
+    # A SUCCESSFUL TURN LEAVES A TRACE. Until this line, `run_pod_turn` logged only on
+    # failure -- so a pod that was working and a pod that was never called looked
+    # exactly alike in Cloud Logging, and nothing anywhere recorded how many turns a
+    # person's agent actually served, how long they took, or which model answered.
+    #
+    # The hub's POD_ACCESS receipt is written BEFORE the proxy call, so it records
+    # "permission granted", never "turn completed". This is the only place that can
+    # say the turn finished.
+    #
+    # Carries shape, never content: no message, no answer, no projection -- only
+    # whether grounding arrived, how long it took, and whose model served it.
+    logger.info(
+        "pod_turn.completed grounded=%s chars=%s directives=%s runtime_mode=%s provider=%s",
+        bool(grounding),
+        len(text),
+        len(directives),
+        runtime_mode,
+        provider,
+    )
     return {
         "text": text,
         "model": model,

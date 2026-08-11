@@ -3,8 +3,11 @@
 import pytest
 
 from api.routes.one.adk_live import (
+    _GOAL_CONTINUATION_NOTE,
     _close_quietly,
+    _goal_continuation_is_already_ready,
     _InitialGreetingGate,
+    _navigation_continuation_screen,
     _receive_runtime_bootstrap,
 )
 from api.routes.one.live_context import (
@@ -505,3 +508,180 @@ def test_live_context_note_omits_the_subject_line_when_none_is_declared():
 
     assert note is not None
     assert "The person is looking at" not in note
+
+
+def _navigation_run(goal_id: str, screen: str, **overrides):
+    """A journey run as `start_app_goal` parks it after issuing the route step."""
+    return {
+        "schema_version": "one.goal_run.v1",
+        "goal_id": goal_id,
+        "action_id": "location.select_share_recipient",
+        "slots": {"person": "sarah"},
+        "step_cursor": 0,
+        "expected_screen": screen,
+        "status": "awaiting_destination_screen",
+        **overrides,
+    }
+
+
+def test_a_journey_waits_for_the_screen_its_own_run_names():
+    # Reading the destination off the run is what makes every authored journey
+    # continue. This was pinned to Analysis, so a journey to anywhere else
+    # navigated and then stopped -- the person watched the right screen open
+    # and nothing happen on it, which is indistinguishable from success.
+    run = _navigation_run("goal.location.select_share_recipient", "one_location")
+
+    assert _navigation_continuation_screen(
+        "goal.location.select_share_recipient", run, "succeeded"
+    ) == "one_location"
+    assert _navigation_continuation_screen(
+        "goal.analysis.start_debate",
+        _navigation_run("goal.analysis.start_debate", "kai_analysis"),
+        "started",
+    ) == "kai_analysis"
+
+
+def test_a_journey_releases_when_destination_context_precedes_route_settlement():
+    # Agent Bar publishes and receives the destination context acknowledgement
+    # before it emits `action_settled`. The relay must treat that latest,
+    # already-sanitized snapshot as sufficient rather than wait forever for a
+    # second app_context frame.
+    assert _goal_continuation_is_already_ready(
+        {"screen": "one_location"}, "one_location"
+    )
+    assert not _goal_continuation_is_already_ready(
+        {"screen": "one_location"}, "connect"
+    )
+    assert not _goal_continuation_is_already_ready({}, "one_location")
+
+
+def test_a_settled_action_step_is_never_mistaken_for_another_cue_to_act():
+    # `continue_app_goal` stamps step_cursor 1 before issuing the action. What
+    # settles then is the pick itself, carrying the matched name One is waiting
+    # to hear -- re-arming here would send it back to run the step it just ran.
+    ran = _navigation_run("goal.location.select_share_recipient", "one_location", step_cursor=1)
+
+    assert _navigation_continuation_screen(
+        "goal.location.select_share_recipient", ran, "succeeded"
+    ) is None
+
+
+def test_a_navigation_that_did_not_arrive_continues_nothing():
+    run = _navigation_run("goal.location.select_share_recipient", "one_location")
+
+    # Nothing to stand on, so there is nothing to run there.
+    assert _navigation_continuation_screen("goal.location.select_share_recipient", run, "blocked") is None
+    assert _navigation_continuation_screen("goal.location.select_share_recipient", run, "failed") is None
+    # A directive with no goal behind it is an ordinary action, not a journey.
+    assert _navigation_continuation_screen(None, run, "succeeded") is None
+    # The settled-choice journey shape has its own continuation path.
+    assert (
+        _navigation_continuation_screen(
+            "goal.x",
+            {"schema_version": "one.settled_action_journey.v1", "expected_screen": "one_location"},
+            "succeeded",
+        )
+        is None
+    )
+
+
+def test_the_continuation_note_names_no_screen_and_forbids_answering_early():
+    # One turn of prose serves every journey, so it can never say "Analysis"
+    # or "preview". The prohibition is the load-bearing half: on the share
+    # chain One holds only the name it HEARD until the pick settles, and
+    # asking from that is exactly the wrong-name failure the question exists
+    # to catch.
+    assert "continue_app_goal" in _GOAL_CONTINUATION_NOTE
+    assert "not user speech" in _GOAL_CONTINUATION_NOTE
+    assert "do not ask a question" in _GOAL_CONTINUATION_NOTE
+    for surface_specific in ("analysis", "debate", "location", "preview"):
+        assert surface_specific not in _GOAL_CONTINUATION_NOTE.lower()
+
+
+def test_the_greeting_hold_is_owed_once_not_once_per_rearm():
+    # The cue is armed twice: a generic one when the socket opens, then a
+    # screen-aware one when the first app context lands. Re-arming used to
+    # restart the wait, so the person paid it again for the context arriving --
+    # on top of however long the browser took to publish it, which on a busy
+    # dashboard is seconds. The hold guards against talking over someone who
+    # opened the mic already speaking; that is owed once per session.
+    gate = _InitialGreetingGate(idle_seconds=1.5)
+
+    assert gate.hold_seconds(100.0) == pytest.approx(1.5)
+    # 0.4s later the context arrives and the cue is re-armed with the screen.
+    assert gate.hold_seconds(100.4) == pytest.approx(1.1)
+
+
+def test_a_late_first_context_greets_immediately_rather_than_waiting_again():
+    gate = _InitialGreetingGate(idle_seconds=1.5)
+    gate.hold_seconds(100.0)
+
+    # The browser took 9 seconds to publish its first context. The hold is long
+    # spent; nothing is owed, so the screen-aware cue goes out now.
+    assert gate.hold_seconds(109.0) == 0.0
+
+
+def test_the_hold_never_resurrects_a_cue_that_speech_already_cancelled():
+    # hold_seconds answers "how long", never "whether" -- schedule() owns that,
+    # and visitor speech must keep beating the cue outright.
+    gate = _InitialGreetingGate(idle_seconds=1.5)
+    gate.hold_seconds(100.0)
+    gate.cancel_for_visitor_activity()
+
+    assert gate.schedule() is None
+
+
+def test_an_action_that_already_succeeded_is_not_run_again():
+    """The stop condition that a re-entering model cannot talk its way past.
+
+    Live, One shared a location successfully, the composer cleared its
+    selection the way it always does after a send, and One -- which had no way
+    to learn it had succeeded -- tried again. Every retry found an empty
+    composer, settled "nobody is selected yet", and it tried again. A hard
+    loop, on an action that had already worked.
+
+    A tool cannot see settlements through `tool_context.state`: that froze when
+    the streaming invocation opened. This is the seam that carries it.
+    """
+    from hushh_mcp.services.live_voice_context import (
+        clear_completed_actions,
+        read_completed_action,
+        record_completed_action,
+    )
+
+    session = "session-loop-test"
+    clear_completed_actions(session)
+    assert read_completed_action(session, "location.share_selected") is None
+
+    record_completed_action(session, "location.share_selected", '{"duration_hours": "0.25"}')
+    assert (
+        read_completed_action(session, "location.share_selected")
+        == '{"duration_hours": "0.25"}'
+    )
+    # Scoped to the action. Finishing a share says nothing about a pause.
+    assert read_completed_action(session, "location.pause_updates") is None
+    # And to the session, so one person's completed work never suppresses
+    # another's identical request.
+    assert read_completed_action("someone-else", "location.share_selected") is None
+
+    clear_completed_actions(session)
+    assert read_completed_action(session, "location.share_selected") is None
+
+
+def test_the_guard_distinguishes_different_inputs_to_the_same_action():
+    """Repeating an action with DIFFERENT inputs is a new request, not a loop.
+
+    The relay's directive dedupe fingerprints slot KEYS only, which cannot
+    tell "share for 15 minutes" from "share for an hour" -- fine for
+    suppressing a duplicate still in flight, far too coarse for deciding
+    something has already been done. This guard fingerprints values.
+    """
+    from hushh_mcp.one_adk.action_tools import _slot_fingerprint
+
+    quarter_hour = _slot_fingerprint({"duration_hours": "0.25"})
+    an_hour = _slot_fingerprint({"duration_hours": "1"})
+    assert quarter_hour != an_hour
+    # Stable regardless of dict ordering, or the same request would look new.
+    assert _slot_fingerprint({"a": "1", "b": "2"}) == _slot_fingerprint({"b": "2", "a": "1"})
+    # Naming a different person is a different request, and must get through.
+    assert _slot_fingerprint({"person": "Sarah"}) != _slot_fingerprint({"person": "Abdul"})

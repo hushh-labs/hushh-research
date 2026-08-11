@@ -4,6 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Loader2, Trash2 } from "lucide-react";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import {
+  CardTitle,
+  FormLabel,
+  HelperText,
+} from "@/components/app-ui/typography";
 import { GeminiLogo } from "@/components/brand/gemini-logo";
 import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
 import { Badge } from "@/components/ui/badge";
@@ -554,28 +559,29 @@ export function GeminiRuntimeSettingsCard({
         {mode === "byok" ? (
           <div className="space-y-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-[13px] font-medium text-foreground">Gemini connection</p>
+              <CardTitle as="p">Gemini connection</CardTitle>
               <Badge variant={hasSavedKey ? "secondary" : "outline"}>
                 {needsVaultCreation ? "Vault needed" : needsUnlock ? "Locked" : hasSavedKey ? "Saved" : "Not set"}
               </Badge>
             </div>
-            <label className="block space-y-1 text-[12px] text-muted-foreground">
+            <FormLabel className="block space-y-1">
               API endpoint
               <select
+                data-ui-role="input-text"
                 value={transport}
                 onChange={(event) => {
                   setTransport(event.target.value as GeminiRuntimeTransport);
                   invalidateCredentialValidation();
                 }}
                 disabled={isSaving || isRemoving || credentialValidation.status === "checking"}
-                className="h-10 w-full rounded-[var(--app-card-radius-compact)] border border-input bg-background px-3 text-[14px] text-foreground"
+                className="ui-text-input-value h-10 w-full rounded-[var(--app-card-radius-compact)] border border-input bg-background px-3"
               >
                 <option value="developer_api">Google AI Studio</option>
                 <option value="vertex_api_key">
                   Google Cloud Vertex API key
                 </option>
               </select>
-            </label>
+            </FormLabel>
             {transport === "vertex_api_key" ? (
               <div className="grid gap-2 sm:grid-cols-2">
                 <Input
@@ -614,8 +620,9 @@ export function GeminiRuntimeSettingsCard({
               disabled={isSaving || isRemoving}
               aria-label="Gemini API key"
             />
-            <div
-              className="min-h-5 text-[12px] leading-5 text-muted-foreground"
+            <HelperText
+              as="div"
+              className="min-h-5"
               role="status"
               aria-live="polite"
             >
@@ -634,7 +641,7 @@ export function GeminiRuntimeSettingsCard({
               ) : (
                 "Validate the key before confirming it."
               )}
-            </div>
+            </HelperText>
             <div className="flex flex-wrap gap-2">
               {credentialValidation.status === "ready" ? (
                 <Button type="button" onClick={() => void saveByok()} disabled={isSaving || isRemoving}>

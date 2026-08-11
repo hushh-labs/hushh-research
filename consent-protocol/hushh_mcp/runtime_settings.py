@@ -120,6 +120,10 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # the advisor base URL directly above; the bearer key is a real
     # secret and is mounted through --set-secrets instead.
     "insurance_agents_api_base_url": "INSURANCE_AGENTS_API_BASE_URL",
+    # Places directory switch. Deliberately its own key rather than reusing the
+    # nearby-presence mode: that flag governs co-presence, and closing
+    # co-presence in production must not also close a business directory.
+    "one_places_directory_enabled": "ONE_PLACES_DIRECTORY_ENABLED",
 }
 
 

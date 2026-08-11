@@ -30,7 +30,7 @@ import {
   PILL_PENDING,
   PILL_READY,
   SCREEN_TITLE,
-  SECTION_HEADING,
+  SECTION_TITLE,
   SUBCARD_SURFACE,
   TRUST_SURFACE,
   WARNING_SURFACE,
@@ -68,7 +68,7 @@ export function TaskFlowHeader({
         {eyebrow ? <p className={EYEBROW}>{eyebrow}</p> : null}
       </div>
       <h1 className={SCREEN_TITLE}>{title}</h1>
-      {description ? <p className={MUTED_TEXT}>{description}</p> : null}
+      {description ? <p className="ui-text-page-subtitle">{description}</p> : null}
     </header>
   );
 }
@@ -142,11 +142,11 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <section className={cn(CARD_SURFACE, "p-4", className)}>
+    <section className={cn(CARD_SURFACE, "p-4", className)} data-ui-role="grouped-card">
       {(title || action) && (
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            {title ? <h2 className={SECTION_HEADING}>{title}</h2> : null}
+            {title ? <h2 className={SECTION_TITLE}>{title}</h2> : null}
             {description ? (
               <p className={cn(MUTED_TEXT, "mt-0.5")}>{description}</p>
             ) : null}
@@ -234,7 +234,7 @@ export function WarningCard({
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
       <div>
         <p className="ui-text-row-label-emphasized">{title}</p>
-        <p className="ui-text-row-description opacity-90">
+        <p className="ui-text-row-description">
           {description}
         </p>
       </div>
@@ -259,13 +259,14 @@ export function EmptyState({
 }) {
   return (
     <div
+      data-ui-role="grouped-card"
       className={cn(
         SUBCARD_SURFACE,
         "flex flex-col items-center gap-2 p-6 text-center",
       )}
     >
       {icon ? <div className="text-muted-foreground">{icon}</div> : null}
-      <p className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em] text-foreground">
+      <p className="ui-text-headline">
         {title}
       </p>
       {description ? <p className={MUTED_TEXT}>{description}</p> : null}

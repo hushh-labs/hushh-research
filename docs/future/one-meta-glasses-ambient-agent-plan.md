@@ -6,7 +6,7 @@ Status: **founder-approved — promoting to execution.** The founder has taken t
 
 > **Hussh = `[hu]man [s]ecure [s]ocket [h]ost`.**
 >
-> One for macOS is the planned *host* on the Mac; the iPhone One is the host in your pocket. Meta glasses are proposed as a third host surface: the one you *wear*. One runs **ambiently in the background** as a private, system-level agent for the person wearing the glasses — available whenever they need it, silent when they do not — with the human always the owner and in control, and every read of their data completing a [PCHP](../../consent-protocol/docs/reference/consent-protocol.md) handshake.
+> The iPhone One is the host in your pocket. Meta glasses are proposed as another host surface: the one you *wear*. One runs **ambiently in the background** as a private, system-level agent for the person wearing the glasses — available whenever they need it, silent when they do not — with the human always the owner and in control, and every read of their information completing a [PCHP](../../consent-protocol/docs/reference/consent-protocol.md) handshake.
 
 The ask has two halves, and they must not be conflated:
 
@@ -25,7 +25,7 @@ flowchart TB
   index["On-device world-model cache<br/>AES-256-GCM, SE-wrapped keys<br/>ciphertext at rest"]
   devs["Meta glasses app / agent devs<br/>request scoped, revocable access"]
   cloud["Hushh cloud<br/>ciphertext + manifests only<br/>pkm_routes_shared.py"]
-  phone["iPhone / Mac One<br/>existing hosts, shared vault"]
+  phone["iPhone One<br/>existing host, shared vault"]
 
   owner --> glasses
   glasses --> consent
@@ -47,7 +47,6 @@ The glasses host is a *port* of primitives that already exist, not a greenfield 
 
 - **The consent protocol itself.** [`consent-protocol/hushh_mcp/consent/token.py`](../../consent-protocol/hushh_mcp/consent/token.py) (the `HCT:` bearer format `user_id|agent_id|scope|issued_at|expires_at[|commercial]`) and the shipped consent MCP surface (`discover_user_domains`, `request_consent`, `check_consent_status`, `get_encrypted_scoped_export`, `validate_token`, `list_scopes`) are transport-agnostic — a glasses client speaks them the same way the iPhone does. The public spec is now on the website at `/research/pchp-specification`.
 - **The world model / PKM shapes.** [`consent-protocol/api/routes/pkm_routes_shared.py`](../../consent-protocol/api/routes/pkm_routes_shared.py) and `personal_knowledge_model_service.py` (`DomainSummary`, `PersonalKnowledgeModelIndex`) define the encrypted per-domain model the glasses cache would mirror, so the cloud stays a ciphertext-redundant mirror.
-- **The One-for-macOS host precedent.** [`docs/future/one-mac-knowledge-base-app.md`](./one-mac-knowledge-base-app.md) already worked out the host pattern — local encrypted index, secure socket, device-pairing CRT ceremony, OpenClaw reference target. The glasses host reuses that design language; it does not re-derive it.
 - **Voice-first runtime.** The One voice runtime (`consent-protocol` voice config + the ADK live WebSocket surface under `api/routes/one/`) is the natural interaction model for a screenless device; a glasses host is voice-first by necessity, not choice.
 - **On-device / BYOK posture.** The vault encryption (`consent-protocol/hushh_mcp/vault/encrypt.py`, AES-256-GCM, server holds ciphertext only) already assumes the key lives with the user — exactly what a wearable with a Secure-Enclave-class keystore needs.
 
@@ -60,7 +59,7 @@ The glasses host is a *port* of primitives that already exist, not a greenfield 
 5. **A low-power on-device world-model cache** mirroring the PKM shapes, sized for wearable storage/compute, with SE-wrapped keys and ciphertext at rest.
 6. **A developer SDK surface for Meta glasses app/agent devs.** A thin client that lets a third-party glasses app call `request_consent` / `get_encrypted_scoped_export` against the wearer's One — the "out of the box developer ecosystem" — with a conformance harness. This is the PCHP brand-side/requester story applied to wearables.
 7. **A trust-state clarity model for a screenless device.** How does a wearer *know* an agent is active, what it can see, and how to revoke — with audio and minimal display only? Revocation must be a single, always-available gesture/phrase.
-8. **A pairing ceremony** that provisions the glasses as a device against the existing vault (QR/audio + biometric), issuing a per-device key envelope recorded in both a local `device_pairings` store and the cloud device registry — reusing the One-mac desktop-pairing design.
+8. **A pairing ceremony** that provisions the glasses as a device against the existing vault (QR/audio + biometric), issuing a per-device key envelope recorded in both a local `device_pairings` store and the cloud device registry.
 9. **A partnership / distribution path with Meta.** Purely commercial/legal, out of engineering scope, but a hard dependency: a "system-level agent available to all Meta glasses users" requires platform-level placement that only Meta can grant.
 
 ## Edge-case assessment (per future-planner skill)
@@ -74,7 +73,7 @@ The glasses host is a *port* of primitives that already exist, not a greenfield 
 
 ## What already exists · what is missing · what should stay out of scope
 
-- **Already exists:** the consent protocol, PKM shapes, host precedent (One-mac), voice runtime, BYOK/ZK posture.
+- **Already exists:** the consent protocol, PKM shapes, voice runtime, and BYOK/ZK posture.
 - **Missing new primitives:** the Meta SDK layer, ambient attention model, audio-first consent ceremony, device-bound glasses CRT scope, wearable world-model cache, developer SDK surface, screenless trust-state model, glasses pairing ceremony.
 - **Out of scope (for now):** any bystander/third-party capture or inference; any always-listening default; any claim of a Meta partnership; any durable-PKM write without owner-approved promotion.
 
@@ -107,5 +106,4 @@ On promotion, split into execution-owned docs: the SDK/client work → a package
 ## Sources
 
 - [PCHP / consent protocol](../../consent-protocol/docs/reference/consent-protocol.md) — the handshake the glasses host speaks.
-- [One for macOS — Knowledge-Base App Plan](./one-mac-knowledge-base-app.md) — the host pattern this reuses.
 - [Personal Knowledge Model reference](../../consent-protocol/docs/reference/personal-knowledge-model.md) — the world-model shapes the on-device cache mirrors.

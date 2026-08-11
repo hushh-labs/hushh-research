@@ -359,6 +359,23 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.queryByText("Connected Person")).toBeNull();
   });
 
+  it("lets Skip leave the add-people screen without choosing anyone", () => {
+    // Skip used to call the Continue handler, which rejects an empty selection
+    // with "Choose at least one contact" -- so the button offered a way out and
+    // then refused to take it. Needing a contact to finish setup is the exact
+    // friction this screen should avoid; contacts can be added later from
+    // Connect.
+    const props = renderFlow();
+    openPeopleScreen();
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+
+    expect(props.onSkip).toHaveBeenCalledTimes(1);
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(props.onSendConnectionRequests).not.toHaveBeenCalled();
+  });
+
+
   it("requests only missing permissions as screen two opens", () => {
     const props = renderFlow();
 
@@ -542,30 +559,56 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
   });
 
-  it("does not let people-screen Skip bypass the required contact", () => {
+  it("keeps a selected person visible when their connection request fails", async () => {
+    renderFlow({
+      people: [people[1]!],
+      connections: [],
+      onSendConnectionRequests: vi.fn().mockResolvedValue({
+        sentUserIds: [],
+        failedUserIds: ["new_user"],
+      }),
+    });
+    openPeopleScreen();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "1 invitation could not be sent. You can retry it later from Connect.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText("New")).toBeTruthy();
+    expect(screen.getByText("Not sent")).toBeTruthy();
+  });
+
+  it("preserves an already-selected person when their relationship settles to pending", async () => {
     const props = renderFlow({
       people: [people[1]!],
       connections: [],
     });
     openPeopleScreen();
+    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-
-    expect(toast.error).toHaveBeenCalledWith(
-      "Choose at least one contact",
-      {
-        description:
-          "One Location works best with someone in your circle. You can update contacts later from the Connect tab.",
-      },
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Go back" })).toBeEnabled(),
     );
-    expect(screen.getByTestId("one-location-onboarding-people")).toBeTruthy();
-    expect(
-      screen.queryByTestId("one-location-onboarding-circle"),
-    ).toBeNull();
-    expect(props.onSkip).not.toHaveBeenCalled();
-    expect(props.onComplete).not.toHaveBeenCalled();
-    expect(props.onSendConnectionRequests).not.toHaveBeenCalled();
+    props.rerenderFlow({
+      people: [{ ...people[1]!, relationship: "pending_outgoing" }],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.getByText("1 selected")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
+    expect(screen.getByText("New")).toBeTruthy();
   });
+
 
   it("sends deliberate requests, shows selected people, and auto-completes after four seconds", async () => {
     vi.useFakeTimers();

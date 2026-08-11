@@ -184,3 +184,11 @@ consent-protocol/.sim/
 
 # Transient validation-harness reports (regenerate with scripts/ops/validate_agent_platform.py)
 consent-protocol/agent-validation-*.json
+# Local dev run logs. These are per-machine noise and a `git add -A` sweeps
+# tens of thousands of lines of them into a commit, which happened once.
+.backend-run.log
+.backend-run.prev*.log
+.backend-*.log
+.frontend-run.log
+.frontend-*.log
+*.log.cold.bak

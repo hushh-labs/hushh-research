@@ -9,6 +9,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { PrivateAgentCard } from "@/components/connections/private-agent-card";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
@@ -200,6 +201,8 @@ export function GeminiRuntimeConfigurationPage({
           surface rhythm; without it the two SettingsGroups render flush and the
           "Coming soon" heading looks cramped against the Gemini card (#1940). */}
       <AppPageContentRegion className="space-y-6">
+        {/* Below the AI-connection card, deliberately: a pod runs on the person's
+            own model key, so it is offered only after there is a key to run it on. */}
         <GeminiRuntimeSettingsCard
           userId={user?.uid}
           vaultKey={vaultKey}
@@ -234,6 +237,16 @@ export function GeminiRuntimeConfigurationPage({
               : undefined
           }
         />
+        {/* Not shown during first-run setup: the person is still connecting the key
+            the pod would run on, and offering to build one mid-flow would interrupt
+            the journey they are already in. */}
+        {setupMode ? null : (
+          <PrivateAgentCard
+            vaultOwnerToken={vaultOwnerToken}
+            needsUnlock={needsUnlock}
+            onRequestVaultUnlock={() => setUnlockOpen(true)}
+          />
+        )}
       </AppPageContentRegion>
       {setupMode ? (
         <SetupCompletionFooter

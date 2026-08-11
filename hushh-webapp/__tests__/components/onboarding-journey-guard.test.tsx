@@ -57,17 +57,26 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 }));
 
 vi.mock("@/lib/navigation/routes", () => ({
-  ROUTES: { ONE_SETUP: "/one/setup", ONE_HOME: "/one", PROFILE: "/one/profile" },
+  ROUTES: {
+    ONE_SETUP: "/one/setup",
+    ONE_SETUP_FINANCE: "/one/setup/finance",
+    ONE_HOME: "/one",
+    PROFILE: "/one/profile",
+  },
   buildOneSetupRoute: ({ returnTo }: { returnTo: string }) =>
     `/one/setup?return_to=${encodeURIComponent(returnTo)}`,
   isCapabilityOnboardingRoute: () => false,
   isOnboardingAdmissionExemptRoute: () => false,
+  normalizeStaticExportPathname: (pathname: string) =>
+    pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "") || "/",
 
   isOneSetupRoute: (pathname: string) =>
     pathname.replace(/\/index\.html$/i, "").replace(/\/+$/, "") ===
     "/one/setup",
   isOneSetupSurfaceRoute: (pathname: string) =>
-    pathname === "/one/setup" || pathname === "/one/setup/connections",
+    pathname === "/one/setup" ||
+    pathname === "/one/setup/connections" ||
+    pathname === "/one/setup/finance",
 }));
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
@@ -201,6 +210,25 @@ describe("OnboardingJourneyGuard", () => {
       expect(replace).toHaveBeenCalledWith("/one");
     });
     expect(screen.queryByText("hub")).toBeNull();
+  });
+
+  it("admits unfinished Finance setup after root onboarding resolves", async () => {
+    pathnameValue = "/one/setup/finance";
+    window.history.replaceState(null, "", pathnameValue);
+    isPersistentSetupResolvedMock.mockReturnValue(true);
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>finance setup</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByText("finance setup")).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
   });
 
   it("admits a setup surface during first onboarding (not dismissed)", async () => {

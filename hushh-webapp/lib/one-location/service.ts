@@ -183,6 +183,24 @@ export class OneLocationService {
     });
   }
 
+  /**
+   * Fetch only the canonical Location-sharing recipients.
+   *
+   * The workspace state contains several independent Location projections and
+   * can still be loading when a voice journey reaches the mounted screen.
+   * Recipient selection must not turn that loading window into a false
+   * "nobody matches" result.
+   */
+  static async listRecipients(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationRecipient[]> {
+    const response = await apiJson<{ recipients: OneLocationRecipient[] }>(
+      "/api/one/location/recipients",
+      { headers: authHeaders(vaultOwnerToken) },
+    );
+    return response.recipients ?? [];
+  }
+
   static async listCircles(
     vaultOwnerToken: string,
   ): Promise<OneLocationCircleSummary[]> {

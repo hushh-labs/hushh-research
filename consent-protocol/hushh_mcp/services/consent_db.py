@@ -45,6 +45,7 @@ from typing import Any, Dict, List, Optional
 
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.consent.export_envelope import normalize_refresh_policy
+from hushh_mcp.consent.pkm_scope_policy import is_source_library_pkm_scope
 from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.consent.scope_helpers import scope_matches
 from hushh_mcp.services.consent_request_links import build_consent_request_url
@@ -542,6 +543,8 @@ class ConsentDBService:
         results = []
         for request_id, row in latest_per_request.items():
             if row.get("action") == "REQUESTED":
+                if is_source_library_pkm_scope(str(row.get("scope") or "")):
+                    continue
                 poll_timeout_at = self._effective_pending_timeout_at(row)
                 if poll_timeout_at is None or poll_timeout_at > now_ms:
                     notification_opened_at = opened_at_by_request.get(request_id) or None
@@ -658,6 +661,8 @@ class ConsentDBService:
                 continue
             if row.get("action") != "REQUESTED":
                 return None
+            if is_source_library_pkm_scope(str(row.get("scope") or "")):
+                return None
             poll_timeout_at = self._effective_pending_timeout_at(row)
             if poll_timeout_at is not None and poll_timeout_at <= now_ms:
                 return None
@@ -724,6 +729,8 @@ class ConsentDBService:
         pending_rows = []
         for row in latest_per_request.values():
             if row.get("action") != "REQUESTED":
+                continue
+            if is_source_library_pkm_scope(str(row.get("scope") or "")):
                 continue
             poll_timeout_at = self._effective_pending_timeout_at(row)
             if poll_timeout_at is not None and poll_timeout_at <= now_ms:
@@ -796,6 +803,8 @@ class ConsentDBService:
         results = []
         for row in latest_per_agent_scope.values():
             if row.get("action") == "CONSENT_GRANTED":
+                if is_source_library_pkm_scope(str(row.get("scope") or "")):
+                    continue
                 expires_at = row.get("expires_at")
                 if expires_at is None or expires_at > now_ms:
                     token_id = row.get("token_id")
@@ -1107,6 +1116,8 @@ class ConsentDBService:
         """
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         normalized_scope = str(scope or "").strip()
+        if is_source_library_pkm_scope(normalized_scope):
+            return False
         normalized_agent_id = agent_id or None
         is_internal_lookup = self._is_internal_event(
             agent_id=normalized_agent_id,
@@ -1582,6 +1593,8 @@ class ConsentDBService:
             rid = row.get("request_id")
             if not rid:
                 continue
+            if is_source_library_pkm_scope(str(row.get("scope") or "")):
+                continue
             timeout_at = self._effective_pending_timeout_at(row)
             if timeout_at is None or timeout_at >= now_ms:
                 continue
@@ -1712,6 +1725,8 @@ class ConsentDBService:
         pending_requests: List[Dict[str, Any]] = []
         for row in latest_per_request.values():
             if row.get("action") != "REQUESTED":
+                continue
+            if is_source_library_pkm_scope(str(row.get("scope") or "")):
                 continue
             approval_timeout_at = self._effective_pending_timeout_at(row)
             if approval_timeout_at is None or approval_timeout_at <= now_ms:

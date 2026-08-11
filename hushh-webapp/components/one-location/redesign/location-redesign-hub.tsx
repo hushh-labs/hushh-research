@@ -29,11 +29,11 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import {
-  ChevronRight,
   Link as LinkIcon,
   Lock,
   Map,
   MapPin,
+  MessageCircleQuestionMark,
   Navigation,
   Plus,
   Send,
@@ -47,6 +47,11 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import {
+  MajorSectionTitle,
+  RowDescription,
+  RowLabel,
+} from "@/components/app-ui/typography";
 import type {
   OneLocationAccessRequest,
   OneLocationCircleInvite,
@@ -72,7 +77,7 @@ import {
   TrustNoteCard,
   WarningCard,
 } from "./primitives";
-import { MUTED_TEXT, SECTION_HEADING, SUBCARD_SURFACE } from "./tokens";
+import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import {
   RequestCard,
   SharedWithMeCard,
@@ -164,6 +169,8 @@ export type LocationHubViewModel = {
   revokingGrantId: string | null;
   /** Bumped on each successful share so the hub can close the share flow. */
   shareCompletedTick: number;
+  /** Where a completed share should land, when not the clean hub. */
+  shareCompletedDestination?: string | null;
 
   /* device + self location */
   readiness: {
@@ -510,18 +517,23 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
       className="ml-auto flex max-w-full shrink-0 items-center justify-end"
       data-testid="one-location-header-actions"
     >
-      <div className="flex h-9 shrink-0 items-center gap-0 rounded-full bg-black/[0.05] px-2 text-[13px] font-semibold text-foreground sm:gap-2 sm:px-3 dark:bg-white/[0.07]">
+      <div className="flex min-h-[31px] shrink-0 items-center gap-2 rounded-full bg-[color:var(--app-neutral-fill)] pl-3 pr-0">
         <span
-          className="hidden whitespace-nowrap sm:inline"
+          className="ui-text-helper-text hidden whitespace-nowrap text-[color:var(--app-label)] sm:inline"
           aria-hidden="true"
         >
           {statusLabel}
         </span>
         <Switch
+          size="ios"
           checked={locationOn}
           onCheckedChange={handleLocationChange}
           disabled={toggling || refreshing}
           aria-label={locationOn ? "Turn location off" : "Turn location on"}
+          // The same pair of contract actions the Settings toggle carries.
+          // Both are the same control in two places, so voice can offer
+          // pause/resume from the Now tab without opening Settings first.
+          data-voice-control-id="one-location-updates-toggle"
           // No colour override: the shared Switch already carries the iOS
           // system green, so this toggle reads the same as every other one.
           className={cn(toggling && "animate-pulse")}
@@ -824,6 +836,14 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         router.replace(nearbyCheckInReturnHref, { scroll: false });
         return;
       }
+      // An authored landing wins over the clean-up below, and has to be
+      // decided HERE rather than pushed by the caller: this effect calls
+      // router.replace on the very next render, so anything the caller
+      // navigated to would simply be replaced away.
+      if (vm.shareCompletedDestination) {
+        router.replace(vm.shareCompletedDestination, { scroll: false });
+        return;
+      }
       // Drop the action param so the hub URL is clean after a completed share.
       if ((searchParams.get(FLOW_ACTION_PARAM) || "").trim()) {
         const params = new URLSearchParams(searchParams.toString());
@@ -835,6 +855,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     }
   }, [
     vm.shareCompletedTick,
+    vm.shareCompletedDestination,
     nearbyCheckInReturnHref,
     nearbyPrivateCheckIn,
     pathname,
@@ -896,12 +917,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             recipientLabel={vm.recipientLabel}
             recipientSubtitle={vm.recipientSubtitle}
             isRecipientShareReady={vm.isRecipientShareReady}
-            onShareCircleCode={vm.onShareNamedCircleCodeById}
-            onLoadCircleEligibleConnections={
-              vm.onLoadNamedCircleEligibleConnections
-            }
-            onInviteCircleConnections={vm.onInviteNamedCircleConnections}
-            onCancelCircleMemberInvite={vm.onCancelNamedCircleMemberInvite}
           />
 
         ) : flow === "create-circle" ? (
@@ -986,15 +1001,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* Hub (Now | People | Links)                                        */
   /* ----------------------------------------------------------------- */
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 sm:space-y-5">
       <PageHeader
-        title={
-          <span className="inline-flex h-9 items-center whitespace-nowrap">
-            Location Agent
-          </span>
-        }
+        title="Location Agent"
         icon={MapPin}
-        accent="neutral"
+        accent="location"
+        titleRole="agent"
         actionsInlineMobile
         actions={<LocationHeaderActions vm={vm} />}
       />
@@ -1007,6 +1019,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           options={LOCATION_SWIPE_OPTIONS}
           onSelectionChange={(value) => setTab(value as LocationHubTab)}
           viewportMinHeight="0px"
+          heightMode="active"
         >
           <LocationHubPanel>
             <NowHub
@@ -1028,6 +1041,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               onOpenActiveShares={() => openFlow("active-shares")}
               onOpenSharedWithMe={() => openFlow("shared-with-me")}
               onOpenNeedsReview={() => openFlow("needs-review")}
+              onRequestLocation={() => openFlow("ask")}
               onOpenSettings={() => openFlow("settings")}
             />
           </LocationHubPanel>
@@ -1058,7 +1072,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
 
 function LocationHubPanel({ children }: { children: ReactNode }) {
   return (
-    <div className="space-y-5 px-[var(--page-inline-gutter-standard)]">
+    <div className="space-y-4 px-[var(--page-inline-gutter-standard)]">
       {children}
     </div>
   );
@@ -1078,6 +1092,7 @@ function NowHub({
   onOpenActiveShares,
   onOpenSharedWithMe,
   onOpenNeedsReview,
+  onRequestLocation,
   onOpenSettings,
 }: {
   vm: LocationHubViewModel;
@@ -1089,10 +1104,11 @@ function NowHub({
   onOpenActiveShares: () => void;
   onOpenSharedWithMe: () => void;
   onOpenNeedsReview: () => void;
+  onRequestLocation: () => void;
   onOpenSettings: () => void;
 }) {
   return (
-    <div className="space-y-3" data-testid="one-location-now-hub">
+    <div className="space-y-4" data-testid="one-location-now-hub">
       {/* Every row and tile below carries the `control_ids` / `action_id` pair
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
@@ -1156,6 +1172,28 @@ function NowHub({
           voiceControlId="one-location-action-needs-review"
           voiceActionId="location.open_needs_review"
         />
+        {/* Asking someone to share was reachable only from the People tab, so
+            the Now tab listed every way to give a location out and none to ask
+            for one. Same flow and same voice control id as that entry -- this
+            is an additional way in, not a second implementation. */}
+        {/* Not `Send`: that is the same paper-plane silhouette as `Navigation`
+            on "Share location" two rows up, so at row size the two entries read
+            as the same icon -- and they are opposites. A speech bubble asking a
+            question is distinct at a glance and matches what the flow does:
+            "Requests should explain why. The other person chooses whether to
+            share." Radar and Crosshair were rejected for implying tracking on a
+            surface built around consent. */}
+        <SettingsRow
+          icon={MessageCircleQuestionMark}
+          iconTone="accent"
+          title="Request Location"
+          density="compact"
+          chevron
+          onClick={onRequestLocation}
+          testId="one-location-request-row"
+          voiceControlId="one-location-action-ask"
+          voiceActionId="location.open_ask"
+        />
         <SettingsRow
           icon={Lock}
           iconTone="gray"
@@ -1172,7 +1210,7 @@ function NowHub({
       <QuickActionsSection title="Quick actions" columns={2}>
         <QuickActionCard
           tone="green"
-          icon={<ShieldCheck className="h-5 w-5" />}
+          icon={<ShieldCheck />}
           title="Check-In"
           subtitle={checkInSubtitle}
           onClick={onCheckIn}
@@ -1180,7 +1218,7 @@ function NowHub({
         />
         <QuickActionCard
           tone="red"
-          icon={<Shield className="h-5 w-5" />}
+          icon={<Shield />}
           title="SMS"
           subtitle={vm.sosActive ? "Live now" : "Save my soul"}
           onClick={onSos}
@@ -1395,11 +1433,14 @@ function LocationToggle({
   onChange,
   label,
   disabled = false,
+  voiceControlId,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   label: string;
   disabled?: boolean;
+  /** Anchors contract actions to this control so voice offers them only here. */
+  voiceControlId?: string;
 }) {
   return (
     <button
@@ -1408,6 +1449,7 @@ function LocationToggle({
       aria-checked={checked}
       aria-label={label}
       disabled={disabled}
+      data-voice-control-id={voiceControlId}
       onClick={() => onChange(!checked)}
       className={cn(
         "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-200",
@@ -1471,6 +1513,7 @@ function LocationSettingsFlow({
               }}
               label="Pause my location"
               disabled={BUSY(vm, "selfLocation")}
+              voiceControlId="one-location-updates-toggle"
             />
           }
           density="compact"
@@ -1640,7 +1683,7 @@ function PeopleHub({
             <Button
               onClick={onAddConnections}
               data-voice-control-id="one-location-add-connections"
-              className="h-11 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+              className="w-full"
             >
               <UsersRound className="mr-2 h-4 w-4" />
               Add Connections
@@ -1649,7 +1692,7 @@ function PeopleHub({
               variant="outline"
               onClick={onInvite}
               data-voice-control-id="one-location-action-invite"
-              className="h-10 rounded-full text-sm font-semibold"
+              className="w-full"
             >
               <UserPlus className="mr-2 h-4 w-4" />
               Invite trusted person
@@ -1659,7 +1702,7 @@ function PeopleHub({
                 variant="outline"
                 onClick={vm.onSyncContacts}
                 isLoading={vm.busy === "contactSync"}
-                className="h-10 rounded-full text-sm"
+                className="w-full"
               >
                 Sync contacts
               </Button>
@@ -1667,7 +1710,7 @@ function PeopleHub({
                 variant="outline"
                 onClick={vm.onShareToContacts}
                 isLoading={vm.busy === "contactInvite"}
-                className="h-10 rounded-full text-sm"
+                className="w-full"
               >
                 Share to contacts
               </Button>
@@ -1710,7 +1753,7 @@ function PeopleHub({
         <Button
           onClick={onAddConnections}
           data-voice-control-id="one-location-add-connections"
-          className="h-10 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+          className="w-full"
         >
           <UsersRound className="mr-2 h-4 w-4" />
           Add Connections
@@ -1719,7 +1762,7 @@ function PeopleHub({
           variant="outline"
           onClick={onInvite}
           data-voice-control-id="one-location-action-invite"
-          className="h-10 rounded-full border-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent)]"
+          className="w-full border-[color:var(--app-accent)] text-[color:var(--app-accent)]"
         >
           <UserPlus className="mr-2 h-4 w-4" />
           Invite trusted person
@@ -1729,7 +1772,7 @@ function PeopleHub({
             variant="outline"
             onClick={vm.onSyncContacts}
             isLoading={vm.busy === "contactSync"}
-            className="h-10 rounded-full text-sm"
+            className="w-full"
           >
             Sync contacts
           </Button>
@@ -1737,7 +1780,7 @@ function PeopleHub({
             variant="outline"
             onClick={vm.onShareToContacts}
             isLoading={vm.busy === "contactInvite"}
-            className="h-10 rounded-full text-sm"
+            className="w-full"
           >
             Share to contacts
           </Button>
@@ -1794,28 +1837,19 @@ function PeopleHub({
       )}
 
       {/* Ask someone to share — request another person's live location. */}
-      <button
-        type="button"
-        onClick={onAsk}
-        data-voice-control-id="one-location-action-ask"
-        className={cn(
-          "flex min-h-[60px] w-full items-center gap-3.5 p-3.5 text-left transition-colors hover:bg-foreground/[0.025]",
-          SUBCARD_SURFACE,
-        )}
-      >
-        <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12">
-          <Navigation className="h-[17px] w-[17px] text-[color:var(--app-accent)]" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[17px] font-normal leading-[22px] text-[color:var(--app-accent)]">
-            Ask someone to share
-          </span>
-          <span className="block text-[15px] leading-5 text-muted-foreground">
-            Send a request — they approve first.
-          </span>
-        </span>
-        <ChevronRight className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)]" />
-      </button>
+      <SettingsGroup separatorInset>
+        <SettingsRow
+          icon={Navigation}
+          iconTone="accent"
+          title="Ask someone to share"
+          description="Send a request — they approve first."
+          density="compact"
+          chevron
+          onClick={onAsk}
+          voiceControlId="one-location-action-ask"
+          voiceActionId="location.open_ask"
+        />
+      </SettingsGroup>
 
       {vm.requestedByMe.length ? (
         <SettingsGroup title="Requests sent" separatorInset>
@@ -1876,17 +1910,18 @@ function ActiveLinkRow({
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
+        <RowLabel as="p" className="truncate">
           {title}
-        </p>
-        <p className="mt-0.5 truncate text-[15px] leading-5 text-muted-foreground">
+        </RowLabel>
+        <RowDescription as="p" className="mt-0.5 truncate">
           {subtitle}
-        </p>
+        </RowDescription>
       </div>
       <Button
         variant="outline"
         onClick={onCopy}
-        className="h-9 shrink-0 rounded-full border-[color:var(--app-accent)] px-4 text-[14px] font-semibold text-[color:var(--app-accent)]"
+        size="sm"
+        className="shrink-0 border-[color:var(--app-accent)] px-4 text-[color:var(--app-accent)]"
       >
         Copy
       </Button>
@@ -1907,9 +1942,9 @@ function LinksHub({
 
   return (
     <div className="space-y-4">
-      <p className={cn(SECTION_HEADING, "px-[6px]")}>
+      <MajorSectionTitle as="h2" className="px-[6px]">
         Active links
-      </p>
+      </MajorSectionTitle>
 
       {hasLinks ? (
         <div className={cn("overflow-hidden px-3.5", SUBCARD_SURFACE)}>
@@ -1944,7 +1979,7 @@ function LinksHub({
       <Button
         onClick={onCreateTempLink}
         data-voice-control-id="one-location-action-temp-link"
-        className="h-12 w-full rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+        className="w-full"
       >
         <Plus className="mr-2 h-4 w-4" />
         Create a new link
@@ -2106,6 +2141,7 @@ function ShareFlow({
           <Button
             onClick={vm.onConfirmShare}
             isLoading={vm.busy === "share"}
+            data-voice-control-id="one-location-confirm-share"
             className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
           >
             Start sharing
@@ -2270,6 +2306,7 @@ function ShareFlow({
       <PersonSearchInput
         value={vm.shareRecipientSearch}
         onChange={vm.setShareRecipientSearch}
+        voiceControlId="one-location-share-recipient-search"
       />
       {filtered.length ? (
         <div className={PEOPLE_LIST_SCROLL_CLASS}>

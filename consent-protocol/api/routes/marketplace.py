@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -32,6 +34,11 @@ class MarketplaceContactLookup(BaseModel):
 class MarketplaceContactMatchRequest(BaseModel):
     phone_lookups: list[MarketplaceContactLookup] = Field(default_factory=list, max_length=1000)
     limit: int = Field(default=50, ge=1, le=100)
+    # "marketplace" keeps the Connect deck's publicly-discoverable-profiles
+    # policy. "one_network" matches any phone-verified account that has not
+    # turned off contact discoverability, which is what One Location contact
+    # sync needs.
+    scope: Literal["marketplace", "one_network"] = "marketplace"
 
 
 def _iam_schema_not_ready_response(message: str | None = None) -> JSONResponse:
@@ -166,6 +173,7 @@ async def match_marketplace_contacts(
             firebase_uid,
             phone_lookups=[item.dict() for item in payload.phone_lookups],
             limit=payload.limit,
+            scope=payload.scope,
         )
         return {"items": items}
     except IAMSchemaNotReadyError as exc:

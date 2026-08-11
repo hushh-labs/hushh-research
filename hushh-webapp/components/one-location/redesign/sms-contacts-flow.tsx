@@ -14,13 +14,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import type {
-  OneLocationCircleEligibleConnections,
   OneLocationCircleSummary,
   OneLocationRecipient,
 } from "@/lib/one-location/types";
-import { CircleGrowActions } from "@/components/one-location/redesign/circles/circle-grow-actions";
 import { MUTED_TEXT, SECTION_HEADING } from "@/components/one-location/redesign/tokens";
-
 
 const AVATAR_TONES = [
   "bg-[#2f80ed]",
@@ -42,19 +39,7 @@ type SmsContactsFlowProps = {
   recipientLabel: (recipient: OneLocationRecipient) => string;
   recipientSubtitle: (recipient: OneLocationRecipient) => string;
   isRecipientShareReady: (recipient: OneLocationRecipient) => boolean;
-  // Grow-this-Circle handlers so a user can invite loved ones or share the
-  // invite code right where they add a Circle to SMS contacts.
-  onShareCircleCode: (circleId: string) => Promise<void>;
-  onLoadCircleEligibleConnections: (
-    circleId: string,
-  ) => Promise<OneLocationCircleEligibleConnections>;
-  onInviteCircleConnections: (
-    circleId: string,
-    inviteeUserIds: string[],
-  ) => Promise<void>;
-  onCancelCircleMemberInvite: (inviteId: string) => Promise<void>;
 };
-
 
 function initials(value: string): string {
   const parts = value.trim().split(/\s+/).filter(Boolean);
@@ -153,12 +138,7 @@ export function SmsContactsFlow({
   recipientLabel,
   recipientSubtitle,
   isRecipientShareReady,
-  onShareCircleCode,
-  onLoadCircleEligibleConnections,
-  onInviteCircleConnections,
-  onCancelCircleMemberInvite,
 }: SmsContactsFlowProps) {
-
   const [pendingRemoval, setPendingRemoval] =
     useState<OneLocationRecipient | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -205,10 +185,10 @@ export function SmsContactsFlow({
           <ChevronLeft className="h-[19px] w-[19px]" />
         </button>
 
-        <h1 className="mt-3 !text-[32px] !font-bold !leading-[1.08] !tracking-normal">
+        <h1 className="mt-3 !text-[28px] !font-bold !leading-[34px] !tracking-normal">
           SMS contacts
         </h1>
-        <p className="mt-2 max-w-[350px] text-[17px] leading-[24px] text-muted-foreground">
+        <p className="mt-2 max-w-[350px] text-[15px] font-normal leading-[20px] text-muted-foreground">
           These people are alerted with your live location the moment you send
           the SMS.
         </p>
@@ -261,33 +241,12 @@ export function SmsContactsFlow({
               This adds a snapshot of current ready members. Anyone who joins
               later is never added to SMS automatically.
             </p>
-            {/* Grow a Circle in-context: invite an existing connection or share
-                the invite code so loved ones can join before they become SMS
-                contacts. Membership never auto-adds anyone to SMS. */}
-            {circles.map((circle) => (
-              <div
-                key={`grow-${circle.id}`}
-                className="mt-3 px-1 md:max-w-[520px]"
-              >
-                <p className={cn(SECTION_HEADING, "mb-1.5")}>
-                  Grow {circle.name}
-                </p>
-                <CircleGrowActions
-                  circleId={circle.id}
-                  circleName={circle.name}
-                  busy={Boolean(busyKey)}
-                  canInvite={
-                    circle.viewerCapabilities?.canInviteMembers ??
-                    circle.role === "owner"
-                  }
-                  onShareCode={onShareCircleCode}
-                  onLoadEligibleConnections={onLoadCircleEligibleConnections}
-                  onInviteConnections={onInviteCircleConnections}
-                  onCancelMemberInvite={onCancelCircleMemberInvite}
-                  testId={`sms-circle-grow-actions-${circle.id}`}
-                />
-              </div>
-            ))}
+            {/* Growing a Circle deliberately does NOT live here. This screen
+                answers one question -- who gets the alert -- and a per-Circle
+                "Invite people / Share code" block for every Circle pushed that
+                list below the fold and mixed a membership task into a
+                contact-picking one. Growing a Circle stays on the People tab,
+                which owns membership. */}
           </>
         ) : null}
 
@@ -382,7 +341,7 @@ export function SmsContactsFlow({
             >
               {pendingRemoval ? initials(recipientLabel(pendingRemoval)) : "?"}
             </span>
-            <AlertDialogTitle className="mt-1 !text-center !text-[22px] !font-bold !leading-[1.14]">
+            <AlertDialogTitle className="mt-1 !text-center !text-[20px] !font-semibold !leading-[25px] !tracking-normal">
               <span className="text-foreground">
                 Remove{" "}
                 {pendingRemoval

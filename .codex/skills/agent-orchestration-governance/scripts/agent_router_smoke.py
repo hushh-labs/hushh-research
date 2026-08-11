@@ -68,6 +68,26 @@ SCENARIOS: tuple[dict[str, Any], ...] = (
         "should_delegate": True,
     },
     {
+        "name": "source-library-local-sqlite-boundary",
+        "workflow": "security-consent-audit",
+        "phase": "start",
+        "prompt": (
+            "keep provider files authoritative while local SQLite mapping state "
+            "tracks opaque Source Library share references"
+        ),
+        "paths": [
+            "docs/reference/iam/consent-scope-catalog.md",
+            "consent-protocol/docs/reference/personal-knowledge-model.md",
+        ],
+        "required_agents": {
+            "data_model_architect",
+            "security_consent_auditor",
+            "reviewer",
+        },
+        "forbidden_agents": set(),
+        "should_delegate": True,
+    },
+    {
         "name": "product-docs-ontology",
         "workflow": "docs-sync",
         "phase": "start",

@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Grid2X2, List, Search } from "lucide-react";
+import { ChevronRight, Grid2X2, List, Search } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { MajorSectionTitle } from "@/components/app-ui/typography";
+import { LargeTitle } from "@/components/app-ui/typography";
 import {
   getOneSetupCapability,
   isOneCapabilityEnabled,
@@ -57,6 +56,7 @@ type OneAgentMode = {
 
 type AgentMetric = OneAgentMode["primaryMetric"];
 type AgentRosterView = "grid" | "list";
+type AgentMetricTone = "default" | "positive" | "warning" | "muted";
 
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
 
@@ -320,6 +320,11 @@ function buildModes(
 
     const isActionable =
       "isActionable" in display ? (display as any).isActionable : true;
+    const opensSetup = Boolean(
+      setupCapability &&
+        isActionable &&
+        (!setupDismissed || capability.id === "finance"),
+    );
 
     const primaryMetric =
       cachedMetrics[capability.id] ??
@@ -332,14 +337,12 @@ function buildModes(
       id: capability.id,
       title: capability.title,
       description: capability.description,
-      // Once onboarding is dismissed, a home tile for a not-yet-configured
-      // capability opens the capability's OWN screen — never the setup hub.
-      // Setup is reachable only via Profile → "Set Up One" (post-onboarding),
-      // and routing a tile into a setup surface would be ejected by the guard.
-      href:
-        !setupDismissed && setupCapability && isActionable
-          ? buildOneSetupCapabilityRoute(capability.id)
-          : capability.href,
+      // Root onboarding dismissal normally opens the product workspace.
+      // Finance remains an exception while its own resolver says setup is
+      // actionable: root completion or Skip is not Finance completion.
+      href: opensSetup
+        ? buildOneSetupCapabilityRoute(capability.id)
+        : capability.href,
       icon: capability.icon,
       statusTone: display.tone,
       primaryMetric,
@@ -393,24 +396,55 @@ function resolvePrimaryMetric({
   };
 }
 
-function statusClassName(mode: OneAgentMode): string {
-  if (mode.statusTone === "ready") return "text-[#138a3d] dark:text-[#5ee283]";
-  if (mode.statusTone === "attention") return "text-accent-strong";
-  if (mode.statusTone === "action") return "text-foreground";
-  return "text-muted-foreground";
+function isZeroMetric(metric: AgentMetric): boolean {
+  return Number(metric.value) === 0;
 }
 
-function metricClassName(mode: OneAgentMode): string {
+function resolveMetricTone(mode: OneAgentMode): AgentMetricTone {
+  const metric = mode.primaryMetric;
+  const isZero = isZeroMetric(metric);
+
+  if (metric.value === "—") return "muted";
+
+  if (mode.id === "finance") {
+    return metric.label.endsWith("%") ? "default" : "muted";
+  }
+
+  if (mode.id === "location") {
+    return isZero ? "muted" : "positive";
+  }
+
+  if (mode.id === "pkm") {
+    return "default";
+  }
+
   if (
-    (mode.id === "finance" && mode.primaryMetric.label.endsWith("%")) ||
+    mode.id === "ria" ||
+    mode.id === "email" ||
+    mode.id === "consent" ||
     mode.id === "connected-systems"
   ) {
-    return "text-emerald-700 dark:text-emerald-300";
+    return isZero ? "muted" : "warning";
   }
-  return statusClassName(mode);
+
+  return mode.statusTone === "muted" ? "muted" : "default";
 }
 
-function AgentMetricDisplay({
+function metricValueClassName(tone: AgentMetricTone): string {
+  if (tone === "positive") return "text-[#34C759]";
+  if (tone === "warning") return "text-[#FF9500]";
+  if (tone === "muted") return "text-[#8E8E93]";
+  return "text-[#1D1D1F] dark:text-[#F5F5F7]";
+}
+
+function metricLabelClassName(tone: AgentMetricTone): string {
+  if (tone === "positive") return "text-[#34C759]";
+  if (tone === "warning") return "text-[#8E8E93]";
+  if (tone === "muted") return "text-[#8E8E93]";
+  return "text-[#8E8E93]";
+}
+
+function AgentMetric({
   mode,
   compact = false,
 }: {
@@ -419,30 +453,37 @@ function AgentMetricDisplay({
 }) {
   const isTopWinner =
     mode.id === "finance" && mode.primaryMetric.label.endsWith("%");
-  const isPositiveMetric = isTopWinner || mode.id === "connected-systems";
+  const tone = resolveMetricTone(mode);
+  const valueTone = isTopWinner ? "default" : tone;
+  const labelTone = isTopWinner ? "positive" : tone;
 
   return (
     <span
       data-testid={isTopWinner ? "one-finance-top-winner-kpi" : undefined}
       className={cn(
-        "inline-flex min-w-0 items-baseline gap-1 whitespace-nowrap leading-tight",
-        compact ? "justify-center" : "justify-end",
+        "inline-flex w-full min-w-0 items-baseline gap-1 text-right",
+        compact
+          ? "max-w-full flex-wrap justify-center"
+          : "justify-end whitespace-nowrap",
       )}
     >
       <span
+        data-ui-role="body-strong"
         className={cn(
-          "shrink-0 font-semibold tabular-nums tracking-normal",
-          compact ? "text-[13px]" : "text-[15px]",
-          metricClassName(mode),
+          "shrink-0 tabular-nums text-[15px] font-semibold leading-5 tracking-normal",
+          metricValueClassName(valueTone),
         )}
       >
         {mode.primaryMetric.value}
       </span>
       <span
+        data-ui-role="trailing-value"
         className={cn(
-          "min-w-0 truncate font-normal text-muted-foreground",
-          compact ? "text-[12px]" : "text-[13px]",
-          isPositiveMetric && "text-emerald-700/80 dark:text-emerald-300/85",
+          "min-w-0 text-[15px] font-normal leading-5 tracking-normal",
+          compact
+            ? "min-w-0 whitespace-normal text-center [overflow-wrap:anywhere]"
+            : "truncate",
+          metricLabelClassName(labelTone),
         )}
       >
         {mode.primaryMetric.label}
@@ -477,16 +518,19 @@ function AgentGridItem({
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
         isActive={mode.statusTone !== "muted"}
-        size="launcher"
+        size="roster"
         treatment="profile"
         glyphContrast="default"
         className="relative z-10"
       />
       <span className="relative z-10 min-w-0">
-        <span className="block truncate text-[15px] font-normal leading-[20px] tracking-normal text-foreground">
+        <span
+          className="ui-text-row-label block truncate"
+          data-ui-role="body"
+        >
           {mode.title}
         </span>
-        <AgentMetricDisplay mode={mode} compact />
+        <AgentMetric mode={mode} compact />
       </span>
       <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
@@ -495,33 +539,50 @@ function AgentGridItem({
 
 function AgentListRow({ mode }: { mode: OneAgentMode }) {
   return (
-    <SettingsRow
-      asChild
-      density="compact"
-      title={mode.title}
-      className="[--settings-row-px:16px] [--settings-row-py:10px]"
-      leading={
+    <Link
+      href={mode.href}
+      aria-label={`Open ${mode.title}`}
+      title={mode.description}
+      data-testid={`one-agent-list-row-${mode.id}`}
+      className={cn(
+        "group/agent-row relative grid min-h-[64px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(108px,150px)_16px] items-center gap-x-3 overflow-hidden px-4 text-left outline-none",
+        "transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
+        "hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+        "sm:grid-cols-[40px_minmax(0,1fr)_minmax(160px,210px)_16px]",
+      )}
+    >
+      <span className="relative z-10 flex items-center justify-center">
         <AgentSectionIcon
           id={mode.id}
           icon={mode.icon}
           tone={mode.tone}
           paletteIndex={mode.paletteIndex}
           isActive={mode.statusTone !== "muted"}
-          size="menu"
+          size="roster"
           treatment="profile"
           glyphContrast="default"
         />
-      }
-      trailing={<AgentMetricDisplay mode={mode} />}
-      chevron
-      testId={`one-agent-list-row-${mode.id}`}
-    >
-      <Link
-        href={mode.href}
-        aria-label={`Open ${mode.title}`}
-        title={mode.description}
+      </span>
+      <span
+        data-ui-role="row-label"
+        className="ui-text-row-label relative z-10 min-w-0 truncate"
+      >
+        {mode.title}
+      </span>
+      <span className="relative z-10 min-w-0">
+        <AgentMetric mode={mode} />
+      </span>
+      <ChevronRight
+        aria-hidden
+        className="relative z-10 h-4 w-4 text-[#C7C7CC] [stroke-width:1.7]"
       />
-    </SettingsRow>
+      <span
+        aria-hidden
+        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[rgba(60,60,67,.12)] group-last/agent-list:hidden"
+      />
+      <MaterialRipple variant="blue" effect="fade" className="z-0" />
+    </Link>
   );
 }
 
@@ -536,7 +597,7 @@ function AgentRosterViewToggle({
     <div
       role="group"
       aria-label="Agent roster view"
-      className="inline-flex shrink-0 items-center gap-1 rounded-[14px] bg-[color:var(--app-card-surface-compact)] p-1"
+      className="inline-flex h-11 shrink-0 items-center rounded-[14px] bg-[rgba(120,120,128,.12)] p-0"
     >
       <ShellActionSurface
         aria-label="Show agent grid view"
@@ -544,10 +605,10 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-grid"
         onClick={() => onChange("grid")}
         className={cn(
-          "h-9 w-9 rounded-[11px]",
+          "h-11 w-11 rounded-[14px]",
           value === "grid"
-            ? "bg-accent text-accent-foreground shadow-none hover:bg-accent dark:bg-accent"
-            : "bg-transparent text-muted-foreground shadow-none hover:bg-foreground/[0.06] hover:text-foreground dark:bg-transparent",
+            ? "bg-[color:var(--app-accent)] text-white shadow-none hover:bg-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]"
+            : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent",
         )}
       >
         <Grid2X2 className="h-[17px] w-[17px] [stroke-width:1.8]" aria-hidden />
@@ -558,10 +619,10 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-list"
         onClick={() => onChange("list")}
         className={cn(
-          "h-9 w-9 rounded-[11px]",
+          "h-11 w-11 rounded-[14px]",
           value === "list"
-            ? "bg-accent text-accent-foreground shadow-none hover:bg-accent dark:bg-accent"
-            : "bg-transparent text-muted-foreground shadow-none hover:bg-foreground/[0.06] hover:text-foreground dark:bg-transparent",
+            ? "bg-[color:var(--app-accent)] text-white shadow-none hover:bg-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]"
+            : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent",
         )}
       >
         <List className="h-[17px] w-[17px] [stroke-width:1.8]" aria-hidden />
@@ -619,16 +680,12 @@ export function OneAgentRoster({
     <section
       aria-labelledby="one-agents-heading"
       data-testid="one-agents-section"
-      className="mx-auto w-full max-w-[720px]"
+      className="mx-auto w-full max-w-[900px]"
     >
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <MajorSectionTitle
-          as="h2"
-          id="one-agents-heading"
-          className="text-[28px] leading-[34px]"
-        >
-          agents ({modes.length})
-        </MajorSectionTitle>
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <LargeTitle as="h2" id="one-agents-heading" className="min-w-0 truncate">
+          Agents ({modes.length})
+        </LargeTitle>
         <AgentRosterViewToggle value={view} onChange={selectView} />
       </div>
       <label className="relative mb-4 block">
@@ -640,10 +697,11 @@ export function OneAgentRoster({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="search agents"
-          aria-label="search agents"
+          placeholder="Search agents"
+          aria-label="Search agents"
+          data-ui-role="input-text"
           data-testid="one-agents-search"
-          className="h-11 w-full rounded-[16px] border-0 bg-[color:var(--app-card-surface-compact)] py-2 pl-11 pr-4 text-[17px] font-normal leading-[22px] tracking-normal text-foreground outline-none ring-1 ring-border/55 placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
+          className="h-[52px] w-full rounded-[16px] border border-[rgba(60,60,67,.12)] bg-white py-[15px] pl-11 pr-4 text-[17px] font-normal leading-[22px] text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/70 dark:bg-[#1C1C1E] dark:text-[#F5F5F7]"
         />
       </label>
       <div
@@ -652,10 +710,9 @@ export function OneAgentRoster({
         className={animateViewChange ? "motion-step-enter" : undefined}
       >
         {view === "grid" ? (
-          <SettingsGroup
-            embedded
-            testId="one-agents-grid"
-            className="[&_[data-slot=settings-group-shell]]:p-1.5 sm:[&_[data-slot=settings-group-shell]]:p-2"
+          <div
+            data-testid="one-agents-grid"
+            className="rounded-[var(--app-card-radius-standard,24px)] bg-white p-2 shadow-[var(--app-card-shadow-standard)] dark:bg-[#1C1C1E]"
           >
             <div
               data-agent-roster-layout="grouped-icon-grid"
@@ -665,13 +722,16 @@ export function OneAgentRoster({
                 <AgentGridItem key={mode.id} mode={mode} />
               ))}
             </div>
-          </SettingsGroup>
+          </div>
         ) : (
-          <SettingsGroup embedded separatorInset testId="one-agents-list">
+          <div
+            data-testid="one-agents-list"
+            className="group/agent-list overflow-hidden rounded-[var(--app-card-radius-standard,24px)] bg-white shadow-[var(--app-card-shadow-standard)] dark:bg-[#1C1C1E]"
+          >
             {visibleModes.map((mode) => (
               <AgentListRow key={mode.id} mode={mode} />
             ))}
-          </SettingsGroup>
+          </div>
         )}
       </div>
     </section>

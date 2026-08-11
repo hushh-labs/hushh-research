@@ -172,14 +172,13 @@ textarea {
 }
 
 :root {
-  /* Centralized app typography variables.
-   * Apple-system web pass uses the bundled Inter Variable family only. */
-  --font-app-display:
-    "InterVariable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+  /* Centralized app typography variables. Apple devices resolve to the native
+   * system face; other platforms fall through to Inter Variable/system. */
+  --font-family-product:
+    -apple-system, BlinkMacSystemFont, "InterVariable", "Inter", system-ui,
     sans-serif;
-  --font-app-body:
-    "InterVariable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  --font-app-display: var(--font-family-product);
+  --font-app-body: var(--font-family-product);
   --font-app-text: var(--font-app-body);
   --font-app-heading: var(--font-app-display);
   --font-app-mono: var(--font-app-body);
@@ -249,52 +248,62 @@ textarea {
      for app UI hierarchy; components opt into roles instead of restating
      route-specific font sizes. */
   --type-large-page-title-size: 34px;
-  --type-large-page-title-line: 38px;
+  --type-large-page-title-line: 41px;
   --type-large-page-title-weight: 700;
-  --type-large-page-title-tracking: -0.028em;
+  --type-large-page-title-tracking: normal;
   --type-page-title-size: 28px;
-  --type-page-title-line: 32px;
+  --type-page-title-line: 34px;
   --type-page-title-weight: 700;
-  --type-page-title-tracking: -0.022em;
+  --type-page-title-tracking: normal;
   --type-navigation-title-size: 17px;
   --type-navigation-title-line: 22px;
   --type-navigation-title-weight: 600;
-  --type-navigation-title-tracking: -0.01em;
+  --type-navigation-title-tracking: normal;
   --type-major-section-title-size: 22px;
-  --type-major-section-title-line: 26px;
+  --type-major-section-title-line: 28px;
   --type-major-section-title-weight: 600;
-  --type-major-section-title-tracking: -0.017em;
+  --type-major-section-title-tracking: normal;
   --type-card-title-size: 20px;
-  --type-card-title-line: 24px;
+  --type-card-title-line: 25px;
   --type-card-title-weight: 600;
-  --type-card-title-tracking: -0.014em;
+  --type-card-title-tracking: normal;
   --type-section-label-size: 15px;
   --type-section-label-line: 20px;
   --type-section-label-weight: 500;
-  --type-section-label-tracking: -0.01em;
+  --type-section-label-tracking: normal;
   --type-row-label-size: 17px;
   --type-row-label-line: 22px;
   --type-row-label-weight: 400;
   --type-row-label-emphasis-weight: 600;
-  --type-row-label-tracking: -0.01em;
+  --type-row-label-tracking: normal;
+  --type-page-subtitle-size: 15px;
+  --type-page-subtitle-line: 20px;
   --type-row-description-size: 15px;
-  --type-row-description-line: 21px;
+  --type-row-description-line: 20px;
   --type-row-description-weight: 400;
-  --type-row-description-tracking: -0.006em;
+  --type-row-description-tracking: 0;
   --type-form-label-size: 15px;
   --type-form-label-line: 20px;
   --type-form-label-weight: 500;
-  --type-form-label-tracking: -0.006em;
+  --type-form-label-tracking: normal;
   --type-input-value-size: 17px;
-  --type-input-value-line: 24px;
+  --type-input-value-line: 22px;
   --type-helper-text-size: 13px;
   --type-helper-text-line: 18px;
+  --type-helper-text-tracking: 0;
+  --type-legal-text-size: 11px;
+  --type-legal-text-line: 15px;
   --type-button-label-size: 17px;
   --type-button-label-line: 22px;
   --type-button-label-weight: 600;
   --type-tab-label-size: 11px;
   --type-tab-label-line: 13px;
   --type-tab-label-weight: 500;
+  --type-tab-label-tracking: 0;
+  --type-agent-tab-label-size: 15px;
+  --type-agent-tab-label-line: 20px;
+  --type-agent-tab-label-weight: 500;
+  --type-agent-tab-label-tracking: normal;
   --foundation-caption-tracking: 0.158em;
   --foundation-micro-size: 0.6875rem;
   --foundation-micro-line: 1.273;
@@ -343,11 +352,12 @@ textarea {
   --app-secondary-surface: #f9f9fb;
   --app-elevated-surface: #ffffff;
   --app-label: #1d1d1f;
-  --app-secondary-label: #8e8e93;
+  --app-secondary-label: #6e6e73;
   --app-section-label: #6e6e73;
-  --app-tertiary-label: #aeaeb2;
+  --app-tertiary-label: #8e8e93;
+  --app-disabled-label: #aeaeb2;
   --app-quaternary-label: #c7c7cc;
-  --app-separator: rgba(60, 60, 67, 0.1);
+  --app-separator: rgba(60, 60, 67, 0.12);
   --app-opaque-separator: #e5e5ea;
   --app-neutral-fill: rgba(120, 120, 128, 0.16);
   --app-neutral-fill-strong: rgba(120, 120, 128, 0.2);
@@ -356,6 +366,15 @@ textarea {
   --app-destructive: #ff3b30;
   --app-success: #34c759;
   --app-warning: #ff9500;
+  --text-primary: var(--app-label);
+  --text-secondary: var(--app-secondary-label);
+  --text-tertiary: var(--app-tertiary-label);
+  --text-disabled: var(--app-disabled-label);
+  --chevron: var(--app-quaternary-label);
+  --system-blue: var(--app-accent);
+  --system-green: var(--app-success);
+  --system-red: var(--app-destructive);
+  --system-orange: var(--app-warning);
   --app-purple: #af52de;
   --app-info: var(--app-accent);
   --app-focus-ring: rgba(0, 122, 255, 0.25);
@@ -511,6 +530,9 @@ textarea {
   --kai-command-fixed-ui: 82px;
   --kai-command-bottom-gap: 12px;
   --app-screen-footer-pad: calc(8px + var(--app-bottom-inset));
+  --app-bottom-content-clearance: calc(
+    var(--bottom-chrome-stack-height, var(--app-bottom-inset)) + 24px
+  );
   --app-top-safe-offset: 0px;
   --app-safe-area-top-probe: 0px;
   --app-safe-area-top: var(
@@ -523,13 +545,13 @@ textarea {
     var(--app-safe-area-top-probe)
   );
   --app-top-bar-height: 72px;
-  --kai-route-tabs-height: 42px;
+  --kai-route-tabs-height: 56px;
   --kai-route-tabs-content-gap: 14px;
   /* Global top-shell geometry contract (consumed by providers + top-app-bar).
    * Keep these tokens defined at root so web and native share deterministic spacing. */
   --top-shell-safe-area: var(--app-safe-area-top-effective);
   --top-inset: var(--top-shell-safe-area);
-  --top-bar-h: 44px;
+  --top-bar-h: 56px;
   --top-bar-side-w: 98px;
   --top-tabs-h: var(--kai-route-tabs-height);
   --top-tabs-gap: var(--kai-route-tabs-content-gap);
@@ -542,10 +564,11 @@ textarea {
   /* Single visual clearance between the fixed top shell and the first page block.
    * `--page-top-start` is the body-start gap token designers inspect/tune directly.
    * The actual structural spacer adds reserved shell height on top of this value. */
-  --page-top-start: 40px;
+  --page-top-start: 28px;
   --app-top-body-start-gap: var(--page-top-start);
   --page-top-local-offset: 0px;
   --app-shell-reading: 54rem;
+  --app-shell-agent: 55rem;
   --app-shell-standard: 90rem;
   --app-shell-expanded: 96rem;
   --top-systembar-row-gap: 4px;
@@ -589,7 +612,7 @@ textarea {
     var(--top-shell-visual-height) + var(--top-subnav-total, 0px) +
       var(--top-content-safe-gap)
   );
-  --page-inline-gutter-standard: 20px;
+  --page-inline-gutter-standard: 16px;
   --page-surface-overscan: 0px;
   --page-surface-gap-standard: 16px;
   --page-surface-gap-compact: 12px;
@@ -631,10 +654,10 @@ textarea {
   --ios-account-accent: #007aff;
   --ios-account-destructive: #ff3b30;
   --ios-account-on-accent: #ffffff;
-  --ios-account-title-size: 34px;
-  --ios-account-title-line: 38.08px;
+  --ios-account-title-size: var(--type-page-title-size);
+  --ios-account-title-line: var(--type-page-title-line);
   --ios-account-title-weight: 700;
-  --ios-account-title-tracking: -0.028em;
+  --ios-account-title-tracking: normal;
   --ios-account-description-size: 15px;
   --ios-account-description-line: 20.7px;
   --ios-account-section-header-size: 15px;
@@ -717,7 +740,7 @@ textarea {
   --motion-deck-scale-other: 0.84;
   /* Foundation (bible): a bright white canvas carries the ambient wash while
      cards remain legible without reverting the app to an opaque flat page. */
-  --background: #ffffff;
+  --background: #f2f2f7;
   --foreground: oklch(0.232 0.004 286.1);
   --card: #ffffff;
   --card-foreground: oklch(0.232 0.004 286.1);
@@ -795,12 +818,12 @@ textarea {
 
   /* App Background - bright Foundation canvas; the shared ambient layer
      supplies its accent depth rather than a separate route gradient. */
-  --app-bg-start: #ffffff;
-  --app-bg-mid: #ffffff;
-  --app-bg-end: #ffffff;
+  --app-bg-start: #f2f2f7;
+  --app-bg-mid: #f2f2f7;
+  --app-bg-end: #f2f2f7;
   /* The base beneath persistent chrome. Foundation may add its restrained
    * corner ambience over this, but shell material must share the same base. */
-  --app-layout-surface: var(--background);
+  --app-layout-surface: var(--app-grouped-background);
 
   --glass1: #ffffff60 !important;
   --glass2: #6464643b !important;
@@ -853,8 +876,8 @@ textarea {
   /* ── Apple iCloud card contract ───────────────────────────────── */
   /* Shared app card contract */
   --theme-color-boxShadow: rgba(120, 120, 128, 0.16);
-  --app-card-radius-compact: 20px;
-  --app-card-radius-standard: 22px;
+  --app-card-radius-compact: 24px;
+  --app-card-radius-standard: 24px;
   --app-card-radius-feature: 24px;
   --app-card-surface-data: #f7f7fa;
   --app-card-surface-compact: #fcfcfd;
@@ -866,8 +889,8 @@ textarea {
   --app-card-surface-sticky-header-solid: #f6f7fb;
   --app-card-border-standard: rgba(60, 60, 67, 0.09);
   --app-card-border-strong: rgba(60, 60, 67, 0.18);
-  --app-card-shadow-standard: none;
-  --app-card-shadow-feature: 0 10px 30px -28px rgba(0, 0, 0, 0.32);
+  --app-card-shadow-standard: 0 4px 18px rgba(0, 0, 0, 0.04);
+  --app-card-shadow-feature: 0 8px 24px rgba(0, 0, 0, 0.05);
   --app-list-row-surface: color-mix(
     in srgb,
     var(--app-card-surface-default-solid) 90%,
@@ -1803,16 +1826,57 @@ html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
    html.kb-open + --kb-height on a real on-screen keyboard only). Shrink the
    dialog and shift its center up by half the keyboard height so it stays in the
    band above the keyboard. Only active while kb-open, so desktop is untouched
-   (kb-open is never set there). See mobile-bug-log B21. */
+   (kb-open is never set there). See mobile-bug-log B21.
+
+   This max-height replaces the base rule's, so it repeats the top safe-area
+   subtraction; otherwise a dialog with a search field (e.g. Connect's scopes
+   modal) would lose Dynamic Island clearance the moment its keyboard opened. */
 html.kb-open [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]) {
-  max-height: calc(100dvh - 2rem - var(--kb-height, 0px));
+  max-height: calc(
+    100dvh - 2rem - var(--kb-height, 0px) -
+      var(--app-safe-area-top-effective, 0px)
+  );
   margin-top: calc(var(--kb-height, 0px) / -2);
 }
+
+/* The fixed "Talk to One" agent launcher lifts above the on-screen keyboard by
+ * --kb-height. On a plain form screen (e.g. Connect's people search) that lands
+ * it directly on top of the focused input, obscuring typed text. While a real
+ * on-screen keyboard is open, hide the FIXED launcher so it can never overlay
+ * the active field. Scoped to layout="fixed": the in-chat slot composer, which
+ * IS the input the person is typing into, keeps its keyboard lift. Inert on
+ * desktop (kb-open never set there). See mobile-bug-log B21. */
+html.kb-open [data-agent-bar-shell][data-agent-bar-layout="fixed"] {
+  opacity: 0;
+  transform: translate3d(0, 1rem, 0);
+  pointer-events: none;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+
+/* Same keyboard-avoidance for the persistent bottom shell (bottom nav + the
+ * in-slot "Talk to One" bar) and its ambient fade. That stack lifts by
+ * --kb-height when the on-screen keyboard opens, which rode it UP directly over
+ * a focused bottom input (e.g. Connect's people search, Share location). Hide
+ * the whole bottom chrome while a real keyboard is open so the input is never
+ * occluded; it returns on blur. Only active under html.kb-open (native +
+ * mobile web) → byte-for-byte inert on desktop. See mobile-bug-log B21. */
+html.kb-open [data-app-bottom-shell],
+html.kb-open .ambient-chrome-mask--bottom {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+
+
 
 .app-page-shell {
   width: 100%;
   padding-left: var(--page-inline-gutter-standard);
   padding-right: var(--page-inline-gutter-standard);
+  padding-bottom: var(--app-bottom-content-clearance);
 }
 
 .app-page-shell--reading {
@@ -1878,9 +1942,9 @@ html.kb-open [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]) {
   --surface-card-content-pb: 14px;
   --surface-inset-p: 12px;
   --settings-group-stack-gap: 6px;
-  --settings-row-px: 12px;
-  --settings-row-py: 12px;
-  --settings-row-gap: 10px;
+  --settings-row-px: 16px;
+  --settings-row-py: 10px;
+  --settings-row-gap: 12px;
   --settings-row-stack-gap: 10px;
   --data-table-controls-gap: 12px;
   --data-table-cell-px: 10px;
@@ -1907,8 +1971,8 @@ html.kb-open [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]) {
     --surface-card-content-pb: 16px;
     --surface-inset-p: 14px;
     --settings-group-stack-gap: 8px;
-    --settings-row-px: 14px;
-    --settings-row-py: 14px;
+    --settings-row-px: 16px;
+    --settings-row-py: 10px;
     --settings-row-gap: 12px;
     --settings-row-stack-gap: 12px;
     --data-table-controls-gap: 14px;
@@ -1974,6 +2038,10 @@ html.kb-open [data-slot="dialog-content"]:not([data-keyboard-anchor="bottom"]) {
 
 .app-page-shell[data-app-shell-width="reading"] {
   max-width: var(--app-shell-reading);
+}
+
+.app-page-shell[data-app-shell-width="agent"] {
+  max-width: var(--app-shell-agent);
 }
 
 .app-page-shell[data-app-shell-width="standard"] {
@@ -3334,8 +3402,8 @@ html.native-ios [data-testid="one-location-onboarding"] {
 
   /* Dark: shared app card contract */
   --theme-color-boxShadow: rgba(0, 0, 0, 0.65);
-  --app-card-radius-compact: 20px;
-  --app-card-radius-standard: 22px;
+  --app-card-radius-compact: 24px;
+  --app-card-radius-standard: 24px;
   --app-card-radius-feature: 24px;
   --app-card-surface-data: #2c2c2e;
   --app-card-surface-compact: #2c2c2e;
@@ -4380,10 +4448,10 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 .kai-bottom-nav-pill [role="radio"] > span:last-of-type {
   max-width: 100%;
-  font-size: var(--ios-account-tab-label-size, 10px);
+  font-size: var(--ios-account-tab-label-size, var(--type-tab-label-size));
   font-weight: 500;
-  line-height: var(--ios-account-tab-label-line, 12px);
-  letter-spacing: 0;
+  line-height: var(--ios-account-tab-label-line, var(--type-tab-label-line));
+  letter-spacing: var(--type-tab-label-tracking);
   text-wrap: nowrap;
   opacity: 0.92;
 }
@@ -4602,100 +4670,19 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    mirrors the quiet root treatment so public, authenticated, and nested
    routes never drift into separate gradients or opaque chrome bands. */
 .foundation-public-ambient {
-  /* Light mode gets the same four-corner accent wash as dark mode, tuned
-     stronger, not weaker: mixing an accent into near-white at the same
-     percentage as near-black reads as far fainter, because the relative
-     luminance/hue shift off a bright base is much smaller. These percentages
-     are deliberately above dark mode's 6-8% so the corners actually read as
-     an accent glow instead of disappearing into the white canvas. */
-  --foundation-grain-opacity: 0.1;
-  --foundation-ambient-primary: 12%;
-  --foundation-ambient-secondary: 10%;
-  --foundation-ambient-tertiary: 9%;
-  --foundation-ambient-quaternary: 7%;
-  background-color: var(--app-layout-surface);
-  background-image:
-    radial-gradient(
-      circle at 4% 4%,
-      color-mix(
-        in oklab,
-        var(--app-accent) var(--foundation-ambient-primary),
-        transparent
-      ),
-      transparent 31%
-    ),
-    radial-gradient(
-      circle at 100% 0%,
-      color-mix(
-        in oklab,
-        var(--app-accent-bright) var(--foundation-ambient-secondary),
-        transparent
-      ),
-      transparent 33%
-    ),
-    radial-gradient(
-      circle at 0% 100%,
-      color-mix(
-        in oklab,
-        var(--app-accent) var(--foundation-ambient-tertiary),
-        transparent
-      ),
-      transparent 33%
-    ),
-    radial-gradient(
-      circle at 100% 100%,
-      color-mix(
-        in oklab,
-        var(--app-accent-bright) var(--foundation-ambient-quaternary),
-        transparent
-      ),
-      transparent 31%
-    );
+  /* Standard app canvas: a quiet iOS grouped background. */
+  --foundation-grain-opacity: 0;
+  background-color: var(--app-grouped-background);
+  background-image: none;
 }
 
 .dark .foundation-public-ambient {
-  --foundation-ambient-primary: 8%;
-  --foundation-ambient-secondary: 7%;
-  --foundation-ambient-tertiary: 6%;
-  --foundation-ambient-quaternary: 6%;
-  --foundation-grain-opacity: 0.08;
-  background-image:
-    radial-gradient(
-      circle at 4% 4%,
-      color-mix(
-        in oklab,
-        var(--app-accent) var(--foundation-ambient-primary),
-        transparent
-      ),
-      transparent 31%
-    ),
-    radial-gradient(
-      circle at 100% 0%,
-      color-mix(
-        in oklab,
-        var(--app-accent-bright) var(--foundation-ambient-secondary),
-        transparent
-      ),
-      transparent 33%
-    ),
-    radial-gradient(
-      circle at 0% 100%,
-      color-mix(
-        in oklab,
-        var(--app-accent) var(--foundation-ambient-tertiary),
-        transparent
-      ),
-      transparent 33%
-    ),
-    radial-gradient(
-      circle at 100% 100%,
-      color-mix(
-        in oklab,
-        var(--app-accent-bright) var(--foundation-ambient-quaternary),
-        transparent
-      ),
-      transparent 31%
-    );
+  --foundation-grain-opacity: 0;
+  background-image: none;
+}
+
+.one-grain {
+  display: none !important;
 }
 
 /* Custom Scrollbar Styles */
@@ -5158,11 +5145,12 @@ html[data-accent="gold"].dark {
   }
 
   .type-caption {
-    font-size: var(--foundation-caption-size);
-    font-weight: var(--foundation-caption-weight);
-    line-height: var(--foundation-caption-line);
-    letter-spacing: var(--foundation-caption-tracking);
-    text-transform: uppercase;
+    color: var(--app-secondary-label);
+    font-size: var(--type-helper-text-size);
+    font-weight: 400;
+    line-height: var(--type-helper-text-line);
+    letter-spacing: -0.003em;
+    text-transform: none;
   }
 
   .type-micro {
@@ -5508,6 +5496,10 @@ body[data-persona-surface="ria"] {
 
 /* Semantic typography guardrail.
    Kept at the end so role classes beat older h1/h2 and data-slot fallbacks. */
+[data-slot="settings-row-icon"] svg {
+  stroke-width: 1.65 !important;
+}
+
 :is(.ui-text-large-page-title) {
   color: var(--app-label) !important;
   font-family: var(--font-app-display) !important;
@@ -5520,6 +5512,17 @@ body[data-persona-surface="ria"] {
 }
 
 :is(.ui-text-page-title) {
+  color: var(--app-label) !important;
+  font-family: var(--font-app-display) !important;
+  font-size: var(--type-page-title-size) !important;
+  font-weight: var(--type-page-title-weight) !important;
+  letter-spacing: var(--type-page-title-tracking) !important;
+  line-height: var(--type-page-title-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-agent-title) {
   color: var(--app-label) !important;
   font-family: var(--font-app-display) !important;
   font-size: var(--type-page-title-size) !important;
@@ -5544,10 +5547,10 @@ body[data-persona-surface="ria"] {
 :is(.ui-text-identity-name) {
   color: var(--app-label) !important;
   font-family: var(--font-app-display) !important;
-  font-size: clamp(28px, 7.8vw, 34px) !important;
+  font-size: var(--type-page-title-size) !important;
   font-weight: 700 !important;
-  letter-spacing: -0.028em !important;
-  line-height: 1.12 !important;
+  letter-spacing: var(--type-page-title-tracking) !important;
+  line-height: var(--type-page-title-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
 }
@@ -5555,10 +5558,10 @@ body[data-persona-surface="ria"] {
 :is(.ui-text-page-subtitle) {
   color: var(--app-secondary-label) !important;
   font-family: var(--font-app-body) !important;
-  font-size: 15px !important;
+  font-size: var(--type-page-subtitle-size) !important;
   font-weight: 400 !important;
-  letter-spacing: -0.006em !important;
-  line-height: 21px !important;
+  letter-spacing: normal !important;
+  line-height: var(--type-page-subtitle-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
 }
@@ -5574,7 +5577,7 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
-:is(.ui-text-card-title) {
+:is(.ui-text-section-title, .ui-text-card-title) {
   color: var(--app-label) !important;
   font-family: var(--font-app-display) !important;
   font-size: var(--type-card-title-size) !important;
@@ -5585,7 +5588,18 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
-:is(.ui-text-section-label) {
+:is(.ui-text-headline) {
+  color: var(--app-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-row-label-size) !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+  line-height: var(--type-row-label-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-section-label, .ui-text-group-label) {
   color: var(--app-section-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-section-label-size) !important;
@@ -5596,7 +5610,7 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
-:is(.ui-text-row-label, .ui-text-row-label-emphasized) {
+:is(.ui-text-body, .ui-text-row-label, .ui-text-medium-row-label, .ui-text-row-label-emphasized) {
   color: var(--app-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-row-label-size) !important;
@@ -5606,16 +5620,16 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
-:is(.ui-text-row-label) {
+:is(.ui-text-body, .ui-text-row-label) {
   font-weight: var(--type-row-label-weight) !important;
 }
 
-:is(.ui-text-row-label-emphasized) {
+:is(.ui-text-medium-row-label, .ui-text-row-label-emphasized) {
   font-weight: var(--type-row-label-emphasis-weight) !important;
 }
 
-:is(.ui-text-row-description, .ui-text-trailing-value) {
-  color: var(--app-secondary-label) !important;
+:is(.ui-text-row-description) {
+  color: var(--app-tertiary-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-row-description-size) !important;
   font-weight: var(--type-row-description-weight) !important;
@@ -5630,8 +5644,8 @@ body[data-persona-surface="ria"] {
   font-family: var(--font-app-body) !important;
   font-size: 15px !important;
   font-weight: 500 !important;
-  letter-spacing: -0.006em !important;
-  line-height: 21px !important;
+  letter-spacing: normal !important;
+  line-height: 20px !important;
   opacity: 1 !important;
   text-transform: none !important;
 }
@@ -5652,7 +5666,7 @@ body[data-persona-surface="ria"] {
   font-family: var(--font-app-body) !important;
   font-size: var(--type-input-value-size) !important;
   font-weight: 400 !important;
-  letter-spacing: -0.008em !important;
+  letter-spacing: normal !important;
   line-height: var(--type-input-value-line) !important;
   opacity: 1 !important;
 }
@@ -5662,7 +5676,7 @@ body[data-persona-surface="ria"] {
   font-family: var(--font-app-body) !important;
   font-size: var(--type-helper-text-size) !important;
   font-weight: 400 !important;
-  letter-spacing: -0.003em !important;
+  letter-spacing: var(--type-helper-text-tracking) !important;
   line-height: var(--type-helper-text-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
@@ -5670,10 +5684,10 @@ body[data-persona-surface="ria"] {
 
 :is(.ui-text-status) {
   font-family: var(--font-app-body) !important;
-  font-size: 13px !important;
-  font-weight: 600 !important;
-  letter-spacing: -0.006em !important;
-  line-height: 18px !important;
+  font-size: var(--type-helper-text-size) !important;
+  font-weight: 500 !important;
+  letter-spacing: var(--type-helper-text-tracking) !important;
+  line-height: var(--type-helper-text-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
 }
@@ -5682,28 +5696,154 @@ body[data-persona-surface="ria"] {
   font-family: var(--font-app-body) !important;
   font-size: var(--type-button-label-size) !important;
   font-weight: var(--type-button-label-weight) !important;
-  letter-spacing: -0.01em !important;
+  letter-spacing: normal !important;
   line-height: var(--type-button-label-line) !important;
   opacity: 1 !important;
 }
 
 :is(.ui-text-tab-label) {
+  color: var(--app-secondary-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-tab-label-size) !important;
   font-weight: var(--type-tab-label-weight) !important;
-  letter-spacing: 0 !important;
+  letter-spacing: var(--type-tab-label-tracking) !important;
   line-height: var(--type-tab-label-line) !important;
   opacity: 1 !important;
 }
 
-:is(.ui-text-caption, .ui-text-legal) {
+[role="tab"][aria-selected="true"] :is(.ui-text-tab-label) {
+  color: var(--app-accent) !important;
+}
+
+[role="tab"][aria-selected="false"] :is(.ui-text-tab-label) {
   color: var(--app-secondary-label) !important;
+}
+
+:is(.ui-text-agent-tab-label) {
+  color: var(--app-secondary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-agent-tab-label-size) !important;
+  font-weight: var(--type-agent-tab-label-weight) !important;
+  letter-spacing: var(--type-agent-tab-label-tracking) !important;
+  line-height: var(--type-agent-tab-label-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+[role="tab"][aria-selected="true"] :is(.ui-text-agent-tab-label) {
+  color: var(--app-accent) !important;
+}
+
+[role="tab"][aria-selected="false"] :is(.ui-text-agent-tab-label) {
+  color: var(--app-label) !important;
+}
+
+:is(.ui-text-caption) {
+  color: var(--app-tertiary-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: 12px !important;
   font-weight: 400 !important;
   letter-spacing: 0 !important;
   line-height: 16px !important;
   opacity: 1 !important;
+}
+
+:is(.ui-text-legal) {
+  color: var(--app-tertiary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-legal-text-size) !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+  line-height: var(--type-legal-text-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+.app-page-shell
+  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-xs"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-[10px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-[11px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-[12px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[#8E8E93]"][class*="text-[12px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[#8e8e93]"][class*="text-[11.5px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[#8e8e93]"][class*="text-[12px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[#8e8e93]"][class*="text-[12.5px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[#96999e]"][class*="text-[12px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[#5b6472]"][class*="text-[12px]"] {
+  color: var(--app-secondary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-helper-text-size) !important;
+  font-weight: 400 !important;
+  letter-spacing: var(--type-helper-text-tracking) !important;
+  line-height: var(--type-helper-text-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+.app-page-shell
+  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg3)]"][class*="text-[10px]"],
+.app-page-shell
+  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg3)]"][class*="text-[11px]"],
+.app-page-shell
+  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg3)]"][class*="text-[12px]"],
+.app-page-shell
+  :is(p, span, div, label, time)[class*="text-[#8e8e93]"][class*="text-[13px]"],
+.app-page-shell
+  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg2)]"][class*="text-[12px]"] {
+  color: var(--app-tertiary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-helper-text-size) !important;
+  font-weight: 400 !important;
+  letter-spacing: var(--type-helper-text-tracking) !important;
+  line-height: var(--type-helper-text-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[color:var(--one-fg2)]"][class*="text-[13px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[color:var(--one-fg2)]"][class*="text-[14px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-sm"] {
+  color: var(--app-secondary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-page-subtitle-size) !important;
+  font-weight: 400 !important;
+  letter-spacing: normal !important;
+  line-height: var(--type-page-subtitle-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-trailing-value) {
+  color: var(--app-tertiary-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: 15px !important;
+  font-weight: 400 !important;
+  letter-spacing: normal !important;
+  line-height: 20px !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+.app-page-shell
+  :is(p, span, div, h2, h3, label)[class*="uppercase"][class*="text-muted-foreground"],
+.app-page-shell
+  :is(p, span, div, h2, h3, label)[class*="uppercase"][class*="text-[#96999e]"],
+.app-page-shell
+  :is(p, span, div, h2, h3, label)[class*="uppercase"][class*="text-[#8b93a1]"] {
+  letter-spacing: 0 !important;
+  text-transform: none !important;
 }
 
 [data-testid="settings-row"][data-tone="destructive"]

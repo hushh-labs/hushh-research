@@ -13,8 +13,8 @@ useDefault = true
 description = "Documented backend env placeholders + test fixtures"
 paths = [
   '''^consent-protocol/\.env\.example$''',
-  # HCT golden-vector fixture: deterministic test signing key used by
-  # apps/one-mac/Sources/OneConsent + consent-protocol/scripts/emit_hct_golden_vectors.py.
+  # HCT golden-vector fixture: deterministic test signing key used by the
+  # canonical Python signer parity gate.
   '''^consent-protocol/tests/fixtures/hct_golden_vectors\.json$''',
   # Deterministic, synthetic Hermes interoperability vector. The encrypted
   # bytes and hash are fixed test outputs, not deployable credentials.

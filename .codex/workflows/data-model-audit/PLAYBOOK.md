@@ -2,7 +2,11 @@
 
 ## Goal
 
-Keep the runtime database production-grade without a broad rewrite. The audit proves every migration-created table belongs to a bounded table family, has a data class and lifecycle rule, and does not revive legacy memory write paths.
+Keep runtime and device-local databases production-grade without a broad rewrite.
+The audit proves every migration-created table belongs to a bounded table family
+and every local SQLite mapping/index has explicit authority, rebuildability,
+encryption, access, retention, and deletion rules without reviving legacy memory
+write paths.
 
 ## Steps
 
@@ -22,7 +26,11 @@ Keep the runtime database production-grade without a broad rewrite. The audit pr
 5. If a provider/cache table is added:
    - declare retention, deletion behavior, and plaintext/ciphertext posture
    - do not describe the table as durable user memory unless a consented encrypted PKM write exists
-6. Re-run:
+6. If a device-local SQLite mapping/index is added:
+   - identify the authoritative provider blob or encrypted PKM source used to rebuild it
+   - keep plaintext source content, paths, titles, recipient identifiers, and raw hashes out unless a narrower reviewed contract explicitly permits them
+   - prove that mapping rows do not grant access, complete publication, or revoke an external artifact
+7. Re-run:
    - `python3 -m py_compile scripts/ops/data_model_audit.py`
    - `./bin/hushh codex data-model-audit`
    - `./bin/hushh codex audit`
@@ -33,5 +41,6 @@ Keep the runtime database production-grade without a broad rewrite. The audit pr
 - Keep `actor_profiles` as the long-term actor/persona parent.
 - Keep `vault_keys` as vault state, not the generic user model.
 - Keep provider caches short-retention and refreshable.
+- Keep device-local SQLite mapping/index state profile-scoped, encrypted where sensitive, and rebuildable; it is not provider-blob or PKM authority.
 - Keep consent/audit/funding/trading records metadata-only and long-retention when required for accountability.
 - Keep analytics truth in GA4/BigQuery, not the app DB.

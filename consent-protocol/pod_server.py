@@ -65,6 +65,31 @@ from hushh_mcp.services.pod_self_registration import (  # noqa: E402
     pod_public_key_payload,
 )
 
+# MAKE THE POD SPEAK. Without these two lines a pod is silent, and a silent pod is
+# an undebuggable one.
+#
+# `pod_server` never configured logging at all. Gunicorn only configures the root
+# logger when `logconfig*` is set, which `Dockerfile.pod` does not set, and
+# `UvicornWorker` passes `log_config: None`. So the root logger stayed at Python's
+# default WARNING with only `lastResort` attached, and EVERY `logger.info(...)` in
+# the pod was dropped before it was formatted -- the whole `request.summary` stream,
+# `pod.startup`, `pod.heartbeat_started`, `pod_turn.consent_refused`, and both
+# `pod_hub_auth.accepted` lines. An operator watching a pod saw warnings and errors
+# and nothing else, so a pod that was working and a pod that was never called looked
+# identical.
+#
+# The redaction filter lands in the SAME change, never after. The pod logs its own
+# HusshID (`pod_hub_auth.accepted asserted_agent_id=...`), and the hub is only
+# incidentally safe because `install_sensitive_log_filter` catches the HusshID shape.
+# Turning the pod's log stream on without the filter would convert silence into a
+# per-pod stream of raw owner identifiers -- trading one defect for a worse one.
+from mcp_modules.log_redaction import (  # noqa: E402,PLC0415
+    install_sensitive_log_filter as _install_pod_log_redaction,
+)
+
+logging.basicConfig(level=logging.INFO)
+_install_pod_log_redaction()
+
 logger = logging.getLogger(__name__)
 
 # The pod's ALLOWLISTED surface — the ONLY routers a pod mounts. Anything not in

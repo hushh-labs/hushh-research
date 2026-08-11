@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -107,12 +107,41 @@ async def _proxy_get(url: str, path: str, *, session: Any = None) -> tuple[int, 
     return getattr(response, "status_code", 502), body
 
 
+def _correlation_headers(request: Any) -> dict[str, str]:
+    """The request/trace ids this turn arrived with, to carry into the pod.
+
+    The browser mints a request id and the hub honours it -- and the chain stopped
+    dead at this boundary. The pod's middleware then minted an unrelated UUID, so
+    nothing linked a hub request to the pod request it caused, and "my agent gave a
+    bad answer" could not be traced past the relay.
+
+    The pod's middleware already accepts these exact header names and prefers an
+    inbound value over a fresh one, so forwarding is the entire fix.
+
+    Carries only opaque correlation ids -- never identity, never holdings. Tolerates
+    any request-like object, because a correlation id must never be the reason a turn
+    fails.
+    """
+    headers = getattr(request, "headers", None) or {}
+    out: dict[str, str] = {}
+    for name in ("x-request-id", "x-trace-id"):
+        value = ""
+        try:
+            value = str(headers.get(name) or "").strip()
+        except Exception:  # noqa: BLE001 - see above
+            value = ""
+        if value:
+            out[name] = value[:128]
+    return out
+
+
 async def _proxy_post(
     url: str,
     path: str,
     *,
     body: dict,
     consent_token: str,
+    correlation: dict[str, str] | None = None,
     session: Any = None,
 ) -> tuple[int, Any]:
     """POST to a pod as the hub, carrying the owner's standing read grant.
@@ -132,6 +161,7 @@ async def _proxy_post(
         headers["Authorization"] = f"Bearer {token}"
     if consent_token:
         headers["X-Consent-Token"] = consent_token
+    headers.update(correlation or {})
     try:
         response = await run_in_threadpool(
             lambda: client.post(
@@ -281,6 +311,7 @@ async def relay_pod_turn(
     registry: Optional[PersonalAgentRegistryRepo] = None,
     audit: Optional[PodAccessAuditService] = None,
     grants: Any = None,
+    correlation: Optional[dict[str, str]] = None,
     session: Any = None,
 ) -> dict:
     """Owner-authorized turn against a person's own pod."""
@@ -346,6 +377,7 @@ async def relay_pod_turn(
         "/api/one/pod/turn",
         body=body,
         consent_token=str(grant.get("token") or ""),
+        correlation=correlation,
         session=session,
     )
     if status == 503:
@@ -359,9 +391,18 @@ async def relay_pod_turn(
 
 @router.post("/{hushh_id}/turn")
 async def relay_pod_turn_route(
+    request: Request,
     payload: PodTurnRelayRequest = Body(...),
     hushh_id: str = Path(..., min_length=1, max_length=128),
     user_id: str = Depends(require_firebase_auth),
 ) -> dict:
     """Run one turn on this person's own pod."""
-    return await relay_pod_turn(hushh_id=hushh_id, user_id=user_id, payload=payload)
+    return await relay_pod_turn(
+        hushh_id=hushh_id,
+        user_id=user_id,
+        payload=payload,
+        # Only the route has the inbound request, and only the inbound request has
+        # the ids the browser minted. Resolved here rather than inside the relay so
+        # the testable core stays free of a framework object.
+        correlation=_correlation_headers(request),
+    )

@@ -12,6 +12,7 @@ import { Menu } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import { RowDescription } from "@/components/app-ui/typography";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Drawer,
@@ -43,14 +44,10 @@ function SectionTocRows({
       {entries.map((entry) => (
         <SettingsRow
           key={entry.id}
-          title={
-            <span className={compact ? "block truncate text-[13px] sm:text-sm" : undefined}>
-              {entry.label}
-            </span>
-          }
+          title={entry.label}
           description={
             showSummaries && entry.summary ? (
-              <span className={compact ? "line-clamp-1 text-[11px] leading-5" : undefined}>
+              <span className={compact ? "line-clamp-1" : undefined}>
                 {entry.summary}
               </span>
             ) : undefined
@@ -85,7 +82,7 @@ export function SectionTocRail({
       >
         <header className="space-y-1 px-3 py-3 sm:px-4">
           <p className="text-sm font-semibold text-foreground">{title}</p>
-          <p className="text-xs leading-5 text-muted-foreground">{description}</p>
+          <RowDescription>{description}</RowDescription>
         </header>
         <ScrollArea className="max-h-[calc(100dvh-var(--top-shell-reserved-height)-9rem)] border-t border-border/60">
           <div className="divide-y divide-border/60">

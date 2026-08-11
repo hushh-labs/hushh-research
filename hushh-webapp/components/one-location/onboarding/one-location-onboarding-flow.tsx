@@ -67,7 +67,7 @@ type CircleMember = {
   userId: string;
   displayName: string;
   photoUrl: string | null;
-  status: "connected" | "pending";
+  status: "connected" | "pending" | "failed";
 };
 
 type OneLocationOnboardingFlowProps = {
@@ -429,7 +429,7 @@ function WelcomeScreen({
       />
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 text-center">
-          <p className="inline-flex items-center gap-2 text-[19px] font-bold">
+          <p className="inline-flex items-center gap-2 text-[17px] font-semibold leading-[22px]">
             <MapPin
               className="h-5 w-5"
               strokeWidth={2.5}
@@ -438,7 +438,7 @@ function WelcomeScreen({
             Location Agent
           </p>
           <h1
-            className="mx-auto mt-7 max-w-[410px] text-[38px] font-bold leading-[1.08] tracking-normal"
+            className="mx-auto mt-7 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.025em]"
             data-one-welcome-heading
           >
             Share your location
@@ -913,13 +913,13 @@ function FeaturesScreen({
       >
         <header className="mt-3 shrink-0" data-one-feature-header>
           <h1
-            className="text-[36px] font-bold leading-none tracking-[-0.025em] text-[#111823] dark:text-[#f6f8fc]"
+            className="ui-text-agent-title text-[#111823] dark:!text-[#f6f8fc]"
             data-one-feature-heading
           >
             Stay connected
           </h1>
           <p
-            className="mt-4 text-[17px] leading-[26px] text-[#737a84] dark:text-[#aeb8c7]"
+            className="mt-3 text-[15px] font-normal leading-[20px] text-[#737a84] dark:text-[#aeb8c7]"
             data-one-feature-subtitle
           >
             For everyday plans, meetups, and emergencies.
@@ -1419,16 +1419,16 @@ function InviteScreen({
         <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
           <Users className="h-7 w-7" strokeWidth={2} />
         </span>
-        <h1 className="mt-4 text-[32px] font-bold leading-[1.08] text-[#151b26] dark:text-[#f5f7fb]">
+        <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[#f5f7fb]">
           Share your circle code
         </h1>
-        <p className="mt-2 text-[16px] leading-6 text-[#73777f] dark:text-[#b5bfcc]">
+        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
           Send this code to your loved ones. When they set up One, they enter it
           under &ldquo;Join a circle&rdquo; to connect with you.
         </p>
 
         <div
-          className="mt-7 rounded-[24px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center shadow-[0_10px_30px_rgba(29,45,68,0.08)] dark:border-white/[0.08] dark:bg-[#1c212a] dark:shadow-[0_10px_30px_rgba(0,0,0,0.22)]"
+          className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center shadow-none dark:border-white/[0.08] dark:bg-[#1c212a]"
           data-testid="one-location-onboarding-invite-card"
         >
           {loading ? (
@@ -1451,7 +1451,7 @@ function InviteScreen({
             </div>
           ) : invite ? (
             <>
-              <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-[#96999e] dark:text-[#8d99a8]">
+              <p className="text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73] dark:text-[#aeb8c7]">
                 {invite.circleName}
               </p>
               <p
@@ -1607,13 +1607,13 @@ function PeopleScreen({
         className="px-5 pt-2"
       />
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
-        <h1 className="mt-3 text-[34px] font-bold leading-[1.06] text-[#151b26] dark:text-[#f5f7fb]">
+        <h1 className="ui-text-agent-title mt-3 text-[#151b26] dark:!text-[#f5f7fb]">
           Add people
         </h1>
-        <p className="mt-2 text-[16px] leading-6 text-[#73777f] dark:text-[#b5bfcc]">
+        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
           Invite the people you want to keep connected with.
         </p>
-        <h2 className="mt-8 text-[13px] font-semibold tracking-[0.02em] text-[#96999e] dark:text-[#8d99a8]">
+        <h2 className="mt-7 text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73] dark:text-[#aeb8c7]">
           Contacts
         </h2>
         <div className="mt-3 overflow-hidden rounded-[24px] bg-[#f8f9fb] px-4 shadow-[0_10px_30px_rgba(29,45,68,0.08)] dark:bg-[#1c212a] dark:shadow-[0_10px_30px_rgba(0,0,0,0.22)]">
@@ -1775,10 +1775,10 @@ function CircleScreen({
         busy={leaving}
       />
       <div className="shrink-0 pt-3 text-left" data-one-circle-heading>
-        <h1 className="text-[36px] font-bold leading-[1.05] text-[#111823] dark:text-[#f5f7fb]">
+        <h1 className="ui-text-agent-title text-[#111823] dark:!text-[#f5f7fb]">
           Your circle is ready.
         </h1>
-        <p className="mt-3 min-h-12 max-w-[410px] text-[16px] leading-6 text-[#777d86] dark:text-[#aeb8c7]">
+        <p className="mt-3 min-h-12 max-w-[410px] text-[15px] font-normal leading-[20px] text-[#777d86] dark:text-[#aeb8c7]">
           {subtitle}
         </p>
       </div>
@@ -1828,10 +1828,16 @@ function CircleScreen({
                   "mt-0.5 text-[10px] font-semibold",
                   member.status === "connected"
                     ? "text-[#23a64d]"
+                    : member.status === "failed"
+                      ? "text-[#c2413b] dark:text-[#ff8b83]"
                     : "text-[#8b919a] dark:text-[#8f9bab]",
                 )}
               >
-                {member.status === "connected" ? "Joined" : "Invited"}
+                {member.status === "connected"
+                  ? "Joined"
+                  : member.status === "failed"
+                    ? "Not sent"
+                    : "Invited"}
               </span>
             </span>
           ))}
@@ -2132,11 +2138,8 @@ export function OneLocationOnboardingFlow({
   };
 
   const handlePeopleContinue = (selectedIds: string[]) => {
-    const selectedPeople = people.filter(
-      (person) =>
-        selectedIds.includes(person.userId) &&
-        person.relationship !== "pending_incoming" &&
-        person.relationship !== "pending_outgoing",
+    const selectedPeople = people.filter((person) =>
+      selectedIds.includes(person.userId),
     );
     if (selectedPeople.length === 0) {
       toast.error("Choose at least one contact", {
@@ -2187,11 +2190,12 @@ export function OneLocationOnboardingFlow({
           requestedConnectionIdsRef.current.delete(userId),
         );
         if (requestBatchRef.current !== batchId) return;
-        const sentIds = new Set(result.sentUserIds);
+        const failedIds = new Set(result.failedUserIds);
         setCircleMembers(
-          optimisticMembers.filter(
-            (member) =>
-              member.status === "connected" || sentIds.has(member.userId),
+          optimisticMembers.map((member) =>
+            failedIds.has(member.userId)
+              ? { ...member, status: "failed" as const }
+              : member,
           ),
         );
         setFailedRequestCount(result.failedUserIds.length);
@@ -2202,18 +2206,28 @@ export function OneLocationOnboardingFlow({
           requestedConnectionIdsRef.current.delete(userId),
         );
         if (requestBatchRef.current !== batchId) return;
+        const failedIds = new Set(requestIds);
         setCircleMembers(
-          optimisticMembers.filter((member) => member.status === "connected"),
+          optimisticMembers.map((member) =>
+            failedIds.has(member.userId)
+              ? { ...member, status: "failed" as const }
+              : member,
+          ),
         );
         setFailedRequestCount(requestIds.length);
         setRequestsSending(false);
       });
   };
 
-  // Keep the people-screen Skip path aligned with Continue so neither control
-  // can bypass the minimum-one-contact onboarding requirement.
+  // Skip leaves onboarding without adding anyone. It used to call Continue so
+  // that neither control could bypass a minimum-one-contact requirement, but
+  // that made the button lie: a person with nobody selected tapped Skip and got
+  // "Choose at least one contact" back, with no way forward. Requiring a
+  // contact to finish setup is the friction this screen was meant to avoid, and
+  // contacts can be added later from Connect. Continue still enforces the
+  // minimum, so the choice stays deliberate rather than accidental.
   const handlePeopleSkip = () => {
-    handlePeopleContinue(selectedPeopleIds);
+    void runSkip();
   };
 
   return (

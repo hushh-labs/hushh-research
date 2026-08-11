@@ -181,10 +181,19 @@ jobs:
           [ -n "$FB_MEASUREMENT" ] || FB_MEASUREMENT="$(get NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_UAT)"
           [ -n "$FB_MEASUREMENT" ] || FB_MEASUREMENT="$(get NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING)"
 
+          # Maps credentials. The immersive "Your Map" uses the native SDK (iOS
+          # key); the onboarding location picker and LiveMap render Maps JS
+          # inside the WKWebView and read the BROWSER key. Omitting either one
+          # degrades that surface to the iframe embed with no error.
+          MAPS_IOS_KEY="$(get NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY)"
+          MAPS_BROWSER_KEY="$(get NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY)"
+
           # NEXT_PUBLIC_* are public build values (baked into the client bundle),
           # but keep the API/VAPID keys out of the log for hygiene.
           echo "::add-mask::$FB_API_KEY"
           echo "::add-mask::$FB_VAPID"
+          [ -n "$MAPS_IOS_KEY" ] && echo "::add-mask::$MAPS_IOS_KEY"
+          [ -n "$MAPS_BROWSER_KEY" ] && echo "::add-mask::$MAPS_BROWSER_KEY"
 
           put APP_RUNTIME_PROFILE "uat"
           put NEXT_PUBLIC_APP_ENV "uat"
@@ -199,6 +208,8 @@ jobs:
           put NEXT_PUBLIC_FIREBASE_APP_ID "$FB_APP_ID"
           put NEXT_PUBLIC_FIREBASE_VAPID_KEY "$FB_VAPID"
           [ -n "$FB_MEASUREMENT" ] && put NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID "$FB_MEASUREMENT"
+          [ -n "$MAPS_IOS_KEY" ] && put NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY "$MAPS_IOS_KEY"
+          [ -n "$MAPS_BROWSER_KEY" ] && put NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY "$MAPS_BROWSER_KEY"
           put NEXT_PUBLIC_OBSERVABILITY_ENABLED "true"
           put NEXT_PUBLIC_OBSERVABILITY_DEBUG "false"
           put NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE "1"

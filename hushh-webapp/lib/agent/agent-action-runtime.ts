@@ -87,12 +87,31 @@ function isActionInActiveInventory(
         activeLayer.agentContinuity !== "interactive"),
   );
 
-  if (input.actionId.startsWith("route.") && !routeIsBlockedByActiveLayer) {
+  // Navigation is reachable from any screen. Deciding WHICH actions count as
+  // navigation has to match `is_navigation_action` in action_gateway.py
+  // exactly, because the relay offers an action on that basis and the browser
+  // refuses it on this one -- so any gap between the two predicates is an
+  // action One proposes and the app then rejects.
+  //
+  // The union is load-bearing in BOTH directions, and this file has now had it
+  // wrong each way round:
+  //
+  //   - Testing only the NAME missed `location.open_share` and
+  //     `setup.open_finance`, which navigate but are surface-named. That
+  //     blocked a journey's own first step: One escorted someone to Location
+  //     and the browser refused to go.
+  //   - Testing only the PATH then missed the five wired `route.*` actions
+  //     whose path is `kai_command` or `voice_tool` -- route.profile,
+  //     route.consents, route.back, route.analysis_history, route.kai_import.
+  //     Those had worked for months on the name test alone.
+  if (!routeIsBlockedByActiveLayer) {
     const action = getKaiActionById(input.actionId);
     if (
       action &&
       action.execution_policy === "allow_direct" &&
-      action.execution_target.status === "wired"
+      action.execution_target.status === "wired" &&
+      (action.action_id.startsWith("route.") ||
+        action.execution_target.path === "route")
     ) {
       return true;
     }
@@ -597,22 +616,17 @@ export async function executeAgentGatewayAction(
     }
 
     try {
-      const abortPromise = new Promise<never>((_, reject) => {
-        if (input.signal) {
-          const onAbort = () => reject(new Error("Action was interrupted."));
-          if (input.signal.aborted) onAbort();
-          else input.signal.addEventListener("abort", onAbort);
-        }
-      });
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("The action took too long to complete.")), 15000)
+      // A local handler may begin an external mutation (for example, sending a
+      // connection request). The handler contract has no cancellation signal,
+      // and its backing services do not promise rollback on abort. Racing it
+      // against a local timeout or a later voice utterance would therefore
+      // report a false terminal failure while the request can still succeed.
+      // Once invocation begins, wait for the authoritative handler outcome;
+      // the pre-invocation abort check above still avoids starting new work.
+      const handlerResult = await handler(
+        input.slots || {},
+        input.executionContext,
       );
-
-      const handlerResult = await Promise.race([
-        handler(input.slots || {}, input.executionContext),
-        abortPromise,
-        timeoutPromise,
-      ]);
 
       return buildLocalHandlerResult({
         actionId: action.action_id,
@@ -622,7 +636,6 @@ export async function executeAgentGatewayAction(
         handlerResult,
       });
     } catch (error) {
-      const isAbort = error instanceof Error && error.message === "Action was interrupted.";
       return buildResult({
         status: "failed",
         actionId: action.action_id,
@@ -633,7 +646,7 @@ export async function executeAgentGatewayAction(
           error instanceof Error && error.message
             ? error.message
             : `${action.label} failed to run.`,
-        reason: isAbort ? "execution_aborted" : "local_handler_error",
+        reason: "local_handler_error",
       });
     }
   }

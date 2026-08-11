@@ -20,6 +20,7 @@ loaded through ``hushh_mcp.services.action_gateway``) is the routing authority:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
@@ -31,7 +32,10 @@ from hushh_mcp.services.action_gateway import (
     is_navigation_action,
     list_action_gateway_actions,
 )
-from hushh_mcp.services.live_voice_context import read_live_voice_context
+from hushh_mcp.services.live_voice_context import (
+    read_completed_action,
+    read_live_voice_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +65,42 @@ _MAX_QUERY_FILLER = 4
 # unrelated actions to the front of a bounded result list.
 _QUERY_STOPWORDS = frozenset(
     {
-        "the", "a", "an", "my", "me", "i", "you", "can", "could", "would",
-        "please", "for", "to", "of", "on", "in", "at", "and", "or", "is",
-        "it", "this", "that", "with", "do", "does", "want", "need", "get",
-        "show", "let", "us", "we", "how", "what", "one",
+        "the",
+        "a",
+        "an",
+        "my",
+        "me",
+        "i",
+        "you",
+        "can",
+        "could",
+        "would",
+        "please",
+        "for",
+        "to",
+        "of",
+        "on",
+        "in",
+        "at",
+        "and",
+        "or",
+        "is",
+        "it",
+        "this",
+        "that",
+        "with",
+        "do",
+        "does",
+        "want",
+        "need",
+        "get",
+        "show",
+        "let",
+        "us",
+        "we",
+        "how",
+        "what",
+        "one",
     }
 )
 # Prefer what One can act on now when relevance ties.
@@ -112,6 +148,20 @@ def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
     return {str(value).strip() for value in ids if isinstance(value, str) and value.strip()}
 
 
+def _slot_fingerprint(slots: dict[str, Any]) -> str:
+    """Stable identity for one action's inputs.
+
+    Same shape the relay's directive dedupe uses, so "already done" means the
+    same thing on both sides. Values are included, not just keys: sharing with
+    Sarah and sharing with Abdul are different requests, and only the second
+    should get through after the first has landed.
+    """
+    return json.dumps(
+        {str(key): str(value) for key, value in sorted((slots or {}).items())},
+        sort_keys=True,
+    )
+
+
 def _missing_required_slot(entry: dict[str, Any], slots: dict[str, Any]) -> dict[str, Any] | None:
     """First required goal input absent from ``slots`` (defaults count as filled)."""
     goal = entry.get("goal") or {}
@@ -130,6 +180,43 @@ def _missing_required_slot(entry: dict[str, Any], slots: dict[str, Any]) -> dict
             "prompt": str(spec.get("prompt") or f"What should {slot_name} be?"),
         }
     return None
+
+
+def _directive_flags(entry: dict[str, Any] | None) -> dict[str, bool]:
+    """Return the generated contract's browser-execution boundary.
+
+    Goal steps bypass ``run_app_action`` when they construct a route or
+    continuation directive, so they must stamp the same flags. The browser
+    intentionally fails closed when either flag is missing.
+    """
+    if not isinstance(entry, dict):
+        return {
+            "needsConfirmation": True,
+            "trustedActivationRequired": True,
+        }
+    trusted_activation = (
+        str(entry.get("activation_policy") or "") == "trusted_activation_required"
+    )
+    # Voice does not ask. `confirm_required` no longer raises a card, because
+    # being asked "are you sure?" after saying a thing out loud is the thing
+    # people find most tiring about talking to this app -- and a spoken yes to
+    # a question One just asked adds no information the sentence did not
+    # already carry. Product owner's call, made explicitly and more than once.
+    #
+    # `trusted_activation_required` survives, and is a different kind of thing.
+    # The two provider sign-ins open a browser popup, which platforms permit
+    # only during a fresh user gesture; removing that would not streamline
+    # sign-in, it would break it. Two actions of 151.
+    #
+    # What this costs, stated rather than buried: a misheard sentence now runs
+    # a `confirm_required` action directly, including submitting a phone code
+    # and starting a location share. The mitigation is elsewhere and
+    # deliberate -- destructive actions resolve exactly one named target or
+    # refuse, and ambiguity names the candidates rather than picking one.
+    return {
+        "needsConfirmation": trusted_activation,
+        "trustedActivationRequired": trusted_activation,
+    }
 
 
 async def run_app_action(
@@ -163,6 +250,34 @@ async def run_app_action(
             "message": (
                 "The app is still publishing its screen state. Acknowledge the "
                 "request, wait a moment, and retry this exact action."
+            ),
+        }
+    # Already done, this turn, with these exact inputs.
+    #
+    # A tool cannot see settlements through `tool_context.state` -- it is
+    # frozen when the streaming invocation opens -- so `run_app_action` had no
+    # way to know the thing it was about to park a directive for had just
+    # succeeded. Live, that produced a hard loop: the share went through, the
+    # composer cleared its selection the way it always does after a send, and
+    # One (never having learned it worked) tried again, found an empty
+    # composer, was told "nobody is selected yet", and tried again.
+    #
+    # Refused HERE rather than by injecting a note into the live turn.
+    # Injection preempts One mid-sentence and loops; a tool return reaches the
+    # model where its turn already ends.
+    session_id = getattr(getattr(tool_context, "session", None), "id", None)
+    completed_fingerprint = read_completed_action(session_id, clean_id)
+    if completed_fingerprint is not None and completed_fingerprint == _slot_fingerprint(
+        clean_slots
+    ):
+        logger.info("one_adk_action_decision action=%s status=already_completed", clean_id)
+        return {
+            "status": "already_completed",
+            "message": (
+                f"{clean_id} already succeeded a moment ago with these exact "
+                "inputs, and doing it again would do it twice. Tell the person "
+                "what was done, once, and stop. Only run it again if they ask "
+                "for it again."
             ),
         }
     if isinstance(context, dict) and context.get("pending_settlement") is True:
@@ -203,7 +318,7 @@ async def run_app_action(
             "message": "Phone verification is already complete.",
         }
 
-    policy = str((entry.get("risk") or {}).get("execution_policy") or "allow_direct")
+    policy = str(entry.get("execution_policy") or "allow_direct")
     label = str(entry.get("label") or clean_id)
     if policy == "manual_only":
         screens = (entry.get("scope") or {}).get("screens") or []
@@ -295,7 +410,14 @@ async def run_app_action(
     # setup hub. Actions with no declared screens are screen-agnostic (global
     # navigation) and always allowed; if we don't know the current screen we
     # cannot judge reachability, so we allow.
-    current_screen = str(tool_context.state.get(_STATE_SCREEN) or "").strip()
+    # The relay publishes the current screen for this long-lived Live turn;
+    # `tool_context.state` is the session snapshot from connect time and can
+    # still name the source screen after an authored route settlement.
+    current_screen = str(
+        (context.get("screen") if isinstance(context, dict) else None)
+        or tool_context.state.get(_STATE_SCREEN)
+        or ""
+    ).strip()
     action_screens = {
         str(s).strip() for s in ((entry.get("scope") or {}).get("screens") or []) if str(s).strip()
     }
@@ -318,7 +440,6 @@ async def run_app_action(
             "reachable_screens": sorted(action_screens),
         }
 
-    activation_policy = str(entry.get("activation_policy") or "none")
     missing = _missing_required_slot(entry, clean_slots)
     if missing is not None:
         logger.info("one_adk_action_decision action=%s status=input_needed", clean_id)
@@ -341,26 +462,51 @@ async def run_app_action(
         # bodies, exports, and scopes are resolved by the mounted KYC handler.
         clean_slots = {"instruction": instruction}
 
-    # A model-selected action is a proposal, never user activation. Every
-    # generated app action, including navigation, waits for an explicit tap in
-    # chat or voice. The gateway still enforces the authored risk policy.
+    # Whether an action must be confirmed is the CONTRACT's call.
+    #
+    # This was hardcoded True, and so was its counterpart in the browser
+    # (`agent-bar.tsx`). The two are ONE invariant expressed on both sides of
+    # the trust boundary and must always be changed together: the browser
+    # decides whether to raise a card, this decides whether the ledger will
+    # accept a settlement without a confirm. Changing only the browser half
+    # made every allow_direct action run and then fail settlement, because the
+    # directive it was settling had been parked here as needing a confirm.
+    #
+    # allow_direct issues ready to run. Everything else still waits, and two
+    # cases deliberately keep waiting whatever the policy says: an action the
+    # gateway does not know (unknown is not a licence) and
+    # trusted_activation_required, whose provider window the browser will only
+    # open on a fresh human gesture.
+    flags = _directive_flags(entry)
+    trusted_activation = flags["trustedActivationRequired"]
+    needs_confirmation = flags["needsConfirmation"]
     directive_payload: dict[str, Any] = {
         "actionId": clean_id,
         "slots": clean_slots,
-        "needsConfirmation": True,
-        "trustedActivationRequired": True,
+        "needsConfirmation": needs_confirmation,
+        "trustedActivationRequired": trusted_activation,
     }
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:{clean_id}"] = {
         "kind": "action",
         "payload": directive_payload,
     }
-    logger.info("one_adk_action_decision action=%s status=confirm_pending", clean_id)
+    logger.info(
+        "one_adk_action_decision action=%s status=%s",
+        clean_id,
+        "confirm_pending" if needs_confirmation else "ready_to_run",
+    )
     return {
-        "status": "confirm_pending",
+        "status": "confirm_pending" if needs_confirmation else "ready_to_run",
+        # The model reads this and says it out loud, so it has to match what
+        # will actually happen. Promising a confirmation that never comes --
+        # "I'll ask you to confirm", followed by the thing simply happening --
+        # is how One starts sounding untrustworthy about everything else.
         "message": (
             f"The app will present the exact {label} action for a trusted tap."
-            if activation_policy == "trusted_activation_required"
+            if trusted_activation
             else f"The app will ask the user to confirm {label}."
+            if needs_confirmation
+            else f"{label} is running now; tell the user what you did, briefly."
         ),
         "action_id": clean_id,
         # Proactive-prompting: like open_screen, this text is the tool
@@ -368,12 +514,27 @@ async def run_app_action(
         # server-injected system turn after a tool call. Nudging here means
         # One offers a next step after every governed action it runs, not
         # only after an onboarding screen change.
+        # Waiting for a confirmation that is never coming is a loop, not
+        # patience. This told One to "wait for explicit confirmation and the
+        # correlated settlement" on every action -- true while every action
+        # raised a card, and false the moment confirmation was removed. One
+        # waited, heard nothing, proposed again, and said the same sentence
+        # each time. Reported as the share request getting stuck in a loop.
+        #
+        # Only the trusted-activation pair still has anything to wait for.
         "next_step": (
-            "Wait for explicit confirmation and the correlated browser action "
-            "settlement before saying "
-            f"{label} completed. Then acknowledge only the reported outcome "
-            "and, if there is an obvious next step, offer it before waiting to "
-            "be asked."
+            (
+                "The app is showing the person a control they must tap for "
+                f"{label}. Say so once and then wait; do not propose it again."
+            )
+            if trusted_activation
+            else (
+                f"{label} is already running. Wait for its settlement before "
+                "saying it completed, say nothing further until that arrives, "
+                "and do not call this action again -- calling it twice would "
+                "do it twice. Then acknowledge only the reported outcome and, "
+                "if there is an obvious next step, offer it."
+            )
         ),
     }
 
@@ -506,12 +667,21 @@ def _navigation_action_for_route(route: str) -> str | None:
             continue
         if str(target.get("target") or "").strip() == clean_route:
             candidates.append(action_id)
-    return sorted(candidates)[0] if candidates else None
+    # Prefer a `route.*` escort when the destination has one. Plain alphabetical
+    # order picked `location.open_now` over `route.one_location`, and -- worse --
+    # `location.add_connections` to escort a CONNECT journey, purely because
+    # "location" sorts before "route". Both navigate correctly, but only the
+    # `route.*` ones are in the browser's global-navigation set, so they are the
+    # ones guaranteed to be offered from any screen. Deterministic either way:
+    # alphabetical still breaks ties inside each group.
+    return (
+        sorted(candidates, key=lambda action: (not action.startswith("route."), action))[0]
+        if candidates
+        else None
+    )
 
 
-def _navigation_journey_definition(
-    entry: dict[str, Any], action_id: str
-) -> dict[str, Any] | None:
+def _navigation_journey_definition(entry: dict[str, Any], action_id: str) -> dict[str, Any] | None:
     """Return an authored navigate-then-execute journey for ``action_id``.
 
     The complement of ``_settled_journey_definition``: that shape runs an
@@ -644,7 +814,11 @@ async def _start_settled_journey(
                 "Call list_app_actions for the controls currently available."
             ),
         }
-    if result.get("status") not in {"ok", "confirm_pending"}:
+    # `ready_to_run` joins these: it is the same successfully-parked directive
+    # as `confirm_pending`, differing only in whether a confirmation gates it.
+    # Omitting it here would make every allow_direct action look like a
+    # failure to the journey path that calls this.
+    if result.get("status") not in {"ok", "confirm_pending", "ready_to_run"}:
         return result
 
     pending_key = f"{_STATE_PENDING_DIRECTIVE}:{action_id}"
@@ -711,8 +885,19 @@ async def start_app_goal(
         return await run_app_action(clean_id, slots, tool_context)
     goal_id = navigation_journey["goal_id"]
     destination_screen = navigation_journey["destination_screen"]
+    # Every early return below refuses the journey before a single directive
+    # exists, so the relay log stayed completely silent on them. "One never
+    # tried" and "One tried and the app turned it away" then looked identical
+    # -- both an empty log -- which is not a distinction that can be guessed
+    # from the person's side of a voice session.
     missing = _missing_required_slot(entry or {}, slots or {})
     if missing is not None:
+        logger.info(
+            "one_adk_goal_decision goal=%s action=%s status=input_needed slot=%s",
+            goal_id,
+            clean_id,
+            missing["slot"],
+        )
         return {
             "status": "input_needed",
             "missing_slot": missing["slot"],
@@ -721,11 +906,15 @@ async def start_app_goal(
     journey_slots = _journey_slots(entry or {}, slots or {})
     context = _voice_context(tool_context)
     if not isinstance(context, dict) or context.get("context_pending") is True:
+        logger.info(
+            "one_adk_goal_decision goal=%s action=%s status=context_not_ready", goal_id, clean_id
+        )
         return {
             "status": "context_not_ready",
             "message": "The app is still publishing its screen state. Please try again in a moment.",
         }
     if context.get("pending_settlement") is True:
+        logger.info("one_adk_goal_decision goal=%s action=%s status=settling", goal_id, clean_id)
         return {
             "status": "settling",
             "message": "The previous action is still settling. Wait for the fresh screen state.",
@@ -761,11 +950,13 @@ async def start_app_goal(
         return await continue_app_goal(tool_context)
 
     navigation_action_id = navigation_journey["navigation_action_id"]
+    navigation_flags = _directive_flags(get_action_gateway_action(navigation_action_id))
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:goal:{goal_id}"] = {
         "kind": "action",
         "payload": {
             "actionId": navigation_action_id,
             "slots": {},
+            **navigation_flags,
             "goalId": goal_id,
             "goalRun": run,
         },
@@ -782,8 +973,7 @@ async def start_app_goal(
     return {
         "status": "navigation_started",
         "message": (
-            f"Opening the {destination_screen.replace('_', ' ')} screen, "
-            "then I will continue."
+            f"Opening the {destination_screen.replace('_', ' ')} screen, then I will continue."
         ),
         "goal_id": goal_id,
     }
@@ -891,14 +1081,27 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
         logger.info("one_adk_goal_decision goal=%s status=preview_already_open", goal_id)
         return {
             "status": "preview_already_open",
+            # SAY NOTHING is the whole point of this branch, and the previous
+            # wording said the opposite: "Ask the person to confirm it there"
+            # instructed One to speak on a call whose only meaning is that it
+            # already spoke. Reported as the agent repeating its line when
+            # picking a person -- One called continue_app_goal twice, and the
+            # second answer told it to ask again, so it did.
+            #
+            # This is a tool RETURN, so it reaches the model where its turn
+            # already ends. Do not solve repetition by injecting content into
+            # a live turn: that preempts One mid-sentence and loops.
             "message": (
-                "This journey's step is already open on the screen. Ask the person "
-                "to confirm it there; do not start another one."
+                "Already done and waiting on the person -- this call changed "
+                "nothing. Say nothing at all and do not repeat your question; "
+                "you have already asked it and they have heard you. Wait for "
+                "the settlement."
             ),
             "goal_id": goal_id,
         }
 
     slots = run.get("slots") if isinstance(run.get("slots"), dict) else {}
+    action_flags = _directive_flags(get_action_gateway_action(journey_action_id))
     next_run = {
         **run,
         "step_cursor": 1,
@@ -911,6 +1114,7 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
         "payload": {
             "actionId": journey_action_id,
             "slots": slots,
+            **action_flags,
             "goalId": goal_id,
             "goalRun": next_run,
         },
@@ -923,8 +1127,7 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
     return {
         "status": "preview_started",
         "message": (
-            "The journey's step is open on the screen. It waits for the person's "
-            "confirmation."
+            "The journey's step is open on the screen. It waits for the person's confirmation."
         ),
         "goal_id": goal_id,
     }

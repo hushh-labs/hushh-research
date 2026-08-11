@@ -258,8 +258,8 @@ def test_pbkdf2_row_missing_kdf_params_raises_configuration_error(monkeypatch):
         crm_registry_repo.load_active_definition("salesforce-fsc-customer0", db=db)
 
 
-def test_bearer_row_passes_tool_args_without_decrypt(monkeypatch):
-    """MuleSoft-owned Bearer rows pass client id/secret row values to the MCP tool."""
+def test_bearer_row_passes_connector_ref_without_decrypt(monkeypatch):
+    """MuleSoft-owned Bearer rows never pass CRM config or OAuth values to a tool."""
     row = _pbkdf2_row()
     row["crm_id"] = "crm_001"
     row["crm_enterprise_name"] = "Macys"
@@ -268,6 +268,7 @@ def test_bearer_row_passes_tool_args_without_decrypt(monkeypatch):
     row["crm_client_secret_ciphertext"] = "encrypted-salesforce-client-secret"
     row["crm_client_id_blob"] = None
     row["crm_client_secret_blob"] = None
+    row["mulesoft_connector_ref"] = "mulesoft:crm-sandbox-contact"
     db = _FakeDb([row], [])
     monkeypatch.setattr(
         crm_registry_repo,
@@ -285,14 +286,19 @@ def test_bearer_row_passes_tool_args_without_decrypt(monkeypatch):
         ("client_secret", "gateway-secret"),
     )
     assert definition.transport_tool_arguments == {
-        "target": "Macys",
-        "crmBaseUrl": row["crm_base_url"],
-        "crmMcpEndpoint": row["crm_mcp_endpoint"],
-        "clientId": "plain-salesforce-client-id",
-        "clientSecret": "encrypted-salesforce-client-secret",
-        "crmTokenUrl": "",
-        "objectType": "Contact",
+        "connectorRef": "mulesoft:crm-sandbox-contact",
     }
+
+
+def test_bearer_row_without_connector_ref_fails_closed(monkeypatch):
+    row = _pbkdf2_row()
+    row["auth_header_style"] = "Bearer"
+    db = _FakeDb([row], [])
+    monkeypatch.setenv("OMNIGATEWAY_CLIENT_ID", "gateway-client")
+    monkeypatch.setenv("OMNIGATEWAY_CLIENT_SECRET", "gateway-secret")
+
+    with pytest.raises(ConnectedSystemConfigurationError, match="mulesoft_connector_ref"):
+        crm_registry_repo.load_active_definition("salesforce-fsc-customer0", db=db)
 
 
 def test_load_active_definitions_lists_all_active_rows_without_decrypt(monkeypatch):

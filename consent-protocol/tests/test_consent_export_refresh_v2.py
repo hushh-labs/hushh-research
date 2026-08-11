@@ -159,6 +159,39 @@ def test_refresh_upload_rejects_snapshot_before_commit(monkeypatch):
     assert response.json()["detail"]["error_code"] == "SNAPSHOT_EXPORT_IMMUTABLE"
 
 
+def test_refresh_upload_rejects_nonshareable_source_library_scope(monkeypatch):
+    class _FakeService:
+        async def get_claimed_consent_export_refresh_job(self, **_kwargs):
+            return {
+                "consent_token": "consent_demo",
+                "expected_export_revision": 1,
+            }
+
+        async def get_consent_export(self, _token: str):
+            raise AssertionError("policy must reject before export retrieval")
+
+    async def _validate(_token: str):
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="user_123",
+                scope="pkm.read",
+                scope_str="attr.source_library.knowledge.*",
+            ),
+        )
+
+    monkeypatch.setattr(consent, "ConsentDBService", _FakeService)
+    monkeypatch.setattr(consent, "validate_token_with_db", _validate)
+    response = TestClient(_build_app()).post(
+        "/api/consent/export-refresh/upload",
+        json=_upload_payload(),
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"]["error_code"] == "SCOPE_RETIRED"
+
+
 def test_refresh_revision_cas_conflict_fails_closed(monkeypatch):
     captured = {}
 

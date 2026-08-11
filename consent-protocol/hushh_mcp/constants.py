@@ -106,14 +106,23 @@ class ConsentScope(str, Enum):
         authorities, and vault authority are internal projection details.
         """
         normalized = str(scope or "").strip()
-        return normalized == cls.CAP_ONE_INVOKE.value or bool(
-            _EXTERNAL_DYNAMIC_SCOPE_PATTERN.fullmatch(normalized)
-        )
+        if normalized == cls.CAP_ONE_INVOKE.value:
+            return True
+        if not _EXTERNAL_DYNAMIC_SCOPE_PATTERN.fullmatch(normalized):
+            return False
+        from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
+
+        return not is_private_pkm_export_scope(normalized)
 
     @classmethod
     def is_retired_scope(cls, scope: str) -> bool:
         """Return whether ``scope`` is a historical, non-authorizing value."""
-        return str(scope or "").strip() in RETIRED_SCOPE_VALUES
+        normalized = str(scope or "").strip()
+        if normalized in RETIRED_SCOPE_VALUES:
+            return True
+        from hushh_mcp.consent.pkm_scope_policy import is_source_library_pkm_scope
+
+        return is_source_library_pkm_scope(normalized)
 
     @classmethod
     def is_wildcard_scope(cls, scope: str) -> bool:
@@ -132,6 +141,9 @@ class ConsentScope(str, Enum):
         Returns:
             True if the scope is valid
         """
+        if cls.is_retired_scope(scope):
+            return False
+
         # Check static scopes first
         if scope in ACTIVE_RESERVED_SCOPE_VALUES:
             return True
@@ -187,6 +199,8 @@ class ConsentScope(str, Enum):
         # VAULT_OWNER grants everything
         if cls.VAULT_OWNER.value in granted_scopes:
             return True
+
+        granted_scopes = [scope for scope in granted_scopes if not cls.is_retired_scope(scope)]
 
         # Direct match
         if requested_scope in granted_scopes:

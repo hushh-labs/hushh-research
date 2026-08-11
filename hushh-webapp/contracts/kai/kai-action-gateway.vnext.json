@@ -2118,7 +2118,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "The mounted action reports its browser-observed outcome."
+          "current route becomes /one/connect"
         ],
         "backend_effects": []
       },
@@ -2139,9 +2139,13 @@
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "connect.open_people",
             "label": "Open Connect people",
-            "failure_behavior": "stop"
+            "failure_behavior": "stop",
+            "action_id": "connect.open_people",
+            "settlement_target": {
+              "route": "/one/connect",
+              "screen": "connect"
+            }
           }
         ],
         "progress_contract": {
@@ -2223,7 +2227,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "The mounted action reports its browser-observed outcome."
+          "current route becomes /one/connect"
         ],
         "backend_effects": []
       },
@@ -2244,9 +2248,13 @@
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "connect.open_nearby",
             "label": "Open advisors around you",
-            "failure_behavior": "stop"
+            "failure_behavior": "stop",
+            "action_id": "connect.open_nearby",
+            "settlement_target": {
+              "route": "/one/connect",
+              "screen": "connect"
+            }
           }
         ],
         "progress_contract": {
@@ -2285,7 +2293,7 @@
         "people",
         "name"
       ],
-      "meaning": "Puts the cursor in the people search box so a name can be typed. It does not search on its own.",
+      "meaning": "Searches Connect's people directory for the name you say. It only shows matches; sending or accepting a connection request remains a separate confirmed action.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -2318,7 +2326,8 @@
         "one-connect-search"
       ],
       "state_exposure": [
-        "active connect tab"
+        "active connect tab",
+        "directory result count"
       ],
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md"
@@ -2327,7 +2336,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "The mounted action reports its browser-observed outcome."
+          "current route becomes /one/connect"
         ],
         "backend_effects": []
       },
@@ -2342,15 +2351,380 @@
       },
       "goal": {
         "goal_id": "goal.connect.search_people",
-        "required_inputs": [],
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Who should I look for in Connect?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
         "input_resolvers": [],
-        "slot_schema": {},
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "connect.search_people",
             "label": "Search for someone to connect with",
-            "failure_behavior": "stop"
+            "failure_behavior": "stop",
+            "action_id": "connect.search_people",
+            "settlement_target": {
+              "route": "/one/connect",
+              "screen": "connect"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "connect.send_request",
+      "surface_id": "one_connect",
+      "label": "Send a connection request",
+      "aliases": [
+        "connect with someone",
+        "send a connection request",
+        "invite someone",
+        "add a connection"
+      ],
+      "search_keywords": [
+        "connect",
+        "request",
+        "invite",
+        "add",
+        "person"
+      ],
+      "meaning": "Sends a no-scope connection request to one exact directory match after the person confirms it by voice. It never guesses between people with the same or a similar name.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/connect"
+        ],
+        "screens": [
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "connect.send_request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "connection count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/connect"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connect.send_request",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Who should receive the connection request?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Send a connection request",
+            "failure_behavior": "stop",
+            "action_id": "connect.send_request",
+            "settlement_target": {
+              "route": "/one/connect",
+              "screen": "connect"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "connect.cancel_request",
+      "surface_id": "one_connect",
+      "label": "Cancel a connection request you sent",
+      "aliases": [
+        "cancel my request",
+        "withdraw my request",
+        "take back my connection request",
+        "never mind that request"
+      ],
+      "search_keywords": [
+        "cancel",
+        "withdraw",
+        "request",
+        "pending",
+        "connection"
+      ],
+      "meaning": "Withdraws a connection request you already sent to one exact person, before they have accepted it. It does not affect anyone who is already connected to you.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/connect"
+        ],
+        "screens": [
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "connect.cancel_request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending outgoing request count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/connect"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connect.cancel_request",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Whose request should I cancel?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Cancel a connection request you sent",
+            "failure_behavior": "stop",
+            "action_id": "connect.cancel_request",
+            "settlement_target": {
+              "route": "/one/connect",
+              "screen": "connect"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "connect.remove_connection",
+      "surface_id": "one_connect",
+      "label": "Remove a connection",
+      "aliases": [
+        "remove connection",
+        "disconnect from",
+        "unconnect",
+        "remove them from my connections"
+      ],
+      "search_keywords": [
+        "remove",
+        "disconnect",
+        "delete",
+        "connection",
+        "unfriend"
+      ],
+      "meaning": "Ends an existing connection with one exact person. They stop being someone you can share things with, including your location. It does not notify them and it does not block them.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/connect"
+        ],
+        "screens": [
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "connect.remove_connection"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "connection count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/connect"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connect.remove_connection",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Who should I remove from your connections?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Remove a connection",
+            "failure_behavior": "stop",
+            "action_id": "connect.remove_connection",
+            "settlement_target": {
+              "route": "/one/connect",
+              "screen": "connect"
+            }
           }
         ],
         "progress_contract": {
@@ -5688,6 +6062,937 @@
             "action_id": "location.refresh",
             "label": "Refresh location",
             "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.pause_updates",
+      "surface_id": "one_location",
+      "label": "Pause my location",
+      "aliases": [
+        "pause my location",
+        "stop sharing my location",
+        "turn off my location",
+        "go invisible",
+        "hide my location",
+        "stop location updates"
+      ],
+      "search_keywords": [
+        "pause",
+        "stop",
+        "hide",
+        "invisible",
+        "off",
+        "location"
+      ],
+      "meaning": "Stops this device sending new location updates and takes you off nearby presence. People you have already granted keep their grant, but it stops moving until you resume.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.pause_updates"
+      },
+      "control_ids": [
+        "one-location-updates-toggle"
+      ],
+      "state_exposure": [
+        "location sharing paused"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.pause_updates",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Pause my location",
+            "failure_behavior": "stop",
+            "action_id": "location.pause_updates",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.select_share_recipient",
+      "surface_id": "one_location",
+      "label": "Pick someone for the share",
+      "aliases": [
+        "share with",
+        "pick someone",
+        "select someone",
+        "add them to the share",
+        "choose who to share with"
+      ],
+      "search_keywords": [
+        "pick",
+        "select",
+        "choose",
+        "recipient",
+        "person",
+        "share"
+      ],
+      "meaning": "Finds the person you named among your connections and selects them in the share composer, so you can see who is picked before anything is sent. It only selects: starting the share is still a separate, confirmed step.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.select_share_recipient"
+      },
+      "control_ids": [
+        "one-location-share-recipient-search"
+      ],
+      "state_exposure": [
+        "selected recipient count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location?action=share"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.select_share_recipient",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Who do you want to share with?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Pick someone for the share",
+            "failure_behavior": "stop",
+            "action_id": "location.select_share_recipient",
+            "settlement_target": {
+              "route": "/one/location?action=share",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.share_selected",
+      "surface_id": "one_location",
+      "label": "Share with the people I picked",
+      "aliases": [
+        "share with them",
+        "share with the people i picked",
+        "send it",
+        "share for an hour",
+        "share my location with these people",
+        "confirm the share"
+      ],
+      "search_keywords": [
+        "share",
+        "send",
+        "confirm",
+        "duration",
+        "selected"
+      ],
+      "meaning": "Shares your live location with the people already selected in the share composer, for the length of time you say. It never chooses who: if nobody is selected it stops and asks you to pick someone first.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.share_selected"
+      },
+      "control_ids": [
+        "one-location-confirm-share"
+      ],
+      "state_exposure": [
+        "selected recipient count",
+        "share duration"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.share_selected",
+        "required_inputs": [
+          {
+            "name": "duration_hours",
+            "prompt": "For how long? You can say 15 minutes, 30 minutes, 1 hour, 4 hours or 24 hours.",
+            "required": false,
+            "slot": "duration_hours",
+            "resolver": "location_share_duration",
+            "options": [
+              "0.25",
+              "0.5",
+              "1",
+              "4",
+              "24"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "duration_hours": "location_share_duration"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.share_selected",
+            "label": "Share with the people I picked",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.stop_sos",
+      "surface_id": "one_location",
+      "label": "Stop the active SOS",
+      "aliases": [
+        "stop sos",
+        "cancel sos",
+        "end the emergency",
+        "stop the emergency",
+        "i am safe now"
+      ],
+      "search_keywords": [
+        "stop",
+        "cancel",
+        "sos",
+        "emergency",
+        "end"
+      ],
+      "meaning": "Ends an SOS that is currently running and revokes every location share it created. It does not tell anyone you are safe.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.stop_sos"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active sos incident"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.stop_sos",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Stop the active SOS",
+            "failure_behavior": "stop",
+            "action_id": "location.stop_sos",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.set_auto_share",
+      "surface_id": "one_location",
+      "label": "Turn automatic location sharing on or off",
+      "aliases": [
+        "automatic sharing",
+        "auto share",
+        "keep updating my location",
+        "stop updating automatically",
+        "live updates"
+      ],
+      "search_keywords": [
+        "automatic",
+        "auto",
+        "live",
+        "updates",
+        "setting",
+        "privacy"
+      ],
+      "meaning": "Controls whether people you have already approved keep receiving live updates, or only see your location when you explicitly share it. It does not create or end any share.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.set_auto_share"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "automatic sharing enabled"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.set_auto_share",
+        "required_inputs": [
+          {
+            "name": "enabled",
+            "prompt": "Should automatic sharing be on or off?",
+            "required": true,
+            "slot": "enabled",
+            "resolver": "on_or_off",
+            "options": [
+              "on",
+              "off"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "enabled": "on_or_off"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Turn automatic location sharing on or off",
+            "failure_behavior": "stop",
+            "action_id": "location.set_auto_share",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.add_emergency_contact",
+      "surface_id": "one_location",
+      "label": "Add an emergency contact",
+      "aliases": [
+        "add emergency contact",
+        "make them an emergency contact",
+        "add to my sos list",
+        "emergency contact"
+      ],
+      "search_keywords": [
+        "emergency",
+        "sos",
+        "contact",
+        "add"
+      ],
+      "meaning": "Adds one person to the list who receive your location by SMS if you trigger an SOS. Only people who have finished their own Location setup can be added.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.add_emergency_contact"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "emergency contact count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.add_emergency_contact",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Who should I add as an emergency contact?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Add an emergency contact",
+            "failure_behavior": "stop",
+            "action_id": "location.add_emergency_contact",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.remove_emergency_contact",
+      "surface_id": "one_location",
+      "label": "Remove an emergency contact",
+      "aliases": [
+        "remove emergency contact",
+        "take them off my sos list",
+        "stop them getting my sos",
+        "remove from emergency contacts"
+      ],
+      "search_keywords": [
+        "emergency",
+        "sos",
+        "contact",
+        "remove"
+      ],
+      "meaning": "Removes one person from the list who receive your location by SMS if you trigger an SOS.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.remove_emergency_contact"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "emergency contact count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.remove_emergency_contact",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Which emergency contact should I remove?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Remove an emergency contact",
+            "failure_behavior": "stop",
+            "action_id": "location.remove_emergency_contact",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.resume_updates",
+      "surface_id": "one_location",
+      "label": "Resume my location",
+      "aliases": [
+        "resume my location",
+        "turn my location back on",
+        "start sharing again",
+        "unpause my location",
+        "show my location again"
+      ],
+      "search_keywords": [
+        "resume",
+        "unpause",
+        "turn on",
+        "start",
+        "location"
+      ],
+      "meaning": "Turns location updates back on for this device and refreshes your live position. This makes you visible again to everyone you have an active grant with, so it asks before it runs.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.resume_updates"
+      },
+      "control_ids": [
+        "one-location-updates-toggle"
+      ],
+      "state_exposure": [
+        "location sharing paused"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.resume_updates",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Resume my location",
+            "failure_behavior": "stop",
+            "action_id": "location.resume_updates",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
           }
         ],
         "progress_contract": {
