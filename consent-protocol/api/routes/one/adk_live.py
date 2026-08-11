@@ -89,9 +89,11 @@ from hushh_mcp.services.action_directive_ledger import (
 from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.services.live_voice_context import (
     clear_completed_actions,
+    clear_failed_action,
     clear_live_voice_context,
     publish_live_voice_context,
     record_completed_action,
+    record_failed_action,
 )
 
 logger = logging.getLogger(__name__)
@@ -1004,6 +1006,27 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 if settlement["status"] in {"succeeded", "started", "noop"}:
                     record_completed_action(
                         session_id, settlement["action_id"], settled_slots
+                    )
+                    # A success retires any earlier failure for this action.
+                    # Otherwise the person fixes what was wrong, the action
+                    # works, and the next legitimate call is still refused by a
+                    # record describing a problem that no longer exists.
+                    clear_failed_action(session_id, settlement["action_id"])
+                elif settlement["status"] in {"failed", "blocked"}:
+                    # The other half of the guard above, and the half that
+                    # actually loops. Recording only successes left a failed
+                    # action with no trace at all, so the identical call was
+                    # admitted again immediately -- 24 times in 15 seconds when
+                    # a share settled `failed` because the recipient had no
+                    # encryption keys. Keeping the summary lets the refusal
+                    # hand One something to say, which is what ends the loop:
+                    # telling a model to stop without giving it a sentence to
+                    # deliver just makes it try once more.
+                    record_failed_action(
+                        session_id,
+                        settlement["action_id"],
+                        settled_slots,
+                        settlement.get("summary") or "",
                     )
                 raw_settlement = raw_settlement if isinstance(raw_settlement, dict) else {}
                 receipt = _bounded_text(raw_settlement.get("receipt"), 256)

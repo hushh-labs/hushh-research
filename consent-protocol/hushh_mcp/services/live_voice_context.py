@@ -55,6 +55,7 @@ def clear_live_voice_context(session_id: str | None) -> None:
     if clean_id:
         _LIVE_CONTEXT_BY_SESSION.pop(clean_id, None)
         _COMPLETED_ACTIONS_BY_SESSION.pop(clean_id, None)
+        _FAILED_ACTIONS_BY_SESSION.pop(clean_id, None)
 
 
 # Actions that have already SUCCEEDED in this session, and are therefore not
@@ -103,3 +104,68 @@ def clear_completed_actions(session_id: str | None) -> None:
     clean_id = str(session_id or "").strip()
     if clean_id:
         _COMPLETED_ACTIONS_BY_SESSION.pop(clean_id, None)
+        _FAILED_ACTIONS_BY_SESSION.pop(clean_id, None)
+
+
+# Actions that have already FAILED in this session, with the reason they gave.
+#
+# The success store above is only half the guard, and the missing half is the
+# one that actually spins. A settlement is recorded only when it succeeds, so a
+# failed action leaves no trace at all: `read_completed_action` returns None,
+# the already-completed refusal cannot fire, and the relay admits the identical
+# call again. Nothing anywhere says "this was just tried and did not work".
+#
+# Observed live on UAT: sharing with someone whose account has no encryption
+# keys settled `failed`, and `location.share_selected` was then re-issued 24
+# times in 15 seconds -- roughly twice a second -- against a backend that could
+# only ever refuse it. Failure is the case that loops hardest precisely because
+# it leaves the person's request unsatisfied, so the model keeps trying to
+# satisfy it.
+#
+# The reason text is kept, not just the fingerprint, so the refusal can hand
+# One the actual failure to report instead of a bare "stop". Telling a model to
+# stop without giving it anything to say is what makes it try again.
+_FAILED_ACTIONS_BY_SESSION: dict[str, dict[str, tuple[str, str]]] = {}
+
+
+def record_failed_action(
+    session_id: str | None,
+    action_id: str,
+    fingerprint: str,
+    reason: str = "",
+) -> None:
+    """Remember that ``action_id`` failed, so an immediate identical retry can be refused."""
+    clean_id = str(session_id or "").strip()
+    clean_action = str(action_id or "").strip()
+    if not clean_id or not clean_action:
+        return
+    _FAILED_ACTIONS_BY_SESSION.setdefault(clean_id, {})[clean_action] = (
+        str(fingerprint or ""),
+        str(reason or ""),
+    )
+
+
+def read_failed_action(session_id: str | None, action_id: str) -> tuple[str, str] | None:
+    """Return ``(fingerprint, reason)`` for ``action_id``'s last failure, if any."""
+    clean_id = str(session_id or "").strip()
+    clean_action = str(action_id or "").strip()
+    if not clean_id or not clean_action:
+        return None
+    return _FAILED_ACTIONS_BY_SESSION.get(clean_id, {}).get(clean_action)
+
+
+def clear_failed_action(session_id: str | None, action_id: str) -> None:
+    """Drop one action's failure record.
+
+    Called when the same action later succeeds. Without this a success would sit
+    behind a stale failure for the rest of the turn: the person fixes whatever
+    was wrong, the action works, and the next legitimate call is still refused
+    by a record describing a problem that no longer exists.
+    """
+    clean_id = str(session_id or "").strip()
+    clean_action = str(action_id or "").strip()
+    if not clean_id or not clean_action:
+        return
+    session_failures = _FAILED_ACTIONS_BY_SESSION.get(clean_id)
+    if session_failures is not None:
+        session_failures.pop(clean_action, None)
