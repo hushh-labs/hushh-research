@@ -263,8 +263,8 @@ textarea {
   --type-navigation-title-line: 22px;
   --type-navigation-title-weight: 600;
   --type-navigation-title-tracking: normal;
-  --type-major-section-title-size: 22px;
-  --type-major-section-title-line: 28px;
+  --type-major-section-title-size: 20px;
+  --type-major-section-title-line: 25px;
   --type-major-section-title-weight: 600;
   --type-major-section-title-tracking: normal;
   --type-card-title-size: 20px;
@@ -1413,7 +1413,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   display: flex;
   flex-direction: column;
   min-height: calc(100dvh - var(--top-shell-reserved-height, 0px));
-  padding-bottom: calc(env(safe-area-inset-bottom) + 7.5rem);
+  padding-bottom: calc(env(safe-area-inset-bottom) + 5.5rem);
 }
 
 .profile-home-screen .app-page-header-region {
@@ -5645,7 +5645,7 @@ body[data-persona-surface="ria"] {
 }
 
 :is(.ui-text-row-description) {
-  color: var(--app-tertiary-label) !important;
+  color: var(--app-secondary-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-row-description-size) !important;
   font-weight: var(--type-row-description-weight) !important;
@@ -5744,6 +5744,10 @@ body[data-persona-surface="ria"] {
   line-height: var(--type-agent-tab-label-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
+}
+
+:is(.ui-text-agent-tab-label)[data-tone="primary"] {
+  color: var(--app-label) !important;
 }
 
 [role="tab"][aria-selected="true"] :is(.ui-text-agent-tab-label) {

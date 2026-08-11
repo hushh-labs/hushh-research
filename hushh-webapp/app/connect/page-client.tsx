@@ -83,9 +83,9 @@ const SUGGESTED_PEOPLE_LIMIT = 8;
 const PAGE_SIZE_OPTIONS = [8, 16, 24, 50] as const;
 const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
 const CONNECT_ROW_ACTION_CLASSNAME =
-  "h-[34px] min-h-[34px] rounded-[17px] px-3 text-[15px] font-semibold leading-5";
+  "h-8 min-h-8 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px]";
 const CONNECT_PAGER_BUTTON_CLASSNAME =
-  "h-8 min-h-8 rounded-2xl px-3 text-[15px] font-semibold leading-5";
+  "h-[30px] min-h-[30px] rounded-[15px] px-2.5 text-[14px] font-semibold leading-[18px]";
 
 /** Maximum number of connection requests the People bulk action can send. */
 const MAX_BULK_CONNECTION_REQUESTS = 20;
@@ -1361,8 +1361,14 @@ export default function ConnectPageClient() {
                         key={person.userId}
                         icon={UserRound}
                         iconTone="blue"
-                        title={title}
-                        description={description}
+                        title={<span className="block min-w-0 truncate">{title}</span>}
+                        description={
+                          description ? (
+                            <span className="block min-w-0 truncate">
+                              {description}
+                            </span>
+                          ) : undefined
+                        }
                         density="compact"
                         trailing={
                           isSelectionMode ? (
@@ -1397,7 +1403,7 @@ export default function ConnectPageClient() {
                               size="sm"
                               className={cn(
                                 CONNECT_ROW_ACTION_CLASSNAME,
-                                "min-w-[112px]"
+                                "min-w-[100px]"
                               )}
                               disabled={busyId === person.userId}
                               onClick={() => void cancelConnectionRequest(person)}
@@ -1414,7 +1420,7 @@ export default function ConnectPageClient() {
                               size="sm"
                               className={cn(
                                 CONNECT_ROW_ACTION_CLASSNAME,
-                                "min-w-[78px]"
+                                "min-w-[72px]"
                               )}
                               disabled={cta.disabled || busyId === person.userId}
                               onClick={() => void handleConnect(person)}
@@ -1465,7 +1471,7 @@ export default function ConnectPageClient() {
                           size="sm"
                           className={cn(
                             CONNECT_PAGER_BUTTON_CLASSNAME,
-                            "min-w-[82px]"
+                            "min-w-[76px]"
                           )}
                           disabled={loading || currentPage <= 1}
                           onClick={() => goToPage(currentPage - 1)}
@@ -1479,7 +1485,7 @@ export default function ConnectPageClient() {
                           size="sm"
                           className={cn(
                             CONNECT_PAGER_BUTTON_CLASSNAME,
-                            "min-w-[64px]"
+                            "min-w-[56px]"
                           )}
                           disabled={loading || !hasMore}
                           onClick={() => goToPage(currentPage + 1)}

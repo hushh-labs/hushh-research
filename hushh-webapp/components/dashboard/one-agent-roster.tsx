@@ -6,7 +6,7 @@ import { ChevronRight, Grid2X2, List, Search } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-
+import { PageTitle } from "@/components/app-ui/typography";
 import {
   getOneSetupCapability,
   isOneCapabilityEnabled,
@@ -523,7 +523,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       title={mode.description}
       data-testid={`one-agent-list-row-${mode.id}`}
       className={cn(
-        "group/agent-row relative grid min-h-[64px] w-full grid-cols-[40px_minmax(0,1fr)_auto_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
+        "group/agent-row relative grid min-h-[60px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(92px,auto)_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
         "transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
@@ -547,7 +547,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       >
         {mode.title}
       </span>
-      <span className="relative z-10 flex min-w-0 max-w-[148px] justify-end">
+      <span className="relative z-10 flex min-w-0 max-w-[132px] justify-end">
         <AgentMetric mode={mode} />
       </span>
       <ChevronRight
@@ -574,7 +574,7 @@ function AgentRosterViewToggle({
     <div
       role="group"
       aria-label="Agent roster view"
-      className="inline-flex h-11 shrink-0 items-center rounded-[14px] bg-[rgba(120,120,128,.12)] p-0"
+      className="inline-flex h-10 shrink-0 items-center rounded-[13px] bg-[rgba(120,120,128,.12)] p-0"
     >
       <ShellActionSurface
         aria-label="Show agent grid view"
@@ -582,13 +582,13 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-grid"
         onClick={() => onChange("grid")}
         className={cn(
-          "h-11 w-11 rounded-[14px]",
+          "h-10 w-10 rounded-[13px]",
           value === "grid"
             ? "bg-[color:var(--app-accent)] text-white shadow-none hover:bg-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]"
             : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent",
         )}
       >
-        <Grid2X2 className="h-[17px] w-[17px] [stroke-width:1.8]" aria-hidden />
+        <Grid2X2 className="h-4 w-4 [stroke-width:1.8]" aria-hidden />
       </ShellActionSurface>
       <ShellActionSurface
         aria-label="Show agent list view"
@@ -596,13 +596,13 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-list"
         onClick={() => onChange("list")}
         className={cn(
-          "h-11 w-11 rounded-[14px]",
+          "h-10 w-10 rounded-[13px]",
           value === "list"
             ? "bg-[color:var(--app-accent)] text-white shadow-none hover:bg-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]"
             : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent",
         )}
       >
-        <List className="h-[17px] w-[17px] [stroke-width:1.8]" aria-hidden />
+        <List className="h-4 w-4 [stroke-width:1.8]" aria-hidden />
       </ShellActionSurface>
     </div>
   );
@@ -660,12 +660,9 @@ export function OneAgentRoster({
       className="mx-auto w-full max-w-[880px]"
     >
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2
-          id="one-agents-heading"
-          className="min-w-0 truncate text-[28px] font-bold leading-[34px] tracking-normal text-[#1D1D1F]"
-        >
+        <PageTitle as="h1" id="one-agents-heading" className="min-w-0 whitespace-nowrap">
           Agents ({modes.length})
-        </h2>
+        </PageTitle>
         <AgentRosterViewToggle value={view} onChange={selectView} />
       </div>
       <label className="relative mb-4 block">
@@ -681,7 +678,7 @@ export function OneAgentRoster({
           aria-label="Search agents"
           data-ui-role="input-text"
           data-testid="one-agents-search"
-          className="h-[52px] w-full rounded-[16px] border border-[rgba(60,60,67,.12)] bg-white py-[15px] pl-11 pr-4 text-[17px] font-normal leading-[22px] text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/70 dark:bg-[#1C1C1E] dark:text-[#F5F5F7]"
+          className="h-12 w-full rounded-[16px] border border-[rgba(60,60,67,.12)] bg-white py-[13px] pl-11 pr-4 text-[17px] font-normal leading-[22px] text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/70 dark:bg-[#1C1C1E] dark:text-[#F5F5F7]"
         />
       </label>
       <div
@@ -696,7 +693,7 @@ export function OneAgentRoster({
           >
             <div
               data-agent-roster-layout="grouped-icon-grid"
-              className="grid w-full grid-cols-[repeat(3,104px)] justify-center gap-x-2 gap-y-2 min-[430px]:grid-cols-[repeat(3,112px)] sm:grid-cols-[repeat(4,128px)] sm:gap-x-2.5 sm:gap-y-3"
+              className="grid w-full grid-cols-[repeat(3,minmax(96px,1fr))] justify-center gap-x-2 gap-y-2 min-[430px]:grid-cols-[repeat(3,minmax(108px,1fr))] sm:grid-cols-[repeat(4,minmax(112px,1fr))] sm:gap-x-2.5 sm:gap-y-3"
             >
               {visibleModes.map((mode) => (
                 <AgentGridItem key={mode.id} mode={mode} />
