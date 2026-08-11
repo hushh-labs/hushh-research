@@ -1,23 +1,26 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apiJson } from "@/lib/services/api-client";
+import { ApiService } from "@/lib/services/api-service";
 import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
 
-vi.mock("@/lib/services/api-client", () => ({
-  apiJson: vi.fn(),
-  ApiError: class ApiError extends Error {},
+// The status read moved from a bare `apiJson` to a service method, because
+// `apiFetch` does not attach auth and `getFirebaseToken` is private to ApiService.
+// Mocking the transport rather than the service is what let the unauthenticated
+// call ship: the test supplied a payload the real endpoint would have 401'd on.
+vi.mock("@/lib/services/api-service", () => ({
+  ApiService: { getPersonalAgentStatus: vi.fn() },
 }));
 
-const mockApiJson = vi.mocked(apiJson);
+const mockStatus = vi.mocked(ApiService.getPersonalAgentStatus);
 
 afterEach(() => {
-  mockApiJson.mockReset();
+  mockStatus.mockReset();
 });
 
 describe("OneAgentPresence", () => {
   it("shows the honest 'Reserved' state by default", () => {
-    mockApiJson.mockReturnValue(new Promise(() => {})); // pending, never resolves
+    mockStatus.mockReturnValue(new Promise(() => {})); // pending, never resolves
     render(<OneAgentPresence />);
     expect(screen.getByText("Reserved")).toBeTruthy();
     expect(screen.getByText(/Reserved and ready to activate/)).toBeTruthy();
@@ -26,14 +29,14 @@ describe("OneAgentPresence", () => {
   });
 
   it("shows 'Live' once the agent is provisioned", async () => {
-    mockApiJson.mockResolvedValue({ state: "active", hushhId: "ha1_abc" });
+    mockStatus.mockResolvedValue({ state: "active", hushhId: "ha1_abc" });
     render(<OneAgentPresence />);
     expect(await screen.findByText("Live")).toBeTruthy();
     expect(screen.getByText(/Live and yours/)).toBeTruthy();
   });
 
   it("fails safe to 'Reserved' when the status call errors", async () => {
-    mockApiJson.mockRejectedValue(new Error("network down"));
+    mockStatus.mockRejectedValue(new Error("network down"));
     render(<OneAgentPresence />);
     await waitFor(() => expect(screen.getByText("Reserved")).toBeTruthy());
   });
@@ -45,11 +48,30 @@ describe("OneAgentPresence", () => {
     ["connecting", "Connecting"],
     ["failed", "Not ready"],
   ])("renders the '%s' state as '%s'", async (state, badge) => {
-    mockApiJson.mockResolvedValue({ state });
+    mockStatus.mockResolvedValue({ state });
     render(<OneAgentPresence />);
     expect(await screen.findByText(badge)).toBeTruthy();
     // Never claims a live pod while one is still being stood up.
     expect(screen.queryByText("Live")).toBeNull();
+  });
+
+  // Health is reported ONLY when the liveness sweep reached a real verdict. The
+  // backend omits it rather than defaulting to "healthy", so a live-but-unhealthy
+  // agent is the one case where the badge "Live" on its own misleads.
+  it("says so when a live agent is not answering health checks", async () => {
+    mockStatus.mockResolvedValue({ state: "active", health: "unhealthy" });
+    render(<OneAgentPresence />);
+    expect(await screen.findByText("Not responding")).toBeTruthy();
+    expect(screen.queryByText("Live")).toBeNull();
+  });
+
+  it("keeps saying 'Live' when the backend sent no health verdict at all", async () => {
+    // Absent means absent. Treating a missing verdict as unhealthy would invent
+    // the same claim in the opposite direction.
+    mockStatus.mockResolvedValue({ state: "active" });
+    render(<OneAgentPresence />);
+    expect(await screen.findByText("Live")).toBeTruthy();
+    expect(screen.queryByText("Not responding")).toBeNull();
   });
 
   it.each([
@@ -59,7 +81,7 @@ describe("OneAgentPresence", () => {
     ["no state at all", {}],
     ["a null payload", null],
   ])("degrades %s to 'Reserved'", async (_label, payload) => {
-    mockApiJson.mockResolvedValue(payload);
+    mockStatus.mockResolvedValue(payload);
     render(<OneAgentPresence />);
     await waitFor(() => expect(screen.getByText("Reserved")).toBeTruthy());
     expect(screen.getByText(/Reserved and ready to activate/)).toBeTruthy();

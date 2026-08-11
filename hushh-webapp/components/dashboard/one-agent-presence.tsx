@@ -85,10 +85,15 @@ export function OneAgentPresence() {
   // No `userId` on purpose: the Feed owns registering the deployment in the
   // background-work rail, and one owner is better than two components agreeing.
   // The chip is a reader here, not a second reporter.
-  const { state: followed } = useAgentDeploymentFollow();
+  const { state: followed, health } = useAgentDeploymentFollow();
   const state: AgentState = toAgentState(followed);
 
   const copy = COPY[state];
+  // Shown ONLY when the backend sent a real verdict. It omits health rather than
+  // defaulting to "healthy" (see `personal_agent.py`), and a client that invented one
+  // would be making exactly the claim the backend refused to make. Absent stays absent.
+  // A live agent that is not answering is the one case where "Live" alone misleads.
+  const degraded = state === "active" && health && health !== "healthy";
 
   return (
     <section
@@ -96,7 +101,9 @@ export function OneAgentPresence() {
       className="flex items-center gap-3 rounded-[22px] border border-accent/15 bg-accent-surface/50 px-4 py-3.5 sm:px-5"
     >
       <span
-        className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${copy.dotClass}`}
+        className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${
+          degraded ? "bg-amber-500" : copy.dotClass
+        }`}
         aria-hidden
       />
       <span className="min-w-0 flex-1">
@@ -108,11 +115,13 @@ export function OneAgentPresence() {
             Your Agent One
           </span>
           <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            {copy.badge}
+            {degraded ? "Not responding" : copy.badge}
           </span>
         </span>
         <span className="mt-0.5 block text-[13px] leading-snug text-muted-foreground">
-          {copy.body}
+          {degraded
+            ? "Running, but not answering health checks right now. Nothing for you to do."
+            : copy.body}
         </span>
       </span>
     </section>

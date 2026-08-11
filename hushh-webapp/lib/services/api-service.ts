@@ -3447,6 +3447,48 @@ export class ApiService {
    * real state so the caller can say "starting up" instead of "something went
    * wrong" during the window when a person is most likely to assume the latter.
    */
+  /**
+   * The caller's own personal-agent state.
+   *
+   * This lives here rather than as a bare `apiJson` in the follow hook because
+   * `apiFetch` does NOT attach auth -- every caller supplies its own bearer, and
+   * `getFirebaseToken` is private to this class. The hook called `apiJson` with no
+   * headers, so `require_firebase_auth` 401'd every poll, the hook's catch treated
+   * it as "a transient status failure", and the dashboard chip sat on `reserved`
+   * forever while a real agent may have been running.
+   *
+   * Returns the full payload rather than just `state`. The backend already sends
+   * `hushhId` (`personal_agent.py:167`) and it was being dropped on the floor by a
+   * narrower client type -- and `hushhId` is the address the pod relay needs, so
+   * discarding it is what left the pod unreachable from the product.
+   *
+   * `health` and `lastSeenAt` are optional BY CONTRACT: the backend omits them
+   * unless the liveness sweep reached a real verdict, rather than defaulting to
+   * "healthy". Render them when present and say nothing when absent.
+   */
+  static async getPersonalAgentStatus(options?: {
+    signal?: AbortSignal;
+  }): Promise<{
+    state?: string | null;
+    featureEnabled?: boolean;
+    hushhId?: string | null;
+    health?: string | null;
+    lastSeenAt?: string | null;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/personal-agent/status", {
+      method: "GET",
+      headers: {
+        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+      },
+      signal: options?.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`AGENT_STATUS_UNAVAILABLE:${response.status}`);
+    }
+    return response.json();
+  }
+
   static async runPodTurn(input: {
     hushhId: string;
     message: string;
