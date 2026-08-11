@@ -611,7 +611,6 @@ export function ConnectedSystemsPanel({
   const schema = schemaResource.data;
   const effectiveError = error || systemsResource.error || schemaResource.error;
   const canUseBackend = Boolean(vaultOwnerToken);
-  const canUseCrmZk = Boolean(cacheUserId && vaultKey && vaultOwnerToken);
   const isSetupPresentation = presentation === "setup";
   const schemaReady = schema?.schemaStatus === "ready";
   const schemaMatchesSelectedConfiguration = Boolean(
