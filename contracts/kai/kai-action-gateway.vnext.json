@@ -6023,7 +6023,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/location"
+          "current route becomes /one/location?action=share"
         ],
         "backend_effects": []
       },
@@ -6058,7 +6058,7 @@
             "failure_behavior": "stop",
             "action_id": "location.select_share_recipient",
             "settlement_target": {
-              "route": "/one/location",
+              "route": "/one/location?action=share",
               "screen": "one_location"
             }
           }

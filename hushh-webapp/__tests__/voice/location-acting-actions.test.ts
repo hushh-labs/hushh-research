@@ -117,14 +117,23 @@ describe("how these actions can be reached", () => {
     });
   });
 
-  it("escorts the pick, because picking someone sends nothing", () => {
+  it("escorts the pick to the composer, not to Location's front door", () => {
     // Asked from anywhere but Location this was `action_unavailable`, so
     // "share my location with Sarah" only worked if you were already
     // standing on the right screen. Selecting is safe to escort: it ticks a
     // name on a composer and nothing leaves the device.
+    //
+    // The destination has to be the composer itself. Escorting to
+    // /one/location landed on the surface's front door, where the recipient
+    // search box is not mounted -- so the journey arrived, the handler had
+    // nothing to type into, and the match never happened. Observed live: One
+    // opened Location home and then talked about a recipient it had never
+    // actually resolved.
     const journey = resolveNavigationJourney("location.select_share_recipient");
     expect(journey?.destinationScreen).toBe("one_location");
-    expect(journey?.navigationActionId).toBe("location.open_now");
+    expect(journey?.destinationRoute).toBe("/one/location?action=share");
+    // Resolved from the contract by matching that route, never named in code.
+    expect(journey?.navigationActionId).toBe("location.open_share");
   });
 
   it("refuses to escort a share the same way", () => {

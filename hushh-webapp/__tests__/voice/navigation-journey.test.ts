@@ -228,14 +228,14 @@ describe("the action that walks someone to a journey's destination", () => {
   it("is admitted from any screen because it navigates, whatever it is named", () => {
     // The browser exempted navigation from the screen-inventory check by NAME
     // (`actionId.startsWith("route.")`), while the relay exempts it by
-    // BEHAVIOUR (`execution_target.path == "route"`). Location's escort
-    // resolves to `location.open_now` -- the resolver sorts alphabetically and
-    // it sorts before `route.one_location` -- so the browser refused the
-    // journey's first step as "not available on this screen", and "share my
-    // location with <name>" died on the launch pad with the person still on
-    // /one.
+    // BEHAVIOUR (`execution_target.path == "route"`). Location's escort is
+    // `location.open_share`, which is not named `route.*` -- so the browser
+    // refused the journey's own first step as "not available on this screen",
+    // and "share my location with <name>" died on the launch pad with the
+    // person still on /one.
     const escort = resolveNavigationJourney("location.select_share_recipient");
-    expect(escort?.navigationActionId).toBe("location.open_now");
+    expect(escort?.navigationActionId).toBe("location.open_share");
+    expect(escort!.navigationActionId.startsWith("route.")).toBe(false);
 
     const action = getKaiActionById(escort!.navigationActionId);
     // Everything the browser's exemption now tests, and nothing about naming.

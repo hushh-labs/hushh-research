@@ -829,7 +829,12 @@ class TestSettledActionJourneys:
 
         assert started["status"] == "navigation_started"
         escort = state[f"{_STATE_PENDING_DIRECTIVE}:goal:{started['goal_id']}"]["payload"]
-        assert escort["actionId"] == "location.open_now"
+        # The COMPOSER, not Location's front door. `location.open_now` opens
+        # /one/location, where the recipient search box is not mounted -- so
+        # the journey arrived somewhere the handler had nothing to act on and
+        # the match never ran. Observed live: One opened Location home, then
+        # spoke about a recipient it had never resolved.
+        assert escort["actionId"] == "location.open_share"
         assert escort["needsConfirmation"] is False
         assert escort["trustedActivationRequired"] is False
 
