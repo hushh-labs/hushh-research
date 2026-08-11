@@ -78,11 +78,11 @@ export function LocationOnboardingCompletedScreen({
         </p>
         <h1
           id="location-onboarding-completed-title"
-          className="mt-2 max-w-[18ch] text-balance text-[32px] font-bold leading-[1.08] tracking-normal text-foreground sm:text-[34px]"
+          className="ui-text-agent-title mt-2 max-w-[18ch] text-balance"
         >
           Your Location onboarding is complete
         </h1>
-        <p className="mt-3 max-w-[34rem] text-pretty text-[17px] leading-[24px] text-muted-foreground">
+        <p className="mt-3 max-w-[34rem] text-pretty text-[15px] font-normal leading-[20px] text-muted-foreground">
           Everything is ready. You can manage Location anytime from One.
         </p>
         <div className="mt-8 w-full max-w-[30rem]">

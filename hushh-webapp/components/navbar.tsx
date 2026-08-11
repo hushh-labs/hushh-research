@@ -460,7 +460,7 @@ export const Navbar = ({
           ? "flex w-full justify-center"
           : "fixed inset-x-0 flex justify-center px-4 transform-gpu",
         layout === "fixed" && (isVaultUnlocked ? "z-[120]" : "z-[505]"),
-        "pointer-events-none",
+        "pointer-events-none lg:hidden",
       )}
       style={
         layout === "fixed"

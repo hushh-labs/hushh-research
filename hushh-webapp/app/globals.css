@@ -245,10 +245,10 @@ textarea {
   /* Apple iOS-first semantic type roles. These are the shared source of truth
      for app UI hierarchy; components opt into roles instead of restating
      route-specific font sizes. */
-  --type-large-page-title-size: 34px;
-  --type-large-page-title-line: 41px;
+  --type-large-page-title-size: 28px;
+  --type-large-page-title-line: 34px;
   --type-large-page-title-weight: 700;
-  --type-large-page-title-tracking: -0.03em;
+  --type-large-page-title-tracking: -0.025em;
   --type-page-title-size: 28px;
   --type-page-title-line: 34px;
   --type-page-title-weight: 700;
@@ -257,10 +257,10 @@ textarea {
   --type-navigation-title-line: 22px;
   --type-navigation-title-weight: 600;
   --type-navigation-title-tracking: -0.01em;
-  --type-major-section-title-size: 22px;
-  --type-major-section-title-line: 27px;
+  --type-major-section-title-size: 20px;
+  --type-major-section-title-line: 25px;
   --type-major-section-title-weight: 600;
-  --type-major-section-title-tracking: -0.018em;
+  --type-major-section-title-tracking: -0.016em;
   --type-card-title-size: 17px;
   --type-card-title-line: 22px;
   --type-card-title-weight: 600;
@@ -275,7 +275,7 @@ textarea {
   --type-row-label-emphasis-weight: 600;
   --type-row-label-tracking: -0.01em;
   --type-page-subtitle-size: 15px;
-  --type-page-subtitle-line: 21px;
+  --type-page-subtitle-line: 20px;
   --type-row-description-size: 13px;
   --type-row-description-line: 18px;
   --type-row-description-weight: 400;
@@ -298,10 +298,10 @@ textarea {
   --type-tab-label-line: 13px;
   --type-tab-label-weight: 500;
   --type-tab-label-tracking: 0;
-  --type-agent-tab-label-size: 17px;
-  --type-agent-tab-label-line: 22px;
+  --type-agent-tab-label-size: 15px;
+  --type-agent-tab-label-line: 20px;
   --type-agent-tab-label-weight: 500;
-  --type-agent-tab-label-tracking: -0.01em;
+  --type-agent-tab-label-tracking: -0.006em;
   --foundation-caption-tracking: 0.158em;
   --foundation-micro-size: 0.6875rem;
   --foundation-micro-line: 1.273;
@@ -566,7 +566,7 @@ textarea {
   --app-top-body-start-gap: var(--page-top-start);
   --page-top-local-offset: 0px;
   --app-shell-reading: 54rem;
-  --app-shell-agent: 65rem;
+  --app-shell-agent: 55rem;
   --app-shell-standard: 90rem;
   --app-shell-expanded: 96rem;
   --top-systembar-row-gap: 4px;
@@ -875,8 +875,8 @@ textarea {
   /* Shared app card contract */
   --theme-color-boxShadow: rgba(120, 120, 128, 0.16);
   --app-card-radius-compact: 20px;
-  --app-card-radius-standard: 22px;
-  --app-card-radius-feature: 24px;
+  --app-card-radius-standard: 20px;
+  --app-card-radius-feature: 20px;
   --app-card-surface-data: #f7f7fa;
   --app-card-surface-compact: #fcfcfd;
   --app-card-surface-default: #ffffff;
@@ -3401,8 +3401,8 @@ html.native-ios [data-testid="one-location-onboarding"] {
   /* Dark: shared app card contract */
   --theme-color-boxShadow: rgba(0, 0, 0, 0.65);
   --app-card-radius-compact: 20px;
-  --app-card-radius-standard: 22px;
-  --app-card-radius-feature: 24px;
+  --app-card-radius-standard: 20px;
+  --app-card-radius-feature: 20px;
   --app-card-surface-data: #2c2c2e;
   --app-card-surface-compact: #2c2c2e;
   --app-card-surface-default: #2c2c2e;

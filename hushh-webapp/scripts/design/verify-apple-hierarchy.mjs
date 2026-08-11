@@ -58,16 +58,20 @@ for (const exportName of [
 
 const globals = read("app/globals.css");
 for (const [token, value] of [
-  ["--type-large-page-title-size", "34px"],
-  ["--type-large-page-title-line", "41px"],
+  ["--type-large-page-title-size", "28px"],
+  ["--type-large-page-title-line", "34px"],
   ["--type-large-page-title-weight", "700"],
-  ["--type-large-page-title-tracking", "-0.03em"],
+  ["--type-large-page-title-tracking", "-0.025em"],
   ["--type-page-title-size", "28px"],
   ["--type-page-title-line", "34px"],
   ["--type-page-title-weight", "700"],
   ["--type-page-title-tracking", "-0.025em"],
+  ["--type-major-section-title-size", "20px"],
+  ["--type-major-section-title-line", "25px"],
+  ["--type-major-section-title-weight", "600"],
+  ["--type-major-section-title-tracking", "-0.016em"],
   ["--type-page-subtitle-size", "15px"],
-  ["--type-page-subtitle-line", "21px"],
+  ["--type-page-subtitle-line", "20px"],
   ["--type-section-label-size", "15px"],
   ["--type-section-label-line", "20px"],
   ["--type-section-label-weight", "500"],
@@ -88,8 +92,8 @@ for (const [token, value] of [
   ["--type-tab-label-size", "11px"],
   ["--type-tab-label-line", "13px"],
   ["--type-tab-label-weight", "500"],
-  ["--type-agent-tab-label-size", "17px"],
-  ["--type-agent-tab-label-line", "22px"],
+  ["--type-agent-tab-label-size", "15px"],
+  ["--type-agent-tab-label-line", "20px"],
   ["--type-agent-tab-label-weight", "500"],
 ]) {
   if (!globals.includes(`${token}: ${value};`)) {

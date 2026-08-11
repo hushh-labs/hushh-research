@@ -678,7 +678,7 @@ export function LocationPickerMap({
           <MapPin className="h-4 w-4" strokeWidth={2.4} aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#8b93a1] dark:text-[#7f8a99]">
+          <p className="text-[13px] font-normal leading-[18px] tracking-normal text-[#8b93a1] dark:text-[#7f8a99]">
             Selected spot
           </p>
           {resolving ? (
