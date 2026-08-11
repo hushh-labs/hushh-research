@@ -67,7 +67,7 @@ type CircleMember = {
   userId: string;
   displayName: string;
   photoUrl: string | null;
-  status: "connected" | "pending";
+  status: "connected" | "pending" | "failed";
 };
 
 type OneLocationOnboardingFlowProps = {
@@ -1828,10 +1828,16 @@ function CircleScreen({
                   "mt-0.5 text-[10px] font-semibold",
                   member.status === "connected"
                     ? "text-[#23a64d]"
+                    : member.status === "failed"
+                      ? "text-[#c2413b] dark:text-[#ff8b83]"
                     : "text-[#8b919a] dark:text-[#8f9bab]",
                 )}
               >
-                {member.status === "connected" ? "Joined" : "Invited"}
+                {member.status === "connected"
+                  ? "Joined"
+                  : member.status === "failed"
+                    ? "Not sent"
+                    : "Invited"}
               </span>
             </span>
           ))}
@@ -2132,11 +2138,8 @@ export function OneLocationOnboardingFlow({
   };
 
   const handlePeopleContinue = (selectedIds: string[]) => {
-    const selectedPeople = people.filter(
-      (person) =>
-        selectedIds.includes(person.userId) &&
-        person.relationship !== "pending_incoming" &&
-        person.relationship !== "pending_outgoing",
+    const selectedPeople = people.filter((person) =>
+      selectedIds.includes(person.userId),
     );
     if (selectedPeople.length === 0) {
       toast.error("Choose at least one contact", {
@@ -2187,11 +2190,12 @@ export function OneLocationOnboardingFlow({
           requestedConnectionIdsRef.current.delete(userId),
         );
         if (requestBatchRef.current !== batchId) return;
-        const sentIds = new Set(result.sentUserIds);
+        const failedIds = new Set(result.failedUserIds);
         setCircleMembers(
-          optimisticMembers.filter(
-            (member) =>
-              member.status === "connected" || sentIds.has(member.userId),
+          optimisticMembers.map((member) =>
+            failedIds.has(member.userId)
+              ? { ...member, status: "failed" as const }
+              : member,
           ),
         );
         setFailedRequestCount(result.failedUserIds.length);
@@ -2202,8 +2206,13 @@ export function OneLocationOnboardingFlow({
           requestedConnectionIdsRef.current.delete(userId),
         );
         if (requestBatchRef.current !== batchId) return;
+        const failedIds = new Set(requestIds);
         setCircleMembers(
-          optimisticMembers.filter((member) => member.status === "connected"),
+          optimisticMembers.map((member) =>
+            failedIds.has(member.userId)
+              ? { ...member, status: "failed" as const }
+              : member,
+          ),
         );
         setFailedRequestCount(requestIds.length);
         setRequestsSending(false);
