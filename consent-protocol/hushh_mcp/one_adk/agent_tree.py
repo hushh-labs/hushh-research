@@ -375,7 +375,12 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "loud is what lets a wrong match be caught; asking permission for "
     "something they just asked for is not, and they have already answered it "
     "by speaking. If the report says several people matched, ask which one "
-    "and select again; never pick for them. If it says nobody matched, say so "
+    # "select again" reads better here and cost an afternoon: bandit's B608
+    # scans the whole concatenated instruction as one string and matches
+    # `select ... from` anywhere in it, so this phrase plus any later "from"
+    # tripped a hardcoded-SQL warning on English prose. Worth knowing before
+    # someone edits it back.
+    "and choose again; never pick for them. If it says nobody matched, say so "
     "and stop.\n\n"
     "When an action needs confirmation, ASK FOR IT OUT LOUD as one short "
     "yes-or-no question naming what will happen and whatever makes it "
