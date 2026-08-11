@@ -2486,10 +2486,13 @@ function AskFlow({
       </SectionCard>
 
       <SectionCard title="Duration requested">
+        {/* Dropdown picker (not chips) to match the Share location screen's
+            duration field — same shared DurationSelector `select` presentation. */}
         <DurationSelector
           value={vm.durationHours}
           onChange={vm.setDurationHours}
           label=""
+          presentation="select"
         />
       </SectionCard>
 
