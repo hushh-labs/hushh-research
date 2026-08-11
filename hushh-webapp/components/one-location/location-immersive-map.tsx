@@ -35,6 +35,11 @@ import {
   encryptLocationForRecipient,
 } from "@/lib/one-location/encryption";
 import {
+  buildCheckInHrefFromYourMap,
+  CHECK_IN_SOURCE_PARAM,
+  resolveCheckInDismissHref,
+} from "@/lib/one-location/check-in-navigation";
+import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
@@ -460,25 +465,41 @@ export function LocationImmersiveMap({
       !nearbyCheckInAvailable ||
       !rendererReady ||
       demoMode ||
+      // Nothing to open: on the check-in route the flow already is the screen.
+      isCheckInSurface ||
       searchParams.get("action") === "check-in"
     ) {
       return;
     }
     setTrayExpanded(false);
-    nearbyHistoryPreparedRef.current = true;
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("action", "check-in");
-    router.push(`${ROUTES.ONE_LOCATION_MAP}?${params.toString()}`, {
+    // Recording Your Map as the opener is what lets dismiss come back here
+    // instead of dropping the person on the Location hub.
+    router.push(buildCheckInHrefFromYourMap(searchParams), {
       scroll: false,
     });
-  }, [demoMode, nearbyCheckInAvailable, rendererReady, router, searchParams]);
+  }, [
+    demoMode,
+    isCheckInSurface,
+    nearbyCheckInAvailable,
+    rendererReady,
+    router,
+    searchParams,
+  ]);
 
   const closeNearbyCheckIn = useCallback(() => {
     // Dismissing on the dedicated route must leave it. Clearing the flag alone
     // would strand the person on a bare map that is not Your Map and has none
     // of its content -- the emptiest possible screen.
     if (isCheckInSurface) {
-      router.push(ROUTES.ONE_LOCATION);
+      // `replace`, not `push`: check-in is done with, and leaving it on the
+      // stack made the very next Back press re-open the flow just dismissed.
+      // History is not consulted for the destination either -- this app's back
+      // is authored, because the browser stack carries external origins and on
+      // iOS walking it can eject the person out of the app entirely.
+      router.replace(
+        resolveCheckInDismissHref(searchParams.get(CHECK_IN_SOURCE_PARAM)),
+        { scroll: false },
+      );
       return;
     }
     setNearbyCheckInOpen(false);
@@ -488,7 +509,7 @@ export function LocationImmersiveMap({
     ) {
       window.history.back();
     }
-  }, [isCheckInSurface, router]);
+  }, [isCheckInSurface, router, searchParams]);
 
   useEffect(() => {
     const map = mapRef.current;
