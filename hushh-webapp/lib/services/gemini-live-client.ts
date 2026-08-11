@@ -35,6 +35,17 @@ import { mapAgentVoiceStatusToOneVoiceState } from "@/lib/voice/voice-ui-state-m
 
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
+// Queue playback slightly AHEAD of the clock rather than at it. Starting a
+// buffer at exactly `currentTime` hands the audio thread a start time inside
+// the render quantum it is already computing, which it rounds up to the next
+// block boundary -- audible as a click on every chunk that arrives late.
+// 80ms is well under the gap a listener notices and comfortably more than one
+// quantum of jitter.
+const OUTPUT_SCHEDULE_LEAD_SECONDS = 0.08;
+// Fade applied only where the stream was interrupted, never between
+// contiguous chunks. Ramping every chunk would put a tremolo on ordinary
+// speech; ramping only after a gap removes the discontinuity that cracks.
+const OUTPUT_RESUME_FADE_SECONDS = 0.006;
 // This is intentionally a coarse barge-in signal, not speech recognition.
 // It needs sustained energy to avoid treating microphone silence/noise as a
 // visitor turn and cancelling the idle welcome cue on every connection.
@@ -226,6 +237,8 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private runtimeVertexProject: string | null = null;
   private runtimeVertexLocation: string | null = null;
   private playheadTime = 0;
+  /** Times the playback queue ran dry mid-turn. Counted so "it sounds broken" has a number. */
+  private outputUnderruns = 0;
   private activeSources = new Set<AudioBufferSourceNode>();
   private activeGains = new Map<AudioBufferSourceNode, GainNode>();
   private outputLevelTimer: ReturnType<typeof setInterval> | null = null;
@@ -1233,7 +1246,36 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const gain = context.createGain();
     node.connect(gain);
     gain.connect(context.destination);
-    const startAt = Math.max(context.currentTime, this.playheadTime);
+    // The playhead falling behind the clock means the queue ran dry and
+    // silence has already played. Restarting exactly at `currentTime` -- which
+    // is what Math.max did -- lands inside the render quantum the audio thread
+    // is already computing, so it begins on the next block boundary instead,
+    // and the discontinuity is audible as a click. Reported as speech that
+    // "cracks and cuts".
+    //
+    // Resume slightly ahead of now instead, and fade in over a few
+    // milliseconds. Contiguous chunks are untouched: they still butt directly
+    // against the previous buffer with no ramp, because ramping every chunk
+    // would put a tremolo on ordinary speech.
+    const underran = this.playheadTime < context.currentTime;
+    if (underran) {
+      this.playheadTime = context.currentTime + OUTPUT_SCHEDULE_LEAD_SECONDS;
+      this.outputUnderruns += 1;
+      if ((this.outputUnderruns & (this.outputUnderruns - 1)) === 0) {
+        console.info(
+          `[VOICE_AUDIO] output underran ${this.outputUnderruns} time(s) this ` +
+            `session; playback queue ran dry and speech will have broken up`,
+        );
+      }
+    }
+    const startAt = this.playheadTime;
+    if (underran) {
+      gain.gain.setValueAtTime(0, startAt);
+      gain.gain.linearRampToValueAtTime(
+        1,
+        startAt + OUTPUT_RESUME_FADE_SECONDS,
+      );
+    }
     node.start(startAt);
     this.playheadTime = startAt + buffer.duration;
     this.lastAudioEnqueueAt = Date.now();
