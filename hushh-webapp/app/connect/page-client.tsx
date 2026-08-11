@@ -1034,6 +1034,7 @@ export default function ConnectPageClient() {
                           variant="none"
                           effect="fade"
                           size="sm"
+                          className="h-8 rounded-[10px] px-3 text-[13px] font-medium"
                           disabled={busyId === connection.connectionId}
                           onClick={() => void viewInformationScopes(connection)}
                         >
@@ -1046,6 +1047,7 @@ export default function ConnectPageClient() {
                               variant="destructive"
                               effect="fill"
                               size="sm"
+                              className="h-8 rounded-[10px] px-3 text-[13px] font-medium"
                               disabled={busyId === connection.connectionId}
                               onClick={() => void handleRemove(connection)}
                             >
@@ -1058,6 +1060,7 @@ export default function ConnectPageClient() {
                               variant="none"
                               effect="fade"
                               size="sm"
+                              className="h-8 rounded-[10px] px-3 text-[13px] font-medium"
                               disabled={busyId === connection.connectionId}
                               onClick={() => setPendingRemoveId(null)}
                             >
@@ -1074,7 +1077,7 @@ export default function ConnectPageClient() {
                               setPendingRemoveId(connection.connectionId)
                             }
                             aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
-                            className="text-muted-foreground hover:text-destructive"
+                            className="h-8 rounded-[10px] px-3 text-[13px] font-medium text-muted-foreground hover:text-destructive"
                           >
                             Remove
                           </Button>
@@ -1237,6 +1240,7 @@ export default function ConnectPageClient() {
                               variant="none"
                               effect="fill"
                               size="sm"
+                              className="h-8 rounded-[10px] px-4 text-[13px] font-semibold"
                               disabled={busyId === person.userId}
                               onClick={() => void cancelConnectionRequest(person)}
                             >
@@ -1250,6 +1254,7 @@ export default function ConnectPageClient() {
                               variant="none"
                               effect="fill"
                               size="sm"
+                              className="h-8 rounded-[10px] px-4 text-[13px] font-semibold"
                               disabled={cta.disabled || busyId === person.userId}
                               onClick={() => void handleConnect(person)}
                             >
