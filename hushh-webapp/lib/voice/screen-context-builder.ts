@@ -350,7 +350,10 @@ function readUrlSearchParam(name: string): string | null {
   return clean || null;
 }
 
-function uniqueStrings(values: unknown[]): string[] {
+function uniqueStrings(
+  values: unknown[],
+  maximumDimensionCap = STRUCTURED_CONTEXT_ARRAY_CAP,
+): string[] {
   const out = new Set<string>();
   values.forEach((value) => {
     if (typeof value !== "string") return;
@@ -358,7 +361,7 @@ function uniqueStrings(values: unknown[]): string[] {
     if (!clean) return;
     out.add(clean);
   });
-  return enforceArrayDimensionCap(Array.from(out)).items;
+  return enforceArrayDimensionCap(Array.from(out), maximumDimensionCap).items;
 }
 
 function readObject(value: unknown): Record<string, unknown> {
@@ -706,14 +709,26 @@ export function buildStructuredScreenContext(args: {
   const activeInteractionLayer = publishedSurface?.interactionLayer || null;
   const underlyingActionsAvailable =
     !activeInteractionLayer || !activeInteractionLayer.blocksUnderlyingActions;
-  const publishedActionIds = uniqueStrings([
-    ...(publishedSurface?.controls || [])
-      .map((control) => control.actionId || null)
-      .filter((actionId): actionId is string => Boolean(actionId)),
-    ...(publishedSurface?.actions || [])
-      .map((action) => action.actionId || action.id)
-      .filter((actionId): actionId is string => Boolean(actionId)),
-  ]);
+  // Deduplicated but NOT yet capped. The generic 10-wide cap used to apply
+  // here, before prioritizeAvailableActionIds ever saw the list -- so ranking
+  // written specifically to keep local handlers from being cut was handed a
+  // list they had already been cut from, and its "what was lost" warning could
+  // never fire. On Location that meant the model was told the screen offers ten
+  // ways to open a tab and nothing that does anything: the surface publishes 18
+  // controls whose first ten are all `location.open_*`, leaving pause_updates,
+  // share_selected and select_share_recipient permanently invisible. Cap once,
+  // after ranking, at AVAILABLE_ACTION_IDS_CAP.
+  const publishedActionIds = uniqueStrings(
+    [
+      ...(publishedSurface?.controls || [])
+        .map((control) => control.actionId || null)
+        .filter((actionId): actionId is string => Boolean(actionId)),
+      ...(publishedSurface?.actions || [])
+        .map((action) => action.actionId || action.id)
+        .filter((actionId): actionId is string => Boolean(actionId)),
+    ],
+    AVAILABLE_ACTION_IDS_CAP,
+  );
   // A mounted surface with a declared inventory is authoritative for what is
   // executable now. Route contracts are the fallback only for pages that do
   // not publish their own controls. This keeps modal-only actions unavailable

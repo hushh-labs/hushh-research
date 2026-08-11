@@ -615,6 +615,12 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     # browser's own directiveFingerprint()) and skip re-issuing an identical
     # one while it's still open.
     issued_action_fingerprints: dict[str, str] = {}
+    # Directives parked with needsConfirmation:false. They raise no card, so
+    # they mint no receipt, so the ledger's confirmed-path settle can never
+    # close them -- and their settlements were refused, discarding the outcome
+    # of nearly every action One runs. Tracked here so those can close on the
+    # receipt-less path instead of being dropped.
+    issued_direct_run_directives: set[str] = set()
     # goal id -> the destination screen whose arrival releases its continuation.
     awaiting_goal_context: dict[str, str] = {}
     initial_context_ready = asyncio.Event()
@@ -669,6 +675,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             issued_goal_runs.pop(stale_directive_id, None)
             issued_journey_started_at.pop(stale_directive_id, None)
             issued_action_fingerprints.pop(stale_directive_id, None)
+            issued_direct_run_directives.discard(stale_directive_id)
             gc_task = issued_directive_gc_tasks.pop(stale_directive_id, None)
             if gc_task is not None:
                 gc_task.cancel()
@@ -982,11 +989,34 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             session_id=session_id,
                             action_id=settlement["action_id"],
                         )
+                    elif settlement["directive_id"] in issued_direct_run_directives:
+                        await get_action_directive_store().settle_direct(
+                            directive_id=settlement["directive_id"],
+                            user_id=session_user,
+                            action_id=settlement["action_id"],
+                            context_revision=settlement["context_revision"],
+                            status="succeeded",
+                            reason_code=settlement.get("reason") or settlement["status"],
+                        )
                     else:
                         raise ActionDirectiveAuthorityError("settlement receipt required")
                 except ActionDirectiveAuthorityError:
-                    logger.info("one_adk_live_action_settlement_authority_rejected")
+                    logger.info(
+                        # Was a bare line with no fields, so a replayed receipt,
+                        # an expired directive and a receipt-less success were
+                        # one indistinguishable message -- which is why this
+                        # swallowed every action outcome for so long unnoticed.
+                        "one_adk_live_action_settlement_authority_rejected "
+                        "action=%s directive=%s status=%s receipt=%s direct_run=%s",
+                        settlement["action_id"],
+                        settlement["directive_id"],
+                        settlement["status"],
+                        "present" if receipt else "absent",
+                        settlement["directive_id"] in issued_direct_run_directives,
+                    )
                     continue
+                finally:
+                    issued_direct_run_directives.discard(settlement["directive_id"])
                 goal_run_for_settlement = issued_goal_runs.get(settlement["directive_id"])
                 journey_started_at = issued_journey_started_at.pop(settlement["directive_id"], None)
                 journey_destination_rejected = False
@@ -1096,7 +1126,15 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             )
                     else:
                         settlement_state_delta["hussh:goal_run"] = None
-                elif goal_run is not None and settlement["action_id"] == "analysis.start":
+                elif goal_run is not None and settlement["action_id"] == str(
+                    goal_run.get("action_id") or ""
+                ):
+                    # Was the literal `== "analysis.start"`, so 14 of the 15
+                    # navigate-then-act journeys never recorded a terminal step:
+                    # the run stayed at step_cursor 1 forever, and
+                    # continue_app_goal answers "preview_already_open" from
+                    # there -- pointing at a card that is gone when the step
+                    # was blocked. The run already names its own action.
                     issued_goal_runs.pop(settlement["directive_id"], None)
                     settlement_state_delta["hussh:goal_run"] = {
                         **goal_run,
@@ -1379,6 +1417,12 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                         directive_id = issued.directive_id
                         issued_action_directives[directive_id] = action_id
                         issued_action_fingerprints[directive_id] = new_fingerprint
+                        # Remembered at ISSUE time, from the payload this relay
+                        # parked itself. Asking the settling frame whether it
+                        # needed confirming would let the browser decide its own
+                        # authority; the relay already knows, so it answers.
+                        if payload.get("needsConfirmation") is False:
+                            issued_direct_run_directives.add(directive_id)
                         goal_id = _bounded_text(payload.get("goalId"), 128)
                         if goal_id:
                             issued_goal_directives[directive_id] = goal_id
@@ -1414,6 +1458,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                 expired_goal_run = issued_goal_runs.pop(did, None)
                                 issued_journey_started_at.pop(did, None)
                                 issued_action_fingerprints.pop(did, None)
+                                issued_direct_run_directives.discard(did)
                                 logger.warning(
                                     "one_adk_live_directive_timeout action=%s directive=%s",
                                     aid,
