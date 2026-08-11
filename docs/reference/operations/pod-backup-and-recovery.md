@@ -145,7 +145,7 @@ token. Against a real project that returns `403 useToEncrypt denied`: the bootst
 holds `cloudkms.admin` and deliberately neither encrypter nor decrypter, so it cannot use
 the key it creates. The pod now mints and wraps its own key on **first boot**, guarded by
 `ifGenerationMatch=0` so two cold starts cannot write two keys and orphan each other's
-records. Hushh's inability to read a person's history is now a property of the IAM policy
+records. hussh's inability to read a person's history is now a property of the IAM policy
 the bootstrap writes, not a sentence in a document.
 
 ## Answering the question directly: is GCS required?
