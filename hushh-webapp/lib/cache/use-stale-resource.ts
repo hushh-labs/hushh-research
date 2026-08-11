@@ -57,6 +57,12 @@ export function useStaleResource<T>({
   );
   const [loading, setLoading] = useState(enabled && !initialSnapshot);
   const [refreshing, setRefreshing] = useState(false);
+  // A resource loader may hydrate a safe device snapshot into CacheService
+  // before its authoritative request settles. Keep that loading lifecycle
+  // intact: the cache event makes the safe snapshot renderable, but must not
+  // make a pending request look terminal to the consuming surface.
+  const refreshSequenceRef = useRef(0);
+  const activeRefreshIdRef = useRef<number | null>(null);
   const [invalidated, setInvalidated] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,8 +79,10 @@ export function useStaleResource<T>({
         startTransition(() => {
           setData(nextSnapshot?.data ?? null);
         });
-        setLoading(false);
-        setRefreshing(false);
+        if (activeRefreshIdRef.current === null) {
+          setLoading(false);
+          setRefreshing(false);
+        }
         setInvalidated(false);
         // A fresh value landed in the cache (e.g. a background refresh that
         // resolved through another hook instance). Clear any stale error so the
@@ -158,6 +166,9 @@ export function useStaleResource<T>({
         return cachedSnapshot.data;
       }
 
+      const refreshId = ++refreshSequenceRef.current;
+      activeRefreshIdRef.current = refreshId;
+
       const existingRequest = inflightRequests.get(cacheKey) as
         Promise<T> | undefined;
       if (existingRequest) {
@@ -188,6 +199,9 @@ export function useStaleResource<T>({
           );
           return cachedSnapshot?.data ?? null;
         } finally {
+          if (activeRefreshIdRef.current === refreshId) {
+            activeRefreshIdRef.current = null;
+          }
           setLoading(false);
           setRefreshing(false);
         }
@@ -224,6 +238,9 @@ export function useStaleResource<T>({
         );
         return cachedSnapshot?.data ?? null;
       } finally {
+        if (activeRefreshIdRef.current === refreshId) {
+          activeRefreshIdRef.current = null;
+        }
         const existing = inflightRequests.get(cacheKey);
         if (existing) {
           inflightRequests.delete(cacheKey);

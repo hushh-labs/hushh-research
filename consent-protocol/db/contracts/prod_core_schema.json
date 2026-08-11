@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 139,
+  "expected_migration_version": 140,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -879,6 +879,12 @@
       "result_class",
       "result_payload_json",
       "readback_result_json",
+      "delivery_mode",
+      "encrypted_fields_json",
+      "zk_metadata_json",
+      "envelope_digest",
+      "client_operation_id",
+      "approval_challenge_id",
       "error_code",
       "error_message",
       "created_at",
@@ -1031,7 +1037,9 @@
       "kdf_iterations",
       "crm_delete_endpoint",
       "configuration_revision",
-      "validated_at"
+      "validated_at",
+      "crm_zk_v1_enabled",
+      "mulesoft_connector_ref"
     ],
     "crm_operation_endpoints": [
       "crm_id",
@@ -1041,7 +1049,67 @@
       "path",
       "description",
       "mcp_endpoint",
-      "response_contract"
+      "response_contract",
+      "crm_zk_tool_name"
+    ],
+    "crm_zk_recipient_keys": [
+      "crm_id",
+      "key_id",
+      "public_key",
+      "public_key_fingerprint",
+      "response_signing_public_key",
+      "response_signing_key_id",
+      "response_signing_key_fingerprint",
+      "profile",
+      "environment",
+      "status",
+      "activated_at",
+      "retires_at",
+      "retired_at",
+      "created_at",
+      "updated_at"
+    ],
+    "connected_system_owner_signing_keys": [
+      "user_id",
+      "key_id",
+      "public_key_spki",
+      "public_key_fingerprint",
+      "algorithm",
+      "status",
+      "created_at",
+      "retired_at",
+      "revoked_at"
+    ],
+    "connected_system_zk_contexts": [
+      "context_id",
+      "user_id",
+      "system_id",
+      "action",
+      "object_type",
+      "record_id",
+      "field_names_json",
+      "schema_fingerprint",
+      "configuration_revision",
+      "recipient_key_id",
+      "recipient_key_fingerprint",
+      "client_operation_id",
+      "context_digest",
+      "context_signer_key_id",
+      "context_signature",
+      "expires_at",
+      "consumed_at",
+      "created_at"
+    ],
+    "connected_system_intent_approval_challenges": [
+      "challenge_id",
+      "intent_id",
+      "user_id",
+      "system_id",
+      "envelope_digest",
+      "nonce_hash",
+      "expires_at",
+      "consumed_at",
+      "created_at"
     ],
     "crm_schema_mapping_cache": [
       "crm_id",

@@ -44,6 +44,13 @@ import { cn } from "@/lib/utils";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { ConnectedSystemsResourceService } from "@/lib/services/connected-systems-resource-service";
 import {
+  createCrmZkEnvelope,
+  decryptCrmZkPartnerResponse,
+  ensureCrmZkOwnerSigningKey,
+  signCrmZkApproval,
+  type CrmZkPartnerResponseEnvelope,
+} from "@/lib/connected-systems/crm-zk-v1";
+import {
   ConnectedSystemsService,
   ConnectedSystemsRequestError,
   type ConnectedSystemMcpResponse,
@@ -67,6 +74,8 @@ type BusyState =
 
 type ConnectedSystemsPanelProps = {
   cacheUserId?: string | null;
+  /** Unlock-bound key used only to encrypt the owner's P-256 signing key in PKM. */
+  vaultKey?: string | null;
   vaultOwnerToken?: string | null;
   onRequestUnlock?: () => void;
   mode?: "list" | "detail";
@@ -467,6 +476,7 @@ function changedFieldsFromValues(
 
 export function ConnectedSystemsPanel({
   cacheUserId,
+  vaultKey,
   vaultOwnerToken,
   onRequestUnlock,
   mode = "detail",
@@ -552,6 +562,9 @@ export function ConnectedSystemsPanel({
   const selectedSystem =
     systems.find((system) => system.systemId === systemId) ||
     (!systemId ? systems[0] || null : null);
+  const crmZkEnabled = selectedSystem?.crmZk?.enabled === true;
+  const crmZkReadReady = selectedSystem?.crmZk?.readReady === true;
+  const crmZkUpdateReady = selectedSystem?.crmZk?.updateReady === true;
   useEffect(() => {
     if (selectedSystem) onSystemResolved?.(selectedSystem);
   }, [onSystemResolved, selectedSystem]);
@@ -598,8 +611,16 @@ export function ConnectedSystemsPanel({
   const schema = schemaResource.data;
   const effectiveError = error || systemsResource.error || schemaResource.error;
   const canUseBackend = Boolean(vaultOwnerToken);
+  const canUseCrmZk = Boolean(cacheUserId && vaultKey && vaultOwnerToken);
   const isSetupPresentation = presentation === "setup";
   const schemaReady = schema?.schemaStatus === "ready";
+  const schemaMatchesSelectedConfiguration = Boolean(
+    schema &&
+      selectedSystem &&
+      schema.systemId === selectedSystem.systemId &&
+      schema.objectType === (selectedSystem.objectTypeDefault || "Contact") &&
+      schema.configurationRevision === selectedConfigurationRevision,
+  );
   const supportsAction = (
     action: "schema" | "read" | "create" | "update" | "delete",
   ) =>
@@ -724,11 +745,22 @@ export function ConnectedSystemsPanel({
     schemaReady &&
     supportsAction("read") &&
     !boundRecordReadResolved;
+  const isSchemaPreparationPending =
+    mode === "detail" &&
+    canUseBackend &&
+    !effectiveError &&
+    Boolean(selectedSystem) &&
+    (!schemaMatchesSelectedConfiguration ||
+      schemaResource.loading ||
+      schemaResource.refreshing);
   const isRecordStateLoading =
     mode === "detail" &&
     canUseBackend &&
     !effectiveError &&
-    (!selectedSystem || !bindingResolved || isBoundRecordHydrating);
+    (!selectedSystem ||
+      !bindingResolved ||
+      isSchemaPreparationPending ||
+      isBoundRecordHydrating);
   const canShowUnboundRecordActions =
     !hasBoundRecord &&
     !isRecordStateLoading &&
@@ -1062,6 +1094,74 @@ export function ConnectedSystemsPanel({
     }
   };
 
+  const readBoundCrmZkRecord = async (returnFields: string[]) => {
+    if (!selectedSystem || !cacheUserId || !vaultKey || !vaultOwnerToken) {
+      throw new Error("Unlock your vault to read this CRM record privately.");
+    }
+    if (!crmZkReadReady) {
+      throw new Error("This CRM is not ready for its required private read protocol.");
+    }
+    const [configuration, context] = await Promise.all([
+      ConnectedSystemsService.getCrmZkConfiguration({
+        vaultOwnerToken,
+        systemId: selectedSystem.systemId,
+      }),
+      ConnectedSystemsService.prepareCrmZkContext({
+        vaultOwnerToken,
+        systemId: selectedSystem.systemId,
+        operation: "read",
+        objectType: selectedSystem.objectTypeDefault,
+        fieldNames: returnFields,
+      }),
+    ]);
+    const ownerSigningKey = await ensureCrmZkOwnerSigningKey({
+      userId: cacheUserId,
+      vaultKey,
+      vaultOwnerToken,
+      systemId: selectedSystem.systemId,
+    });
+    const envelope = await createCrmZkEnvelope({
+      context,
+      configuration,
+      ownerSigningKey,
+      payload: {},
+    });
+    const response = await ConnectedSystemsService.readCrmZkRecord({
+      vaultOwnerToken,
+      systemId: selectedSystem.systemId,
+      encryptedFields: envelope,
+    });
+    const decrypted = await decryptCrmZkPartnerResponse({
+      context,
+      configuration,
+      response: response.encryptedFields as CrmZkPartnerResponseEnvelope,
+    });
+    const rawFields =
+      decrypted.fields && typeof decrypted.fields === "object" && !Array.isArray(decrypted.fields)
+        ? (decrypted.fields as Record<string, unknown>)
+        : decrypted.record && typeof decrypted.record === "object" && !Array.isArray(decrypted.record)
+          ? (decrypted.record as Record<string, unknown>)
+          : {};
+    const allowed = new Set(context.fieldNames);
+    const fields = Object.fromEntries(
+      Object.entries(rawFields).filter(([name, value]) =>
+        allowed.has(name) && (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null)
+      )
+    ) as ConnectedSystemMcpResponse["records"] extends Array<infer RecordType>
+      ? RecordType extends { fields: infer FieldType } ? FieldType : never
+      : never;
+    return {
+      systemId: selectedSystem.systemId,
+      target: selectedSystem.target,
+      objectType: selectedSystem.objectTypeDefault,
+      recordId: currentRecordId || null,
+      resultClass: "succeeded",
+      records: [{ recordId: currentRecordId || null, fields }],
+      bindingStatus: "active",
+      binding: binding || undefined,
+    } satisfies ConnectedSystemMcpResponse;
+  };
+
   const readRecord = async (
     options: {
       silent?: boolean;
@@ -1093,10 +1193,12 @@ export function ConnectedSystemsPanel({
               vaultOwnerToken || "",
               payload,
             )
-          : await ConnectedSystemsService.readRecord(
-              vaultOwnerToken || "",
-              payload,
-            );
+          : crmZkEnabled
+            ? await readBoundCrmZkRecord(returnFields)
+            : await ConnectedSystemsService.readRecord(
+                vaultOwnerToken || "",
+                payload,
+              );
         if (completedReadKey) setReadResolvedKey(completedReadKey);
         return nextResult;
       },
@@ -1321,6 +1423,73 @@ export function ConnectedSystemsPanel({
         error: `${customerName} record could not be updated.`,
       },
       async () => {
+        if (crmZkEnabled) {
+          if (!selectedSystem || !cacheUserId || !vaultKey || !vaultOwnerToken) {
+            throw new Error("Unlock your vault to approve this private CRM update.");
+          }
+          if (!crmZkUpdateReady) {
+            throw new Error("This CRM is not ready for its required private update protocol.");
+          }
+          const [configuration, context] = await Promise.all([
+            ConnectedSystemsService.getCrmZkConfiguration({
+              vaultOwnerToken,
+              systemId: selectedSystem.systemId,
+            }),
+            ConnectedSystemsService.prepareCrmZkContext({
+              vaultOwnerToken,
+              systemId: selectedSystem.systemId,
+              operation: "update",
+              objectType: selectedSystem.objectTypeDefault,
+              fieldNames: Object.keys(review.recordFields),
+            }),
+          ]);
+          const ownerSigningKey = await ensureCrmZkOwnerSigningKey({
+            userId: cacheUserId,
+            vaultKey,
+            vaultOwnerToken,
+            systemId: selectedSystem.systemId,
+          });
+          const envelope = await createCrmZkEnvelope({
+            context,
+            configuration,
+            ownerSigningKey,
+            payload: review.recordFields,
+          });
+          preparedIntent = await ConnectedSystemsService.createCrmZkUpdateIntent({
+            vaultOwnerToken,
+            systemId: selectedSystem.systemId,
+            encryptedFields: envelope,
+          });
+          const challenge = await ConnectedSystemsService.createCrmZkApprovalChallenge({
+            vaultOwnerToken,
+            systemId: selectedSystem.systemId,
+            intentId: preparedIntent.intentId,
+          });
+          const approvalProof = await signCrmZkApproval({
+            ownerSigningKey,
+            intentId: challenge.intentId,
+            envelopeDigest: challenge.envelopeDigest,
+            challengeId: challenge.challengeId,
+            nonce: challenge.nonce,
+            expiresAtMs: challenge.expiresAtMs,
+          });
+          const approved = await ConnectedSystemsService.approveCrmZkIntent({
+            vaultOwnerToken,
+            systemId: selectedSystem.systemId,
+            intentId: preparedIntent.intentId,
+            approvalProof,
+          });
+          if (approved.encryptedResponse) {
+            // Verify/decrypt the partner readback in runtime memory only. A
+            // fresh bound read remains the recovery path if this session dies.
+            await decryptCrmZkPartnerResponse({
+              context,
+              configuration,
+              response: approved.encryptedResponse as CrmZkPartnerResponseEnvelope,
+            });
+          }
+          return approved;
+        }
         preparedIntent = await ConnectedSystemsService.updateRecordIntent(
           vaultOwnerToken || "",
           {
@@ -1757,7 +1926,11 @@ export function ConnectedSystemsPanel({
       {isRecordStateLoading ? (
         <span
           role="status"
-          aria-label="Checking saved CRM record"
+          aria-label={
+            isSchemaPreparationPending
+              ? "Preparing your CRM profile"
+              : "Checking saved CRM record"
+          }
           className="flex justify-center py-2 text-muted-foreground"
         >
           <Icon icon={RefreshCw} size="sm" className="animate-spin" />

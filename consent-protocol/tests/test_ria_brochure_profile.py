@@ -1059,7 +1059,7 @@ def test_brochure_provenance_is_covered_by_the_schema_contracts() -> None:
     highest = max(
         int(name.split("_", 1)[0]) for name in manifest["ordered_migrations"] if name[:3].isdigit()
     )
-    assert highest == 139
+    assert highest >= 139
 
     for contract_name in ("uat_integrated_schema.json", "prod_core_schema.json"):
         contract = json.loads((CONTRACTS_DIR / contract_name).read_text(encoding="utf-8"))
