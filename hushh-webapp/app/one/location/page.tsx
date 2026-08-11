@@ -162,6 +162,7 @@ import {
 } from "@/lib/one-location/location-readiness";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
+  describeContactSyncOutcome,
   openContactPermissionSettings,
   syncOneLocationContactSignals,
   OneLocationContactSyncError,
@@ -4665,6 +4666,10 @@ export function OneLocationAgentPageContent({
     }
   }, [refresh, sosIncident, vaultOwnerToken]);
 
+  // Lets the "Check more" remedy re-run the sync (and so reopen the web
+  // Contact Picker) without the callback having to reference itself.
+  const handleSyncContactSignalRef = useRef<(() => Promise<void>) | null>(null);
+
   const handleSyncContactSignal = useCallback(async () => {
     if (!auth.user?.getIdToken) {
       const message = "Sign in before syncing contacts.";
@@ -4717,25 +4722,34 @@ export function OneLocationAgentPageContent({
         partial_access: result.limited,
         truncated: result.truncated,
       });
+      // A partial read must never be reported as a whole one. The web Contact
+      // Picker and iOS limited access both return only a hand-picked subset,
+      // so "3 people added" would claim the whole address book was searched.
+      const outcome = describeContactSyncOutcome(result);
+      const outcomeOptions = {
+        description: outcome.description,
+        ...(outcome.remedy === "pick_more"
+          ? {
+              action: {
+                label: "Check more",
+                // Re-running the sync reopens the picker. There is no settings
+                // page to send a browser to; openAppSettings resolves false.
+                onClick: () => void handleSyncContactSignalRef.current?.(),
+              },
+            }
+          : outcome.remedy === "open_settings"
+            ? {
+                action: {
+                  label: "Open Settings",
+                  onClick: () => void openContactPermissionSettings(),
+                },
+              }
+            : {}),
+      };
       if (result.matchedUserIds.length > 0) {
-        toast.success(
-          `${peopleCountLabel(
-            result.matchedUserIds.length,
-          )} added as a contact signal.`,
-        );
-      } else if (result.limited) {
-        // Partial access means the scan only saw the contacts the OS shared,
-        // so "no matches" says nothing about the rest of the book.
-        toast.info("No matches in the contacts you shared.", {
-          description:
-            "Hussh could only read the contacts you picked. Share more to widen the search.",
-          action: {
-            label: "Settings",
-            onClick: () => void openContactPermissionSettings(),
-          },
-        });
+        toast.success(outcome.title, outcomeOptions);
       } else {
-        toast.info("No One users matched from this contact scan.");
+        toast.info(outcome.title, outcomeOptions);
       }
     } catch (error) {
       const failure =
@@ -4777,6 +4791,10 @@ export function OneLocationAgentPageContent({
       setBusy(null);
     }
   }, [auth.user, contactSignal]);
+
+  useEffect(() => {
+    handleSyncContactSignalRef.current = handleSyncContactSignal;
+  }, [handleSyncContactSignal]);
 
   const handleRequestAccess = useCallback(async (reason?: string | null) => {
     if (!vaultOwnerToken || !selectedRequestOwners.length) return;
