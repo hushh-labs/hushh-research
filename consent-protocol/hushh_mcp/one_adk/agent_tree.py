@@ -62,7 +62,7 @@ from hushh_mcp.one_adk.specialist_availability import (
     specialist_label,
 )
 from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
-from hushh_mcp.runtime_settings import one_db_sessions_enabled
+from hushh_mcp.runtime_settings import one_db_sessions_enabled, pod_mode
 from hushh_mcp.services.action_gateway import (
     get_action_gateway_action,
     is_navigation_action,
@@ -1221,7 +1221,32 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         ),
         tools=[GoogleSearchTool()],
     )
+    # A memory tool, ONLY where a memory service exists.
+    #
+    # `resolve_pod_memory_service` returns None on the hub by construction, and a
+    # memory tool bound with no service behind it is a tool that always fails --
+    # One would offer to recall and then error, which is worse than not offering.
+    #
+    # `load_memory` rather than `preload_memory` deliberately: the north star
+    # requires that "the agent evolved" be an assertion rather than a vibe, and that
+    # only an observed recall TOOL CALL proves it, because a model can produce a
+    # plausible answer by guessing. An explicit call is the evidence; auto-injection
+    # would be exactly the unfalsifiable version.
+    #
+    # Without this the whole persistence stack was reachable by nothing: the sealed
+    # commit log, the per-owner derived key and the lazy hydration replay were all
+    # real, a memory_service was resolved and handed to the Runner, and no tool could
+    # read it and nothing ever wrote to it. Every component passed its tests.
+    memory_tools: list = []
+    from hushh_mcp.runtime_settings import pod_agent_memory_enabled  # noqa: PLC0415
+
+    if pod_mode() and pod_agent_memory_enabled():
+        from google.adk.tools import load_memory  # noqa: PLC0415
+
+        memory_tools = [load_memory]
+
     return [
+        *memory_tools,
         AgentTool(agent=search_agent, propagate_grounding_metadata=True),
         open_screen,
         resolve_onboarding_goal,

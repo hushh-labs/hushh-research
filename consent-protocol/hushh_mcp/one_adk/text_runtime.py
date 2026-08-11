@@ -333,6 +333,7 @@ async def _stream_one_text_turn_once(
         raise ValueError("One text session identity is missing")
 
     session_service = InMemorySessionService()
+    memory_service = _resolve_pod_memory_service()
     runner = Runner(
         app_name=ONE_APP_NAME,
         agent=build_one_text_agent(
@@ -358,7 +359,7 @@ async def _stream_one_text_turn_once(
         # Unconditional on purpose. `resolve_pod_memory_service` checks `pod_mode()`
         # first and returns None in the hub, which is exactly today's hub behaviour --
         # so this changes the pod and provably nothing else.
-        memory_service=_resolve_pod_memory_service(),
+        memory_service=memory_service,
     )
     sanitized_context = dict(screen_context or {})
     session = await session_service.create_session(
@@ -449,6 +450,35 @@ async def _stream_one_text_turn_once(
         raise OneTextEmptyResponseError(
             "One text runtime completed without visible text or a directive"
         )
+
+    # COMMIT THE TURN TO MEMORY. Without this the whole persistence stack was
+    # reachable by nothing.
+    #
+    # `memory_service` was already resolved and handed to the Runner, and that was
+    # mistaken for working memory -- including by me. ADK does NOT auto-populate a
+    # memory service; something has to write to it. Nothing did. So the sealed commit
+    # log, the per-owner derived key and the hydrate-on-first-use replay were all real,
+    # all tested, and a pod forgot everything anyway.
+    #
+    # Deliberately AFTER the empty-response guard: a turn that produced nothing
+    # visible is not an interaction worth remembering, and writing it would fill an
+    # owner's log with failures that never reached them.
+    #
+    # Failure here degrades to a memoryless turn, never a failed one. The person
+    # already has their answer by this point -- raising now would take a delivered
+    # answer away to report a bookkeeping problem.
+    if memory_service is not None:
+        try:
+            await memory_service.add_session_to_memory(
+                await session_service.get_session(
+                    app_name=ONE_APP_NAME,
+                    user_id=clean_user_id,
+                    session_id=session.id,
+                )
+            )
+        except Exception:  # noqa: BLE001 - see above: the answer is already delivered
+            logger.warning("one_text_turn.memory_write_failed", exc_info=True)
+
     logger.info(
         "one_text_turn_complete model=%s first_visible_ms=%s elapsed_ms=%s directives=%s",
         runtime_model,
