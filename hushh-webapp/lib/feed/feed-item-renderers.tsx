@@ -46,6 +46,27 @@ function metadataString(metadata: Record<string, unknown>, key: string): string 
 }
 
 /**
+ * Resolve the most identifying name available for a feed counterparty.
+ *
+ * Order: a pre-resolved label the backend already chose, then display name,
+ * then first name, then a phone number, and only "Someone" as an absolute last
+ * resort when nothing identifying exists. `counterpart_label` is preferred
+ * because the backend has already applied its own privacy rules to it — this
+ * helper never widens what the row exposes, it only stops falling back to
+ * "Someone" when a real identifier is present in the row.
+ */
+function resolveCounterpartName(metadata: Record<string, unknown>): string {
+  return (
+    metadataString(metadata, "counterpart_label") ||
+    metadataString(metadata, "display_name") ||
+    metadataString(metadata, "first_name") ||
+    metadataString(metadata, "phone_number") ||
+    "Someone"
+  );
+}
+
+
+/**
  * One line per event_type. Wording lives here, not in the backend row, so
  * copy iterates via a frontend deploy rather than a migration.
  */
@@ -54,6 +75,10 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   const domainLabel = DOMAIN_LABEL[item.source_domain] || "Activity";
   const scope = metadataString(item.metadata, "scope_description") || metadataString(item.metadata, "scope");
   const counterparty = metadataString(item.metadata, "counterpart_label");
+  // Best-available name for the other party (label → display → first → phone →
+  // "Someone" last). Used to turn vague, subjectless lines like "A live
+  // location share was revoked" into explicit subject-action-object sentences.
+  const who = resolveCounterpartName(item.metadata);
 
   switch (item.event_type) {
     case "consent_requested":
@@ -61,7 +86,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Consent requested",
-        description: scope ? `Someone requested ${scope}.` : "A new consent request needs your review.",
+        description: scope
+          ? `${who} requested ${scope}.`
+          : `${who} sent a consent request for your review.`,
         href: buildConsentCenterHref("pending"),
       };
     case "consent_granted":
@@ -85,7 +112,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Location shared",
-        description: "A live location share was started.",
+        description: `${who} shared their live location with you.`,
         href: ROUTES.ONE_LOCATION,
       };
     case "location_share_revoked":
@@ -93,7 +120,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Location share ended",
-        description: "A live location share was revoked.",
+        description: `${who}'s live location share ended.`,
         href: ROUTES.ONE_LOCATION,
       };
     case "location_share_expired":
@@ -101,7 +128,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Location share expired",
-        description: "A live location share expired.",
+        description: `${who}'s live location share expired.`,
         href: ROUTES.ONE_LOCATION,
       };
     case "location_access_request":
@@ -109,7 +136,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Location access requested",
-        description: "Someone asked to see your location.",
+        description: `${who} requested to see your location.`,
         href: ROUTES.ONE_LOCATION,
       };
     case "location_access_approved":
@@ -117,7 +144,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Location access approved",
-        description: "A location access request was approved.",
+        description: `${who} approved your location request.`,
         href: ROUTES.ONE_LOCATION,
       };
     case "location_access_denied":
@@ -125,7 +152,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Location access denied",
-        description: "A location access request was denied.",
+        description: `${who} denied your location request.`,
         href: ROUTES.ONE_LOCATION,
       };
     case "kai_analysis_completed": {
@@ -188,7 +215,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon: UserRound,
         domainLabel,
         label: "Connection rejected",
-        description: "A connection request was rejected.",
+        description: counterparty
+          ? `${counterparty} declined your connection request.`
+          : "A connection request was rejected.",
         href: ROUTES.CONNECT,
       };
     case "connection_revoked":
@@ -196,7 +225,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon: UserRound,
         domainLabel,
         label: "Connection removed",
-        description: "A connection was removed.",
+        description: counterparty
+          ? `Your connection with ${counterparty} was removed.`
+          : "A connection was removed.",
         href: ROUTES.CONNECT,
       };
     default:
