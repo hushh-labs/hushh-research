@@ -94,6 +94,8 @@ export const ROUTES = {
   PROFILE_PKM_AGENT_LAB: "/one/profile/pkm-agent-lab",
   PROFILE_RECEIPTS: "/one/profile/receipts",
   PROFILE_GMAIL_OAUTH_RETURN: "/one/profile/gmail/oauth/return",
+  PROFILE_INTEGRATIONS: "/one/profile/integrations",
+  PROFILE_GOOGLE_OAUTH_RETURN: "/one/profile/google/oauth/return",
   OAUTH_AUTHORIZE: "/oauth/authorize",
   ONE_SETUP: "/one/setup",
   ONE_SETUP_FINANCE: "/one/setup/finance",

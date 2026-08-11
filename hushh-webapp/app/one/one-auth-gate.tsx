@@ -45,6 +45,7 @@ import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppr
  */
 const AUTH_ONLY_ROUTE_PREFIXES = [
   ROUTES.PROFILE_GMAIL_OAUTH_RETURN,
+  ROUTES.PROFILE_GOOGLE_OAUTH_RETURN,
   ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE,
 ] as const;
 

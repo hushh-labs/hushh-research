@@ -120,6 +120,7 @@ import {
   type AgentSource,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
+import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
 import { runLocationDirective, type DelegateResult } from "@/lib/agent/specialist-directive-runtime";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -4248,6 +4249,76 @@ export function AgentChatWorkspace({
                         status: "cancelled",
                         display,
                       });
+                    }}
+                  />
+                ) : pendingSpecialistDirective.delegateAgentId === "agent_calendar" ? (
+                  <SpecialistDirectiveCard
+                    summary={String(
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .summary ?? pendingSpecialistDirective.message,
+                    )}
+                    confirmLabel={String(
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .confirmLabel ?? "Continue",
+                    )}
+                    busy={specialistBusy}
+                    onConfirm={async () => {
+                      const directive = pendingSpecialistDirective;
+                      const payload = directive.directive.payload as Record<string, unknown>;
+                      const type = String(payload.type ?? "");
+                      if (type === "calendar.connect") {
+                        setPendingSpecialistDirective(null);
+                        router.push(ROUTES.PROFILE_INTEGRATIONS);
+                        return;
+                      }
+                      if (type !== "calendar.execute_proposal") {
+                        setPendingSpecialistDirective(null);
+                        addErrorMessage("That Calendar action is no longer available.");
+                        return;
+                      }
+                      const token = getVaultOwnerToken();
+                      if (!token || !user?.uid) {
+                        addErrorMessage("Vault access expired. Unlock again to continue.");
+                        return;
+                      }
+                      setSpecialistBusy(true);
+                      try {
+                        const label = String(payload.confirmLabel ?? "Confirm");
+                        appendMessage({
+                          id: `msg-${Date.now()}-calendar-confirm`,
+                          role: "user",
+                          text: label,
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
+                        const result = await runCalendarDirective(
+                          directive.directive,
+                          token,
+                          user.uid,
+                        );
+                        setPendingSpecialistDirective(null);
+                        appendMessage({
+                          id: `msg-${Date.now()}-calendar-result`,
+                          role: "assistant",
+                          text: result.detail || "Calendar updated.",
+                          timestamp: formatNow(),
+                          status: "done",
+                        });
+                      } catch (error) {
+                        setPendingSpecialistDirective(null);
+                        addErrorMessage(
+                          error instanceof Error
+                            ? error.message
+                            : "The Calendar change could not be completed.",
+                        );
+                      } finally {
+                        setSpecialistBusy(false);
+                      }
+                    }}
+                    onCancel={() => {
+                      setPendingSpecialistDirective(null);
+                      toast.info("Calendar change cancelled. Nothing was changed.");
                     }}
                   />
                 ) : pendingSpecialistDirective.delegateAgentId === "agent_connected_systems" ? (

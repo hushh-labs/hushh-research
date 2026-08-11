@@ -16,6 +16,8 @@
     "pkm_domain_revisions",
     "pkm_domain_commits",
     "kai_gmail_sync_runs",
+    "google_oauth_attempts",
+    "google_calendar_action_proposals",
     "agent_chat_messages",
     "one_action_directive_ledger",
     "kai_funding_webhook_events",
@@ -29,6 +31,12 @@
       "owner": "backend-runtime-governance",
       "mode": "report_only",
       "job_id": "gmail_retention_report"
+    },
+    {
+      "family_id": "google_integrations_provider_state",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "google_integrations_retention_report"
     },
     {
       "family_id": "kai_brokerage_provider_cache",
@@ -351,6 +359,24 @@
       "trust_boundary": "Encrypted OAuth tokens, receipt summaries, hashes, and preview artifacts; no raw mailbox memory.",
       "plaintext_posture": "provider_cache_metadata",
       "expected_row_growth": "high_provider_sync"
+    },
+    {
+      "id": "google_integrations_provider_state",
+      "owner": "backend-runtime-governance",
+      "data_class": "provider_cache",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "google_provider_connections",
+        "google_service_grants",
+        "google_oauth_attempts",
+        "google_calendar_action_proposals"
+      ],
+      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service",
+      "retention_policy": "OAuth attempts expire after ten minutes. Calendar proposals are deleted after execution or failure and are unusable after ten minutes; the next Calendar mutation purges expired proposals. Provider credentials and grants remain only while the user keeps the service connected.",
+      "deletion_behavior": "Cascade-delete with the actor profile; service disconnect locally disables the relevant grant and removes its short-lived proposals. Account-level Google revocation is separate because it affects sibling services.",
+      "trust_boundary": "AES-GCM encrypted OAuth credential envelopes; no Calendar event cache or PKM projection is written by this v1 service.",
+      "plaintext_posture": "encrypted_tokens_and_short_lived_workflow_metadata",
+      "expected_row_growth": "low_provider_workflow"
     },
     {
       "id": "kai_analyze_run_store",

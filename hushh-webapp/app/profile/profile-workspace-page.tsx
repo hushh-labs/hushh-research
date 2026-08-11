@@ -12,6 +12,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   Bug,
+  CalendarDays,
   CodeXml,
   Code2,
   ContactRound,
@@ -4043,6 +4044,15 @@ function ProfilePageContent() {
                 voiceLabel={PROFILE_LABELS.security}
                 voicePurpose="Opens vault, account access, and account deletion controls."
                 onClick={openSecurityPanel}
+              />
+              <SettingsRow
+                icon={CalendarDays}
+                iconTone="blue"
+                title="Connected apps"
+                description="Manage Google Calendar and future Google services."
+                chevron
+                density="compact"
+                onClick={() => router.push(ROUTES.PROFILE_INTEGRATIONS)}
               />
               <SettingsRow
                 icon={MessageCircleQuestion}
