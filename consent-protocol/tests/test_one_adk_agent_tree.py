@@ -84,6 +84,12 @@ class TestAgentTreeShape:
             "ask_location_agent",
             "ask_connected_systems_agent",
             "ask_consent_agent",
+            "calendar_summary",
+            "calendar_events",
+            "calendar_availability",
+            "propose_calendar_event",
+            "propose_calendar_reschedule",
+            "propose_calendar_cancellation",
         } <= tool_names
         assert "ask_connections_agent" not in tool_names
         assert "ask_gmail_agent" not in tool_names
@@ -783,7 +789,7 @@ class TestSettledActionJourneys:
         decision, made explicitly.
 
         `trusted_activation_required` is the one survivor and is a different
-        kind of thing entirely: those two actions open a browser popup, which
+        kind of thing entirely: those four actions open a browser popup, which
         platforms allow only during a fresh user gesture. Dropping it would
         break sign-in rather than streamline it.
         """
@@ -794,9 +800,10 @@ class TestSettledActionJourneys:
             assert flags["needsConfirmation"] is trusted, entry["action_id"]
             assert flags["trustedActivationRequired"] is trusted, entry["action_id"]
             confirming += 1 if flags["needsConfirmation"] else 0
-        # Small and deliberate. If this grows, someone has reintroduced asking
-        # by authoring an activation policy rather than by deciding to.
-        assert confirming == 2
+        # Small and deliberate: the two account sign-ins plus the two Google
+        # service connection flows. If this grows, someone has reintroduced
+        # asking by authoring an activation policy rather than by deciding to.
+        assert confirming == 4
 
     @pytest.mark.asyncio
     async def test_high_risk_location_share_runs_without_asking(self):

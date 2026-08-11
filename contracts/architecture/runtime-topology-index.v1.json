@@ -1,6 +1,39 @@
 {
   "agents": [
     {
+      "id": "agent_calendar",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "CALENDAR_AGENT_DISABLED",
+        "rollback": "Disable Calendar Agent and retain existing Google connection records without executing proposals.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "active",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Calendar chat is web-only until native OAuth and voice confirmation surfaces are implemented; it is not public A2A or MCP.",
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
       "id": "agent_connected_systems",
       "parent": "agent_one",
       "rollout": {
@@ -134,7 +167,7 @@
     },
     {
       "id": "agent_gmail",
-      "parent": "agent_connections",
+      "parent": "agent_one",
       "rollout": {
         "kill_switch": "HUSHH_AGENT_DISABLED",
         "rollback": "Disable the agent and restore the prior manifest.",
@@ -148,7 +181,7 @@
           "in_process"
         ]
       },
-      "status": "experimental",
+      "status": "active",
       "surfaces": {
         "a2a": false,
         "android": false,
@@ -764,6 +797,19 @@
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
       "primary_access_path": "Alpaca/Plaid funding, ACH, transfer, webhook, reconciliation, and trade-intent services"
+    },
+    {
+      "data_class": "provider_cache",
+      "exact_tables": [
+        "google_provider_connections",
+        "google_service_grants",
+        "google_oauth_attempts",
+        "google_calendar_action_proposals"
+      ],
+      "id": "google_integrations_provider_state",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service"
     },
     {
       "data_class": "workflow_state",
@@ -2075,6 +2121,43 @@
     },
     {
       "alias": null,
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/one/calendar/{status,connect/*,proposals/*}",
+          "native_transport": "Web-only Google OAuth; Calendar does not claim native authorization support.",
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "service_file": "lib/services/google-calendar-service.ts",
+          "service_methods": [
+            "status",
+            "startConnect",
+            "disconnect",
+            "executeProposal"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/calendar/page.tsx",
+      "pathname": "/one/calendar",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.calendar"
+      }
+    },
+    {
+      "alias": null,
       "api_dependencies": [],
       "cache": {
         "policy": "memory-only",
@@ -2289,7 +2372,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.profile_receipts"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.gmail"
       }
@@ -3373,6 +3458,52 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/profile/google/oauth/return/page.tsx",
+      "pathname": "/one/profile/google/oauth/return",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.google.oauth.return"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/profile/integrations/page.tsx",
+      "pathname": "/one/profile/integrations",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.profile.integrations"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
@@ -3823,10 +3954,12 @@
       "voice": {
         "action_ids": [
           "setup.hub_master_ack",
+          "setup.open_calendar",
           "setup.open_connected_systems",
           "setup.open_connections",
           "setup.open_email",
           "setup.open_finance",
+          "setup.open_gmail",
           "setup.open_location",
           "setup.open_ria"
         ],
@@ -3855,6 +3988,46 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.setup.capability"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/one/calendar/{status,connect/*}",
+          "native_transport": "Web-only Google OAuth; Calendar setup does not claim native authorization support.",
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "service_file": "lib/services/google-calendar-service.ts",
+          "service_methods": [
+            "status",
+            "startConnect",
+            "disconnect"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/setup/calendar/page.tsx",
+      "pathname": "/one/setup/calendar",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "setup.connect_calendar",
+          "setup.finish_calendar",
+          "setup.skip_calendar"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.calendar"
       }
     },
     {
@@ -4008,7 +4181,11 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "setup.connect_gmail",
+          "setup.finish_gmail",
+          "setup.skip_gmail"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.setup.gmail"
       }
@@ -4181,6 +4358,29 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.portfolio.shared"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "none",
+        "refresh_trigger": "none",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/profile/google/oauth/return/page.tsx",
+      "pathname": "/profile/google/oauth/return",
+      "route_mode": "redirect",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.legacy.profile.google.oauth.return"
       }
     },
     {
@@ -4640,28 +4840,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "74790933153ec3fbe350c77a182088913f917fd451589d71937963b8c1544ca7",
-    "agent_registry": "d314300c0b773ea2f4bda36584f3ae515a1272e19043f320b89e604910df3142",
-    "cache_manifest": "10c2f6644a392c85a57b65c04457bfaab5c605b6448651a7eb1db39697aa55f5",
-    "data_plane": "db4c0c9d3eb915828fd7670a842aaf7b5d4c2ba79072526c5f9e3ad59ec094e0",
+    "action_gateway": "e343b2f895becd80b66ca5870244b0ea06e4ce137941fc33f9e519d613c386b2",
+    "agent_registry": "607992d14495c4d2ff5e6886f12f025d85b3299e2f08e9dd287d032b2af83faf",
+    "cache_manifest": "52dd4385471d513d3274b83087688f122fd58c24d3167ca8c4c7ee3654aada6c",
+    "data_plane": "d13174d0033457cfcf983528de41569f83bf4c8fc26f242ac92ce5b1d41751d4",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "f5d8f6cb50f8ed7701d2d763bf8c89c72221aa1c954888a54ef9a175a7f2443f",
-    "route_index": "e8945cb8b2eebc57c32c2220973140dcb688d5f31b7e05427c49ae17114874d8",
-    "route_layout": "074616efd1e8efddd5cc09df8576bb3d5293070355cd04d42d023930fa47bf62",
-    "surface_map": "ecd7d8b6f43c23986f4220ef73349f3e0a4eb20a8bd970846e6a964381c93a1e",
+    "route_index": "ab277fe9fd7b301af423d4a74e237c4a551fb7efd28755842e84d46777e77710",
+    "route_layout": "3a3769adca745b71f261e229e83189ee757b1a8a484f39300d259c3ef4fde494",
+    "surface_map": "4066001136f930bd3aae2035c2fc4652e3fe06daaba2008e9d7fe44d6a74d608",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 154,
-    "agents": 18,
+    "actions": 166,
+    "agents": 19,
     "aliases": 3,
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 121,
+    "physical_routes": 126,
     "semantic_routes": 14,
-    "table_families": 44
+    "table_families": 45
   }
 }

@@ -225,6 +225,27 @@ one eligible request actually creates or advances work.
 | POST | `/api/one/kyc/workflows/{workflow_id}/redraft` | VAULT_OWNER Bearer | Record typed or voice-originated redraft instruction metadata; draft revision is client-local |
 | POST | `/api/one/kyc/retention/purge` | `X-Hushh-Maintenance-Token` | Redact terminal workflow drafts after the retention window |
 
+### One Google Calendar
+
+Calendar is a live Google provider integration. Connection lifecycle uses
+Firebase identity; event reads and all action proposals require `VAULT_OWNER`.
+Create, reschedule, and cancel are always two-step: a short-lived proposal is
+reviewed by the client and then executed once. Plans are deleted after execution
+or failure and become unusable after ten minutes; a subsequent Calendar mutation
+purges expired plans. Event data is not persisted as PKM or a Calendar cache in
+this first release.
+
+| Method | Path | Authorization | Description |
+| --- | --- | --- | --- |
+| POST | `/api/one/calendar/connect/start` | Firebase Bearer | Start incremental Google Calendar read or manage authorization; returns only an OAuth authorization URL and expiry. |
+| POST | `/api/one/calendar/connect/complete` | Firebase Bearer | Redeem a one-time, PKCE-bound OAuth callback and persist the encrypted provider credential and Calendar grant. |
+| GET | `/api/one/calendar/status/{user_id}` | Firebase Bearer | Return non-sensitive Calendar connection and permission state. |
+| POST | `/api/one/calendar/disconnect` | Firebase Bearer | Disable Calendar locally and delete pending actions without revoking sibling Google services. |
+| POST | `/api/one/calendar/events` | VAULT_OWNER Bearer | Read bounded primary-calendar events in a supplied ISO-8601 time range. |
+| POST | `/api/one/calendar/availability` | VAULT_OWNER Bearer | Read free/busy blocks for up to twenty requested calendars. |
+| POST | `/api/one/calendar/proposals` | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google. |
+| POST | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed. |
+
 ### One Location Agent
 
 One Location Agent is One-owned live-location sharing for trusted people. The

@@ -3,6 +3,143 @@
     {
       "action_ids": [],
       "authorities": {
+        "actions": [
+          "google.calendar.write.confirmed"
+        ],
+        "data": [
+          "google.calendar.read"
+        ],
+        "invocation": [
+          "cap.one.invoke"
+        ]
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Google Calendar read, availability, and owner-confirmed scheduling specialist under One.",
+      "evaluations": [],
+      "failure_states": [
+        "google_connection_required",
+        "google_permission_required",
+        "proposal_expired",
+        "event_changed"
+      ],
+      "icon": null,
+      "id": "agent_calendar",
+      "inputs": [],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/calendar/agent.yaml",
+      "manifest_version": 2,
+      "model": "gemini-3.6-flash",
+      "name": "Calendar Agent",
+      "native_requirements": [],
+      "optional_scopes": [],
+      "outputs": [],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [
+          "hussh:user_id",
+          "hussh:timezone"
+        ],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [
+        "cap.one.invoke"
+      ],
+      "rollout": {
+        "kill_switch": "CALENDAR_AGENT_DISABLED",
+        "rollback": "Disable Calendar Agent and retain existing Google connection records without executing proposals.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [
+        {
+          "confirmation": "explicit_user_confirmation",
+          "idempotent": false,
+          "max_retries": 0,
+          "name": "calendar_event_mutation",
+          "timeout_seconds": 20
+        }
+      ],
+      "status": "active",
+      "subagents": [],
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Calendar chat is web-only until native OAuth and voice confirmation surfaces are implemented; it is not public A2A or MCP.",
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "130204dc7b3e88d36b8215ffa4626de0e5171f553eba2095ede348f473688a02",
+      "telemetry_namespace": "agent.calendar",
+      "tools": [
+        {
+          "description": "List the next calendar events for a bounded summary.",
+          "name": "calendar_summary",
+          "py_func": "hushh_mcp.agents.calendar.tools.calendar_summary",
+          "required_scope": "cap.one.invoke"
+        },
+        {
+          "description": "List events in an exact time interval and return real event ids.",
+          "name": "calendar_events",
+          "py_func": "hushh_mcp.agents.calendar.tools.calendar_events",
+          "required_scope": "cap.one.invoke"
+        },
+        {
+          "description": "Return busy intervals in an exact time interval.",
+          "name": "calendar_availability",
+          "py_func": "hushh_mcp.agents.calendar.tools.calendar_availability",
+          "required_scope": "cap.one.invoke"
+        },
+        {
+          "description": "Prepare a new meeting for explicit owner confirmation.",
+          "name": "propose_calendar_event",
+          "py_func": "hushh_mcp.agents.calendar.tools.propose_calendar_event",
+          "required_scope": "cap.one.invoke"
+        },
+        {
+          "description": "Prepare an existing event change for explicit owner confirmation.",
+          "name": "propose_calendar_reschedule",
+          "py_func": "hushh_mcp.agents.calendar.tools.propose_calendar_reschedule",
+          "required_scope": "cap.one.invoke"
+        },
+        {
+          "description": "Prepare event cancellation for explicit owner confirmation.",
+          "name": "propose_calendar_cancellation",
+          "py_func": "hushh_mcp.agents.calendar.tools.propose_calendar_cancellation",
+          "required_scope": "cap.one.invoke"
+        }
+      ],
+      "ui_type": "chat",
+      "version": "0.1.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
         "actions": [],
         "data": [],
         "invocation": []
@@ -408,7 +545,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Disabled read-only receipt-sync and purchase-memory child of Connections.",
+      "description": "Read-only receipt-sync and purchase-memory specialist under One.",
       "evaluations": [],
       "failure_states": [
         "auth_required",
@@ -427,7 +564,7 @@
       "optional_scopes": [],
       "outputs": [],
       "owner": "backend",
-      "parent": "agent_connections",
+      "parent": "agent_one",
       "performance": {
         "latency_p95_ms": 30000,
         "max_output_tokens": 4096
@@ -456,7 +593,7 @@
         ]
       },
       "side_effects": [],
-      "status": "experimental",
+      "status": "active",
       "subagents": [],
       "surfaces": {
         "a2a": false,
@@ -468,7 +605,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "44cc1dc4e3faa5e248377287e84696c837efe318a14be010885066cdc06b2714",
+      "system_instruction_sha256": "312edd1449e0d34e476a720cfe3f91f3f4317f8ec8959517642308626f78e60e",
       "telemetry_namespace": "agent.gmail",
       "tools": [],
       "ui_type": "chat",
@@ -1624,7 +1761,9 @@
           "agent_nav",
           "agent_kyc",
           "agent_email",
+          "agent_gmail",
           "agent_location",
+          "agent_calendar",
           "agent_connected_systems"
         ]
       },
@@ -1709,7 +1848,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "70ba663f9d61ca8675d708da2d3d0e49fe2afd12c525a195e9318ecb5a2b76e9",
+      "system_instruction_sha256": "15f0268d1bab85156981c9bd4dbc3d480c7467841f8bd29db96e2d614b13b851",
       "telemetry_namespace": "agent.one",
       "tools": [],
       "ui_type": "chat",

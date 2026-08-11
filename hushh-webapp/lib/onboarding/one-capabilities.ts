@@ -1,6 +1,7 @@
 
 import {
   BookMarked,
+  CalendarDays,
   ContactRound,
   FileCheck2,
   KeyRound,
@@ -44,6 +45,7 @@ export type OneCapabilityTone =
   | "finance"
   | "ria"
   | "gmail"
+  | "calendar"
   | "email"
   | "location"
   | "pkm"
@@ -73,8 +75,8 @@ export interface OneCapability {
   setupControlId?: `one_setup_tile_${string}`;
   /**
    * Backend agent lane this tile is bound to, or null when the tile is a
-   * pure access/preview surface with no agent behind it (consent center,
-   * marketplace preview) or the lane does not exist yet (gmail).
+   * pure access/preview surface with no agent behind it (consent center or
+   * marketplace preview).
    *
    * This is a CONTRACT, not a comment: ids must exist in the backend
    * SPECIALIST_A2A_SCOPE_MAP and are enforced by
@@ -169,7 +171,20 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     icon: lucideCapabilityIcon(Mail),
     tone: "gmail",
     group: "memory",
-    availability: "paused",
+    requiresVault: true,
+  },
+  {
+    id: "calendar",
+    setupActionId: "setup.open_calendar",
+    setupControlId: "one_setup_tile_calendar",
+    agentId: "agent_calendar",
+    title: "Calendar",
+    description: "Calendar summaries, availability, and confirmed scheduling.",
+    previewLabel: "Availability & scheduling",
+    href: ROUTES.CALENDAR,
+    icon: lucideCapabilityIcon(CalendarDays),
+    tone: "calendar",
+    group: "workflow",
     requiresVault: true,
   },
   {

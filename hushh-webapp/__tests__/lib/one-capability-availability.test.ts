@@ -8,25 +8,33 @@ import {
 } from "@/lib/onboarding/one-capabilities";
 
 describe("One capability availability", () => {
-  it("pauses Gmail only at the One presentation boundary", () => {
+  it("enables Gmail and Calendar as first-class One agents", () => {
     const gmail = getOneCapability("gmail");
+    const calendar = getOneCapability("calendar");
 
     expect(gmail).toMatchObject({
       agentId: "agent_gmail",
-      availability: "paused",
     });
-    expect(isOneCapabilityEnabled(gmail)).toBe(false);
-    expect(isOneCapabilityEnabled("gmail")).toBe(false);
+    expect(calendar).toMatchObject({
+      agentId: "agent_calendar",
+    });
+    expect(isOneCapabilityEnabled(gmail)).toBe(true);
+    expect(isOneCapabilityEnabled("gmail")).toBe(true);
+    expect(isOneCapabilityEnabled(calendar)).toBe(true);
   });
 
-  it("excludes paused capabilities from setup and the agent selector", () => {
+  it("includes Gmail and Calendar in setup and the agent selector", () => {
     expect(ONE_SETUP_CAPABILITIES.map((capability) => capability.id)).toEqual([
+      "gmail",
+      "calendar",
       "location",
       "email",
       "finance",
       "ria",
       "connected-systems",
     ]);
-    expect(getAgentSections().map((section) => section.id)).not.toContain("gmail");
+    expect(getAgentSections().map((section) => section.id)).toEqual(
+      expect.arrayContaining(["gmail", "calendar"]),
+    );
   });
 });

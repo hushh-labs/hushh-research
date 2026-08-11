@@ -6,9 +6,10 @@ import {
 } from "@/lib/onboarding/setup-capability-ids";
 
 describe("setup capability identity contract", () => {
-  it("keeps one canonical six-capability order", () => {
+  it("keeps one canonical seven-capability order", () => {
     expect(ONE_SETUP_CAPABILITY_IDS).toEqual([
       "gmail",
+      "calendar",
       "location",
       "email",
       "finance",

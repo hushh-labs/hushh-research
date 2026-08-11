@@ -37,6 +37,14 @@ from google.genai import types as genai_types
 
 from hushh_mcp.adk_bridge.contract import A2ATask
 from hushh_mcp.adk_bridge.dispatch import dispatch
+from hushh_mcp.agents.calendar.tools import (
+    calendar_availability,
+    calendar_events,
+    calendar_summary,
+    propose_calendar_cancellation,
+    propose_calendar_event,
+    propose_calendar_reschedule,
+)
 from hushh_mcp.agents.onboarding.agent import (
     OnboardingAssessmentV1,
     OnboardingJourneyContext,
@@ -289,6 +297,13 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "review). Route ALL finance, advisor, and investing requests through "
     "Finance.\n"
     "- Email: approval drafts and client request workflows.\n"
+    "- Calendar: your connected Google Calendar. For calendar summaries, event "
+    "lookups, or availability, use the Calendar tools. For scheduling, rescheduling, "
+    "or cancellation, collect a title, time-zone-qualified start and end, and any "
+    "attendees. Never guess missing details or an event id. A mutation tool creates "
+    "a review card only; tell the person it will run only after they press its explicit "
+    "confirmation control. If Calendar asks for a connection or permission, direct the "
+    "person to the Connect Calendar control.\n"
     "- KYC: approval-gated identity and client-request work lives in the KYC "
     "app surface. Navigate there with route.one_kyc; do not invent a direct "
     "conversational KYC tool or claim a workflow changed before the app confirms it.\n"
@@ -1197,6 +1212,12 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         ask_location_agent,
         ask_connected_systems_agent,
         ask_consent_agent,
+        calendar_summary,
+        calendar_events,
+        calendar_availability,
+        propose_calendar_event,
+        propose_calendar_reschedule,
+        propose_calendar_cancellation,
     ]
 
 
