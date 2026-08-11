@@ -24,7 +24,7 @@ describe("Profile canonical page layout", () => {
 
     expect(source).toContain('data-profile-avatar-frame="true"');
     expect(source).toContain('className="h-full w-full"');
-    expect(source).toContain('<AvatarImage src={photo} alt={displayName || "Profile"} />');
+    expect(source).toContain('<AvatarImage src={shownPhoto} alt={displayName || "Profile"} />');
     expect(source).toContain('bg-primary/18 p-1');
     expect(source).toContain('<UserIcon className="h-8 w-8 sm:h-9 sm:w-9" />');
     expect(source).not.toContain(
@@ -53,5 +53,28 @@ describe("Profile canonical page layout", () => {
     expect(source).not.toContain(
       'className="profile-home-meta inline-flex max-w-full',
     );
+  });
+
+  it("keeps Profile and Account spacing on the shared settings rhythm", () => {
+    const profileSource = readFileSync(
+      join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
+      "utf8",
+    );
+    const stackSource = readFileSync(
+      join(process.cwd(), "components/profile/profile-stack-navigator.tsx"),
+      "utf8",
+    );
+    const globals = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+
+    expect(profileSource).toContain('className="profile-account-content"');
+    expect(profileSource).toContain('className="profile-home-content"');
+    expect(profileSource).not.toContain("profile-account-content space-y");
+    expect(profileSource).not.toContain("profile-home-content space-y");
+    expect(stackSource).not.toContain("+12rem");
+    expect(globals).toContain(
+      ".profile-account-content > [data-testid=\"settings-group\"]:first-child",
+    );
+    expect(globals).toContain("font-size: var(--type-section-label-size) !important;");
+    expect(globals).toContain("color: var(--app-section-label) !important;");
   });
 });
