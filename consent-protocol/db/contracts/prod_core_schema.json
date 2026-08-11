@@ -52,6 +52,7 @@
       "personas",
       "last_active_persona",
       "investor_marketplace_opt_in",
+      "contact_discoverable",
       "created_at",
       "updated_at"
     ],

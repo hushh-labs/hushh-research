@@ -559,6 +559,56 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
   });
 
+  it("keeps a selected person visible when their connection request fails", async () => {
+    renderFlow({
+      people: [people[1]!],
+      connections: [],
+      onSendConnectionRequests: vi.fn().mockResolvedValue({
+        sentUserIds: [],
+        failedUserIds: ["new_user"],
+      }),
+    });
+    openPeopleScreen();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "1 invitation could not be sent. You can retry it later from Connect.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText("New")).toBeTruthy();
+    expect(screen.getByText("Not sent")).toBeTruthy();
+  });
+
+  it("preserves an already-selected person when their relationship settles to pending", async () => {
+    const props = renderFlow({
+      people: [people[1]!],
+      connections: [],
+    });
+    openPeopleScreen();
+    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Go back" })).toBeEnabled(),
+    );
+    props.rerenderFlow({
+      people: [{ ...people[1]!, relationship: "pending_outgoing" }],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.getByText("1 selected")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
+    expect(screen.getByText("New")).toBeTruthy();
+  });
+
 
   it("sends deliberate requests, shows selected people, and auto-completes after four seconds", async () => {
     vi.useFakeTimers();

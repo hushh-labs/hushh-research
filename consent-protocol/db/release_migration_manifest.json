@@ -118,7 +118,8 @@
     "137_ria_claim_dossiers.sql",
     "138_circle_member_connection_origin.sql",
     "139_ria_profile_brochure_provenance.sql",
-    "140_crm_zk_v1.sql"
+    "140_one_contact_discoverability.sql",
+    "141_crm_zk_v1.sql"
   ],
   "groups": {
     "iam": [
@@ -191,7 +192,8 @@
       "137_ria_claim_dossiers.sql",
       "138_circle_member_connection_origin.sql",
       "139_ria_profile_brochure_provenance.sql",
-      "140_crm_zk_v1.sql"
+      "140_one_contact_discoverability.sql",
+      "141_crm_zk_v1.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

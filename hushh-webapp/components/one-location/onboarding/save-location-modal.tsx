@@ -420,7 +420,7 @@ export function SaveLocationModal({
                 : "Review how Google Maps uses the selected point before opening the map."}
             </p>
             {collectAddressDetails ? (
-              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[color:var(--app-accent-deep,#0b62c4)] dark:text-[#9bc7f5]">
+              <p className="text-[13px] font-normal leading-[18px] tracking-normal text-[color:var(--app-accent-deep,#0b62c4)] dark:text-[#9bc7f5]">
                 Step 1 of 2
               </p>
             ) : null}

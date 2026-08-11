@@ -35,8 +35,12 @@ function countRosterMetrics(
   value: string,
   label: string,
 ): number {
-  return Array.from(container.querySelectorAll("span")).filter(
-    (node) => node.textContent === `${value}${label}`,
+  return Array.from(
+    container.querySelectorAll('span[data-ui-role="body-strong"]'),
+  ).filter(
+    (node) =>
+      node.textContent === value &&
+      node.nextElementSibling?.textContent === label,
   ).length;
 }
 
@@ -45,7 +49,7 @@ describe("OneDashboardPage", () => {
     window.localStorage.clear();
   });
 
-  it("routes home tiles to the product surface once onboarding is dismissed", () => {
+  it("keeps unfinished Finance actionable after root onboarding is dismissed", () => {
     const userId = "dashboard-dismissed-user";
     OneSetupCompletionHintService.markResolved(userId); // dismissed
 
@@ -59,12 +63,12 @@ describe("OneDashboardPage", () => {
       />,
     );
 
-    // Profile-only: a not-configured tile opens the capability's own screen,
-    // never /one/setup/* (which the guard would eject a dismissed user from).
+    // Root onboarding completion is not Finance completion. The resolver's
+    // actionable state must still lead to the bounded Finance setup workspace.
     const financeLink = screen.getByRole("link", { name: "Open Finance" });
-    const href = financeLink.getAttribute("href") ?? "";
-    expect(href).not.toBe(buildOneSetupCapabilityRoute("finance"));
-    expect(href.startsWith("/one/setup")).toBe(false);
+    expect(financeLink.getAttribute("href")).toBe(
+      buildOneSetupCapabilityRoute("finance"),
+    );
   });
 
   it("renders the primary One agent modes with route targets", () => {
@@ -85,7 +89,7 @@ describe("OneDashboardPage", () => {
     expect(screen.queryByText("Good to see you, Kushal.")).toBeNull();
     expect(screen.queryByText("Your private agent")).toBeNull();
     expect(screen.getByTestId("one-agents-section")).toBeTruthy();
-    expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
+    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
     expect(container.textContent).not.toContain("Finish setup");
     expect(screen.getByRole("heading", { name: "Agents (7)" })).toBeTruthy();
 
@@ -113,8 +117,8 @@ describe("OneDashboardPage", () => {
     }
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
     expect(financeIcon).toHaveStyle({
-      "--agent-icon-profile-bg": "#b9ecff",
-      "--agent-icon-profile-bg-dark": "#334f62",
+      "--agent-icon-profile-bg": "#F4D9FF",
+      "--agent-icon-profile-fg": "#7A1FA2",
     });
     const rosterPaletteOrder = [
       "finance",
@@ -197,7 +201,7 @@ describe("OneDashboardPage", () => {
   });
 
   it("reflects completed setup across all capabilities", () => {
-    render(
+    const { container } = render(
       <OneDashboardPage
         displayName="Kushal Trivedi"
         capabilityStatusById={buildStatusMap({
@@ -213,7 +217,7 @@ describe("OneDashboardPage", () => {
 
     // Completed workspace setup is represented as an operational KPI rather
     // than the generic Ready label.
-    expect(countRosterMetrics(document.body, "0", "actions due")).toBe(5);
+    expect(countRosterMetrics(container, "0", "actions due")).toBe(5);
     expect(screen.getByRole("heading", { name: "Agents (7)" })).toBeTruthy();
     expect(screen.queryByText("Finish setup")).toBeNull();
   });
@@ -227,11 +231,21 @@ describe("OneDashboardPage", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("restores the complete roster grid and keeps the Profile-style list available", () => {
+  it("renders the complete roster as a list first and keeps the grid available", () => {
     const { container } = render(
       <OneDashboardPage displayName="Kushal Trivedi" />,
     );
 
+    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
+    expect(screen.getByTestId("one-agent-list-row-finance")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Open Finance" }).getAttribute("href"),
+    ).toBe(buildOneSetupCapabilityRoute("finance"));
+    expect(screen.getByLabelText("Show agent grid view")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    fireEvent.click(screen.getByLabelText("Show agent grid view"));
     expect(screen.getByTestId("one-agents-grid")).toBeTruthy();
     expect(screen.getByTestId("one-agent-tile-finance")).toBeTruthy();
     const grid = container.querySelector(
@@ -239,16 +253,6 @@ describe("OneDashboardPage", () => {
     );
     expect(grid?.className).toContain("grid-cols-3");
     expect(grid?.className).toContain("sm:grid-cols-4");
-    expect(
-      screen.getByRole("link", { name: "Open Finance" }).getAttribute("href"),
-    ).toBe(buildOneSetupCapabilityRoute("finance"));
-    expect(screen.getByLabelText("Show agent grid view")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    fireEvent.click(screen.getByLabelText("Show agent list view"));
-    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
-    expect(screen.getByTestId("one-agent-list-row-finance")).toBeTruthy();
   });
 
   it("restores a saved list view without replaying a view-change animation", () => {
@@ -273,8 +277,8 @@ describe("OneDashboardPage", () => {
       target: { value: "location" },
     });
 
-    expect(screen.getByTestId("one-agent-tile-location")).toBeTruthy();
-    expect(screen.queryByTestId("one-agent-tile-finance")).toBeNull();
+    expect(screen.getByTestId("one-agent-list-row-location")).toBeTruthy();
+    expect(screen.queryByTestId("one-agent-list-row-finance")).toBeNull();
   });
 
   it("shows the finance mover as a concise green percentage without redundant winner copy", () => {

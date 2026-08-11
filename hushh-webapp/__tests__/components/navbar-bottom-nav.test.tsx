@@ -146,6 +146,21 @@ describe("Navbar bottom utilities", () => {
     );
   });
 
+  // Regression: a `lg:hidden` was added to the nav root in a chrome-polish pass,
+  // which removed the primary navigation entirely above 1024px. Nothing renders
+  // One / Connect / Feed / Search at desktop widths, so the bar must never be
+  // gated behind a viewport breakpoint.
+  it.each(["fixed", "slot"] as const)(
+    "renders the %s bottom nav at every viewport width",
+    (layout) => {
+      const { container } = render(<Navbar layout={layout} />);
+      const nav = container.querySelector("[data-app-bottom-nav]");
+
+      expect(nav).not.toBeNull();
+      expect(nav?.className).not.toMatch(/(^|\s|:)hidden(\s|$)/);
+    },
+  );
+
   it("places pending consent and unread Feed counts on Feed, not One", () => {
     notificationMock.pendingConsents = 3;
     notificationMock.feedUnreadCount = 2;

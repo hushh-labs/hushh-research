@@ -547,6 +547,14 @@ export interface EventPayloadMap {
     contact_count_bucket: string;
     matched_count: number;
     invite_candidate_count: number;
+    /** Region used to read national-format contact numbers. */
+    contact_region?: string;
+    /** Only a user-selected subset of the contact book was readable. */
+    partial_access?: boolean;
+    /** The contact book exceeded the read or lookup caps. */
+    truncated?: boolean;
+    /** Why a sync could not run: denied, restricted, unavailable, error. */
+    failure_reason?: string;
   };
   one_location_request_sent: {
     route_id: RouteId;

@@ -193,12 +193,14 @@ vi.mock("@/lib/morphy-ux/ui/swipe-views", () => ({
     activeValue,
     onSelectionChange,
     viewportMinHeight,
+    heightMode,
   }: {
     children: ReactNode;
     options: readonly { label: string; value: string }[];
     activeValue: string;
     onSelectionChange?: (value: string) => void;
     viewportMinHeight?: string;
+    heightMode?: "max" | "active";
   }) => {
     const activeIndex = options.findIndex(({ value }) => value === activeValue);
     const activeChild = Children.toArray(children)[activeIndex];
@@ -207,6 +209,7 @@ vi.mock("@/lib/morphy-ux/ui/swipe-views", () => ({
       <div
         data-testid="location-swipe-views"
         data-viewport-min-height={viewportMinHeight}
+        data-height-mode={heightMode ?? "max"}
       >
         {options.map(({ label, value }) => (
           <button
@@ -638,6 +641,37 @@ async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
   mockCaptureCurrentPosition.mockClear();
 }
 
+async function expectEmergencyAction(
+  number: string,
+  countryName: string,
+): Promise<HTMLElement> {
+  const linkName = new RegExp(
+    `Call ${number} emergency services \\(${countryName}\\)`,
+    "i",
+  );
+  const copyName = new RegExp(
+    `Copy ${number} emergency services \\(${countryName}\\)`,
+    "i",
+  );
+
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("link", { name: linkName }) ||
+        screen.queryByRole("button", { name: copyName }),
+    ).not.toBeNull();
+  });
+
+  const link = screen.queryByRole("link", { name: linkName });
+  if (link) {
+    expect(link).toHaveAttribute("href", `tel:${number}`);
+    return link;
+  }
+
+  const copyButton = screen.getByRole("button", { name: copyName });
+  expect(copyButton).toBeEnabled();
+  return copyButton;
+}
+
 async function openLocationPermissionsStep() {
   await openLocationFeatureStep();
 }
@@ -954,6 +988,10 @@ describe("OneLocationAgentPage", () => {
       "data-viewport-min-height",
       "0px",
     );
+    expect(screen.getByTestId("location-swipe-views")).toHaveAttribute(
+      "data-height-mode",
+      "active",
+    );
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     expect(screen.getByRole("button", { name: /Active shares/i })).toBeTruthy();
     expect(
@@ -1003,17 +1041,15 @@ describe("OneLocationAgentPage", () => {
     const headerRow = heading.closest('[data-slot="page-header-row"]');
     expect(headerRow).toBeTruthy();
     expect(headerRow).toHaveClass("flex", "items-start", "justify-between");
-    expect(heading.firstElementChild).toHaveClass(
-      "inline-flex",
-      "h-9",
-      "items-center",
-      "whitespace-nowrap",
-    );
+    expect(heading).toHaveClass("ui-text-agent-title");
     expect(
       headerRow?.contains(
         screen.getByRole("switch", { name: "Turn location on" }),
       ),
     ).toBe(true);
+    expect(
+      screen.getByRole("switch", { name: "Turn location on" }),
+    ).toHaveAttribute("data-size", "ios");
     expect(screen.getByText("Location off").className).toContain("sm:inline");
 
     mockCaptureCurrentPosition.mockClear();
@@ -1508,11 +1544,7 @@ describe("OneLocationAgentPage", () => {
       lat: 28.6139,
       lng: 77.209,
     });
-    expect(
-      await screen.findByRole("link", {
-        name: /Call 112 emergency services \(India\)/i,
-      }),
-    ).toHaveAttribute("href", "tel:112");
+    await expectEmergencyAction("112", "India");
     expect(mockStoreEnvelope).toHaveBeenCalledTimes(envelopeWritesBeforeOpen);
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -1557,11 +1589,7 @@ describe("OneLocationAgentPage", () => {
         countryCode: "US",
       });
     });
-    expect(
-      await screen.findByRole("link", {
-        name: /Call 911 emergency services \(United States\)/i,
-      }),
-    ).toHaveAttribute("href", "tel:911");
+    await expectEmergencyAction("911", "United States");
   });
 
   it("resolves the local emergency number on a direct SOS link and hides unverified numbers", async () => {
@@ -1607,11 +1635,7 @@ describe("OneLocationAgentPage", () => {
       });
     });
 
-    expect(
-      await screen.findByRole("link", {
-        name: /Call 911 emergency services \(United States\)/i,
-      }),
-    ).toHaveAttribute("href", "tel:911");
+    await expectEmergencyAction("911", "United States");
     expect(mockCaptureCurrentPosition).toHaveBeenCalled();
     expect(mockReverseGeocode).toHaveBeenCalledTimes(1);
   });
@@ -3063,7 +3087,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockRequestAccess).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
       ownerUserId: "user_b",
-      message: "Need pickup coordination",
+      message: "Safety check-in — Need pickup coordination",
     });
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     expect(mockStoreEnvelope).not.toHaveBeenCalled();

@@ -453,12 +453,17 @@ export const Navbar = ({
   return (
     <nav
       data-app-bottom-nav
+      data-ui-role="bottom-tab-bar"
       data-ambient-chrome-ignore
       className={cn(
         layout === "slot"
           ? "flex w-full justify-center"
           : "fixed inset-x-0 flex justify-center px-4 transform-gpu",
         layout === "fixed" && (isVaultUnlocked ? "z-[120]" : "z-[505]"),
+        // No breakpoint gate here. The bottom pill IS the primary navigation on
+        // every viewport — there is no desktop/sidebar nav that takes over at
+        // `lg`, so hiding it above 1024px leaves signed-in users with no way to
+        // reach One / Connect / Feed / Search at all.
         "pointer-events-none",
       )}
       style={
