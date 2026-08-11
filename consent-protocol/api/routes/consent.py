@@ -662,7 +662,7 @@ async def approve_consent(
             status_code=410,
             detail={
                 "error_code": "SCOPE_RETIRED",
-                "message": "Private analysis source material cannot be approved for export.",
+                "message": "This PKM scope is not externally shareable.",
             },
         )
     try:

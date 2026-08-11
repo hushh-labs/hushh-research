@@ -1812,7 +1812,7 @@ async def _request_consent_impl(
             status_code=status.HTTP_410_GONE,
             detail={
                 "error_code": "SCOPE_RETIRED",
-                "message": "Private analysis source material cannot be requested or exported.",
+                "message": "This PKM scope is not externally shareable.",
             },
         )
     if normalized_scope in RETIRED_SCOPE_VALUES:
@@ -2327,7 +2327,7 @@ async def _load_scoped_export_or_raise(
             status_code=status.HTTP_410_GONE,
             detail={
                 "error_code": "SCOPE_RETIRED",
-                "message": "This encrypted export was retired by the private-analysis policy.",
+                "message": "This encrypted export is not externally shareable under PKM policy.",
             },
         )
 

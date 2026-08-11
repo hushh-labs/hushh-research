@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -813,6 +814,50 @@ def test_request_consent_creates_pending_request(monkeypatch):
     assert inserted["metadata"]["connector_public_key"] == _CONNECTOR_PUBLIC_KEY
     assert inserted["metadata"]["connector_key_id"] == _CONNECTOR_KEY_ID
     assert inserted["metadata"]["connector_wrapping_alg"] == _CONNECTOR_WRAPPING_ALG
+
+
+@pytest.mark.parametrize(
+    "blocked_scope",
+    (
+        "attr.source_library.*",
+        "attr.source_library.catalog.*",
+        "attr.source_library.provenance.*",
+        "attr.source_library.audit.*",
+        "attr.source_library.policy.*",
+        "attr.source_library.knowledge.summary",
+    ),
+)
+def test_request_consent_rejects_nonshareable_source_library_scopes(
+    monkeypatch,
+    blocked_scope,
+):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(
+        developer,
+        "authenticate_developer_principal",
+        lambda **_: _fake_principal(),
+    )
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/v1/request-consent?token=hdk_demo",
+        json={
+            "user_id": "user_123",
+            "scope": blocked_scope,
+            "expiry_hours": 24,
+            "reason": "Synthetic Source Library policy test",
+            "connector_public_key": _CONNECTOR_PUBLIC_KEY,
+            "connector_key_id": _CONNECTOR_KEY_ID,
+            "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
+        },
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == {
+        "error_code": "SCOPE_RETIRED",
+        "message": "This PKM scope is not externally shareable.",
+    }
 
 
 def test_request_consent_rejects_authoritatively_empty_information_scope(monkeypatch):

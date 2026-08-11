@@ -3250,6 +3250,8 @@ class PersonalKnowledgeModelService:
         row = dict(rows[0])
         if not str(row.get("publication_provenance") or "").strip():
             return None
+        if not is_public_pkm_projection_allowed(str(row.get("domain") or "")):
+            return None
         payload = row.get("projection_payload")
         if isinstance(payload, str):
             try:
@@ -3267,7 +3269,7 @@ class PersonalKnowledgeModelService:
     ) -> list[dict[str, Any]]:
         """Owner-only publication status; never returns projection plaintext."""
         canonical_domain = self._canonicalize_domain_key(domain)
-        if not canonical_domain:
+        if not canonical_domain or not is_public_pkm_projection_allowed(canonical_domain):
             return []
         try:
             result = await self._execute_query(

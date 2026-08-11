@@ -11,6 +11,7 @@ import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -253,11 +254,21 @@ def test_vault_userid_query_params_reject_oversized_values_before_service(monkey
     assert [response.status_code for response in responses] == [422, 422, 422, 422]
 
 
-def test_private_ria_attr_export_is_retired_before_any_grant(monkeypatch):
+@pytest.mark.parametrize(
+    "blocked_scope",
+    (
+        "attr.financial.*",
+        "attr.source_library.*",
+        "attr.source_library.catalog.*",
+        "attr.source_library.provenance.*",
+        "attr.source_library.audit.*",
+        "attr.source_library.policy.*",
+    ),
+)
+def test_private_attr_export_is_retired_before_any_grant(monkeypatch, blocked_scope):
     """
-    Generic attr.* exports are not a relationship capability. They are retired
-    before a token or RIA relationship could be materialized; explicit
-    connection-scope proposals own that authority instead.
+    Server-owned PKM policy is rechecked at approval so forged pending requests
+    cannot materialize a grant for a retired or non-shareable scope.
     """
     fake_db = _FakeConsentDBService()
     issued_token = "token_handshake_granted"  # noqa: S105
@@ -288,8 +299,8 @@ def test_private_ria_attr_export_is_retired_before_any_grant(monkeypatch):
         {
             "request_id": "req_handshake",
             "agent_id": "ria:profile_abc",
-            "scope": "attr.financial.*",
-            "scope_description": "Financial data",
+            "scope": blocked_scope,
+            "scope_description": "Synthetic policy test scope",
             "issued_at": int(time.time() * 1000),
             "metadata": {
                 "requester_actor_type": "ria",
@@ -305,7 +316,7 @@ def test_private_ria_attr_export_is_retired_before_any_grant(monkeypatch):
     assert resp.status_code == 200
     pending = resp.json()["pending"]
     assert len(pending) == 1
-    assert pending[0]["scope"] == "attr.financial.*"
+    assert pending[0]["scope"] == blocked_scope
 
     # 3) A generic RIA attr.* approval is rejected. The caller must use the
     # explicit connection proposal envelope, never this legacy export route.
