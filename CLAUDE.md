@@ -130,6 +130,36 @@ frontend still reports `uat`. See `consent-protocol/docs/reference/dev-environme
     `github-contribution-governance`, pushed history changes need explicit branch-level
     approval. Fix what is editable (PR bodies, comments) and leave the rest.
 - **CI:** every PR runs the `CI Status Gate`; verify locally before pushing.
+- **DCO signoff is mandatory on every commit, and it is enforced in three places
+  (founder directive, 2026-08-11).** Nothing here asks you to remember anything:
+
+  1. **`scripts/ci/orchestrate.sh` activates the tracked hooks** on first run in a
+     clone (`core.hooksPath` → `.githooks`), and is a deliberate no-op in CI. It lives
+     there because it is the standing pre-push gate — the one thing that reliably runs.
+  2. **`.githooks/pre-push` refuses to push an unsigned commit**, scoped to what is new
+     in the push. Override for a single push with `HUSSH_ALLOW_UNSIGNED_PUSH=1`.
+  3. **`dco-check` in `.github/workflows/ci.yml`** is the backstop, and feeds both
+     `Preflight Gate` and `CI Status Gate`.
+
+  `.githooks/prepare-commit-msg` is tracked and appends `Signed-off-by` when a message
+  lacks one. `core.hooksPath` is **per-clone local config** — git will not set it from a
+  checked-in file, by design. That was the whole gap: the hook existed, was correct, and
+  had never run, and **78 of 167 non-merge commits reached the remote unsigned**. The
+  `CI Status Gate` went red, every test lane was *skipped* rather than run, and the dev
+  deploy refused the SHA — with the fix sitting tracked in the tree the entire time.
+  - `git commit -s` also works and is what to use when the hook is not on yet.
+  - **Why the automation, rather than a fifth instruction:** four remedies already
+    existed — `scripts/setup-hooks.sh`, `consent-protocol/ops/monorepo/setup.sh`,
+    `./bin/hushh protocol setup`, and a `verify_setup` that prints a red cross for it.
+    All four were correct. All four needed a human to remember them. None ever ran.
+    A remedy that depends on memory is the same defect as an agent that is deployed and
+    never called; fix the wiring, not the documentation.
+  - Clearing an unsigned backlog means rewriting pushed history, which needs explicit
+    branch-level approval per `github-contribution-governance`. Signing as you go is
+    the only cheap moment; afterwards it is never cheap again.
+  - Guard: `consent-protocol/tests/test_dco_signoff_is_unmissable.py` — nine tests that
+    **run** the hook, the gate's activation, the DCO decision against a real unsigned
+    commit, and the pre-push refusal plus its override.
 - **Engineering bar:** the `verify-before-claim` skill is the standing practice for all
   coding work here — verify against the running artifact rather than memory, reproduce a
   gate locally at the CI-pinned version before pushing, read the real code before

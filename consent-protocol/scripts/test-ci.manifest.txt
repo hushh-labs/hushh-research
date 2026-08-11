@@ -30,6 +30,7 @@ tests/test_consent_audit_chain.py
 tests/test_consent_token_asymmetric.py
 tests/test_console_triage_regressions.py
 tests/test_contracts_root_resolution.py
+tests/test_dco_signoff_is_unmissable.py
 tests/test_debug_route_is_local_only.py
 tests/test_deploy_sha_gate_payload_size.py
 tests/test_dev_migration_lane.py
