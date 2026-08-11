@@ -9,11 +9,13 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 import {
   AppPageContentRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
@@ -65,6 +67,14 @@ export function FeedPage() {
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const markedReadRef = useRef(false);
   const paginationInitializedRef = useRef(false);
+  // Session-scoped clear. There is no backend delete endpoint for the feed yet,
+  // so "Clear" marks everything read (which the server DOES persist) and hides
+  // the already-loaded history rows for this visit. A later visit / refresh
+  // re-fetches from the server until a real clear endpoint exists; the empty
+  // state below reflects the cleared session immediately.
+  const [cleared, setCleared] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
 
   const { actionables } = useFeedActionables();
 
@@ -145,6 +155,29 @@ export function FeedPage() {
     [router],
   );
 
+  const handleClearAll = useCallback(async () => {
+    if (!user || clearing) return;
+    setClearing(true);
+    try {
+      // Persist what the backend supports today: mark everything read so the
+      // unread badge is cleared durably. Hiding the history rows is
+      // session-scoped until a real feed-delete endpoint exists.
+      const idToken = await user.getIdToken();
+      const latestId = items[0]?.id;
+      await FeedService.markRead({ idToken, upToId: latestId ?? null });
+      dispatchFeedStateChanged();
+      setAdditionalItems([]);
+      setNextCursor(null);
+      setCleared(true);
+      toast.success("Feed notifications cleared");
+    } catch {
+      toast.error("Failed to clear feed notifications");
+    } finally {
+      setClearing(false);
+    }
+  }, [user, clearing, items]);
+
+
   // Present strictly newest-first by wall-clock time, then club into day
   // sections. The backend paginates by row id (append-only), which normally
   // equals created_at order; sorting here keeps the feed correct even when it
@@ -157,8 +190,15 @@ export function FeedPage() {
     return groupItemsByDay(sorted);
   }, [items]);
   const hasActionables = actionables.length > 0;
-  const hasHistory = items.length > 0;
+  // Once cleared this session, the loaded history rows are hidden even though
+  // `items` still holds them (no backend delete yet), so the empty state shows.
+  const hasHistory = !cleared && items.length > 0;
   const showEmpty = !loading && !hasActionables && !hasHistory && !error;
+  // The Clear affordance only makes sense when there is dismissable history
+  // showing. Actionables ("Needs you") are deliberately NOT cleared: they are
+  // pending tasks the user must still act on, not passive notifications.
+  const canClear = hasHistory;
+
 
   return (
     <AppPageShell as="main" width="reading" className="!px-0 pb-24 sm:pb-28">
@@ -192,7 +232,21 @@ export function FeedPage() {
 
           {showEmpty ? (
             <div role="status" className="px-4 py-16 text-center text-sm text-muted-foreground">
-              You're all caught up.
+              {cleared ? "No notifications yet." : "You're all caught up."}
+            </div>
+          ) : null}
+
+          {canClear ? (
+            <div className="flex justify-end px-[6px] pt-2">
+              <button
+                type="button"
+                onClick={() => void handleClearAll()}
+                disabled={clearing}
+                aria-label="Clear feed notifications"
+                className="rounded-full bg-destructive/10 px-3 py-1.5 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/15 disabled:opacity-60"
+              >
+                {clearing ? "Clearing…" : "Clear"}
+              </button>
             </div>
           ) : null}
 
