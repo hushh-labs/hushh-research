@@ -21,6 +21,7 @@ import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from db.db_client import get_db
+from hushh_mcp.runtime_settings import get_app_runtime_settings, get_core_security_settings
 
 GoogleService = Literal["gmail", "calendar", "drive", "contacts"]
 
@@ -84,17 +85,18 @@ class GoogleConnectionService:
         configured = _clean(os.getenv("GOOGLE_OAUTH_REDIRECT_URI"))
         if configured:
             return configured
-        origin = _clean(os.getenv("APP_FRONTEND_ORIGIN")).rstrip("/")
+        origin = get_app_runtime_settings().app_frontend_origin
         if origin:
             return f"{origin}{_RETURN_PATH}"
         return _clean(os.getenv("GMAIL_OAUTH_REDIRECT_URI"))
 
     def _signing_key(self) -> bytes:
-        key = _clean(os.getenv("APP_SIGNING_KEY"))
-        if not key:
+        try:
+            key = get_core_security_settings().app_signing_key
+        except ValueError as exc:
             raise GoogleConnectionError(
                 "Google OAuth state signing is not configured", status_code=503
-            )
+            ) from exc
         return key.encode()
 
     def _token_key(self) -> bytes:
@@ -119,7 +121,7 @@ class GoogleConnectionService:
         configured = self._configured_redirect()
         if not configured:
             raise GoogleConnectionError("Google OAuth is not configured", status_code=503)
-        origin = _clean(os.getenv("APP_FRONTEND_ORIGIN")).rstrip("/")
+        origin = get_app_runtime_settings().app_frontend_origin
         expected = f"{origin}{_RETURN_PATH}" if origin else configured
         if configured != expected:
             raise GoogleConnectionError(
