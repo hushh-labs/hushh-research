@@ -94,9 +94,7 @@ class PodTurnRequest(BaseModel):
     # computes exactly this value for every hub turn.
     #
     # 20000 matches the hub's cap so the two paths cannot disagree about what fits.
-    pkm_context: Optional[str] = Field(
-        default=None, alias="pkmContext", max_length=20000
-    )
+    pkm_context: Optional[str] = Field(default=None, alias="pkmContext", max_length=20000)
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -212,7 +210,9 @@ async def run_pod_turn(
             pkm_context=grounding,
             # When there is none, say WHY rather than leaving the model to infer it
             # from silence -- the same honesty the hub path now carries.
-            grounding_reason=None if grounding else "no consented projection was sent with this turn",
+            grounding_reason=None
+            if grounding
+            else "no consented projection was sent with this turn",
             runtime_provider=provider,
             runtime_model=model,
             runtime_mode=runtime_mode,

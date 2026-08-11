@@ -423,7 +423,9 @@ async def plan_byoc_project(
 
     verdict = validate_project_id(body.projectId)
     if not verdict.valid:
-        raise HTTPException(status_code=422, detail={"code": "INVALID_PROJECT_ID", "reason": verdict.reason})
+        raise HTTPException(
+            status_code=422, detail={"code": "INVALID_PROJECT_ID", "reason": verdict.reason}
+        )
 
     plan: dict = {
         "guided": guided_creation_instructions(

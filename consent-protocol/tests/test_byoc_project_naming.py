@@ -136,7 +136,9 @@ def test_404_means_the_name_is_free() -> None:
 
 
 def test_200_means_the_name_is_taken() -> None:
-    verdict = check_project_id("my-own-agent-cloud", session=_Session(_Response(200, {"projectId": "x"})))
+    verdict = check_project_id(
+        "my-own-agent-cloud", session=_Session(_Response(200, {"projectId": "x"}))
+    )
     assert verdict.available is False
 
 

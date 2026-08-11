@@ -140,7 +140,9 @@ def unwrap_dek(wrapped: bytes, *, kms_key: str, session: Any, token: str) -> byt
     return dek
 
 
-def byoc_key_env(*, kms_key: str, bucket_object: str = WRAPPED_LOG_KEY_OBJECT) -> list[dict[str, str]]:
+def byoc_key_env(
+    *, kms_key: str, bucket_object: str = WRAPPED_LOG_KEY_OBJECT
+) -> list[dict[str, str]]:
     """The env a BYOC pod gets INSTEAD of a plaintext key: two addresses, no secret.
 
     Contrast with the managed tier's ``_durable_state_env``, which ships
@@ -199,8 +201,12 @@ def resolve_pod_log_key(*, session: Any = None, token: Optional[str] = None) -> 
         # First boot. The pod mints its own key here rather than finding one hushh left
         # for it -- hushh's bootstrap account provably cannot encrypt with this key.
         return _create_wrapped_dek(
-            bucket=bucket, obj=obj, quoted=quoted, kms_key=kms_key,
-            session=session, token=token,
+            bucket=bucket,
+            obj=obj,
+            quoted=quoted,
+            kms_key=kms_key,
+            session=session,
+            token=token,
         )
     if status != 200:
         raise ByocKeyCustodyError(

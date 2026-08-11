@@ -307,9 +307,7 @@ def test_the_pods_turn_constructs_its_runner_with_a_memory_service() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for call in ast.walk(node):
                 if isinstance(call, ast.Call) and getattr(call.func, "id", "") == "Runner":
-                    by_function.setdefault(node.name, []).append(
-                        {kw.arg for kw in call.keywords}
-                    )
+                    by_function.setdefault(node.name, []).append({kw.arg for kw in call.keywords})
 
     owner_bound = by_function.get("_stream_one_text_turn_once")
     assert owner_bound, "the owner-bound turn must construct a Runner"
@@ -336,9 +334,7 @@ def test_resolving_pod_memory_never_breaks_a_turn(monkeypatch) -> None:
     def explode():
         raise RuntimeError("storage unreachable")
 
-    monkeypatch.setattr(
-        "hushh_mcp.services.pod_memory_service.resolve_pod_memory_service", explode
-    )
+    monkeypatch.setattr("hushh_mcp.services.pod_memory_service.resolve_pod_memory_service", explode)
     assert text_runtime._resolve_pod_memory_service() is None
 
 

@@ -360,7 +360,9 @@ class UserGcpBackend:
                 # `workload_identity_federation` is correct for a control plane running
                 # OUTSIDE Google (the Anypoint / CloudHub deployment), which has no Google
                 # identity to grant and must exchange one.
-                "type": "impersonation" if self._hushh_invoker_sa else "workload_identity_federation",
+                "type": "impersonation"
+                if self._hushh_invoker_sa
+                else "workload_identity_federation",
                 "impersonation": {
                     "bootstrap_service_account": f"one-bootstrap-{slug}@{project}.iam.gserviceaccount.com",
                     "granted_to": invoker,
@@ -475,9 +477,7 @@ class UserGcpBackend:
 
         existing = await asyncio.to_thread(client.get_service, name)
         if existing is None:
-            await _create_once_iam_settles(
-                lambda: asyncio.to_thread(client.create_service, config)
-            )
+            await _create_once_iam_settles(lambda: asyncio.to_thread(client.create_service, config))
         else:
             await asyncio.to_thread(
                 client.replace_service, name, client.merge_for_replace(existing, config)

@@ -202,9 +202,7 @@ class UserGcpBootstrap:
         topic = by_type.get("pubsub_topic", {}).get("id", "")
         sub = by_type.get("pubsub_subscription", {}).get("id", "")
         job = by_type.get("cloud_scheduler_job", {}).get("id", "")
-        key_path = (
-            f"projects/{project}/locations/{region}/keyRings/{keyring}/cryptoKeys/{kms_key}"
-        )
+        key_path = f"projects/{project}/locations/{region}/keyRings/{keyring}/cryptoKeys/{kms_key}"
 
         calls: list[dict[str, Any]] = [
             {
@@ -336,9 +334,7 @@ class UserGcpBootstrap:
                     "field": "email_address",
                     "prefix": "serviceAccount:",
                 },
-                "bindings": [
-                    {"role": "roles/cloudkms.cryptoKeyEncrypterDecrypter", "members": []}
-                ],
+                "bindings": [{"role": "roles/cloudkms.cryptoKeyEncrypterDecrypter", "members": []}],
                 "tolerate": [],
             },
             {
@@ -719,9 +715,7 @@ class UserGcpBootstrap:
             ),
         }
 
-    def _seed_secret_version(
-        self, call: dict[str, Any], headers: dict[str, str]
-    ) -> dict[str, Any]:
+    def _seed_secret_version(self, call: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
         """Put one random secret into the USER's Secret Manager, once and only once.
 
         This is the pod's ``APP_SIGNING_KEY``. It cannot follow the log key's pattern of
@@ -780,9 +774,9 @@ class UserGcpBootstrap:
             data=json.dumps(
                 {
                     "payload": {
-                        "data": base64.b64encode(
-                            secrets.token_urlsafe(48).encode("ascii")
-                        ).decode("ascii")
+                        "data": base64.b64encode(secrets.token_urlsafe(48).encode("ascii")).decode(
+                            "ascii"
+                        )
                     }
                 }
             ),
@@ -842,9 +836,7 @@ class UserGcpBootstrap:
         )
         if getattr(listing, "status_code", 0) != 200:
             return False
-        return any(
-            str(item.get("name")) == name for item in (listing.json().get("items") or [])
-        )
+        return any(str(item.get("name")) == name for item in (listing.json().get("items") or []))
 
     def _merge_binding(self, call: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
         """Read the policy, add our binding, write it back. Never overwrite.
@@ -965,7 +957,9 @@ def _bindings_equal(existing: list, wanted: list) -> bool:
     return want.issubset(have)
 
 
-def authorization_request(*, project: str, bootstrap_sa: str, consent_plane_sa: str) -> dict[str, Any]:
+def authorization_request(
+    *, project: str, bootstrap_sa: str, consent_plane_sa: str
+) -> dict[str, Any]:
     """Exactly what to ask a user to run once, stated so they can audit it.
 
     Deliberately a data structure rather than a prose paragraph: a person handing a
@@ -979,7 +973,8 @@ def authorization_request(*, project: str, bootstrap_sa: str, consent_plane_sa: 
             "purpose": "a bootstrap identity hushh may briefly borrow — never hushh's own",
         },
         "grants_to_bootstrap_sa": [
-            {"role": role, "why": why, "scope": f"project {project}"} for role, why in BOOTSTRAP_ROLES
+            {"role": role, "why": why, "scope": f"project {project}"}
+            for role, why in BOOTSTRAP_ROLES
         ],
         "grants_to_hushh": [
             {

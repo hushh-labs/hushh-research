@@ -169,13 +169,13 @@ def validate_project_id(project_id: str) -> ProjectIdVerdict:
         )
     for bad in _FORBIDDEN:
         if bad in pid:
-            return ProjectIdVerdict(pid, False, None, f"Google does not allow “{bad}” in a project name.")
+            return ProjectIdVerdict(
+                pid, False, None, f"Google does not allow “{bad}” in a project name."
+            )
     return ProjectIdVerdict(pid, True, None, "Looks good.")
 
 
-def check_project_id(
-    project_id: str, *, token: str = "", session: Any = None
-) -> ProjectIdVerdict:
+def check_project_id(project_id: str, *, token: str = "", session: Any = None) -> ProjectIdVerdict:
     """Validity plus a best-effort availability probe.
 
     **The ambiguity is real and is reported rather than hidden.** Google has no public
@@ -215,8 +215,7 @@ def check_project_id(
         verdict.project_id,
         True,
         None,
-        "We could not check this name from here. You will find out for certain when it "
-        "is created.",
+        "We could not check this name from here. You will find out for certain when it is created.",
     )
 
 

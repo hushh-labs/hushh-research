@@ -62,7 +62,9 @@ def _spec() -> PodSpec:
 
 
 class _Response:
-    def __init__(self, status_code: int, payload=None, content: bytes = b"", text: str = "") -> None:
+    def __init__(
+        self, status_code: int, payload=None, content: bytes = b"", text: str = ""
+    ) -> None:
         self.status_code = status_code
         self._payload = payload or {}
         self.content = content
@@ -106,8 +108,16 @@ class _Session:
         return self._responses.pop(0) if self._responses else _Response(200, {})
 
     def post(self, url, headers=None, json=None, params=None, data=None, timeout=None, **kw):
-        self.calls.append({"method": "POST", "url": url, "headers": headers or {},
-                           "json": json, "params": params or {}, "data": data})
+        self.calls.append(
+            {
+                "method": "POST",
+                "url": url,
+                "headers": headers or {},
+                "json": json,
+                "params": params or {},
+                "data": data,
+            }
+        )
         return self._next(url)
 
     def get(self, url, headers=None, params=None, timeout=None, **kw):
@@ -199,7 +209,9 @@ def test_the_bucket_is_created_after_the_key_and_names_it() -> None:
     steps = [c["step"] for c in boot.plan_calls(plan)]
     assert steps.index("kms_key") < steps.index("cmek_bucket")
     bucket_call = next(c for c in boot.plan_calls(plan) if c["step"] == "cmek_bucket")
-    assert bucket_call["body"]["encryption"]["defaultKmsKeyName"].endswith("one-pod-ha1byoc0000001-key")
+    assert bucket_call["body"]["encryption"]["defaultKmsKeyName"].endswith(
+        "one-pod-ha1byoc0000001-key"
+    )
     assert bucket_call["body"]["iamConfiguration"]["uniformBucketLevelAccess"]["enabled"] is True
 
 
@@ -257,8 +269,14 @@ def test_already_exists_is_tolerated_so_resource_steps_are_rerunnable() -> None:
     boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session)
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
     result = boot.apply(plan, dry_run=False)
-    tolerated = {"kms_keyring", "kms_key", "pod_service_account", "mail_topic",
-                 "mail_subscription", "watch_renew_job"}
+    tolerated = {
+        "kms_keyring",
+        "kms_key",
+        "pod_service_account",
+        "mail_topic",
+        "mail_subscription",
+        "watch_renew_job",
+    }
     assert tolerated.isdisjoint(set(result["failed"])), (
         f"a re-runnable resource step failed: {result['failed']}"
     )
@@ -339,9 +357,9 @@ def test_the_pod_mints_its_own_key_on_first_boot(monkeypatch) -> None:
     wrapped = base64.b64encode(b"WRAPPED").decode()
     session = _Session(
         [
-            _Response(404, text="no key yet"),          # nothing stored
-            _Response(200, {"ciphertext": wrapped}),    # KMS wrap
-            _Response(200, {}),                         # stored in the user's bucket
+            _Response(404, text="no key yet"),  # nothing stored
+            _Response(200, {"ciphertext": wrapped}),  # KMS wrap
+            _Response(200, {}),  # stored in the user's bucket
         ]
     )
     key = resolve_pod_log_key(session=session, token=BORROWED)
@@ -365,8 +383,8 @@ def test_a_pod_that_loses_the_first_boot_race_adopts_the_winners_key(monkeypatch
         [
             _Response(404, text="no key yet"),
             _Response(200, {"ciphertext": base64.b64encode(b"MINE").decode()}),
-            _Response(412, text="precondition failed"),          # someone else won
-            _Response(200, content=b"THEIRS"),                   # read theirs
+            _Response(412, text="precondition failed"),  # someone else won
+            _Response(200, content=b"THEIRS"),  # read theirs
             _Response(200, {"plaintext": base64.b64encode(winner).decode()}),
         ]
     )
@@ -498,9 +516,7 @@ def test_a_merge_that_changes_nothing_is_reported_as_a_no_op() -> None:
     """A re-run should say 'already bound', not rewrite an identical policy."""
     pod_sa = f"one-pod-{HUSHH_ID.lower()}@{USER_PROJECT}.iam.gserviceaccount.com"
     already = {
-        "bindings": [
-            {"role": "roles/storage.objectAdmin", "members": [f"serviceAccount:{pod_sa}"]}
-        ]
+        "bindings": [{"role": "roles/storage.objectAdmin", "members": [f"serviceAccount:{pod_sa}"]}]
     }
     session = _Session([_Response(200, already)])
     boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session)
@@ -550,8 +566,8 @@ def test_a_bucket_name_owned_by_someone_else_is_not_treated_as_success() -> None
         [_Response(200, {})] * 20,
         routes={
             "storage/v1/b": [
-                _Response(409, text="conflict"),      # the bucket name is taken...
-                _Response(200, {"items": []}),        # ...and this project does not own it
+                _Response(409, text="conflict"),  # the bucket name is taken...
+                _Response(200, {"items": []}),  # ...and this project does not own it
             ]
         },
     )
@@ -628,9 +644,7 @@ def test_no_resource_is_created_until_the_enablement_operation_reports_done() ->
         ]
         + [_Response(200, {})] * 20
     )
-    boot = UserGcpBootstrap(
-        project=USER_PROJECT, token=BORROWED, session=session, sleep=_no_sleep
-    )
+    boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session, sleep=_no_sleep)
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
     result = boot.apply(plan, dry_run=False)
 
@@ -664,9 +678,7 @@ def test_an_operation_that_finishes_with_an_error_is_not_success() -> None:
         ]
         + [_Response(200, {})] * 20
     )
-    boot = UserGcpBootstrap(
-        project=USER_PROJECT, token=BORROWED, session=session, sleep=_no_sleep
-    )
+    boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session, sleep=_no_sleep)
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
     result = boot.apply(plan, dry_run=False)
 
@@ -687,13 +699,13 @@ def test_a_failed_enablement_skips_the_rest_instead_of_reporting_seven_failures(
     session = _Session(
         [
             _Response(200, {"name": "operations/acat.p2-1-abc"}),
-            _Response(200, {"name": "operations/acat.p2-1-abc", "done": True, "error": {"code": 7}}),
+            _Response(
+                200, {"name": "operations/acat.p2-1-abc", "done": True, "error": {"code": 7}}
+            ),
         ]
         + [_Response(200, {})] * 20
     )
-    boot = UserGcpBootstrap(
-        project=USER_PROJECT, token=BORROWED, session=session, sleep=_no_sleep
-    )
+    boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session, sleep=_no_sleep)
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
     result = boot.apply(plan, dry_run=False)
 
@@ -739,9 +751,7 @@ def test_an_operation_that_answers_inline_needs_no_poll() -> None:
         [_Response(200, {"name": "operations/acat.p2-1-abc", "done": True})]
         + [_Response(200, {})] * 20
     )
-    boot = UserGcpBootstrap(
-        project=USER_PROJECT, token=BORROWED, session=session, sleep=_no_sleep
-    )
+    boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session, sleep=_no_sleep)
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
     result = boot.apply(plan, dry_run=False)
 
@@ -753,8 +763,9 @@ def test_an_operation_that_answers_inline_needs_no_poll() -> None:
 
 
 def _boot(session, **kw):
-    return UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session,
-                            sleep=_no_sleep, **kw)
+    return UserGcpBootstrap(
+        project=USER_PROJECT, token=BORROWED, session=session, sleep=_no_sleep, **kw
+    )
 
 
 def _plan():
@@ -1074,6 +1085,7 @@ async def test_a_pod_that_fails_its_startup_probe_is_not_reported_live() -> None
     mistake rather than by a wrong health check. It surfaced only when a real BYOC pod
     genuinely refused to boot.
     """
+
     class _Client:
         def get_service(self, _name):
             return None

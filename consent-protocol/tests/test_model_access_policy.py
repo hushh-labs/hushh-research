@@ -187,7 +187,9 @@ def test_preconditions_are_established_only_when_both_halves_hold() -> None:
 
 def test_the_api_being_enabled_is_not_enough_without_the_binding() -> None:
     """Half the configuration is the state that looks fine and cannot call Vertex."""
-    session = _Session(get=_Response(200, {"state": "ENABLED"}), post=_Response(200, {"bindings": []}))
+    session = _Session(
+        get=_Response(200, {"state": "ENABLED"}), post=_Response(200, {"bindings": []})
+    )
     result = byoc_vertex_preconditions(
         project="acme",
         pod_service_account="one-pod-x@acme.iam.gserviceaccount.com",

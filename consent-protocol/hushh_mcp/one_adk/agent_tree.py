@@ -532,9 +532,7 @@ def _one_runtime_instruction(context: Any) -> str:
         # confident wrong one.
         reason = state_getter(STATE_GROUNDING_REASON) if callable(state_getter) else None
         detail = (
-            f" ({str(reason).strip()[:200]})"
-            if isinstance(reason, str) and reason.strip()
-            else ""
+            f" ({str(reason).strip()[:200]})" if isinstance(reason, str) and reason.strip() else ""
         )
         pkm_instruction = (
             f"\n\nNO OWNER INFORMATION THIS TURN{detail}. You have not been given any of "
