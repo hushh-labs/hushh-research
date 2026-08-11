@@ -357,24 +357,70 @@ describe("Connect — People", () => {
     expect(await screen.findByText('No one matches "Nobody"')).toBeTruthy();
   });
 
-  /**
-   * Bulk selection is deliberately unreachable: the entry point was removed
-   * because selecting many people at once was not a clear answer to finding
-   * the right one, and it invited fanning out requests instead of searching.
-   *
-   * This pins the removal rather than the old behaviour. The selection state,
-   * the per-row checkboxes and the bulk request handler are all still in the
-   * component on purpose, so restoring the control is a one-line change -- but
-   * while it is hidden that path has no coverage, and the previous test for it
-   * ("drops selections the new result set no longer shows") went with the
-   * button. Reinstating the control should reinstate that test.
-   */
-  it("does not offer bulk selection", async () => {
+  it("caps bulk connection requests at 20 people", async () => {
+    const bulkPeople = Array.from({ length: 21 }, (_, index) =>
+      person(`bulk-${index}`, `Bulk person ${index}`),
+    );
+    mocks.searchDirectory.mockResolvedValue({
+      items: bulkPeople,
+      hasMore: false,
+      page: 1,
+    });
+    mocks.sendRequest.mockResolvedValue({ id: "request" });
+    render(<ConnectPageClient />);
+    expect(await screen.findByText("Bulk person 0")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select people" }));
+
+    for (let index = 0; index < 20; index += 1) {
+      fireEvent.click(screen.getByLabelText(`Select Bulk person ${index}`));
+    }
+
+    expect(screen.getByText("Connect to Selected (20/20)")).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Select Bulk person 20") as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    fireEvent.click(screen.getByLabelText("Select Bulk person 0"));
+    expect(
+      (screen.getByLabelText("Select Bulk person 20") as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+    fireEvent.click(screen.getByLabelText("Select Bulk person 0"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect to Selected (20/20)" }));
+
+    await waitFor(() => expect(mocks.sendRequest).toHaveBeenCalledTimes(20));
+
+    expect(mocks.sendRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ addresseeUserId: "bulk-0" }),
+    );
+    expect(mocks.sendRequest).not.toHaveBeenCalledWith(
+      expect.objectContaining({ addresseeUserId: "bulk-20" }),
+    );
+  });
+
+  it("drops a selection that is no longer visible in the directory", async () => {
     render(<ConnectPageClient />);
     expect(await screen.findByText("Person 0")).toBeTruthy();
 
-    expect(screen.queryByText("Select")).toBeNull();
-    expect(screen.queryByText("Select All")).toBeNull();
-    expect(screen.queryByLabelText("Select Person 0")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Select people" }));
+    fireEvent.click(screen.getByLabelText("Select Person 0"));
+    expect(screen.getByText("Connect to Selected (1/20)")).toBeTruthy();
+
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Person 9")],
+      hasMore: false,
+      page: 1,
+    });
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "Person 9" },
+    });
+
+    expect(await screen.findByText("Person 9")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByText("Connect to Selected (1/20)")).toBeNull(),
+    );
   });
 });
