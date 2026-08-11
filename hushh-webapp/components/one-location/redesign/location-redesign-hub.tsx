@@ -986,7 +986,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* Hub (Now | People | Links)                                        */
   /* ----------------------------------------------------------------- */
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-5">
       <PageHeader
         title="Location Agent"
         icon={MapPin}
@@ -1057,7 +1057,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
 
 function LocationHubPanel({ children }: { children: ReactNode }) {
   return (
-    <div className="space-y-5 px-[var(--page-inline-gutter-standard)]">
+    <div className="space-y-4 px-[var(--page-inline-gutter-standard)]">
       {children}
     </div>
   );
@@ -1093,7 +1093,7 @@ function NowHub({
   onOpenSettings: () => void;
 }) {
   return (
-    <div data-testid="one-location-now-hub">
+    <div className="space-y-4" data-testid="one-location-now-hub">
       {/* Every row and tile below carries the `control_ids` / `action_id` pair
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
@@ -1123,11 +1123,7 @@ function NowHub({
         />
       </SettingsGroup>
 
-      <SettingsGroup
-        separatorInset
-        className="mt-4"
-        testId="one-location-now-status"
-      >
+      <SettingsGroup separatorInset testId="one-location-now-status">
         <SettingsRow
           icon={UsersRound}
           iconTone="purple"
@@ -1196,26 +1192,24 @@ function NowHub({
         />
       </SettingsGroup>
 
-      <div className="mt-7">
-        <QuickActionsSection title="Quick actions" columns={2}>
-          <QuickActionCard
-            tone="green"
-            icon={<ShieldCheck />}
-            title="Check-In"
-            subtitle={checkInSubtitle}
-            onClick={onCheckIn}
-            controlId="one-location-action-check-in"
-          />
-          <QuickActionCard
-            tone="red"
-            icon={<Shield />}
-            title="SMS"
-            subtitle={vm.sosActive ? "Live now" : "Save my soul"}
-            onClick={onSos}
-            controlId="one-location-action-sos"
-          />
-        </QuickActionsSection>
-      </div>
+      <QuickActionsSection title="Quick actions" columns={2}>
+        <QuickActionCard
+          tone="green"
+          icon={<ShieldCheck />}
+          title="Check-In"
+          subtitle={checkInSubtitle}
+          onClick={onCheckIn}
+          controlId="one-location-action-check-in"
+        />
+        <QuickActionCard
+          tone="red"
+          icon={<Shield />}
+          title="SMS"
+          subtitle={vm.sosActive ? "Live now" : "Save my soul"}
+          onClick={onSos}
+          controlId="one-location-action-sos"
+        />
+      </QuickActionsSection>
     </div>
   );
 }

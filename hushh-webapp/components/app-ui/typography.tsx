@@ -12,9 +12,14 @@ export const TYPOGRAPHY_CLASSNAMES = {
   navigationTitle: "ui-text-navigation-title",
   identityName: "ui-text-identity-name",
   majorSectionTitle: "ui-text-major-section-title",
+  sectionTitle: "ui-text-section-title",
   sectionLabel: "ui-text-section-label",
+  groupLabel: "ui-text-group-label",
+  headline: "ui-text-headline",
   cardTitle: "ui-text-card-title",
+  bodyText: "ui-text-body",
   rowLabel: "ui-text-row-label",
+  mediumRowLabel: "ui-text-medium-row-label",
   rowLabelEmphasized: "ui-text-row-label-emphasized",
   rowDescription: "ui-text-row-description",
   trailingValue: "ui-text-trailing-value",
@@ -38,9 +43,14 @@ const TYPOGRAPHY_ROLE_BY_CLASSNAME: Record<string, string> = {
   [TYPOGRAPHY_CLASSNAMES.navigationTitle]: "nav-title",
   [TYPOGRAPHY_CLASSNAMES.identityName]: "identity-title",
   [TYPOGRAPHY_CLASSNAMES.majorSectionTitle]: "section-title",
+  [TYPOGRAPHY_CLASSNAMES.sectionTitle]: "section-title",
   [TYPOGRAPHY_CLASSNAMES.sectionLabel]: "section-label",
+  [TYPOGRAPHY_CLASSNAMES.groupLabel]: "group-label",
+  [TYPOGRAPHY_CLASSNAMES.headline]: "headline",
   [TYPOGRAPHY_CLASSNAMES.cardTitle]: "card-title",
+  [TYPOGRAPHY_CLASSNAMES.bodyText]: "body",
   [TYPOGRAPHY_CLASSNAMES.rowLabel]: "body",
+  [TYPOGRAPHY_CLASSNAMES.mediumRowLabel]: "body-strong",
   [TYPOGRAPHY_CLASSNAMES.rowLabelEmphasized]: "body-strong",
   [TYPOGRAPHY_CLASSNAMES.rowDescription]: "row-description",
   [TYPOGRAPHY_CLASSNAMES.trailingValue]: "trailing-value",
@@ -151,11 +161,41 @@ export function MajorSectionTitle({ as = "h2", ...props }: RoleTextProps) {
   );
 }
 
+export function SectionTitle({ as = "h2", ...props }: RoleTextProps) {
+  return (
+    <SemanticText
+      as={as}
+      roleClassName={TYPOGRAPHY_CLASSNAMES.sectionTitle}
+      {...props}
+    />
+  );
+}
+
 export function SectionLabel({ as = "div", ...props }: RoleTextProps) {
   return (
     <SemanticText
       as={as}
       roleClassName={TYPOGRAPHY_CLASSNAMES.sectionLabel}
+      {...props}
+    />
+  );
+}
+
+export function GroupLabel({ as = "div", ...props }: RoleTextProps) {
+  return (
+    <SemanticText
+      as={as}
+      roleClassName={TYPOGRAPHY_CLASSNAMES.groupLabel}
+      {...props}
+    />
+  );
+}
+
+export function Headline({ as = "h3", ...props }: RoleTextProps) {
+  return (
+    <SemanticText
+      as={as}
+      roleClassName={TYPOGRAPHY_CLASSNAMES.headline}
       {...props}
     />
   );
@@ -171,10 +211,29 @@ export function CardTitle({ as = "h3", ...props }: RoleTextProps) {
   );
 }
 
+export function BodyText({ as = "p", ...props }: RoleTextProps) {
+  return (
+    <SemanticText
+      as={as}
+      roleClassName={TYPOGRAPHY_CLASSNAMES.bodyText}
+      {...props}
+    />
+  );
+}
+
 export function RowLabel(props: RoleTextProps) {
   return (
     <SemanticText
       roleClassName={TYPOGRAPHY_CLASSNAMES.rowLabel}
+      {...props}
+    />
+  );
+}
+
+export function MediumRowLabel(props: RoleTextProps) {
+  return (
+    <SemanticText
+      roleClassName={TYPOGRAPHY_CLASSNAMES.mediumRowLabel}
       {...props}
     />
   );
@@ -185,6 +244,26 @@ export function RowDescription({ as = "p", ...props }: RoleTextProps) {
     <SemanticText
       as={as}
       roleClassName={TYPOGRAPHY_CLASSNAMES.rowDescription}
+      {...props}
+    />
+  );
+}
+
+export function SupportingText({ as = "p", ...props }: RoleTextProps) {
+  return (
+    <SemanticText
+      as={as}
+      roleClassName={TYPOGRAPHY_CLASSNAMES.pageSubtitle}
+      {...props}
+    />
+  );
+}
+
+export function Footnote({ as = "p", ...props }: RoleTextProps) {
+  return (
+    <SemanticText
+      as={as}
+      roleClassName={TYPOGRAPHY_CLASSNAMES.helperText}
       {...props}
     />
   );

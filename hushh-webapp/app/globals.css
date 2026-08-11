@@ -172,9 +172,11 @@ textarea {
 }
 
 :root {
-  /* Centralized app typography variables.
-   * Apple-system web pass uses the bundled Inter Variable family only. */
-  --font-family-product: "InterVariable", "Inter", system-ui, sans-serif;
+  /* Centralized app typography variables. Apple devices resolve to the native
+   * system face; other platforms fall through to Inter Variable/system. */
+  --font-family-product:
+    -apple-system, BlinkMacSystemFont, "InterVariable", "Inter", system-ui,
+    sans-serif;
   --font-app-display: var(--font-family-product);
   --font-app-body: var(--font-family-product);
   --font-app-text: var(--font-app-body);
@@ -245,45 +247,45 @@ textarea {
   /* Apple iOS-first semantic type roles. These are the shared source of truth
      for app UI hierarchy; components opt into roles instead of restating
      route-specific font sizes. */
-  --type-large-page-title-size: 28px;
-  --type-large-page-title-line: 34px;
+  --type-large-page-title-size: 34px;
+  --type-large-page-title-line: 41px;
   --type-large-page-title-weight: 700;
-  --type-large-page-title-tracking: -0.025em;
+  --type-large-page-title-tracking: normal;
   --type-page-title-size: 28px;
   --type-page-title-line: 34px;
   --type-page-title-weight: 700;
-  --type-page-title-tracking: -0.025em;
+  --type-page-title-tracking: normal;
   --type-navigation-title-size: 17px;
   --type-navigation-title-line: 22px;
   --type-navigation-title-weight: 600;
-  --type-navigation-title-tracking: -0.01em;
-  --type-major-section-title-size: 20px;
-  --type-major-section-title-line: 25px;
+  --type-navigation-title-tracking: normal;
+  --type-major-section-title-size: 22px;
+  --type-major-section-title-line: 28px;
   --type-major-section-title-weight: 600;
-  --type-major-section-title-tracking: -0.016em;
-  --type-card-title-size: 17px;
-  --type-card-title-line: 22px;
+  --type-major-section-title-tracking: normal;
+  --type-card-title-size: 20px;
+  --type-card-title-line: 25px;
   --type-card-title-weight: 600;
-  --type-card-title-tracking: -0.01em;
+  --type-card-title-tracking: normal;
   --type-section-label-size: 15px;
   --type-section-label-line: 20px;
   --type-section-label-weight: 500;
-  --type-section-label-tracking: -0.01em;
+  --type-section-label-tracking: normal;
   --type-row-label-size: 17px;
   --type-row-label-line: 22px;
   --type-row-label-weight: 400;
   --type-row-label-emphasis-weight: 600;
-  --type-row-label-tracking: -0.01em;
+  --type-row-label-tracking: normal;
   --type-page-subtitle-size: 15px;
   --type-page-subtitle-line: 20px;
-  --type-row-description-size: 13px;
-  --type-row-description-line: 18px;
+  --type-row-description-size: 15px;
+  --type-row-description-line: 20px;
   --type-row-description-weight: 400;
   --type-row-description-tracking: 0;
   --type-form-label-size: 15px;
   --type-form-label-line: 20px;
   --type-form-label-weight: 500;
-  --type-form-label-tracking: -0.006em;
+  --type-form-label-tracking: normal;
   --type-input-value-size: 17px;
   --type-input-value-line: 22px;
   --type-helper-text-size: 13px;
@@ -301,7 +303,7 @@ textarea {
   --type-agent-tab-label-size: 15px;
   --type-agent-tab-label-line: 20px;
   --type-agent-tab-label-weight: 500;
-  --type-agent-tab-label-tracking: -0.006em;
+  --type-agent-tab-label-tracking: normal;
   --foundation-caption-tracking: 0.158em;
   --foundation-micro-size: 0.6875rem;
   --foundation-micro-line: 1.273;
@@ -652,10 +654,10 @@ textarea {
   --ios-account-accent: #007aff;
   --ios-account-destructive: #ff3b30;
   --ios-account-on-accent: #ffffff;
-  --ios-account-title-size: 34px;
-  --ios-account-title-line: 38.08px;
+  --ios-account-title-size: var(--type-page-title-size);
+  --ios-account-title-line: var(--type-page-title-line);
   --ios-account-title-weight: 700;
-  --ios-account-title-tracking: -0.028em;
+  --ios-account-title-tracking: normal;
   --ios-account-description-size: 15px;
   --ios-account-description-line: 20.7px;
   --ios-account-section-header-size: 15px;
@@ -874,9 +876,9 @@ textarea {
   /* ── Apple iCloud card contract ───────────────────────────────── */
   /* Shared app card contract */
   --theme-color-boxShadow: rgba(120, 120, 128, 0.16);
-  --app-card-radius-compact: 20px;
-  --app-card-radius-standard: 20px;
-  --app-card-radius-feature: 20px;
+  --app-card-radius-compact: 24px;
+  --app-card-radius-standard: 24px;
+  --app-card-radius-feature: 24px;
   --app-card-surface-data: #f7f7fa;
   --app-card-surface-compact: #fcfcfd;
   --app-card-surface-default: #ffffff;
@@ -887,8 +889,8 @@ textarea {
   --app-card-surface-sticky-header-solid: #f6f7fb;
   --app-card-border-standard: rgba(60, 60, 67, 0.09);
   --app-card-border-strong: rgba(60, 60, 67, 0.18);
-  --app-card-shadow-standard: none;
-  --app-card-shadow-feature: 0 10px 30px -28px rgba(0, 0, 0, 0.32);
+  --app-card-shadow-standard: 0 4px 18px rgba(0, 0, 0, 0.04);
+  --app-card-shadow-feature: 0 8px 24px rgba(0, 0, 0, 0.05);
   --app-list-row-surface: color-mix(
     in srgb,
     var(--app-card-surface-default-solid) 90%,
@@ -3400,9 +3402,9 @@ html.native-ios [data-testid="one-location-onboarding"] {
 
   /* Dark: shared app card contract */
   --theme-color-boxShadow: rgba(0, 0, 0, 0.65);
-  --app-card-radius-compact: 20px;
-  --app-card-radius-standard: 20px;
-  --app-card-radius-feature: 20px;
+  --app-card-radius-compact: 24px;
+  --app-card-radius-standard: 24px;
+  --app-card-radius-feature: 24px;
   --app-card-surface-data: #2c2c2e;
   --app-card-surface-compact: #2c2c2e;
   --app-card-surface-default: #2c2c2e;
@@ -5523,10 +5525,10 @@ body[data-persona-surface="ria"] {
 :is(.ui-text-agent-title) {
   color: var(--app-label) !important;
   font-family: var(--font-app-display) !important;
-  font-size: var(--type-large-page-title-size) !important;
-  font-weight: var(--type-large-page-title-weight) !important;
-  letter-spacing: var(--type-large-page-title-tracking) !important;
-  line-height: var(--type-large-page-title-line) !important;
+  font-size: var(--type-page-title-size) !important;
+  font-weight: var(--type-page-title-weight) !important;
+  letter-spacing: var(--type-page-title-tracking) !important;
+  line-height: var(--type-page-title-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
 }
@@ -5558,7 +5560,7 @@ body[data-persona-surface="ria"] {
   font-family: var(--font-app-body) !important;
   font-size: var(--type-page-subtitle-size) !important;
   font-weight: 400 !important;
-  letter-spacing: -0.006em !important;
+  letter-spacing: normal !important;
   line-height: var(--type-page-subtitle-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
@@ -5575,7 +5577,7 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
-:is(.ui-text-card-title) {
+:is(.ui-text-section-title, .ui-text-card-title) {
   color: var(--app-label) !important;
   font-family: var(--font-app-display) !important;
   font-size: var(--type-card-title-size) !important;
@@ -5586,7 +5588,18 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
-:is(.ui-text-section-label) {
+:is(.ui-text-headline) {
+  color: var(--app-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-row-label-size) !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+  line-height: var(--type-row-label-line) !important;
+  opacity: 1 !important;
+  text-transform: none !important;
+}
+
+:is(.ui-text-section-label, .ui-text-group-label) {
   color: var(--app-section-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-section-label-size) !important;
@@ -5597,7 +5610,7 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
-:is(.ui-text-row-label, .ui-text-row-label-emphasized) {
+:is(.ui-text-body, .ui-text-row-label, .ui-text-medium-row-label, .ui-text-row-label-emphasized) {
   color: var(--app-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-row-label-size) !important;
@@ -5607,11 +5620,11 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
-:is(.ui-text-row-label) {
+:is(.ui-text-body, .ui-text-row-label) {
   font-weight: var(--type-row-label-weight) !important;
 }
 
-:is(.ui-text-row-label-emphasized) {
+:is(.ui-text-medium-row-label, .ui-text-row-label-emphasized) {
   font-weight: var(--type-row-label-emphasis-weight) !important;
 }
 
@@ -5631,7 +5644,7 @@ body[data-persona-surface="ria"] {
   font-family: var(--font-app-body) !important;
   font-size: 15px !important;
   font-weight: 500 !important;
-  letter-spacing: -0.006em !important;
+  letter-spacing: normal !important;
   line-height: 20px !important;
   opacity: 1 !important;
   text-transform: none !important;
@@ -5653,7 +5666,7 @@ body[data-persona-surface="ria"] {
   font-family: var(--font-app-body) !important;
   font-size: var(--type-input-value-size) !important;
   font-weight: 400 !important;
-  letter-spacing: -0.01em !important;
+  letter-spacing: normal !important;
   line-height: var(--type-input-value-line) !important;
   opacity: 1 !important;
 }
@@ -5671,10 +5684,10 @@ body[data-persona-surface="ria"] {
 
 :is(.ui-text-status) {
   font-family: var(--font-app-body) !important;
-  font-size: var(--type-row-label-size) !important;
-  font-weight: 600 !important;
-  letter-spacing: var(--type-row-label-tracking) !important;
-  line-height: var(--type-row-label-line) !important;
+  font-size: var(--type-helper-text-size) !important;
+  font-weight: 500 !important;
+  letter-spacing: var(--type-helper-text-tracking) !important;
+  line-height: var(--type-helper-text-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
 }
@@ -5683,7 +5696,7 @@ body[data-persona-surface="ria"] {
   font-family: var(--font-app-body) !important;
   font-size: var(--type-button-label-size) !important;
   font-weight: var(--type-button-label-weight) !important;
-  letter-spacing: -0.01em !important;
+  letter-spacing: normal !important;
   line-height: var(--type-button-label-line) !important;
   opacity: 1 !important;
 }
@@ -5757,6 +5770,12 @@ body[data-persona-surface="ria"] {
 .app-page-shell
   :is(p, span, div, label)[class*="text-[#8E8E93]"][class*="text-[12px]"],
 .app-page-shell
+  :is(p, span, div, label)[class*="text-[#8e8e93]"][class*="text-[11.5px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[#8e8e93]"][class*="text-[12px]"],
+.app-page-shell
+  :is(p, span, div, label)[class*="text-[#8e8e93]"][class*="text-[12.5px]"],
+.app-page-shell
   :is(p, span, div, label)[class*="text-[#96999e]"][class*="text-[12px]"],
 .app-page-shell
   :is(p, span, div, label)[class*="text-[#5b6472]"][class*="text-[12px]"] {
@@ -5776,6 +5795,8 @@ body[data-persona-surface="ria"] {
   :is(p, span, div, label, time)[class*="text-[color:var(--one-fg3)]"][class*="text-[11px]"],
 .app-page-shell
   :is(p, span, div, label, time)[class*="text-[color:var(--one-fg3)]"][class*="text-[12px]"],
+.app-page-shell
+  :is(p, span, div, label, time)[class*="text-[#8e8e93]"][class*="text-[13px]"],
 .app-page-shell
   :is(p, span, div, label, time)[class*="text-[color:var(--one-fg2)]"][class*="text-[12px]"] {
   color: var(--app-tertiary-label) !important;
@@ -5798,7 +5819,7 @@ body[data-persona-surface="ria"] {
   font-family: var(--font-app-body) !important;
   font-size: var(--type-page-subtitle-size) !important;
   font-weight: 400 !important;
-  letter-spacing: -0.006em !important;
+  letter-spacing: normal !important;
   line-height: var(--type-page-subtitle-line) !important;
   opacity: 1 !important;
   text-transform: none !important;
@@ -5809,7 +5830,7 @@ body[data-persona-surface="ria"] {
   font-family: var(--font-app-body) !important;
   font-size: 15px !important;
   font-weight: 400 !important;
-  letter-spacing: -0.006em !important;
+  letter-spacing: normal !important;
   line-height: 20px !important;
   opacity: 1 !important;
   text-transform: none !important;

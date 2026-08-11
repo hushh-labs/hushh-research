@@ -185,7 +185,7 @@ export function SmsContactsFlow({
           <ChevronLeft className="h-[19px] w-[19px]" />
         </button>
 
-        <h1 className="mt-3 !text-[28px] !font-bold !leading-[34px] !tracking-[-0.025em]">
+        <h1 className="mt-3 !text-[28px] !font-bold !leading-[34px] !tracking-normal">
           SMS contacts
         </h1>
         <p className="mt-2 max-w-[350px] text-[15px] font-normal leading-[20px] text-muted-foreground">
@@ -341,7 +341,7 @@ export function SmsContactsFlow({
             >
               {pendingRemoval ? initials(recipientLabel(pendingRemoval)) : "?"}
             </span>
-            <AlertDialogTitle className="mt-1 !text-center !text-[20px] !font-semibold !leading-[25px] !tracking-[-0.016em]">
+            <AlertDialogTitle className="mt-1 !text-center !text-[20px] !font-semibold !leading-[25px] !tracking-normal">
               <span className="text-foreground">
                 Remove{" "}
                 {pendingRemoval

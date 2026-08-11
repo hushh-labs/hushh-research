@@ -326,7 +326,7 @@ export function SosPanel({
       data-ambient-chrome-ignore
       data-testid="sms-safety-screen"
     >
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(52px,env(safe-area-inset-top))] lg:max-w-[520px] lg:px-6 lg:pt-[max(48px,env(safe-area-inset-top))]">
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(44px,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={onClose}
@@ -336,8 +336,8 @@ export function SosPanel({
           <ChevronLeft className="h-6 w-6" strokeWidth={2} />
         </button>
 
-        <header className="mt-4 px-3 text-center lg:mt-1">
-          <h1 className="whitespace-nowrap !text-[28px] !font-bold !leading-[34px] !tracking-[-0.025em]">
+        <header className="mt-4 px-3 text-center">
+          <h1 className="whitespace-nowrap !text-[28px] !font-bold !leading-[34px] !tracking-normal">
             SMS · Save my Soul
           </h1>
           <p className="mx-auto mt-2 max-w-[310px] text-[15px] font-normal leading-[20px] text-white/70">
@@ -350,7 +350,7 @@ export function SosPanel({
             hold button immediately beneath it, then the message and recovery
             controls. Keeping this single column prevents the SMS action from
             reading like a separate desktop panel. */}
-        <div className="flex flex-col items-center gap-4 pt-5 lg:pt-5">
+        <div className="flex flex-col items-center gap-4 pt-5">
           <div className="flex items-center justify-center">
             <div className="relative flex h-[204px] w-[204px] items-center justify-center">
             <span className="absolute inset-0 rounded-full border border-white/10" />
@@ -410,7 +410,7 @@ export function SosPanel({
                     : undefined,
               }}
             >
-              <span className="text-[28px] font-bold leading-[34px] tracking-[-0.025em]">
+              <span className="text-[28px] font-bold leading-[34px] tracking-normal">
                 {active ? "SENT" : "SMS"}
               </span>
               <span className="mt-1.5 text-[12px] text-white/85">
@@ -510,7 +510,7 @@ export function SosPanel({
                   )
                 }
                 className={cn(
-                  "press-scale h-10 rounded-full border text-[13px] font-semibold",
+                  "press-scale h-11 rounded-full border text-[15px] font-semibold leading-5",
                   messageSelection === option
                     ? "border-white bg-white text-black"
                     : "border-white/5 bg-[#1c1c1e] text-white",
@@ -530,7 +530,7 @@ export function SosPanel({
                 )
               }
               className={cn(
-                "press-scale col-span-2 h-10 rounded-full border text-[13px] font-semibold",
+                "press-scale col-span-2 h-11 rounded-full border text-[15px] font-semibold leading-5",
                 messageSelection === "custom"
                   ? "border-white bg-white text-black"
                   : "border-white/5 bg-[#1c1c1e] text-white",
@@ -563,7 +563,7 @@ export function SosPanel({
                   className={cn(
                     // pr-14 reserves the send button's column so typed text
                     // never runs underneath it.
-                    "min-h-[72px] w-full resize-none rounded-2xl border bg-[#1c1c1e] py-3 pl-3.5 pr-14 text-[14px] leading-relaxed text-white outline-none placeholder:text-white/40 focus:border-white/55",
+                    "min-h-[72px] w-full resize-none rounded-2xl border bg-[#1c1c1e] py-3 pl-3.5 pr-14 text-[17px] leading-[22px] text-white outline-none placeholder:text-white/40 focus:border-white/55",
                     customMessageLimitExceeded
                       ? "border-[color:var(--app-destructive)]"
                       : "border-white/10",
