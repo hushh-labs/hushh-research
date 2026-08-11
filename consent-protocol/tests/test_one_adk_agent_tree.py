@@ -789,7 +789,7 @@ class TestSettledActionJourneys:
         decision, made explicitly.
 
         `trusted_activation_required` is the one survivor and is a different
-        kind of thing entirely: those two actions open a browser popup, which
+        kind of thing entirely: those four actions open a browser popup, which
         platforms allow only during a fresh user gesture. Dropping it would
         break sign-in rather than streamline it.
         """
@@ -800,9 +800,10 @@ class TestSettledActionJourneys:
             assert flags["needsConfirmation"] is trusted, entry["action_id"]
             assert flags["trustedActivationRequired"] is trusted, entry["action_id"]
             confirming += 1 if flags["needsConfirmation"] else 0
-        # Small and deliberate. If this grows, someone has reintroduced asking
-        # by authoring an activation policy rather than by deciding to.
-        assert confirming == 2
+        # Small and deliberate: the two account sign-ins plus the two Google
+        # service connection flows. If this grows, someone has reintroduced
+        # asking by authoring an activation policy rather than by deciding to.
+        assert confirming == 4
 
     @pytest.mark.asyncio
     async def test_high_risk_location_share_runs_without_asking(self):
@@ -1520,7 +1521,7 @@ class TestNavigationActionMembership:
 
 
 class TestNamedShareChain:
-    """ "Share my location with Sarah" is navigate-first, ask-second.
+    """The named location-share journey is navigate-first, ask-second.
 
     The single question exists to catch a MIS-HEARD name, so it is worth
     nothing unless it says the name the app matched. One does not have that

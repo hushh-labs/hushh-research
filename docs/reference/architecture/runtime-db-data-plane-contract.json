@@ -714,9 +714,10 @@
       "exact_tables": [
         "enterprise_crm_registry",
         "crm_operation_endpoints",
-        "crm_zk_recipient_keys"
+        "crm_zk_recipient_keys",
+        "crm_zk_uat_recipient_keys"
       ],
-      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL, per-operation MCP tool catalog, and CRM-ZK recipient public-key registry for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)",
+      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL, per-operation MCP tool catalog, and profile-specific CRM encrypted recipient public-key registries for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)",
       "retention_policy": "Retain active enterprise CRM integration config, per-operation tool catalog, and recipient public-key records while the integration is provisioned; retire or revoke keys and deactivate the registry rather than delete active history.",
       "deletion_behavior": "Operator-managed reference config; not user-delete scoped. crm_operation_endpoints cascade-delete with their parent crm_id.",
       "trust_boundary": "Client credentials stored only as AES-256-GCM envelopes (matches vault/encrypt.py EncryptedPayload), decrypted at request time with VAULT_DATA_KEY; CRM-ZK recipient and response-signing public keys plus fingerprints are non-secret verification material. Gateway/base/token URLs are non-secret config in plaintext. No raw long-lived secrets at rest.",

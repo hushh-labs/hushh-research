@@ -2512,17 +2512,34 @@ function AskFlow({
         description="They approve, decline, or ignore."
       />
 
-      <Button
-        onClick={() => {
-          vm.onSendRequest(reason);
-          onClose();
-        }}
-        disabled={!vm.selectedRequestOwnerIds.length}
-        isLoading={vm.busy === "request"}
-        className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:opacity-50"
-      >
-        Send request
-      </Button>
+      {/* Single source of truth for whether the request can be sent: at least
+          one recipient AND a duration AND a reason must be chosen. Previously
+          the button only checked the recipient count, so it could look/act
+          submittable before every required selection existed. */}
+      {(() => {
+        const isFormValid =
+          vm.selectedRequestOwnerIds.length > 0 &&
+          Boolean(vm.durationHours) &&
+          Boolean(reason);
+        const sending = vm.busy === "request";
+        return (
+          <Button
+            onClick={() => {
+              // Never submit an incomplete form even if the click somehow
+              // reaches the handler (e.g. keyboard/AT), and never double-fire.
+              if (!isFormValid || sending) return;
+              vm.onSendRequest(reason);
+              onClose();
+            }}
+            disabled={!isFormValid || sending}
+            aria-disabled={!isFormValid || sending}
+            isLoading={sending}
+            className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:pointer-events-none disabled:opacity-50"
+          >
+            Send request
+          </Button>
+        );
+      })()}
     </div>
   );
 }

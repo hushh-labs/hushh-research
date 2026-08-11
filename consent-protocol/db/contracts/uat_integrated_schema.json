@@ -1040,6 +1040,7 @@
       "configuration_revision",
       "validated_at",
       "crm_zk_v1_enabled",
+      "crm_zk_uat_v1_enabled",
       "mulesoft_connector_ref"
     ],
     "crm_operation_endpoints": [
@@ -1051,7 +1052,8 @@
       "description",
       "mcp_endpoint",
       "response_contract",
-      "crm_zk_tool_name"
+      "crm_zk_tool_name",
+      "crm_zk_uat_tool_name"
     ],
     "crm_zk_recipient_keys": [
       "crm_id",
@@ -1062,6 +1064,19 @@
       "response_signing_key_id",
       "response_signing_key_fingerprint",
       "profile",
+      "environment",
+      "status",
+      "activated_at",
+      "retires_at",
+      "retired_at",
+      "created_at",
+      "updated_at"
+    ],
+    "crm_zk_uat_recipient_keys": [
+      "crm_id",
+      "key_id",
+      "public_key",
+      "public_key_fingerprint",
       "environment",
       "status",
       "activated_at",
