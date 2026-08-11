@@ -5,15 +5,18 @@
     "hushh-webapp/app/getting-started/page.voice-action-contract.json",
     "hushh-webapp/app/login/page.voice-action-contract.json",
     "hushh-webapp/app/one/connect/page.voice-action-contract.json",
+    "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
     "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
     "hushh-webapp/app/one/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/page.voice-action-contract.json",
+    "hushh-webapp/app/one/setup/calendar/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/connected-systems/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/connections/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/email/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/finance/import/page.voice-action-contract.json",
+    "hushh-webapp/app/one/setup/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/kai/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/ria/page.voice-action-contract.json",
@@ -106,6 +109,29 @@
         "guard_ids": [
           "auth_signed_in"
         ]
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "gmail",
+      "surface_title": "Gmail",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        }
       },
       "orchestration": {
         "instruction_id": null,
@@ -245,6 +271,34 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_setup_calendar",
+      "surface_title": "Calendar Setup",
+      "docs_references": [
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "contract_file": "hushh-webapp/app/one/setup/calendar/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one",
+        "guard_ids": [
+          "auth_signed_in"
+        ]
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
       "surface_id": "one_setup_connected_systems",
       "surface_title": "CRM Setup",
       "docs_references": [],
@@ -328,6 +382,34 @@
         "reachability": {
           "active_personas": [
             "investor"
+          ]
+        },
+        "speaker_persona": "one",
+        "guard_ids": [
+          "auth_signed_in"
+        ]
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_setup_gmail",
+      "surface_title": "Gmail Setup",
+      "docs_references": [
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "contract_file": "hushh-webapp/app/one/setup/gmail/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
           ]
         },
         "speaker_persona": "one",
@@ -2724,6 +2806,435 @@
               "route": "/one/connect",
               "screen": "connect"
             }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.profile_receipts",
+      "surface_id": "gmail",
+      "label": "Open Receipts Page",
+      "aliases": [
+        "open receipts",
+        "open gmail receipts"
+      ],
+      "search_keywords": [
+        "receipts",
+        "gmail receipts"
+      ],
+      "meaning": "Navigates directly to receipts page from any investor surface.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/gmail"
+        ],
+        "screens": [
+          "gmail"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "navigate to Gmail surface if route is currently outside Gmail scope"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/gmail"
+      },
+      "control_ids": [
+        "top_agent_section_gmail"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/one/gmail/page.tsx",
+        "components/gmail/gmail-receipts-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/gmail"
+        ],
+        "backend_effects": [
+          {
+            "api": "GET /api/kai/gmail/status/{user_id} (proxied)",
+            "effect": "Reads Gmail connector status on mount."
+          },
+          {
+            "api": "GET /api/kai/gmail/receipts/{user_id} (proxied)",
+            "effect": "Reads paginated receipt items."
+          }
+        ]
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_receipts",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_receipts",
+            "label": "Open Receipts Page",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/gmail",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.gmail.connect",
+      "surface_id": "gmail",
+      "label": "Connect Gmail",
+      "aliases": [
+        "connect gmail",
+        "link gmail"
+      ],
+      "search_keywords": [
+        "gmail connect",
+        "gmail"
+      ],
+      "meaning": "Starts OAuth flow for Gmail receipts connector.",
+      "speaker_persona": "nav",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/gmail"
+        ],
+        "screens": [
+          "gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "gmail_configured"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only local component handler exists (handleConnectGmail in GmailReceiptsPage).",
+        "intended_handler": "handleConnectGmail"
+      },
+      "control_ids": [
+        "open_gmail_connector"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/gmail/gmail-receipts-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/gmail"
+        ],
+        "backend_effects": [
+          {
+            "api": "POST /api/kai/gmail/connect/start (proxied)",
+            "effect": "Generates OAuth authorize URL and state nonce."
+          }
+        ]
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.gmail.connect",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.gmail.connect",
+            "label": "Connect Gmail",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.gmail.sync_now",
+      "surface_id": "gmail",
+      "label": "Sync Gmail Receipts Now",
+      "aliases": [
+        "sync gmail receipts",
+        "refresh gmail receipts"
+      ],
+      "search_keywords": [
+        "gmail sync",
+        "refresh receipts"
+      ],
+      "meaning": "Queues and polls Gmail receipt sync run.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/gmail"
+        ],
+        "screens": [
+          "gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "gmail_connected"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Implemented only in local page handlers; no shared voice/action adapter yet.",
+        "intended_handler": "dispatchVoiceToolCall"
+      },
+      "control_ids": [
+        "sync_gmail_receipts"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/gmail/gmail-receipts-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/gmail"
+        ],
+        "backend_effects": [
+          {
+            "api": "POST /api/kai/gmail/sync (proxied)",
+            "effect": "Queues sync job."
+          },
+          {
+            "api": "GET /api/kai/gmail/sync/{run_id} (proxied)",
+            "effect": "Polls sync run status."
+          }
+        ]
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.gmail.sync_now",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.gmail.sync_now",
+            "label": "Sync Gmail Receipts Now",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.gmail.disconnect",
+      "surface_id": "gmail",
+      "label": "Disconnect Gmail",
+      "aliases": [
+        "disconnect gmail",
+        "unlink gmail"
+      ],
+      "search_keywords": [
+        "disconnect gmail"
+      ],
+      "meaning": "Disconnects Gmail OAuth credentials for future syncs.",
+      "speaker_persona": "nav",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/gmail"
+        ],
+        "screens": [
+          "gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "gmail_connected",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only local component handler exists (handleDisconnectGmail in GmailReceiptsPage).",
+        "intended_handler": "handleDisconnectGmail"
+      },
+      "control_ids": [
+        "disconnect_gmail"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/gmail/gmail-receipts-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/gmail"
+        ],
+        "backend_effects": [
+          {
+            "api": "POST /api/kai/gmail/disconnect (proxied)",
+            "effect": "Revokes connector state in backend."
+          }
+        ]
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.gmail.disconnect",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.gmail.disconnect",
+            "label": "Disconnect Gmail",
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -8609,6 +9120,334 @@
       }
     },
     {
+      "action_id": "setup.connect_calendar",
+      "surface_id": "one_setup_calendar",
+      "label": "Connect Calendar",
+      "aliases": [
+        "connect calendar",
+        "connect my calendar",
+        "set up calendar"
+      ],
+      "search_keywords": [
+        "connect",
+        "calendar",
+        "schedule"
+      ],
+      "meaning": "Presents the exact Calendar connection action so a confirming tap can start Google Calendar authorization.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/calendar"
+        ],
+        "screens": [
+          "one_setup_calendar"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.connect_calendar"
+      },
+      "control_ids": [
+        "open_calendar_connector"
+      ],
+      "state_exposure": [
+        "calendar connection state",
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "components/calendar/calendar-agent-page.tsx",
+        "app/one/setup/calendar/calendar-onboarding-setup-client.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.connect_calendar",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.connect_calendar",
+            "label": "Connect Calendar",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.finish_calendar",
+      "surface_id": "one_setup_calendar",
+      "label": "Finish Calendar setup",
+      "aliases": [
+        "finish calendar setup",
+        "finish calendar",
+        "complete calendar setup"
+      ],
+      "search_keywords": [
+        "finish",
+        "calendar",
+        "complete"
+      ],
+      "meaning": "Records an already verified Calendar connection as complete and returns to the setup hub.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/calendar"
+        ],
+        "screens": [
+          "one_setup",
+          "one_setup_calendar"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.finish_calendar"
+      },
+      "control_ids": [
+        "finish_calendar_setup"
+      ],
+      "state_exposure": [
+        "calendar connection state",
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "app/one/setup/calendar/calendar-onboarding-setup-client.tsx",
+        "components/onboarding/setup/setup-completion-footer.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.finish_calendar",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.finish_calendar",
+            "label": "Finish Calendar setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.skip_calendar",
+      "surface_id": "one_setup_calendar",
+      "label": "Skip Calendar setup",
+      "aliases": [
+        "skip calendar setup",
+        "skip calendar",
+        "not now"
+      ],
+      "search_keywords": [
+        "skip",
+        "calendar",
+        "not now"
+      ],
+      "meaning": "Leaves Calendar setup and returns to the setup hub without recording Calendar as complete.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/calendar"
+        ],
+        "screens": [
+          "one_setup",
+          "one_setup_calendar"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.skip_calendar"
+      },
+      "control_ids": [
+        "skip_calendar_setup"
+      ],
+      "state_exposure": [
+        "calendar connection state",
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "app/one/setup/calendar/calendar-onboarding-setup-client.tsx",
+        "components/onboarding/setup/setup-completion-footer.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.skip_calendar",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.skip_calendar",
+            "label": "Skip Calendar setup",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "setup.finish_connected_systems",
       "surface_id": "one_setup_connected_systems",
       "label": "Finish CRM setup",
@@ -9334,6 +10173,340 @@
             "action_id": "setup.skip_finance",
             "label": "Skip Finance setup",
             "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.connect_gmail",
+      "surface_id": "one_setup_gmail",
+      "label": "Connect Gmail",
+      "aliases": [
+        "connect gmail",
+        "connect my gmail",
+        "set up gmail",
+        "open gmail connector"
+      ],
+      "search_keywords": [
+        "connect",
+        "gmail",
+        "connector"
+      ],
+      "meaning": "Presents the exact Connect Gmail action so a confirming tap can open the secure Gmail popup while the private-agent session remains active.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "one_setup_gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.connect_gmail"
+      },
+      "control_ids": [
+        "open_gmail_connector"
+      ],
+      "state_exposure": [
+        "gmail connection state",
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "components/gmail/gmail-receipts-page.tsx",
+        "app/one/setup/gmail/gmail-onboarding-setup-client.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/gmail"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.connect_gmail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Connect Gmail",
+            "failure_behavior": "stop",
+            "action_id": "setup.connect_gmail",
+            "settlement_target": {
+              "route": "/one/setup/gmail",
+              "screen": "one_setup_gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.finish_gmail",
+      "surface_id": "one_setup_gmail",
+      "label": "Finish Gmail setup",
+      "aliases": [
+        "finish gmail setup",
+        "finish gmail",
+        "complete gmail setup"
+      ],
+      "search_keywords": [
+        "finish",
+        "gmail",
+        "complete"
+      ],
+      "meaning": "Records an already verified Gmail connection as complete and returns to the setup hub.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "one_setup",
+          "one_setup_gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "gmail_connected"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.finish_gmail"
+      },
+      "control_ids": [
+        "finish_gmail_setup"
+      ],
+      "state_exposure": [
+        "gmail connection state",
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "app/one/setup/gmail/gmail-onboarding-setup-client.tsx",
+        "components/onboarding/setup/setup-completion-footer.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.finish_gmail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Finish Gmail setup",
+            "failure_behavior": "stop",
+            "action_id": "setup.finish_gmail",
+            "settlement_target": {
+              "route": "/one/setup",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.skip_gmail",
+      "surface_id": "one_setup_gmail",
+      "label": "Skip Gmail setup",
+      "aliases": [
+        "skip gmail setup",
+        "skip gmail",
+        "not now"
+      ],
+      "search_keywords": [
+        "skip",
+        "gmail",
+        "not now"
+      ],
+      "meaning": "Leaves Gmail setup and returns to the setup hub without recording Gmail as complete.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup/gmail"
+        ],
+        "screens": [
+          "one_setup",
+          "one_setup_gmail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "setup.skip_gmail"
+      },
+      "control_ids": [
+        "skip_gmail_setup"
+      ],
+      "state_exposure": [
+        "gmail connection state",
+        "active setup capability"
+      ],
+      "docs_references": [
+        "docs/reference/quality/one-onboarding-architecture.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "app/one/setup/gmail/gmail-onboarding-setup-client.tsx",
+        "components/onboarding/setup/setup-completion-footer.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.skip_gmail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Skip Gmail setup",
+            "failure_behavior": "stop",
+            "action_id": "setup.skip_gmail",
             "settlement_target": {
               "route": "/one/setup",
               "screen": "one_setup_hub"
@@ -15755,6 +16928,221 @@
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/connections",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.open_gmail",
+      "surface_id": "one_setup_hub",
+      "label": "Connect Gmail",
+      "aliases": [
+        "connect gmail",
+        "set up gmail",
+        "open gmail setup"
+      ],
+      "search_keywords": [
+        "gmail",
+        "receipt",
+        "email",
+        "setup"
+      ],
+      "meaning": "Opens Gmail setup so the person can choose whether to connect receipt sync and purchase memory.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/gmail"
+      },
+      "control_ids": [
+        "one_setup_tile_gmail"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/gmail"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.open_gmail",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_gmail",
+            "label": "Connect Gmail",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/gmail",
+              "screen": "one_setup_hub"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "setup.open_calendar",
+      "surface_id": "one_setup_hub",
+      "label": "Connect your calendar",
+      "aliases": [
+        "connect calendar",
+        "set up calendar",
+        "open calendar setup"
+      ],
+      "search_keywords": [
+        "calendar",
+        "schedule",
+        "availability",
+        "meeting",
+        "setup"
+      ],
+      "meaning": "Opens Calendar setup so the person can choose Calendar access for schedule summaries, availability, and confirmed meeting changes.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/calendar"
+      },
+      "control_ids": [
+        "one_setup_tile_calendar"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/quality/one-onboarding-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/setup/calendar"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.setup.open_calendar",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "setup.open_calendar",
+            "label": "Connect your calendar",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/setup/calendar",
               "screen": "one_setup_hub"
             }
           }

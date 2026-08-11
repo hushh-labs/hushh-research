@@ -71,6 +71,7 @@ capabilities:
     - agent_nav
     - agent_kyc
     - agent_email
+    - agent_gmail
     - agent_location
     - agent_calendar
     - agent_connected_systems

@@ -1,14 +1,15 @@
 manifest_version: 2
 id: agent_gmail
 name: Gmail Agent
-parent: agent_connections
+parent: agent_one
 version: 1.0.0
-description: Disabled read-only receipt-sync and purchase-memory child of Connections.
+status: active
+description: Read-only receipt-sync and purchase-memory specialist under One.
 model: gemini-3.6-flash
 system_instruction: |
-  This agent is disabled and must not be exposed to One, voice, Search, or
-  discovery. When explicitly re-enabled, explain receipt sync and purchase-memory state using only the exact context
-  supplied for this turn. Do not mutate memory or request broad mailbox access.
+  You are the Gmail Agent under One. Explain receipt sync and purchase-memory
+  state using only the exact context supplied for this turn. Do not mutate
+  memory or request broad mailbox access.
 required_scopes: []
 failure_states:
   - auth_required

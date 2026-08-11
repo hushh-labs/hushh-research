@@ -11,6 +11,7 @@ import {
   type CapabilitySetupInputs,
 } from "@/lib/services/capability-setup-state-service";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
+import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { KaiProfileService, type KaiProfileV2 } from "@/lib/services/kai-profile-service";
 import {
   PreVaultUserStateService,
@@ -33,7 +34,7 @@ import { isOneCapabilityEnabled } from "@/lib/onboarding/one-capabilities";
  *   mirror, and the live pending-consent count. This is all the `/one`
  *   dashboard needs and costs at most one already-cached bootstrap call.
  * - OPT-IN (expensive, accurate): the decrypted Kai profile and OAuth
- *   connection status (Gmail, Connected Systems). The `/one/setup` flow opts
+ *   connection status (Gmail and Calendar). The `/one/setup` flow opts
  *   into these via `enrichVault` / `enrichOauth` so it can make honest
  *   skip-vs-continue decisions; the dashboard does not pay that cost.
  *
@@ -44,7 +45,7 @@ import { isOneCapabilityEnabled } from "@/lib/onboarding/one-capabilities";
 export interface UseCapabilitySetupStatesOptions {
   /** Resolve real vault-backed state (decrypts the Kai profile). Default false. */
   enrichVault?: boolean;
-  /** Resolve OAuth connection status (Gmail, Connected Systems). Default false. */
+  /** Resolve OAuth connection status (Gmail and Calendar). Default false. */
   enrichOauth?: boolean;
   /** Resolve whether an RIA profile is onboarded (getOnboardingStatus). Default false. */
   enrichRia?: boolean;
@@ -270,6 +271,15 @@ export function useCapabilitySetupStates(
             () => null
           );
           if (gmail) next.gmail = gmail.connected === true && gmail.revoked !== true;
+        }
+        if (idToken && isOneCapabilityEnabled("calendar")) {
+          const calendar = await GoogleCalendarService.status(idToken, userId).catch(
+            () => null,
+          );
+          if (calendar) {
+            next.calendar =
+              calendar.connected === true && calendar.status !== "needs_reauth";
+          }
         }
       } catch {
         // Absent key → resolver reports `blocked` on oauth (honest, actionable).

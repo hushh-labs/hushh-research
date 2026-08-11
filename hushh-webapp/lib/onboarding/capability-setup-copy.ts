@@ -105,6 +105,21 @@ const SETUP_COPY_BY_ID: Record<
       "Keep a private memory of recent interactions, ready when you need it.",
     ],
   },
+  calendar: {
+    setupTitle: "Connect your calendar",
+    setupBlurb:
+      "Connect Google Calendar so One can summarize your schedule, find time, and prepare meeting changes for your approval.",
+    actionLabel: "Connect Calendar",
+    resumeActionLabel: "Finish Calendar",
+    introPremise: "A clearer view of the time that matters.",
+    introPromise:
+      "One only reads your Calendar with your approval, and every schedule change waits for your confirmation.",
+    setupBullets: [
+      "Connect Google Calendar with the access you choose.",
+      "Ask One for schedule summaries and availability.",
+      "Review every meeting change before it happens.",
+    ],
+  },
   email: {
     setupTitle: "KYC",
     setupBlurb:

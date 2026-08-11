@@ -545,7 +545,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Disabled read-only receipt-sync and purchase-memory child of Connections.",
+      "description": "Read-only receipt-sync and purchase-memory specialist under One.",
       "evaluations": [],
       "failure_states": [
         "auth_required",
@@ -564,7 +564,7 @@
       "optional_scopes": [],
       "outputs": [],
       "owner": "backend",
-      "parent": "agent_connections",
+      "parent": "agent_one",
       "performance": {
         "latency_p95_ms": 30000,
         "max_output_tokens": 4096
@@ -593,7 +593,7 @@
         ]
       },
       "side_effects": [],
-      "status": "experimental",
+      "status": "active",
       "subagents": [],
       "surfaces": {
         "a2a": false,
@@ -605,7 +605,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "44cc1dc4e3faa5e248377287e84696c837efe318a14be010885066cdc06b2714",
+      "system_instruction_sha256": "312edd1449e0d34e476a720cfe3f91f3f4317f8ec8959517642308626f78e60e",
       "telemetry_namespace": "agent.gmail",
       "tools": [],
       "ui_type": "chat",
@@ -1761,6 +1761,7 @@
           "agent_nav",
           "agent_kyc",
           "agent_email",
+          "agent_gmail",
           "agent_location",
           "agent_calendar",
           "agent_connected_systems"

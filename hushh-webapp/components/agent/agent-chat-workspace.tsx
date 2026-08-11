@@ -4268,7 +4268,7 @@ export function AgentChatWorkspace({
                       const type = String(payload.type ?? "");
                       if (type === "calendar.connect") {
                         setPendingSpecialistDirective(null);
-                        router.push(ROUTES.PROFILE_INTEGRATIONS);
+                        router.push(ROUTES.CALENDAR);
                         return;
                       }
                       if (type !== "calendar.execute_proposal") {

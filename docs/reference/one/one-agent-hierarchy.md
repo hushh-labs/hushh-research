@@ -67,10 +67,10 @@ This page is current-state implementation truth. It does not rename runtime iden
 | Consent Center parent | `agent_nav` | Consent, scope review, vault friction, deletion, revocation; parent of Connections | `agent.nav.review` |
 | Identity specialist | `agent_kyc` | KYC workflow state, approved disclosure formatter, structured PKM writeback | `agent.kyc.process` and approved optional scopes |
 | Location specialist | `agent_location` | Trusted-people live location workflow | Exact location capability and data authority per flow |
-| Connections subagent | `agent_connections` | Nav's trusted-connection graph specialist and the hierarchy parent for dormant Gmail; the Connections UI owns private runtime configuration | Exact specialist and `attr.*` authority per hop; never receives provider credentials |
+| Connections subagent | `agent_connections` | Nav's trusted-connection graph specialist; the Connections UI owns private runtime configuration | Exact specialist and `attr.*` authority per hop; never receives provider credentials |
 | Connected systems | `agent_connected_systems` | CRM and connected-system workflow planning | Exact specialist and `attr.*` authority per hop |
 | Email specialist | `agent_email` | Inbox, approval-draft, and client-request planning behind One | Exact specialist and `attr.*` authority per hop |
-| Gmail specialist | `agent_gmail` | Disabled Connections child retained as a dormant receipt-sync manifest and route | No active One, voice, Search, or generated-discovery authority |
+| Gmail specialist | `agent_gmail` | Active read-only receipt-sync and purchase-memory specialist under One | Dedicated Gmail workspace and generated navigation only; canonical One chat remains unwired until it receives explicit scoped Gmail authority |
 | Personal information | `agent_personal_information` | Information Marketplace and consented information-slice workflows | `cap.pkm.marketplace.view` plus exact per-hop information authority |
 | Information Marketplace | standalone product | Separate consent-first Marketplace routes and APIs | Not admitted to One Voice, Agent Chat, or command discovery |
 | World Model agents | `agent_memory_intent`, `agent_memory_segmentation`, `agent_memory_merge`, `agent_pkm_structure`, `agent_summary_reducer` | Semantic memory shaping and summary reduction | Must stay under vault/PKM consent and redaction boundaries |
