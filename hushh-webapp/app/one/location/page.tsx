@@ -6955,6 +6955,19 @@ export function OneLocationAgentPageContent({
     let matches = rankedRecipients.filter((recipient) =>
       recommendationSearchText(recipient).includes(spoken),
     );
+    // Finding nobody while the vault is LOCKED says nothing about who the
+    // person is connected to -- the protected recipient list cannot be read at
+    // all without the owner token, so "nobody matches that name" would be a
+    // statement about their connections made without being able to see them.
+    // It reads as "that person is not your connection", which may be flatly
+    // untrue, and sends someone off to re-add somebody they already have.
+    if (matches.length === 0 && !vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see who you are connected to while the vault is locked, so I cannot tell whether they are there.",
+      };
+    }
     // A navigation journey can arrive before the full Location workspace
     // snapshot has finished loading. Do one focused, server-authoritative
     // recipient read before concluding that the named connection is absent.
