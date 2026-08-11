@@ -163,7 +163,14 @@ export function CapabilityCinematicIntroGate({
 
   const content = (
     <section
-      className="motion-step-enter relative mx-auto flex min-h-[calc(100dvh-16rem)] w-full max-w-[36rem] flex-col items-center justify-center text-center"
+      // Centered hero. On the iOS Capacitor webview `100dvh` does NOT subtract
+      // the native top bar / status-bar safe area, so a purely centered block
+      // rode up under the header and the copy sat too close to the back arrow
+      // (web was already correct). Add the top safe-area inset as padding AND
+      // subtract it from the min-height so the block clears the native header
+      // while staying vertically balanced. `env(safe-area-inset-top)` is 0 on
+      // web/desktop, so this is a no-op there and only affects notched/native.
+      className="motion-step-enter relative mx-auto flex min-h-[calc(100dvh-16rem-env(safe-area-inset-top))] w-full max-w-[36rem] flex-col items-center justify-center pt-[max(2rem,env(safe-area-inset-top))] text-center"
       aria-labelledby={`capability-intro-${capabilityId}`}
       data-capability-cinematic-intro={capabilityId}
     >

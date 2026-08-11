@@ -398,6 +398,10 @@ const FLOW_ACTION_PARAM = "action";
 const FLOW_SOURCE_PARAM = "source";
 const PRIVATE_CHECK_IN_ACTION = "private-check-in";
 const NEARBY_CHECK_IN_SOURCE = "nearby";
+// Emergency contacts is reachable from Settings AND from SOS, so its back arrow
+// cannot be a constant. Recording the opener in the URL keeps the in-content
+// arrow agreeing with the chrome and OS back buttons, which follow real history.
+const SOS_FLOW_SOURCE = "sos";
 
 const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
   share: "share",
@@ -415,6 +419,24 @@ const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
   "shared-with-me": "shared-with-me",
   "needs-review": "needs-review",
 };
+
+/**
+ * Where the Emergency-contacts back arrow goes.
+ *
+ * It has two openers -- Settings and SOS -- so a fixed target is wrong for one
+ * of them. This used to be hardcoded to Settings on the reasoning that contacts
+ * were "only ever opened from Settings"; the SOS entry point was added later and
+ * the assumption was never revisited, so anyone editing contacts mid-emergency
+ * was dropped out of the SOS flow.
+ *
+ * Settings stays the default: an unknown or absent source means the person did
+ * not arrive from SOS, and Settings is where the rest of the entry points live.
+ */
+export function resolveSmsContactsBackFlow(
+  source: string | null | undefined,
+): "sos" | "settings" {
+  return source === SOS_FLOW_SOURCE ? "sos" : "settings";
+}
 
 const RETIRED_ACTIONS = new Set([
   "drive-to",
@@ -558,6 +580,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const nearbyPrivateCheckIn =
     searchParams.get(FLOW_ACTION_PARAM) === PRIVATE_CHECK_IN_ACTION &&
     searchParams.get(FLOW_SOURCE_PARAM) === NEARBY_CHECK_IN_SOURCE;
+  const smsContactsBackFlow = resolveSmsContactsBackFlow(
+    searchParams.get(FLOW_ACTION_PARAM) === FLOW_TO_ACTION["sms-contacts"]
+      ? searchParams.get(FLOW_SOURCE_PARAM)
+      : null,
+  );
   const nearbyReturnToken = searchParams.get(NEARBY_PRIVATE_RETURN_TOKEN_PARAM);
   const nearbyCheckInReturnHref =
     nearbyPrivateCheckIn && isNearbyPrivateReturnToken(nearbyReturnToken)
@@ -667,12 +694,18 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   // been removed from the flows — each action screen shows exactly one back
   // affordance plus its own Cancel/Done control.
   const openFlow = useCallback(
-    (next: Exclude<FlowKind, "none">) => {
+    (next: Exclude<FlowKind, "none">, source?: string) => {
       setFlow(next);
       activeFlowRef.current = next;
       pendingFlowRef.current = next;
       const params = new URLSearchParams(searchParams.toString());
-      params.delete(FLOW_SOURCE_PARAM);
+      // Carrying no source is the normal case and must clear a stale one,
+      // otherwise the previous flow's opener would be inherited by the next.
+      if (source) {
+        params.set(FLOW_SOURCE_PARAM, source);
+      } else {
+        params.delete(FLOW_SOURCE_PARAM);
+      }
       params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[next]);
       router.push(`${pathname}?${params.toString()}`, { scroll: false });
     },
@@ -899,7 +932,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <SosFlow
             vm={vm}
             onClose={() => closeFlow("now")}
-            onEditContacts={() => openFlow("sms-contacts")}
+            onEditContacts={() => openFlow("sms-contacts", SOS_FLOW_SOURCE)}
           />
         ) : flow === "sms-contacts" ? (
           <SmsContactsFlow
@@ -907,10 +940,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             circles={vm.circles}
             selectedUserIds={vm.smsContactUserIds}
             busyKey={vm.busy}
-            // SMS contacts is only ever opened from Settings, so its in-content
-            // back arrow returns to Settings (not the default "Now" tab), which
-            // matches the chrome/OS back button behavior.
-            onBack={() => openFlow("settings")}
+            // Emergency contacts is opened from Settings and from SOS, so the
+            // back arrow follows whoever opened it rather than a fixed target.
+            // Sending someone from SOS back to Settings drops them out of the
+            // emergency flow they were in the middle of, which is the worst
+            // moment to make them find their way back.
+            onBack={() => openFlow(smsContactsBackFlow)}
             onAdd={vm.onAddSmsContact}
             onAddCircle={vm.onAddSmsCircle}
             onRemove={vm.onRemoveSmsContact}

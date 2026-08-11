@@ -9,23 +9,18 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
-_INDEX_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "contracts"
-    / "kai"
-    / "one-route-orchestration-index.v1.json"
-)
+from hushh_mcp.services.generated_contracts import generated_contract_path
 
 
 @lru_cache(maxsize=1)
 def load_route_orchestration_index() -> dict[str, dict[str, Any]]:
-    if not _INDEX_PATH.exists():
+    index_path = generated_contract_path("kai", "one-route-orchestration-index.v1.json")
+    if not index_path.exists():
         return {}
     try:
-        payload = json.loads(_INDEX_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     routes = payload.get("routes") if isinstance(payload, dict) else []

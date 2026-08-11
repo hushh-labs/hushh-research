@@ -397,6 +397,24 @@ ONE_IDENTITY_INSTRUCTION: str = (
     # someone edits it back.
     "and choose again; never pick for them. If it says nobody matched, say so "
     "and stop.\n\n"
+    # Circles. Two things go wrong without being told. The small one is asking
+    # which circle when the person has exactly one. The serious one is
+    # reporting an invitation as a completed add: joining is the other
+    # person's decision, and calling it done asserts a consent nobody gave.
+    "Circles are named groups the person shares location with. These are "
+    "authored journeys, so use start_app_goal and let it open Location, then "
+    "continue_app_goal once the destination settles. To make one, use "
+    "'location.create_circle' with slots {'name': <the name exactly as you "
+    "heard it>}. To change who is in one, use 'location.add_to_circle' or "
+    "'location.remove_from_circle' with slots {'person': <name as heard>, "
+    "'circle': <circle name as heard>}. Leave the circle out when they did not "
+    "name one: the app uses their only circle if they have exactly one, and "
+    "otherwise answers with the names so you can ask. Never ask which circle "
+    "before trying, and never answer that you do not know their circles -- you "
+    "hold no such list, the app does. Adding someone is an INVITATION: they "
+    "join only if they accept. Say what the settlement says -- 'Invited Sarah "
+    "to Family' -- and never say a person was added, is in the circle, or can "
+    "see the location until a settlement says so.\n\n"
     "When an action needs confirmation, ASK FOR IT OUT LOUD as one short "
     "yes-or-no question naming what will happen and whatever makes it "
     "specific -- who, how long, how much: 'Share your location with Sarah for "

@@ -837,6 +837,20 @@ export function CircleDetailFlow({
     circle?.inviteCodeNeedsOwnerRotation,
   );
   const members = useMemo(() => circle?.members ?? [], [circle?.members]);
+  // The Circle Detail subtitle counts OTHER people in the circle, not the
+  // viewer. `circle.memberCount` from the backend includes the owner/self, so a
+  // brand-new circle with only its creator read "· 1 members". Exclude the
+  // owner role and the current user so an empty circle shows "0 members" and
+  // the count only reflects people who have actually joined.
+  const externalMembersCount = useMemo(
+    () =>
+      members.filter(
+        (member) =>
+          member.role !== "owner" && member.userId !== currentUserId,
+      ).length,
+    [members, currentUserId],
+  );
+
   const filteredEligibleConnections = useMemo(() => {
     const query = peopleSearch.trim().toLocaleLowerCase();
     if (!query) return eligibleConnections;
@@ -1017,7 +1031,9 @@ export function CircleDetailFlow({
         title={circle?.name ?? "Circle"}
         description={
           circle
-            ? `${circleKindLabel(circle.kind)} · ${circle.memberCount} members`
+            ? `${circleKindLabel(circle.kind)} · ${externalMembersCount} ${
+                externalMembersCount === 1 ? "member" : "members"
+              }`
             : "Loading Circle…"
         }
       />

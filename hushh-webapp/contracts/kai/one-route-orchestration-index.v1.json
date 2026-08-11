@@ -2761,7 +2761,9 @@
       "action_ids": [
         "location.add_connections",
         "location.add_emergency_contact",
+        "location.add_to_circle",
         "location.chat.turn",
+        "location.create_circle",
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
@@ -2782,6 +2784,7 @@
         "location.pause_updates",
         "location.refresh",
         "location.remove_emergency_contact",
+        "location.remove_from_circle",
         "location.resume_updates",
         "location.select_share_recipient",
         "location.set_auto_share",

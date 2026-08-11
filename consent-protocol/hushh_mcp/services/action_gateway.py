@@ -9,13 +9,13 @@ generated, wired, and allowed by the browser-published inventory.
 from __future__ import annotations
 
 import json
+import logging
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
-_GATEWAY_PATH = (
-    Path(__file__).resolve().parents[3] / "contracts" / "kai" / "kai-action-gateway.vnext.json"
-)
+from hushh_mcp.services.generated_contracts import generated_contract_path
+
+logger = logging.getLogger(__name__)
 
 
 def _strings(value: Any) -> list[str]:
@@ -65,18 +65,29 @@ def _normalize(raw: Any) -> dict[str, Any] | None:
 
 @lru_cache(maxsize=1)
 def load_action_gateway() -> dict[str, Any]:
-    if not _GATEWAY_PATH.exists():
+    gateway_path = generated_contract_path("kai", "kai-action-gateway.vnext.json")
+    if not gateway_path.exists():
+        # Never let this stay quiet. An empty gateway is not a degraded mode: it
+        # makes One answer `unknown_action` for every id, so voice looks broken
+        # with no other signal anywhere. That is precisely how a packaging bug
+        # rode into UAT and production unnoticed.
+        logger.error(
+            "one_action_gateway_missing path=%s "
+            "(no actions will resolve; regenerate with `npm run build:voice-gateway`)",
+            gateway_path,
+        )
         return {"schema_version": "kai.action_gateway.vnext", "actions": [], "source": "missing"}
-    raw = json.loads(_GATEWAY_PATH.read_text(encoding="utf-8"))
+    raw = json.loads(gateway_path.read_text(encoding="utf-8"))
     raw_actions = raw.get("actions") if isinstance(raw, dict) else []
     actions = [entry for entry in (_normalize(item) for item in raw_actions or []) if entry]
+    logger.info("one_action_gateway_loaded actions=%d path=%s", len(actions), gateway_path)
     return {
         "schema_version": str(raw.get("schema_version") or "kai.action_gateway.vnext")
         if isinstance(raw, dict)
         else "kai.action_gateway.vnext",
         "actions": actions,
         "source": "file",
-        "path": str(_GATEWAY_PATH),
+        "path": str(gateway_path),
     }
 
 
