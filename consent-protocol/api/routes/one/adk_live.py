@@ -1437,32 +1437,23 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                 action_id,
                                 duplicate_directive_id,
                             )
-                            # Dedupe used to drop the repeat and say nothing.
-                            # But run_app_action had already answered the model
-                            # `confirm_pending`, so from One's side the proposal
-                            # succeeded -- and it asked again, out loud, every
-                            # time. Reported live as the agent "repeating the
-                            # same line without pause"; the card on screen was
-                            # correct throughout, only the narration doubled.
+                            # Deliberately silent. Answering the duplicate here
+                            # looks like the obvious fix -- One repeats itself
+                            # because nothing tells it the card is already up --
+                            # and it is a feedback loop: the note is injected as
+                            # user content, which starts a NEW model turn, in
+                            # which One calls the tool again, which dedupes,
+                            # which sends the note again. Tried live and it took
+                            # a question asked three times to one asked dozens
+                            # of times, plus the injections preempting One's own
+                            # speech mid-sentence.
                             #
-                            # Swallowing the directive is right. Swallowing it
-                            # without telling the model is what makes it repeat.
-                            queue.send_content(
-                                genai_types.Content(
-                                    role="user",
-                                    parts=[
-                                        genai_types.Part(
-                                            text=(
-                                                "[Directive ledger - not user speech] That exact "
-                                                "confirmation is already on screen and still "
-                                                "waiting. Do not propose it again and do not "
-                                                "repeat the question. Say nothing further until "
-                                                "its settlement arrives."
-                                            )
-                                        )
-                                    ],
-                                )
-                            )
+                            # The repetition is real and still unfixed. It has
+                            # to be answered where the model's turn already
+                            # ends -- in run_app_action's own return, which
+                            # should not say `confirm_pending` a second time for
+                            # a directive that is already open -- not by pushing
+                            # new content into a live turn.
                             continue
                         try:
                             issued = await get_action_directive_store().issue(
