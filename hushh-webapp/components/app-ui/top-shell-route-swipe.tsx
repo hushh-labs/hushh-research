@@ -188,15 +188,7 @@ export function TopShellRouteSwipe({
       );
       const velocity = horizontal / durationMs;
       const finalAxis = axis;
-      reset();
-      resetVisual(true);
-
-      if (
-        finalAxis !== "horizontal" ||
-        vertical > VERTICAL_LIMIT_PX ||
-        horizontal < vertical * DIRECTION_RATIO
-      )
-        return;
+      const destination = tabSet.tabs[activeIndex + (deltaX < 0 ? 1 : -1)];
       const threshold = Math.max(
         COMMIT_DISTANCE_MIN_PX,
         Math.min(
@@ -204,10 +196,22 @@ export function TopShellRouteSwipe({
           window.innerWidth * COMMIT_DISTANCE_RATIO,
         ),
       );
-      if (horizontal < threshold && velocity < COMMIT_VELOCITY_PX_PER_MS)
+      const shouldCommit =
+        finalAxis === "horizontal" &&
+        vertical <= VERTICAL_LIMIT_PX &&
+        horizontal >= vertical * DIRECTION_RATIO &&
+        (horizontal >= threshold || velocity >= COMMIT_VELOCITY_PX_PER_MS) &&
+        Boolean(destination && destination.href !== pathname);
+      reset();
+
+      // A cancelled gesture returns to the selected route smoothly. A committed
+      // gesture deliberately keeps its compositor offset through the shared
+      // route exit, so it does not snap back before the new workspace tab
+      // arrives. `navigate` resets it while the outgoing route is invisible.
+      if (!shouldCommit || !destination) {
+        resetVisual(true);
         return;
-      const destination = tabSet.tabs[activeIndex + (deltaX < 0 ? 1 : -1)];
-      if (!destination || destination.href === pathname) return;
+      }
       setTopShellTabSwipeState(
         tabSet.id,
         Math.max(
@@ -216,12 +220,17 @@ export function TopShellRouteSwipe({
         ),
         false,
       );
-      scrollAppToTop("auto");
       beginRouteTransition(
         destination.href,
-        () => router.push(destination.href, { scroll: false }),
+        () => {
+          resetVisual(false);
+          // Reset after the shared exit has completed. Resetting at gesture
+          // release visibly jumps a long RIA page before it starts fading.
+          scrollAppToTop("auto");
+          router.push(destination.href, { scroll: false });
+        },
         "tap",
-        tabSet.queryParam ? "contextual" : "full",
+        "full",
       );
     };
 
@@ -314,7 +323,11 @@ export function TopShellRouteSwipe({
   if (!enabled) return <>{children}</>;
 
   return (
-    <div ref={swipeContentRef} data-top-shell-route-swipe-content="true">
+    <div
+      ref={swipeContentRef}
+      data-top-shell-route-swipe-content="true"
+      className="min-h-0 w-full touch-pan-y transform-gpu"
+    >
       {children}
     </div>
   );

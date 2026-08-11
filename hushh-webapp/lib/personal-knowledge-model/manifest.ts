@@ -84,8 +84,17 @@ export type DomainManifest = {
   scope_registry?: PkmScopeRegistryEntry[];
 };
 
+/** The key whose children are a collection keyed by entity id, not structure. */
+const ENTITY_MAP_KEY = "entities";
+/** One representative subtree standing for every entry of an `entities` map. */
+const ENTITY_COLLECTION_SEGMENT = "_entities";
+
 function normalizePathSegment(segment: string): string {
-  if (String(segment).trim().toLowerCase() === "_items") return "_items";
+  const normalized = String(segment).trim().toLowerCase();
+  // Synthetic collection segments survive verbatim; the rule below would strip
+  // their leading underscore and turn them into ordinary keys.
+  if (normalized === "_items") return "_items";
+  if (normalized === ENTITY_COLLECTION_SEGMENT) return ENTITY_COLLECTION_SEGMENT;
   return String(segment)
     .trim()
     .toLowerCase()
@@ -261,6 +270,22 @@ function walkValue(
   }
 
   const record = value as Record<string, unknown>;
+  // An `entities` map is a homogeneous collection keyed by entity id -- the
+  // same shape as an array, just keyed. Walking each key made the manifest grow
+  // with the DATA rather than the SHAPE: a portfolio of a hundred holdings
+  // emitted a hundred near-identical subtrees, pushed the path list past the
+  // server's 1000-path cap, and the save died with a 422 that got surfaced as
+  // "Backend returned failure on store". It also wrote every ticker the person
+  // owns into the manifest, which is holdings data sitting in a structure
+  // descriptor. Collapse to one representative subtree, exactly as arrays do.
+  if (path[path.length - 1] === ENTITY_MAP_KEY) {
+    for (const childValue of Object.values(record)) {
+      if (childValue !== undefined) {
+        walkValue(childValue, [...path, ENTITY_COLLECTION_SEGMENT], descriptors);
+      }
+    }
+    return;
+  }
   for (const [rawKey, childValue] of Object.entries(record)) {
     const normalizedKey = normalizePathSegment(rawKey);
     if (!normalizedKey) {
@@ -393,6 +418,22 @@ function extractPathValue(value: unknown, segments: string[]): unknown {
       .filter((item) => item !== undefined);
     return extracted.length ? extracted : undefined;
   }
+  if (segment === ENTITY_COLLECTION_SEGMENT) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return undefined;
+    }
+    // One collapsed path stands for every entity, so project each one and keep
+    // the entity ids as keys -- the manifest no longer enumerates them, but the
+    // projected data still has to say which entity each value belongs to.
+    const extracted: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      const child = extractPathValue(item, rest);
+      if (child !== undefined) {
+        extracted[key] = child;
+      }
+    }
+    return Object.keys(extracted).length ? extracted : undefined;
+  }
 
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -417,6 +458,18 @@ function rebuildProjectedValue(segments: string[], value: unknown): unknown {
       return [];
     }
     return value.map((item) => rebuildProjectedValue(rest, item));
+  }
+  if (segment === ENTITY_COLLECTION_SEGMENT) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return {};
+    }
+    // Mirrors the keyed shape extractPathValue produced for this segment.
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        rebuildProjectedValue(rest, item),
+      ]),
+    );
   }
 
   return {

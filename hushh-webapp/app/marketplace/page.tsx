@@ -47,6 +47,7 @@ import {
   ConsentCenterService,
   type ConsentCenterEntry,
 } from "@/lib/services/consent-center-service";
+import { ConnectionsService } from "@/lib/services/connections-service";
 import { buildMarketplaceContactLookups } from "@/lib/marketplace/contact-matching";
 import {
   isIAMSchemaNotReadyError,
@@ -833,7 +834,11 @@ export default function MarketplacePage() {
     try {
       setContactMatchLoading(true);
       setContactMatchError(null);
-      const lookupResult = await buildMarketplaceContactLookups({ limit: 500 });
+      const lookupResult = await buildMarketplaceContactLookups({
+        limit: 500,
+        // Resolves which region bare national contact numbers belong to.
+        accountPhoneNumber: user.phoneNumber,
+      });
       if (lookupResult.lookups.length === 0) {
         setContactMatches([]);
         setContactScanSummary("No phone numbers found in contacts.");
@@ -849,7 +854,7 @@ export default function MarketplacePage() {
         `${matches.length} match${matches.length === 1 ? "" : "es"} from ${lookupResult.totalContacts} contacts.`
       );
       if (matches.length === 0) {
-        toast.info("No Hushh contacts found", {
+        toast.info("No Hussh contacts found", {
           description: "Search is still available across public profiles.",
         });
       }
@@ -874,30 +879,20 @@ export default function MarketplacePage() {
     const investorUserId = marketplaceInvestorUserId(investor);
     if (!isMarketplaceInvestorConnectable(investor) || !investorUserId) {
       toast.info("Public investor profile", {
-        description: "This profile is discovery-only until an invite or verified Hushh account exists.",
+        description: "This profile is discovery-only until an invite or verified Hussh account exists.",
       });
       return;
     }
     try {
       setActionLoadingUserId(investorUserId);
       const idToken = await user.getIdToken();
-      const request = await ConsentCenterService.createRequest({
+      const request = await ConnectionsService.sendRequest({
         idToken,
-        userId: user.uid,
-        payload: {
-          subject_user_id: investorUserId,
-          requester_actor_type: "ria",
-          subject_actor_type: "investor",
-          scope_template_id: "ria_financial_summary_v1",
-          duration_mode: "preset",
-          duration_hours: 168,
-        },
+        addresseeUserId: investorUserId,
+        message: "Would like to connect.",
       });
       await persistInvestorAction(investor, "connect_request", {
-        request_id:
-          request && typeof request === "object" && "request_id" in request
-            ? String(request.request_id || "")
-            : null,
+        request_id: request.id || null,
         gesture: "right_swipe_or_connect",
       });
       const investorId = marketplaceInvestorCardId(investor);
@@ -921,17 +916,10 @@ export default function MarketplacePage() {
     try {
       setActionLoadingUserId(ria.user_id);
       const idToken = await user.getIdToken();
-      await ConsentCenterService.createRequest({
+      await ConnectionsService.sendRequest({
         idToken,
-        userId: user.uid,
-        payload: {
-          subject_user_id: ria.user_id,
-          requester_actor_type: "investor",
-          subject_actor_type: "ria",
-          scope_template_id: "investor_advisor_disclosure_v1",
-          duration_mode: "preset",
-          duration_hours: 168,
-        },
+        addresseeUserId: ria.user_id,
+        message: "Would like to connect.",
       });
       toast.success("Connection request sent", {
         description: "The advisor can review it in their pending connections.",
@@ -1228,7 +1216,7 @@ export default function MarketplacePage() {
                   Contacts
                 </p>
                 <h3 className="mt-1 line-clamp-1 text-[15px] font-semibold leading-snug tracking-normal text-foreground">
-                  Already on Hushh
+                  Already on Hussh
                 </h3>
               </div>
               <Button
@@ -1250,7 +1238,7 @@ export default function MarketplacePage() {
                   onClick={() => openContactMatch(match)}
                 >
                   <ProfileAvatar
-                    kind={match.kind}
+                    kind={match.kind === "one_user" ? "investor" : match.kind}
                     label={match.display_name}
                     className="h-11 w-11 rounded-2xl"
                     riaSurface={isRiaConnectSurface}
@@ -1676,7 +1664,7 @@ export default function MarketplacePage() {
                   {selectedInvestor.strategy_summary ||
                     (selectedInvestorConnectable
                       ? "This investor has opted into discovery and is available for a connection flow."
-                      : "This public investor profile is available for discovery review. Direct consent requests require a verified Hushh investor account.")}
+                      : "This public investor profile is available for discovery review. Direct consent requests require a verified Hussh investor account.")}
                 </p>
               </RiaSurface>
 

@@ -1032,6 +1032,104 @@ async def test_verified_profile_create_uses_server_identity_and_never_writes_der
 
 
 @pytest.mark.asyncio
+async def test_verified_profile_create_splits_phone_country_code_when_mapped():
+    class VerifiedIdentityService:
+        async def get_many(self, _user_ids):
+            return {
+                "user_123": {
+                    "display_name": "Bob Smith",
+                    "email": "bob@example.test",
+                    "email_verified": True,
+                    "phone_number": "+44 20 8366 1177",
+                    "phone_verified": True,
+                }
+            }
+
+    service, adapter = build_service()
+    service.identity_service = VerifiedIdentityService()
+
+    async def schema_with_country_code(payload: dict) -> dict:
+        adapter.calls.append(("object-schema", payload))
+        return {
+            "isError": False,
+            "payload": {
+                "fields": [
+                    {"name": "Email", "type": "email"},
+                    {"name": "Phone", "type": "phone"},
+                    {"name": "PhoneCountryCode", "type": "string"},
+                    {"name": "LastName", "type": "string", "required": True},
+                ]
+            },
+        }
+
+    adapter.object_schema = schema_with_country_code
+
+    intent = await service.create_record_intent_for_verified_user(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        object_type=None,
+        profile_field_mappings={
+            "email": "Email",
+            "phone": "Phone",
+            "phoneCountryCode": "PhoneCountryCode",
+            "lastName": "LastName",
+        },
+    )
+
+    stored = service.store.intents[intent["intentId"]]["request_payload"]
+    assert stored.get("additionalFields", {}).get("PhoneCountryCode") == "+44"
+    assert stored.get("phone") == "2083661177"
+
+
+@pytest.mark.asyncio
+async def test_verified_profile_create_falls_back_to_full_phone_when_country_code_unmapped():
+    class VerifiedIdentityService:
+        async def get_many(self, _user_ids):
+            return {
+                "user_123": {
+                    "display_name": "Bob Smith",
+                    "email": "bob@example.test",
+                    "email_verified": True,
+                    "phone_number": "+44 20 8366 1177",
+                    "phone_verified": True,
+                }
+            }
+
+    service, adapter = build_service()
+    service.identity_service = VerifiedIdentityService()
+
+    async def schema_without_country_code(payload: dict) -> dict:
+        adapter.calls.append(("object-schema", payload))
+        return {
+            "isError": False,
+            "payload": {
+                "fields": [
+                    {"name": "Email", "type": "email"},
+                    {"name": "Phone", "type": "phone"},
+                    {"name": "LastName", "type": "string", "required": True},
+                ]
+            },
+        }
+
+    adapter.object_schema = schema_without_country_code
+
+    intent = await service.create_record_intent_for_verified_user(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        object_type=None,
+        profile_field_mappings={
+            "email": "Email",
+            "phone": "Phone",
+            "lastName": "LastName",
+        },
+    )
+
+    stored = service.store.intents[intent["intentId"]]["request_payload"]
+    assert "PhoneCountryCode" not in stored.get("additionalFields", {})
+    assert stored.get("phone") == "442083661177"
+
+
+@pytest.mark.asyncio
 async def test_verified_profile_create_accepts_required_derived_full_name_when_split_name_is_mapped():
     class VerifiedIdentityService:
         async def get_many(self, _user_ids):
@@ -1079,12 +1177,107 @@ async def test_verified_profile_create_accepts_required_derived_full_name_when_s
         user_id="user_123",
         system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
         object_type=None,
+        profile_field_mappings={
+            "email": "Email",
+            "phone": "Phone",
+            "firstName": "FirstName",
+            "lastName": "LastName",
+        },
     )
 
     stored = service.store.intents[intent["intentId"]]["request_payload"]
     assert stored["firstName"] == "John"
     assert stored["lastName"] == "Doe"
     assert "Name" not in stored
+
+
+@pytest.mark.asyncio
+async def test_verified_profile_create_allows_required_crm_owned_defaults():
+    class VerifiedIdentityService:
+        async def get_many(self, _user_ids):
+            return {
+                "user_123": {
+                    "display_name": "John Doe",
+                    "email": "john@example.test",
+                    "email_verified": True,
+                    "phone_number": "+1 (415) 555-0100",
+                    "phone_verified": True,
+                }
+            }
+
+    service, adapter = build_service()
+    service.identity_service = VerifiedIdentityService()
+
+    async def schema_with_defaulted_owner(payload: dict) -> dict:
+        adapter.calls.append(("object-schema", payload))
+        return {
+            "isError": False,
+            "payload": {
+                "fields": [
+                    {"name": "Email", "type": "email"},
+                    {"name": "Phone", "type": "phone"},
+                    {"name": "LastName", "type": "string", "required": True},
+                    {
+                        "name": "OwnerId",
+                        "label": "Owner ID",
+                        "type": "reference",
+                        "required": True,
+                        "defaultedOnCreate": True,
+                    },
+                ]
+            },
+        }
+
+    adapter.object_schema = schema_with_defaulted_owner
+    intent = await service.create_record_intent_for_verified_user(
+        user_id="user_123",
+        system_id=CONNECTED_SYSTEM_SALESFORCE_ID,
+        object_type=None,
+        profile_field_mappings={
+            "email": "Email",
+            "phone": "Phone",
+            "lastName": "LastName",
+        },
+    )
+
+    stored = service.store.intents[intent["intentId"]]["request_payload"]
+    assert stored["email"] == "john@example.test"
+    assert stored["lastName"] == "Doe"
+    assert "OwnerId" not in stored.get("additionalFields", {})
+
+
+def test_derived_full_name_satisfaction_does_not_bypass_other_required_crm_fields():
+    with pytest.raises(ConnectedSystemValidationError, match="Department") as captured:
+        ConnectedSystemsService._validated_schema_fields(
+            {
+                "FirstName": {
+                    "name": "FirstName",
+                    "label": "First Name",
+                    "required": False,
+                },
+                "LastName": {
+                    "name": "LastName",
+                    "label": "Last Name",
+                    "required": True,
+                },
+                "Name": {
+                    "name": "Name",
+                    "label": "Full Name",
+                    "required": True,
+                },
+                "Department": {
+                    "name": "Department",
+                    "label": "Department",
+                    "required": True,
+                },
+            },
+            {"FirstName": "John", "LastName": "Doe"},
+            action="create",
+            require_required_fields=True,
+            satisfied_required_fields={"Name"},
+        )
+
+    assert captured.value.code == "CONNECTED_SYSTEM_SCHEMA_REQUIRED_FIELDS"
 
 
 @pytest.mark.asyncio
@@ -1737,8 +1930,8 @@ def test_adapter_passes_transport_headers_into_streamable_client(monkeypatch):
     assert captured["kwargs"]["headers"] == {"client_id": "cid-1", "client_secret": "secret-1"}
 
 
-def test_adapter_passes_gateway_headers_and_private_tool_arguments(monkeypatch):
-    """Gateway auth stays in headers; registry private args are merged into tool args."""
+def test_adapter_passes_gateway_headers_and_connector_reference(monkeypatch):
+    """Gateway auth stays in headers; MuleSoft receives only connectorRef."""
     import contextlib
 
     captured: dict = {}
@@ -1795,14 +1988,7 @@ def test_adapter_passes_gateway_headers_and_private_tool_arguments(monkeypatch):
         registry_source="enterprise_crm_registry",
         tool_catalog=({"name": "object-schema", "operation": "schema"},),
         transport_headers=(("client_id", "gateway-client"), ("client_secret", "gateway-secret")),
-        transport_tool_arguments={
-            "crmBaseUrl": "https://example.my.salesforce.com",
-            "crmMcpEndpoint": "/services/mcp/v1",
-            "clientId": "plain-salesforce-client-id",
-            "clientSecret": "encrypted-salesforce-client-secret",
-            "crmTokenUrl": "https://example.my.salesforce.com/services/oauth2/token",
-            "objectType": "Contact",
-        },
+        transport_tool_arguments={"connectorRef": "mulesoft:crm-sandbox-contact"},
     )
 
     adapter = ExternalCrmStreamableMcpAdapter.from_registry(definition)
@@ -1815,16 +2001,38 @@ def test_adapter_passes_gateway_headers_and_private_tool_arguments(monkeypatch):
         "client_id": "gateway-client",
         "client_secret": "gateway-secret",
     }
-    assert captured["arguments"]["clientId"] == "plain-salesforce-client-id"
-    assert captured["arguments"]["clientSecret"] == "encrypted-salesforce-client-secret"
-    assert captured["arguments"]["crmBaseUrl"] == "https://example.my.salesforce.com"
-    assert captured["arguments"]["crmMcpEndpoint"] == "/services/mcp/v1"
-    assert (
-        captured["arguments"]["crmTokenUrl"]
-        == "https://example.my.salesforce.com/services/oauth2/token"
-    )
+    assert captured["arguments"]["connectorRef"] == "mulesoft:crm-sandbox-contact"
     assert captured["arguments"]["objectType"] == "Contact"
     assert captured["arguments"]["target"] == "X"
+
+
+@pytest.mark.asyncio
+async def test_mulesoft_connector_reference_strips_backend_target_before_tool_call():
+    adapter = GenericCrmAdapter()
+    definition = ConnectedSystemDefinition(
+        system_id="crm-mulesoft",
+        display_name="MuleSoft CRM",
+        customer_display_name="MuleSoft CRM",
+        system_type="CRM",
+        system_name="MuleSoft CRM",
+        target="not-a-partner-input",
+        object_type_default="Contact",
+        transport="external_crm_streamable_mcp",
+        transport_endpoint="registry://crm-mulesoft",
+        registry_source="test",
+        tool_catalog=({"name": "object-schema", "operation": "schema"},),
+        capabilities=frozenset({"schema"}),
+        mulesoft_connector_ref="mulesoft:crm-sandbox-contact",
+    )
+    service = ConnectedSystemsService(
+        adapter=adapter,
+        store=InMemoryConnectedSystemIntentStore(),
+        registry=(definition,),
+    )
+
+    await service.get_schema(system_id="crm-mulesoft", object_type="Contact")
+
+    assert adapter.calls[0][3] == {"objectType": "Contact"}
 
 
 def test_adapter_without_headers_omits_headers_kwarg(monkeypatch):

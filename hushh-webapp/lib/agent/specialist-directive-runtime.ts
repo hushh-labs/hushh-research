@@ -19,7 +19,8 @@ export type DelegateResult = {
     | "agent_location"
     | "agent_connected_systems"
     | "agent_connections"
-    | "agent_email";
+    | "agent_email"
+    | "agent_calendar";
   kind: "action" | "selection";
   id: string;
   // promptKind is only set for kind:"selection" turns. It carries the location

@@ -9,120 +9,53 @@ discovery directory `list_directory_candidates`, read-only.
 
 from __future__ import annotations
 
-import json
+import asyncio
+import hashlib
 import logging
-from datetime import datetime, timezone
+from contextlib import contextmanager
 from typing import Any, Callable
 
 from sqlalchemy import text
 
 from db.db_client import get_db
+from hushh_mcp.services.connection_graph_service import (
+    ORIGIN_DIRECT_REQUEST,
+    ensure_connection_origin,
+)
 from hushh_mcp.services.feed_service import FeedService
 
 logger = logging.getLogger(__name__)
 
-# Connect scope-request fan-out constants. A granted P2P scope reuses the proven
-# consent export path: the requester publishes an on-device X25519 public key and
-# the addressee's `handleApprove` wraps each granted scope's export key back to it
-# (X25519 ECDH -> SHA-256 -> AES-256-GCM). The backend only ever relays ciphertext.
-_CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
-_CONNECTION_REQUEST_SOURCE = "connection"
-_CONNECTION_ACTOR_TYPE = "connection"
-# Pending scope-request events live for 14 days (parity with the consent/KYC
-# request window). The narrower grant TTL is applied later by the approve path.
-_CONNECTION_REQUEST_TTL_MS = 14 * 24 * 60 * 60 * 1000
+_RIA_ACTIVE_PICKS_CAPABILITY = "ria_active_picks_feed_v1"
 
-# Domains never offered in the P2P Connect scope picker: advisor (`ria`) and, for
-# v1, precise `location` (shared through the live-location grant flow, not durable
-# `attr.location.*`). Internal-only slugs are excluded separately via
-# `INTERNAL_ONLY_DOMAIN_SLUGS`. The catalog is fully static + global so the picker
-# never reveals whether the addressee actually holds any of these scopes.
-_P2P_EXCLUDED_SCOPE_DOMAINS = frozenset({"ria", "location"})
-# Domains whose data is treated as high-sensitivity in the picker (drives the
-# per-scope caution affordance in the UX).
-_HIGH_SENSITIVITY_DOMAINS = frozenset({"financial", "health"})
+# Single source of truth for connection-capability display metadata. Both the
+# offer catalog and the receiver-facing proposal list read from here so the two
+# surfaces can never disagree on what a handle means. Keyed by capability_key.
+_CAPABILITY_METADATA: dict[str, dict[str, str]] = {
+    _RIA_ACTIVE_PICKS_CAPABILITY: {
+        "label": "RIA Picks",
+        "description": "Use this RIA's published investment picks in Market and Kai debates.",
+    },
+}
 
 
-def _scope_domain(scope: str) -> str:
-    """Top-level PKM domain of an ``attr.<domain>.<branch>.*`` scope ("" if n/a)."""
-    parts = str(scope or "").strip().split(".")
-    return parts[1] if len(parts) > 1 and parts[0] == "attr" else ""
+def _capability_label(capability_key: str | None) -> str:
+    meta = _CAPABILITY_METADATA.get((capability_key or "").strip())
+    if meta:
+        return meta["label"]
+    # Unknown/future capability: derive a distinct, human-readable label from the
+    # key itself so two different capabilities can never collapse into one row.
+    slug = (capability_key or "").strip()
+    if not slug:
+        return "Connection capability"
+    return slug.replace("_", " ").replace(".", " ").strip().title()
 
 
-def _is_p2p_requestable_scope(scope: str) -> bool:
-    """Whether a person may ask another person to share ``scope``.
-
-    Most-restrictive-wins: it must be an externally requestable semantic branch
-    (``attr.<domain>.<branch>.*``), never a capability/agent scope (including
-    ``cap.one.invoke``), and never in an internal-only or excluded domain.
-    """
-    from hushh_mcp.constants import ConsentScope
-    from hushh_mcp.services.domain_contracts import INTERNAL_ONLY_DOMAIN_SLUGS
-
-    normalized = str(scope or "").strip()
-    if not ConsentScope.is_external_requestable_scope(normalized):
-        return False
-    # `is_external_requestable_scope` also returns True for cap.one.invoke; the
-    # P2P picker never offers capability/agent scopes, only durable attr.* data.
-    if normalized == ConsentScope.CAP_ONE_INVOKE.value:
-        return False
-    if normalized.startswith(("agent.", "cap.")):
-        return False
-    domain = _scope_domain(normalized)
-    if not domain:
-        return False
-    if domain in INTERNAL_ONLY_DOMAIN_SLUGS or domain in _P2P_EXCLUDED_SCOPE_DOMAINS:
-        return False
-    return True
-
-
-def build_requestable_scope_catalog() -> dict[str, Any]:
-    """Global, presence-safe catalog of scopes one person may request from another.
-
-    Derived from the curated ``CANONICAL_BUNDLES`` (which enumerate real, valid
-    ``attr.<domain>.<branch>.*`` scopes), filtered to the P2P-shareable set. This is
-    intentionally NOT the developer ``/user-scopes/{id}`` discovery endpoint — that
-    reflects a *specific user's* holdings and would leak "does B have financial
-    data?" before consent. This catalog reflects no user's data at all.
-    """
-    from hushh_mcp.consent.scope_bundles import CANONICAL_BUNDLES
-    from hushh_mcp.consent.scope_helpers import get_scope_display_metadata
-
-    bundles: list[dict[str, Any]] = []
-    flat: dict[str, None] = {}  # first-seen order, de-duped across bundles
-    for bundle in CANONICAL_BUNDLES.values():
-        allowed = [s for s in bundle.scopes if _is_p2p_requestable_scope(s)]
-        if not allowed:
-            continue  # e.g. kyc_workflow (agent.* scopes) drops out entirely
-        bundles.append(
-            {
-                "id": bundle.bundle_key,
-                "label": bundle.label,
-                "description": bundle.description,
-                "icon_name": bundle.icon_name,
-                "color_hex": bundle.color_hex,
-                "scopes": allowed,
-            }
-        )
-        for scope in allowed:
-            flat.setdefault(scope, None)
-
-    scopes: list[dict[str, Any]] = []
-    for scope in sorted(flat):
-        meta = get_scope_display_metadata(scope)
-        scopes.append(
-            {
-                "scope": scope,
-                "label": meta.get("label"),
-                "description": meta.get("description"),
-                "icon_name": meta.get("icon_name"),
-                "color_hex": meta.get("color_hex"),
-                "sensitivity": (
-                    "high" if _scope_domain(scope) in _HIGH_SENSITIVITY_DOMAINS else "low"
-                ),
-            }
-        )
-    return {"bundles": bundles, "scopes": scopes}
+def _capability_description(capability_key: str | None) -> str:
+    meta = _CAPABILITY_METADATA.get((capability_key or "").strip())
+    if meta:
+        return meta["description"]
+    return "A connection capability selected by the other person."
 
 
 class ConnectionsError(RuntimeError):
@@ -145,6 +78,28 @@ def _default_directory_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     return OneLocationAgentService().list_directory_candidates(owner_user_id=owner_user_id)
 
 
+def _default_directory_search(
+    owner_user_id: str, *, query: str, page: int, limit: int
+) -> dict[str, Any]:
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    return OneLocationAgentService().search_directory_candidates(
+        owner_user_id=owner_user_id,
+        query=query,
+        page=page,
+        limit=limit,
+    )
+
+
+def _default_directory_visible(owner_user_id: str, candidate_user_id: str) -> bool:
+    from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
+
+    return OneLocationAgentService().is_directory_candidate(
+        owner_user_id=owner_user_id,
+        candidate_user_id=candidate_user_id,
+    )
+
+
 def _default_notifier(*, addressee_user_id: str, requester_user_id: str) -> None:
     """Best-effort real push (deferred import keeps Firebase off the import path)."""
     from hushh_mcp.services.push_notifications import send_connection_request_push
@@ -152,24 +107,96 @@ def _default_notifier(*, addressee_user_id: str, requester_user_id: str) -> None
     send_connection_request_push(addressee_user_id, requester_user_id)
 
 
+def _default_scope_entries_lookup(owner_user_id: str) -> list[dict[str, Any]]:
+    """Read discoverable scope metadata only; never materialized information."""
+    from hushh_mcp.consent.scope_generator import DynamicScopeGenerator
+
+    return asyncio.run(DynamicScopeGenerator().get_available_scope_entries(owner_user_id))
+
+
 class ConnectionsService:
     def __init__(
         self,
         *,
         directory_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
+        directory_search: Callable[..., dict[str, Any]] | None = None,
+        directory_visible: Callable[[str, str], bool] | None = None,
+        scope_entries_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
         notifier: Callable[..., Any] | None = None,
     ) -> None:
         self._directory_lookup = directory_lookup or _default_directory_lookup
+        self._directory_search = directory_search or _default_directory_search
+        self._directory_visible = directory_visible or _default_directory_visible
+        self._scope_entries_lookup = scope_entries_lookup or _default_scope_entries_lookup
         self._notifier = notifier if notifier is not None else _default_notifier
 
     # ---- DB seam ----
     def _execute_one(self, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        active_connection = getattr(self, "_transaction_connection", None)
+        if active_connection is not None:
+            result = active_connection.execute(text(sql), params or {})
+            if not getattr(result, "returns_rows", True):
+                return None
+            rows = result.fetchall()
+            return self._row_mapping(rows[0]) if rows else None
         result = get_db().execute_raw(sql, params or {})
         return result.data[0] if result.data else None
 
     def _execute_many(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        active_connection = getattr(self, "_transaction_connection", None)
+        if active_connection is not None:
+            result = active_connection.execute(text(sql), params or {})
+            if not getattr(result, "returns_rows", True):
+                return []
+            return [self._row_mapping(row) for row in result.fetchall()]
         result = get_db().execute_raw(sql, params or {})
         return result.data or []
+
+    @staticmethod
+    def _row_mapping(row: Any) -> dict[str, Any]:
+        """Normalize SQLAlchemy and lightweight-test rows at one boundary."""
+        return dict(getattr(row, "_mapping", row))
+
+    @contextmanager
+    def _transaction(self):
+        """Keep each relationship state transition on one database connection.
+
+        ``execute_raw`` commits every statement by design. Connection proposals
+        need stronger semantics: their request, proposal state, RIA grant, and
+        artifact must either all commit or all roll back. The fallback keeps
+        lightweight unit doubles usable; real runtime databases always expose
+        ``engine.begin``.
+        """
+        if getattr(self, "_transaction_connection", None) is not None:
+            yield
+            return
+        database = get_db()
+        engine = getattr(database, "engine", None)
+        if engine is None:
+            yield
+            return
+        with engine.begin() as connection:
+            self._transaction_connection = connection
+            try:
+                yield
+            finally:
+                self._transaction_connection = None
+
+    @contextmanager
+    def _scope_activation_savepoint(self):
+        """Contain one optional capability activation inside a request transition.
+
+        A connection can still be accepted when one selected capability cannot
+        be materialized, but partial relationship/grant rows must never escape
+        that failed capability. Runtime SQLAlchemy connections support nested
+        transactions; lightweight unit doubles keep the same no-op boundary.
+        """
+        connection = getattr(self, "_transaction_connection", None)
+        if connection is None or not hasattr(connection, "begin_nested"):
+            yield
+            return
+        with connection.begin_nested():
+            yield
 
     # ---- Resolution ----
     def _resolve_query(self, owner_user_id: str, query: str) -> str:
@@ -187,6 +214,393 @@ class ConnectionsService:
             candidates=matches,
         )
 
+    # ---- Scope proposal catalog -------------------------------------------------
+    # Handles are deliberately opaque and carry no user information.  The server
+    # recomputes the catalog before every write; a browser cannot nominate a raw
+    # scope key or turn a relationship into an export authority.
+    @staticmethod
+    def _scope_handle(owner_user_id: str, capability_key: str) -> str:
+        material = f"connection-scope-v1|{owner_user_id}|{capability_key}".encode()
+        return f"scp_{hashlib.sha256(material).hexdigest()[:32]}"
+
+    def _scope_catalog_for_owner(self, owner_user_id: str) -> list[dict[str, str]]:
+        # Must track ria_iam_service._RIA_VERIFIED_STATUSES. The verification
+        # success path writes 'verified' (migration 028 retired 'finra_verified'
+        # and 'active' is never written), so omitting 'verified' here would hand a
+        # genuinely verified RIA an empty catalog and silently block RIA Picks.
+        ria = self._execute_one(
+            """
+            SELECT id
+            FROM ria_profiles
+            WHERE user_id = :user_id
+              AND verification_status IN ('active', 'verified', 'finra_verified')
+            LIMIT 1
+            """,
+            {"user_id": owner_user_id},
+        )
+        if not ria:
+            return []
+        return [
+            {
+                "handle": self._scope_handle(owner_user_id, _RIA_ACTIVE_PICKS_CAPABILITY),
+                "capabilityKey": _RIA_ACTIVE_PICKS_CAPABILITY,
+                "label": _capability_label(_RIA_ACTIVE_PICKS_CAPABILITY),
+                "description": _capability_description(_RIA_ACTIVE_PICKS_CAPABILITY),
+            }
+        ]
+
+    def get_scope_catalog(self, viewer_user_id: str, counterpart_user_id: str) -> dict[str, Any]:
+        viewer = (viewer_user_id or "").strip()
+        counterpart = (counterpart_user_id or "").strip()
+        if not viewer or not counterpart or viewer == counterpart:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
+            )
+        # Scope metadata is intentionally the only disclosure at this point. Do
+        # not turn this endpoint into a user or capability enumeration oracle:
+        # the counterpart must first be visible through the same server-owned
+        # directory used to create a connection request.
+        self._assert_directory_visible(viewer, counterpart)
+        return {
+            "counterpartUserId": counterpart,
+            "items": self._scope_catalog_for_owner(counterpart),
+            "offerableItems": self._scope_catalog_for_owner(viewer),
+        }
+
+    def get_information_scope_catalog(
+        self,
+        viewer_user_id: str,
+        counterpart_user_id: str,
+        *,
+        query: str = "",
+        domain: str = "",
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Search a connected person's dynamically discoverable ``attr.*`` scopes.
+
+        This is deliberately post-connection and metadata-only. A relationship
+        never grants access to values: callers must make a separate, consented
+        request that binds a requester-owned connector key before an encrypted
+        export can exist.
+        """
+        from hushh_mcp.consent.scope_generator import rank_scope_matches
+
+        viewer = (viewer_user_id or "").strip()
+        counterpart = (counterpart_user_id or "").strip()
+        if not viewer or not counterpart or viewer == counterpart:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
+            )
+        active_connection = self._execute_one(
+            """
+            SELECT id
+            FROM connections
+            WHERE status = 'active'
+              AND user_a_id = LEAST(:viewer, :counterpart)
+              AND user_b_id = GREATEST(:viewer, :counterpart)
+            LIMIT 1
+            """,
+            {"viewer": viewer, "counterpart": counterpart},
+        )
+        if not active_connection:
+            raise ConnectionsError(
+                "CONNECTION_INFORMATION_SCOPE_FORBIDDEN",
+                "Connect with this person before searching their available scopes.",
+                status_code=403,
+            )
+
+        safe_entries = [
+            {
+                "scope": str(entry.get("scope") or ""),
+                "label": str(entry.get("label") or "") or None,
+                "domain": str(entry.get("domain") or "") or None,
+                "path": str(entry.get("path") or "") or None,
+                "wildcard": bool(entry.get("wildcard")),
+            }
+            for entry in self._scope_entries_lookup(counterpart)
+            if isinstance(entry, dict)
+            and str(entry.get("scope") or "").startswith("attr.")
+            and entry.get("exposure_eligibility") is not False
+            and entry.get("consumer_visible") is not False
+            and entry.get("internal_only") is not True
+            and entry.get("visibility_posture") != "private"
+        ]
+        return {
+            "counterpartUserId": counterpart,
+            "items": rank_scope_matches(
+                safe_entries,
+                query=query,
+                domain=domain,
+                limit=limit,
+            ),
+        }
+
+    def _assert_directory_visible(self, viewer_user_id: str, counterpart_user_id: str) -> None:
+        directory_visible = getattr(self, "_directory_visible", None)
+        if directory_visible is not None:
+            if directory_visible(viewer_user_id, counterpart_user_id):
+                return
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_FORBIDDEN",
+                "That connection target is not available.",
+                status_code=404,
+            )
+        visible_user_ids = {
+            str(person.get("userId") or "").strip()
+            for person in self._directory_lookup(viewer_user_id)
+        }
+        if counterpart_user_id not in visible_user_ids:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_FORBIDDEN",
+                "That connection target is not available.",
+                status_code=404,
+            )
+
+    def _resolve_scope_handles(
+        self, owner_user_id: str, handles: list[str] | None
+    ) -> list[dict[str, str]]:
+        requested = {
+            str(handle or "").strip() for handle in (handles or []) if str(handle or "").strip()
+        }
+        if len(requested) > 25:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_LIMIT", "Too many connection scopes.", status_code=422
+            )
+        # Preserve the established no-scope connection path. It has no reason to
+        # inspect a counterpart's capability catalog.
+        if not requested:
+            return []
+        available = {item["handle"]: item for item in self._scope_catalog_for_owner(owner_user_id)}
+        invalid = requested.difference(available)
+        if invalid:
+            logger.warning(
+                "connections.resolve_scope_handles_warning owner_user_id=%s invalid_handles=%s",
+                owner_user_id,
+                invalid,
+            )
+            requested = requested.intersection(available)
+        return [available[handle] for handle in sorted(requested)]
+
+    def _record_scope_event(
+        self,
+        proposal_id: str,
+        *,
+        event_type: str,
+        actor_user_id: str | None,
+        reason: str | None = None,
+    ) -> None:
+        self._execute_one(
+            """
+            INSERT INTO connection_scope_proposal_events (
+              connection_scope_proposal_id, event_type, actor_user_id, reason
+            ) VALUES (
+              CAST(:proposal_id AS UUID), :event_type, :actor_user_id, :reason
+            ) RETURNING id
+            """,
+            {
+                "proposal_id": proposal_id,
+                "event_type": event_type,
+                "actor_user_id": actor_user_id,
+                "reason": reason,
+            },
+        )
+
+    def _proposal_items(self, request_id: str) -> list[dict[str, Any]]:
+        rows = self._execute_many(
+            """
+            SELECT id, scope_handle, capability_key, direction, owner_user_id,
+                   receiver_user_id, status, created_at, expires_at, resolved_at
+            FROM connection_scope_proposals
+            WHERE connection_request_id = :request_id
+            ORDER BY direction ASC, created_at ASC, id ASC
+            """,
+            {"request_id": request_id},
+        )
+        return [
+            {
+                "id": str(row.get("id") or ""),
+                "scopeHandle": str(row.get("scope_handle") or ""),
+                "direction": str(row.get("direction") or ""),
+                "label": _capability_label(row.get("capability_key")),
+                "description": _capability_description(row.get("capability_key")),
+                "status": str(row.get("status") or "pending"),
+                "createdAt": row.get("created_at"),
+                "expiresAt": row.get("expires_at"),
+                "resolvedAt": row.get("resolved_at"),
+            }
+            for row in rows
+        ]
+
+    def expire_due_capabilities(self) -> int:
+        """Expire proposal-bound capability projections atomically.
+
+        Every read path also tests ``expires_at`` directly, so authorization
+        fails closed even before this maintenance projection runs. This method
+        turns that temporal boundary into durable proposal/share history for
+        the worker and for any explicit maintenance invocation.
+        """
+        with self._transaction():
+            proposals = self._execute_many(
+                """
+                UPDATE connection_scope_proposals
+                SET status = 'expired', resolved_at = COALESCE(resolved_at, NOW())
+                WHERE status = 'active' AND expires_at <= NOW()
+                RETURNING id
+                """
+            )
+            if not proposals:
+                return 0
+
+            proposal_ids = [str(row.get("id") or "") for row in proposals]
+            for proposal_id in proposal_ids:
+                self._record_scope_event(
+                    proposal_id,
+                    event_type="EXPIRED",
+                    actor_user_id=None,
+                    reason="capability_expired",
+                )
+
+            grants = self._execute_many(
+                """
+                UPDATE relationship_share_grants grant_row
+                SET status = 'expired', revoked_at = NOW(), updated_at = NOW(),
+                    metadata = COALESCE(grant_row.metadata, '{}'::jsonb)
+                      || jsonb_build_object('expired_reason', 'capability_expired')
+                WHERE grant_row.status = 'active'
+                  AND grant_row.connection_scope_proposal_id = ANY(
+                    CAST(:proposal_ids AS uuid[])
+                  )
+                RETURNING grant_row.id, grant_row.relationship_id, grant_row.grant_key,
+                          grant_row.provider_user_id, grant_row.receiver_user_id,
+                          grant_row.connection_request_id,
+                          grant_row.connection_scope_proposal_id
+                """,
+                {"proposal_ids": proposal_ids},
+            )
+            for grant in grants:
+                params = {
+                    "grant_id": str(grant.get("id") or ""),
+                    "relationship_id": str(grant.get("relationship_id") or ""),
+                    "grant_key": str(grant.get("grant_key") or ""),
+                    "provider_user_id": str(grant.get("provider_user_id") or ""),
+                    "receiver_user_id": str(grant.get("receiver_user_id") or ""),
+                    "request_id": str(grant.get("connection_request_id") or ""),
+                    "proposal_id": str(grant.get("connection_scope_proposal_id") or ""),
+                }
+                self._execute_one(
+                    """
+                    INSERT INTO relationship_share_events (
+                      share_grant_id, relationship_id, grant_key, event_type,
+                      provider_user_id, receiver_user_id, connection_request_id,
+                      connection_scope_proposal_id, metadata, created_at
+                    ) VALUES (
+                      CAST(:grant_id AS UUID), CAST(:relationship_id AS UUID), :grant_key, 'EXPIRED',
+                      :provider_user_id, :receiver_user_id,
+                      CAST(:request_id AS UUID), CAST(:proposal_id AS UUID),
+                      jsonb_build_object('reason', 'capability_expired'), NOW()
+                    ) RETURNING id
+                    """,
+                    params,
+                )
+                self._execute_one(
+                    """
+                    UPDATE ria_pick_share_artifacts
+                    SET status = 'expired', updated_at = NOW()
+                    WHERE relationship_id = CAST(:relationship_id AS UUID)
+                      AND grant_key = :grant_key AND status = 'active'
+                    RETURNING id
+                    """,
+                    params,
+                )
+
+            self._execute_many(
+                """
+                UPDATE advisor_investor_relationships relationship
+                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                WHERE relationship.id = ANY(
+                  CAST(:relationship_ids AS uuid[])
+                )
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM relationship_share_grants active_grant
+                    JOIN connection_scope_proposals active_proposal
+                      ON active_proposal.id = active_grant.connection_scope_proposal_id
+                     AND active_proposal.status = 'active'
+                     AND active_proposal.expires_at > NOW()
+                    WHERE active_grant.relationship_id = relationship.id
+                      AND active_grant.status = 'active'
+                      AND active_grant.connection_scope_proposal_id IS NOT NULL
+                  )
+                RETURNING relationship.id
+                """,
+                {"relationship_ids": [str(grant.get("relationship_id") or "") for grant in grants]},
+            )
+        return len(proposals)
+
+    def get_scope_proposal_history(self, user_id: str, request_id: str) -> dict[str, Any]:
+        """Return public proposal status/history to one request participant.
+
+        Capability keys and counterpart-only identifiers stay server-side. The
+        immutable event trail exists for a recipient to understand the decision
+        lifecycle, not as a directory or relationship discovery API.
+        """
+        request = self._load_request(request_id)
+        viewer = (user_id or "").strip()
+        if viewer not in {
+            str(request.get("requester_user_id") or ""),
+            str(request.get("addressee_user_id") or ""),
+        }:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_HISTORY_FORBIDDEN",
+                "You cannot view this connection proposal.",
+                status_code=403,
+            )
+        items = self._proposal_items(str(request.get("id") or ""))
+        event_rows = self._execute_many(
+            """
+            SELECT connection_scope_proposal_id, event_type, reason, created_at
+            FROM connection_scope_proposal_events
+            WHERE connection_scope_proposal_id IN (
+              SELECT id
+              FROM connection_scope_proposals
+              WHERE connection_request_id = :request_id
+            )
+            ORDER BY created_at ASC, id ASC
+            """,
+            {"request_id": str(request.get("id") or "")},
+        )
+        events_by_proposal: dict[str, list[dict[str, Any]]] = {}
+        for row in event_rows:
+            proposal_id = str(row.get("connection_scope_proposal_id") or "")
+            events_by_proposal.setdefault(proposal_id, []).append(
+                {
+                    "type": str(row.get("event_type") or ""),
+                    "reason": row.get("reason"),
+                    "createdAt": row.get("created_at"),
+                }
+            )
+        return {
+            "requestId": str(request.get("id") or ""),
+            "items": [
+                {
+                    **{key: value for key, value in item.items() if key != "id"},
+                    "history": events_by_proposal.get(str(item.get("id") or ""), []),
+                }
+                for item in items
+            ],
+        }
+
+    def _request_payload(self, row: dict[str, Any]) -> dict[str, Any]:
+        request_id = str(row.get("id") or "")
+        return {
+            "id": request_id,
+            "requesterUserId": str(row.get("requester_user_id") or ""),
+            "addresseeUserId": str(row.get("addressee_user_id") or ""),
+            "status": str(row.get("status") or "pending"),
+            "message": row.get("message"),
+            "scopes": self._proposal_items(request_id) if request_id else [],
+        }
+
     # ---- Writes ----
     def create_request(
         self,
@@ -195,9 +609,8 @@ class ConnectionsService:
         addressee_user_id: str | None = None,
         query: str | None = None,
         message: str | None = None,
-        requested_scopes: list[str] | None = None,
-        requester_public_key: str | None = None,
-        requester_key_id: str | None = None,
+        requested_scope_handles: list[str] | None = None,
+        offered_scope_handles: list[str] | None = None,
     ) -> dict[str, Any]:
         requester_user_id = (requester_user_id or "").strip()
         if not requester_user_id:
@@ -225,88 +638,109 @@ class ConnectionsService:
                 "CONNECTION_NO_SELF", "You cannot connect with yourself.", status_code=422
             )
 
-        # Idempotent: if a pending request already exists (either direction), return
-        # it. On a same-direction re-ask carrying new scope info, merge the new
-        # scopes / refreshed requester key into the existing request instead of
-        # dropping them (the picker may have been reopened to ask for more).
-        existing = self._execute_one(
-            """
-            SELECT id, requester_user_id, addressee_user_id, status, message, metadata
-            FROM connection_requests
-            WHERE status = 'pending'
-              AND (
-                (requester_user_id = :a AND addressee_user_id = :b)
-                OR (requester_user_id = :b AND addressee_user_id = :a)
-              )
-            LIMIT 1
-            """,
-            {"a": requester_user_id, "b": target},
-        )
-        if existing:
-            merged_meta = self._parse_request_metadata(existing.get("metadata"))
-            incoming_meta = self._build_scope_request_metadata(
-                requested_scopes=requested_scopes,
-                requester_public_key=requester_public_key,
-                requester_key_id=requester_key_id,
-            )
-            same_direction = (
-                str(existing.get("requester_user_id")) == requester_user_id
-                and str(existing.get("addressee_user_id")) == target
-            )
-            if same_direction and incoming_meta:
-                merged_meta = self._merge_scope_request_metadata(
-                    existing.get("metadata"), incoming_meta
-                )
-                self._execute_one(
-                    """
-                    UPDATE connection_requests
-                    SET metadata = CAST(:metadata AS JSONB), updated_at = NOW()
-                    WHERE id = :id
-                    RETURNING id
-                    """,
-                    {"id": existing.get("id"), "metadata": json.dumps(merged_meta)},
-                )
-            return {
-                "id": existing.get("id"),
-                "requesterUserId": existing.get("requester_user_id"),
-                "addresseeUserId": existing.get("addressee_user_id"),
-                "status": existing.get("status") or "pending",
-                "message": existing.get("message"),
-                "requestedScopes": merged_meta.get("requested_scopes", []),
-            }
+        # Direct identifiers are selectors, not authority. A scope-bearing
+        # request must pass the same owner-controlled directory boundary as
+        # discovery, otherwise a caller who knows an RIA user id could
+        # manufacture a deterministic opaque handle and probe a capability
+        # relationship. Preserve the established generic compatibility path.
+        if requested_scope_handles or offered_scope_handles:
+            self._assert_directory_visible(requester_user_id, target)
 
-        request_metadata = self._build_scope_request_metadata(
-            requested_scopes=requested_scopes,
-            requester_public_key=requester_public_key,
-            requester_key_id=requester_key_id,
-        )
-        row = self._execute_one(
-            """
-            INSERT INTO connection_requests (
-              requester_user_id, addressee_user_id, status, message, metadata, created_at, updated_at
+        with self._transaction():
+            # Idempotent: if a pending request already exists (either direction), return it.
+            existing = self._execute_one(
+                """
+                SELECT id, requester_user_id, addressee_user_id, status, message
+                FROM connection_requests
+                WHERE status = 'pending'
+                  AND (
+                    (requester_user_id = :a AND addressee_user_id = :b)
+                    OR (requester_user_id = :b AND addressee_user_id = :a)
+                  )
+                LIMIT 1
+                """,
+                {"a": requester_user_id, "b": target},
             )
-            VALUES (:requester, :addressee, 'pending', :message, CAST(:metadata AS JSONB), NOW(), NOW())
-            RETURNING id
-            """,
-            {
-                "requester": requester_user_id,
-                "addressee": target,
-                "message": message,
-                "metadata": json.dumps(request_metadata),
-            },
-        )
-        # Best-effort: nudge the addressee's client so the new request appears
-        # without a manual "refresh consents". Only on a genuinely NEW insert
-        # (the idempotent-existing path above returns before reaching here), and
-        # never blocking or failing the write.
+            if existing:
+                return self._request_payload(existing)
+
+            requested_scopes = self._resolve_scope_handles(target, requested_scope_handles)
+            offered_scopes = self._resolve_scope_handles(requester_user_id, offered_scope_handles)
+
+            row = self._execute_one(
+                """
+                INSERT INTO connection_requests (
+                  requester_user_id, addressee_user_id, status, message, created_at, updated_at
+                )
+                VALUES (:requester, :addressee, 'pending', :message, NOW(), NOW())
+                RETURNING id
+                """,
+                {"requester": requester_user_id, "addressee": target, "message": message},
+            )
+            # All child proposals and their immutable events commit with the
+            # parent request. The nudge stays outside this transaction.
+            request_id = str((row or {}).get("id") or "")
+            for scope in requested_scopes:
+                proposal = self._execute_one(
+                    """
+                    INSERT INTO connection_scope_proposals (
+                      connection_request_id, scope_handle, capability_key, direction,
+                      owner_user_id, receiver_user_id, status, metadata
+                    ) VALUES (
+                      :request_id, :scope_handle, :capability_key, 'requested',
+                      :owner_user_id, :receiver_user_id, 'pending', '{}'::jsonb
+                    ) RETURNING id
+                    """,
+                    {
+                        "request_id": request_id,
+                        "scope_handle": scope["handle"],
+                        "capability_key": scope["capabilityKey"],
+                        "owner_user_id": target,
+                        "receiver_user_id": requester_user_id,
+                    },
+                )
+                if proposal:
+                    self._record_scope_event(
+                        str(proposal.get("id") or ""),
+                        event_type="PROPOSED",
+                        actor_user_id=requester_user_id,
+                    )
+            for scope in offered_scopes:
+                proposal = self._execute_one(
+                    """
+                    INSERT INTO connection_scope_proposals (
+                      connection_request_id, scope_handle, capability_key, direction,
+                      owner_user_id, receiver_user_id, status, metadata
+                    ) VALUES (
+                      :request_id, :scope_handle, :capability_key, 'offered',
+                      :owner_user_id, :receiver_user_id, 'pending', '{}'::jsonb
+                    ) RETURNING id
+                    """,
+                    {
+                        "request_id": request_id,
+                        "scope_handle": scope["handle"],
+                        "capability_key": scope["capabilityKey"],
+                        "owner_user_id": requester_user_id,
+                        "receiver_user_id": target,
+                    },
+                )
+                if proposal:
+                    self._record_scope_event(
+                        str(proposal.get("id") or ""),
+                        event_type="PROPOSED",
+                        actor_user_id=requester_user_id,
+                    )
         self._notify_new_request(target, requester_user_id)
+        # Avoid a redundant post-insert read for ordinary connections. Scoped
+        # requests are hydrated from the canonical child rows on the next
+        # request/list read; authority never comes from this response.
         return {
-            "id": (row or {}).get("id"),
+            "id": request_id,
             "requesterUserId": requester_user_id,
             "addresseeUserId": target,
             "status": "pending",
             "message": message,
-            "requestedScopes": request_metadata.get("requested_scopes", []),
+            "scopes": [],
         }
 
     def create_request_from_nearby_alias(
@@ -495,320 +929,9 @@ class ConnectionsService:
             )
         return {"relationship": str(row.get("relationship") or "")}
 
-    # ---- Helpers ----
-    @staticmethod
-    def _build_scope_request_metadata(
-        *,
-        requested_scopes: list[str] | None,
-        requester_public_key: str | None,
-        requester_key_id: str | None,
-    ) -> dict[str, Any]:
-        """Normalize the optional bundled scope-request into request metadata.
-
-        Persisted on ``connection_requests.metadata`` (JSONB). Empty when the
-        connection carries no scope ask, so plain connects keep the default
-        ``{}`` shape. Scopes are de-duped, order-preserved, and blank-stripped.
-        The requester's on-device X25519 public key travels here so the
-        addressee can ZK-wrap each granted scope back to the requester.
-        """
-        metadata: dict[str, Any] = {}
-        scopes: list[str] = []
-        for scope in requested_scopes or []:
-            cleaned = str(scope or "").strip()
-            if cleaned and cleaned not in scopes:
-                scopes.append(cleaned)
-        if scopes:
-            metadata["requested_scopes"] = scopes
-        public_key = str(requester_public_key or "").strip()
-        if public_key:
-            metadata["requester_public_key"] = public_key
-        key_id = str(requester_key_id or "").strip()
-        if key_id:
-            metadata["requester_key_id"] = key_id
-        return metadata
-
     @staticmethod
     def _canonical_pair(x: str, y: str) -> tuple[str, str]:
         return (x, y) if x < y else (y, x)
-
-    @staticmethod
-    def _now_ms() -> int:
-        return int(datetime.now(tz=timezone.utc).timestamp() * 1000)
-
-    @staticmethod
-    def _parse_request_metadata(value: Any) -> dict[str, Any]:
-        """Coerce a ``connection_requests.metadata`` cell into a dict.
-
-        The driver may hand back an already-parsed dict (JSONB) or a raw JSON
-        string depending on the path; normalize both, and never raise.
-        """
-        if isinstance(value, dict):
-            return value
-        if isinstance(value, str) and value.strip():
-            try:
-                parsed = json.loads(value)
-            except (ValueError, TypeError):
-                return {}
-            return parsed if isinstance(parsed, dict) else {}
-        return {}
-
-    @staticmethod
-    def _merge_scope_request_metadata(existing: Any, incoming: dict[str, Any]) -> dict[str, Any]:
-        """Merge a fresh scope ask into an existing request's metadata.
-
-        Union the requested scopes (order-preserved, de-duped) and let the newest
-        requester key win (the device may have rotated its on-device keypair).
-        """
-        base = ConnectionsService._parse_request_metadata(existing)
-        merged = dict(base)
-        scopes: list[str] = []
-        for scope in list(base.get("requested_scopes") or []) + list(
-            incoming.get("requested_scopes") or []
-        ):
-            cleaned = str(scope or "").strip()
-            if cleaned and cleaned not in scopes:
-                scopes.append(cleaned)
-        if scopes:
-            merged["requested_scopes"] = scopes
-        if incoming.get("requester_public_key"):
-            merged["requester_public_key"] = incoming["requester_public_key"]
-        if incoming.get("requester_key_id"):
-            merged["requester_key_id"] = incoming["requester_key_id"]
-        return merged
-
-    def _lookup_display_name(self, user_id: str) -> str | None:
-        row = self._execute_one(
-            """
-            SELECT display_name FROM actor_identity_cache
-            WHERE user_id = :user_id
-            LIMIT 1
-            """,
-            {"user_id": (user_id or "").strip()},
-        )
-        name = (row or {}).get("display_name")
-        return str(name).strip() if name else None
-
-    def _record_scope_decision(
-        self, *, request_id: str, granted: list[str], denied: list[str]
-    ) -> None:
-        """Persist the accept-time grant/deny snapshot onto the request row.
-
-        Non-fatal audit/render convenience -- the consent events are the source
-        of truth, so a failure here never blocks the accept.
-        """
-        request_id = (request_id or "").strip()
-        if not request_id:
-            return
-        try:
-            self._execute_one(
-                """
-                UPDATE connection_requests
-                SET metadata = jsonb_set(
-                      COALESCE(metadata, '{}'::jsonb),
-                      '{scope_decision}',
-                      CAST(:decision AS JSONB),
-                      true
-                    ),
-                    updated_at = NOW()
-                WHERE id = :id
-                RETURNING id
-                """,
-                {
-                    "id": request_id,
-                    "decision": json.dumps({"granted": granted, "denied": denied}),
-                },
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "connections.scope_decision_record_failed request=%s error=%s",
-                request_id,
-                exc,
-            )
-
-    def _insert_consent_request_events(
-        self,
-        *,
-        owner_user_id: str,
-        requester_user_id: str,
-        connection_request_id: str,
-        connection_id: str,
-        requester_public_key: str,
-        requester_key_id: str | None,
-        requester_label: str | None,
-        scopes: list[str],
-    ) -> list[str]:
-        """Mint one pending REQUESTED consent event per granted scope.
-
-        Each event carries the requester's on-device X25519 public key in its
-        metadata so that when the owner approves the scope in the consent center,
-        the client's ``handleApprove`` ZK-wraps that scope's export key back to
-        the requester (backend never sees plaintext). Reuses the same
-        ``consent_audit`` event-sourcing path as KYC/RIA consent. Best-effort per
-        scope: the connection is already formed by the time this runs, so a
-        single failed insert is logged rather than rolling back the accept.
-        """
-        if not scopes or not requester_public_key:
-            return []
-        from hushh_mcp.consent.export_envelope import scope_handle_for_machine_scope
-        from hushh_mcp.consent.scope_helpers import get_scope_description
-
-        issued_at = self._now_ms()
-        expires_at = issued_at + _CONNECTION_REQUEST_TTL_MS
-        single = len(scopes) == 1
-        label = (requester_label or "").strip() or "A connection"
-        bundle_label = f"{label} requested {len(scopes)} data {'scope' if single else 'scopes'}"
-        requested: list[str] = []
-        for index, scope in enumerate(scopes):
-            request_id = connection_request_id if single else f"{connection_request_id}:{index}"
-            token_id = f"evt_conn_req_{connection_request_id}_{index}"
-            metadata = {
-                "request_source": _CONNECTION_REQUEST_SOURCE,
-                "requester_actor_type": _CONNECTION_ACTOR_TYPE,
-                # Synthetic, non-empty developer id: downstream consent readers key
-                # telemetry off developer_app_id, but a P2P share has no real dev
-                # app. Prefixed so it can never collide with a marketplace app id.
-                "developer_app_id": f"connection:{requester_user_id}",
-                "scope_handle": scope_handle_for_machine_scope(owner_user_id, scope),
-                "connector_public_key": requester_public_key,
-                "connector_key_id": requester_key_id,
-                "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
-                "requester_label": label,
-                "requester_entity_id": requester_user_id,
-                "bundle_id": connection_request_id,
-                "bundle_label": bundle_label,
-                "bundle_scope_count": len(scopes),
-                "connection_request_id": connection_request_id,
-                "connection_id": connection_id or None,
-                "reason": f"{label} requested access through a Connect scope request.",
-            }
-            metadata = {k: v for k, v in metadata.items() if v is not None}
-            try:
-                self._execute_one(
-                    """
-                    INSERT INTO consent_audit (
-                      token_id, user_id, agent_id, scope, action, request_id,
-                      scope_description, issued_at, expires_at, poll_timeout_at,
-                      metadata
-                    )
-                    VALUES (
-                      :token_id, :user_id, :agent_id, :scope, 'REQUESTED',
-                      :request_id, :scope_description, :issued_at, :expires_at,
-                      :poll_timeout_at, CAST(:metadata AS JSONB)
-                    )
-                    RETURNING id
-                    """,
-                    {
-                        "token_id": token_id,
-                        "user_id": owner_user_id,
-                        "agent_id": requester_user_id,
-                        "scope": scope,
-                        "request_id": request_id,
-                        "scope_description": get_scope_description(scope),
-                        "issued_at": issued_at,
-                        "expires_at": expires_at,
-                        "poll_timeout_at": expires_at,
-                        "metadata": json.dumps(metadata),
-                    },
-                )
-                requested.append(scope)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "connections.scope_request_failed scope=%s request=%s error=%s",
-                    scope,
-                    connection_request_id,
-                    exc,
-                )
-        return requested
-
-    def _cascade_revoke_scope_grants(self, user_a: str, user_b: str) -> int:
-        """Revoke every active Connect scope grant / pending ask between a pair.
-
-        Called on disconnect: for each direction (owner, reader), resolve the
-        latest consent event per scope and, when that latest state is still
-        pending (REQUESTED) or actively granted (CONSENT_GRANTED and unexpired),
-        append a REVOKED event. Mirrors the RIA disconnect cascade. Scanning by
-        (human owner uid, human reader uid) naturally targets only P2P shares --
-        marketplace/RIA grants carry a developer/app id in agent_id, not a raw
-        user id. Idempotent (a re-run finds the latest state already REVOKED) and
-        best-effort (a failed revoke is logged, never fatal to the disconnect).
-        """
-        user_a = (user_a or "").strip()
-        user_b = (user_b or "").strip()
-        if not user_a or not user_b:
-            return 0
-        from hushh_mcp.consent.scope_helpers import get_scope_description
-
-        revoked = 0
-        now_ms = self._now_ms()
-        for owner, reader in ((user_a, user_b), (user_b, user_a)):
-            rows = self._execute_many(
-                """
-                SELECT scope, action, expires_at, issued_at, request_id
-                FROM consent_audit
-                WHERE user_id = :owner AND agent_id = :reader
-                ORDER BY issued_at DESC
-                """,
-                {"owner": owner, "reader": reader},
-            )
-            latest: dict[str, dict[str, Any]] = {}
-            for row in rows:
-                scope_key = str(row.get("scope") or "").strip()
-                if not scope_key or scope_key in latest:
-                    continue
-                latest[scope_key] = row
-            for scope_key, row in latest.items():
-                action = str(row.get("action") or "").strip().upper()
-                if action not in {"REQUESTED", "CONSENT_GRANTED"}:
-                    continue
-                if action == "CONSENT_GRANTED":
-                    expires_at = row.get("expires_at")
-                    if expires_at is not None:
-                        try:
-                            if int(expires_at) <= now_ms:
-                                continue
-                        except (TypeError, ValueError):
-                            pass
-                token_id = f"evt_conn_revoke_{now_ms}_{revoked}"
-                try:
-                    self._execute_one(
-                        """
-                        INSERT INTO consent_audit (
-                          token_id, user_id, agent_id, scope, action, request_id,
-                          scope_description, issued_at, metadata
-                        )
-                        VALUES (
-                          :token_id, :owner, :reader, :scope, 'REVOKED',
-                          :request_id, :scope_description, :issued_at,
-                          CAST(:metadata AS JSONB)
-                        )
-                        RETURNING id
-                        """,
-                        {
-                            "token_id": token_id,
-                            "owner": owner,
-                            "reader": reader,
-                            "scope": scope_key,
-                            "request_id": row.get("request_id"),
-                            "scope_description": get_scope_description(scope_key),
-                            "issued_at": now_ms,
-                            "metadata": json.dumps(
-                                {
-                                    "request_source": _CONNECTION_REQUEST_SOURCE,
-                                    "revoke_origin": "connection_disconnect",
-                                }
-                            ),
-                        },
-                    )
-                    revoked += 1
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "connections.scope_revoke_failed scope=%s owner=%s reader=%s error=%s",
-                        scope_key,
-                        owner,
-                        reader,
-                        exc,
-                    )
-        return revoked
 
     def _notify_new_request(self, addressee_user_id: str, requester_user_id: str) -> None:
         """Fire the (best-effort) addressee nudge. Never raises."""
@@ -823,14 +946,16 @@ class ConnectionsService:
         except Exception as exc:  # noqa: BLE001
             logger.warning("connections.notify_failed error=%s", exc)
 
-    def _load_request(self, request_id: str) -> dict[str, Any]:
+    def _load_request(self, request_id: str, *, for_update: bool = False) -> dict[str, Any]:
+        lock_clause = " FOR UPDATE" if for_update else ""
         row = self._execute_one(
-            """
-            SELECT id, requester_user_id, addressee_user_id, status, metadata
+            f"""
+            SELECT id, requester_user_id, addressee_user_id, status
             FROM connection_requests
             WHERE id = :id
             LIMIT 1
-            """,
+            {lock_clause}
+            """,  # nosec B608 - lock_clause is a fixed internal literal
             {"id": (request_id or "").strip()},
         )
         if not row:
@@ -853,116 +978,534 @@ class ConnectionsService:
             {"owner": owner, "trusted": trusted},
         )
 
+    def _activate_ria_picks_scope(self, proposal: dict[str, Any], request_id: str) -> bool:
+        """Materialize the sole active RIA Picks capability from an explicit proposal.
+
+        This intentionally does not issue an ``attr.*`` token or read a package.
+        The artifact is an RIA-authored projection and the grant itself is the
+        authorization boundary.
+        """
+        provider_user_id = str(proposal.get("owner_user_id") or "").strip()
+        investor_user_id = str(proposal.get("receiver_user_id") or "").strip()
+        # Same verified-status set as _scope_catalog_for_owner: activation must not
+        # fail closed for a 'verified' RIA whose catalog we just offered.
+        ria = self._execute_one(
+            """
+            SELECT id FROM ria_profiles
+            WHERE user_id = :user_id
+              AND verification_status IN ('active', 'verified', 'finra_verified')
+            LIMIT 1
+            """,
+            {"user_id": provider_user_id},
+        )
+        if not ria:
+            return False
+        relationship = self._execute_one(
+            """
+            SELECT id FROM advisor_investor_relationships
+            WHERE investor_user_id = :investor_user_id
+              AND ria_profile_id = CAST(:ria_profile_id AS UUID)
+              AND firm_id IS NULL
+            LIMIT 1
+            """,
+            {"investor_user_id": investor_user_id, "ria_profile_id": str(ria["id"])},
+        )
+        if relationship is None:
+            relationship = self._execute_one(
+                """
+                INSERT INTO advisor_investor_relationships (
+                  investor_user_id, ria_profile_id, status, last_request_id,
+                  granted_scope, consent_granted_at, revoked_at, created_at, updated_at
+                ) VALUES (
+                  :investor_user_id, CAST(:ria_profile_id AS UUID), 'approved', :request_id,
+                  :grant_key, NOW(), NULL, NOW(), NOW()
+                ) RETURNING id
+                """,
+                {
+                    "investor_user_id": investor_user_id,
+                    "ria_profile_id": str(ria["id"]),
+                    "request_id": request_id,
+                    "grant_key": _RIA_ACTIVE_PICKS_CAPABILITY,
+                },
+            )
+        else:
+            self._execute_one(
+                """
+                UPDATE advisor_investor_relationships
+                SET status = 'approved', last_request_id = :request_id,
+                    granted_scope = :grant_key, consent_granted_at = NOW(),
+                    revoked_at = NULL, updated_at = NOW()
+                WHERE id = CAST(:relationship_id AS UUID)
+                RETURNING id
+                """,
+                {
+                    "relationship_id": str(relationship["id"]),
+                    "request_id": request_id,
+                    "grant_key": _RIA_ACTIVE_PICKS_CAPABILITY,
+                },
+            )
+        relationship_id = str((relationship or {}).get("id") or "")
+        if not relationship_id:
+            return False
+        grant = self._execute_one(
+            """
+            INSERT INTO relationship_share_grants (
+              relationship_id, grant_key, provider_user_id, receiver_user_id,
+              status, granted_at, revoked_at, connection_request_id,
+              connection_scope_proposal_id, metadata, created_at, updated_at
+            ) VALUES (
+              CAST(:relationship_id AS UUID), :grant_key, :provider_user_id, :receiver_user_id,
+              'active', NOW(), NULL, CAST(:request_id AS UUID), CAST(:proposal_id AS UUID),
+              :metadata::jsonb, NOW(), NOW()
+            )
+            ON CONFLICT (relationship_id, grant_key) DO UPDATE SET
+              provider_user_id = EXCLUDED.provider_user_id,
+              receiver_user_id = EXCLUDED.receiver_user_id,
+              status = 'active', granted_at = NOW(), revoked_at = NULL,
+              connection_request_id = EXCLUDED.connection_request_id,
+              connection_scope_proposal_id = EXCLUDED.connection_scope_proposal_id,
+              metadata = EXCLUDED.metadata, updated_at = NOW()
+            RETURNING id
+            """,
+            {
+                "relationship_id": relationship_id,
+                "grant_key": _RIA_ACTIVE_PICKS_CAPABILITY,
+                "provider_user_id": provider_user_id,
+                "receiver_user_id": investor_user_id,
+                "request_id": request_id,
+                "proposal_id": str(proposal.get("id") or ""),
+                "metadata": '{"share_origin":"connection_scope_proposal"}',
+            },
+        )
+        if not grant:
+            return False
+        self._execute_one(
+            """
+            INSERT INTO relationship_share_events (
+              share_grant_id, relationship_id, grant_key, event_type,
+              provider_user_id, receiver_user_id, connection_request_id,
+              connection_scope_proposal_id, metadata, created_at
+            ) VALUES (
+              CAST(:grant_id AS UUID), CAST(:relationship_id AS UUID), :grant_key, 'GRANTED',
+              :provider_user_id, :receiver_user_id,
+              CAST(:request_id AS UUID), CAST(:proposal_id AS UUID),
+              :metadata::jsonb, NOW()
+            ) RETURNING id
+            """,
+            {
+                "grant_id": str(grant["id"]),
+                "relationship_id": relationship_id,
+                "grant_key": _RIA_ACTIVE_PICKS_CAPABILITY,
+                "provider_user_id": provider_user_id,
+                "receiver_user_id": investor_user_id,
+                "request_id": request_id,
+                "proposal_id": str(proposal.get("id") or ""),
+                "metadata": '{"reason":"explicit_connection_scope"}',
+            },
+        )
+        # Reuse the most recent projection for this verified RIA.  No legacy
+        # upload table is read; an absent projection simply renders the source
+        # pending until the RIA's next encrypted Picks sync.
+        self._execute_one(
+            """
+            INSERT INTO ria_pick_share_artifacts (
+              relationship_id, ria_profile_id, provider_user_id, receiver_user_id,
+              grant_key, status, source_domain, source_path, source_data_version,
+              source_manifest_revision, artifact_projection, artifact_metadata,
+              created_at, updated_at
+            )
+            SELECT
+              CAST(:relationship_id AS UUID), CAST(:ria_profile_id AS UUID), :provider_user_id, :receiver_user_id,
+              grant_key, 'active', source_domain, source_path, source_data_version,
+              source_manifest_revision, artifact_projection, artifact_metadata, NOW(), NOW()
+            FROM ria_pick_share_artifacts
+            WHERE ria_profile_id = CAST(:ria_profile_id AS UUID)
+              AND grant_key = :grant_key
+            ORDER BY updated_at DESC
+            LIMIT 1
+            ON CONFLICT (relationship_id, grant_key) DO UPDATE SET
+              status = 'active', artifact_projection = EXCLUDED.artifact_projection,
+              artifact_metadata = EXCLUDED.artifact_metadata,
+              source_data_version = EXCLUDED.source_data_version,
+              source_manifest_revision = EXCLUDED.source_manifest_revision,
+              updated_at = NOW()
+            RETURNING id
+            """,
+            {
+                "relationship_id": relationship_id,
+                "ria_profile_id": str(ria["id"]),
+                "provider_user_id": provider_user_id,
+                "receiver_user_id": investor_user_id,
+                "grant_key": _RIA_ACTIVE_PICKS_CAPABILITY,
+            },
+        )
+        return True
+
+    def _resolve_scope_proposals(
+        self,
+        *,
+        request_id: str,
+        actor_user_id: str,
+        selected_requested_scope_handles: list[str] | None,
+        selected_offered_scope_handles: list[str] | None,
+    ) -> list[dict[str, Any]]:
+        selected_requested = {
+            str(handle or "").strip() for handle in (selected_requested_scope_handles or [])
+        }
+        selected_offered = {
+            str(handle or "").strip() for handle in (selected_offered_scope_handles or [])
+        }
+        proposals = self._execute_many(
+            """
+            SELECT id, scope_handle, capability_key, direction, owner_user_id, receiver_user_id, status
+            FROM connection_scope_proposals
+            WHERE connection_request_id = :request_id AND status = 'pending'
+            ORDER BY created_at ASC, id ASC
+            """,
+            {"request_id": request_id},
+        )
+        known_requested = {
+            str(proposal.get("scope_handle") or "")
+            for proposal in proposals
+            if str(proposal.get("direction") or "") == "requested"
+        }
+        known_offered = {
+            str(proposal.get("scope_handle") or "")
+            for proposal in proposals
+            if str(proposal.get("direction") or "") == "offered"
+        }
+        if not selected_requested.issubset(known_requested) or not selected_offered.issubset(
+            known_offered
+        ):
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_SELECTION_INVALID",
+                "A selected scope is not part of this connection request.",
+                status_code=409,
+            )
+        results: list[dict[str, Any]] = []
+        for proposal in proposals:
+            direction = str(proposal.get("direction") or "")
+            scope_handle = str(proposal.get("scope_handle") or "")
+            selected = scope_handle in (
+                selected_requested if direction == "requested" else selected_offered
+            )
+            activated = False
+            next_status = "declined"
+            if selected:
+                if str(proposal.get("capability_key") or "") == _RIA_ACTIVE_PICKS_CAPABILITY:
+                    try:
+                        with self._scope_activation_savepoint():
+                            activated = self._activate_ria_picks_scope(proposal, request_id)
+                    except Exception:  # noqa: BLE001 - fail closed at the authority boundary
+                        logger.exception(
+                            "connections.scope_activation_failed request_id=%s proposal_id=%s",
+                            request_id,
+                            proposal.get("id"),
+                        )
+                        activated = False
+                else:
+                    # Future metadata-only capabilities still require this
+                    # bilateral selection. Their owning service is responsible
+                    # for any separate materialization contract.
+                    activated = True
+                next_status = "active" if activated else "declined"
+            self._execute_one(
+                """
+                UPDATE connection_scope_proposals
+                SET status = :status, resolved_at = NOW()
+                WHERE id = CAST(:proposal_id AS UUID) AND status = 'pending'
+                RETURNING id
+                """,
+                {"status": next_status, "proposal_id": str(proposal.get("id") or "")},
+            )
+            self._record_scope_event(
+                str(proposal.get("id") or ""),
+                event_type="ACTIVATED" if next_status == "active" else "DECLINED",
+                actor_user_id=actor_user_id,
+                reason=None
+                if next_status == "active" or not selected
+                else "capability_activation_failed",
+            )
+            results.append(
+                {
+                    "scopeHandle": scope_handle,
+                    "direction": direction,
+                    "status": next_status,
+                    "activated": activated,
+                }
+            )
+        return results
+
+    def _resolve_pending_scope_proposals(
+        self,
+        request_id: str,
+        *,
+        status: str,
+        actor_user_id: str,
+        reason: str,
+    ) -> None:
+        rows = self._execute_many(
+            """
+            UPDATE connection_scope_proposals
+            SET status = :status, resolved_at = NOW()
+            WHERE connection_request_id = :request_id AND status = 'pending'
+            RETURNING id
+            """,
+            {"status": status, "request_id": request_id},
+        )
+        event_type = "DECLINED" if status == "declined" else "REVOKED"
+        for row in rows:
+            self._record_scope_event(
+                str(row.get("id") or ""),
+                event_type=event_type,
+                actor_user_id=actor_user_id,
+                reason=reason,
+            )
+
+    def _revoke_pair_capabilities(
+        self,
+        *,
+        user_a_id: str,
+        user_b_id: str,
+        actor_user_id: str,
+        reason: str,
+    ) -> None:
+        """Revoke all active proposal-bound capabilities for a disconnected pair.
+
+        Generic connections deliberately remain independent of grants.  On a
+        disconnect we revoke only grants that can prove their exact proposal
+        lineage; historical relationship rows survive for audit and recovery.
+        """
+        proposals = self._execute_many(
+            """
+            UPDATE connection_scope_proposals proposal
+            SET status = 'revoked', resolved_at = NOW()
+            FROM connection_requests request
+            WHERE proposal.connection_request_id = request.id
+              AND proposal.status = 'active'
+              AND request.status = 'accepted'
+              AND (
+                (request.requester_user_id = :user_a AND request.addressee_user_id = :user_b)
+                OR (request.requester_user_id = :user_b AND request.addressee_user_id = :user_a)
+              )
+            RETURNING proposal.id
+            """,
+            {"user_a": user_a_id, "user_b": user_b_id},
+        )
+        for proposal in proposals:
+            self._record_scope_event(
+                str(proposal.get("id") or ""),
+                event_type="REVOKED",
+                actor_user_id=actor_user_id,
+                reason=reason,
+            )
+
+        grants = self._execute_many(
+            """
+            UPDATE relationship_share_grants grant_row
+            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW(),
+                metadata = COALESCE(grant_row.metadata, '{}'::jsonb)
+                  || jsonb_build_object('revoked_reason', :reason)
+            WHERE grant_row.status = 'active'
+              AND grant_row.connection_scope_proposal_id IN (
+                SELECT proposal.id
+                FROM connection_scope_proposals proposal
+                JOIN connection_requests request
+                  ON request.id = proposal.connection_request_id
+                WHERE (
+                  (request.requester_user_id = :user_a AND request.addressee_user_id = :user_b)
+                  OR (request.requester_user_id = :user_b AND request.addressee_user_id = :user_a)
+                )
+              )
+            RETURNING grant_row.id, grant_row.relationship_id, grant_row.grant_key,
+                      grant_row.provider_user_id, grant_row.receiver_user_id,
+                      grant_row.connection_request_id, grant_row.connection_scope_proposal_id
+            """,
+            {"user_a": user_a_id, "user_b": user_b_id, "reason": reason},
+        )
+        for grant in grants:
+            self._execute_one(
+                """
+                INSERT INTO relationship_share_events (
+                  share_grant_id, relationship_id, grant_key, event_type,
+                  provider_user_id, receiver_user_id, connection_request_id,
+                  connection_scope_proposal_id, metadata, created_at
+                ) VALUES (
+                  CAST(:grant_id AS UUID), CAST(:relationship_id AS UUID), :grant_key, 'REVOKED',
+                  :provider_user_id, :receiver_user_id,
+                  CAST(:request_id AS UUID), CAST(:proposal_id AS UUID),
+                  jsonb_build_object('reason', :reason), NOW()
+                ) RETURNING id
+                """,
+                {
+                    "grant_id": str(grant.get("id") or ""),
+                    "relationship_id": str(grant.get("relationship_id") or ""),
+                    "grant_key": str(grant.get("grant_key") or ""),
+                    "provider_user_id": str(grant.get("provider_user_id") or ""),
+                    "receiver_user_id": str(grant.get("receiver_user_id") or ""),
+                    "request_id": str(grant.get("connection_request_id") or ""),
+                    "proposal_id": str(grant.get("connection_scope_proposal_id") or ""),
+                    "reason": reason,
+                },
+            )
+            self._execute_one(
+                """
+                UPDATE ria_pick_share_artifacts
+                SET status = 'revoked', updated_at = NOW()
+                WHERE relationship_id = CAST(:relationship_id AS UUID)
+                  AND grant_key = :grant_key AND status = 'active'
+                RETURNING id
+                """,
+                {
+                    "relationship_id": str(grant.get("relationship_id") or ""),
+                    "grant_key": str(grant.get("grant_key") or ""),
+                },
+            )
+
+        # ``advisor_investor_relationships.status`` is an explicit RIA
+        # capability projection, not a generic-consent shortcut. A relation
+        # remains active only while it has another current proposal-bound RIA
+        # capability; historical generic consent rows stay in ``consent_audit``.
+        self._execute_many(
+            """
+            UPDATE advisor_investor_relationships relationship
+            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+            WHERE relationship.id IN (
+              SELECT DISTINCT grant_row.relationship_id
+              FROM relationship_share_grants grant_row
+              JOIN connection_scope_proposals proposal
+                ON proposal.id = grant_row.connection_scope_proposal_id
+              JOIN connection_requests request
+                ON request.id = proposal.connection_request_id
+              WHERE (
+                (request.requester_user_id = :user_a AND request.addressee_user_id = :user_b)
+                OR (request.requester_user_id = :user_b AND request.addressee_user_id = :user_a)
+              )
+            )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM relationship_share_grants active_grant
+                JOIN connection_scope_proposals active_proposal
+                  ON active_proposal.id = active_grant.connection_scope_proposal_id
+                 AND active_proposal.status = 'active'
+                 AND active_proposal.expires_at > NOW()
+                WHERE active_grant.relationship_id = relationship.id
+                  AND active_grant.status = 'active'
+                  AND active_grant.connection_scope_proposal_id IS NOT NULL
+              )
+            RETURNING relationship.id
+            """,
+            {"user_a": user_a_id, "user_b": user_b_id},
+        )
+
     def accept_request(
         self,
         user_id: str,
         request_id: str,
         *,
-        granted_scopes: list[str] | None = None,
-        denied_scopes: list[str] | None = None,
+        selected_requested_scope_handles: list[str] | None = None,
+        selected_offered_scope_handles: list[str] | None = None,
     ) -> dict[str, Any]:
         user_id = (user_id or "").strip()
-        req = self._load_request(request_id)
-        if str(req.get("addressee_user_id")) != user_id:
-            raise ConnectionsError(
-                "CONNECTION_NOT_ADDRESSEE", "Only the addressee can accept.", status_code=403
-            )
-        if str(req.get("status")) == "accepted":
-            return {"status": "accepted", "requestId": req.get("id"), "connectionId": None}
-        if str(req.get("status")) != "pending":
-            raise ConnectionsError(
-                "CONNECTION_NOT_PENDING", "Request is no longer pending.", status_code=409
-            )
-
-        requester = str(req.get("requester_user_id"))
-        user_a, user_b = self._canonical_pair(requester, user_id)
-        conn = self._execute_one(
-            """
-            INSERT INTO connections (user_a_id, user_b_id, status, source, created_at, updated_at)
-            VALUES (:a, :b, 'active', 'request', NOW(), NOW())
-            ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
-              status = 'active', revoked_at = NULL, updated_at = NOW()
-            RETURNING id
-            """,
-            {"a": user_a, "b": user_b},
-        )
-        # Mirror both directional trusted edges so location/SOS readers keep working.
-        self._mirror_trusted_edge(requester, user_id)
-        self._mirror_trusted_edge(user_id, requester)
-        self._execute_one(
-            """
-            UPDATE connection_requests
-            SET status = 'accepted', responded_at = NOW(), updated_at = NOW()
-            WHERE id = :id
-            RETURNING id
-            """,
-            {"id": req.get("id")},
-        )
-        # Best-effort feed rows for both sides of the new connection.
-        FeedService().record_event(
-            user_id=user_id,
-            source_domain="connections",
-            event_type="connection_accepted",
-            metadata={"counterpart_user_id": requester},
-        )
-        FeedService().record_event(
-            user_id=requester,
-            source_domain="connections",
-            event_type="connection_accepted",
-            metadata={"counterpart_user_id": user_id},
-        )
-
-        # ---- Connect scope-request fan-out (optional) ----
-        # If the requester bundled a granular data-scope ask (and published an
-        # on-device public key), mint one pending REQUESTED consent event per
-        # non-denied scope. The addressee resolves each through the EXISTING
-        # consent center: approving ZK-wraps that scope to the requester's key,
-        # denying records CONSENT_DENIED. No crypto happens here.
-        metadata = self._parse_request_metadata(req.get("metadata"))
-        requested_scopes = [
-            str(s).strip() for s in (metadata.get("requested_scopes") or []) if str(s).strip()
-        ]
-        granted_requested: list[str] = []
-        denied_final: list[str] = []
-        if requested_scopes:
-            requested_set = set(requested_scopes)
-            denied_set = {
-                str(s).strip() for s in (denied_scopes or []) if str(s).strip() in requested_set
-            }
-            if granted_scopes is not None:
-                allowed = {
-                    str(s).strip() for s in granted_scopes if str(s).strip() in requested_set
-                }
-            else:
-                # No explicit decision at accept time -> treat every requested
-                # scope (minus any denied) as approved-to-request.
-                allowed = requested_set
-            to_request = [s for s in requested_scopes if s in allowed and s not in denied_set]
-            denied_final = [s for s in requested_scopes if s not in to_request]
-            requester_public_key = str(metadata.get("requester_public_key") or "").strip()
-            if to_request and requester_public_key:
-                granted_requested = self._insert_consent_request_events(
-                    owner_user_id=user_id,
-                    requester_user_id=requester,
-                    connection_request_id=str(req.get("id") or ""),
-                    connection_id=str((conn or {}).get("id") or ""),
-                    requester_public_key=requester_public_key,
-                    requester_key_id=(str(metadata.get("requester_key_id") or "").strip() or None),
-                    requester_label=self._lookup_display_name(requester),
-                    scopes=to_request,
+        with self._transaction():
+            req = self._load_request(request_id, for_update=True)
+            if str(req.get("addressee_user_id")) != user_id:
+                raise ConnectionsError(
+                    "CONNECTION_NOT_ADDRESSEE", "Only the addressee can accept.", status_code=403
                 )
-            # Snapshot the decision on the request row (audit + requester view).
-            self._record_scope_decision(
-                request_id=str(req.get("id") or ""),
-                granted=granted_requested,
-                denied=denied_final,
+            if str(req.get("status")) == "accepted":
+                return {
+                    "status": "accepted",
+                    "requestId": req.get("id"),
+                    "connectionId": None,
+                    "scopes": self._proposal_items(str(req.get("id") or "")),
+                }
+            if str(req.get("status")) != "pending":
+                raise ConnectionsError(
+                    "CONNECTION_NOT_PENDING", "Request is no longer pending.", status_code=409
+                )
+
+            pending_proposals = self._proposal_items(str(req.get("id") or ""))
+            if pending_proposals and (
+                selected_requested_scope_handles is None or selected_offered_scope_handles is None
+            ):
+                raise ConnectionsError(
+                    "CONNECTION_SCOPE_SELECTION_REQUIRED",
+                    "Review the requested and offered scopes before accepting this connection.",
+                    status_code=409,
+                )
+
+            requester = str(req.get("requester_user_id"))
+            user_a, user_b = self._canonical_pair(requester, user_id)
+            connection = self._execute_one(
+                """
+                INSERT INTO connections (user_a_id, user_b_id, status, source, created_at, updated_at)
+                VALUES (:a, :b, 'active', 'request', NOW(), NOW())
+                ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
+                  status = 'active', revoked_at = NULL, updated_at = NOW()
+                RETURNING id
+                """,
+                {"a": user_a, "b": user_b},
             )
+            # Location eligibility needs BOTH an active `connections` row and
+            # an active non-circle origin. Acceptance wrote only the first, so
+            # a person could be connected in Connect and simply absent from
+            # Location's recipient list -- surfacing as "nobody in your
+            # connections matches that name" about someone plainly there, and
+            # leaving "connect with X, then share my location with X" broken at
+            # a step that looked like it had succeeded.
+            #
+            # Recorded through the graph service that owns origins rather than
+            # by writing the table here, and inside the same transaction that
+            # activates the connection, so the two can never disagree. The
+            # helper is idempotent, which matters because acceptance is
+            # retryable.
+            graph_connection = getattr(self, "_transaction_connection", None)
+            if graph_connection is not None:
+                ensure_connection_origin(
+                    graph_connection,
+                    user_a_id=user_a,
+                    user_b_id=user_b,
+                    kind=ORIGIN_DIRECT_REQUEST,
+                    source_ref=str(req.get("id") or "") or None,
+                )
+            # Mirror both directional trusted edges so location/SOS readers keep working.
+            self._mirror_trusted_edge(requester, user_id)
+            self._mirror_trusted_edge(user_id, requester)
+            scope_results = self._resolve_scope_proposals(
+                request_id=str(req.get("id") or ""),
+                actor_user_id=user_id,
+                selected_requested_scope_handles=selected_requested_scope_handles,
+                selected_offered_scope_handles=selected_offered_scope_handles,
+            )
+            self._execute_one(
+                """
+                UPDATE connection_requests
+                SET status = 'accepted', responded_at = NOW(), updated_at = NOW()
+                WHERE id = :id AND status = 'pending'
+                RETURNING id
+                """,
+                {"id": req.get("id")},
+            )
+            connection_id = (connection or {}).get("id")
+
+        # Feed is a best-effort, post-commit projection. It must not cause a
+        # caller to retry an already-authorized connection transition.
+        for owner, counterpart in ((user_id, requester), (requester, user_id)):
+            try:
+                FeedService().record_event(
+                    user_id=owner,
+                    source_domain="connections",
+                    event_type="connection_accepted",
+                    metadata={"counterpart_user_id": counterpart},
+                )
+            except Exception:  # noqa: BLE001 - feed projection cannot roll back consent
+                logger.exception("connections.accepted_feed_projection_failed")
         return {
             "status": "accepted",
             "requestId": req.get("id"),
-            "connectionId": (conn or {}).get("id"),
-            "requestedScopes": granted_requested,
-            "deniedScopes": denied_final,
+            "connectionId": connection_id,
+            "scopeResults": scope_results,
         }
 
     def link_circle_invite(self, user_id: str, *, peer_user_id: str) -> dict[str, Any]:
@@ -1017,57 +1560,101 @@ class ConnectionsService:
 
     def reject_request(self, user_id: str, request_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
-        req = self._load_request(request_id)
-        if str(req.get("addressee_user_id")) != user_id:
-            raise ConnectionsError(
-                "CONNECTION_NOT_ADDRESSEE", "Only the addressee can reject.", status_code=403
+        with self._transaction():
+            req = self._load_request(request_id, for_update=True)
+            if str(req.get("addressee_user_id")) != user_id:
+                raise ConnectionsError(
+                    "CONNECTION_NOT_ADDRESSEE", "Only the addressee can reject.", status_code=403
+                )
+            self._execute_one(
+                """
+                UPDATE connection_requests
+                SET status = 'rejected', responded_at = NOW(), updated_at = NOW()
+                WHERE id = :id AND status = 'pending'
+                RETURNING id
+                """,
+                {"id": req.get("id")},
             )
-        self._execute_one(
-            """
-            UPDATE connection_requests
-            SET status = 'rejected', responded_at = NOW(), updated_at = NOW()
-            WHERE id = :id AND status = 'pending'
-            RETURNING id
-            """,
-            {"id": req.get("id")},
-        )
-        FeedService().record_event(
-            user_id=str(req.get("requester_user_id")),
-            source_domain="connections",
-            event_type="connection_rejected",
-            metadata={"counterpart_user_id": user_id},
-        )
+            self._resolve_pending_scope_proposals(
+                str(req.get("id") or ""),
+                status="declined",
+                actor_user_id=user_id,
+                reason="connection_rejected",
+            )
+            requester = str(req.get("requester_user_id"))
+        try:
+            FeedService().record_event(
+                user_id=requester,
+                source_domain="connections",
+                event_type="connection_rejected",
+                metadata={"counterpart_user_id": user_id},
+            )
+        except Exception:  # noqa: BLE001 - projection cannot roll back rejection
+            logger.exception("connections.rejected_feed_projection_failed")
         return {"status": "rejected", "requestId": req.get("id")}
 
     def cancel_request(self, user_id: str, request_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
-        req = self._load_request(request_id)
-        if str(req.get("requester_user_id")) != user_id:
-            raise ConnectionsError(
-                "CONNECTION_NOT_REQUESTER", "Only the requester can cancel.", status_code=403
+        request_id = (request_id or "").strip()
+        with self._transaction():
+            req = None
+            try:
+                req = self._load_request(request_id, for_update=True)
+            except ConnectionsError as err:
+                if err.code == "CONNECTION_REQUEST_NOT_FOUND":
+                    # Fallback lookup: find pending request sent by user_id to counterpart request_id
+                    req = self._execute_one(
+                        """
+                        SELECT id, requester_user_id, addressee_user_id, status
+                        FROM connection_requests
+                        WHERE status = 'pending'
+                          AND requester_user_id = :requester
+                          AND addressee_user_id = :addressee
+                        LIMIT 1
+                        FOR UPDATE
+                        """,
+                        {"requester": user_id, "addressee": request_id},
+                    )
+            if not req:
+                raise ConnectionsError(
+                    "CONNECTION_REQUEST_NOT_FOUND", "Request not found.", status_code=404
+                )
+            if str(req.get("requester_user_id")) != user_id:
+                raise ConnectionsError(
+                    "CONNECTION_NOT_REQUESTER", "Only the requester can cancel.", status_code=403
+                )
+            self._execute_one(
+                """
+                UPDATE connection_requests
+                SET status = 'cancelled', responded_at = NOW(), updated_at = NOW()
+                WHERE id = :id AND status = 'pending'
+                RETURNING id
+                """,
+                {"id": req.get("id")},
             )
-        self._execute_one(
-            """
-            UPDATE connection_requests
-            SET status = 'cancelled', responded_at = NOW(), updated_at = NOW()
-            WHERE id = :id AND status = 'pending'
-            RETURNING id
-            """,
-            {"id": req.get("id")},
-        )
+            self._resolve_pending_scope_proposals(
+                str(req.get("id") or ""),
+                status="declined",
+                actor_user_id=user_id,
+                reason="connection_cancelled",
+            )
         return {"status": "cancelled", "requestId": req.get("id")}
 
     # ---- Reads ----
-    def list_requestable_scopes(self) -> dict[str, Any]:
-        """Global, presence-safe scope catalog for the Connect scope picker.
+    def list_requests(
+        self,
+        user_id: str,
+        *,
+        direction: str,
+        include_resolved: bool = False,
+    ) -> list[dict[str, Any]]:
+        """List one participant's requests without exposing capability values.
 
-        Returns the same static catalog for every caller — it reflects no user's
-        holdings, so surfacing it to a requester never leaks whether the person
-        they are connecting with actually has any of these scopes.
+        The default remains the existing pending-inbox behavior. The consent
+        review surface can opt into the bounded lifecycle history so it can
+        render an explicit proposal as pending, active, or previous without
+        falling back to advisor/investor relationship metadata.
         """
-        return build_requestable_scope_catalog()
-
-    def list_requests(self, user_id: str, *, direction: str) -> list[dict[str, Any]]:
         user_id = (user_id or "").strip()
         if direction == "incoming":
             where = "cr.addressee_user_id = :user_id"
@@ -1077,15 +1664,16 @@ class ConnectionsService:
             counterpart_col = "cr.addressee_user_id"
         # nosec B608 - counterpart_col/where are hardcoded literals selected by
         # `direction` above (never user input); user_id is always parameterized.
+        status_clause = "" if include_resolved else "AND cr.status = 'pending'"
         rows = self._execute_many(
             f"""
             SELECT cr.id, cr.requester_user_id, cr.addressee_user_id, cr.status,
-                   cr.message, cr.created_at,
+                   cr.message, cr.created_at, cr.metadata,
                    {counterpart_col} AS counterpart_user_id,
                    a.display_name AS counterpart_display_name
             FROM connection_requests cr
             LEFT JOIN actor_identity_cache a ON a.user_id = {counterpart_col}
-            WHERE {where} AND cr.status = 'pending'
+            WHERE {where} {status_clause}
             ORDER BY cr.created_at DESC
             """,  # nosec B608
             {"user_id": user_id},
@@ -1100,110 +1688,10 @@ class ConnectionsService:
                 "createdAt": r.get("created_at"),
                 "counterpartUserId": str(r.get("counterpart_user_id") or ""),
                 "counterpartDisplayName": r.get("counterpart_display_name"),
+                "scopes": self._proposal_items(str(r.get("id") or "")),
             }
             for r in rows
         ]
-
-    def list_received_scope_exports(self, user_id: str) -> list[dict[str, Any]]:
-        """Return every scope export sealed to this user as a Connect requester.
-
-        When an owner approves a scope this user asked for through a Connect
-        scope request, the owner's device wraps that scope's export key to this
-        user's on-device X25519 public key and the backend stores only the
-        ciphertext (zero-knowledge). Those packages are addressed by the
-        synthetic ``app_id = connection:{requester_user_id}``, so one indexed
-        lookup by app id returns exactly what this user can decrypt -- the
-        server never holds the plaintext or the unwrapped export key.
-
-        The returned shape mirrors the KYC scoped-export package
-        (``encrypted_data``/``iv``/``tag`` + snake_case ``wrapped_key_bundle`` +
-        a reconstructed ``export_envelope``) so the client can rebuild the exact
-        authenticated-envelope AAD and decrypt with the proven pipeline. Only
-        authenticated v2 envelopes carrying a wrapped key bundle are surfaced;
-        anything else is undecryptable noise and is skipped.
-        """
-        user_id = (user_id or "").strip()
-        if not user_id:
-            return []
-        app_id = f"connection:{user_id}"
-        # `now()` keeps the expiry check a clean timestamptz > timestamptz
-        # comparison (no bound value to type-cast); the only interpolated value
-        # is the parameterized :app_id, so no f-string SQL / bandit B608 risk.
-        rows = self._execute_many(
-            """
-            SELECT ce.user_id AS granter_user_id,
-                   ce.encrypted_data, ce.iv, ce.tag,
-                   ce.wrapped_key_bundle, ce.scope, ce.scope_handle,
-                   ce.grant_id, ce.export_revision, ce.export_generated_at,
-                   ce.expires_at, ce.envelope_version, ce.export_id,
-                   ce.envelope_aad, ce.envelope_aad_sha256,
-                   ce.ciphertext_sha256, ce.ciphertext_bytes,
-                   a.display_name AS granter_display_name
-            FROM consent_exports ce
-            LEFT JOIN actor_identity_cache a ON a.user_id = ce.user_id
-            WHERE ce.app_id = :app_id
-              AND ce.envelope_version = 2
-              AND ce.expires_at > now()
-            ORDER BY ce.export_generated_at DESC NULLS LAST
-            """,
-            {"app_id": app_id},
-        )
-        exports: list[dict[str, Any]] = []
-        for r in rows:
-            bundle = self._parse_request_metadata(r.get("wrapped_key_bundle"))
-            if not bundle.get("wrapped_export_key"):
-                # Legacy / non-strict row: without a wrapped key bundle the
-                # requester can never decrypt, so surfacing it is pure noise.
-                continue
-            aad = self._parse_request_metadata(r.get("envelope_aad"))
-            exports.append(
-                {
-                    "granter_user_id": str(r.get("granter_user_id") or "") or None,
-                    "granter_display_name": r.get("granter_display_name"),
-                    "scope": str(r.get("scope") or "") or None,
-                    "scope_handle": str(r.get("scope_handle") or "") or None,
-                    "grant_id": str(r.get("grant_id") or "") or None,
-                    "export_revision": self._coerce_int(r.get("export_revision")),
-                    "export_generated_at": self._iso_or_none(r.get("export_generated_at")),
-                    "expires_at": self._iso_or_none(r.get("expires_at")),
-                    "encrypted_data": r.get("encrypted_data"),
-                    "iv": r.get("iv"),
-                    "tag": r.get("tag"),
-                    "wrapped_key_bundle": bundle,
-                    # Reconstruct the exact v2 envelope submission the owner
-                    # canonicalized as key-wrap AAD. Integer fields are coerced to
-                    # plain ints so the JSON the client re-canonicalizes is
-                    # byte-identical to the wrap-time bytes (GCM auth is exact).
-                    "export_envelope": {
-                        "version": self._coerce_int(r.get("envelope_version")),
-                        "export_id": str(r.get("export_id") or "") or None,
-                        "aad": aad,
-                        "aad_sha256": str(r.get("envelope_aad_sha256") or "") or None,
-                        "ciphertext_sha256": str(r.get("ciphertext_sha256") or "") or None,
-                        "ciphertext_bytes": self._coerce_int(r.get("ciphertext_bytes")),
-                    },
-                }
-            )
-        return exports
-
-    @staticmethod
-    def _coerce_int(value: Any) -> int | None:
-        """Best-effort int coercion (BIGINT/INTEGER may arrive as int/Decimal/str)."""
-        if value is None:
-            return None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
-
-    @staticmethod
-    def _iso_or_none(value: Any) -> str | None:
-        """Render a timestamp column as an ISO-8601 string (datetime or passthrough)."""
-        if value is None:
-            return None
-        if isinstance(value, datetime):
-            return value.isoformat()
-        return str(value)
 
     def search_directory(
         self, user_id: str, *, query: str | None = None, page: int = 1, limit: int = 20
@@ -1217,11 +1705,20 @@ class ConnectionsService:
         # as the source of people, so display names resolve exactly as they do on
         # the Location screen (never a raw user id). The connection-graph
         # relationship is annotated on top.
-        people = self._directory_lookup(user_id) or []
-        if needle:
-            people = [
-                p for p in people if needle in str(p.get("displayName") or "").strip().lower()
-            ]
+        directory_search = getattr(self, "_directory_search", None)
+        if directory_search is not None:
+            directory_page = directory_search(user_id, query=needle, page=page, limit=limit)
+            people = directory_page.get("items") or []
+            has_more = bool(directory_page.get("hasMore"))
+        else:
+            people = self._directory_lookup(user_id) or []
+            if needle:
+                people = [
+                    p for p in people if needle in str(p.get("displayName") or "").strip().lower()
+                ]
+            offset = (page - 1) * limit
+            has_more = offset + limit < len(people)
+            people = people[offset : offset + limit]
 
         # Load the caller's pending requests (both directions) and active
         # connections once, then classify each person in Python.
@@ -1266,11 +1763,6 @@ class ConnectionsService:
                 return "pending_incoming"
             return "none"
 
-        total = len(people)
-        offset = (page - 1) * limit
-        window = people[offset : offset + limit]
-        has_more = offset + limit < total
-
         return {
             "items": [
                 {
@@ -1278,9 +1770,11 @@ class ConnectionsService:
                     "displayName": p.get("displayName"),
                     "photoUrl": p.get("photoUrl"),
                     "email": p.get("email"),
+                    "maskedEmail": p.get("maskedEmail"),
+                    "maskedPhone": p.get("maskedPhone"),
                     "relationship": relationship(str(p.get("userId") or "")),
                 }
-                for p in window
+                for p in people
             ],
             "page": page,
             "hasMore": has_more,
@@ -1315,50 +1809,49 @@ class ConnectionsService:
 
     def remove_connection(self, user_id: str, connection_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
-        # Step 1: Load the row regardless of status, validating membership.
-        row = self._execute_one(
-            """
-            SELECT id, user_a_id, user_b_id, status
-            FROM connections
-            WHERE id = :id
-              AND (user_a_id = :user_id OR user_b_id = :user_id)
-            LIMIT 1
-            """,
-            {"id": (connection_id or "").strip(), "user_id": user_id},
-        )
-        if not row:
-            return {"removed": 0}
-        user_a = row.get("user_a_id")
-        user_b = row.get("user_b_id")
-        # Step 2: Revoke trusted edges FIRST (idempotent — runs on every call so a
-        # retry after partial failure still cleans up stale active edges).
-        self._execute_many(
-            """
-            UPDATE trusted_connections
-            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
-            WHERE status = 'active'
-              AND ((owner_user_id = :a AND trusted_user_id = :b)
-                   OR (owner_user_id = :b AND trusted_user_id = :a))
-            RETURNING id
-            """,
-            {"a": user_a, "b": user_b},
-        )
-        # Step 3: Revoke the connection row (no-op if already revoked).
-        conn = self._execute_one(
-            """
-            UPDATE connections
-            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
-            WHERE id = :id AND status = 'active'
-            RETURNING id
-            """,
-            {"id": (connection_id or "").strip()},
-        )
-        # Step 4: Cascade-revoke every active Connect scope grant / pending scope
-        # request between the pair, in BOTH directions. Disconnecting must stop
-        # future reads of anything shared through this connection. Idempotent and
-        # best-effort, so it runs on every call (even a retry after the row was
-        # already flipped) to guarantee no grant outlives the connection.
-        self._cascade_revoke_scope_grants(str(user_a or ""), str(user_b or ""))
+        with self._transaction():
+            # Lock the graph edge before revoking its capability descendants.
+            row = self._execute_one(
+                """
+                SELECT id, user_a_id, user_b_id, status
+                FROM connections
+                WHERE id = :id
+                  AND (user_a_id = :user_id OR user_b_id = :user_id)
+                LIMIT 1
+                FOR UPDATE
+                """,
+                {"id": (connection_id or "").strip(), "user_id": user_id},
+            )
+            if not row:
+                return {"removed": 0}
+            user_a = row.get("user_a_id")
+            user_b = row.get("user_b_id")
+            self._revoke_pair_capabilities(
+                user_a_id=str(user_a or ""),
+                user_b_id=str(user_b or ""),
+                actor_user_id=user_id,
+                reason="connection_disconnected",
+            )
+            self._execute_many(
+                """
+                UPDATE trusted_connections
+                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                WHERE status = 'active'
+                  AND ((owner_user_id = :a AND trusted_user_id = :b)
+                       OR (owner_user_id = :b AND trusted_user_id = :a))
+                RETURNING id
+                """,
+                {"a": user_a, "b": user_b},
+            )
+            conn = self._execute_one(
+                """
+                UPDATE connections
+                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                WHERE id = :id AND status = 'active'
+                RETURNING id
+                """,
+                {"id": (connection_id or "").strip()},
+            )
         if conn:
             FeedService().record_event(
                 user_id=user_a,

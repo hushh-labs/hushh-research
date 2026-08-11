@@ -1,8 +1,10 @@
 "use client";
 
-import { User, Users } from "lucide-react";
+import { Phone, User, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const OPTIONS: {
   value: "individual" | "firm";
@@ -31,8 +33,17 @@ export function OnboardingStepWelcome({
   onboardingType: "" | "individual" | "firm";
   onSelect: (type: "individual" | "firm") => void;
 }) {
+  const router = useRouter();
   return (
     <SettingsGroup embedded separatorInset>
+      <SettingsRow
+        icon={Phone}
+        iconTone="gray"
+        title="Claim your profile"
+        description="Use the office number on your SEC filing."
+        chevron
+        onClick={() => router.push(ROUTES.RIA_CLAIM)}
+      />
       {OPTIONS.map((option) => {
         const selected = onboardingType === option.value;
         return (

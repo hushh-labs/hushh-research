@@ -54,6 +54,8 @@ steps:
           --build-arg NEXT_PUBLIC_APP_URL=$$NEXT_PUBLIC_APP_URL_VAL \
           --build-arg NEXT_PUBLIC_APP_ENV=${_APP_ENV} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_ENABLED=true \
+          --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
+          --build-arg NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=${_ONE_LOCATION_NEARBY_CHECK_IN} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=1 \
           --build-arg NEXT_PUBLIC_GTM_ID=$$NEXT_PUBLIC_GTM_ID_VAL \
@@ -85,6 +87,19 @@ steps:
       - "-c"
       - |
         set -euo pipefail
+
+        secrets="BACKEND_URL=BACKEND_URL:latest,DEVELOPER_API_URL=BACKEND_URL:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest,APPLE_TEAM_ID=APPLE_TEAM_ID:latest,NEXT_PUBLIC_IOS_BUNDLE_ID=NEXT_PUBLIC_IOS_BUNDLE_ID:latest,NEXT_PUBLIC_ANDROID_APP_ID=NEXT_PUBLIC_ANDROID_APP_ID:latest,ANDROID_SHA256_CERT_FINGERPRINTS=ANDROID_SHA256_CERT_FINGERPRINTS:latest"
+
+        # `hushh-mail-api` key for One's lifecycle mail. Optional on purpose, the
+        # same way backend.cloudbuild.yaml treats its add-on secrets: binding a
+        # secret that does not exist yet would fail the whole deploy. While it is
+        # absent the webapp reports `not_configured` and sign-in is unaffected.
+        if gcloud secrets describe MAIL_API_KEY --project="$PROJECT_ID" >/dev/null 2>&1; then
+          secrets="${secrets},MAIL_API_KEY=MAIL_API_KEY:latest"
+        else
+          echo "Skipping optional secret MAIL_API_KEY; not found in project ${PROJECT_ID}."
+        fi
+
         cmd=(
           gcloud run deploy "${_FRONTEND_SERVICE}"
           "--image=gcr.io/$PROJECT_ID/hushh-webapp:${_IMAGE_TAG}"
@@ -98,8 +113,8 @@ steps:
           "--max-instances=10"
           "--min-instances=1"
           "--labels=managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
-          "--set-env-vars=NEXT_PUBLIC_APP_ENV=${_APP_ENV},HUSHH_DEPLOY_ENV=${_DEPLOY_ENV},HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE},HUSHH_DEPLOY_SHA=${_DEPLOY_SHA},HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID},RIA_ONBOARDING_PROXY_TIMEOUT_MS=90000"
-          "--set-secrets=BACKEND_URL=BACKEND_URL:latest,DEVELOPER_API_URL=BACKEND_URL:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest,APPLE_TEAM_ID=APPLE_TEAM_ID:latest,NEXT_PUBLIC_IOS_BUNDLE_ID=NEXT_PUBLIC_IOS_BUNDLE_ID:latest,NEXT_PUBLIC_ANDROID_APP_ID=NEXT_PUBLIC_ANDROID_APP_ID:latest,ANDROID_SHA256_CERT_FINGERPRINTS=ANDROID_SHA256_CERT_FINGERPRINTS:latest"
+          "--set-env-vars=NEXT_PUBLIC_APP_ENV=${_APP_ENV},HUSHH_DEPLOY_ENV=${_DEPLOY_ENV},HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE},HUSHH_DEPLOY_SHA=${_DEPLOY_SHA},HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID},RIA_ONBOARDING_PROXY_TIMEOUT_MS=90000,MAIL_API_ENDPOINT=${_MAIL_API_ENDPOINT}"
+          "--set-secrets=${secrets}"
         )
 
         if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then
@@ -120,6 +135,17 @@ substitutions:
   _FRONTEND_SERVICE: hushh-webapp
   _REGION: us-central1
   _APP_ENV: production
+  # Wallet Profile owner entry point. Empty/false keeps the Profile row hidden;
+  # the backend ONE_WALLET_CARD_ENABLED flag still decides whether it works.
+  _ONE_WALLET_CARD_ENABLED: "false"
+  # Offers nearby check-in in a production build. Default off: the check-in
+  # point is client-supplied and unattestable, so the backend admits production
+  # callers by cohort and this only avoids collecting a location for a flow that
+  # would then be refused. Turning this on alone changes nothing server-side.
+  _ONE_LOCATION_NEARBY_CHECK_IN: "false"
+  # `hushh-mail-api` in hushh-tech-prod. One key per consuming project, so this
+  # single endpoint serves UAT and production.
+  _MAIL_API_ENDPOINT: "https://hushh-mail-api-646258530541.us-central1.run.app"
   _CLOUD_RUN_NO_TRAFFIC: "false"
   _IMAGE_TAG: v2.1.2
   _DEPLOY_ENV: manual

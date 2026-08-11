@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 ## Visual Map
 
@@ -96,6 +96,11 @@ live-location grants:
 - reverse geocoding may send the captured point through the authenticated Maps
   proxy to obtain display copy and an ISO country code, but the Maps service
   does not persist the point or result
+- one physical place may have only one saved category; a candidate within 25
+  metres of any existing Home, Work, or Other place is rejected with a reminder
+  to remove the existing place first. The encrypted persistence mutation
+  rechecks this invariant against the latest PKM state after write conflicts,
+  while existing legacy duplicates are preserved for explicit owner cleanup
 - before saving, the owner may replace the captured place from the same
   onboarding prompt; authenticated Maps autocomplete and place details replace
   the display address and coordinates together in memory, while raw coordinates
@@ -143,9 +148,88 @@ owner/link metadata plus the attached public location snapshot.
 - Invite to One links are hash-only onboarding links. A signed-in visitor must
   complete the normal phone verification gate and unlock their own vault so the
   client can bootstrap only that visitor's One Location recipient key. Claiming
-  creates a metadata-only mutual One Network connection; it never creates a live
-  location grant, exposes private owner profile data, or requests location
-  permission.
+  creates the legacy metadata-only trusted edge; its compatibility client may
+  separately materialize a mutual One Network connection. Claiming never
+  creates a live location grant, exposes private owner profile data, or requests
+  location permission.
+- Named Circles are a separate durable metadata graph backed by
+  `one_location_circles`, `one_location_circle_memberships`, and
+  `one_location_circle_invite_codes`. The user's confirmed Join action on a
+  valid code is membership consent: it joins immediately, bypasses a second
+  connection-request approval, and creates source-aware canonical mutual
+  connections with every active Circle member. It creates no
+  `trusted_connections` edge, SMS selection, location grant, envelope, or
+  capability.
+- Every active Circle member can invite their own existing direct connections through
+  `one_location_circle_member_invites`. Creating an invitation grants nothing.
+  The invitee must accept before membership and Circle-sourced connection
+  origins are created; this avoids a second Connect-tab request while
+  preserving consent to join a group and become visible to its members. The
+  actual inviter must remain an active member through acceptance. Non-owners
+  may reserve at most five pending invitations, and a declined, cancelled, or
+  expired invitation has a 12-hour Circle-wide cooldown before another member
+  can contact the same person again.
+- Codes use a 12-character human-safe alphabet, expire after 72 hours, are
+  shared by the Circle, and are stored only as a domain-separated keyed HMAC
+  digest. Active members may re-read and share the current code; ensuring a
+  code is idempotent and does not invalidate one already being shared. Only the
+  canonical `one_location_circles.owner_user_id` may rotate or revoke it.
+  Legacy active codes that cannot be re-read require that explicit owner
+  rotation; a member read never invalidates them. Raw codes are returned with `private,
+  no-store` cache policy and must not appear in URLs, logs, analytics, or
+  durable client storage.
+- Owner removal is a governance boundary: ordinary members cannot select,
+  invite, or restore a removed account. The owner may send a new targeted
+  invitation, and only that owner-authored acceptance may reactivate the
+  membership. Code join remains blocked for removed accounts.
+- Active co-membership makes two people connected and eligible to start an
+  explicit share, but it is not location or Save My Soul authorization.
+  Every share remains per-recipient, encrypted, duration-bounded, and
+  revocable. Circle-only grants always persist `source_circle_id`. On leave,
+  removal, deletion, or account cleanup, a grant is reassigned to another
+  active shared Circle, converted to direct provenance when a non-Circle
+  connection survives, and revoked only when no eligible relationship remains.
+  Account reset/deletion locks affected Circles first, revokes each shared code,
+  and cancels invitations authored by the departing account before its
+  membership rows are erased.
+- Share and Check-In offer an explicit named-Circle target. Selecting one
+  snapshots that Circle's current active, recipient-key-ready members, excludes
+  the owner and setup-incomplete members with visible reasons, and still creates
+  one encrypted grant/envelope per selected person. It does not include people
+  who join after confirmation.
+- Save My Soul keeps the stricter durable `one_location_sms_contacts` boundary.
+  Choosing "Add Circle" in SMS contacts explicitly adds only the Circle's
+  current phone-verified, recipient-key-ready members as individual SMS
+  contacts. It never follows future membership automatically, and the user may
+  remove any person independently.
+- Check-In and SMS contacts surface an in-context "grow this Circle" affordance
+  (shared `CircleGrowActions`) beside a selected/added Circle: "Invite people"
+  reuses the same targeted `one_location_circle_member_invites` acceptance flow,
+  and "Share code" reuses the member-visible 12-character code via the platform
+  share sheet. These are pure relationship-consent entry points — inviting or
+  sharing a code grants no location, SMS, or trusted-edge authority, and a new
+  member is never retroactively added to an in-flight check-in or SMS snapshot.
+  Members without invite capability still get "Share code" alone; owners/members
+  with view-but-uncached codes generate one on demand before sharing.
+
+- `connection_origins` records each independent direct, imported, legacy, or
+  named-Circle source for a canonical connection. Leaving, removal, or Circle
+  deletion revokes only the matching named-Circle origins and recomputes the
+  canonical connection. A direct connection or another shared Circle keeps the
+  pair connected.
+- A member leaving or being removed atomically revokes the shared bearer code
+  and cancels pending targeted invitations authored by that member. Remaining
+  members can ensure a fresh code without gaining any location or SMS authority.
+- Migration 126 backfills the same canonical connection and named-Circle origin
+  for every active co-member pair from Circles created under migration 125, so
+  rollout does not require members to leave and rejoin.
+- Circle-backed grant creation, its audit event, and SMS-contact selection lock
+  the Circle and both memberships in the same transaction. Membership removal,
+  Circle deletion, and account cleanup use the matching lock order so a
+  concurrent mutation cannot recreate authority or a stale SMS selection after
+  cleanup.
+- A user may belong to at most 10 active Circles. A Circle has one owner, up to
+  20 active members, and one active invite code.
 - Consent/audit records are metadata-only.
 
 Capability scopes:
@@ -159,6 +243,42 @@ Capability scopes:
 - `cap.location.nearby.discover`
 - `cap.location.nearby.revoke`
 
+## Unified Location Control Contract
+
+The Location Agent header switch and Settings `Pause my location` control one
+user-scoped device preference. The header is on when at least one location
+channel is active: the owner's live preview, an active private grant publisher,
+or an active Nearby presence. Pausing stops new foreground/background private
+updates, clears the local self preview, and explicitly checks out active Nearby
+presence before the UI may report `Location paused`.
+
+`Auto-share my location` is a durable user-scoped preference, independent from
+Pause. It controls continuous foreground/background updates only for private
+grants the owner already approved; it never creates a grant or auto-approves a
+request. Turning Auto-share off leaves consent and expiry intact and makes new
+shares publish only the location the owner explicitly confirms. Pause
+temporarily suppresses Auto-share without erasing that preference, so both
+settings remain stable across tab changes and route remounts.
+
+Pause does not revoke private grants. Their authored expiry remains intact and
+recipients may retain the last encrypted point they already received. Resuming
+requires a fresh usable foreground fix. Nearby visibility remains a separate
+explicit consent: turning the header on never checks its confirmation box or
+creates presence. A successful Nearby check-in clears Pause and updates the
+shared control state; checkout removes only Nearby activity unless the user
+chooses the global Pause control.
+
+While Pause is active, Saved Locations must fail closed before asking the
+device location provider for a new point. A capture already in flight is
+discarded if Pause becomes active. Existing encrypted saved places remain
+readable, repairable, and removable while the vault is unlocked.
+
+`Location limited` means a channel is enabled but current permission or fix
+accuracy is degraded. It is a signal-quality badge, not an admission verdict: a
+broad fix is still usable for choosing the venue the owner is standing in. The
+badge appears above 200 metres, while Nearby admission only rejects a reading
+broader than 5 kilometres, which cannot place anyone at all.
+
 ## Nearby Check-In Contract
 
 Nearby Check-In is a separate short-lived presence workflow owned by Your Map.
@@ -166,30 +286,41 @@ It never widens a private live-location grant, and a Connect relationship never
 grants nearby or live-location visibility.
 
 1. The signed-in, phone-verified vault owner opens Check in on Your Map. One
-   captures one fresh foreground point, shows nearby provider places, and lets
-   the owner choose or search the exact public place before continuing. There
-   is no event code.
+   captures a foreground point and draws a transient 500-meter search boundary.
+   The drawer shows up to 20 operational, de-duplicated Google places ordered
+   by server-computed distance, with explicit category filters that reuse the
+   same boundary. Typed check-in search is restricted to that boundary. The
+   owner then chooses the public place used for admission and display context;
+   opening discovery never checks the owner in. The point and provider results
+   are not persisted. There is no event code.
 2. The owner chooses 30, 60, or 120 minutes and explicitly confirms showing
    their safe display label to other opted-in check-ins within the fixed
    500-meter radius. Allowing Connect requests is a separate switch and
    defaults off.
-3. On confirmation, the backend resolves the selected place itself and requires
-   the fresh point's complete accuracy envelope to remain inside 500 meters.
-   Accuracy never expands the admission radius.
-4. Raw device coordinates and accuracy exist only in request memory. The
-   selected public-place anchor is persisted only as an AES-256-GCM envelope,
-   alongside a server-keyed six-hour spatial candidate token, rotating alias,
-   consent posture, fixed radius, and expiry metadata. Checkout clears all
-   anchor ciphertext and candidate material synchronously. At `expires_at`,
-   roster visibility and Connect authorization stop synchronously; encrypted
-   material is scrubbed by the next feature operation or the hosted hourly
-   retention job.
+3. On confirmation, One captures a new foreground point. The backend resolves
+   the selected place itself, rejects address/geocode records, closed places,
+   and service-area-only businesses, and checks that the owner is plausibly at
+   that place: the point must sit within 500 metres of it, widened by the
+   reported accuracy up to a 2-kilometre cap. Accuracy is a tolerance on that
+   plausibility test, never an expansion of the co-presence radius, which is
+   measured place-to-place in step 5. The cap stops a deliberately coarse
+   reading from buying unlimited reach.
+4. The **selected place's** coordinates and safe label are persisted only inside
+   a short-lived AES-256-GCM envelope, alongside a server-keyed six-hour spatial
+   candidate token, rotating alias, consent posture, fixed radius, and expiry
+   metadata. The owner's captured point is never persisted, in plaintext or
+   ciphertext, and neither is its accuracy. Checkout clears all anchor
+   ciphertext and candidate material synchronously. At `expires_at`, roster
+   visibility and Connect authorization stop synchronously; encrypted material
+   is scrubbed by the next feature operation or the hosted hourly retention job.
 5. The candidate token is never accepted as proof of proximity. The service
-   decrypts candidate anchors and applies exact Haversine distance before
-   returning at most 20 active people. Spot A and Spot B therefore match when
-   their selected public-place anchors are within 500 meters. Peers never
-   receive one another's place, coordinates, distance, direction, contact
-   details, or stable user id.
+   decrypts candidate place anchors and applies exact Haversine distance before
+   returning at most 20 active people. Two people therefore match only when the
+   places they each selected are at most 500 meters apart. Because the anchor is
+   the venue and not a receiver reading, co-presence is exact and identical for
+   a 10-metre GPS fix and a 2-kilometre browser fix. Peers never receive one
+   another's place, coordinates, distance, direction, contact details, or stable
+   user id.
 6. Presence uses server-authoritative expiry and has no watcher, heartbeat,
    automatic extension, arrival detection, movement history, or distance
    ranking. Closing the app does not check out; the explicit Check out action
@@ -293,10 +424,16 @@ safe ids, actor ids, action type, expiry/countdown metadata, and `/one/location`
 navigation. They must not include coordinates, addresses, map previews,
 freshness trails, ciphertext, token values, or debug terminology.
 
+Pending targeted Circle-member invitations are also projected into the shared
+Consent Manager Requests read model as membership invitations with no consent
+scope or location capability. Consent Manager deep-links to the focused
+Location People invitation for Join/Decline; it must never route that row
+through generic location Allow/Don't allow actions.
+
 ## Retention Contract
 
 Expired or revoked One Location work is short-lived. Checkout synchronously
-clears nearby selected-place anchor ciphertext and candidate tokens. Expiry is
+clears nearby captured-point ciphertext and candidate tokens. Expiry is
 fail-closed for roster visibility and Connect authorization at `expires_at`;
 the next feature operation also scrubs due material.
 Terminal grants, metadata-only nearby-presence rows, ciphertext envelopes,
@@ -310,14 +447,23 @@ configure and verify the hourly `one-location-retention-purge-uat` job through
 `X-Hushh-Maintenance-Token` backed by the dedicated
 `ONE_LOCATION_RETENTION_TOKEN`, so due encrypted material is scrubbed within
 the configured scheduler interval even when no feature traffic occurs. Public
-request-link invites, public submissions, Invite to One links, and
-checked-out/expired nearby presence follow the same terminal-state retention
-boundary.
+request-link invites, public submissions, Invite to One links, expired/revoked
+named Circle codes, and checked-out/expired nearby presence follow the same
+terminal-state retention boundary. Pending targeted Circle-member invitations
+are marked expired opportunistically; accepted, declined, cancelled, and
+expired invitation rows are purged through the same scheduled retention
+endpoint and are also deleted with their Circle or either account.
 
 ## Native Contract
 
 v1 is foreground-only.
 
+- Named Circle create, code join, targeted member invitation/acceptance,
+  preview, management, and share flows stay on the native-required static
+  `/one/location` route for web, iOS, and Android.
+- iOS and Android use the existing Capacitor Share plugin for code-only share
+  text. Web uses Web Share with the shared clipboard fallback. This contract
+  intentionally does not claim Universal Links or Android App Links.
 - iOS uses `NSLocationWhenInUseUsageDescription` and the `HushhLocation`
   Capacitor plugin.
 - Android uses fine/coarse location permissions and the `HushhLocation`
@@ -357,6 +503,19 @@ The implementation must prove:
 - non-recipient reads fail
 - expired/revoked grants block reads
 - referrals create requests but no access
+- Circle code join creates source-aware mutual connections, but no automatic
+  trusted edge, SMS selection, location grant, envelope, or capability
+- inviting an existing direct connection requires invitee acceptance before
+  Circle membership
+- pending targeted Circle-member invitations appear once in Consent Manager
+  Requests without a location scope, capability, or generic access action
+- explicit Circle targets expand only the confirmed current roster; future
+  members are not auto-added, and every Share/Check-In grant remains
+  recipient-specific with exact Circle provenance
+- Save My Soul Circle bulk-add persists an explicit current-member SMS-contact
+  snapshot rather than treating membership as emergency-delivery authority
+- leave, removal, and deletion preserve direct and other-Circle connection
+  origins
 - notification and audit metadata contain no coordinates
 - public links store token hashes only; snapshot-backed links reveal only the
   explicit public snapshot, while request-only links never reveal location

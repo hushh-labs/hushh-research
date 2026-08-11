@@ -36,6 +36,10 @@
       "file": "app/api/app-config/review-mode/session/route.ts"
     },
     {
+      "template": "/api/auth/mail",
+      "file": "app/api/auth/mail/route.ts"
+    },
+    {
       "template": "/api/auth/session",
       "file": "app/api/auth/session/route.ts"
     },
@@ -502,6 +506,104 @@
         "route": "/blog/[slug]",
         "classification": "excluded-web-only"
       },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/c/[token]",
+      "page_file": "app/c/[token]/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": "Public Wallet Profile route is a standalone unauthenticated scan surface outside the signed-in app shell.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.wallet.card.public.token",
+          "purpose": "Help the person read the shared profile and use its generated contact controls.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/circle/join",
+      "page_file": "app/circle/join/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Public Circle join landing route reads the invite code from the query string and redirects into the in-app Join-with-code flow; it owns no signed-in app shell of its own.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.circle.join",
+          "purpose": "Help the person understand and use the circle join screen through its generated controls.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -2142,6 +2244,81 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/calendar",
+      "page_file": "app/one/calendar/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/calendar/calendar-agent-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceCard"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.calendar",
+          "purpose": "Connect Google Calendar and use the Calendar Agent for schedule summaries, availability, and confirmed meeting changes.",
+          "screen": "calendar",
+          "entry_cue": "Connect Calendar when you want schedule help from One.",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Calendar changes happen only after the person confirms the exact proposal in chat.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/calendar",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/google-calendar-service.ts",
+          "service_methods": [
+            "status",
+            "startConnect",
+            "disconnect",
+            "executeProposal"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/one/calendar/{status,connect/*,proposals/*}",
+          "native_transport": "Web-only Google OAuth; Calendar does not claim native authorization support."
+        }
+      ],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": {
+        "oauth_connection": "Google refresh tokens remain server-encrypted; the browser receives only connection status and an authorization URL.",
+        "mutation_authority": "Calendar creates, reschedules, and cancellations remain short-lived proposals and execute only after explicit owner confirmation in One chat."
+      }
+    },
+    {
       "route": "/one/connect",
       "page_file": "app/one/connect/page.tsx",
       "physical_page_exists": true,
@@ -2161,8 +2338,8 @@
         },
         "voice_playbook": {
           "playbook_id": "route.connect",
-          "purpose": "Help the person understand and use the connect screen through its generated controls.",
-          "screen": "app",
+          "purpose": "Find people, send connection requests, and manage who you are connected to.",
+          "screen": "connect",
           "entry_cue": "",
           "proactivity": "ambient",
           "primary_action_id": null,
@@ -2203,8 +2380,16 @@
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
       },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
+      "voice_action_contract_file": "app/one/connect/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "connect.cancel_request",
+        "connect.open_nearby",
+        "connect.open_people",
+        "connect.remove_connection",
+        "connect.search_people",
+        "connect.send_request",
+        "route.one_connect"
+      ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -2214,21 +2399,16 @@
       "page_file": "app/one/connect/settings/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/connections/gemini-runtime-configuration-page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility route only redirects legacy Gemini settings links to the canonical Profile preference.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
           "playbook_id": "route.connect.settings",
-          "purpose": "Manage private Gemini runtime configuration without exposing a credential to the agent.",
+          "purpose": "Redirect a legacy Gemini settings link to the canonical Profile preference.",
           "screen": "app",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -2243,9 +2423,9 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
-          "next_route": "/one/connect/settings",
-          "return_policy": "stay",
+          "completion_boundary": "Completion is spoken only after navigation settles on the canonical Profile preference.",
+          "next_route": "/one/profile/preferences/gemini",
+          "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -2550,7 +2730,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.gmail",
-          "purpose": "Gmail is paused while its dormant connection route is retained for a future explicit enablement.",
+          "purpose": "Connect Gmail for receipt sync and use purchase-memory review through its dedicated agent workspace.",
           "screen": "gmail",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -3801,6 +3981,140 @@
         "shared_loader": true,
         "back_button_pattern": "route-local-check-required"
       },
+      "voice_action_contract_file": "app/one/location/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "location.add_connections",
+        "location.add_emergency_contact",
+        "location.add_to_circle",
+        "location.create_circle",
+        "location.open_active_shares",
+        "location.open_ask",
+        "location.open_check_in",
+        "location.open_create_circle",
+        "location.open_invite",
+        "location.open_join_circle",
+        "location.open_links",
+        "location.open_map",
+        "location.open_needs_review",
+        "location.open_now",
+        "location.open_people",
+        "location.open_settings",
+        "location.open_share",
+        "location.open_shared_with_me",
+        "location.open_sms_contacts",
+        "location.open_sos",
+        "location.open_temporary_link",
+        "location.pause_updates",
+        "location.refresh",
+        "location.remove_emergency_contact",
+        "location.remove_from_circle",
+        "location.resume_updates",
+        "location.select_share_recipient",
+        "location.set_auto_share",
+        "location.share_selected",
+        "location.stop_sos"
+      ],
+      "api_dependencies": [
+        {
+          "service_file": "lib/one-location/service.ts",
+          "service_methods": [
+            "getState",
+            "listCircles",
+            "getCircle",
+            "createNamedCircle",
+            "updateNamedCircle",
+            "deleteNamedCircle",
+            "createNamedCircleInviteCode",
+            "revokeNamedCircleInviteCode",
+            "resolveNamedCircleCode",
+            "joinNamedCircle",
+            "removeNamedCircleMember",
+            "leaveNamedCircle",
+            "listNamedCircleEligibleConnections",
+            "createNamedCircleMemberInvites",
+            "listNamedCircleMemberInvites",
+            "acceptNamedCircleMemberInvite",
+            "declineNamedCircleMemberInvite",
+            "cancelNamedCircleMemberInvite",
+            "addSmsContact",
+            "removeSmsContact"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/one/location/{circles,circle-codes,circle-member-invites,sms-contacts}/*",
+          "native_transport": "CapacitorHttp direct backend via the shared One Location service"
+        }
+      ],
+      "native_plugin_dependencies": [
+        {
+          "package": "@capacitor/share",
+          "integration": "Native iOS and Android share sheets for text-only Circle invite codes; code values never enter URLs"
+        }
+      ],
+      "thread_and_consent_contract": {
+        "membership_authority": "Circle join creates source-aware connections with active members, but never creates a trusted edge, SMS selection, location grant, envelope, or capability",
+        "location_authority": "Every live-location share remains recipient-specific, encrypted, duration-bounded, and explicitly confirmed",
+        "circle_targeting_authority": "Share and Check-In expand only the explicitly selected Circle's current ready members; SMS adds an explicit current-member snapshot, and future members are never auto-selected",
+        "circle_invitation_authority": "Every active member may share the shared Circle code or invite their own direct connections; invitees still accept, while rotation, revocation, rename, removal, and deletion remain owner-governed",
+        "invite_code_storage": "Active members may re-read the shared code under private no-store responses; only its keyed digest and derivation version persist, and raw codes never enter URLs or durable client storage"
+      }
+    },
+    {
+      "route": "/one/location/check-in",
+      "page_file": "app/one/location/check-in/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "hidden",
+        "exemption_reason": null,
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.location.check-in",
+          "purpose": "Let the person pick a real place within 500 m and become briefly discoverable to opted-in people there. Distinct from the map, which shows only people who already share with this account.",
+          "screen": "one_location_check_in",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain that nearby check-in is unavailable on this account.",
+            "cancelled": "Return to the Location hub.",
+            "failed": "Keep the chosen place selected and offer a retry.",
+            "timeout": "Keep the place list visible and offer a retry.",
+            "callback_error": "Return to the Location hub.",
+            "route_mismatch": "Use the verified current route."
+          },
+          "completion_boundary": "A foreground fix is captured to list nearby places and, at confirmation, to anchor the check-in. Nothing is published until the person confirms; nearby people receive a display name only.",
+          "next_route": "/one/location",
+          "return_policy": "return_to_hub",
+          "out_of_scope_behavior": "Answer naturally without inventing a check-in control."
+        }
+      },
+      "native": {
+        "route": "/one/location/check-in",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Flocation%2Fcheck-in",
+        "expectedMarker": "native-route-one-location-check-in",
+        "expectedRoute": "/one/location/check-in",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
       "api_dependencies": [],
@@ -3960,7 +4274,7 @@
       ],
       "thread_and_consent_contract": {
         "baseline_transport": "Active recipient-scoped ciphertext only; no public or iframe fallback",
-        "coordinate_storage": "Map coordinates stay in foreground renderer memory. Nearby presence stores only the selected public-place anchor under AES-256-GCM plus a rotating spatial token; raw device GPS is request-memory only.",
+        "coordinate_storage": "Live-share map coordinates stay in foreground renderer memory. Nearby presence captures a final check-in point and stores it only under AES-256-GCM plus a rotating spatial token; accuracy is request-memory-only, and peers receive no coordinates.",
         "location_capture": "After renderer consent, Map takes one bounded foreground fix for camera focus. Locate me publishes only on an explicit tap. Nearby check-in takes a fresh bounded fix only for an explicit, time-boxed check-in.",
         "visibility": "Ghost Mode remains the map default. Local/UAT nearby discovery requires separate explicit visibility consent, returns a roster without peer coordinates, and fails closed in production."
       }
@@ -4806,6 +5120,110 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/profile/google/oauth/return",
+      "page_file": "app/one/profile/google/oauth/return/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "OAuth callback completes Calendar authorization and returns to the Calendar agent.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.google.oauth.return",
+          "purpose": "Finish the verified Google Calendar authorization callback without exposing credentials.",
+          "screen": "calendar",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Return to Calendar and explain that the connection was not completed.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Return to Calendar without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The callback completes only after the server verifies state and stores the connection.",
+          "next_route": "/one/calendar",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/google/oauth/return",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/integrations",
+      "page_file": "app/one/profile/integrations/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility-only redirect; Calendar is now a first-class One agent at /one/calendar.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.integrations",
+          "purpose": "Redirect a legacy Connected apps bookmark to Calendar without retaining a profile integration surface.",
+          "screen": "calendar",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Return to Calendar and retain a safe retry.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Return to Calendar without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the Calendar route settles.",
+          "next_route": "/one/calendar",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/integrations",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/profile/my-data",
       "page_file": "app/one/profile/my-data/page.tsx",
       "physical_page_exists": true,
@@ -5169,6 +5587,72 @@
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fdevice",
         "expectedMarker": "native-route-profile",
         "expectedRoute": "/one/profile/preferences/device",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/preferences/gemini",
+      "page_file": "app/one/profile/preferences/gemini/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/profile/profile-workspace-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.preferences.gemini",
+          "purpose": "Help the person manage Gemini preferences without exposing a credential to the private agent.",
+          "screen": "profile_preferences",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/preferences/gemini",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fgemini",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/gemini",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -5928,6 +6412,8 @@
           "primary_action_id": "setup.open_connections",
           "happy_path_action_ids": [
             "setup.open_connections",
+            "setup.open_gmail",
+            "setup.open_calendar",
             "setup.open_location",
             "setup.open_email",
             "setup.open_finance",
@@ -6025,6 +6511,87 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/setup/calendar",
+      "page_file": "app/one/setup/calendar/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/calendar/calendar-agent-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SetupCompletionFooter"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.calendar",
+          "purpose": "Connect Google Calendar, then explicitly finish or skip Calendar setup.",
+          "screen": "one_setup_calendar",
+          "entry_cue": "Connect Calendar when you are ready, or say skip Calendar setup.",
+          "proactivity": "on_entry",
+          "primary_action_id": "setup.connect_calendar",
+          "happy_path_action_ids": [
+            "setup.connect_calendar",
+            "setup.finish_calendar",
+            "setup.skip_calendar"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Keep Calendar setup open and preserve the active goal.",
+            "failed": "Explain that Calendar still needs a verified connection before it can finish.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Use the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Calendar setup finishes only after a verified connection and the setup hub route settles.",
+          "next_route": "/one/setup",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/calendar",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/setup/calendar/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "setup.connect_calendar",
+        "setup.finish_calendar",
+        "setup.skip_calendar"
+      ],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/google-calendar-service.ts",
+          "service_methods": [
+            "status",
+            "startConnect",
+            "disconnect"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/one/calendar/{status,connect/*}",
+          "native_transport": "Web-only Google OAuth; Calendar setup does not claim native authorization support."
+        }
+      ],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": {
+        "oauth_connection": "Google refresh tokens remain server-encrypted; setup receives only connection status and an authorization URL."
+      }
+    },
+    {
       "route": "/one/setup/connected-systems",
       "page_file": "app/one/setup/connected-systems/page.tsx",
       "physical_page_exists": true,
@@ -6117,7 +6684,7 @@
           "playbook_id": "route.one.setup.connections",
           "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.",
           "screen": "one_setup_connections",
-          "entry_cue": "Choose Hushh managed Gemini or your own validated Gemini key, then finish Connections setup.",
+          "entry_cue": "Choose Hussh managed Gemini now, or record BYOK and add the encrypted key after setup.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.finish_connections",
           "happy_path_action_ids": [
@@ -6132,7 +6699,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "The selected runtime is applied only after the vault-backed configuration mutation succeeds.",
+          "completion_boundary": "Setup records only a strict non-secret runtime preference; a BYOK key is validated and encrypted only after setup through the vault-backed configuration mutation.",
           "next_route": "/one/setup",
           "return_policy": "return_to_hub",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6390,22 +6957,26 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.setup.gmail",
-          "purpose": "Gmail setup is paused while its dormant capability route is retained for a future explicit enablement.",
+          "purpose": "Connect Gmail for receipt sync, then explicitly finish or skip Gmail setup.",
           "screen": "one_setup_gmail",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
+          "entry_cue": "Connect Gmail when you are ready, or say skip Gmail setup.",
+          "proactivity": "on_entry",
+          "primary_action_id": "setup.connect_gmail",
+          "happy_path_action_ids": [
+            "setup.connect_gmail",
+            "setup.finish_gmail",
+            "setup.skip_gmail"
+          ],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Explain that Gmail setup is paused.",
-            "failed": "Explain that Gmail setup is paused.",
-            "timeout": "Explain that Gmail setup is paused.",
-            "callback_error": "Explain that Gmail setup is paused.",
+            "cancelled": "Keep Gmail setup open and preserve the active goal.",
+            "failed": "Explain that Gmail still needs a verified connection before it can finish.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Use the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "The paused setup route has no executable actions.",
+          "completion_boundary": "Gmail setup finishes only after a verified connection and the setup hub route settles.",
           "next_route": null,
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6651,6 +7222,74 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/wallet-card",
+      "page_file": "app/one/wallet-card/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/profile/pkm-settings-shell.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceStack"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.wallet.card",
+          "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally without inventing a control."
+        }
+      },
+      "native": {
+        "route": "/one/wallet-card",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fwallet-card",
+        "expectedMarker": "native-route-one-wallet-card",
+        "expectedRoute": "/one/wallet-card",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/pkm",
       "page_file": "app/pkm/page.tsx",
       "physical_page_exists": true,
@@ -6795,6 +7434,55 @@
           "empty-valid"
         ]
       },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/profile/google/oauth/return",
+      "page_file": "app/profile/google/oauth/return/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Legacy Google Calendar OAuth callback; the canonical callback remains under /one/profile/google/oauth/return.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.legacy.profile.google.oauth.return",
+          "purpose": "Finish the verified Google Calendar authorization callback without exposing credentials.",
+          "screen": "calendar",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Return to Calendar and explain that the connection was not completed.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Return to Calendar without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The callback completes only after the server verifies state and stores the connection.",
+          "next_route": "/one/calendar",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -7049,6 +7737,72 @@
       "voice_action_contract_ids": [
         "ria.home.open_priority_item",
         "route.ria_home"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/ria/claim",
+      "page_file": "app/ria/claim/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "flow",
+        "exemption_reason": "Claim-by-phone is a fullscreen setup flow (phone, match, passcode, pick, done) that owns its own compact content rhythm.",
+        "shell_verification_file": "app/ria/claim/page.tsx",
+        "shell_verification_includes": [
+          "FullscreenFlowShell"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.ria.claim",
+          "purpose": "Help the person claim their SEC advisor or firm profile with their office number.",
+          "screen": "ria_claim",
+          "entry_cue": "You can say “Claim RIA Profile” to use the primary control on this screen.",
+          "proactivity": "on_entry",
+          "primary_action_id": "route.ria_claim",
+          "happy_path_action_ids": [
+            "route.ria_claim"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+          "next_route": "/ria/claim",
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/ria/claim",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fria%2Fclaim",
+        "expectedMarker": "native-route-ria-claim",
+        "expectedRoute": "/ria/claim",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": true,
+        "shared_loader": false,
+        "back_button_pattern": "route-local-check-required"
+      },
+      "voice_action_contract_file": "app/ria/claim/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "route.ria_claim"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -7758,5 +8512,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "1be88d39e9a5728adbcf515d337ca8a87fee01b21a4722e91895d49ed9c5b10b"
+  "content_sha256": "5613f8af6b53687283e6d65ed60bf0635824188e7e93ebbb35070c1f71027f9e"
 }

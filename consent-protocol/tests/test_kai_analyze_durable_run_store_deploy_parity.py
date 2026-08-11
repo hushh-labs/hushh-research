@@ -106,7 +106,7 @@ def test_backend_cloudbuild_plumbs_flag_to_runtime() -> None:
     Cloud Build backend config plumbs it into the Cloud Run runtime env. Guard
     both the wiring and the empty default (empty => runtime default OFF)."""
     backend_build = _read("deploy/backend.cloudbuild.yaml")
-    assert f'append_optional_env "{_FLAG.lstrip("_")}" "${{{_FLAG}}}"' in backend_build, (
+    assert f'add_env "{_FLAG.lstrip("_")}" "${{{_FLAG}}}"' in backend_build, (
         f"{_FLAG} not plumbed into Cloud Run env in backend.cloudbuild.yaml"
     )
     assert f'{_FLAG}: ""' in backend_build, (

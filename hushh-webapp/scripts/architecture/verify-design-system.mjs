@@ -189,7 +189,7 @@ if (!settingsUiSource.includes('role="heading"') || !settingsUiSource.includes("
     "components/app-ui/settings-ui.tsx must expose SettingsGroup titles as accessible compact headings"
   );
 }
-if (!settingsUiSource.includes("gap-x-2") || !settingsUiSource.includes("tracking-[0.22em]")) {
+if (!settingsUiSource.includes("gap-x-2")) {
   failures.push(
     "components/app-ui/settings-ui.tsx must keep SettingsGroup eyebrow inline with the title, not as a separate page-header line"
   );

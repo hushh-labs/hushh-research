@@ -9,13 +9,13 @@ generated, wired, and allowed by the browser-published inventory.
 from __future__ import annotations
 
 import json
+import logging
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
-_GATEWAY_PATH = (
-    Path(__file__).resolve().parents[3] / "contracts" / "kai" / "kai-action-gateway.vnext.json"
-)
+from hushh_mcp.services.generated_contracts import generated_contract_path
+
+logger = logging.getLogger(__name__)
 
 
 def _strings(value: Any) -> list[str]:
@@ -65,18 +65,29 @@ def _normalize(raw: Any) -> dict[str, Any] | None:
 
 @lru_cache(maxsize=1)
 def load_action_gateway() -> dict[str, Any]:
-    if not _GATEWAY_PATH.exists():
+    gateway_path = generated_contract_path("kai", "kai-action-gateway.vnext.json")
+    if not gateway_path.exists():
+        # Never let this stay quiet. An empty gateway is not a degraded mode: it
+        # makes One answer `unknown_action` for every id, so voice looks broken
+        # with no other signal anywhere. That is precisely how a packaging bug
+        # rode into UAT and production unnoticed.
+        logger.error(
+            "one_action_gateway_missing path=%s "
+            "(no actions will resolve; regenerate with `npm run build:voice-gateway`)",
+            gateway_path,
+        )
         return {"schema_version": "kai.action_gateway.vnext", "actions": [], "source": "missing"}
-    raw = json.loads(_GATEWAY_PATH.read_text(encoding="utf-8"))
+    raw = json.loads(gateway_path.read_text(encoding="utf-8"))
     raw_actions = raw.get("actions") if isinstance(raw, dict) else []
     actions = [entry for entry in (_normalize(item) for item in raw_actions or []) if entry]
+    logger.info("one_action_gateway_loaded actions=%d path=%s", len(actions), gateway_path)
     return {
         "schema_version": str(raw.get("schema_version") or "kai.action_gateway.vnext")
         if isinstance(raw, dict)
         else "kai.action_gateway.vnext",
         "actions": actions,
         "source": "file",
-        "path": str(_GATEWAY_PATH),
+        "path": str(gateway_path),
     }
 
 
@@ -94,8 +105,43 @@ def get_action_gateway_action(action_id: str | None) -> dict[str, Any] | None:
 
 
 def is_navigation_action(entry: dict[str, Any] | None) -> bool:
-    if not entry or not str(entry.get("action_id") or "").startswith("route."):
+    """True when running ``entry`` only moves the person to another screen.
+
+    Navigation is admissible from any screen: it is how "go to profile" stays
+    proposable from a tab that has never heard of the profile. Everything else
+    has to be offered by the screen it belongs to.
+
+    Membership is a UNION of two tests, and both are load-bearing:
+
+    * ``execution_target.path == "route"`` -- the action navigates, whatever it
+      is called. Forty-one contracts navigate under a surface-scoped name
+      (``location.open_join_circle``, ``setup.open_finance``, the RIA workspace
+      tabs). Judging those by name alone made them ordinary screen inventory,
+      so they competed for the capped ``available_action_ids`` slots and were
+      simply refused once a surface declared more actions than the cap. That is
+      what broke "join a circle" on Location.
+    * the ``route.`` name prefix -- because seven navigation contracts do NOT
+      have a route path. ``route.profile``, ``route.consents`` and
+      ``route.analysis_history`` run through ``kai_command`` and ``route.back``
+      through ``voice_tool``. Dropping the prefix test in favour of the path
+      would have un-navigated exactly the cross-screen actions the reserved
+      global-navigation segment exists to protect.
+
+    Authority is unchanged either way: this decides what may be PROPOSED, and
+    ``run_app_action`` still re-validates screens and guards before anything
+    is parked as a directive.
+    """
+    if not entry:
         return False
-    return (entry.get("execution_target") or {}).get("status") == "wired" and str(
-        (entry.get("risk") or {}).get("execution_policy") or "allow_direct"
-    ) == "allow_direct"
+    execution_target = entry.get("execution_target") or {}
+    if execution_target.get("status") != "wired":
+        return False
+    navigates = (
+        str(entry.get("action_id") or "").startswith("route.")
+        or execution_target.get("path") == "route"
+    )
+    if not navigates:
+        return False
+    return (
+        str((entry.get("risk") or {}).get("execution_policy") or "allow_direct") == "allow_direct"
+    )

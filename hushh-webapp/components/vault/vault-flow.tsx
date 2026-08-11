@@ -57,6 +57,7 @@ import {
 
 type VaultStep =
   | "checking"
+  | "setup_required"
   | "create"
   | "unlock"
   | "recovery"
@@ -75,6 +76,12 @@ interface VaultFlowProps {
   onRecoveryKeyDisclosureChange?: (active: boolean) => void;
   enableGeneratedDefault?: boolean;
   /**
+   * Setup routes may open an existing vault but must never create one before
+   * the root "Finish setup" boundary. The post-setup invitation keeps the
+   * canonical creation path.
+   */
+  allowVaultCreation?: boolean;
+  /**
    * When provided, renders a subtle "Sign out" escape on the unlock / recovery
    * steps. Passed only by the HARD vault gate (VaultLockGuard) so a user who
    * forgot their vault password is not trapped with no way out of the app.
@@ -83,7 +90,7 @@ interface VaultFlowProps {
 }
 
 const VAULT_ALTERNATIVE_BUTTON_CLASS =
-  "h-10 rounded-full px-2 text-[13px] font-medium sm:h-11 sm:text-[14px] !bg-[color:var(--app-accent-tint)] !text-[color:var(--app-accent-deep)] hover:!bg-[color:var(--app-accent-surface-strong)]";
+  "h-11 rounded-full border border-[color:var(--app-accent-border)] px-3 text-[13px] font-medium sm:text-[14px] !bg-[color:var(--app-accent-tint)] !text-[color:var(--app-accent-deep)] hover:!bg-[color:var(--app-accent-surface-strong)]";
 
 function VaultFlowHeader({
   icon,
@@ -131,6 +138,7 @@ export function VaultFlow({
   onStepChange,
   onRecoveryKeyDisclosureChange,
   enableGeneratedDefault = false,
+  allowVaultCreation = true,
   onSignOut,
 }: VaultFlowProps) {
   const [step, setStep] = useState<VaultStep>("checking");
@@ -252,6 +260,13 @@ export function VaultFlow({
   const showRecoveryAlternative = true;
   const showUnlockOtherMethods =
     showVaultKeyAlternative || showPasskeyAlternative || showRecoveryAlternative;
+  const unlockAlternativeCount = [
+    showVaultKeyAlternative,
+    !webPasskeyUnsupported &&
+      ((hasActiveGeneratedWrapper && unlockWithPassphraseFallback) ||
+        showPasskeyAlternative),
+    showRecoveryAlternative,
+  ].filter(Boolean).length;
   const generatedUnlockError =
     hasActiveGeneratedWrapper && !unlockWithPassphraseFallback && error
       ? error
@@ -312,6 +327,10 @@ export function VaultFlow({
 
         const hasVault = await VaultService.checkVault(user.uid);
         if (!hasVault) {
+          if (!allowVaultCreation) {
+            setStep("setup_required");
+            return;
+          }
           setVaultMode("passphrase");
           setUnlockWithPassphraseFallback(false);
           setUnlockHint(null);
@@ -398,7 +417,7 @@ export function VaultFlow({
       }
     };
     checkStatus();
-  }, [nativeTestConfig.vaultPassphrase, shouldPreferPassphraseUnlock, user.uid]);
+  }, [allowVaultCreation, nativeTestConfig.vaultPassphrase, shouldPreferPassphraseUnlock, user.uid]);
 
   useLayoutEffect(() => {
     if (step !== "unlock") {
@@ -913,6 +932,18 @@ export function VaultFlow({
         data-vault-flow-step={step}
         className="max-h-[min(640px,calc(90svh-3rem))] space-y-4 overflow-y-auto px-5 pb-[max(calc(1.25rem+env(safe-area-inset-bottom,0px)),calc(1.25rem+var(--kb-height,0px)))] pt-1 [scrollbar-width:none] sm:px-7 [&::-webkit-scrollbar]:hidden"
       >
+          {step === "setup_required" && (
+            <div className="mx-auto max-w-[21rem] space-y-4 text-center">
+              <VaultFlowHeader
+                icon={Lock}
+                title="Finish setup first"
+                description="Your private vault is the final step after setup."
+              />
+              <p className="type-footnote leading-snug text-muted-foreground">
+                Finish this setup journey, then create your vault from the final security step.
+              </p>
+            </div>
+          )}
           {/* Create Passphrase */}
           {step === "create" && (
             <form
@@ -921,12 +952,12 @@ export function VaultFlow({
             >
               <VaultFlowHeader
                 icon={Lock}
-                title="Create Your Vault"
-                description="Choose a vault key only you know"
+                title="Create your private vault"
+                description="End-to-end encryption starts here."
               />
               <div className="space-y-1.5">
                 <Label htmlFor="passphrase" className="type-footnote font-medium text-muted-foreground">
-                  Vault Key
+                  Passphrase
                 </Label>
                 <div
                   className={cn(
@@ -941,7 +972,7 @@ export function VaultFlow({
                   <input
                     id="passphrase"
                     type="password"
-                    placeholder="Create vault key"
+                    placeholder="Create passphrase"
                     value={passphrase}
                     onChange={(e) => setPassphrase(e.target.value)}
                     autoFocus
@@ -952,7 +983,7 @@ export function VaultFlow({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="confirm" className="type-footnote font-medium text-muted-foreground">
-                  Confirm Vault Key
+                  Confirm passphrase
                 </Label>
                 <div
                   className={cn(
@@ -967,7 +998,7 @@ export function VaultFlow({
                   <input
                     id="confirm"
                     type="password"
-                    placeholder="Confirm vault key"
+                    placeholder="Confirm passphrase"
                     value={confirmPassphrase}
                     onChange={(e) => setConfirmPassphrase(e.target.value)}
                     autoComplete="new-password"
@@ -981,7 +1012,7 @@ export function VaultFlow({
                 )}
               </div>
               <p className="text-center type-footnote leading-snug text-muted-foreground">
-                Use at least 8 characters. Hussh cannot see or reset this key.
+                At least 8 characters. Only you know it.
               </p>
               <Button
                 variant="none"
@@ -994,10 +1025,10 @@ export function VaultFlow({
               >
                 {isUnlocking ? (
                   <>
-                    <Icon icon={Loader2} size="md" className="mr-2 animate-spin" /> Creating Vault...
+                    <Icon icon={Loader2} size="md" className="mr-2 animate-spin" /> Creating vault...
                   </>
                 ) : (
-                  "Create Vault"
+                  "Create private vault"
                 )}
               </Button>
             </form>
@@ -1008,11 +1039,11 @@ export function VaultFlow({
             <div className="space-y-2.5">
               <VaultFlowHeader
                 icon={isGeneratedVaultMode ? Fingerprint : Lock}
-                title="Unlock Your Vault"
+                title="Open your private vault"
                 description={
                   isGeneratedVaultMode
-                    ? "Confirm with your device to open Vault"
-                    : "Enter your passphrase to open Vault"
+                    ? "Confirm with your device."
+                    : "Enter your passphrase."
                 }
                 hint={unlockHint}
               />
@@ -1037,7 +1068,7 @@ export function VaultFlow({
                     htmlFor="unlock-passphrase"
                     className="type-footnote font-medium text-muted-foreground"
                   >
-                    Vault Key
+                    Passphrase
                   </Label>
                   <div
                     className={cn(
@@ -1052,8 +1083,8 @@ export function VaultFlow({
                     <input
                       id="unlock-passphrase"
                       type="password"
-                      placeholder="Enter vault key"
-                      aria-label="Vault key"
+                      placeholder="Enter passphrase"
+                      aria-label="Vault passphrase"
                       value={passphrase}
                       onChange={(e) => setPassphrase(e.target.value)}
                       onKeyDown={(e) =>
@@ -1128,8 +1159,13 @@ export function VaultFlow({
 
                 {showUnlockOtherMethods ? (
                   <div className="space-y-1.5 pt-1">
-                    <p className="type-footnote font-medium text-muted-foreground">Other methods</p>
-                    <div className="grid grid-cols-2 gap-2">
+                    <p className="type-footnote font-medium text-muted-foreground">Use another method</p>
+                    <div
+                      className={cn(
+                        "grid gap-2",
+                        unlockAlternativeCount === 1 ? "grid-cols-1" : "grid-cols-2",
+                      )}
+                    >
                       {showVaultKeyAlternative ? (
                         <Button
                           variant="none"
@@ -1144,7 +1180,7 @@ export function VaultFlow({
                           }}
                           disabled={isUnlocking}
                         >
-                          Vault Key
+                          Passphrase
                         </Button>
                       ) : null}
                       {!webPasskeyUnsupported &&
@@ -1182,7 +1218,7 @@ export function VaultFlow({
                           }}
                           disabled={isUnlocking}
                         >
-                          Recovery Key
+                          Recovery key
                         </Button>
                       ) : null}
                     </div>
@@ -1198,8 +1234,8 @@ export function VaultFlow({
             <div className="space-y-2.5">
               <VaultFlowHeader
                 icon={Key}
-                title="Enter Recovery Key"
-                description="Enter your recovery key to open Vault"
+                title="Enter recovery key"
+                description="Use this if your passphrase is unavailable."
               />
               <div className="space-y-1.5">
                 <Label htmlFor="recovery-key" className="text-xs font-medium sm:text-sm">Recovery Key</Label>
@@ -1236,8 +1272,15 @@ export function VaultFlow({
                   )}
                 </Button>
                 <div className="space-y-1.5">
-                  <p className="type-footnote font-medium text-muted-foreground">Other methods</p>
-                  <div className="grid grid-cols-2 gap-2">
+                  <p className="type-footnote font-medium text-muted-foreground">Use another method</p>
+                  <div
+                    className={cn(
+                      "grid gap-2",
+                      availableGeneratedMethod && !webPasskeyUnsupported
+                        ? "grid-cols-2"
+                        : "grid-cols-1",
+                    )}
+                  >
                     <Button
                       variant="none"
                       effect="fade"
@@ -1251,7 +1294,7 @@ export function VaultFlow({
                       }}
                       disabled={isUnlocking}
                     >
-                      Vault Key
+                      Passphrase
                     </Button>
                     {availableGeneratedMethod && !webPasskeyUnsupported ? (
                       <Button
@@ -1280,7 +1323,7 @@ export function VaultFlow({
           )}
 
           {step === "method" && (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <VaultFlowHeader
                 icon={
                   recommendedQuickMethod === "generated_default_web_prf" ||
@@ -1301,11 +1344,11 @@ export function VaultFlow({
 
               <div className="flex flex-col gap-3 pt-2">
                 <Button
-                  variant="gradient"
-                  effect="glass"
-                  size="default"
+                  variant="blue-gradient"
+                  effect="fill"
+                  size="lg"
                   fullWidth
-                  className="h-12 rounded-full text-[16px] font-medium"
+                  className="h-12 rounded-full text-[15px] font-semibold"
                   disabled={isUnlocking || !pendingUnlockKey || !recommendedQuickMethod}
                   onClick={async () => {
                     if (!pendingUnlockKey || !recommendedQuickMethod) return;
@@ -1354,9 +1397,9 @@ export function VaultFlow({
                 <Button
                   variant="none"
                   effect="fade"
-                  size="default"
+                  size="lg"
                   fullWidth
-                  className="h-11 whitespace-normal rounded-full px-4 text-center text-[15px] font-medium leading-snug sm:h-12"
+                  className="h-12 rounded-full border border-[color:var(--app-accent-border)] !bg-[color:var(--app-accent-tint)] px-4 text-center text-[15px] font-medium !text-[color:var(--app-accent-deep)] transition-colors hover:!bg-[color:var(--app-accent-surface-strong)]"
                   disabled={isUnlocking || !pendingUnlockKey}
                   onClick={async () => {
                     if (!pendingUnlockKey) return;
@@ -1391,15 +1434,14 @@ export function VaultFlow({
             >
               <VaultFlowHeader
                 icon={Key}
-                title="Save Your Recovery Key"
-                description="This is the only way to recover your vault if you forget your vault credentials. Store it somewhere safe."
+                title="Save your recovery key"
+                description="Keep it somewhere only you can reach."
               />
 
               <Alert className="rounded-[18px] border-orange-500/30 bg-orange-500/10">
                 <Icon icon={AlertCircle} size="sm" className="text-orange-500" />
                 <AlertDescription className="text-[13.5px] leading-[1.4] text-orange-700 dark:text-orange-300">
-                  Write this down or save it securely. You cannot recover it
-                  later!
+                  Save this now. It cannot be shown again.
                 </AlertDescription>
               </Alert>
 
@@ -1461,7 +1503,7 @@ export function VaultFlow({
               >
                 {isUnlocking
                   ? "Opening vault..."
-                  : "I've Saved My Recovery Key"}
+                  : "I’ve saved my recovery key"}
               </Button>
             </div>
           ) : null}

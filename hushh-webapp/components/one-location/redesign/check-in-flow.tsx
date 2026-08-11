@@ -21,12 +21,27 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, CheckCircle2, RefreshCw, Search, Shield } from "lucide-react";
+import {
+  Check,
+  CheckCircle2,
+  RefreshCw,
+  Search,
+  Shield,
+  UsersRound,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
+import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
+import {
+  mergeRecipientsByUserId,
+  type CircleRecipientSelection,
+} from "@/lib/one-location/circle-recipient-selection";
+import { CircleGrowActions } from "@/components/one-location/redesign/circles/circle-grow-actions";
 
 import type { LocationHubViewModel } from "./location-redesign-hub";
+
 
 /** Check-in durations. "until_stop" maps to the maximum supported window. */
 const CHECK_IN_DURATIONS: { value: string; label: string }[] = [
@@ -45,7 +60,7 @@ const PRIVATE_CONFIRMATION_MAX_AGE_MS = 10 * 60_000;
 
 /** White surface card — design radius 12px, with a dark-mode variant. */
 const CARD =
-  "rounded-[12px] border border-black/[0.06] bg-white dark:border-white/[0.08] dark:bg-white/[0.05]";
+  "rounded-[var(--app-card-radius-compact)] border border-border/60 bg-[color:var(--app-card-surface-default-solid)]";
 
 // Contact list cap: trusted circles can be long, so show ~4 rows then scroll.
 // A thin, touch-friendly scrollbar keeps it unobtrusive on mobile.
@@ -106,12 +121,12 @@ function isFreshReviewedPoint(
   );
 }
 
-/** Uppercase section label (YOUR LOCATION / WHO SHOULD KNOW? / …). */
+/** Section label that follows the shared readable settings scale. */
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mb-2 mt-5 px-1 text-[13px] font-semibold text-black/45 dark:text-white/45">
+    <AppSectionLabel as="p" className="mb-2 mt-7 px-[6px]">
       {children}
-    </p>
+    </AppSectionLabel>
   );
 }
 
@@ -165,7 +180,7 @@ function ContactRow({
             Already shared in this check-in
           </span>
         ) : !ready ? (
-          <span className="block truncate text-[12px] text-black/45 dark:text-white/45">
+          <span className="block truncate text-[13px] leading-[18px] text-[#8E8E93]">
             Not ready to receive location
           </span>
         ) : null}
@@ -193,7 +208,6 @@ export function CheckInFlow({
   onClose: () => void;
   entrySource?: "nearby";
 }) {
-  const contacts = vm.sosRecipients;
   const discardPrivateCheckInOperation =
     vm.onDiscardPrivateCheckInOperation;
   const [submitting, setSubmitting] = useState(false);
@@ -211,14 +225,61 @@ export function CheckInFlow({
     [],
   );
   const [seeded, setSeeded] = useState(entrySource === "nearby");
+  const [circleSelection, setCircleSelection] =
+    useState<CircleRecipientSelection | null>(null);
+  const [circleLoadingId, setCircleLoadingId] = useState<string | null>(null);
   const [confirmedPoint, setConfirmedPoint] =
     useState<PlainLocationPoint | null>(null);
   const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
+  const [mapViewportResetKey, setMapViewportResetKey] = useState(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const operationIdRef = useRef<string | null>(null);
   const confirmedRecipientKeysRef = useRef<Record<string, string | null> | null>(
     null,
   );
+  const contacts = useMemo(
+    () =>
+      mergeRecipientsByUserId(
+        vm.sosRecipients,
+        (circleSelection?.ready ?? []).map((target) => target.recipient),
+      ),
+    [circleSelection, vm.sosRecipients],
+  );
+
+  const selectCircle = async (circleId: string) => {
+    if (circleLoadingId) return;
+    if (circleSelection?.circle.id === circleId) {
+      setCircleSelection(null);
+      setCheckedIds([]);
+      setSeeded(false);
+      return;
+    }
+    setCircleLoadingId(circleId);
+    try {
+      const selection = await vm.onResolveNamedCircleRecipients(
+        circleId,
+        "location",
+      );
+      setCircleSelection(selection);
+      setCheckedIds(
+        selection.ready.map((target) => target.recipient.userId),
+      );
+      setSeeded(true);
+      if (!selection.ready.length) {
+        toast.error(
+          "No current Circle members are ready to receive encrypted location.",
+        );
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not load this Circle.",
+      );
+    } finally {
+      setCircleLoadingId(null);
+    }
+  };
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNowMs(Date.now()), 5_000);
@@ -358,6 +419,7 @@ export function CheckInFlow({
         point: reviewedPoint,
         clientOperationId: operationId,
         confirmedAt: confirmationTime,
+        sourceCircleId: circleSelection?.circle.id ?? null,
       });
       if (result.succeededRecipientIds.length > 0) {
         setCompletedRecipientIds((current) => [
@@ -391,7 +453,7 @@ export function CheckInFlow({
     <div>
       {/* Header — title + Cancel link (no back arrow; Cancel dismisses). */}
       <div className="flex items-start justify-between gap-3">
-        <h1 className="max-w-[250px] text-[23px] font-bold leading-[1.2] tracking-[-0.4px] text-foreground">
+        <h1 className="max-w-[310px] text-[28px] font-bold leading-[1.12] tracking-normal text-foreground">
           Let trusted people know you&apos;re here
         </h1>
         <button
@@ -405,15 +467,15 @@ export function CheckInFlow({
 
       {entrySource === "nearby" ? (
         <section
-          className="mt-4 flex gap-3 rounded-[12px] border border-[var(--app-accent-border)] bg-[var(--app-accent-surface)] p-4"
+          className="mt-4 flex gap-3 rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-accent)]/10 p-4"
           data-testid="nearby-private-share-disclosure"
         >
           <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
           <div>
-            <p className="text-sm font-semibold text-foreground">
+            <p className="text-[15px] font-semibold leading-5 text-foreground">
               Nearby and private sharing are separate
             </p>
-            <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
+            <p className="mt-1 text-[15px] leading-[20px] text-[#8E8E93]">
               Nearby people can see your name only. People you select below
               receive your encrypted precise location for the duration you
               choose.
@@ -423,7 +485,7 @@ export function CheckInFlow({
       ) : null}
 
       {/* YOUR LOCATION */}
-      <SectionLabel>YOUR LOCATION</SectionLabel>
+      <SectionLabel>Your location</SectionLabel>
       <section className={cn(CARD, "overflow-hidden")}>
         <div className="flex items-center gap-3 px-4 py-[13px]">
           <div className="min-w-0 flex-1">
@@ -436,7 +498,7 @@ export function CheckInFlow({
                     : "Location needs a refresh"
                   : "Location not captured yet"}
             </p>
-            <p className="mt-0.5 text-[13px] text-black/45 dark:text-white/45">
+            <p className="mt-1 text-[15px] leading-[20px] text-[#8E8E93]">
               {point
                 ? confirmedPoint
                   ? `${accuracy ?? "Location captured"} · Retrying the exact point you reviewed`
@@ -446,8 +508,17 @@ export function CheckInFlow({
           </div>
           <button
             type="button"
-            onClick={vm.onShowMyLocation}
-            disabled={vm.busy === "selfLocation" || Boolean(confirmedPoint)}
+            onClick={
+              confirmedPoint
+                ? () => setMapViewportResetKey((current) => current + 1)
+                : vm.onShowMyLocation
+            }
+            disabled={vm.busy === "selfLocation"}
+            aria-label={
+              confirmedPoint
+                ? "Recenter map on the confirmed check-in location"
+                : undefined
+            }
             className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-black/[0.14] px-[13px] py-[7px] text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-60 dark:border-white/20 dark:text-[color:var(--app-accent)]"
           >
             <RefreshCw
@@ -456,7 +527,7 @@ export function CheckInFlow({
                 vm.busy === "selfLocation" && "animate-spin",
               )}
             />
-            {confirmedPoint ? "Confirmed" : point ? "Refresh" : "Capture"}
+            {confirmedPoint ? "Recenter" : point ? "Refresh" : "Capture"}
           </button>
         </div>
         {point && !pointIsFresh ? (
@@ -478,23 +549,113 @@ export function CheckInFlow({
           </p>
         ) : null}
         {point ? (
-          <div className="px-3 pb-3">{vm.renderMapPreview(point, false)}</div>
+          <div className="px-3 pb-3">
+            {vm.renderMapPreview(
+              point,
+              false,
+              `check-in:${mapViewportResetKey}`,
+            )}
+          </div>
         ) : null}
       </section>
 
       {/* WHO SHOULD KNOW? */}
-      <SectionLabel>WHO SHOULD KNOW?</SectionLabel>
+      <SectionLabel>Who should know?</SectionLabel>
+      {vm.circles.length ? (
+        <div className={cn(CARD, "mb-2 overflow-hidden")}>
+          {vm.circles.map((circle, index) => {
+            const selected = circleSelection?.circle.id === circle.id;
+            return (
+              <button
+                key={circle.id}
+                type="button"
+                disabled={Boolean(circleLoadingId) || busy}
+                onClick={() => void selectCircle(circle.id)}
+                aria-pressed={selected}
+                className={cn(
+                  "flex min-h-[58px] w-full items-center gap-3 px-4 py-2.5 text-left",
+                  index < vm.circles.length - 1 &&
+                    "border-b border-black/[0.06] dark:border-white/[0.08]",
+                  selected &&
+                    "bg-[color:var(--app-accent-soft)]",
+                )}
+              >
+                <span className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+                  <UsersRound className="h-[17px] w-[17px]" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
+                    {circle.name}
+                  </span>
+                  <span className="block text-[15px] leading-5 text-muted-foreground">
+                    {selected
+                      ? `${circleSelection.ready.length} ready now`
+                      : `${circle.memberCount} members`}
+                  </span>
+                </span>
+                <span className="text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)]">
+                  {circleLoadingId === circle.id
+                    ? "Loading…"
+                    : selected
+                      ? "Selected"
+                      : "Select all"}
+                </span>
+              </button>
+            );
+          })}
+          {circleSelection ? (
+            <>
+              <p className="border-t border-[color:var(--app-separator)] px-4 py-2.5 text-[15px] leading-[20px] text-[#8E8E93]">
+                Current ready members only. Future members are not added to this
+                check-in.
+                {circleSelection.excluded.filter(
+                  (item) => item.reason !== "self",
+                ).length
+                  ? ` ${
+                      circleSelection.excluded.filter(
+                        (item) => item.reason !== "self",
+                      ).length
+                    } not ready.`
+                  : ""}
+              </p>
+              {/* Grow this Circle in-context: invite an existing connection or
+                  share the invite code, so a user can pull loved ones in right
+                  before they check in — especially when few members are ready. */}
+              <div className="border-t border-[color:var(--app-separator)] px-4 py-3">
+                <CircleGrowActions
+                  circleId={circleSelection.circle.id}
+                  circleName={circleSelection.circle.name}
+                  busy={busy || Boolean(circleLoadingId)}
+                  canInvite={
+                    circleSelection.circle.viewerCapabilities
+                      ?.canInviteMembers ??
+                    circleSelection.circle.role === "owner"
+                  }
+                  onShareCode={vm.onShareNamedCircleCodeById}
+                  onLoadEligibleConnections={
+                    vm.onLoadNamedCircleEligibleConnections
+                  }
+                  onInviteConnections={vm.onInviteNamedCircleConnections}
+                  onCancelMemberInvite={vm.onCancelNamedCircleMemberInvite}
+                  testId="check-in-circle-grow-actions"
+                />
+              </div>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
       <div
         className={cn(CARD, "mb-2 flex items-center gap-2 px-[14px] py-[11px]")}
       >
-        <Search className="h-3.5 w-3.5 shrink-0 text-black/35 dark:text-white/40" />
+        <Search className="h-3.5 w-3.5 shrink-0 text-[color:var(--app-tertiary-label)]" />
         <input
           type="text"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           disabled={retryLocked}
           placeholder="Search contacts…"
-          className="min-w-0 flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-black/35 disabled:cursor-not-allowed dark:placeholder:text-white/40"
+          className="min-w-0 flex-1 bg-transparent text-[15px] leading-5 text-foreground outline-none placeholder:text-[color:var(--app-tertiary-label)] disabled:cursor-not-allowed"
         />
       </div>
       {filtered.length ? (
@@ -533,7 +694,7 @@ export function CheckInFlow({
             Shared with {completedRecipientIds.length}{" "}
             {completedRecipientIds.length === 1 ? "person" : "people"} already
           </p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          <p className="mt-1 text-[15px] leading-[20px] text-[#8E8E93]">
             They keep the original encrypted location, duration, and message.
             Any edits apply only to people who have not received this check-in.
           </p>
@@ -541,8 +702,8 @@ export function CheckInFlow({
       ) : null}
 
       {/* DURATION — gray segmented control incl. "Until I stop". */}
-      <SectionLabel>DURATION</SectionLabel>
-      <div className="flex rounded-[9px] bg-[#ededf2] p-0.5 dark:bg-white/[0.08]">
+      <SectionLabel>Duration</SectionLabel>
+      <div className="flex rounded-[10px] bg-[color:var(--app-neutral-fill-strong)] p-0.5">
         {durationOptions.map((option) => (
           <button
             key={option.key}
@@ -553,7 +714,7 @@ export function CheckInFlow({
             className={cn(
               "whitespace-nowrap rounded-[7px] py-[9px] text-center text-[13px] transition-colors",
               option.active
-                ? "bg-white font-bold text-foreground shadow-sm dark:bg-white/[0.16]"
+                ? "bg-[color:var(--app-card-surface-default-solid)] font-semibold text-foreground shadow-none"
                 : "font-normal text-foreground/80",
               retryLocked && "cursor-not-allowed opacity-60",
             )}
@@ -562,13 +723,13 @@ export function CheckInFlow({
           </button>
         ))}
       </div>
-      <p className="mt-2 flex items-center gap-1.5 px-1 text-[12px] text-black/45 dark:text-white/45">
+      <p className="mt-2 flex items-center gap-1.5 px-1 text-[15px] leading-[20px] text-[#8E8E93]">
         <Shield className="h-3 w-3 shrink-0" strokeWidth={1.5} />
         Sharing stops automatically — no manual revoke needed.
       </p>
 
       {/* MESSAGE — encrypted with the reviewed point for selected recipients. */}
-      <SectionLabel>MESSAGE</SectionLabel>
+      <SectionLabel>Message</SectionLabel>
       <div className={cn(CARD, "px-4 py-[14px]")}>
         <textarea
           value={message}
@@ -578,13 +739,13 @@ export function CheckInFlow({
           disabled={retryLocked}
           rows={2}
           placeholder={DEFAULT_CHECK_IN_MESSAGE}
-          className="w-full resize-none bg-transparent text-[15px] leading-[1.4] text-foreground outline-none placeholder:text-black/35 disabled:cursor-not-allowed dark:placeholder:text-white/40"
+          className="w-full resize-none bg-transparent text-[15px] leading-5 text-foreground outline-none placeholder:text-[color:var(--app-tertiary-label)] disabled:cursor-not-allowed"
         />
-        <p className="mt-2 text-right text-[12px] text-black/30 dark:text-white/30">
+        <p className="mt-2 text-right text-[12px] text-[color:var(--app-tertiary-label)]">
           {message.length}/{CHECK_IN_MESSAGE_MAX_LENGTH}
         </p>
       </div>
-      <p className="mb-[18px] mt-2 px-1 text-[12px] leading-[1.45] text-black/45 dark:text-white/45">
+      <p className="mb-[18px] mt-2 px-1 text-[15px] leading-[20px] text-[#8E8E93]">
         {retryLocked
           ? "Retry keeps the same duration, encrypted message, and reviewed location, and sends only to people who still failed."
           : "This message is encrypted with your location. The notification only says that you shared a check-in."}

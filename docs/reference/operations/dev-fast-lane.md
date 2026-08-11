@@ -4,6 +4,10 @@
 > proving ground and never routes through `main`. This page is the canonical contract
 > for how those two lanes stay fast AND correct at the same time.
 
+Dev is a governed dispatch-only proving lane, never a promotion lane. Any decision
+that lands a PR, promotes `main`, or deploys UAT/production follows the canonical
+[Admin release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+
 ## Visual Context
 
 Canonical visual owner: [Operations Index](./README.md). Companion contracts:

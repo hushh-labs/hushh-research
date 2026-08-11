@@ -80,7 +80,25 @@ describe("CapabilityCinematicIntroGate", () => {
     );
   });
 
-  it("uses the shared prologue for Connections without promoting it to a capability", () => {
+  it("animates and focuses the capability body through the shared step transition after Continue", () => {
+    render(
+      <CapabilityCinematicIntroGate capabilityId="finance">
+        <p>Finance preferences</p>
+      </CapabilityCinematicIntroGate>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    const body = document.querySelector(
+      '[data-capability-cinematic-body="finance"]',
+    );
+    expect(body).toBeTruthy();
+    expect(body?.classList.contains("motion-step-enter")).toBe(true);
+    expect(document.activeElement).toBe(body);
+    expect(screen.getByText("Finance preferences")).toBeTruthy();
+  });
+
+  it("uses the shared prologue for AI access without promoting it to a capability", () => {
     render(
       <CapabilityCinematicIntroGate capabilityId="connections">
         <p>Connections settings</p>
@@ -89,9 +107,14 @@ describe("CapabilityCinematicIntroGate", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: "One gets more useful when you choose its starting point.",
+        name: "Choose the intelligence behind your private agent.",
       }),
     ).toBeTruthy();
+    const providerLane = screen.getByRole("list", { name: "AI providers" });
+    expect(providerLane).toBeTruthy();
+    for (const provider of ["Google Gemini", "OpenAI", "Claude", "Grok", "Meta Muse Spark"]) {
+      expect(screen.getByLabelText(provider)).toBeTruthy();
+    }
     expect(screen.queryByText("Connections settings")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -117,7 +140,44 @@ describe("CapabilityCinematicIntroGate", () => {
     expect(action.className).toContain("text-center");
   });
 
-  it("keeps intro clearance inside the visible viewport", () => {
+  it("top-anchors the shared intro instead of vertically centering the first setup screen", () => {
+    render(
+      <CapabilityCinematicIntroGate capabilityId="location">
+        <p>Location body</p>
+      </CapabilityCinematicIntroGate>,
+    );
+
+    const intro = document.querySelector(
+      '[data-capability-cinematic-intro="location"]',
+    );
+    const shell = document.querySelector(
+      '[data-fullscreen-flow-shell="true"]',
+    );
+
+    expect(intro).toBeTruthy();
+    expect(shell).toBeTruthy();
+    expect(intro?.className).not.toContain("my-auto");
+    expect(shell?.className).not.toContain("justify-center");
+  });
+
+  it("does not add a second viewport-height centering layer when the intro is embedded", () => {
+    render(
+      <CapabilityCinematicIntroGate capabilityId="finance" embedded>
+        <p>Finance preferences</p>
+      </CapabilityCinematicIntroGate>,
+    );
+
+    const intro = document.querySelector(
+      '[data-capability-cinematic-intro="finance"]',
+    );
+
+    expect(intro).toBeTruthy();
+    expect(intro?.className).not.toContain("min-h-[calc(100dvh");
+    expect(intro?.className).not.toContain("justify-center");
+    expect(intro?.className).not.toContain("my-auto");
+  });
+
+  it("uses transparent, fixed provider mark cells rather than filled brand tiles", () => {
     const gateSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
@@ -126,12 +186,10 @@ describe("CapabilityCinematicIntroGate", () => {
       "utf8",
     );
 
-    expect(gateSource).toContain(
-      "min-h-[calc(100dvh-var(--app-scroll-bottom-pad,0px))]",
-    );
-    expect(gateSource).toContain(
-      "min-h-[calc(100dvh-var(--top-shell-reserved-height)-var(--app-scroll-bottom-pad,0px))]",
-    );
+    expect(gateSource).toContain("data-runtime-provider-lane");
+    expect(gateSource).toContain('className="inline-flex h-12 w-12 items-center justify-center"');
+    expect(gateSource).not.toContain("bg-[color:var(--app-card-surface-compact)]");
+    expect(gateSource).not.toContain("shadow-[var(--shadow-xs)]");
   });
 
   it("keeps every authored setup journey on the shared, non-durable gate", () => {
@@ -149,6 +207,10 @@ describe("CapabilityCinematicIntroGate", () => {
       ],
       ["app/one/setup/gmail/gmail-onboarding-setup-client.tsx", "gmail"],
       [
+        "app/one/setup/calendar/calendar-onboarding-setup-client.tsx",
+        "calendar",
+      ],
+      [
         "components/connections/gemini-runtime-configuration-page.tsx",
         "connections",
       ],
@@ -159,8 +221,10 @@ describe("CapabilityCinematicIntroGate", () => {
         path.resolve(process.cwd(), relativePath),
         "utf8",
       );
-      expect(source).toContain(
-        `<CapabilityCinematicIntroGate capabilityId="${capabilityId}"`,
+      expect(source).toMatch(
+        new RegExp(
+          `<CapabilityCinematicIntroGate\\s+capabilityId="${capabilityId}"`,
+        ),
       );
     }
 

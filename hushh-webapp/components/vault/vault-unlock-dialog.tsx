@@ -22,6 +22,7 @@ type VaultUnlockDialogProps = {
   title: string;
   description: string;
   enableGeneratedDefault?: boolean;
+  allowVaultCreation?: boolean;
   dismissible?: boolean;
   /**
    * A non-dismissible route gate is a focused credential surface, not a
@@ -67,7 +68,8 @@ export function VaultUnlockDialog({
   onSuccess,
   title,
   description,
-  enableGeneratedDefault = false,
+  enableGeneratedDefault = true,
+  allowVaultCreation = true,
   dismissible = true,
   surfaceVariant = "standard",
   onSignOut,
@@ -160,6 +162,7 @@ export function VaultUnlockDialog({
           <VaultFlow
             user={user}
             enableGeneratedDefault={enableGeneratedDefault}
+            allowVaultCreation={allowVaultCreation}
             onSuccess={onSuccess}
             onRecoveryKeyDisclosureChange={
               setRecoveryKeyDisclosureActive

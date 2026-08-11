@@ -206,21 +206,26 @@ Three small mobile UX/nav fixes (commit `909ea793d`):
 ### B5 — Redesign leak check (always run when "it shows on the website")
 - **How to verify no leak:** `git merge-base --is-ancestor <redesign-sha> origin/main` for each redesign commit → must be false. The website deploys from `main` only (manual `workflow_dispatch`); the `mobile` branch (pushed as `ankit/iOS-UI-rephrased-v01`) never reaches it.
 
+### B22 — One connection request showed as TWO rows in the Feed's "Needs you"
+- **Symptom:** a single incoming connection request rendered twice, stacked: a blue-shield row with only a chevron, then a green-person row with the real Decline/Confirm buttons — same name, same "Wants to connect with you." Reported as a "double notification"; it is NOT a push/APNs bug and not iOS-specific (the hook is shared, so web sees it too).
+- **Root cause:** `lib/feed/use-feed-actionables.ts` builds "Needs you" from independent lanes, and a pending connection request arrives on **two** of them. The connections lane reads `ConnectionsService.listRequests({direction:"incoming"})` directly; the consent lane reads the Consent Center's `pending` surface — which folds those same requests in via `_incoming_connection_request_entries` (`consent-protocol/hushh_mcp/services/consent_center_service.py:1242`), calling **that very same** `ConnectionsService.list_requests(direction="incoming")` and setting `id`/`request_id` to the connection request's own id. Same row, fetched twice. The lanes namespace their keys differently (`consent:<id>` vs `connection:<id>`), so nothing deduped them.
+- **Fix:** the consent lane now skips `entry.kind === "connection_request"` — the connections lane owns them, because it carries the inline Confirm/Decline and correctly routes *scoped* requests to the Consent Center Review (a feed shortcut must never turn an omitted scope decision into a silent decline). No coverage lost: both lanes resolve to the same backend source. Removed the then-unreachable `connection_request` branch in `consentSummary`.
+- **Files:** `hushh-webapp/lib/feed/use-feed-actionables.ts`; regression test `hushh-webapp/__tests__/lib/feed/feed-actionables-connection-dedup.test.tsx`. Branch `fix/feed-duplicate-connection-request`.
+- **Verified:** 3/3 tests pass; with the guard removed they fail with `expected [ …(2) ] to have a length of 1 but got 2` and `expected 'consent:conn-req-1' to be 'connection:conn-req-1'` — reproducing the screenshot's stacking order. `tsc --noEmit` 0 errors, `eslint --max-warnings=0` clean.
+- **LESSON:** when one item shows twice in "Needs you", suspect two lanes over one source before suspecting push delivery. The Consent Center's `pending` surface is a **union**, not a disjoint feed — anything added there may already have its own lane.
+- **Adjacent, still open (separate bug):** duplicate *real* push banners are plausible for a different reason — every Cloud Run instance starts its own `LISTEN consent_audit_new` (`consent-protocol/server.py:507`) and Postgres NOTIFY fans out to all listeners, but the FCM send (`api/consent_listener.py:586`) has no advisory lock or leader election. Prod runs `max-instances=5`. Two warm instances → two identical banners. Unconfirmed in logs; not fixed here.
+
 ---
 
 ## 🧪 QA test phone numbers (UAT, fixed OTP `000000`)
 The app has a backend UAT-test phone path so QA can log in without SMS, with a FULL prod-like experience (real backend/vault/app — only the OTP is bypassed).
 - **Backend (already live on `consent-protocol` / `hushh-pda-uat`):** `ENVIRONMENT=uat`, secret `HUSHH_UAT_PHONE_TEST_CODE=000000`, secret `HUSHH_UAT_PHONE_TEST_NUMBERS` (comma/`;`/newline-separated allowlist, ref `:latest` → durable across CI deploys). Handler: `consent-protocol/api/routes/account.py` `/api/account/phone/uat-test/{start,confirm}`. Frontend: `ApiService.*UatPhoneTestVerification`, `AccountIdentityService.*UatTestPhoneVerification`.
 - **Native was gated off (`!isNative`) — fixed in `0c19110c2`:** `lib/firebase/auth-context.tsx` `startPhoneVerification` now tries the UAT-test start on native too, and `confirmPhoneVerification` routes `uat-test-phone:` verification ids to the UAT-test confirm before the real Firebase native link. Prod-safe (backend returns ineligible when not UAT/allowlisted → falls through to real Firebase).
-- **Add numbers (Secret write + Cloud Run deploy — auth config, run manually / outside auto-mode):**
-  ```bash
-  P=hushh-pda-uat
-  CUR="$(gcloud secrets versions access latest --secret=HUSHH_UAT_PHONE_TEST_NUMBERS --project=$P)"
-  NEW="+1XXXXXXXXXX,+1YYYYYYYYYY"   # append; keep existing
-  printf '%s' "${CUR},${NEW}" | gcloud secrets versions add HUSHH_UAT_PHONE_TEST_NUMBERS --data-file=- --project=$P
-  gcloud run services update consent-protocol --region=us-central1 --project=$P --update-secrets=HUSHH_UAT_PHONE_TEST_NUMBERS=HUSHH_UAT_PHONE_TEST_NUMBERS:latest
-  ```
-  Use real-looking numbers (team convention; not 555). 2026-07-05: 20 numbers `+19898989898…+19898989879` prepared for QA (secret write pending user run — auto-mode blocked it).
+- **Allowlist changes are governed operations:** never read or print the secret value and never
+  mutate Cloud Run directly from this bug log. Follow
+  `.codex/skills/repo-operations/references/admin-release-sop.md` and the current UAT phone-test
+  runbook; use the governed workflow so secret rotation, revision provenance, and rollback evidence
+  remain auditable.
 
 ## Palette invariant (so bugs don't reintroduce blue)
 Onboarding + agent chat + profile use the luxury palette: onyx `#0A0908`, champagne gold `#D4AF6A` (dark), deep gold `#9C7434` (light), cream `#F4EAD6`, ivory `#FAF6EE`, ink `#17130C`, positive `#12A150`, destructive `#C94F44`. **No indigo/blue** (`#5E5CE6`/`#8583ff`) on redesigned mobile surfaces. The `/one` dashboard uses the 2a pastel blocks. See [[hushh-research-mobile-branch]].

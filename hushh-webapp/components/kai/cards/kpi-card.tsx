@@ -41,21 +41,21 @@ const variantStyles = {
 const sizeStyles = {
   xs: {
     padding: "p-3",
-    title: "text-[10px]",
+    title: "text-[13px]",
     value: "text-base",
     change: "text-[10px]",
     icon: "w-8 h-8",
   },
   sm: {
     padding: "p-3.5",
-    title: "text-[10px]",
+    title: "text-[13px]",
     value: "text-lg",
     change: "text-[10px]",
     icon: "w-10 h-10",
   },
   md: {
     padding: "p-4.5",
-    title: "text-[10px]",
+    title: "text-[13px]",
     value: "text-xl",
     change: "text-[10px]",
     icon: "w-12 h-12",
@@ -113,7 +113,7 @@ export function KPICard({
               {icon}
             </div>
           )}
-          <span className={cn("text-muted-foreground uppercase font-semibold tracking-widest leading-none", styles.title)}>
+          <span className={cn("text-muted-foreground font-normal leading-[18px] tracking-normal", styles.title)}>
             {title}
           </span>
         </div>
@@ -128,7 +128,7 @@ export function KPICard({
 
         {/* Optional one-line description */}
         {description && (
-          <p className="text-[10px] uppercase font-bold text-muted-foreground/60 mt-1 line-clamp-1 tracking-wider">
+          <p className="mt-1 line-clamp-1 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground/70">
             {description}
           </p>
         )}

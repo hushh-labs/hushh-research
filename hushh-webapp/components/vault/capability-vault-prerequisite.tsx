@@ -27,6 +27,7 @@ type CapabilityVaultPrerequisiteProps = {
   capabilityLabel: string;
   routeKey: string;
   children: ReactNode;
+  allowVaultCreation?: boolean;
 };
 
 /**
@@ -42,6 +43,7 @@ export function CapabilityVaultPrerequisite({
   capabilityLabel,
   routeKey,
   children,
+  allowVaultCreation = true,
 }: CapabilityVaultPrerequisiteProps) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
@@ -191,6 +193,7 @@ export function CapabilityVaultPrerequisite({
           enableGeneratedDefault={
             !preferPassphraseUnlockForAutomation(nativeTestConfig)
           }
+          allowVaultCreation={allowVaultCreation}
           onSuccess={() => {
             setVaultHandoffPending(true);
             setDialogOpen(false);

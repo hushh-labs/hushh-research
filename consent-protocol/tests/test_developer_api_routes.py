@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -208,7 +209,7 @@ def test_user_scopes_accepts_authorization_bearer_header(monkeypatch):
     assert response.json()["app_id"] == "app_demo_123"
 
 
-def test_user_scopes_invalid_authorization_bearer_returns_403(monkeypatch):
+def test_user_scopes_invalid_authorization_bearer_returns_401(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "development")
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
 
@@ -224,7 +225,7 @@ def test_user_scopes_invalid_authorization_bearer_returns_403(monkeypatch):
         headers={"Authorization": "Bearer not-a-real-token"},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 401
     detail = response.json()["detail"]
     assert detail["error_code"] == "DEVELOPER_TOKEN_INVALID"
 
@@ -815,6 +816,51 @@ def test_request_consent_creates_pending_request(monkeypatch):
     assert inserted["metadata"]["connector_wrapping_alg"] == _CONNECTOR_WRAPPING_ALG
 
 
+@pytest.mark.parametrize(
+    "blocked_scope",
+    (
+        "attr.source_library.*",
+        "attr.source_library.knowledge.*",
+        "attr.source_library.catalog.*",
+        "attr.source_library.provenance.*",
+        "attr.source_library.audit.*",
+        "attr.source_library.policy.*",
+        "attr.source_library.knowledge.summary",
+    ),
+)
+def test_request_consent_rejects_nonshareable_source_library_scopes(
+    monkeypatch,
+    blocked_scope,
+):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(
+        developer,
+        "authenticate_developer_principal",
+        lambda **_: _fake_principal(),
+    )
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/v1/request-consent?token=hdk_demo",
+        json={
+            "user_id": "user_123",
+            "scope": blocked_scope,
+            "expiry_hours": 24,
+            "reason": "Synthetic Source Library policy test",
+            "connector_public_key": _CONNECTOR_PUBLIC_KEY,
+            "connector_key_id": _CONNECTOR_KEY_ID,
+            "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
+        },
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == {
+        "error_code": "SCOPE_RETIRED",
+        "message": "This PKM scope is not externally shareable.",
+    }
+
+
 def test_request_consent_rejects_authoritatively_empty_information_scope(monkeypatch):
     async def _empty_scope_snapshot(user_id: str, *, detail: str):
         assert user_id == "user_123"
@@ -1248,6 +1294,11 @@ def test_request_consent_reuses_active_semantic_scope_token(monkeypatch):
     monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
     monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
     monkeypatch.setattr(
+        developer,
+        "validate_token_with_db",
+        lambda _token: asyncio.sleep(0, result=(True, None, None)),
+    )
+    monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()
     )
 
@@ -1339,6 +1390,11 @@ def test_request_consent_reuses_exact_active_token(monkeypatch):
     monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
     monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
     monkeypatch.setattr(
+        developer,
+        "validate_token_with_db",
+        lambda _token: asyncio.sleep(0, result=(True, None, None)),
+    )
+    monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()
     )
 
@@ -1364,6 +1420,85 @@ def test_request_consent_reuses_exact_active_token(monkeypatch):
     assert payload["covered_by_existing_grant"] is True
     assert payload["consent_token"] == existing_grant
     assert payload["export_revision"] == 7
+
+
+def test_request_consent_replaces_revoked_active_token(monkeypatch):
+    inserted: dict[str, object] = {}
+
+    class _FakeScopeGenerator:
+        async def get_available_scopes(self, user_id: str) -> list[str]:
+            assert user_id == "user_123"
+            return ["attr.financial.portfolio.*"]
+
+    class _FakeIndex:
+        available_domains = ["financial"]
+
+    class _FakePkmService:
+        scope_generator = _FakeScopeGenerator()
+
+        async def resolve_metadata_index(self, user_id: str):
+            assert user_id == "user_123"
+            return _FakeIndex()
+
+    class _FakeConsentDBService:
+        async def get_covering_active_tokens(self, *_args, **_kwargs):
+            return [
+                {
+                    "scope": "attr.financial.portfolio.*",
+                    "request_id": "req_revoked",
+                    "token_id": "grant_revoked",
+                    "expires_at": 9999999999999,
+                }
+            ]
+
+        async def get_consent_export_metadata(self, *_args, **_kwargs):
+            raise AssertionError("revoked grants must not be read or reused")
+
+        async def get_pending_request_for_scope(self, *_args, **_kwargs):
+            return None
+
+        async def was_recently_denied(self, *_args, **_kwargs):
+            return False
+
+        async def get_superseded_active_tokens(self, *_args, **_kwargs):
+            return []
+
+        async def insert_event(self, **kwargs):
+            inserted.update(kwargs)
+            return 1
+
+    async def _revoked_token(_token: str):
+        return False, "Token has been revoked", None
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "get_pkm_service", lambda: _FakePkmService())
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(
+        developer.DeveloperRegistryService,
+        "get_active_connector_key",
+        lambda self, *, app_id: None,
+    )
+    monkeypatch.setattr(developer, "validate_token_with_db", _revoked_token)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    client = TestClient(_build_app())
+    response = client.post(
+        "/api/v1/request-consent?token=hdk_demo",
+        json={
+            "user_id": "user_123",
+            "scope": "attr.financial.portfolio.*",
+            "connector_public_key": _CONNECTOR_PUBLIC_KEY,
+            "connector_key_id": _CONNECTOR_KEY_ID,
+            "connector_wrapping_alg": _CONNECTOR_WRAPPING_ALG,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+    assert inserted["action"] == "REQUESTED"
 
 
 def test_request_consent_reuses_exact_pending_request(monkeypatch):
@@ -1686,6 +1821,11 @@ def test_get_consent_status_uses_covering_active_token(monkeypatch):
     monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
     monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
     monkeypatch.setattr(
+        developer,
+        "validate_token_with_db",
+        lambda _token: asyncio.sleep(0, result=(True, None, None)),
+    )
+    monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()
     )
 
@@ -1748,6 +1888,35 @@ def test_get_consent_status_pending_request_does_not_return_event_token(monkeypa
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "pending"
+    assert payload["consent_token"] is None
+
+
+def test_get_consent_status_projects_source_library_authority_as_revoked(monkeypatch):
+    class _UnexpectedConsentDBService:
+        def __init__(self):
+            raise AssertionError("retired Source Library status must fail before storage lookup")
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("DEVELOPER_API_ENABLED", "true")
+    monkeypatch.setattr(developer, "ConsentDBService", _UnexpectedConsentDBService)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+
+    response = TestClient(_build_app()).get(
+        "/api/v1/consent-status",
+        params={
+            "token": "hdk_demo",
+            "user_id": "user_123",
+            "scope": "attr.source_library.knowledge.*",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "revoked"
+    assert payload["scope"] == "attr.source_library.knowledge.*"
+    assert payload["granted_scope"] is None
     assert payload["consent_token"] is None
 
 
@@ -1923,6 +2092,11 @@ def test_mcp_status_is_app_bound_and_identifier_free(monkeypatch):
 
     monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
     monkeypatch.setattr(
+        developer,
+        "validate_token_with_db",
+        lambda _token: asyncio.sleep(0, result=(True, None, None)),
+    )
+    monkeypatch.setattr(
         developer, "authenticate_developer_principal", lambda **_: _fake_principal()
     )
     client = TestClient(_build_app())
@@ -1981,6 +2155,64 @@ def test_mcp_status_marks_past_grant_expired(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "expired"
     assert response.json()["grant_ref"] is None
+
+
+def test_mcp_status_marks_db_revoked_grant_revoked(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_request_status_for_agent(self, _request_ref: str, *, agent_id: str):
+            assert agent_id == "developer:app_demo_123"
+            return {
+                "action": "CONSENT_GRANTED",
+                "expires_at": 9999999999999,
+                "approval_timeout_at": 123450000,
+                "token_id": "HCT:revoked-in-db",
+            }
+
+    async def _invalid_token(_token: str):
+        return False, "Token has been revoked (DB check)", None
+
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(developer, "validate_token_with_db", _invalid_token)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/mcp/consent-status/req_0123456789abcdef0123456789ab",
+        headers={"Authorization": "Bearer hdk_demo"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "revoked"
+    assert response.json()["grant_ref"] is None
+
+
+def test_mcp_status_keeps_db_validation_outage_retryable(monkeypatch):
+    class _FakeConsentDBService:
+        async def get_request_status_for_agent(self, _request_ref: str, *, agent_id: str):
+            assert agent_id == "developer:app_demo_123"
+            return {
+                "action": "CONSENT_GRANTED",
+                "expires_at": 9999999999999,
+                "token_id": "HCT:db-unavailable",
+            }
+
+    async def _db_unavailable(_token: str):
+        return False, "Token revocation status could not be confirmed (DB unavailable)", None
+
+    monkeypatch.setattr(developer, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(developer, "validate_token_with_db", _db_unavailable)
+    monkeypatch.setattr(
+        developer, "authenticate_developer_principal", lambda **_: _fake_principal()
+    )
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/v1/mcp/consent-status/req_0123456789abcdef0123456789ab",
+        headers={"Authorization": "Bearer hdk_demo"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["error_code"] == "CONSENT_STATUS_UNAVAILABLE"
 
 
 def test_mcp_request_sanitizes_raw_consent_response(monkeypatch):
@@ -2222,7 +2454,7 @@ def test_scoped_export_returns_envelope_metadata_and_inline_ciphertext(monkeypat
         async def get_consent_export(self, token_id: str):
             assert token_id == consent_token
             return {
-                "scope": "attr.financial.*",
+                "scope": "attr.financial.portfolio.*",
                 "encrypted_data": "ciphertext",
                 "iv": "iv",
                 "tag": "tag",
@@ -2257,15 +2489,15 @@ def test_scoped_export_returns_envelope_metadata_and_inline_ciphertext(monkeypat
 
     async def _validate(token: str, expected_scope=None):  # noqa: ANN001
         assert token == consent_token
-        assert expected_scope == "attr.financial.profile.*"
+        assert expected_scope == "attr.financial.portfolio.holdings.*"
         return (
             True,
             None,
             SimpleNamespace(
                 user_id="user_123",
                 agent_id="developer:app_demo_123",
-                scope_str="attr.financial.*",
-                scope=SimpleNamespace(value="attr.financial.*"),
+                scope_str="attr.financial.portfolio.*",
+                scope=SimpleNamespace(value="attr.financial.portfolio.*"),
                 expires_at=123456789,
             ),
         )
@@ -2284,15 +2516,15 @@ def test_scoped_export_returns_envelope_metadata_and_inline_ciphertext(monkeypat
         json={
             "user_id": "user_123",
             "consent_token": consent_token,
-            "expected_scope": "attr.financial.profile.*",
+            "expected_scope": "attr.financial.portfolio.holdings.*",
         },
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "success"
-    assert payload["granted_scope"] == "attr.financial.*"
-    assert payload["expected_scope"] == "attr.financial.profile.*"
+    assert payload["granted_scope"] == "attr.financial.portfolio.*"
+    assert payload["expected_scope"] == "attr.financial.portfolio.holdings.*"
     assert payload["coverage_kind"] == "superset"
     assert payload["export_generated_at"] == "2026-03-24 18:30:00+00:00"
     assert payload["encrypted_data"] == "ciphertext"
@@ -2304,7 +2536,7 @@ def test_scoped_export_returns_envelope_metadata_and_inline_ciphertext(monkeypat
     event = audit_events[0]
     assert event["action"] == "READ"
     assert event.get("request_id") is None
-    assert event["scope"] == "attr.financial.*"
+    assert event["scope"] == "attr.financial.portfolio.*"
     assert event["metadata"]["event_schema"] == "consent_export_read/v1"
     assert event["metadata"]["grant_ref"] == "req_existing_1234"
     assert event["metadata"]["coverage_kind"] == "superset"
@@ -2320,7 +2552,7 @@ def test_scoped_export_fails_closed_when_read_audit_is_unavailable(monkeypatch):
     class _FakeConsentDBService:
         async def get_consent_export(self, _token_id: str):
             return {
-                "scope": "attr.financial.*",
+                "scope": "attr.financial.portfolio.*",
                 "encrypted_data": "must-not-be-released",
                 "is_strict_zero_knowledge": True,
                 "envelope_version": 2,
@@ -2335,15 +2567,15 @@ def test_scoped_export_fails_closed_when_read_audit_is_unavailable(monkeypatch):
             raise RuntimeError("audit unavailable")
 
     async def _validate(_token: str, expected_scope=None):  # noqa: ANN001
-        assert expected_scope == "attr.financial.*"
+        assert expected_scope == "attr.financial.portfolio.*"
         return (
             True,
             None,
             SimpleNamespace(
                 user_id="user_123",
                 agent_id="developer:app_demo_123",
-                scope_str="attr.financial.*",
-                scope=SimpleNamespace(value="attr.financial.*"),
+                scope_str="attr.financial.portfolio.*",
+                scope=SimpleNamespace(value="attr.financial.portfolio.*"),
                 expires_at=123456789,
             ),
         )
@@ -2361,7 +2593,7 @@ def test_scoped_export_fails_closed_when_read_audit_is_unavailable(monkeypatch):
         json={
             "user_id": "user_123",
             "consent_token": consent_token,
-            "expected_scope": "attr.financial.*",
+            "expected_scope": "attr.financial.portfolio.*",
         },
     )
 
@@ -2378,7 +2610,7 @@ def test_scoped_export_invalidates_legacy_export(monkeypatch):
         async def get_consent_export(self, token_id: str):
             assert token_id == consent_token
             return {
-                "scope": "attr.financial.*",
+                "scope": "attr.financial.portfolio.*",
                 "encrypted_data": "ciphertext",
                 "iv": "iv",
                 "tag": "tag",
@@ -2392,15 +2624,15 @@ def test_scoped_export_invalidates_legacy_export(monkeypatch):
 
     async def _validate(token: str, expected_scope=None):  # noqa: ANN001
         assert token == consent_token
-        assert expected_scope == "attr.financial.*"
+        assert expected_scope == "attr.financial.portfolio.*"
         return (
             True,
             None,
             SimpleNamespace(
                 user_id="user_123",
                 agent_id="developer:app_demo_123",
-                scope_str="attr.financial.*",
-                scope=SimpleNamespace(value="attr.financial.*"),
+                scope_str="attr.financial.portfolio.*",
+                scope=SimpleNamespace(value="attr.financial.portfolio.*"),
                 expires_at=123456789,
             ),
         )
@@ -2419,7 +2651,7 @@ def test_scoped_export_invalidates_legacy_export(monkeypatch):
         json={
             "user_id": "user_123",
             "consent_token": consent_token,
-            "expected_scope": "attr.financial.*",
+            "expected_scope": "attr.financial.portfolio.*",
         },
     )
 

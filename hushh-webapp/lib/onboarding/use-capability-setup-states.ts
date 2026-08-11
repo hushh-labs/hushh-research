@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -11,11 +11,13 @@ import {
   type CapabilitySetupInputs,
 } from "@/lib/services/capability-setup-state-service";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
+import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { KaiProfileService, type KaiProfileV2 } from "@/lib/services/kai-profile-service";
 import {
   PreVaultUserStateService,
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
+import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { CapabilityTourService } from "@/lib/services/capability-tour-service";
 import { OneLocationService } from "@/lib/one-location/service";
@@ -32,7 +34,7 @@ import { isOneCapabilityEnabled } from "@/lib/onboarding/one-capabilities";
  *   mirror, and the live pending-consent count. This is all the `/one`
  *   dashboard needs and costs at most one already-cached bootstrap call.
  * - OPT-IN (expensive, accurate): the decrypted Kai profile and OAuth
- *   connection status (Gmail, Connected Systems). The `/one/setup` flow opts
+ *   connection status (Gmail and Calendar). The `/one/setup` flow opts
  *   into these via `enrichVault` / `enrichOauth` so it can make honest
  *   skip-vs-continue decisions; the dashboard does not pay that cost.
  *
@@ -43,7 +45,7 @@ import { isOneCapabilityEnabled } from "@/lib/onboarding/one-capabilities";
 export interface UseCapabilitySetupStatesOptions {
   /** Resolve real vault-backed state (decrypts the Kai profile). Default false. */
   enrichVault?: boolean;
-  /** Resolve OAuth connection status (Gmail, Connected Systems). Default false. */
+  /** Resolve OAuth connection status (Gmail and Calendar). Default false. */
   enrichOauth?: boolean;
   /** Resolve whether an RIA profile is onboarded (getOnboardingStatus). Default false. */
   enrichRia?: boolean;
@@ -68,6 +70,8 @@ export function useCapabilitySetupStates(
   options: UseCapabilitySetupStatesOptions = {}
 ): UseCapabilitySetupStatesResult {
   const { enrichVault = false, enrichOauth = false, enrichRia = false } = options;
+  // Last reported "<uid>:<connected ids>" so an unchanged set is not re-posted.
+  const reportedConnectedRef = useRef<string>("");
 
   const { user } = useAuth();
   const { isVaultUnlocked, getVaultKey, getVaultOwnerToken } = useVault();
@@ -268,6 +272,15 @@ export function useCapabilitySetupStates(
           );
           if (gmail) next.gmail = gmail.connected === true && gmail.revoked !== true;
         }
+        if (idToken && isOneCapabilityEnabled("calendar")) {
+          const calendar = await GoogleCalendarService.status(idToken, userId).catch(
+            () => null,
+          );
+          if (calendar) {
+            next.calendar =
+              calendar.connected === true && calendar.status !== "needs_reauth";
+          }
+        }
       } catch {
         // Absent key → resolver reports `blocked` on oauth (honest, actionable).
       }
@@ -415,6 +428,65 @@ export function useCapabilitySetupStates(
     for (const status of statuses) map[status.id] = status;
     return map;
   }, [statuses]);
+
+  // "unknown" means this pass could not resolve the capability — the dashboard
+  // does not enrich OAuth, so Gmail reads unknown there. Reporting it as
+  // not-connected would later make a months-old link look brand new.
+  const observedIds = useMemo(
+    () =>
+      statuses
+        .filter((status) => status.state !== "unknown")
+        .map((status) => status.id)
+        .sort(),
+    [statuses]
+  );
+
+  const connectedIds = useMemo(
+    () =>
+      statuses
+        .filter((status) => status.state === "completed")
+        .map((status) => status.id)
+        .sort(),
+    [statuses]
+  );
+
+  const connectedSignature = useMemo(
+    () => `${observedIds.join(",")}|${connectedIds.join(",")}`,
+    [observedIds, connectedIds]
+  );
+
+  const isSettled =
+    Boolean(userId) &&
+    bootstrapOwnerId === userId &&
+    (bootstrapResolved || Boolean(cachedPreVaultState)) &&
+    !enrichingVault &&
+    !enrichingOauth &&
+    !enrichingRia &&
+    !enrichingLocation;
+
+  /**
+   * Report the connected set so the server can mail about anything newly
+   * connected.
+   *
+   * Reporting a set beats firing an event per link: there are nine ways to
+   * connect something and hooking each one means the one added next year is
+   * silently missed. The server owns the diff and the durable record, so this
+   * side stays a plain observation with no memory of its own beyond avoiding a
+   * repeat post of an unchanged set.
+   *
+   * Only while settled — a partially enriched pass reports a smaller set, which
+   * is harmless because the server only ever adds, but posting it is noise.
+   */
+  useEffect(() => {
+    if (!isSettled || !userId) return;
+    const key = `${userId}:${connectedSignature}`;
+    if (reportedConnectedRef.current === key) return;
+    reportedConnectedRef.current = key;
+    void ApiService.notifyAuthMail("capabilities_linked", {
+      observed: observedIds,
+      capabilities: connectedIds,
+    });
+  }, [connectedIds, connectedSignature, isSettled, observedIds, userId]);
 
   return {
     statuses,

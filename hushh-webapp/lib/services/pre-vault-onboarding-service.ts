@@ -4,7 +4,6 @@ import { Preferences } from "@capacitor/preferences";
 import {
   getLocalItem,
   removeLocalItem,
-  setLocalItem,
 } from "@/lib/utils/session-storage";
 import type {
   DrawdownResponse,
@@ -20,6 +19,10 @@ const VERSION = 1 as const;
 const FALLBACK_STORAGE_PREFIX = `${KEY_PREFIX}:fallback`;
 const VAULT_HANDOFF_RESOURCE_KEY = "pre_vault_onboarding:vault_handoff:v1";
 const VAULT_HANDOFF_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+// New onboarding information is intentionally memory-only until Finish setup.
+// The legacy Preferences/localStorage records below are read solely to migrate
+// an older install through an encrypted handoff, then deleted.
+const volatileDrafts = new Map<string, PreVaultOnboardingState>();
 
 export type PreVaultOnboardingAnswers = {
   investment_horizon: InvestmentHorizon | null;
@@ -180,23 +183,8 @@ function fallbackKeyForUser(userId: string): string {
   return `${FALLBACK_STORAGE_PREFIX}:${userId}`;
 }
 
-async function persist(userId: string, state: PreVaultOnboardingState): Promise<void> {
-  const serialized = JSON.stringify(state);
-  try {
-    await Preferences.set({
-      key: keyForUser(userId),
-      value: serialized,
-    });
-    setLocalItem(fallbackKeyForUser(userId), serialized);
-  } catch (error) {
-    // Keep onboarding progression fail-open when native Preferences temporarily fails.
-    if (typeof window !== "undefined") {
-      setLocalItem(fallbackKeyForUser(userId), serialized);
-      setOnboardingRequiredCookie(!state.completed);
-      return;
-    }
-    throw error;
-  }
+function retainVolatileDraft(userId: string, state: PreVaultOnboardingState): void {
+  volatileDrafts.set(userId, state);
   setOnboardingRequiredCookie(!state.completed);
 }
 
@@ -206,6 +194,12 @@ export class PreVaultOnboardingService {
   }
 
   static async load(userId: string): Promise<PreVaultOnboardingState | null> {
+    const volatile = volatileDrafts.get(userId);
+    if (volatile) return volatile;
+
+    // Compatibility read only. Never write a new pre-vault record to either
+    // browser persistence surface: a refresh intentionally discards fresh
+    // setup answers until the private vault is finalized.
     try {
       const { value } = await Preferences.get({ key: keyForUser(userId) });
       if (!value) return null;
@@ -253,7 +247,7 @@ export class PreVaultOnboardingService {
       updated_at: iso,
     };
 
-    await persist(userId, next);
+    retainVolatileDraft(userId, next);
     return next;
   }
 
@@ -286,7 +280,7 @@ export class PreVaultOnboardingService {
       updated_at: iso,
     };
 
-    await persist(userId, next);
+    retainVolatileDraft(userId, next);
     return next;
   }
 
@@ -301,7 +295,7 @@ export class PreVaultOnboardingService {
       updated_at: iso,
     };
 
-    await persist(userId, next);
+    retainVolatileDraft(userId, next);
     return next;
   }
 
@@ -396,12 +390,14 @@ export class PreVaultOnboardingService {
    * the next unlock instead of silently claiming the legacy source was removed.
    */
   private static async clearAfterVaultCommit(userId: string): Promise<void> {
+    volatileDrafts.delete(userId);
     await Preferences.remove({ key: keyForUser(userId) });
     removeLocalItem(fallbackKeyForUser(userId));
     setOnboardingRequiredCookie(false);
   }
 
   static async clear(userId: string): Promise<void> {
+    volatileDrafts.delete(userId);
     try {
       await Preferences.remove({ key: keyForUser(userId) });
     } catch (error) {

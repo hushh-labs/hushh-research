@@ -18,23 +18,37 @@ export class HushhLocationWeb implements HushhLocationPlugin {
         locationServicesEnabled: false,
       };
     }
-    if (!navigator.permissions?.query) {
-      return {
-        state: "prompt",
-        precise: null,
-        background: "foreground-only",
-        locationServicesEnabled: null,
-      };
-    }
-    const result = await navigator.permissions.query({
-      name: "geolocation" as PermissionName,
-    });
-    return {
-      state: result.state,
+    // "We could not read the permission" must resolve to `prompt`, never to a
+    // denial. WebKit does not support the `geolocation` name in the Permissions
+    // API, so on every iPhone this query REJECTS — and an unguarded await here
+    // used to surface as `unavailable` upstream, which blocked sharing and
+    // pinned the toggle off on a device whose location worked perfectly.
+    //
+    // `prompt` is the honest answer to not knowing: it means "ask the device".
+    // Geolocation itself exists (checked above); only our ability to introspect
+    // it is missing.
+    const unknownButAskable: HushhLocationPermissionState = {
+      state: "prompt",
       precise: null,
       background: "foreground-only",
       locationServicesEnabled: null,
     };
+    if (!navigator.permissions?.query) {
+      return unknownButAskable;
+    }
+    try {
+      const result = await navigator.permissions.query({
+        name: "geolocation" as PermissionName,
+      });
+      return {
+        state: result.state,
+        precise: null,
+        background: "foreground-only",
+        locationServicesEnabled: null,
+      };
+    } catch {
+      return unknownButAskable;
+    }
   }
 
   async requestLocationPermission(): Promise<HushhLocationPermissionState> {
@@ -89,36 +103,150 @@ export class HushhLocationWeb implements HushhLocationPlugin {
 
     const timeoutMs = options?.timeoutMs ?? 15_000;
 
-    const attempt = (enableHighAccuracy: boolean) =>
-      new Promise<{
-        latitude: number;
-        longitude: number;
-        accuracyM: number | null;
-        capturedAt: string;
-        sourcePlatform: "web";
-      }>((resolve, reject) => {
+    type WebFix = {
+      latitude: number;
+      longitude: number;
+      accuracyM: number | null;
+      capturedAt: string;
+      sourcePlatform: "web";
+    };
+
+    // Accuracy (meters) at which we stop sampling early — a confident fix.
+    const TARGET_ACCURACY_M = 35;
+
+    const toFix = (position: GeolocationPosition): WebFix => ({
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracyM: Number.isFinite(position.coords.accuracy)
+        ? position.coords.accuracy
+        : null,
+      capturedAt: new Date(position.timestamp || Date.now()).toISOString(),
+      sourcePlatform: "web",
+    });
+
+    const isBetter = (candidate: WebFix, current: WebFix | null): boolean => {
+      if (!current) return true;
+      // Prefer a fix that reports accuracy over one that does not.
+      if (candidate.accuracyM == null) return false;
+      if (current.accuracyM == null) return true;
+      return candidate.accuracyM < current.accuracyM;
+    };
+
+    // How old a cached fix may be before the last-resort reader refuses it.
+    // Deliberately far below the 60s the backend allows between capture and
+    // confirmation, so a fix accepted here still passes the server's freshness
+    // check and still describes where the user actually is.
+    const LAST_RESORT_MAX_AGE_MS = 30_000;
+
+    // Single-shot reader (used for the low-accuracy desktop fallback). Defaults
+    // to a FRESH fix (maximumAge: 0) so a stale cached position from a previous
+    // place is never returned as "current location".
+    const readOnce = (enableHighAccuracy: boolean, maximumAge = 0) =>
+      new Promise<WebFix>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(
-          (position) => {
-            resolve({
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              accuracyM: Number.isFinite(position.coords.accuracy)
-                ? position.coords.accuracy
-                : null,
-              capturedAt: new Date(
-                position.timestamp || Date.now(),
-              ).toISOString(),
-              sourcePlatform: "web",
-            });
-          },
+          (position) => resolve(toFix(position)),
           (error) => reject(error),
-          {
-            enableHighAccuracy,
-            timeout: timeoutMs,
-            maximumAge: 30_000,
-          },
+          { enableHighAccuracy, timeout: timeoutMs, maximumAge },
         );
       });
+
+    // Best-of-samples reader: collect fresh fixes via watchPosition for a short
+    // budget and return the most accurate one. This prevents the occasional
+    // wildly-off first reading (coarse network/IP fix or a stale cache) from
+    // being shown as the user's current location. Resolves early once a fix is
+    // accurate enough; otherwise returns the best sample seen when the budget
+    // elapses.
+    const sampleBest = (enableHighAccuracy: boolean, budgetMs: number) =>
+      new Promise<WebFix>((resolve, reject) => {
+        let best: WebFix | null = null;
+        let settled = false;
+        let watchId: number | null = null;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+
+        const cleanup = () => {
+          if (timer !== null) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          if (watchId !== null) {
+            navigator.geolocation.clearWatch(watchId);
+            watchId = null;
+          }
+        };
+        const finish = (value: WebFix | null, error?: unknown) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          if (value) resolve(value);
+          else reject(error);
+        };
+
+        try {
+          watchId = navigator.geolocation.watchPosition(
+            (position) => {
+              const fix = toFix(position);
+              if (isBetter(fix, best)) best = fix;
+              if (
+                best?.accuracyM != null &&
+                best.accuracyM <= TARGET_ACCURACY_M
+              ) {
+                finish(best);
+              }
+            },
+            (error) => {
+              // Only a hard permission denial should abort sampling; transient
+              // unavailable/timeout errors are ignored so a later fix can land.
+              if ((error as GeolocationPositionError)?.code === 1) {
+                finish(null, error);
+              }
+            },
+            { enableHighAccuracy, timeout: budgetMs, maximumAge: 0 },
+          );
+        } catch (error) {
+          finish(null, error);
+          return;
+        }
+
+        timer = setTimeout(() => {
+          if (best) finish(best);
+          else finish(null, { code: 3 } as GeolocationPositionError);
+        }, budgetMs);
+      });
+
+    const attempt = (enableHighAccuracy: boolean) => {
+      if (!enableHighAccuracy) return readOnce(false);
+      // Sample within a bounded window (cap at 9s) so the picker stays snappy
+      // while still rejecting a single jumpy reading.
+      const budgetMs = Math.min(Math.max(timeoutMs, 1_000), 9_000);
+      return sampleBest(true, budgetMs);
+    };
+
+
+    // Last resort before telling a user with working Location that we could not
+    // find them. Both fresh readers demand `maximumAge: 0`, so a browser whose
+    // provider is momentarily unable to produce a NEW fix fails even though it
+    // is holding a perfectly good one from seconds ago — the exact shape of the
+    // "location is on but sharing says it is off" reports. Accept that cached
+    // fix when it is recent enough to still be true, and only then give up.
+    const lastResortCachedFix = async (): Promise<WebFix> => {
+      try {
+        return await readOnce(false, LAST_RESORT_MAX_AGE_MS);
+      } catch (cachedRaw) {
+        const cachedError = cachedRaw as
+          | Partial<GeolocationPositionError>
+          | undefined;
+        if (cachedError?.code === 1) {
+          const denied = new Error(
+            "Location permission is blocked for this site. Allow location access in your browser's site settings, then try again.",
+          );
+          denied.name = "LocationPermissionDeniedError";
+          throw denied;
+        }
+        throw new Error(
+          "Could not get your location. Turn on Location for your device/browser and try again.",
+        );
+      }
+    };
 
     // The browser GeolocationPositionError codes: 1 = PERMISSION_DENIED,
     // 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT. Many desktops have no GPS, so a
@@ -161,14 +289,10 @@ export class HushhLocationWeb implements HushhLocationPlugin {
               denied.name = "LocationPermissionDeniedError";
               throw denied;
             }
-            throw new Error(
-              "Could not get your location. Turn on Location for your device/browser and try again.",
-            );
+            return await lastResortCachedFix();
           }
         }
-        throw new Error(
-          "Could not get your location. Turn on Location for your device/browser and try again.",
-        );
+        return await lastResortCachedFix();
       }
 
       throw new Error(

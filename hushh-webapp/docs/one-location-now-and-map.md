@@ -56,10 +56,11 @@ uses an opaque, short-lived per-tab return token so Cancel, success, top-shell
 Back, iOS edge Back, and Android Back return to the existing sheet history
 boundary without leaving a replayable duplicate entry.
 
-Nearby matching uses a fixed 500-meter radius between independently selected
-public-place anchors, so people at Spot A and Spot B can see one another without
-typing or sharing an event code. Peers appear only in the accessible roster,
-never as precise pins or distance ordering. Responses expose a rotating alias,
+Nearby matching uses exact Haversine distance between independently captured
+confirmation points, with an inclusive fixed 500-meter radius. The selected
+place remains admission and display context; it does not substitute for the
+user's check-in point. Peers appear only in the accessible roster, never as
+precise pins or distance ordering. Responses expose a rotating alias,
 safe display label, relationship, and Connect posture only. Check out clears
 encrypted anchor/index material synchronously. At expiry the user disappears
 from rosters and Connect synchronously; the backend scrubs due material on the
@@ -69,6 +70,25 @@ organizer admission proof, replay resistance, and Block/Report controls exist.
 Approximate native permission and fixes worse than 100 m fail before
 publication with an app-settings recovery path. Active rosters refresh on a
 15-second, visible-app cadence without extending the server expiry.
+
+## Saved location onboarding
+
+Every Location onboarding run offers the saved-place flow after foreground
+permission is ready. The owner first confirms an entrance with a centre-pin map,
+then supplies the house/flat/floor or block and PIN/postal code; building colour,
+landmark, and a custom **Other** label remain optional. Google Maps never
+initializes until the owner accepts the same versioned renderer disclosure used
+by **Your Map**. Moving the map invalidates the previous address and disables
+confirmation until the selected centre has finished resolving, so coordinates
+cannot be paired with stale address copy.
+
+Root setup deliberately precedes vault creation. Its confirmed place therefore
+stays only in process memory, address autofill is disabled, reload/sign-out
+discards it, and Skip clears it. Once setup creates and unlocks the vault, the
+existing finalization transaction writes the place through encrypted Location
+PKM. No bootstrap database, browser-storage record, vault schema, or plaintext
+fallback is introduced. Home and Work retain their singleton behavior, and the
+existing 25-metre cross-category duplicate guard remains authoritative.
 
 ## Your Map
 

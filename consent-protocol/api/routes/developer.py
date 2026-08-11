@@ -41,12 +41,15 @@ from hushh_mcp.consent.connector_crypto_profiles import (
     get_connector_crypto_profile,
 )
 from hushh_mcp.consent.export_envelope import digest_bytes, scope_handle_for_machine_scope
+from hushh_mcp.consent.pkm_scope_policy import (
+    consent_token_scope_value,
+    is_private_pkm_export_scope,
+)
 from hushh_mcp.consent.scope_helpers import get_scope_description, normalize_scope
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import (
     EXTERNAL_REQUESTABLE_RESERVED_SCOPE_VALUES,
     INTERNAL_ONLY_SCOPE_VALUES,
-    RETIRED_SCOPE_VALUES,
     SCOPE_POLICY_VERSION,
     ConsentScope,
 )
@@ -779,6 +782,12 @@ async def _resolve_strict_covering_active_token(
         token_id = str(token_row.get("token_id") or "").strip()
         if not token_id:
             continue
+        # The active-token index is event based, while revocation is enforced
+        # by the consent-token store. Do not reuse an event-backed grant unless
+        # the token remains valid at the time of the request.
+        token_valid, _token_reason, _token_obj = await validate_token_with_db(token_id)
+        if not token_valid:
+            continue
         export_metadata = await service.get_consent_export_metadata(token_id)
         export_metadata_map = _metadata_object_map(export_metadata)
         if export_metadata_map.get("is_strict_zero_knowledge"):
@@ -878,6 +887,8 @@ def _developer_consent_status_payload(
     principal: DeveloperPrincipal,
 ) -> dict[str, Any]:
     latest_action = str(latest.get("action") or "").strip().upper()
+    if is_private_pkm_export_scope(str(latest.get("scope") or "")):
+        latest_action = "REVOKED"
     resolved_status = _CONSENT_REQUEST_STATUS_MAP.get(latest_action, "unknown")
     metadata = _metadata_object_map(latest.get("metadata"))
     approval_timeout_at = latest.get("poll_timeout_at") or metadata.get("approval_timeout_at")
@@ -1544,6 +1555,17 @@ async def get_consent_status(
     )
     normalized_scope = normalize_scope(scope) if scope else None
 
+    if normalized_scope and is_private_pkm_export_scope(normalized_scope):
+        return DeveloperConsentStatusResponse(
+            status="revoked",
+            user_id=user_id,
+            scope=normalized_scope,
+            requested_scope=normalized_scope,
+            app_id=principal.app_id,
+            app_display_name=principal.display_name,
+            message="This PKM scope is private and cannot authorize an external grant.",
+        )
+
     service = ConsentDBService()
     if normalized_scope:
         active, export_metadata, invalidated_legacy = await _resolve_strict_covering_active_token(
@@ -1604,6 +1626,8 @@ async def get_consent_status(
         latest = await service.get_request_status(user_id, request_id)
         if latest and latest.get("agent_id") == principal.agent_id:
             latest_action = str(latest.get("action") or "").strip().upper()
+            if is_private_pkm_export_scope(str(latest.get("scope") or "")):
+                latest_action = "REVOKED"
             status_map = {
                 "REQUESTED": "pending",
                 "CONSENT_GRANTED": "granted",
@@ -1740,6 +1764,8 @@ async def get_mcp_consent_status(
         )
 
     action = str(latest.get("action") or "").strip().upper()
+    if is_private_pkm_export_scope(str(latest.get("scope") or "")):
+        action = "REVOKED"
     lifecycle = _CONSENT_REQUEST_STATUS_MAP.get(action, "expired")
     approval_timeout_at = _optional_int(
         latest.get("approval_timeout_at") or latest.get("poll_timeout_at")
@@ -1753,6 +1779,30 @@ async def get_mcp_consent_status(
     expires_at = _optional_int(latest.get("expires_at"))
     if lifecycle == "granted" and expires_at is not None and expires_at <= int(time.time() * 1000):
         lifecycle = "expired"
+
+    # A granted event is not sufficient authority to release information. The
+    # consent token can be revoked after that event was recorded, so validate it
+    # before this status endpoint advertises an exportable grant. Otherwise a
+    # connector sees ``granted`` here and immediately receives an invalid-token
+    # failure from the scoped-export endpoint.
+    consent_token = str(latest.get("token_id") or "").strip()
+    if lifecycle == "granted" and consent_token:
+        token_valid, token_reason, _token_obj = await validate_token_with_db(consent_token)
+        if not token_valid:
+            normalized_reason = str(token_reason or "").lower()
+            # A database outage must not be projected as a permanent revocation.
+            # Validation correctly fails closed for exports, but MCP polling needs
+            # a retryable status so a connector does not create a duplicate consent
+            # request while that revocation check is temporarily unavailable.
+            if "db unavailable" in normalized_reason:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "error_code": "CONSENT_STATUS_UNAVAILABLE",
+                        "message": "Consent status is temporarily unavailable. Retry the request.",
+                    },
+                )
+            lifecycle = "expired" if "expired" in normalized_reason else "revoked"
 
     return {
         "status": lifecycle,
@@ -1776,7 +1826,15 @@ async def _request_consent_impl(
     )
 
     normalized_scope = normalize_scope(payload.scope)
-    if normalized_scope in RETIRED_SCOPE_VALUES:
+    if is_private_pkm_export_scope(normalized_scope):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={
+                "error_code": "SCOPE_RETIRED",
+                "message": "This PKM scope is not externally shareable.",
+            },
+        )
+    if ConsentScope.is_retired_scope(normalized_scope):
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
             detail={
@@ -2276,11 +2334,27 @@ async def _load_scoped_export_or_raise(
         expected_scope=expected_scope,
     )
     if not valid or token_obj is None:
+        if reason == "SCOPE_RETIRED":
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail={
+                    "error_code": "SCOPE_RETIRED",
+                    "message": "This encrypted export is no longer externally shareable.",
+                },
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
                 "error_code": "INVALID_CONSENT_TOKEN",
                 "message": f"Consent validation failed: {reason or 'unknown error'}",
+            },
+        )
+    if is_private_pkm_export_scope(consent_token_scope_value(token_obj)):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={
+                "error_code": "SCOPE_RETIRED",
+                "message": "This encrypted export is not externally shareable under PKM policy.",
             },
         )
 
@@ -2309,6 +2383,14 @@ async def _load_scoped_export_or_raise(
             detail={
                 "error_code": "SCOPED_EXPORT_NOT_FOUND",
                 "message": "No active encrypted export is available for this consent token.",
+            },
+        )
+    if is_private_pkm_export_scope(str(export_data.get("scope") or "")):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={
+                "error_code": "SCOPE_RETIRED",
+                "message": "This encrypted export is no longer externally shareable.",
             },
         )
     refresh_status = str(export_data.get("refresh_status") or "current")
@@ -2645,9 +2727,15 @@ async def get_scoped_export_resource(
             detail={"error_code": "CROSS_TENANT_DENIED", "message": "Resource access denied."},
         )
     consent_token = str(export_data.get("consent_token") or "")
-    valid, _reason, token_obj = await validate_token_with_db(consent_token)
+    valid, reason, token_obj = await validate_token_with_db(consent_token)
     if not valid or token_obj is None or str(token_obj.agent_id) != principal.agent_id:
+        if reason == "SCOPE_RETIRED":
+            raise HTTPException(status_code=410, detail={"error_code": "SCOPE_RETIRED"})
         raise HTTPException(status_code=401, detail={"error_code": "INVALID_CONSENT_TOKEN"})
+    if is_private_pkm_export_scope(consent_token_scope_value(token_obj)):
+        raise HTTPException(status_code=410, detail={"error_code": "SCOPE_RETIRED"})
+    if is_private_pkm_export_scope(str(export_data.get("scope") or "")):
+        raise HTTPException(status_code=410, detail={"error_code": "SCOPE_RETIRED"})
     if int(export_data.get("export_revision") or 0) != revision:
         raise HTTPException(status_code=404, detail={"error_code": "EXPORT_REVISION_NOT_FOUND"})
     if str(export_data.get("refresh_status") or "") != "current":

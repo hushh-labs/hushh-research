@@ -1,9 +1,9 @@
 """DB-backed enterprise CRM registry repository.
 
 Loads active `enterprise_crm_registry` rows into `ConnectedSystemDefinition`
-objects. List views avoid credential decryption. MuleSoft Bearer action paths
-pass the row's CRM client id and encrypted client secret directly to the MCP
-tool; MuleSoft owns secret decryption.
+objects. List views avoid credential decryption. Every MuleSoft path receives
+only a server-owned connector reference; MuleSoft resolves its CRM credentials
+and URLs from its own secret/configuration store.
 
 No plaintext credentials are ever logged. Decryption failures surface as
 `ConnectedSystemConfigurationError` (fail-closed) rather than crashing the
@@ -12,6 +12,8 @@ request path.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import logging
 import threading
@@ -80,33 +82,6 @@ def _is_mulesoft_managed_auth(row: dict[str, Any]) -> bool:
     return str(row.get("auth_header_style") or "").strip().lower() == "bearer"
 
 
-def _first_text(row: dict[str, Any], *keys: str) -> str:
-    for key in keys:
-        value = str(row.get(key) or "").strip()
-        if value:
-            return value
-    return ""
-
-
-def _mulesoft_tool_arguments(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "target": str(row.get("crm_enterprise_name") or "").strip(),
-        "crmBaseUrl": str(row.get("crm_base_url") or "").strip(),
-        "crmMcpEndpoint": str(row.get("crm_mcp_endpoint") or "").strip(),
-        "clientId": _first_text(
-            row, "crm_client_id", "crm_client_id_ciphertext", "crm_client_id_blob"
-        ),
-        "clientSecret": _first_text(
-            row,
-            "crm_client_secret",
-            "crm_client_secret_ciphertext",
-            "crm_client_secret_blob",
-        ),
-        "crmTokenUrl": str(row.get("crm_token_url") or "").strip(),
-        "objectType": str(row.get("user_object_name") or "Contact").strip() or "Contact",
-    }
-
-
 def _load_active_row(crm_id: str, database: Any) -> dict[str, Any] | None:
     rows = database.execute_raw(
         """
@@ -157,7 +132,8 @@ def _public_system_id(row: dict[str, Any]) -> str:
 def _tool_catalog(row_crm_id: str, database: Any) -> tuple[dict[str, Any], ...]:
     operation_rows = database.execute_raw(
         """
-        SELECT operation, tool_name, http_method, path, description, mcp_endpoint, response_contract
+        SELECT operation, tool_name, crm_zk_tool_name, crm_zk_uat_tool_name,
+               http_method, path, description, mcp_endpoint, response_contract
         FROM crm_operation_endpoints
         WHERE crm_id = :crm_id
         """,
@@ -169,6 +145,85 @@ def _tool_catalog(row_crm_id: str, database: Any) -> tuple[dict[str, Any], ...]:
     return _tool_catalog_from_rows(operation_rows)
 
 
+def _active_crm_zk_key(row_crm_id: str, database: Any) -> dict[str, Any] | None:
+    """Return one pinned active recipient/response signer key, never request input."""
+    rows = database.execute_raw(
+        """
+        SELECT key_id,
+               public_key,
+               public_key_fingerprint,
+               response_signing_public_key,
+               response_signing_key_id,
+               response_signing_key_fingerprint,
+               profile,
+               environment,
+               status
+        FROM crm_zk_recipient_keys
+        WHERE crm_id = :crm_id
+          AND profile = 'crm-zk.v1'
+          AND status = 'active'
+          AND (retires_at IS NULL OR retires_at > NOW())
+        ORDER BY activated_at DESC
+        LIMIT 1
+        """,
+        {"crm_id": row_crm_id},
+    ).data
+    if not rows:
+        return None
+    key = rows[0]
+    return {
+        "keyId": str(key.get("key_id") or ""),
+        "publicKey": str(key.get("public_key") or ""),
+        "publicKeyFingerprint": str(key.get("public_key_fingerprint") or ""),
+        "responseSigningPublicKey": str(key.get("response_signing_public_key") or ""),
+        "responseSigningKeyId": str(key.get("response_signing_key_id") or ""),
+        "responseSigningKeyFingerprint": str(key.get("response_signing_key_fingerprint") or ""),
+        "profile": str(key.get("profile") or ""),
+        "environment": str(key.get("environment") or ""),
+    }
+
+
+def _active_crm_zk_uat_key(row_crm_id: str, database: Any) -> dict[str, Any] | None:
+    """Return the pinned UAT X25519 public key; no request may choose it."""
+    rows = database.execute_raw(
+        """
+        SELECT key_id, public_key, public_key_fingerprint, environment, status
+        FROM crm_zk_uat_recipient_keys
+        WHERE crm_id = :crm_id
+          AND status = 'active'
+          AND (retires_at IS NULL OR retires_at > NOW())
+        ORDER BY activated_at DESC
+        LIMIT 1
+        """,
+        {"crm_id": row_crm_id},
+    ).data
+    if not rows:
+        return None
+    key = rows[0]
+    try:
+        public_key = str(key.get("public_key") or "")
+        decoded_public_key = base64.b64decode(public_key, validate=True)
+        if len(decoded_public_key) != 32:
+            raise ValueError("wrong X25519 key length")
+    except (ValueError, base64.binascii.Error) as error:
+        raise ConnectedSystemConfigurationError(
+            "CRM encrypted UAT recipient key is invalid.",
+            code="CONNECTED_SYSTEM_REGISTRY_INCOMPLETE",
+        ) from error
+    fingerprint = f"sha256:{hashlib.sha256(decoded_public_key).hexdigest()}"
+    if fingerprint != str(key.get("public_key_fingerprint") or ""):
+        raise ConnectedSystemConfigurationError(
+            "CRM encrypted UAT recipient key fingerprint is invalid.",
+            code="CONNECTED_SYSTEM_REGISTRY_INCOMPLETE",
+        )
+    return {
+        "keyId": str(key.get("key_id") or ""),
+        "publicKey": public_key,
+        "publicKeyFingerprint": fingerprint,
+        "environment": str(key.get("environment") or ""),
+    }
+
+
 def _definition_from_row(
     *,
     requested_crm_id: str,
@@ -177,7 +232,14 @@ def _definition_from_row(
     tool_catalog: tuple[dict[str, Any], ...],
     transport_headers: tuple[tuple[str, str], ...] = (),
     transport_tool_arguments: dict[str, Any] | None = None,
+    crm_zk_recipient_key: dict[str, Any] | None = None,
+    crm_zk_uat_recipient_key: dict[str, Any] | None = None,
 ) -> ConnectedSystemDefinition:
+    if bool(row.get("crm_zk_v1_enabled")) and bool(row.get("crm_zk_uat_v1_enabled")):
+        raise ConnectedSystemConfigurationError(
+            "A CRM connector cannot enable both encrypted profiles.",
+            code="CONNECTED_SYSTEM_REGISTRY_INCOMPLETE",
+        )
     return ConnectedSystemDefinition(
         system_id=requested_crm_id,
         registry_id=str(row.get("crm_id") or requested_crm_id),
@@ -210,6 +272,11 @@ def _definition_from_row(
         ),
         timeout_seconds=max(1, int(row.get("timeout_seconds") or 30)),
         retry_count=max(0, int(row.get("retry_count") or 0)),
+        crm_zk_v1_enabled=bool(row.get("crm_zk_v1_enabled")),
+        mulesoft_connector_ref=str(row.get("mulesoft_connector_ref") or "").strip() or None,
+        crm_zk_recipient_key=crm_zk_recipient_key,
+        crm_zk_uat_v1_enabled=bool(row.get("crm_zk_uat_v1_enabled")),
+        crm_zk_uat_recipient_key=crm_zk_uat_recipient_key,
     )
 
 
@@ -226,6 +293,14 @@ def _definition_from_row_without_decrypt(
         endpoint=endpoint,
         tool_catalog=tool_catalog,
         transport_headers=get_omnigateway_transport_headers() if mulesoft_managed_auth else (),
+        crm_zk_recipient_key=(
+            _active_crm_zk_key(row_crm_id, database) if bool(row.get("crm_zk_v1_enabled")) else None
+        ),
+        crm_zk_uat_recipient_key=(
+            _active_crm_zk_uat_key(row_crm_id, database)
+            if bool(row.get("crm_zk_uat_v1_enabled"))
+            else None
+        ),
     )
 
 
@@ -341,6 +416,8 @@ def _tool_catalog_from_rows(rows: list[dict[str, Any]]) -> tuple[dict[str, Any],
                 "operation": operation,
                 "description": str(row.get("description") or "").strip(),
                 "mcpEndpoint": str(row.get("mcp_endpoint") or "").strip() or None,
+                "crmZkToolName": str(row.get("crm_zk_tool_name") or "").strip() or None,
+                "crmZkUatToolName": str(row.get("crm_zk_uat_tool_name") or "").strip() or None,
                 # This is non-secret registry metadata. It controls how the
                 # backend decodes a tool response and is never supplied by a
                 # browser request.
@@ -367,8 +444,9 @@ def load_active_definition(
 ) -> ConnectedSystemDefinition | None:
     """Return the active CRM definition for `crm_id`, or None if not found/inactive.
 
-    Header-auth rows decrypt credentials into transport headers. MuleSoft Bearer
-    rows do not decrypt; they pass row values directly as MCP tool arguments.
+    Header-auth rows decrypt credentials into transport headers. MuleSoft
+    Bearer rows use only a pinned server-owned connector reference; MuleSoft
+    resolves the CRM connection from its secret/configuration store.
     """
     database = db if db is not None else get_db()
 
@@ -386,7 +464,13 @@ def load_active_definition(
     transport_tool_arguments: dict[str, Any] | None = None
     if mulesoft_managed_auth:
         transport_headers = get_omnigateway_transport_headers()
-        transport_tool_arguments = _mulesoft_tool_arguments(row)
+        connector_ref = str(row.get("mulesoft_connector_ref") or "").strip()
+        if not connector_ref and not bool(row.get("crm_zk_uat_v1_enabled")):
+            raise ConnectedSystemConfigurationError(
+                "MuleSoft CRM registry row is missing mulesoft_connector_ref.",
+                code="CONNECTED_SYSTEM_REGISTRY_INCOMPLETE",
+            )
+        transport_tool_arguments = {"connectorRef": connector_ref} if connector_ref else None
     else:
         # Decrypt credentials only for legacy header-auth rows.
         client_id, client_secret = _decrypt_credentials(row)
@@ -418,6 +502,14 @@ def load_active_definition(
         tool_catalog=tool_catalog,
         transport_headers=transport_headers,
         transport_tool_arguments=transport_tool_arguments,
+        crm_zk_recipient_key=(
+            _active_crm_zk_key(row_crm_id, database) if bool(row.get("crm_zk_v1_enabled")) else None
+        ),
+        crm_zk_uat_recipient_key=(
+            _active_crm_zk_uat_key(row_crm_id, database)
+            if bool(row.get("crm_zk_uat_v1_enabled"))
+            else None
+        ),
     )
 
 

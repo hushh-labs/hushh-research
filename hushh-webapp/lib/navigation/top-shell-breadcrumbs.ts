@@ -127,7 +127,7 @@ function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.CONSENTS]: "Consent Center",
     [ROUTES.ONE_FEED]: "Feed",
     [ROUTES.ONE_KYC]: "KYC",
-    [KAI_MARKET_PATH]: "Kai",
+    [KAI_MARKET_PATH]: "Finance",
     [ROUTES.CONNECT]: "Connect",
   };
   return labels[path] ?? "One";
@@ -139,6 +139,7 @@ function profileDetailLabel(detail: string | null): string | null {
   if (detail.startsWith("connection:")) return "Connection detail";
   if (detail === "appearance") return "Appearance";
   if (detail === "kai-preferences") return "Kai preferences";
+  if (detail === "gemini") return "Gemini";
   if (detail === "device") return "On-device first";
   if (detail === "vault") return "Vault methods";
   if (detail === "session") return "Session";
@@ -236,7 +237,7 @@ function resolveTopShellBreadcrumbInner(
       align: "center",
       items: [
         { label: "Set up", href: ROUTES.ONE_SETUP },
-        { label: "Connections" },
+        { label: "AI access" },
       ],
     };
   }
@@ -295,6 +296,7 @@ function resolveTopShellBreadcrumbInner(
   }
 
   if (pathname === KAI_MARKET_PATH && searchParams?.get("tab") === "analysis") {
+    const analysisEntryId = String(searchParams?.get("analysis_id") || "").trim();
     const debateId = String(searchParams?.get("debate_id") || "").trim();
     const focus = String(searchParams?.get("focus") || "").trim();
     const runId = String(searchParams?.get("run_id") || "").trim();
@@ -305,15 +307,15 @@ function resolveTopShellBreadcrumbInner(
       .trim()
       .toLowerCase();
 
-    if (debateId) {
+    if (analysisEntryId || debateId) {
       return {
         backHref: ROUTES.KAI_ANALYSIS,
         width: "content",
         align: "center",
         items: [
-          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Finance", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
-          { label: ticker ? `${ticker} run` : "Saved run" },
+          { label: ticker ? `${ticker} analysis` : "Saved analysis" },
         ],
       };
     }
@@ -324,7 +326,7 @@ function resolveTopShellBreadcrumbInner(
         width: "content",
         align: "center",
         items: [
-          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Finance", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: ticker ? `${ticker} live` : "Active run" },
         ],
@@ -337,7 +339,7 @@ function resolveTopShellBreadcrumbInner(
         width: "content",
         align: "center",
         items: [
-          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Finance", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: `${ticker} preview` },
         ],
@@ -350,7 +352,7 @@ function resolveTopShellBreadcrumbInner(
         width: "content",
         align: "center",
         items: [
-          { label: "Kai", href: ROUTES.KAI_HOME },
+          { label: "Finance", href: ROUTES.KAI_HOME },
           { label: "Analysis", href: ROUTES.KAI_ANALYSIS },
           { label: "Debate" },
         ],
@@ -363,7 +365,7 @@ function resolveTopShellBreadcrumbInner(
       backHref: ROUTES.ONE_HOME,
       width: "content",
       align: "center",
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Kai" }],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Finance" }],
     };
   }
 
@@ -384,7 +386,7 @@ function resolveTopShellBreadcrumbInner(
         fromSetup
           ? { label: "Set up", href: ROUTES.ONE_SETUP }
           : { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Kai" },
+        { label: "Finance" },
       ],
     };
   }
@@ -423,13 +425,17 @@ function resolveTopShellBreadcrumbInner(
     }
   }
 
-  // RIA workspace home (level 2 for the adviser persona): back returns to /one.
-  if (pathname === ROUTES.RIA_HOME) {
+  // Profile is the RIA home. `/ria` remains a compatibility redirect only.
+  if (pathname === ROUTES.RIA_HOME || pathname === ROUTES.RIA_PROFILE) {
     return {
       backHref: ROUTES.ONE_HOME,
       width: "content",
       align: "center",
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "RIA" }],
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "RIA" },
+        { label: "Profile" },
+      ],
     };
   }
 
@@ -448,7 +454,7 @@ function resolveTopShellBreadcrumbInner(
       align: "center",
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
-        { label: "RIA", href: ROUTES.RIA_HOME },
+        { label: "RIA", href: ROUTES.RIA_PROFILE },
         { label: "Picks", href: ROUTES.RIA_PICKS },
         { label: "Debate" },
       ],
@@ -465,12 +471,12 @@ function resolveTopShellBreadcrumbInner(
   for (const [route, label] of riaSubroutes) {
     if (pathname === route || pathname.startsWith(`${route}/`)) {
       return {
-        backHref: ROUTES.RIA_HOME,
+        backHref: ROUTES.RIA_PROFILE,
         width: "content",
         align: "center",
         items: [
           { label: "One", href: ROUTES.ONE_HOME },
-          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "RIA", href: ROUTES.RIA_PROFILE },
           { label },
         ],
       };
@@ -586,10 +592,10 @@ function resolveTopShellBreadcrumbInner(
 
   if (pathname === ROUTES.RIA_CLIENTS) {
     return {
-      backHref: ROUTES.RIA_HOME,
+      backHref: ROUTES.RIA_PROFILE,
       width: "profile",
       align: "center",
-      items: [{ label: "RIA", href: ROUTES.RIA_HOME }, { label: "Clients" }],
+      items: [{ label: "RIA", href: ROUTES.RIA_PROFILE }, { label: "Clients" }],
     };
   }
 
@@ -607,7 +613,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "RIA", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace" },
         ],
@@ -621,7 +627,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "RIA", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace", href: primaryWorkspaceHref },
           { label: "Account detail" },
@@ -635,7 +641,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_HOME },
+          { label: "RIA", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace", href: primaryWorkspaceHref },
           { label: "Request detail" },
@@ -708,12 +714,26 @@ function resolveTopShellBreadcrumbInner(
         searchParams?.get("source") === "nearby";
       const nearbyReturnToken =
         searchParams?.get(NEARBY_PRIVATE_RETURN_TOKEN_PARAM) ?? null;
+      // Preserve the originating hub tab so the single top-bar (and OS/hardware)
+      // back button returns the user to the tab the flow was opened FROM —
+      // "Create a new link" from Links returns to Links, "Invite trusted person"
+      // from People returns to People — instead of always dropping to the
+      // default "Now" tab. `openFlow` keeps the current `?view=` tab in the URL
+      // when it appends `?action=`, so it is available here. SMS contacts is
+      // only ever reached from Settings, so it retraces to the Settings flow.
+      const hubView = String(searchParams?.get("view") || "").trim();
+      const hubBackHref =
+        action === "sms-contacts"
+          ? `${ROUTES.ONE_LOCATION}?action=settings`
+          : hubView
+            ? `${ROUTES.ONE_LOCATION}?view=${encodeURIComponent(hubView)}`
+            : ROUTES.ONE_LOCATION;
       return {
         backHref: returnToNearbyCheckIn
           ? isNearbyPrivateReturnToken(nearbyReturnToken)
             ? buildNearbyCheckInResumeHref(nearbyReturnToken)
             : `${ROUTES.ONE_LOCATION_MAP}?action=check-in`
-          : ROUTES.ONE_LOCATION,
+          : hubBackHref,
         width: "profile",
         align: "center",
         items: [
@@ -725,6 +745,7 @@ function resolveTopShellBreadcrumbInner(
         ],
       };
     }
+
     return {
       backHref:
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
@@ -784,6 +805,17 @@ function resolveTopShellBreadcrumbInner(
       width: "profile",
       align: "center",
       items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Gmail" }],
+    };
+  }
+
+  if (pathname === ROUTES.CALENDAR) {
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    return {
+      backHref:
+        resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Calendar" }],
     };
   }
 

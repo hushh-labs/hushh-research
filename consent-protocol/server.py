@@ -55,6 +55,11 @@ def _require_database_on_startup() -> bool:
     return _is_production()
 
 
+# Tables the process refuses to start without. Every entry must still exist once
+# all migrations have run; a stale entry here is not a failing check but a
+# backend that cannot boot. test_server_startup_guards.py enforces that, because
+# the predeploy schema gate only knows about tables named in the DB contract and
+# so cannot catch a guard entry that no longer has a table behind it.
 REQUIRED_RUNTIME_TABLES = (
     "vault_keys",
     "vault_key_wrappers",
@@ -62,8 +67,13 @@ REQUIRED_RUNTIME_TABLES = (
     "user_push_tokens",
     "internal_access_events",
     "runtime_persona_state",
-    "ria_pick_uploads",
-    "ria_pick_upload_rows",
+    "one_location_circles",
+    "one_location_circle_memberships",
+    "one_location_circle_invite_codes",
+    "connection_origins",
+    "one_location_circle_member_invites",
+    "connection_scope_proposals",
+    "connection_scope_proposal_events",
 )
 
 
@@ -374,6 +384,15 @@ app.include_router(marketplace.router)
 app.include_router(invites.router)
 logger.info("ria.routes_enabled")
 
+# Wallet Profile: owner management under /api/one/wallet-card plus the two
+# unauthenticated public surfaces (card resolve + signed .pkpass). Gated by
+# ONE_WALLET_CARD_ENABLED; when off every route in the router answers 404, so
+# registering it unconditionally is safe.
+from api.routes import one_wallet_card  # noqa: E402
+
+app.include_router(one_wallet_card.router)
+logger.info("one_wallet_card.routes_registered")
+
 logger.info(
     "🚀 Hussh Consent Protocol server initialized with modular routes - KAI V2 + PHASE 2 + PKM ENABLED"
 )
@@ -385,6 +404,35 @@ logger.info(
 # that the guard reuses the already-warm pool instead of paying cold-start
 # connection cost a second time.
 # ============================================================================
+
+
+@app.on_event("startup")
+async def startup_widen_default_executor() -> None:
+    """Give the asyncio default thread-pool executor more room.
+
+    Why this exists
+    ----------------
+    Every synchronous SQLAlchemy DB call in this process (and
+    `asyncio.to_thread` calls like the one_location agent tools use) runs on
+    the SAME default executor asyncio itself uses for things like DNS
+    resolution (`loop.getaddrinfo`, which the `websockets` client uses to
+    connect out to the Gemini Live API). Python's default pool size --
+    `min(32, cpu_count + 4)` -- is easily saturated by concurrent blocking DB
+    work under load, at which point an unrelated, otherwise-instant operation
+    like that DNS lookup queues behind it and can time out. Observed directly:
+    a live voice session's outbound Gemini Live handshake failed with
+    "TimeoutError: timed out during opening handshake" at getaddrinfo, at the
+    exact moment two DB-heavy endpoints were each taking 40-50s. Widening the
+    pool doesn't fix the underlying DB cost, but it stops unrelated quick
+    executor work from being starved behind it.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    max_workers = int(os.getenv("ASYNCIO_DEFAULT_EXECUTOR_MAX_WORKERS", "64"))
+    asyncio.get_running_loop().set_default_executor(
+        ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="asyncio-default")
+    )
+    logger.info("startup.asyncio_default_executor_widened max_workers=%d", max_workers)
 
 
 @app.on_event("startup")
@@ -794,17 +842,26 @@ async def startup_consent_revocation_worker() -> None:
     Integrated by Abdul Gaffar — canonical temporal-consent boundary.
     """
     try:
+        from hushh_mcp.services.connections_service import ConnectionsService
         from hushh_mcp.services.consent_db import ConsentDBService
         from hushh_mcp.services.revocation_worker import start_revocation_loop
 
         _db = ConsentDBService()
 
-        start_revocation_loop(
-            fetch_expired=_db.fetch_expired_consents,
-            revoke=_db.mark_consent_revoked,
-            interval_seconds=300,
+        async def expire_connection_capabilities() -> int:
+            # ConnectionsService is a synchronous SQLAlchemy adapter; preserve
+            # FastAPI's event loop while its atomic temporal projection runs.
+            return await asyncio.to_thread(ConnectionsService().expire_due_capabilities)
+
+        _track_startup_background_task(
+            start_revocation_loop(
+                fetch_expired=_db.fetch_expired_consents,
+                revoke=_db.mark_consent_revoked,
+                expire_capabilities=expire_connection_capabilities,
+                interval_seconds=300,
+            )
         )
-        logger.info("startup.consent_revocation_worker_registered interval_s=300")
+        logger.info("startup.temporal_revocation_worker_registered interval_s=300")
     except Exception as exc:
         # Non-fatal: log and continue — per-request token validation still
         # enforces expiry via validate_token(); the worker is a DB consistency aid.

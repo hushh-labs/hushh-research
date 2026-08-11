@@ -30,7 +30,7 @@ import {
   PILL_PENDING,
   PILL_READY,
   SCREEN_TITLE,
-  SECTION_HEADING,
+  SECTION_TITLE,
   SUBCARD_SURFACE,
   TRUST_SURFACE,
   WARNING_SURFACE,
@@ -68,7 +68,7 @@ export function TaskFlowHeader({
         {eyebrow ? <p className={EYEBROW}>{eyebrow}</p> : null}
       </div>
       <h1 className={SCREEN_TITLE}>{title}</h1>
-      {description ? <p className={MUTED_TEXT}>{description}</p> : null}
+      {description ? <p className="ui-text-page-subtitle">{description}</p> : null}
     </header>
   );
 }
@@ -97,7 +97,7 @@ export function StatusPill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+        "ui-text-status inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[13px] leading-[18px]",
         palette,
         className,
       )}
@@ -142,11 +142,11 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <section className={cn(CARD_SURFACE, "p-4", className)}>
+    <section className={cn(CARD_SURFACE, "p-4", className)} data-ui-role="grouped-card">
       {(title || action) && (
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            {title ? <h2 className={SECTION_HEADING}>{title}</h2> : null}
+            {title ? <h2 className={SECTION_TITLE}>{title}</h2> : null}
             {description ? (
               <p className={cn(MUTED_TEXT, "mt-0.5")}>{description}</p>
             ) : null}
@@ -186,7 +186,7 @@ export function PrivacyStatusCard({
           <ShieldCheck className="h-6 w-6" />
         </span>
         <div className="min-w-0">
-          <p className="text-lg font-semibold leading-tight tracking-tight text-foreground">
+          <p className="ui-text-row-label-emphasized">
             {headline}
           </p>
           {lines.map((line) => (
@@ -215,7 +215,7 @@ export function TrustNoteCard({
     <div className={cn(TRUST_SURFACE, "flex gap-3 p-3.5")}>
       <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
       <div>
-        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="ui-text-row-label-emphasized">{title}</p>
         <p className={MUTED_TEXT}>{description}</p>
       </div>
     </div>
@@ -233,8 +233,10 @@ export function WarningCard({
     <div className={cn(WARNING_SURFACE, "flex gap-3 p-3.5")}>
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
       <div>
-        <p className="text-sm font-semibold">{title}</p>
-        <p className="text-xs leading-snug opacity-90">{description}</p>
+        <p className="ui-text-row-label-emphasized">{title}</p>
+        <p className="ui-text-row-description">
+          {description}
+        </p>
       </div>
     </div>
   );
@@ -257,13 +259,16 @@ export function EmptyState({
 }) {
   return (
     <div
+      data-ui-role="grouped-card"
       className={cn(
         SUBCARD_SURFACE,
         "flex flex-col items-center gap-2 p-6 text-center",
       )}
     >
       {icon ? <div className="text-muted-foreground">{icon}</div> : null}
-      <p className="text-sm font-semibold text-foreground">{title}</p>
+      <p className="ui-text-headline">
+        {title}
+      </p>
       {description ? <p className={MUTED_TEXT}>{description}</p> : null}
       {action ? <div className="mt-1">{action}</div> : null}
     </div>
@@ -306,7 +311,7 @@ export function QuickPathRow({
         {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-foreground">
+        <span className="ui-text-row-label-emphasized block">
           {title}
         </span>
         <span className={cn(MUTED_TEXT, "block")}>{description}</span>

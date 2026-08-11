@@ -96,6 +96,13 @@ const TECHNICAL_CONSUMER_KEY_PATTERN =
 const ENTITY_TITLE_KEYS = ["title", "name", "label", "summary", "merchant", "symbol"];
 const ENTITY_SUBTITLE_KEYS = ["kind", "status", "category"];
 const SUMMARY_KEYS = ["readable_summary", "summary", "package_note", "description", "note"];
+const ENTITY_METADATA_KEYS = new Set([
+  "kind",
+  "status",
+  "category",
+  "created_at",
+  "updated_at",
+]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -173,6 +180,10 @@ function formatScalar(label: string, value: unknown): string {
 function toDisplayString(value: unknown): string | null {
   const formatted = formatScalar("value", value).trim();
   return formatted ? formatted : null;
+}
+
+function normalizedDisplayText(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
 }
 
 function unwrapSectionValue(
@@ -257,7 +268,8 @@ function receiptPreviewEntity(
   value: Record<string, unknown>,
   fallbackTitle: string
 ): PkmSectionPreviewEntity {
-  const fields = objectToFields(value);
+  const title = extractEntityTitle(value, fallbackTitle);
+  const fields = objectToEntityFields(value, title);
   const amount = formatAmountValue(value.amount, value.currency);
   const confidence = formatPercent(value.confidence);
   const affinity = formatPercent(value.affinity_score);
@@ -269,12 +281,14 @@ function receiptPreviewEntity(
   if (confidence) fieldMap.set("Confidence", { label: "Confidence", value: confidence });
   if (affinity) fieldMap.set("Affinity Score", { label: "Affinity Score", value: affinity });
 
-  const sections = buildEntitySections(value);
+  const sections = buildEntitySections(value, title);
   return {
     key,
-    title: extractEntityTitle(value, fallbackTitle),
+    title,
     subtitle: extractEntitySubtitle(value),
-    fields: Array.from(fieldMap.values()).filter((field) => field.value !== extractEntityTitle(value, fallbackTitle)),
+    fields: Array.from(fieldMap.values()).filter(
+      (field) => normalizedDisplayText(field.value) !== normalizedDisplayText(title),
+    ),
     sections,
   };
 }
@@ -287,6 +301,25 @@ function objectToFields(record: Record<string, unknown>): PkmSectionPreviewField
       value: formatScalar(key, value),
       tone: key === "updated_at" || key === "created_at" ? "muted" : "default",
     }));
+}
+
+function objectToEntityFields(
+  record: Record<string, unknown>,
+  title: string,
+): PkmSectionPreviewField[] {
+  return Object.entries(record)
+    .filter(
+      ([key, fieldValue]) =>
+        !isConsumerHiddenKey(key) &&
+        !ENTITY_METADATA_KEYS.has(key) &&
+        !Array.isArray(fieldValue) &&
+        !isPlainObject(fieldValue),
+    )
+    .map(([key, fieldValue]) => ({
+      label: humanizeKey(key),
+      value: formatScalar(key, fieldValue),
+    }))
+    .filter((field) => normalizedDisplayText(field.value) !== normalizedDisplayText(title));
 }
 
 function extractEntityTitle(record: Record<string, unknown>, fallback: string): string {
@@ -307,12 +340,17 @@ function extractEntitySubtitle(record: Record<string, unknown>): string | undefi
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
-function buildEntitySections(record: Record<string, unknown>): PkmSectionPreviewEntitySection[] {
+function buildEntitySections(
+  record: Record<string, unknown>,
+  entityTitle: string,
+): PkmSectionPreviewEntitySection[] {
   return Object.entries(record)
     .filter(([key, value]) => !isConsumerHiddenKey(key) && (Array.isArray(value) || isPlainObject(value)))
     .flatMap(([key, value]) => {
       if (Array.isArray(value)) {
-        const items = arrayToStrings(value);
+        const items = arrayToStrings(value).filter(
+          (item) => normalizedDisplayText(item) !== normalizedDisplayText(entityTitle),
+        );
         if (items.length > 0) {
           return [
             {
@@ -359,13 +397,13 @@ function buildEntityItem(
   options?: { deletable?: boolean }
 ): PkmSectionPreviewEntity {
   const title = extractEntityTitle(value, "Saved entry");
-  const fields = objectToFields(value).filter((field) => field.value !== title);
+  const fields = objectToEntityFields(value, title);
   return {
     key,
     title,
     subtitle: extractEntitySubtitle(value),
     fields,
-    sections: buildEntitySections(value),
+    sections: buildEntitySections(value, title),
     deletable: options?.deletable === true,
   };
 }

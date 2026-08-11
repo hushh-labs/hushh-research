@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -7,7 +8,10 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
+import {
+  ConnectedSystemLogo,
+  ConnectedSystemsPanel,
+} from "@/components/profile/connected-systems-panel";
 import { ConnectedSystemsService } from "@/lib/services/connected-systems-service";
 import {
   CACHE_KEYS,
@@ -84,6 +88,7 @@ const metadataOnlySchema = {
   systemId: system.systemId,
   target: system.target,
   objectType: system.objectTypeDefault,
+  configurationRevision: system.configurationRevision,
   supportedFields: ["Email", "PreferredLanguage", "Birthdate"],
   schemaStatus: "capability_metadata_missing",
   effectiveActions: {
@@ -250,6 +255,58 @@ describe("ConnectedSystemsPanel", () => {
     });
   });
 
+  it("keeps registered CRM marks in their original colors on a light canvas", () => {
+    render(
+      <ConnectedSystemLogo
+        system={{ ...system, customerDisplayName: "Chase" }}
+      />,
+    );
+
+    const logo = screen.getByRole("img", { name: "Chase logo" });
+    expect(logo).toHaveClass("filter-none");
+    expect(logo.parentElement).toHaveClass(
+      "!bg-white",
+      "dark:!bg-white",
+    );
+  });
+
+  it("uses the same fixed row frame for branded and fallback CRM marks", () => {
+    const { container, rerender } = render(
+      <ConnectedSystemLogo
+        system={{
+          ...system,
+          customerDisplayName: "Hussh",
+          displayName: "Hussh",
+          target: "Hussh",
+        }}
+      />,
+    );
+
+    const fallback = container.querySelector(
+      '[data-slot="connected-system-logo"]',
+    );
+    if (!(fallback instanceof HTMLElement)) {
+      throw new Error("Fallback CRM logo frame was not rendered.");
+    }
+    expect(fallback).toHaveAttribute("data-logo-kind", "fallback");
+    expect(fallback).toHaveClass("h-11", "w-[4.75rem]", "rounded-[14px]");
+
+    rerender(
+      <ConnectedSystemLogo
+        system={{ ...system, customerDisplayName: "Chase" }}
+      />,
+    );
+
+    const branded = container.querySelector(
+      '[data-slot="connected-system-logo"]',
+    );
+    if (!(branded instanceof HTMLElement)) {
+      throw new Error("Branded CRM logo frame was not rendered.");
+    }
+    expect(branded).toHaveAttribute("data-logo-kind", "brand");
+    expect(branded).toHaveClass("h-11", "w-[4.75rem]", "rounded-[14px]");
+  });
+
   it("lists dynamically registered CRM systems without requiring vault unlock", async () => {
     render(
       <ConnectedSystemsPanel
@@ -316,6 +373,66 @@ describe("ConnectedSystemsPanel", () => {
     expect(ConnectedSystemsService.getSchema).not.toHaveBeenCalled();
     expect(screen.queryByPlaceholderText("Search fields")).toBeNull();
     expect(screen.queryByText("Fields ready")).toBeNull();
+  });
+
+  it("does not show a terminal setup error while the current schema is preparing", async () => {
+    const cache = CacheService.getInstance();
+    cache.set(
+      CACHE_KEYS.CONNECTED_SYSTEMS_REGISTRY("user-1"),
+      { registryRevision: 1, systems: [system] },
+      CACHE_TTL.MEDIUM,
+    );
+    let resolveSchema!: (value: typeof readySchema) => void;
+    const schemaPromise = new Promise<typeof readySchema>((resolve) => {
+      resolveSchema = resolve;
+    });
+    vi.spyOn(ConnectedSystemsResourceService, "loadSchema").mockImplementation(
+      async (params) => {
+        const cacheKey = ConnectedSystemsResourceService.schemaCacheKey({
+          userId: params.userId,
+          systemId: params.systemId,
+          objectType: params.objectType,
+          configurationRevision: params.configurationRevision,
+        });
+        cache.set(
+          cacheKey,
+          {
+            ...metadataOnlySchema,
+            schemaMappingStatus: "unavailable",
+          },
+          CACHE_TTL.SHORT,
+        );
+        const schema = await schemaPromise;
+        cache.set(cacheKey, schema, CACHE_TTL.MEDIUM);
+        return schema;
+      },
+    );
+
+    render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={system.systemId}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("status", { name: "Preparing your CRM profile" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Profile setup is temporarily unavailable"),
+    ).toBeNull();
+
+    await act(async () => {
+      resolveSchema(readySchema);
+    });
+
+    expect(
+      await screen.findByRole("button", { name: "Find my record" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Profile setup is temporarily unavailable"),
+    ).toBeNull();
   });
 
   it("does not show a field catalogue before a fresh user has a linked record", async () => {

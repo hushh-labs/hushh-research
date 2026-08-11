@@ -38,16 +38,13 @@ def _git_diff(base_sha: str, target_sha: str) -> set[str]:
 def _exclude_service_tree(paths: set[str], service_root: str) -> set[str]:
     """Drop changes owned exclusively by the other deployable service."""
     prefix = f"{service_root}/"
-    return {
-        path
-        for path in paths
-        if path != service_root and not path.startswith(prefix)
-    }
+    return {path for path in paths if path != service_root and not path.startswith(prefix)}
 
 
 def _is_pkm_upgrade(path: str) -> bool:
     return (
-        path in {
+        path
+        in {
             "consent-protocol/hushh_mcp/services/pkm_upgrade_service.py",
             "consent-protocol/hushh_mcp/services/personal_knowledge_model_service.py",
             "consent-protocol/scripts/eval_pkm_structure_agent.py",
@@ -65,28 +62,41 @@ def _is_pkm_upgrade(path: str) -> bool:
                 ".codex/workflows/pkm-upgrade-rehearsal/",
             )
         )
-        or (
-            path.startswith("consent-protocol/db/migrations/")
-            and "pkm" in path.lower()
-        )
+        or (path.startswith("consent-protocol/db/migrations/") and "pkm" in path.lower())
     )
 
 
+def _is_pkm_evaluator_contract(path: str) -> bool:
+    """Whether a change must exercise the candidate evaluator itself.
+
+    The evaluator's workflow control path is intentionally narrower than the
+    zero-loss upgrade rehearsal: changing its release behavior must prove the
+    candidate job once, but does not by itself require the full PKM migration
+    suite.
+    """
+    return _is_pkm_upgrade(path) or path == ".github/workflows/deploy-uat.yml"
+
+
 def _is_reviewer_byok(path: str) -> bool:
-    return path.startswith(".codex/skills/reviewer-app-testing/") or path.startswith(
-        (
-            "hushh-webapp/components/app-ui/native-test-",
-            "hushh-webapp/lib/testing/",
-            "hushh-webapp/lib/vault/",
-            "hushh-webapp/components/vault/",
-            "consent-protocol/api/routes/vault",
-            "consent-protocol/hushh_mcp/services/vault_",
+    return (
+        path.startswith(".codex/skills/reviewer-app-testing/")
+        or path.startswith(
+            (
+                "hushh-webapp/components/app-ui/native-test-",
+                "hushh-webapp/lib/testing/",
+                "hushh-webapp/lib/vault/",
+                "hushh-webapp/components/vault/",
+                "consent-protocol/api/routes/vault",
+                "consent-protocol/hushh_mcp/services/vault_",
+            )
         )
-    ) or path in {
-        "hushh-webapp/scripts/testing/reviewer-test-identity.mjs",
-        "hushh-webapp/lib/services/vault-service.ts",
-        "consent-protocol/api/routes/app_review.py",
-    }
+        or path
+        in {
+            "hushh-webapp/scripts/testing/reviewer-test-identity.mjs",
+            "hushh-webapp/lib/services/vault-service.ts",
+            "consent-protocol/api/routes/app_review.py",
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -100,6 +110,12 @@ class VerificationPlan:
     def as_dict(self) -> dict[str, object]:
         requires_web_dependencies = self.run_pkm_upgrade_gate or self.run_reviewer_byok
         lanes = {
+            "candidate_pkm_evaluator": {
+                "required": self.pkm_evaluator_runs != 0,
+                "reason": "pkm_upgrade_or_evaluator_contract_changed"
+                if self.pkm_evaluator_runs
+                else "no_pkm_upgrade_or_evaluator_contract_changed",
+            },
             "pkm_upgrade": {
                 "required": self.run_pkm_upgrade_gate,
                 "reason": "pkm_upgrade_contract_changed"
@@ -166,11 +182,12 @@ def resolve_plan(
         return VerificationPlan((), 1, True, True, "conservative:comparison_base_unproven")
 
     pkm_upgrade = any(_is_pkm_upgrade(path) for path in changed)
-    evaluator_runs = 1 if pkm_upgrade else 0
+    evaluator_runs = 1 if any(_is_pkm_evaluator_contract(path) for path in changed) else 0
     reviewer_byok = any(_is_reviewer_byok(path) for path in changed)
     active = [
         name
         for name, enabled in (
+            ("pkm_evaluator", evaluator_runs != 0),
             ("pkm_upgrade", pkm_upgrade),
             ("reviewer_byok", reviewer_byok),
         )
@@ -204,7 +221,9 @@ def _write_outputs(path: str, payload: dict[str, object]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target-sha", required=True)
-    parser.add_argument("--base-sha", default="", help="Verified shared comparison base for CI/queue/smoke.")
+    parser.add_argument(
+        "--base-sha", default="", help="Verified shared comparison base for CI/queue/smoke."
+    )
     parser.add_argument("--backend-base-sha", default="")
     parser.add_argument("--frontend-base-sha", default="")
     parser.add_argument("--deploy-backend", default="true")

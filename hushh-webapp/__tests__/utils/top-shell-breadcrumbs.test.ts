@@ -3,6 +3,24 @@ import { describe, expect, it } from "vitest";
 import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
 
 describe("top shell breadcrumbs", () => {
+  it("returns a query-selected saved analysis to its Analysis workspace", () => {
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/kai",
+        new URLSearchParams("tab=analysis&analysis_id=run%3Adebate_123&ticker=NVDA"),
+      ),
+    ).toEqual({
+      backHref: "/one/kai?tab=analysis",
+      width: "content",
+      align: "center",
+      items: [
+        { label: "Finance", href: "/one/kai?tab=market" },
+        { label: "Analysis", href: "/one/kai?tab=analysis" },
+        { label: "NVDA analysis" },
+      ],
+    });
+  });
+
   it("returns every welcome workspace tab to One", () => {
     const research = new URLSearchParams("tab=research");
     const blog = new URLSearchParams("tab=blog");
@@ -29,6 +47,15 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       hideBack: false,
       items: [{ label: "One", href: "/one" }, { label: "Connect" }],
+    });
+  });
+
+  it("uses the shared top-left back affordance for Calendar", () => {
+    expect(resolveTopShellBreadcrumb("/one/calendar")).toEqual({
+      backHref: "/one",
+      width: "profile",
+      align: "center",
+      items: [{ label: "One", href: "/one" }, { label: "Calendar" }],
     });
   });
 
@@ -133,7 +160,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/setup",
       width: "content",
       align: "center",
-      items: [{ label: "Set up", href: "/one/setup" }, { label: "Kai" }],
+      items: [{ label: "Set up", href: "/one/setup" }, { label: "Finance" }],
     });
 
     // No origin → Kai home still falls back to One home (unchanged behavior).
@@ -141,7 +168,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one",
       width: "content",
       align: "center",
-      items: [{ label: "One", href: "/one" }, { label: "Kai" }],
+      items: [{ label: "One", href: "/one" }, { label: "Finance" }],
     });
 
     // Unsafe origins are rejected → One home fallback.
@@ -590,6 +617,38 @@ describe("top shell breadcrumbs", () => {
     expect(resolveTopShellBreadcrumb("/one/location")?.backHref).toBe("/one");
   });
 
+  it("returns a focused flow to the hub TAB it was opened from (Links/People/Settings)", () => {
+    // Regression: opening "Create a new link" from Links, "Invite trusted
+    // person" from People, or "SMS contacts" from Settings must return Back to
+    // that ORIGINATING tab — not the default "Now" tab. `openFlow` keeps the
+    // current `?view=` tab in the URL alongside `?action=`, so the breadcrumb
+    // resolver retraces to it.
+
+    // Links → Create a new link (temp-link) → back to Links.
+    const fromLinks = new URLSearchParams();
+    fromLinks.set("view", "links");
+    fromLinks.set("action", "temp-link");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromLinks)?.backHref,
+    ).toBe("/one/location?view=links");
+
+    // People → Invite trusted person (invite) → back to People.
+    const fromPeople = new URLSearchParams();
+    fromPeople.set("view", "people");
+    fromPeople.set("action", "invite");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromPeople)?.backHref,
+    ).toBe("/one/location?view=people");
+
+    // Settings → SMS contacts → back to the Settings flow (not "Now").
+    const fromSettings = new URLSearchParams();
+    fromSettings.set("action", "sms-contacts");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromSettings)?.backHref,
+    ).toBe("/one/location?action=settings");
+  });
+
+
   it("retraces setup-hub-opened capabilities through their terminal acknowledgement", () => {
     // From the Set up One hub, capability handoffs carry ?from=/one/setup so the
     // top-bar back returns to the hub (not Profile/dashboard) — "jaise aaya waise
@@ -669,7 +728,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace" },
       ],
@@ -682,7 +741,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace", href: "/ria/clients/user_123" },
         { label: "Account detail" },
@@ -696,7 +755,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace", href: "/ria/clients/user_123" },
         { label: "Request detail" },
@@ -715,20 +774,21 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       items: [
         { label: "One", href: "/one" },
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Picks", href: "/ria/picks" },
         { label: "Debate" },
       ],
     });
 
-    // Without the view param, bare Picks is untouched: three crumbs, Back to RIA.
+    // Without the view param, bare Picks is untouched: three crumbs, Back to
+    // the canonical RIA Profile tab.
     expect(resolveTopShellBreadcrumb("/ria/picks")).toEqual({
-      backHref: "/ria",
+      backHref: "/ria/profile",
       width: "content",
       align: "center",
       items: [
         { label: "One", href: "/one" },
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Picks" },
       ],
     });
@@ -736,12 +796,12 @@ describe("top shell breadcrumbs", () => {
 
   it("keeps bare Picks for unknown or wrong-case view values", () => {
     const barePicks = {
-      backHref: "/ria",
+      backHref: "/ria/profile",
       width: "content" as const,
       align: "center" as const,
       items: [
         { label: "One", href: "/one" },
-        { label: "RIA", href: "/ria" },
+        { label: "RIA", href: "/ria/profile" },
         { label: "Picks" },
       ],
     };

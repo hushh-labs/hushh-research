@@ -38,6 +38,7 @@ function viewModel(
   ];
   return {
     busy: null,
+    circles: [],
     sosRecipients: recipients,
     myLocationPoint: point,
     myLocationError: null,
@@ -54,6 +55,45 @@ function viewModel(
 describe("CheckInFlow nearby private-sharing handoff", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("recenters a confirmed check-in without capturing location again", async () => {
+    const onCheckIn = vi
+      .fn<LocationHubViewModel["onCheckIn"]>()
+      .mockResolvedValue({
+        succeededRecipientIds: [],
+        failedRecipientIds: ["user-aarav"],
+      });
+    const vm = viewModel(onCheckIn);
+    vm.renderMapPreview = vi.fn((_point, _showNavigation, resetKey) => (
+      <span data-testid="check-in-map-reset-key">{String(resetKey)}</span>
+    ));
+
+    render(
+      <CheckInFlow vm={vm} entrySource="nearby" onClose={vi.fn()} />,
+    );
+
+    expect(screen.getByTestId("check-in-map-reset-key")).toHaveTextContent(
+      "check-in:0",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Aarav Mehta/ }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Share encrypted location with 1 person",
+      }),
+    );
+    await waitFor(() => expect(onCheckIn).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Recenter map on the confirmed check-in location",
+      }),
+    );
+
+    expect(screen.getByTestId("check-in-map-reset-key")).toHaveTextContent(
+      "check-in:1",
+    );
+    expect(vm.onShowMyLocation).not.toHaveBeenCalled();
   });
 
   it("starts with explicit selection and retries only failed recipients", async () => {

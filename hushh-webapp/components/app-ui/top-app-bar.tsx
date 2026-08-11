@@ -333,7 +333,7 @@ function routeForPersona(params: {
     return params.lastKaiPath || ROUTES.KAI_HOME;
   }
   // Defensive: never re-enter the onboarding wizard from a stale lastRiaPath —
-  // let riaEntryRoute (switch → RIA_HOME, else onboarding) decide. Pairs with the
+  // let riaEntryRoute (switch → RIA_PROFILE, else onboarding) decide. Pairs with the
   // navbar guard that stops recording /ria/onboarding as lastRiaPath.
   const lastRiaPath =
     params.lastRiaPath === ROUTES.RIA_ONBOARDING ||
@@ -373,31 +373,42 @@ function isPrimaryHeaderOutOfView(header: HTMLElement | null): boolean {
  * owns single-step back; this trail is the multi-level "go back and forth"
  * affordance. Uses currentColor so it tracks the ambient top-surface tone.
  */
-function TopShellBreadcrumbTrail({ items }: { items: TopShellBreadcrumbItem[] }) {
+function TopShellBreadcrumbTrail({
+  items,
+}: {
+  items: TopShellBreadcrumbItem[];
+}) {
   if (!items.length) return null;
   return (
     <nav
       aria-label="Breadcrumb"
       data-testid="top-app-bar-breadcrumb-trail"
-      className="top-shell-ambient-ink pointer-events-auto flex min-w-0 items-center gap-1 text-[15px] font-medium text-current"
+      className="ui-text-navigation-title top-shell-ambient-ink pointer-events-auto flex min-w-0 items-center gap-1 text-current"
     >
       {items.map((item, index) => {
         const isLast = index === items.length - 1;
         return (
           <span
             key={`${item.label}-${index}`}
-            className="flex min-w-0 items-center gap-1"
+            className={cn(
+              "flex min-w-0 items-center gap-1",
+              // The last crumb (current page) keeps its full label; earlier
+              // ancestors are allowed to shrink and truncate so a deep trail
+              // like "Profile > Preferences > Gemini" collapses gracefully on
+              // narrow iOS widths instead of colliding/overflowing the header.
+              isLast ? "shrink-0" : "min-w-0 shrink",
+            )}
           >
             {index > 0 ? (
               <ChevronRight
-                className="h-3.5 w-3.5 shrink-0 opacity-40"
+                className="mx-0.5 h-3.5 w-3.5 shrink-0 text-[color:var(--app-tertiary-label)]"
                 aria-hidden
               />
             ) : null}
             {item.href && !isLast ? (
               <button
                 type="button"
-                className="max-w-[9rem] shrink-0 truncate opacity-65 transition-opacity hover:opacity-100"
+                className="min-w-0 max-w-[9rem] shrink truncate text-[color:var(--app-secondary-label)] transition-colors hover:text-current"
                 onClick={() =>
                   requestInternalAppNavigation({
                     href: item.href!,
@@ -412,8 +423,10 @@ function TopShellBreadcrumbTrail({ items }: { items: TopShellBreadcrumbItem[] })
             ) : (
               <span
                 className={cn(
-                  "min-w-0 truncate",
-                  isLast ? "font-semibold" : "opacity-65",
+                  "truncate",
+                  isLast
+                    ? "min-w-0 shrink-0 font-semibold text-current"
+                    : "min-w-0 shrink text-[color:var(--app-secondary-label)]",
                 )}
                 aria-current={isLast ? "page" : undefined}
               >
@@ -452,9 +465,8 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const connectedSystemId = useMemo(() => {
     const detailPrefix = `${ROUTES.CONNECTED_SYSTEMS}/`;
     if (normalizedPathname.startsWith(detailPrefix)) {
-      const segment = normalizedPathname
-        .slice(detailPrefix.length)
-        .split("/", 1)[0] || "";
+      const segment =
+        normalizedPathname.slice(detailPrefix.length).split("/", 1)[0] || "";
       try {
         return decodeURIComponent(segment);
       } catch {
@@ -487,9 +499,9 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     // navigation (pathname change) so a freshly-resolved user is honored.
     const setupDismissed = Boolean(
       user?.uid &&
-        (OneSetupCompletionHintService.isResolved(user.uid) ||
-          PreVaultUserStateService.getCachedBootstrapState(user.uid)
-            ?.setupCompleted === true),
+      (OneSetupCompletionHintService.isResolved(user.uid) ||
+        PreVaultUserStateService.getCachedBootstrapState(user.uid)
+          ?.setupCompleted === true),
     );
     return (
       resolveTopShellBreadcrumb(normalizedPathname, searchParams, {
@@ -514,8 +526,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
 
   const [primaryHeaderOutOfView, setPrimaryHeaderOutOfView] = useState(false);
-  const [topChromeFullyCollapsed, setTopChromeFullyCollapsed] =
-    useState(false);
+  const [topChromeFullyCollapsed, setTopChromeFullyCollapsed] = useState(false);
   // A route-owned tab row stays as the compact navigation anchor once the
   // shared top row has fully collapsed. The page heading still independently
   // owns title handoff, but it must not prevent an upward gesture from
@@ -717,9 +728,20 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   );
   const breadcrumbTrailItems = useMemo(() => {
     const raw = topShellBreadcrumb?.items ?? [];
+    // Defensively drop any crumb whose label is empty/whitespace before the
+    // trail renders. A resolver that spreads a conditional segment
+    // (`...(x ? [{label}] : [])`) can only ever yield real labels today, but
+    // guarding here means a future empty/undefined segment can never surface as
+    // a stray separator pair (the "Finance > , > > preview" artifact) in the
+    // shared chevron trail.
+    const cleaned = raw.filter(
+      (item) => typeof item.label === "string" && item.label.trim().length > 0,
+    );
     // Inner/"subagent" routes read as "Kai > Analysis", not
     // "One > Kai > Analysis": drop the app-root crumb from the visible trail.
-    return raw.length > 0 && raw[0]?.label === "One" ? raw.slice(1) : raw;
+    return cleaned.length > 0 && cleaned[0]?.label === "One"
+      ? cleaned.slice(1)
+      : cleaned;
   }, [topShellBreadcrumb]);
   const hasBreadcrumbTrail = !centerTitle && breadcrumbTrailItems.length > 0;
   const canShowPersonaSwitcher = useMemo(
@@ -732,12 +754,20 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     model.mode !== "hidden" && model.brand === "one" && !showOnboardingActions;
   const handleTopShellBack = useCallback(() => {
     navigateTopShellBack({
-      router,
       pathname: normalizedPathname,
       searchParams,
       breadcrumb: topShellBreadcrumb,
+      navigate: (action) => {
+        requestInternalAppNavigation({
+          href: action.href,
+          replace: action.mode === "replace",
+          scroll: false,
+          source: "tap",
+          transitionMode: "full",
+        });
+      },
     });
-  }, [normalizedPathname, router, searchParams, topShellBreadcrumb]);
+  }, [normalizedPathname, searchParams, topShellBreadcrumb]);
 
   // The avatar opens Profile from EVERY signed-in screen, so tag the current
   // route as the `?from` origin. The shared top-bar back control then retraces
@@ -848,6 +878,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   return (
     <div
       data-app-top-bar
+      data-ui-role="top-navigation"
       data-top-app-bar-tabs-only={tabsOnlyChrome || undefined}
       data-ambient-chrome-ignore
       className={cn(
@@ -928,7 +959,9 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     // Collapse the fixed side gutter to the back button's width
                     // when a breadcrumb trail is showing, so the trail sits
                     // right beside the back arrow instead of centered.
-                    width: hasBreadcrumbTrail ? "auto" : "var(--top-bar-side-w)",
+                    width: hasBreadcrumbTrail
+                      ? "auto"
+                      : "var(--top-bar-side-w)",
                   }}
                 >
                   {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
@@ -937,6 +970,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         variant="icon"
                         aria-label="Go back"
                         onClick={handleTopShellBack}
+                        className="!text-[color:var(--app-accent)]"
                       >
                         <ArrowLeft className="h-5 w-5" />
                       </ShellActionSurface>
@@ -1141,7 +1175,6 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         >
                           <Avatar className="h-9 w-9">
                             {effectiveAvatarUrl ? (
-
                               <AvatarImage src={effectiveAvatarUrl} alt="" />
                             ) : null}
                             <AvatarFallback className="bg-transparent text-current">
@@ -1299,15 +1332,21 @@ function OnboardingRouteActions() {
             <MoreHorizontal className="h-5 w-5 text-current" />
           </ShellActionSurface>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => void handleSignOut()}>
+        <DropdownMenuContent
+          align="end"
+          className="overflow-hidden rounded-[14px] p-1"
+        >
+          <DropdownMenuItem
+            onClick={() => void handleSignOut()}
+            className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-accent)] hover:!text-[color:var(--app-accent-fg)] hover:[&_svg]:!stroke-[color:var(--app-accent-fg)] hover:[&_svg]:!text-[color:var(--app-accent-fg)] focus:!bg-[color:var(--app-accent)] focus:!text-[color:var(--app-accent-fg)] focus:[&_svg]:!stroke-[color:var(--app-accent-fg)] focus:[&_svg]:!text-[color:var(--app-accent-fg)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
+          >
             <LogOut className="h-4 w-4 text-current" />
             Sign out
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
             onClick={() => void requestDeleteAccount()}
-            className="cursor-pointer hover:!bg-red-600 hover:!text-white hover:[&_svg]:!text-white focus:!bg-red-600 focus:!text-white focus:[&_svg]:!text-white focus-visible:ring-2 focus-visible:ring-accent/70"
+            className="cursor-pointer rounded-[10px] hover:!bg-red-600 hover:!text-white hover:[&_svg]:!stroke-white hover:[&_svg]:!text-white focus:!bg-red-600 focus:!text-white focus:[&_svg]:!stroke-white focus:[&_svg]:!text-white focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
           >
             <Trash2 className="h-4 w-4 text-current" />
             Delete account

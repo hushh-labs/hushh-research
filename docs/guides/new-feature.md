@@ -69,7 +69,7 @@ If you add a new `.swift` file (e.g. a new plugin or helper) and need to edit `i
 
 ### Android
 
-- [ ] Register plugin in `hushh-webapp/android/app/src/main/java/com/hushh/app/MainActivity.kt`
+- [ ] Register plugin in `hushh-webapp/android/app/src/main/java/com/hussh/app/MainActivity.kt`
 - [ ] In `onCreate()` (before `super.onCreate()`), add: `registerPlugin(YourPlugin::class.java)`
 
 ## Service Layer

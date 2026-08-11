@@ -51,10 +51,18 @@ async function proxyRequest(
   const path = params.path.join("/");
   const targetUrl = `${getPythonApiUrl()}/api/iam/${path}${query}`;
   const authHeader = request.headers.get("authorization") || "";
-  const hotCacheKey =
+  // A caller that asks to bypass caching must not be answered from this cache.
+  // The key omitted the query string, so `GET /api/iam/persona?force=1` — sent
+  // specifically to bypass the backend's own cache — was served a stale persona
+  // from here, which is one half of the profile/onboarding redirect loop.
+  // The fresh answer still populates the cache, and stale-on-upstream-failure
+  // still applies; only the cache HIT is skipped for a forced read.
+  const forceRefresh = request.nextUrl.searchParams.get("force") === "1";
+  const personaCacheKey =
     method === "GET" && path === "persona" && authHeader
       ? `${path}:${authHeader}`
       : null;
+  const hotCacheKey = forceRefresh ? null : personaCacheKey;
 
   const headers = createUpstreamHeaders(requestId, {
     ...(authHeader ? { Authorization: authHeader } : {}),
@@ -104,12 +112,12 @@ async function proxyRequest(
 
     const result = await load;
 
-    if (hotCacheKey && result.status < 500) {
-      writeHotGetCache(hotCacheKey, result);
+    if (personaCacheKey && result.status < 500) {
+      writeHotGetCache(personaCacheKey, result);
     }
 
-    if (hotCacheKey && result.status >= 500) {
-      const stale = readHotGetCache(hotCacheKey, { allowStale: true });
+    if (personaCacheKey && result.status >= 500) {
+      const stale = readHotGetCache(personaCacheKey, { allowStale: true });
       if (stale) {
         console.warn(
           `[IAM API] request_id=${requestId} serving stale persona cache after upstream ${result.status}`
@@ -125,8 +133,8 @@ async function proxyRequest(
     });
   } catch (error) {
     console.error(`[IAM API] request_id=${requestId} proxy_error`, error);
-    if (hotCacheKey) {
-      const stale = readHotGetCache(hotCacheKey, { allowStale: true });
+    if (personaCacheKey) {
+      const stale = readHotGetCache(personaCacheKey, { allowStale: true });
       if (stale) {
         console.warn(
           `[IAM API] request_id=${requestId} serving stale persona cache after proxy failure`

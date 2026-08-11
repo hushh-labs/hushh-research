@@ -31,6 +31,24 @@ Define canonical scope families and template policy for Investor + RIA consent r
 6. Public profiles are owner-published resources addressed by an opaque
    `public_profile_handle`; they are not `attr.*` scopes and never authorize
    private PKM access.
+7. One-to-One capabilities are proposed with server-issued opaque handles in
+   `connection_scope_proposals`. A connection is accepted separately from its
+   scopes; only the capability owner can activate a requested handle, and an
+   offered handle requires recipient opt-in. Proposal metadata never contains
+   PKM content or authorizes an `attr.*` export.
+8. `source_library` is a reserved owner-managed capability boundary, not a
+   shareable PKM scope. Every `attr.source_library.*` form is non-discoverable,
+   non-requestable, non-issuable, and non-authorizing.
+
+### Source Library object-share boundary
+
+Source Library sharing addresses one pinned file revision or one reviewed
+knowledge artifact through an opaque `share_ref` and an owner-bound mounted
+share target. The reference is local mapping state; it does not become an
+`attr.*` scope, reveal PKM content, grant a provider ACL, or prove that a named
+recipient can access the target. Publication and revocation complete only when
+the deterministic filesystem operation succeeds and the resulting artifact
+state is reconciled.
 
 ## Display Metadata Contract
 
@@ -107,13 +125,13 @@ capability vocabulary and are not externally requestable.
 
 | Scope | Intended Use |
 | --- | --- |
-| `cap.location.nearby.publish` | Publish a 30/60/120-minute opted-in presence after one-time selected-place verification |
+| `cap.location.nearby.publish` | Publish a 30/60/120-minute opted-in presence after final-point and selected-place verification |
 | `cap.location.nearby.discover` | Read only the caller's active, exact-radius, mutually opted-in nearby projection |
 | `cap.location.nearby.revoke` | Check out, clear anchor material, and immediately remove the caller from discovery |
 
-These scopes never authorize a location grant. Raw device coordinates and
-accuracy are request-memory-only. Allowed active persistence is limited to the
-selected public-place anchor as AES-256-GCM ciphertext, a short-epoch keyed
+These scopes never authorize a location grant. Accuracy is request-memory-only.
+Allowed active persistence is limited to the confirmed check-in point and safe
+place label inside AES-256-GCM ciphertext, a short-epoch keyed
 candidate token, rotating attendee alias, fixed radius, consent/audience
 posture, status, and expiry metadata. Plaintext coordinates, exact distance,
 provider place ids, place labels, roster contents, email, phone, and stable
@@ -205,6 +223,8 @@ network, or cross-process specialist boundaries. See
 5. Unverified `ria` requester is rejected.
 6. Bundle-driven requests must expand to canonical scopes before token issuance.
 7. Disabled PKM top-level sections must not be surfaced as discoverable scopes.
+8. Source Library discovery must return no `attr.source_library.*` scope; stale
+   grants, tokens, registries, and forged manifests cannot restore one.
 
 ## Audit Metadata Contract
 

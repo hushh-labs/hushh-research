@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 CRM_SCHEMA_MAPPER_ID = "crm_schema_mapper"
 CRM_SCHEMA_MAPPER_ENABLED_ENV = "CONNECTED_SYSTEMS_SCHEMA_MAPPER_ENABLED"
 CRM_SCHEMA_MAPPING_TTL = timedelta(hours=24)
-_SEMANTICS = ("email", "phone", "firstName", "lastName", "fullName", "address")
+_SEMANTICS = ("email", "phone", "phoneCountryCode", "firstName", "lastName", "fullName", "address")
 _REQUIRED_SEMANTICS = ("email", "phone")
 
 

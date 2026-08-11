@@ -67,7 +67,7 @@ function TabsTrigger({
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "focus-visible:border-ring focus-visible:ring-ring/40 focus-visible:outline-ring relative isolate inline-flex min-h-9 min-w-0 flex-1 items-center justify-center gap-1.5 overflow-hidden px-4 py-2 text-sm font-medium whitespace-nowrap transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:ring-[3px] focus-visible:outline-1",
+        "ui-text-form-label focus-visible:border-ring focus-visible:ring-ring/40 focus-visible:outline-ring relative isolate inline-flex min-h-9 min-w-0 flex-1 items-center justify-center gap-1.5 overflow-hidden px-4 py-2 whitespace-nowrap transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:ring-[3px] focus-visible:outline-1",
         "rounded-full border border-transparent",
         "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground",
         "data-[state=active]:bg-[color:var(--app-segmented-active-surface)] data-[state=active]:text-[color:var(--app-segmented-active-foreground)] data-[state=active]:font-semibold data-[state=active]:border-[color:var(--app-segmented-active-border)] data-[state=active]:shadow-[0_0_0_1px_var(--app-segmented-active-border),var(--shadow-xs)]",

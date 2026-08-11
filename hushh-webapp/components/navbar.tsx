@@ -188,14 +188,16 @@ function navOptionForKey(
   feedUnreadCount: number,
 ): SegmentedPillOption {
   const option = BOTTOM_NAV_OPTION_META[key];
-  // Pending-consent badge home: the dedicated "guardian" tab when it exists
-  // (investor / ria scopes), otherwise the One "dashboard" tab, since consent
-  // now lives as a subroute of the One Agents dashboard.
+  // Feed is the single notification home in the persistent navigation. Its
+  // live "Needs you" section includes pending consent requests, while its
+  // chronological section owns unread Feed events. Consent is not currently a
+  // feed_events writer, so these are disjoint counts.
   let badge: number | undefined;
-  if ((key === "guardian" || key === "dashboard") && pendingConsents > 0) {
-    badge = pendingConsents;
-  } else if (key === "feed" && feedUnreadCount > 0) {
-    badge = feedUnreadCount;
+  if (key === "feed") {
+    const feedNotificationCount = pendingConsents + feedUnreadCount;
+    if (feedNotificationCount > 0) {
+      badge = feedNotificationCount;
+    }
   }
   return { ...option, badge };
 }
@@ -247,7 +249,7 @@ export const Navbar = ({
       // Never record the onboarding wizard as the RIA entry path — otherwise an
       // established advisor who opens onboarding once (e.g. via profile "Edit
       // licence") gets sent back into the wizard on every later RIA open,
-      // overriding the correct riaEntryRoute (switch → RIA_HOME) and causing the
+      // overriding the correct riaEntryRoute (switch → RIA_PROFILE) and causing the
       // onboarding→profile flash.
       const isOnboardingRoute =
         pathname === ROUTES.RIA_ONBOARDING ||
@@ -451,12 +453,17 @@ export const Navbar = ({
   return (
     <nav
       data-app-bottom-nav
+      data-ui-role="bottom-tab-bar"
       data-ambient-chrome-ignore
       className={cn(
         layout === "slot"
           ? "flex w-full justify-center"
           : "fixed inset-x-0 flex justify-center px-4 transform-gpu",
         layout === "fixed" && (isVaultUnlocked ? "z-[120]" : "z-[505]"),
+        // No breakpoint gate here. The bottom pill IS the primary navigation on
+        // every viewport — there is no desktop/sidebar nav that takes over at
+        // `lg`, so hiding it above 1024px leaves signed-in users with no way to
+        // reach One / Connect / Feed / Search at all.
         "pointer-events-none",
       )}
       style={
@@ -498,8 +505,8 @@ export const Navbar = ({
               ariaLabel="Route navigation"
               className={cn(
                 "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-                "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-semibold",
-                "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
+                "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-medium",
+                "[&_[data-segment-indicator]]:bg-transparent [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none",
               )}
             />
           </div>

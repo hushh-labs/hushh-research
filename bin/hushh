@@ -28,7 +28,6 @@ Local runtime uses three separate terminals (one component each):
   3. ./bin/hushh web     --mode local
   compose <init|up|down|nuke|logs|ps|config|health>
   native <ios|android> [--mode <local|uat|dev|prod>] [--fresh]
-  native mac <build|run|test>
   lint
   test
   ci [--include-advisory]
@@ -157,6 +156,7 @@ EOF
     esac
   done
 
+  printf '\033]0;Local Web Frontend (%s)\007' "$mode" 2>/dev/null || true
   bash "$REPO_ROOT/scripts/env/use_profile.sh" "$mode"
   cd "$REPO_ROOT/hushh-webapp"
   if [ "${#next_args[@]}" -gt 0 ]; then
@@ -289,45 +289,10 @@ EOF
     -- "${command_args[@]}"
 }
 
-run_native_mac() {
-  local action="${1:-build}"
-  shift || true
-
-  case "$action" in
-    -h|--help)
-      cat <<'EOF'
-Usage:
-  ./bin/hushh native mac <build|run|test>
-
-Subcommands:
-  build   swift build inside apps/one-mac/ (default)
-  run     swift run OneMac inside apps/one-mac/
-  test    swift test inside apps/one-mac/
-EOF
-      exit 0
-      ;;
-    build|run|test) ;;
-    *)
-      die "native mac subcommand must be build, run, or test"
-      ;;
-  esac
-
-  cd "$REPO_ROOT/apps/one-mac"
-  case "$action" in
-    build) exec swift build ;;
-    run)   exec swift run OneMac ;;
-    test)  exec swift test ;;
-  esac
-}
-
 run_native() {
-  [ "$#" -ge 1 ] || die "native requires <ios|android|mac>"
+  [ "$#" -ge 1 ] || die "native requires <ios|android>"
   local platform="$1"
   shift
-  if [ "$platform" = "mac" ]; then
-    run_native_mac "$@"
-    return
-  fi
   local mode="uat"
   local fresh="false"
 
@@ -345,7 +310,6 @@ run_native() {
         cat <<'EOF'
 Usage:
   ./bin/hushh native <ios|android> [--mode <local|uat|dev|prod>] [--fresh]
-  ./bin/hushh native mac <build|run|test>
 EOF
         exit 0
         ;;
@@ -358,7 +322,7 @@ EOF
   case "$platform" in
     ios|android) ;;
     *)
-      die "native platform must be ios, android, or mac"
+      die "native platform must be ios or android"
       ;;
   esac
 
@@ -835,6 +799,7 @@ EOF
           ;;
       esac
     done
+    printf '\033]0;Cloud SQL Proxy (%s)\007' "$mode" 2>/dev/null || true
     exec bash "$REPO_ROOT/scripts/runtime/run_proxy_local.sh" "$mode"
     ;;
   terminal)
@@ -868,6 +833,7 @@ EOF
           ;;
       esac
     done
+    printf '\033]0;Local Backend (%s)\007' "$mode" 2>/dev/null || true
     # ── Offline mode routes to its own runtime script ──
     if [ "$mode" = "offline" ]; then
       exec bash "$REPO_ROOT/scripts/runtime/run_backend_offline.sh" "${extra[@]}"

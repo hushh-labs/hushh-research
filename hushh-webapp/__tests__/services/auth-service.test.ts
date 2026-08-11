@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PHONE_CONFLICT_COPY } from "@/lib/mail/account-activity-copy";
 
 const {
   mockAuth,
@@ -570,7 +571,7 @@ describe("AuthService.restoreNativeSession", () => {
     ).rejects.toMatchObject({
       code: "phone-number-already-exists",
       message:
-        "This phone number is already associated with another active account. If the account was just deleted, wait a moment and try again.",
+        PHONE_CONFLICT_COPY.inApp,
     });
   });
 

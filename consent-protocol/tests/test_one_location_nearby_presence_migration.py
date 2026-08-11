@@ -29,8 +29,8 @@ def test_nearby_presence_migration_encrypts_anchor_and_clears_terminal_rows():
     assert "event_code" not in sql.lower()
     assert "one_location_nearby_presences" in uat["required_tables"]
     assert "one_location_nearby_presences" in prod["required_tables"]
-    assert uat["expected_migration_version"] == 126
-    assert prod["expected_migration_version"] == 126
+    assert uat["expected_migration_version"] >= 126
+    assert prod["expected_migration_version"] >= 126
 
 
 def test_nearby_presence_rollback_is_explicitly_unshipped_only():

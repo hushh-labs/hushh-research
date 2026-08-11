@@ -5,6 +5,7 @@ import {
   buildPkmDomainPermissionPresentation,
   buildPkmDomainUpgradePresentation,
   buildPkmProfileSummaryPresentation,
+  isConsumerBrowsablePkmDomain,
   isConsumerVisiblePkmDomain,
 } from "@/lib/profile/pkm-profile-presentation";
 
@@ -20,6 +21,29 @@ const domain = {
 };
 
 describe("pkm profile presentation", () => {
+  it("hides only authoritatively empty Memory domains and preserves unknown legacy state", () => {
+    expect(
+      isConsumerBrowsablePkmDomain({
+        ...domain,
+        summary: {
+          scope_materialization: {
+            preferences: { state: "empty", materialized_leaf_count: 0 },
+          },
+        },
+      })
+    ).toBe(false);
+    expect(
+      isConsumerBrowsablePkmDomain({
+        ...domain,
+        summary: {
+          scope_materialization: {
+            preferences: { state: "unknown", materialized_leaf_count: 0 },
+          },
+        },
+      })
+    ).toBe(true);
+  });
+
   it("builds consumer permission rows from scope registry and matches broad access", () => {
     const permissions = buildPkmDomainPermissionPresentation({
       domain,

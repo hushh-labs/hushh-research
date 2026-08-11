@@ -264,7 +264,7 @@ export async function previewAgentPkmMemory(params: {
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    throw new Error(detail || `PKM memory preview failed with ${response.status}`);
+    throw new Error(detail || `Memory preview failed with ${response.status}`);
   }
 
   const payload = (await response.json()) as AgentPkmPreviewResponse;
@@ -333,7 +333,7 @@ export async function addToPKM(params: {
         scope: resolveCardScope(card),
         sharingPosture: resolveCardSharingPosture(card),
         success: false,
-        message: "Explicit owner confirmation is required before saving to PKM.",
+        message: "Your confirmation is required before saving to Memory.",
       })),
     };
   }
@@ -346,7 +346,7 @@ export async function addToPKM(params: {
         scope: resolveCardScope(card),
         sharingPosture: "Reserved, never shareable.",
         success: false,
-        message: "This PKM target is reserved and cannot be saved from Agent chat.",
+        message: "This memory is reserved and cannot be saved from Agent chat.",
       });
       continue;
     }
@@ -357,7 +357,7 @@ export async function addToPKM(params: {
         scope: resolveCardScope(card),
         sharingPosture: resolveCardSharingPosture(card),
         success: false,
-        message: "This PKM preview is not eligible for confirmation and saving.",
+        message: "This memory preview is not eligible for confirmation and saving.",
       });
       continue;
     }
@@ -371,7 +371,7 @@ export async function addToPKM(params: {
         scope: resolveCardScope(card),
         sharingPosture: resolveCardSharingPosture(card),
         success: false,
-        message: "This PKM preview needs review before it can be saved.",
+        message: "This memory needs review before it can be saved.",
       });
       continue;
     }
@@ -391,7 +391,7 @@ export async function addToPKM(params: {
         scope: resolveCardScope(card),
         sharingPosture: resolveCardSharingPosture(card),
         success: false,
-        message: "PKM preview did not produce a valid target domain or payload.",
+        message: "Memory preview did not produce a valid place to save this detail.",
       });
       continue;
     }
@@ -489,7 +489,7 @@ export async function addToPKM(params: {
         scope: resolveCardScope(card),
         sharingPosture: resolveCardSharingPosture(card),
         success: false,
-        message: error instanceof Error ? error.message : "Failed to save PKM memory.",
+        message: error instanceof Error ? error.message : "Failed to save this memory.",
       });
     }
   }
@@ -700,8 +700,8 @@ export function clearAgentPkmContext(userId?: string): void {
 export function formatAgentPkmSaveSummary(result: AgentPkmSaveResult): string {
   if (result.saved === 0) {
     return result.failed > 0
-      ? "Agent could not save that PKM memory."
-      : "No PKM memory was saved for this turn.";
+      ? "One could not save that memory."
+      : "No memory was saved for this message.";
   }
   const saved = result.results.filter((entry) => entry.success);
   const locations = Array.from(

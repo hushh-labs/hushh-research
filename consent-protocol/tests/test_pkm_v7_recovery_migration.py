@@ -144,6 +144,19 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
     assert "resolve-uat-verification-plan.py" in workflow
     assert "outputs.pkm_evaluator_runs != '0'" in workflow
     assert "outputs.run_pkm_upgrade_gate" in workflow
+    assert "Record candidate PKM evaluator warning" in workflow
+    assert "Candidate PKM evaluator warning" in workflow
+    assert 'echo "outcome=failure" >> "$GITHUB_OUTPUT"' in workflow
+    assert "steps.verify-candidate-pkm-evaluator.outputs.outcome == 'failure'" in workflow
+    evaluator_start = workflow.index("- name: Verify candidate PKM evaluator in Cloud Run")
+    evaluator_end = workflow.index("- name: Record candidate PKM evaluator warning")
+    evaluator_step = workflow[evaluator_start:evaluator_end]
+    assert "if ./scripts/ci/run-candidate-pkm-structure-agent-eval.sh; then" in evaluator_step
+    assert "continue-on-error" not in evaluator_step
+    assert "exit 1" not in evaluator_step
+    assert workflow.index("Verify candidate PKM evaluator in Cloud Run") < workflow.index(
+        "Deploy frontend using Cloud Build"
+    )
     assert workflow.index("Verify candidate PKM evaluator in Cloud Run") < workflow.index(
         "Promote deployed revisions to UAT traffic"
     )

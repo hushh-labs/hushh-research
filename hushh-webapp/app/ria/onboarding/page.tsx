@@ -50,6 +50,11 @@ import {
   type RiaLicenseVerificationResult,
   type RiaOnboardingStatus,
 } from "@/lib/services/ria-service";
+import {
+  buildRiaClaimRoute,
+  isClaimableLookupOutcome,
+  toNanpDigits,
+} from "@/lib/ria/ria-claim-entry";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { trackEvent } from "@/lib/observability/client";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
@@ -504,6 +509,40 @@ export default function RiaOnboardingPage({
     router.replace(ROUTES.RIA_PROFILE);
   }, [entryMode, router]);
 
+  // Recognise before asking. An adviser opening RIA setup has usually already
+  // given us the number the SEC lists them at, so check it before showing a
+  // blank wizard. Fails open: any miss, error or timeout leaves the wizard
+  // exactly as it was.
+  const claimProbeRef = useRef(false);
+  useEffect(() => {
+    if (entryMode !== "wizard" || claimProbeRef.current || !user) return;
+    // The account's verified number lives on the auth context; the Firebase
+    // user object is null here for anyone who signed in with Google and for
+    // native sessions that rehydrate before the phone hydrates.
+    const phone = toNanpDigits(phoneNumber || user.phoneNumber);
+    if (!phone) return;
+    claimProbeRef.current = true;
+    void (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12_000);
+        const lookup = await RiaService.claimLookup(
+          idToken,
+          { phone },
+          { signal: controller.signal },
+        ).finally(() => clearTimeout(timer));
+        if (isClaimableLookupOutcome(lookup)) {
+          router.replace(buildRiaClaimRoute(phone));
+        }
+      } catch {
+        /* stay in the wizard */
+      }
+    })();
+    // phoneNumber is in the deps so the probe re-runs once the backend phone
+    // hydrates, which happens after the first render for a Google sign-in.
+  }, [entryMode, user, phoneNumber, router]);
+
   useEffect(() => {
     if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;
     void RiaOnboardingDraftLocalService.save(user.uid, draft);
@@ -843,7 +882,7 @@ export default function RiaOnboardingPage({
         }
         return;
       }
-      router.push(ROUTES.RIA_HOME);
+      router.push(ROUTES.RIA_PROFILE);
       return;
     }
 

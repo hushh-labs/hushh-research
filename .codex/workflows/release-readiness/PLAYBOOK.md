@@ -10,11 +10,12 @@ Run the canonical repo checks, advisory checks, and release-focused audits befor
 
 1. Start with `repo-operations` and use `owner skill only` as the default narrow path.
 2. Run the repo-operations Branch Preservation Gate before checking out release SHAs, dispatching deploys, or creating hotfix branches.
-3. Open only the required reads listed in `workflow.json` plus the selected skill manifests.
-4. Run the required commands first, then the verification bundle.
-5. If a release fix lands on `main`, back-sync the landed `origin/main` commits into the preserved developer branch before handoff.
-6. Capture every field listed in `impact_fields` before calling the work complete.
-7. Escalate through `handoff_chain` when the task crosses domain boundaries.
+3. Use `.codex/skills/repo-operations/references/admin-release-sop.md` for every merge, Admin bypass, deployment, rollback, and environment-promotion transition.
+4. Open only the required reads listed in `workflow.json` plus the selected skill manifests.
+5. Run the required commands first, then the verification bundle.
+6. If a release fix lands on `main`, back-sync the landed `origin/main` commits into the preserved developer branch before handoff.
+7. Capture every field listed in `impact_fields` before calling the work complete.
+8. Escalate through `handoff_chain` when the task crosses domain boundaries.
 
 ## Common Drift Risks
 

@@ -443,8 +443,6 @@ interface DebateStreamViewProps {
   portfolioContextOverride?: Record<string, unknown> | null;
   portfolioSource?: PortfolioSource;
   pickSource?: string;
-  pickSourceLabel?: string;
-  pickSourceKind?: string;
   onClose: () => void;
   onDecisionReady?: (entry: AnalysisHistoryEntry, meta: { runId: string | null }) => void;
   onDecisionPersisted?: (entry: AnalysisHistoryEntry, meta: { runId: string }) => void;
@@ -685,8 +683,6 @@ export function DebateStreamView({
   portfolioContextOverride,
   portfolioSource,
   pickSource,
-  pickSourceKind,
-  pickSourceLabel,
   onClose,
   onDecisionReady,
   onDecisionPersisted,
@@ -1174,15 +1170,15 @@ export function DebateStreamView({
           const fallbackPickSource =
             typeof data.pick_source === "string" && data.pick_source.trim().length > 0
               ? data.pick_source.trim()
-              : pickSource;
+              : undefined;
           const fallbackPickSourceLabel =
             typeof data.pick_source_label === "string" && data.pick_source_label.trim().length > 0
               ? data.pick_source_label.trim()
-              : pickSourceLabel;
+              : undefined;
           const fallbackPickSourceKind =
             typeof data.pick_source_kind === "string" && data.pick_source_kind.trim().length > 0
               ? data.pick_source_kind.trim()
-              : pickSourceKind;
+              : undefined;
           const normalizedDecision: DecisionResult = {
             ticker: String(data.ticker || ticker).toUpperCase(),
             decision: String(data.decision || "hold"),
@@ -1297,9 +1293,6 @@ export function DebateStreamView({
       currentRunId,
       flushTokenPaint,
       onDecisionReady,
-      pickSource,
-      pickSourceKind,
-      pickSourceLabel,
       resolveRoundForEnvelope,
       runId,
       setBusyOperation,
@@ -1450,8 +1443,6 @@ export function DebateStreamView({
             riskProfile: effectiveRiskProfile,
             userContext: context,
             pickSource,
-            pickSourceLabel,
-            pickSourceKind,
             vaultOwnerToken,
             vaultKey,
           });
@@ -1539,8 +1530,6 @@ export function DebateStreamView({
     portfolioContextOverride,
     portfolioSource,
     pickSource,
-    pickSourceKind,
-    pickSourceLabel,
     reloadNonce,
     resetState,
     riskProfileProp,

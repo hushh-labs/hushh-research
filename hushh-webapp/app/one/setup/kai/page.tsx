@@ -240,6 +240,14 @@ function KaiOnboardingPageContent({
         setSource("vault");
 
         if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+          const pending = await PreVaultOnboardingService.load(user.uid);
+          if (cancelled) return;
+          if (pending || isStaticFinanceSetupRoute) {
+            setSource("pre_vault");
+            setPreVaultState(pending);
+            setStage("wizard");
+            return;
+          }
           setStage("vault_required");
           setVaultOpen(true);
           return;
@@ -583,6 +591,7 @@ function KaiOnboardingPageContent({
           onOpenChange={setVaultOpen}
           title="Open your private vault"
           description="Continue Finance setup after your private vault is ready."
+          allowVaultCreation={false}
           onSuccess={() => setVaultOpen(false)}
         />
       </SetupKaiStageRegion>

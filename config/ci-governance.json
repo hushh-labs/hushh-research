@@ -6,9 +6,8 @@
       "integration/pr-train",
       "maintainer/promote-damria-one-location-to-main",
       "maintainer/promote-damria-one-location-consent",
-      "maintainer/promote-gautam-recaptcha-fix",
-      "maintainer/promote-governance-gautam-maintainer",
-      "maintainer/promote-uat-summary-hardening"
+      "maintainer/promote-uat-summary-hardening",
+      "maintainer/promote-android-playstore-pipeline"
     ]
   },
   "repository": {
@@ -27,7 +26,10 @@
       "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
-      "ahujagautam024"
+      "parthmawai",
+      "abdulbeast4-creator",
+      "smirthi-dharma",
+      "anoushkauoc"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
@@ -41,7 +43,10 @@
       "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
-      "ahujagautam024"
+      "parthmawai",
+      "abdulbeast4-creator",
+      "smirthi-dharma",
+      "anoushkauoc"
     ],
     "protected_pipeline_edit_users": [
       "kushaltrivedi5",
@@ -50,7 +55,7 @@
       "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
-      "ahujagautam024"
+      "parthmawai"
     ],
     "protected_pipeline_paths": [
       ".github/workflows/",
@@ -73,7 +78,10 @@
       "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
-      "ahujagautam024"
+      "parthmawai",
+      "abdulbeast4-creator",
+      "smirthi-dharma",
+      "anoushkauoc"
     ],
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
@@ -87,7 +95,10 @@
       "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
-      "ahujagautam024"
+      "parthmawai",
+      "abdulbeast4-creator",
+      "smirthi-dharma",
+      "anoushkauoc"
     ]
   },
   "dev": {
@@ -98,12 +109,11 @@
       "ankitkumarsingh1702",
       "azfx",
       "Jhumma-hushh",
-      "DamriaNeelesh",
-      "ahujagautam024"
+      "DamriaNeelesh"
     ]
   },
   "uat": {
-    "auto_deploy_workflow": "Main Post-Merge Smoke",
+    "post_merge_workflow": "Main Post-Merge Smoke",
     "required_post_merge_check": "Main Post-Merge Smoke Gate",
     "environment": "uat",
     "required_environment_variables": [
@@ -117,7 +127,10 @@
       "azfx",
       "Jhumma-hushh",
       "DamriaNeelesh",
-      "ahujagautam024"
+      "parthmawai",
+      "abdulbeast4-creator",
+      "smirthi-dharma",
+      "anoushkauoc"
     ]
   },
   "production": {
@@ -128,7 +141,9 @@
     ],
     "manual_dispatch_users": [
       "kushaltrivedi5",
-      "ankitkumarsingh1702"
+      "ankitkumarsingh1702",
+      "RGlodAkshat",
+      "DamriaNeelesh"
     ],
     "owner_environment": "production"
   }

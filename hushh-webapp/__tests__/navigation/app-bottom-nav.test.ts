@@ -68,7 +68,9 @@ describe("app bottom navigation", () => {
     expect(resolveOneActiveNav(ROUTES.GMAIL)).toBe("gmail");
     expect(resolveOneActiveNav(ROUTES.ONE_KYC)).toBe("email");
     expect(resolveOneActiveNav(ROUTES.ONE_LOCATION)).toBe("location");
-    expect(resolveOneActiveNav(`${ROUTES.CONSENTS}?tab=active`)).toBe("guardian");
+    expect(resolveOneActiveNav(`${ROUTES.CONSENTS}?tab=active`)).toBe(
+      "guardian",
+    );
     expect(resolveOneActiveNav(ROUTES.PKM)).toBe("pkm");
     expect(resolveOneActiveNav(ROUTES.ONE_MARKETPLACE)).toBe("marketplace");
     expect(resolveOneActiveNav(ROUTES.CONNECTED_SYSTEMS)).toBe("connected");
@@ -151,7 +153,8 @@ describe("app bottom navigation", () => {
     expect(resolveInvestorNavSlot(ROUTES.KAI_HOME)).toBe("finance");
 
     expect(resolveRiaActiveNav(ROUTES.RIA_HOME)).toBe("ria-home");
-    expect(resolveRiaNavSlot(ROUTES.RIA_HOME)).toBe("clients");
+    expect(resolveRiaNavSlot(ROUTES.RIA_HOME)).toBe("ria-home");
+    expect(resolveRiaNavSlot(ROUTES.RIA_PROFILE)).toBe("ria-home");
   });
 
   it("selects the active workspace destination", () => {
@@ -169,7 +172,7 @@ describe("app bottom navigation", () => {
     expect(resolveBottomNavContextKey(ROUTES.KAI_HOME, "investor")).toBe(
       "finance",
     );
-    expect(resolveBottomNavContextKey(ROUTES.RIA_HOME, "ria")).toBe("clients");
+    expect(resolveBottomNavContextKey(ROUTES.RIA_HOME, "ria")).toBe("ria-home");
     expect(resolveBottomNavActiveKey(ROUTES.ONE_FEED, "one")).toBe("feed");
   });
 });

@@ -29,7 +29,7 @@ flowchart TB
   end
 
   subgraph gcp["GCP Secret Manager"]
-    besec["Backend secrets<br/>unconditional set plus optional add-ons<br/>appended by append_optional_secret"]
+    besec["Backend secrets<br/>unconditional set plus optional add-ons<br/>appended by add_secret"]
     fesec["Frontend secrets<br/>build-time args plus Cloud Run runtime secrets"]
   end
 
@@ -93,6 +93,22 @@ flowchart TB
 This is the supported contributor entrypoint. It installs dependencies, hydrates local runtime-profile files from templates plus current cloud secrets/runtime metadata when available, and runs the profile doctor.
 It does not print secret values and sets profile files to `chmod 600`.
 For backend Gmail and voice, bootstrap hydrates `consent-protocol/.env` using the same key names as hosted runtime. Missing Gmail/voice cloud values are warnings by default and only become failures with `--strict`.
+
+### Local agent credential resilience
+
+Local profile hydration is read-only and uses this ordered credential policy:
+
+1. refreshable `gcloud` user credentials;
+2. refreshable Application Default Credentials (ADC) when the interactive `gcloud` session has expired;
+3. existing local profile values only when neither source can refresh.
+
+Bootstrap never prints a credential or secret. It fails closed for an invalid local
+`APP_SIGNING_KEY` or `VAULT_DATA_KEY` instead of reporting a stale cache as ready.
+This improves agent-session resilience but does not bypass a Google Workspace
+session policy: if ADC itself expires, reauthenticate with
+`gcloud auth application-default login`. Use `gcloud auth login` only when you
+also need interactive CLI operations. Do not create service-account key files for
+local agent operation; GitHub deployment remains on its separate OIDC/WIF path.
 
 6. Activate the chosen runtime profile:
 
@@ -299,6 +315,8 @@ Used by:
 | `BACKEND_URL` | Server-side api routes | Hosted runtime required | Canonical runtime backend origin for Next.js route handlers |
 | `SESSION_SECRET` | `lib/auth/session.ts` | If session API | Server-only |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | `lib/firebase/admin.ts` | Server-side Firebase | Server-only |
+| `MAIL_API_ENDPOINT` | `lib/runtime/settings.ts` → `lib/mail/mail-client.ts` | For lifecycle mail | `hushh-mail-api` origin. Plain env var, set from `_MAIL_API_ENDPOINT` in `deploy/frontend.cloudbuild.yaml` |
+| `MAIL_API_KEY` | `lib/runtime/settings.ts` → `lib/mail/mail-client.ts` | For lifecycle mail | Server-only. Bound from Secret Manager only when the secret exists; absent means welcome/sign-in/phone-conflict mail stays off and sign-in is unaffected |
 
 ---
 
@@ -429,6 +447,8 @@ These are used by MCP modules (`mcp_modules/`) for MCP server functionality, not
 | `BACKEND_URL` | Server-side | Hosted runtime required | Cloud Run runtime env or local profile value; do not leave unset in hosted environments | |
 | `SESSION_SECRET` | If using session API | Yes | Server env only | Not in client |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | Server-side Firebase | Yes | Server env only | |
+| `MAIL_API_ENDPOINT` | For lifecycle mail | No | Cloud Run runtime env from `_MAIL_API_ENDPOINT` | Public `hushh-mail-api` URL |
+| `MAIL_API_KEY` | For lifecycle mail | Yes | Secret Manager `MAIL_API_KEY`, bound only when present | Never `NEXT_PUBLIC_`; a browser-reachable key would be an open relay under the Hussh Workspace SPF/DKIM identity |
 | `NEXT_PUBLIC_CONSENT_TIMEOUT_SECONDS` | No | No | Optional; sync with backend | |
 
 **CI:** Frontend build uses dummy Firebase vars and `NEXT_PUBLIC_BACKEND_URL=https://api.example.com`; no `.env.local` required.

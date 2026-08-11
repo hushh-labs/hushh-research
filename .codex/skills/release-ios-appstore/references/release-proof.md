@@ -50,11 +50,11 @@ the Apple ID password — those are the user's to perform.
 
 ## Secrets boundary (hard)
 
-The ASC API key (`.p8`, **Admin** role) + Key ID + Issuer ID, and the native
+The ASC API key (`.p8`, **Admin** role) + Key ID + Issuer ID, the Apple Distribution Certificate `.p12` (`APPSTORE_DISTRIBUTION_CERT_P12_B64`), and the native
 `GoogleService-Info.plist`, live only in **GCP Secret Manager** (`hushh-pda-uat`), added by the
 user. The workflow authenticates with the `GCP_SA_KEY_UAT` GitHub secret (same as TestFlight) and
 fails fast with a runbook pointer if any of `APPSTORE_CONNECT_API_KEY_P8_B64` / `_KEY_ID` /
-`_ISSUER_ID` / `IOS_GOOGLESERVICE_INFO_PLIST_B64` is missing. Never print, paste,
+`_ISSUER_ID` / `APPSTORE_DISTRIBUTION_CERT_P12_B64` / `IOS_GOOGLESERVICE_INFO_PLIST_B64` is missing. Never print, paste,
 `gcloud secrets versions access`, or ask the user to paste these into chat. If one is missing,
 point to the runbook — do not work around it.
 
@@ -111,9 +111,10 @@ queued or processing work "done".
 
 - TestFlight distribution (same UAT-backed binary, no review): the `ship-ios-testflight` skill.
 - iOS native/Capacitor/entitlement/plist issues: `mobile-native`.
-- UAT/prod Cloud Run + web deploy scope: `uat-scoped-deploy`.
+- UAT Cloud Run + web deploy scope: `uat-scoped-deploy`; production Cloud Run authority: `repo-operations` and the canonical Admin release SOP.
 - Publish-safety, consent, or secret-boundary findings: `security-audit`.
 - Broad or ambiguous intake: back to `repo-operations`.
 
-The publish-safety blockers that must clear before Gate 2 live in the uncommitted KT audit
-(KT/hushh-one-publish-safety-audit.md) — a working doc, not a repo artifact; confirm with the user.
+The durable Gate 2 checklist is the **Publish-safety blockers** section of
+`docs/guides/mobile/release-ios-appstore.md`. Treat that committed runbook as authority; external
+working notes may add evidence but cannot waive or replace it.

@@ -27,7 +27,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
   const router = useRouter();
   const params = useSearchParams();
   const { user } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultKey, vaultOwnerToken } = useVault();
   const [showUnlock, setShowUnlock] = useState(false);
   const [ready, setReady] = useState(false);
   const coordinator = useSetupCapabilityCoordinator({
@@ -58,7 +58,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
     <CapabilityCinematicIntroGate capabilityId="connected-systems">
       <AppPageShell
         as="main"
-        width="standard"
+        width="reading"
         className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]"
       >
         <AppPageHeaderRegion>
@@ -72,6 +72,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
           <VaultStatusInline className="mb-3 px-1" />
           <ConnectedSystemsPanel
             cacheUserId={user?.uid}
+            vaultKey={vaultKey}
             vaultOwnerToken={vaultOwnerToken}
             onRequestUnlock={() => setShowUnlock(true)}
             mode={systemId ? "detail" : "list"}
@@ -95,6 +96,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
             onOpenChange={setShowUnlock}
             title="Set up your private vault"
             description="Set up or open your private vault to inspect CRM records and approve CRM actions."
+            allowVaultCreation={false}
             onSuccess={() => setShowUnlock(false)}
           />
         ) : null}

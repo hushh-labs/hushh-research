@@ -25,6 +25,12 @@ import type {
 } from "@/lib/voice/voice-ui-state-machine";
 
 export const STRUCTURED_CONTEXT_ARRAY_CAP = 10;
+// A surface's own declared inventory before ranking. Deliberately far above
+// what any surface declares today (Location, the largest, publishes 21), so it
+// bounds a runaway publisher without ever deciding which actions the model is
+// allowed to see. That decision belongs to prioritizeAvailableActionIds and the
+// two caps applied after it.
+export const PUBLISHED_ACTION_IDS_CAP = 64;
 /**
  * available_action_ids carries the screen-ranked list PLUS a reserved global
  * navigation segment, so it gets a wider cap than other context arrays. The
@@ -98,6 +104,10 @@ export type StructuredScreenContext = {
     active_section?: string | null;
     visible_modules: string[];
     selected_entity?: string | null;
+    /** Opt-in, safe-to-speak subject of the screen (e.g. a ticker). */
+    spoken_subject?: string | null;
+    /** Present only while the screen cannot proceed without leaving it. */
+    dead_end?: { reason: string; remedy_action_id: string } | null;
     active_tab?: string | null;
     modal_state?: string | null;
     focused_widget?: string | null;
@@ -212,6 +222,8 @@ export type OneVoiceContextSnapshot = {
     playbook_id: string;
     subview?: string | null;
     route_family: string;
+    /** Sorted, allowlisted structural query that selects among same-path screens. */
+    route_query: string;
     nav_stack: string[];
   };
   ui: {
@@ -220,6 +232,10 @@ export type OneVoiceContextSnapshot = {
     active_section?: string | null;
     active_tab?: string | null;
     selected_entity_present: boolean;
+    /** Opt-in and speakable; selected_entity itself stays redacted. */
+    spoken_subject?: string | null;
+    /** Present only while the screen cannot proceed without leaving it. */
+    dead_end?: { reason: string; remedy_action_id: string } | null;
     modal_state?: string | null;
     focused_widget?: string | null;
     interaction_layer?: StructuredVoiceInteractionLayer | null;
@@ -340,7 +356,10 @@ function readUrlSearchParam(name: string): string | null {
   return clean || null;
 }
 
-function uniqueStrings(values: unknown[]): string[] {
+function uniqueStrings(
+  values: unknown[],
+  maximumDimensionCap = STRUCTURED_CONTEXT_ARRAY_CAP,
+): string[] {
   const out = new Set<string>();
   values.forEach((value) => {
     if (typeof value !== "string") return;
@@ -348,7 +367,7 @@ function uniqueStrings(values: unknown[]): string[] {
     if (!clean) return;
     out.add(clean);
   });
-  return enforceArrayDimensionCap(Array.from(out)).items;
+  return enforceArrayDimensionCap(Array.from(out), maximumDimensionCap).items;
 }
 
 function readObject(value: unknown): Record<string, unknown> {
@@ -380,6 +399,43 @@ function sanitizeRouteFamily(pathname: string): string {
       return decoded.toLowerCase();
     });
   return segments.length ? `/${segments.join("/")}` : "/";
+}
+
+/**
+ * Query parameters that select WHICH screen a shared path is showing.
+ *
+ * Deliberately an allowlist, not a passthrough: route_family redacts
+ * identifiers, so sending a raw query alongside it would reopen exactly the
+ * leak that redaction closes. Every key here is structural navigation state
+ * declared by the generated contracts (tab/view/focus/source/category);
+ * identifier-bearing params such as clientId are excluded on purpose.
+ */
+const STRUCTURAL_ROUTE_QUERY_KEYS = [
+  "tab",
+  "view",
+  "focus",
+  "source",
+  "category",
+] as const;
+
+/**
+ * Sorted `key=value` pairs for the structural params present in `pathname`.
+ *
+ * Sorted so the value is stable across navigations that differ only in
+ * parameter order; the relay matches on pairs, never on the literal string.
+ */
+function sanitizeRouteQuery(pathname: string): string {
+  const rawQuery = pathname.split("?")[1];
+  if (!rawQuery) return "";
+  const params = new URLSearchParams(rawQuery);
+  const pairs: string[] = [];
+  for (const key of STRUCTURAL_ROUTE_QUERY_KEYS) {
+    const value = params.get(key);
+    if (!value) continue;
+    const clean = value.trim().slice(0, 40);
+    if (clean) pairs.push(`${key}=${clean}`);
+  }
+  return pairs.sort().join("&");
 }
 
 function readStringArray(value: unknown): string[] {
@@ -423,10 +479,25 @@ function prioritizeAvailableActionIds(
           actionId,
         );
       }
-      return 2;
+      return 3;
     }
-    if (screen && action.reachability.screens.includes(screen)) return 0;
-    return 1;
+    if (screen && action.reachability.screens.includes(screen)) {
+      // Among the actions this screen owns, the ones that cannot be reached
+      // any other way come first.
+      //
+      // A route action that loses its slot is still reachable: the relay
+      // admits navigation from any screen whether or not it was submitted
+      // here. A local handler that loses its slot is simply gone, and comes
+      // back from the relay as `action_unavailable` -- which reads as a
+      // broken feature rather than as a full context array.
+      //
+      // Without this, a surface with more actions than the cap drops
+      // whichever happen to be declared last. On Location that was every
+      // action that DOES something, while nineteen ways to open a tab kept
+      // their slots.
+      return action.execution_target.path === "route" ? 1 : 0;
+    }
+    return 2;
   };
   const ranked = deduped
     .map((actionId, index) => ({ actionId, index, rank: rankOf(actionId) }))
@@ -436,13 +507,21 @@ function prioritizeAvailableActionIds(
     ranked.length > STRUCTURED_CONTEXT_ARRAY_CAP &&
     process.env.NODE_ENV !== "production"
   ) {
-    console.debug(
-      "[VOICE_CONTEXT] available_action_ids overflow: keeping",
-      STRUCTURED_CONTEXT_ARRAY_CAP,
-      "of",
-      ranked.length,
-      "for screen",
-      screen,
+    // Loud, and it names what was lost. This was a console.debug, and the
+    // truncation it describes is invisible in the product: a dropped id comes
+    // back from the relay as `action_unavailable`, which reads as "this
+    // feature is broken" rather than "this screen declared more than the
+    // context can carry". Location growing to 19 actions is what found it.
+    //
+    // Route-executing actions survive the cut in practice, because the relay
+    // admits navigation from any screen whether or not it was submitted here.
+    // So the ids that genuinely go missing are the local handlers, which is
+    // what naming them makes obvious.
+    const dropped = ranked.slice(STRUCTURED_CONTEXT_ARRAY_CAP);
+    console.warn(
+      `[VOICE_CONTEXT] ${screen || "unknown screen"} declared ${ranked.length} ` +
+        `action ids but only ${STRUCTURED_CONTEXT_ARRAY_CAP} fit. ` +
+        `Dropped: ${dropped.join(", ")}`,
     );
   }
   // Screen-ranked segment first (original cap), then the reserved global
@@ -636,14 +715,30 @@ export function buildStructuredScreenContext(args: {
   const activeInteractionLayer = publishedSurface?.interactionLayer || null;
   const underlyingActionsAvailable =
     !activeInteractionLayer || !activeInteractionLayer.blocksUnderlyingActions;
-  const publishedActionIds = uniqueStrings([
-    ...(publishedSurface?.controls || [])
-      .map((control) => control.actionId || null)
-      .filter((actionId): actionId is string => Boolean(actionId)),
-    ...(publishedSurface?.actions || [])
-      .map((action) => action.actionId || action.id)
-      .filter((actionId): actionId is string => Boolean(actionId)),
-  ]);
+  // Deduplicated, and bounded only against a runaway surface -- never tightly
+  // enough to decide WHICH actions the model sees. Ranking owns that, and the
+  // real limits (10 for the screen segment, AVAILABLE_ACTION_IDS_CAP overall)
+  // are applied after it.
+  //
+  // This has been wrong twice, the same way. The generic 10-wide cap applied
+  // here first, so ranking written to protect local handlers was handed a list
+  // they had already been cut from -- on Location the model was told the screen
+  // offers ten ways to open a tab and nothing that acts. Re-capping at 18 then
+  // fixed share_selected and select_share_recipient but still lost
+  // `location.resume_updates`, because the surface's 18 controls fill the bound
+  // before its `actions` array is even reached. A pre-cap that can silently
+  // drop a wired handler is the bug, whatever its number.
+  const publishedActionIds = uniqueStrings(
+    [
+      ...(publishedSurface?.controls || [])
+        .map((control) => control.actionId || null)
+        .filter((actionId): actionId is string => Boolean(actionId)),
+      ...(publishedSurface?.actions || [])
+        .map((action) => action.actionId || action.id)
+        .filter((actionId): actionId is string => Boolean(actionId)),
+    ],
+    PUBLISHED_ACTION_IDS_CAP,
+  );
   // A mounted surface with a declared inventory is authoritative for what is
   // executable now. Route contracts are the fallback only for pages that do
   // not publish their own controls. This keeps modal-only actions unavailable
@@ -702,6 +797,20 @@ export function buildStructuredScreenContext(args: {
       active_section: activeSection,
       visible_modules: visibleModules,
       selected_entity: selectedEntity,
+      // Opt-in and safe to say aloud, unlike selected_entity/primary_entity
+      // which several surfaces fill with an investor name or email.
+      spoken_subject: publishedSurface?.spokenSubject || null,
+      // Normalized here rather than trusted as published: a half-filled dead
+      // end (a reason with no remedy, or the reverse) would tell One something
+      // is wrong while giving it nowhere to send the person.
+      dead_end:
+        publishedSurface?.deadEnd?.reason &&
+        publishedSurface?.deadEnd?.remedyActionId
+          ? {
+              reason: publishedSurface.deadEnd.reason,
+              remedy_action_id: publishedSurface.deadEnd.remedyActionId,
+            }
+          : null,
       active_tab: activeTab,
       modal_state:
         publishedSurface?.modalState ||
@@ -800,7 +909,9 @@ export function buildOneVoiceContextSnapshot(args: {
     structured.screen_metadata.available_action_ids,
   );
   const vaultReady = Boolean(
-    structured.vault.unlocked && structured.vault.token_valid,
+    structured.vault.unlocked &&
+      structured.vault.token_available &&
+      structured.vault.token_valid,
   );
   const portfolioReady = Boolean(app?.portfolio.has_portfolio_data);
   const freshness = vaultReady
@@ -808,9 +919,10 @@ export function buildOneVoiceContextSnapshot(args: {
       ? "fresh_or_stale_safe"
       : "missing"
     : "locked";
-  const routeFamily = sanitizeRouteFamily(
-    args.appRuntimeState?.route.pathname || structured.route.pathname,
-  );
+  const routePathname =
+    args.appRuntimeState?.route.pathname || structured.route.pathname;
+  const routeFamily = sanitizeRouteFamily(routePathname);
+  const routeQuery = sanitizeRouteQuery(routePathname);
   const routeLayout = resolveAppRouteLayout(routeFamily);
   const routePlaybook = routeLayout.voicePlaybook;
   const publishedInteractionLayer =
@@ -858,6 +970,12 @@ export function buildOneVoiceContextSnapshot(args: {
   const transitionSeq = args.lastTransition?.transitionSeq ?? 0;
   const routeRevision = stableRevision([
     routeFamily,
+    // The structural query is part of route identity, not decoration: two tabs
+    // on one path are different screens. Including it here is what makes a tab
+    // change -- by a voice action OR by the person tapping the tab themselves --
+    // produce a new revision, which is the signal that republishes context.
+    // Without it, a query-only navigation left the relay on a stale screen.
+    routeQuery,
     structured.route.screen,
     structured.route.subview ?? null,
     navStack,
@@ -868,6 +986,14 @@ export function buildOneVoiceContextSnapshot(args: {
     structured.ui.active_section ?? null,
     structured.ui.active_tab ?? null,
     Boolean(structured.ui.selected_entity),
+    // The value, not its presence: moving from QCOM to AAPL is a different
+    // screen to a person, and presence-only left the revision unchanged so
+    // nothing republished and One kept describing the previous stock.
+    structured.ui.spoken_subject ?? null,
+    // A dead end appearing or clearing changes what One should say next, so it
+    // has to move the revision or the guidance would arrive a screen late.
+    structured.ui.dead_end?.remedy_action_id ?? null,
+    structured.ui.dead_end?.reason ?? null,
     structured.ui.modal_state ?? null,
     structured.ui.focused_widget ?? null,
     availableActionIds,
@@ -922,6 +1048,7 @@ export function buildOneVoiceContextSnapshot(args: {
       playbook_id: routePlaybook.playbookId,
       subview: structured.route.subview ?? null,
       route_family: routeFamily,
+      route_query: routeQuery,
       nav_stack: navStack,
     },
     ui: {
@@ -930,6 +1057,8 @@ export function buildOneVoiceContextSnapshot(args: {
       active_section: structured.ui.active_section ?? null,
       active_tab: structured.ui.active_tab ?? null,
       selected_entity_present: Boolean(structured.ui.selected_entity),
+      spoken_subject: structured.ui.spoken_subject ?? null,
+      dead_end: structured.ui.dead_end ?? null,
       modal_state: structured.ui.modal_state ?? null,
       focused_widget: structured.ui.focused_widget ?? null,
       interaction_layer: activeInteractionLayer,

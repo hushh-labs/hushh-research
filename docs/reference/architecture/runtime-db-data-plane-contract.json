@@ -16,6 +16,8 @@
     "pkm_domain_revisions",
     "pkm_domain_commits",
     "kai_gmail_sync_runs",
+    "google_oauth_attempts",
+    "google_calendar_action_proposals",
     "agent_chat_messages",
     "one_action_directive_ledger",
     "kai_funding_webhook_events",
@@ -29,6 +31,12 @@
       "owner": "backend-runtime-governance",
       "mode": "report_only",
       "job_id": "gmail_retention_report"
+    },
+    {
+      "family_id": "google_integrations_provider_state",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "google_integrations_retention_report"
     },
     {
       "family_id": "kai_brokerage_provider_cache",
@@ -290,14 +298,15 @@
       "glob_tables": [
         "ria_*",
         "advisor_investor_relationships",
+        "connection_scope_proposal*",
         "marketplace_investor_actions",
         "marketplace_public_profiles",
         "relationship_share_*"
       ],
-      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, invite, and share-grant services",
-      "retention_policy": "Retain while relationship/profile or deck lead exists; expire or disconnect relationship-scoped grants.",
+      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, bilateral connection-scope proposal, invite, and share-grant services",
+      "retention_policy": "Retain while relationship/profile or deck lead exists; expire or disconnect relationship-scoped grants and preserve append-only scope-proposal audit metadata.",
       "deletion_behavior": "Delete or disconnect user-scoped relationships and marketplace deck actions on account/persona deletion.",
-      "trust_boundary": "Professional and relationship metadata only; no decrypted investor PKM without consent export.",
+      "trust_boundary": "Professional and relationship metadata only; scope proposals contain opaque handles and capability lifecycle metadata, never decrypted investor PKM or an information export.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_relationship"
     },
@@ -352,6 +361,24 @@
       "expected_row_growth": "high_provider_sync"
     },
     {
+      "id": "google_integrations_provider_state",
+      "owner": "backend-runtime-governance",
+      "data_class": "provider_cache",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "google_provider_connections",
+        "google_service_grants",
+        "google_oauth_attempts",
+        "google_calendar_action_proposals"
+      ],
+      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service",
+      "retention_policy": "OAuth attempts expire after ten minutes. Calendar proposals are deleted after execution or failure and are unusable after ten minutes; the next Calendar mutation purges expired proposals. Provider credentials and grants remain only while the user keeps the service connected.",
+      "deletion_behavior": "Cascade-delete with the actor profile; service disconnect locally disables the relevant grant and removes its short-lived proposals. Account-level Google revocation is separate because it affects sibling services.",
+      "trust_boundary": "AES-GCM encrypted OAuth credential envelopes; no Calendar event cache or PKM projection is written by this v1 service.",
+      "plaintext_posture": "encrypted_tokens_and_short_lived_workflow_metadata",
+      "expected_row_growth": "low_provider_workflow"
+    },
+    {
       "id": "kai_analyze_run_store",
       "owner": "backend-runtime-governance",
       "data_class": "workflow_state",
@@ -373,6 +400,7 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "one_location_access_requests",
+        "one_location_circle_invite_codes",
         "one_location_circle_invites",
         "one_location_envelopes",
         "one_location_events",
@@ -386,12 +414,44 @@
         "one_location_sms_contacts",
         "one_location_share_grants"
       ],
-      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
+      "primary_access_path": "One Location Agent verified-recipient directory, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
       "retention_policy": "Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
-      "deletion_behavior": "Delete rows where the deleting account is owner, nearby attendee, SMS contact, recipient, requester, referrer, referred user, or key owner; revoke active grants and nearby presence before deletion where possible.",
-      "trust_boundary": "Raw device coordinates exist on owner and recipient devices and only transiently in authenticated request memory for an explicit nearby-place verification. UAT nearby presence stores the selected public-place anchor only as AES-256-GCM ciphertext plus a six-hour server-keyed spatial candidate token. Checkout clears anchor material synchronously. Expiry synchronously blocks roster and Connect access; the next feature operation or required hosted hourly retention job scrubs the due envelope and token. Backend also stores recipient public keys, grant metadata, ciphertext envelopes, rotating nearby participant aliases, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata. It must not persist raw device latitude/longitude, exact distance, plaintext venue labels or addresses, map previews, movement trails, or raw public tokens. Nearby rosters require mutual active opt-in, expose no stable user id or peer location, and remain disabled in production.",
+      "deletion_behavior": "Delete rows where the deleting account is owner, nearby attendee, SMS contact, recipient, requester, referrer, referred user, join-code creator, or key owner; revoke active grants, nearby presence, and join codes before deletion where possible.",
+      "trust_boundary": "Raw live-share coordinates remain on owner and recipient devices. UAT nearby presence captures a fresh point at confirmation and stores that point only as short-lived AES-256-GCM ciphertext plus a six-hour server-keyed spatial candidate token; accuracy is request-memory-only. Checkout clears point material synchronously. Expiry synchronously blocks roster and Connect access; the next feature operation or required hosted hourly retention job scrubs the due envelope and token. Backend also stores recipient public keys, grant metadata, ciphertext envelopes, keyed join-code digests, rotating nearby participant aliases, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata. It must not persist nearby point plaintext, exact distance, plaintext venue labels or addresses, map previews, movement trails, raw public tokens, or raw Circle codes. Nearby rosters require mutual active opt-in, expose no stable user id or peer location, and remain disabled in production. Circle code resolution reveals only a safe name, owner label, member count, and expiry.",
       "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
       "expected_row_growth": "medium_per_user_share"
+    },
+    {
+      "id": "one_location_named_circle_relationships",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_circles",
+        "one_location_circle_member_invites",
+        "one_location_circle_memberships"
+      ],
+      "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection.",
+      "retention_policy": "Active memberships persist while the Circle exists. Pending targeted invitations are marked expired opportunistically after their bounded invitation window. Accepted, declined, cancelled, and expired targeted invitations are compacted by the scheduled One Location terminal-work retention endpoint after its bounded retention window, and are deleted immediately with the Circle or either account. Left, removed, and deleted membership state otherwise remains for bounded reconciliation before compaction.",
+      "deletion_behavior": "Delete owned Circles and every invitation or membership referencing the deleting account. Before Circle hard deletion or membership exit, revoke only that Circle's active connection origins, recompute the canonical connection, and explicitly delete the revoked Circle origins; the source-Circle foreign key restricts bypassing this lifecycle. Preserve direct, imported, legacy-invite, or other-Circle origins. Reassign Circle-sourced active location grants to a surviving direct or other-Circle relationship and revoke them only when no eligible relationship remains.",
+      "trust_boundary": "Joining a named Circle creates mutual connection metadata but never creates a trusted_connections edge, SMS selection, location grant, capability token, envelope, coordinate, or map projection. Existing direct connections require a targeted Circle invitation and invitee acceptance before membership. Location and Save My Soul authority remain separate explicit user actions.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_user_relationship"
+    },
+    {
+      "id": "one_wallet_card",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_projection",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_wallet_cards"
+      ],
+      "primary_access_path": "Vault-owner Wallet Profile controls create, edit, pause, resume, rotate, and revoke one card per account; the Apple Wallet pass and the public /c/{token} page resolve that card unauthenticated by SHA-256 hash of the presented share token, through the same projection builder the owner's preview-as-visitor uses",
+      "retention_policy": "Retain one row while the owner keeps a card; a revoked card is retained as a tombstone so an already-printed QR can answer honestly, and is hard-deleted on account deletion or reset.",
+      "deletion_behavior": "Soft revoke by setting status='revoked' and revoked_at, which invalidates the share token immediately; hard-delete on account deletion or reset, before actor_profiles tears down the identity spine.",
+      "trust_boundary": "Stores only the owner-selected allowlisted card payload (name, headline, organisation, coarse location label, summary, skills, contact links), the SHA-256 hash of the share token, and aggregate scan counters. Plaintext share tokens are never stored. No per-scan rows, IP addresses, user agents, geolocation, or referrers are recorded. The card grants no vault, PKM, or marketplace access, and is deliberately not published through pkm_default_available_projections.",
+      "plaintext_posture": "user_published_safe_projection",
+      "expected_row_growth": "low_per_user"
     },
     {
       "id": "information_marketplace_requests",
@@ -446,12 +506,13 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "connection_requests",
-        "connections"
+        "connections",
+        "connection_origins"
       ],
-      "primary_access_path": "Two-way (mutual) connection graph added in migration 085. connection_requests holds the directional handshake (requester→addressee, status pending/accepted/rejected/cancelled); connections holds the accepted mutual edge canonicalized as user_a_id < user_b_id. Written only via ConnectionsService (create/accept/reject/cancel/remove), exposed under /api/one/connections/* and driven by Agent One's add-connection intent. On accept the service also mirrors two directional trusted_connections edges (source='connection') so existing Location/SOS readers keep working unchanged. People are resolved read-only through the One Location verified-recipient directory.",
-      "retention_policy": "Active connections persist as the users' mutual relationship graph; revoked connections and terminal requests (rejected/cancelled) are retained only for bounded operational review before compaction.",
-      "deletion_behavior": "Delete rows where the deleting account is either party (requester/addressee, or user_a/user_b); revoke active connections and their mirrored trusted_connections edges before deletion where possible.",
-      "trust_boundary": "Backend stores only connection metadata (user references, status, source, optional plaintext message on a request, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
+      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, and one or more named Circles. Migration 126 backfills canonical pairs and named_circle origins for every active co-member pair created under migration 125. ConnectionsService owns direct-request lifecycle and mirrored trusted_connections edges for direct accepts. Named Circle join/accept writes only named_circle origins and never mirrors trusted edges. The canonical pair remains active while any origin is active.",
+      "retention_policy": "Active origins keep their canonical connection active. Revoked origins, revoked canonical connections, and terminal requests are retained only for bounded operational review before compaction.",
+      "deletion_behavior": "Delete rows where the deleting account is either party. Membership leave/removal/Circle deletion revokes only the matching named_circle origins and recomputes each canonical pair; direct and other-Circle origins survive. connection_origins cascade when their canonical connection is deleted.",
+      "trust_boundary": "Backend stores only connection and source-provenance metadata (user references, Circle reference, status, source, optional plaintext message on a direct request, timestamps). A connection or Circle origin grants no location access, SMS selection, capability, envelope, coordinate, PKM value, or trusted_connections authorization on its own.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_per_user_connection"
     },
@@ -589,13 +650,15 @@
       "lifecycle_status": "customer0",
       "exact_tables": [
         "connected_system_intents",
-        "connected_system_record_bindings"
+        "connected_system_record_bindings",
+        "connected_system_zk_contexts",
+        "connected_system_intent_approval_challenges"
       ],
-      "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows",
-      "retention_policy": "Pending intents may retain the allowlisted CRM payload required to execute an approved write; terminal rows retain field names, ids, status, and sanitized result summaries only. Record bindings retain active and disconnected external CRM record pointers with workflow metadata so recovery does not erase linkage history.",
+      "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows, including CRM-ZK request contexts and one-time local-owner approval challenges",
+      "retention_policy": "Pending intents may retain the allowlisted CRM payload required to execute an approved write; terminal rows retain field names, ids, status, and sanitized result summaries only. CRM-ZK contexts and approval challenges expire or are consumed and are compacted promptly. Record bindings retain active and disconnected external CRM record pointers with workflow metadata so recovery does not erase linkage history.",
       "deletion_behavior": "Delete user-linked workflow rows on account deletion; compact terminal rows after the operational review window.",
-      "trust_boundary": "External CRM handoff is outside the Hussh zero-knowledge boundary when plaintext is sent to Salesforce. Store only purpose-bound workflow state and scrub terminal payload values.",
-      "plaintext_posture": "pending_allowlisted_payload_then_metadata",
+      "trust_boundary": "External CRM handoff is outside the Hussh zero-knowledge boundary when plaintext is sent to Salesforce. CRM-ZK rows hold purpose-bound signed context, public-key fingerprints, encrypted field envelopes, hashes, and one-time challenge metadata; private owner and recipient keys never persist in this family. Scrub terminal payload values.",
+      "plaintext_posture": "pending_allowlisted_or_encrypted_envelope_then_metadata",
       "expected_row_growth": "low_workflow"
     },
     {
@@ -612,6 +675,21 @@
       "trust_boundary": "Metadata-only audit evidence for external CRM actions. No vault data, raw PKM, full CRM payloads, credentials, or MCP tokens.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_append_only"
+    },
+    {
+      "id": "connected_system_owner_key_metadata",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "connected_system_owner_signing_keys"
+      ],
+      "primary_access_path": "Connected Systems CRM-ZK owner public-key registration, signature verification, rotation, and revocation",
+      "retention_policy": "Retain the active public signing-key metadata while the owner connection is active; retain retired/revoked metadata only for the bounded operational and audit review window.",
+      "deletion_behavior": "Delete user-linked key metadata on account deletion and mark keys revoked before connector disconnection completes.",
+      "trust_boundary": "Public SPKI, algorithm, status, and fingerprint metadata only. The owner private signing key remains device-local and is never stored or reconstructed by the service.",
+      "plaintext_posture": "public_key_metadata_only",
+      "expected_row_growth": "low_per_user"
     },
     {
       "id": "enterprise_crm_registry_audit",
@@ -635,13 +713,15 @@
       "lifecycle_status": "customer0",
       "exact_tables": [
         "enterprise_crm_registry",
-        "crm_operation_endpoints"
+        "crm_operation_endpoints",
+        "crm_zk_recipient_keys",
+        "crm_zk_uat_recipient_keys"
       ],
-      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL + per-operation MCP tool catalog for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)",
-      "retention_policy": "Retain active enterprise CRM integration config and per-operation tool catalog while the integration is provisioned; deactivate via is_active rather than delete to preserve audit lineage.",
+      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL, per-operation MCP tool catalog, and profile-specific CRM encrypted recipient public-key registries for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)",
+      "retention_policy": "Retain active enterprise CRM integration config, per-operation tool catalog, and recipient public-key records while the integration is provisioned; retire or revoke keys and deactivate the registry rather than delete active history.",
       "deletion_behavior": "Operator-managed reference config; not user-delete scoped. crm_operation_endpoints cascade-delete with their parent crm_id.",
-      "trust_boundary": "Client credentials stored only as AES-256-GCM envelopes (matches vault/encrypt.py EncryptedPayload), decrypted at request time with VAULT_DATA_KEY; gateway/base/token URLs are non-secret config in plaintext. No raw long-lived secrets at rest.",
-      "plaintext_posture": "config_urls_plaintext_credentials_encrypted",
+      "trust_boundary": "Client credentials stored only as AES-256-GCM envelopes (matches vault/encrypt.py EncryptedPayload), decrypted at request time with VAULT_DATA_KEY; CRM-ZK recipient and response-signing public keys plus fingerprints are non-secret verification material. Gateway/base/token URLs are non-secret config in plaintext. No raw long-lived secrets at rest.",
+      "plaintext_posture": "config_urls_and_public_keys_plaintext_credentials_encrypted",
       "expected_row_growth": "low_reference"
     },
     {

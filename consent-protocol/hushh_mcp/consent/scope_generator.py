@@ -14,6 +14,7 @@ import logging
 from typing import Optional
 
 from db.db_client import get_db
+from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
 from hushh_mcp.constants import ConsentScope
 
 logger = logging.getLogger(__name__)
@@ -159,6 +160,11 @@ class DynamicScopeGenerator:
         """
         domain = domain.lower().strip()
         return f"{self.SCOPE_PREFIX}{domain}{self.WILDCARD_SUFFIX}"
+
+    @classmethod
+    def _is_exportable_scope(cls, *, domain: str, path: str | None = None) -> bool:
+        suffix = f".{path}" if path else ""
+        return not is_private_pkm_export_scope(f"{cls.SCOPE_PREFIX}{domain}{suffix}.*")
 
     def parse_scope(self, scope: str) -> tuple[Optional[str], Optional[str], bool]:
         """
@@ -457,6 +463,10 @@ class DynamicScopeGenerator:
             scope = str(entry.get("scope") or "").strip()
             if not scope:
                 return
+            # Manifest/index rows are policy input, not authority. A stale or
+            # forged row cannot revive a domain that is private by contract.
+            if is_private_pkm_export_scope(scope):
+                return
             # Every entry produced by this generator is a manifest-derived
             # dynamic scope.  Keep the canonical scope and the existing
             # discovery provenance byte-for-byte stable; this additive marker
@@ -562,6 +572,8 @@ class DynamicScopeGenerator:
                 or None,
             )
             top_level_path = self._normalize_scope_path(visibility.get("top_level_scope_path"))
+            if domain and not self._is_exportable_scope(domain=domain, path=top_level_path or None):
+                continue
             if domain and top_level_path:
                 materialization = materialization_by_top_level.get((domain, top_level_path), {})
                 registry_state = (
@@ -618,6 +630,8 @@ class DynamicScopeGenerator:
 
         for domain in sorted(known_domains):
             domain_internal = self._is_internal_only_domain(domain)
+            if not self._is_exportable_scope(domain=domain):
+                continue
             domain_top_levels = all_consumer_top_levels_by_domain.get(domain, set())
             enabled_top_levels = enabled_consumer_top_levels_by_domain.get(domain, set())
             if (
@@ -686,6 +700,8 @@ class DynamicScopeGenerator:
                 for path in (row.get("top_level_scope_paths") or [])
             ]
             for path in [path for path in top_level_paths if path]:
+                if not self._is_exportable_scope(domain=domain, path=path):
+                    continue
                 registry_meta = registry_by_top_level.get((domain, path), {})
                 materialization = materialization_by_top_level.get((domain, path), {})
                 if materialization.get("materialization_state") == "empty":
@@ -728,6 +744,8 @@ class DynamicScopeGenerator:
             for raw_path in row.get("externalizable_paths") or []:
                 path = self._normalize_scope_path(raw_path)
                 if not path:
+                    continue
+                if not self._is_exportable_scope(domain=domain, path=path):
                     continue
                 manifest_externalizable_paths.add((domain, path))
                 top_level = path.split(".", 1)[0]
@@ -779,6 +797,8 @@ class DynamicScopeGenerator:
             domain = self._normalize_domain_key(row.get("domain"))
             path = self._normalize_scope_path(row.get("json_path"))
             if not domain or not path:
+                continue
+            if not self._is_exportable_scope(domain=domain, path=path):
                 continue
             domain_internal = self._is_internal_only_domain(domain)
             top_level = path.split(".", 1)[0]
@@ -943,6 +963,8 @@ class DynamicScopeGenerator:
             return False
         domain = self._normalize_domain_key(domain)
         if not domain:
+            return False
+        if is_private_pkm_export_scope(scope):
             return False
 
         # If no user_id, just validate format
@@ -1111,7 +1133,10 @@ class DynamicScopeGenerator:
         Returns:
             Dict with display_name, domain, attribute, is_wildcard, icon_name, color_hex, description
         """
-        from hushh_mcp.services.domain_contracts import get_canonical_domain_metadata
+        from hushh_mcp.services.domain_contracts import (
+            get_canonical_domain_metadata,
+            get_canonical_subintent_metadata,
+        )
 
         domain, attribute_key, is_wildcard = self.parse_scope(scope)
 
@@ -1133,13 +1158,36 @@ class DynamicScopeGenerator:
         domain_display = metadata.display_name if metadata else domain.title()
         domain_description = metadata.description if metadata else None
 
-        if is_wildcard:
+        if attribute_key:
+            # A branch scope such as ``attr.financial.profile.*``. It grants one
+            # branch of a domain, NOT the whole domain, so its label must stay
+            # distinct from both the domain-wide wildcard and its sibling
+            # branches. Prefer the branch's authored subintent metadata (name,
+            # description, icon, colour); fall back to a composed label for
+            # domains that register no subintents (health, lifestyle, ...).
+            #
+            # Historically ``is_wildcard`` was checked first, so every
+            # branch-level wildcard collapsed to "All {domain} Data" — five
+            # financial and three health scopes rendered as two identical rows
+            # in the Connect scope picker. Checking ``attribute_key`` first keeps
+            # each branch legible.
+            subintent = get_canonical_subintent_metadata(f"{domain}.{attribute_key}")
+            if subintent:
+                display_name = subintent.display_name
+                description = subintent.description
+                icon_name = subintent.icon_name
+                color_hex = subintent.color_hex
+            else:
+                attr_display = attribute_key.replace("_", " ").title()
+                display_name = f"{domain_display} — {attr_display}"
+                if is_wildcard:
+                    description = f"All {attr_display.lower()} data within {domain_display}"
+                else:
+                    description = f"{attr_display} within {domain_display}"
+        elif is_wildcard:
+            # True domain-level wildcard (``attr.<domain>.*``): the whole domain.
             display_name = f"All {domain_display} Data"
             description = domain_description
-        elif attribute_key:
-            attr_display = attribute_key.replace("_", " ").title()
-            display_name = f"{domain_display} — {attr_display}"
-            description = f"{attr_display} within {domain_display}"
         else:
             display_name = domain_display
             description = domain_description

@@ -58,6 +58,27 @@ export interface AnalysisHistoryEntry {
 
 export type AnalysisHistoryMap = Record<string, AnalysisHistoryEntry[]>;
 
+/**
+ * Stable, URL-safe identity for a stored analysis. Runs use their persisted
+ * run id; older records retain a deterministic ticker-and-timestamp fallback.
+ */
+export function getAnalysisHistoryEntryRouteId(entry: AnalysisHistoryEntry): string {
+  const runId = extractRunId(entry);
+  if (runId) return `run:${runId}`;
+  return `saved:${entry.ticker.toUpperCase()}:${entry.timestamp}`;
+}
+
+export function findAnalysisHistoryEntryByRouteId(
+  historyMap: AnalysisHistoryMap,
+  routeId: string,
+): AnalysisHistoryEntry | null {
+  const wanted = String(routeId || "").trim();
+  if (!wanted) return null;
+  return Object.values(historyMap)
+    .flat()
+    .find((entry) => getAnalysisHistoryEntryRouteId(entry) === wanted) ?? null;
+}
+
 function sanitizeTicker(value: unknown): string {
   const ticker = String(value ?? "")
     .trim()
@@ -237,10 +258,6 @@ function buildDecisionProjection(historyMap: AnalysisHistoryMap): Array<Record<s
     created_at: entry.timestamp,
     metadata: {
       consensus_reached: entry.consensus_reached,
-      final_statement: entry.final_statement,
-      agent_votes: entry.agent_votes,
-      stream_id: extractStreamId(entry),
-      debate_run_id: extractRunId(entry),
       source: "analysis_history",
     },
   }));

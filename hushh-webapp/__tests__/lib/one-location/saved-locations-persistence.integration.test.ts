@@ -169,4 +169,36 @@ describe("saved-place onboarding to Settings persistence", () => {
       segmentIds: undefined,
     });
   });
+
+  it("keeps one encrypted record when another category targets the same place", async () => {
+    await addSavedLocation({
+      context: CONTEXT,
+      input: {
+        category: "home",
+        latitude: 12.9763,
+        longitude: 77.5929,
+        address: "Kasturba Road, Bengaluru",
+      },
+    });
+
+    await expect(
+      addSavedLocation({
+        context: CONTEXT,
+        input: {
+          category: "work",
+          latitude: 12.9764,
+          longitude: 77.593,
+          address: "Kasturba Road, Bengaluru",
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "duplicate_saved_location",
+      existingCategory: "home",
+    });
+
+    CacheService.getInstance().clear();
+    expect(await loadSavedLocations(CONTEXT)).toEqual([
+      expect.objectContaining({ category: "home" }),
+    ]);
+  });
 });

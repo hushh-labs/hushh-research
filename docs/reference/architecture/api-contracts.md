@@ -158,7 +158,14 @@ flowchart TB
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
-| POST | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before a user confirms encrypted BYOK storage; distinguishes invalid credentials, exhausted quota/rate limits, billing blocks, unsupported model access, and temporary provider failure without logging or storing the key |
+| POST | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before encrypted BYOK storage; validates Google AI Studio or explicit Vertex project/location access and distinguishes invalid credentials, IAM, API-enablement, quota/rate-limit, billing, model, and temporary failures without logging or storing the credential |
+
+`POST /db/vault/bootstrap-state` and `POST /db/vault/pre-vault-state` also
+carry the strict non-secret `oneRuntimeSetupChoice` setup enum. It is limited to
+managed Gemini or `byok_pending_vault`; a Gemini key is never accepted by this
+pre-vault contract. A selected setup credential is process-memory-only: it may
+be request-validated before the vault but is encrypted through the existing
+vault-owner PKM mutation path only at Finish setup.
 
 ### One Email KYC
 
@@ -218,6 +225,27 @@ one eligible request actually creates or advances work.
 | POST | `/api/one/kyc/workflows/{workflow_id}/redraft` | VAULT_OWNER Bearer | Record typed or voice-originated redraft instruction metadata; draft revision is client-local |
 | POST | `/api/one/kyc/retention/purge` | `X-Hushh-Maintenance-Token` | Redact terminal workflow drafts after the retention window |
 
+### One Google Calendar
+
+Calendar is a live Google provider integration. Connection lifecycle uses
+Firebase identity; event reads and all action proposals require `VAULT_OWNER`.
+Create, reschedule, and cancel are always two-step: a short-lived proposal is
+reviewed by the client and then executed once. Plans are deleted after execution
+or failure and become unusable after ten minutes; a subsequent Calendar mutation
+purges expired plans. Event data is not persisted as PKM or a Calendar cache in
+this first release.
+
+| Method | Path | Authorization | Description |
+| --- | --- | --- | --- |
+| POST | `/api/one/calendar/connect/start` | Firebase Bearer | Start incremental Google Calendar read or manage authorization; returns only an OAuth authorization URL and expiry. |
+| POST | `/api/one/calendar/connect/complete` | Firebase Bearer | Redeem a one-time, PKCE-bound OAuth callback and persist the encrypted provider credential and Calendar grant. |
+| GET | `/api/one/calendar/status/{user_id}` | Firebase Bearer | Return non-sensitive Calendar connection and permission state. |
+| POST | `/api/one/calendar/disconnect` | Firebase Bearer | Disable Calendar locally and delete pending actions without revoking sibling Google services. |
+| POST | `/api/one/calendar/events` | VAULT_OWNER Bearer | Read bounded primary-calendar events in a supplied ISO-8601 time range. |
+| POST | `/api/one/calendar/availability` | VAULT_OWNER Bearer | Read free/busy blocks for up to twenty requested calendars. |
+| POST | `/api/one/calendar/proposals` | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google. |
+| POST | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed. |
+
 ### One Location Agent
 
 One Location Agent is One-owned live-location sharing for trusted people. The
@@ -246,17 +274,17 @@ not the product owner for live location.
 
 | Method | Path | Auth | Description |
 | ------ | ---- | ---- | ----------- |
-| GET | `/api/one/location/state` | VAULT_OWNER Bearer | List verified recipient directory, owner grants, received grants, pending requests, and referrals for the authenticated user |
-| POST | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Idempotently add an active, location-ready connection to the authenticated owner's Save My Soul contacts |
+| GET | `/api/one/location/state` | VAULT_OWNER Bearer | List eligible recipients, named Circle summaries, incoming targeted Circle invitations, owner grants, received grants, pending requests, and referrals for the authenticated user |
+| POST | `/api/one/location/sms-contacts` | VAULT_OWNER Bearer | Idempotently add an active, location-ready connection or named-Circle co-member to the authenticated owner's Save My Soul contacts; Circle eligibility and selection are committed under the same membership locks |
 | DELETE | `/api/one/location/sms-contacts/{recipient_user_id}` | VAULT_OWNER Bearer | Idempotently remove one owner-scoped Save My Soul contact without changing the underlying connection |
-| GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | List phone-verified users excluding self, with masked labels and active public key metadata only |
+| GET | `/api/one/location/recipients` | VAULT_OWNER Bearer | List active connections and active named-Circle co-members excluding self, with masked labels and public-key readiness only |
 | POST | `/api/one/location/recipient-keys` | VAULT_OWNER Bearer | Register/rotate the authenticated user's recipient public key under the recipient-key transaction lock; private key remains device-local, a key id cannot be rebound to different material, and active grants bound to replaced keys are revoked atomically |
 | POST | `/api/one/location/maps/autocomplete` | VAULT_OWNER Bearer | Search provider places for explicit owner-entered fallback text, optionally biased to the current request-only point; results are not persisted |
-| POST | `/api/one/location/maps/nearby-places` | VAULT_OWNER Bearer | Return at most eight provider places inside the fixed 500 m check-in area, ranked from a one-shot request point; the point and results are not persisted |
+| POST | `/api/one/location/maps/nearby-places` | VAULT_OWNER Bearer | Return at most 20 operational, de-duplicated Google places inside the fixed 500 m check-in area, with structured name/address/category metadata and server-verified distance ordering. Provider coordinates are used only for server-side radius validation and are not returned. Optional category filters query the same boundary without fan-out; the one-shot point and results are not persisted |
 | POST | `/api/one/location/maps/place-details` | VAULT_OWNER Bearer | Resolve one selected provider place in request memory; place details are not persisted by the Maps route |
 | POST | `/api/one/location/maps/reverse-geocode` | VAULT_OWNER Bearer | Transiently resolve captured coordinates to display copy and an ISO alpha-2 `countryCode`; the service does not persist coordinates or reverse-geocoded output |
-| POST | `/api/one/location/nearby-presence/check-in` | VAULT_OWNER Bearer | Non-production simulation only: verify one fresh foreground point against the owner-selected public place, persist that place anchor only as short-lived authenticated ciphertext plus an opaque candidate token, and publish presence for 30, 60, or 120 minutes; fixed radius 500 m, Connect requests default off |
-| GET | `/api/one/location/nearby-presence` | VAULT_OWNER Bearer | Non-production simulation only: return the caller's active posture and one stable maximum-20 projection of mutually active check-ins whose different selected-place anchors are within 500 m; never returns peer coordinates, place, distance, contact details, or stable user ids; response is `private, no-store` |
+| POST | `/api/one/location/nearby-presence/check-in` | VAULT_OWNER Bearer | Non-production simulation only: capture one fresh foreground point, verify the owner is plausibly at the selected public place (within 500 m, widened by reported accuracy up to a 2 km cap), then persist only that **place's** coordinates as short-lived authenticated ciphertext plus an opaque candidate token, and publish presence for 30, 60, or 120 minutes; the captured point and its accuracy are never persisted; fixed radius 500 m, Connect requests default off |
+| GET | `/api/one/location/nearby-presence` | VAULT_OWNER Bearer | Non-production simulation only: return the caller's active posture and one stable maximum-20 projection of mutually active check-ins whose independently selected places are at most 500 m apart; never returns peer coordinates, place, distance, contact details, or stable user ids; response is `private, no-store` |
 | DELETE | `/api/one/location/nearby-presence` | VAULT_OWNER Bearer | Idempotently check the caller out, clear encrypted anchor/index material immediately, and remove them from discovery; available even when discovery is disabled |
 | POST | `/api/one/location/nearby-presence/connection-request` | VAULT_OWNER Bearer | Non-production simulation only: resolve a rotating alias supplied in the JSON body, revalidate both active presence versions and exact radius, then create only the canonical pending Connect request if the target still opts in |
 | POST | `/api/one/location/public-invites` | VAULT_OWNER Bearer | Create a duration-bounded public request link; the raw token is returned once and only its hash is stored |
@@ -267,16 +295,33 @@ not the product owner for live location.
 | GET | `/api/one/location/circle-invites/{public_token}` | Public | Resolve safe owner label, status, duration, expiry, and optional owner message for an Invite to One link |
 | POST | `/api/one/location/circle-invites/{public_token}/claim` | VAULT_OWNER Bearer | Claim an Invite to One link after sign-in, phone verification, and vault unlock; creates a one-way trusted edge in `trusted_connections` (claimer→inviter) so SOS and check-in have recipients |
 | DELETE | `/api/one/location/circle-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active Invite to One link |
-| POST | `/api/one/location/grants` | VAULT_OWNER Bearer | Create a duration-bounded owner-approved grant for one verified recipient identity/key |
+| GET | `/api/one/location/circles` | VAULT_OWNER Bearer | List the authenticated user's active named Circles and membership role |
+| POST | `/api/one/location/circles` | VAULT_OWNER Bearer | Create a bounded named Circle and its owner membership atomically |
+| GET | `/api/one/location/circles/{circle_id}` | VAULT_OWNER Bearer | Return Circle metadata, viewer capabilities, the safe active-member roster, and the current shared invite code to an active member under `Cache-Control: private, no-store`; recipient public keys support explicit Circle expansion, while no private key, coordinates, grant, or SMS authority is returned |
+| PATCH | `/api/one/location/circles/{circle_id}` | VAULT_OWNER Bearer | Owner-only rename/type update |
+| DELETE | `/api/one/location/circles/{circle_id}` | VAULT_OWNER Bearer | Owner-only soft delete; cancels pending targeted invitations and revokes the active code, Circle connection origins, and Circle-sourced grants while preserving other connection origins |
+| POST | `/api/one/location/circles/{circle_id}/invite-code` | VAULT_OWNER Bearer | Active-member idempotent ensure/read of the shared reusable 72-hour code; `?rotate=true` is authorized only by canonical `circle.owner_user_id`, responses are `private, no-store`, and only a keyed HMAC digest plus derivation metadata is persisted. An unreadable legacy active code returns `LOCATION_CIRCLE_CODE_ROTATION_REQUIRED` until the owner explicitly rotates it |
+| DELETE | `/api/one/location/circles/{circle_id}/invite-code` | VAULT_OWNER Bearer | Owner-only revoke of the active code |
+| GET | `/api/one/location/circles/{circle_id}/eligible-connections` | VAULT_OWNER Bearer | Active-member list of that caller's own active `direct_request` connections who are not active Circle members or covered by a pending invitation. Owner-removed users are offered only to the canonical Circle owner; `remainingCapacity` is bounded by both Circle capacity and the caller's pending-invitation quota |
+| POST | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | Active-member batch create or idempotent reuse of targeted, expiring invitations for the caller's selected direct connections; actor identity comes only from the token. Non-owners may hold at most five pending invitations, terminal invitees have a 12-hour Circle-wide cooldown aligned with terminal-record retention, and only the canonical owner may re-invite an owner-removed user. Creation grants no membership, location, SMS, trusted edge, or capability |
+| GET | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | List the authenticated user's incoming invitations or outgoing invitations authored by that member; Circle owners may also see outgoing invitations for moderation |
+| POST | `/api/one/location/circle-member-invites/{invite_id}/accept` | VAULT_OWNER Bearer | Invitee-only acceptance after Circle-first locking and revalidation that the actual inviter remains an active Circle member and their direct connection remains active; only an owner-authored invitation may restore an owner-removed membership. Acceptance atomically joins and creates source-aware connection origins without location/SMS/trusted authorization |
+| POST | `/api/one/location/circle-member-invites/{invite_id}/decline` | VAULT_OWNER Bearer | Invitee-only decline of a pending targeted Circle invitation |
+| DELETE | `/api/one/location/circle-member-invites/{invite_id}` | VAULT_OWNER Bearer | Circle owner/inviter cancellation of a pending targeted Circle invitation |
+| POST | `/api/one/location/circle-codes/resolve` | VAULT_OWNER Bearer | Resolve safe Circle preview metadata for a bounded human-entered code |
+| POST | `/api/one/location/circle-codes/join` | VAULT_OWNER Bearer | Treat the signed-in user's confirmed Join action as membership consent; atomically joins and creates source-aware canonical connection origins with active members, but no trusted edge, SMS selection, location grant, envelope, or capability token |
+| DELETE | `/api/one/location/circles/{circle_id}/members/me` | VAULT_OWNER Bearer | Leave a member role, revoke the shared bearer code and that member's pending authored invitations, revoke matching Circle origins/grants, and preserve direct and other-Circle origins |
+| DELETE | `/api/one/location/circles/{circle_id}/members/{member_user_id}` | VAULT_OWNER Bearer | Owner-only member removal with the same shared-code, authored-invitation, source-aware connection, grant, and SMS cleanup |
+| POST | `/api/one/location/grants` | VAULT_OWNER Bearer | Create a duration-bounded owner-approved grant for one eligible recipient identity/key; Circle eligibility, grant replacement, and its audit event commit atomically, and Circle-only eligibility always persists exact `sourceCircleId` provenance |
 | POST | `/api/one/location/grants/with-envelope` | VAULT_OWNER Bearer | Idempotently create/replace one owner-approved grant and persist its first recipient-encrypted envelope in one locked database transaction; serializes against recipient-key rotation, requires the reviewed-point confirmation timestamp, stores only the fixed `check_in` reason code for Check-In shares, and emits the metadata-only share notification only after durable success |
-| POST | `/api/one/location/grants/{grant_id}/envelopes` | VAULT_OWNER Bearer | Store the owner-device encrypted latest-location envelope; backend receives ciphertext and metadata only |
+| POST | `/api/one/location/grants/{grant_id}/envelopes` | VAULT_OWNER Bearer | Store the owner-device encrypted latest-location envelope; backend receives ciphertext and metadata only. Save My Soul notifies from this route rather than at grant creation, so for that share kind the response also carries `recipientAlerted`: whether the recipient had a device the alert could be delivered to. It is reachability, not FCM's eventual delivery result, and is absent for every other share kind — an absent field means "not reported" and must never be rendered as a delivery failure |
 | GET | `/api/one/location/grants/{grant_id}/envelope` | VAULT_OWNER Bearer | Return ciphertext only to the exact approved recipient while grant is active |
 | DELETE | `/api/one/location/grants/{grant_id}` | VAULT_OWNER Bearer | Revoke an active owner grant immediately |
 | POST | `/api/one/location/requests` | VAULT_OWNER Bearer | Create metadata-only request for owner approval |
 | POST | `/api/one/location/requests/{request_id}/approve` | VAULT_OWNER Bearer | Owner approves request and creates a fresh recipient grant |
 | POST | `/api/one/location/requests/{request_id}/deny` | VAULT_OWNER Bearer | Owner denies pending request |
 | POST | `/api/one/location/grants/{grant_id}/refer` | VAULT_OWNER Bearer | Recipient refers another verified user into a request flow; no access is forwarded |
-| POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Scrub due nearby-presence anchor material, then delete terminal expired/revoked location grants, nearby-presence metadata, ciphertext envelopes, terminal requests, referrals, public request-link submissions, Invite to One links, and related events after the retention window; the hourly hosted scheduler is a release prerequisite |
+| POST | `/api/one/location/retention/purge?older_than_hours=12` | `X-Hushh-Maintenance-Token` backed by dedicated `ONE_LOCATION_RETENTION_TOKEN` | Scrub due nearby-presence anchor material, then delete terminal expired/revoked location grants, nearby-presence metadata, ciphertext envelopes, terminal requests, referrals, public request-link submissions, Invite to One links, expired/revoked named-Circle codes, terminal targeted Circle-member invitations, and related events after the retention window; the hourly hosted scheduler is a release prerequisite |
 
 ### Agent One invocation preview (not official A2A v1)
 
@@ -326,16 +371,26 @@ auth-required response.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/ria/clients` | Advisor-facing relationship summary list, including implicit relationship-share status |
-| GET | `/api/ria/clients/{investor_user_id}` | Advisor-facing relationship detail, including scoped grants and included advisor-picks benefit |
+| GET | `/api/ria/clients` | Advisor-facing list limited to investors with an active explicit RIA capability |
+| GET | `/api/ria/clients/{investor_user_id}` | Advisor-facing relationship detail, including explicit scoped grants |
 | GET | `/api/ria/workspace/{investor_user_id}` | Advisor workspace over investor-consented data plus relationship-share status |
+| GET | `/api/ria/picks` | Read the signed-in advisor's encrypted-PKM-backed Picks bootstrap; legacy uploads are intentionally unavailable |
+| POST | `/api/ria/picks` | Sync an already encrypted `ria.advisor_package` projection to currently authorized explicit Picks share artifacts |
 | GET | `/api/kai/market/insights/{user_id}` | Investor market home payload with rights-gated `pick_sources[]` and RIA feed share metadata |
+| GET | `/api/one/connections/directory` | Paginated, privacy-filtered Connect directory; display-name search only, with masked email/phone labels when available so same-name candidates remain distinguishable without exposing raw identifiers |
+| GET | `/api/one/connections/{counterpart_user_id}/scope-catalog` | Server-authorized metadata and opaque handles available for a bilateral proposal |
+| POST | `/api/one/connections/requests` | Create a connection request with `requested_scope_handles[]` and `offered_scope_handles[]` |
+| POST | `/api/one/connections/requests/{request_id}/cancel` | Requester cancels a pending connection request and its pending proposals |
+| GET | `/api/one/connections/requests/{request_id}/scopes` | Participant-visible scope statuses and immutable proposal history |
+| POST | `/api/one/connections/requests/{request_id}/accept` | Accept with separate selected requested/offered opaque handles |
 
 RIA relationship bundle note:
 
-- investor private data -> RIA stays on explicit scope consent
-- RIA active picks feed -> investor is an implicit relationship share (`ria_active_picks_feed_v1`)
-- advisor picks are gated by both relationship approval and an active relationship-share grant, not by a second consent prompt
+- investor private information -> RIA stays on explicit scope consent
+- RIA active picks feed -> investor is the reserved bilateral capability (`ria_active_picks_feed_v1`)
+- connection acceptance is social only; it grants no information access
+- advisor picks require a current proposal, active relationship-share grant, and active share artifact with matching lineage
+- legacy RIA Picks uploads were product-authorized clean-start retirement; they have no read, migration, fallback, or access route
 
 #### Personal Knowledge Model
 
@@ -391,6 +446,15 @@ Macy's compatibility aliases only and are routed through the same schema
 validation. Create, update, and delete are auditable, idempotently approved
 intents. Only intent approval issues the registered direct MCP mutation.
 
+Two mutually exclusive encrypted profiles are default-off per connector.
+`crm-zk.v1` is the stronger production-candidate contract with authenticated
+metadata and signatures. `crm-zk-uat.v1` is a MuleSoft compatibility profile
+for sandbox conformance only: X25519, direct SHA-256 of the shared secret, and
+AES-256-GCM without AAD. It encrypts `searchFields`, read `returnFields`, and
+update `additionalFields`; it relies on Hussh owner authentication/approval and
+the authenticated gateway transport. It must not be described as independent
+cryptographic authorization, replay-proof, or production-ready.
+
 A successful exact-bound-id read with a valid registered response contract and
 an empty record collection returns `bindingStatus=remote_record_missing`.
 Malformed responses and transport, authorization, timeout, or MCP tool failures
@@ -414,6 +478,10 @@ active binding exists.
 | POST | `/api/connected-systems/{system_id}/records/delete` | Compatibility path that creates a reviewable delete intent; it never deletes immediately |
 | POST | `/api/connected-systems/{system_id}/intents/{intent_id}/approve` | Idempotently approve and execute a pending mutation through its registered MCP tool |
 | POST | `/api/connected-systems/{system_id}/intents/{intent_id}/reject` | Reject a pending intent without calling MCP |
+| GET | `/api/connected-systems/{system_id}/crm-zk-uat/config` | Return the registry-pinned sandbox recipient key for `crm-zk-uat.v1`; never accepts a request-supplied key or connector configuration |
+| POST | `/api/connected-systems/{system_id}/records/search-zk-uat` | Relay encrypted verified-profile `searchFields` only for an already owner-bound sandbox record; Hussh supplies the bound record ID and MuleSoft must reject any lookup result for another record |
+| POST | `/api/connected-systems/{system_id}/records/update-intents-zk-uat` | Create a ciphertext-only pending update intent from `{ objectType, fieldNames, encryptedFields }`; no record ID or field value is browser-controlled plaintext |
+| POST | `/api/connected-systems/{system_id}/intents/{intent_id}/approve-zk-uat` | Execute the already-reviewed opaque update once through Hussh's authenticated, idempotent approval lifecycle; accepts no approval proof body and returns a metadata-only acknowledgement |
 
 Registry activation is not an API. Operators use the local, ignored
 `crm-registry.v1` descriptor with

@@ -62,6 +62,10 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `GMAIL_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Gmail OAuth client secret. Same key name across local, UAT, and production. |
 | `GMAIL_OAUTH_REDIRECT_URI` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Environment-owned Gmail OAuth callback. It must equal `APP_FRONTEND_ORIGIN + /profile/gmail/oauth/return`; the key name is shared but the value is environment-specific. |
 | `GMAIL_OAUTH_TOKEN_KEY` | `hushh_mcp/services/gmail_receipts_service.py` | Yes (Gmail sync) | Encryption key for persisted Gmail OAuth tokens. Same key name across local, UAT, and production. |
+| `GOOGLE_OAUTH_CLIENT_ID` | `hushh_mcp/services/google_connection_service.py` | Preferred for Google integrations | Google OAuth web-client id for Calendar, Drive, Contacts, and future Gmail migration. Falls back to `GMAIL_OAUTH_CLIENT_ID` during the compatibility transition. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | `hushh_mcp/services/google_connection_service.py` | Preferred for Google integrations | Google OAuth web-client secret. Falls back to the Gmail-named secret during the compatibility transition. |
+| `GOOGLE_OAUTH_REDIRECT_URI` | `hushh_mcp/services/google_connection_service.py` | Preferred for Google integrations | Optional explicit override. If unset, Calendar derives `APP_FRONTEND_ORIGIN + /one/profile/google/oauth/return`; register that exact URI in the OAuth client. |
+| `GOOGLE_OAUTH_TOKEN_KEY` | `hushh_mcp/services/google_connection_service.py` | Preferred for Google integrations | AES-GCM key for normalized Google provider credentials and PKCE verifier envelopes. Falls back to `GMAIL_OAUTH_TOKEN_KEY` only while Gmail remains on its legacy table. |
 | `DEFAULT_CONSENT_TOKEN_EXPIRY_MS` | `hushh_mcp/config.py` | No | Token TTL (default: 24h). |
 | `DEFAULT_TRUST_LINK_EXPIRY_MS` | `hushh_mcp/config.py` | No | TrustLink TTL. |
 | `ENVIRONMENT` | `hushh_mcp/config.py` | No | `production` or `development` (default). |
@@ -197,6 +201,24 @@ Professional verification providers:
 - `IAPD_VERIFY_BASE_URL`
 - `IAPD_VERIFY_API_KEY`
 - `IAPD_VERIFY_TIMEOUT_SECONDS`
+
+RIA claim-by-phone (RIA Identity API):
+
+- `RIA_IDENTITY_BASE_URL`
+  - Cloud Run origin of the RIA Identity API (phone → SEC firm + adviser claim targets)
+- `RIA_IDENTITY_API_KEY`
+  - bearer key for `/v1/*`; stays server-side, never shipped to a browser
+- `RIA_IDENTITY_TIMEOUT_SECONDS`
+  - default `30`
+- `RIA_CLAIM_TEST_NUMBERS`
+  - comma-separated demo numbers whose claim OTP is a fixed code (no SMS sent);
+    honored only outside production — the regulated runtime guard refuses boot
+    if set in production
+- `RIA_CLAIM_TEST_CODE`
+  - the fixed passcode for allowlisted claim numbers (UAT demo uses `00000`)
+- `RIA_CLAIM_TEST_CHALLENGE_SECRET`
+  - optional HMAC key for the stateless claim challenge; falls back to
+    `APP_SIGNING_KEY`
 - `BROKER_CAPABILITY_ENABLED`
 - `BROKER_VERIFY_BASE_URL`
 - `BROKER_VERIFY_API_KEY`

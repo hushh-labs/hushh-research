@@ -35,6 +35,7 @@ import {
   warmAgentPkmContext,
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
+import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 
 const METADATA = {
   userId: "user_1",
@@ -139,6 +140,29 @@ describe("agent PKM memory helpers", () => {
         vaultOwnerToken: "vault_token",
       })
     );
+  });
+
+  it("checks duplicates only against an already-unlocked local inventory", async () => {
+    expect(
+      AgentPkmContextStore.findLocalDuplicate({
+        userId: "user_1",
+        candidate: "concise summaries",
+      })
+    ).toBeNull();
+
+    await loadAgentPkmContext({
+      userId: "user_1",
+      vaultKey: "test-vault-key",
+      vaultOwnerToken: "owner-token",
+      message: "preferences",
+    });
+
+    expect(
+      AgentPkmContextStore.findLocalDuplicate({
+        userId: "user_1",
+        candidate: "concise summaries",
+      })
+    ).toMatchObject({ kind: "exact", domain: "preferences" });
   });
 
   it("treats the reported memory-summary wording as a broad PKM request", async () => {

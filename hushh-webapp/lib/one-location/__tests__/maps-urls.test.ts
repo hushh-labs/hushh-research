@@ -47,4 +47,21 @@ describe("googleMapsDirectionsEmbedUrl", () => {
     expect(url).toContain(`saddr=${encodeURIComponent("12.971600,77.594600")}`);
     expect(url).toContain(`daddr=${encodeURIComponent("28.556200,77.100000")}`);
   });
+
+  it("accepts a text address as a destination", () => {
+    const url = googleMapsDirectionsEmbedUrl(
+      { lat: 12.9716, lng: 77.5946 },
+      "4050 E. Cotton Center Blvd., Phoenix, 85040",
+    );
+    expect(url).toContain(`saddr=${encodeURIComponent("12.971600,77.594600")}`);
+    expect(url).toContain(
+      `daddr=${encodeURIComponent("4050 E. Cotton Center Blvd., Phoenix, 85040")}`,
+    );
+  });
+
+  it("accepts a text address for the single-location embed", () => {
+    const url = googleMapsLocationEmbedUrl("Phoenix, 85040");
+    expect(url).toContain("output=embed");
+    expect(url).toContain(`q=${encodeURIComponent("Phoenix, 85040")}`);
+  });
 });

@@ -620,6 +620,28 @@ def test_scope_exposure_route_forwards_payload(monkeypatch):
     }
 
 
+def test_scope_exposure_route_rejects_an_unavailable_bundle_atomically(monkeypatch):
+    class _FakePkmService:
+        async def update_scope_exposure(self, **_kwargs):
+            return {
+                "success": False,
+                "code": "invalid_scope_target",
+                "message": "One or more sharing bundles are unavailable or contain no saved information.",
+            }
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+    response = TestClient(_build_app()).post(
+        "/api/pkm/domains/financial/scope-exposure",
+        json={
+            "user_id": "user_123",
+            "changes": [{"top_level_scope_path": "reserved_empty_scope", "exposure_enabled": True}],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "PKM_SCOPE_NOT_MUTABLE"
+
+
 def test_manifest_route_serializes_datetime_fields(monkeypatch):
     upgraded = datetime(2026, 3, 28, 17, 45, 0, tzinfo=timezone.utc)
     structured = datetime(2026, 3, 28, 17, 46, 0, tzinfo=timezone.utc)

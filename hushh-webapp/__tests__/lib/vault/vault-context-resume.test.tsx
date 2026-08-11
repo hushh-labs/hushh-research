@@ -29,6 +29,7 @@ vi.mock("@capacitor/core", () => ({
     getPlatform: () => (mocks.nativePlatform ? "android" : "web"),
     isNativePlatform: () => mocks.nativePlatform,
   },
+  registerPlugin: vi.fn(() => ({})),
 }));
 
 vi.mock("@/lib/firebase/auth-context", () => ({

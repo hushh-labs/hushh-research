@@ -48,8 +48,14 @@ function loadGoogleMaps(): Promise<void> {
   loadPromise = Promise.all([
     loader.importLibrary("maps"),
     loader.importLibrary("marker"),
+    // "places" powers the reverse-geocode fallback in LocationPickerMap. This
+    // key has the Places API (New) enabled but NOT the classic Geocoding API,
+    // so the picker resolves the pinned address via Places nearest-place lookup
+    // (the same path the backend/Your Map uses) instead of google.maps.Geocoder.
+    loader.importLibrary("places"),
   ]).then(() => undefined);
   return loadPromise;
+
 }
 
 export function useGoogleMaps({ enabled = true }: { enabled?: boolean } = {}): {

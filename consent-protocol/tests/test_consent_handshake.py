@@ -11,6 +11,7 @@ import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -207,10 +208,7 @@ class _FakeConsentDBService:
 
 
 class _NoOpRIAIAMService:
-    """Stub RIA IAM service that accepts all calls."""
-
-    async def sync_relationship_from_consent_action(self, **_kwargs):
-        return
+    """Stub RIA IAM service for consent routes without RIA authority."""
 
     async def get_persona_state(self, user_id):
         return {
@@ -256,10 +254,22 @@ def test_vault_userid_query_params_reject_oversized_values_before_service(monkey
     assert [response.status_code for response in responses] == [422, 422, 422, 422]
 
 
-def test_full_handshake_lifecycle(monkeypatch):
+@pytest.mark.parametrize(
+    "blocked_scope",
+    (
+        "attr.financial.*",
+        "attr.source_library.*",
+        "attr.source_library.knowledge.*",
+        "attr.source_library.catalog.*",
+        "attr.source_library.provenance.*",
+        "attr.source_library.audit.*",
+        "attr.source_library.policy.*",
+    ),
+)
+def test_private_attr_export_is_retired_before_any_grant(monkeypatch, blocked_scope):
     """
-    Simulate the canonical handshake: request -> approve -> revoke.
-    Verify events are recorded at each step.
+    Server-owned PKM policy is rechecked at approval so forged pending requests
+    cannot materialize a grant for a retired or non-shareable scope.
     """
     fake_db = _FakeConsentDBService()
     issued_token = "token_handshake_granted"  # noqa: S105
@@ -290,8 +300,8 @@ def test_full_handshake_lifecycle(monkeypatch):
         {
             "request_id": "req_handshake",
             "agent_id": "ria:profile_abc",
-            "scope": "attr.financial.*",
-            "scope_description": "Financial data",
+            "scope": blocked_scope,
+            "scope_description": "Synthetic policy test scope",
             "issued_at": int(time.time() * 1000),
             "metadata": {
                 "requester_actor_type": "ria",
@@ -307,39 +317,18 @@ def test_full_handshake_lifecycle(monkeypatch):
     assert resp.status_code == 200
     pending = resp.json()["pending"]
     assert len(pending) == 1
-    assert pending[0]["scope"] == "attr.financial.*"
+    assert pending[0]["scope"] == blocked_scope
 
-    # 3) Investor approves.
+    # 3) A generic RIA attr.* approval is rejected. The caller must use the
+    # explicit connection proposal envelope, never this legacy export route.
     resp = client.post(
         "/api/consent/pending/approve",
         json={"userId": "investor_1", "requestId": "req_handshake"},
     )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "approved"
-    assert data["consent_token"] == issued_token
-
-    # Verify CONSENT_GRANTED event recorded.
-    granted_events = [e for e in fake_db.events if e["action"] == "CONSENT_GRANTED"]
-    assert len(granted_events) == 1
-    assert granted_events[0]["scope"] == "attr.financial.*"
-    assert granted_events[0]["request_id"] == "req_handshake"
-
-    # 4) Investor revokes.
-    # First ensure active token is present in the fake DB.
-    active_key = ("ria:profile_abc", "attr.financial.*")
-    assert active_key in fake_db.active
-
-    resp = client.post(
-        "/api/consent/revoke",
-        json={"userId": "investor_1", "scope": "attr.financial.*"},
-    )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "revoked"
-
-    # Verify REVOKED event recorded.
-    revoked_events = [e for e in fake_db.events if e["action"] == "REVOKED"]
-    assert len(revoked_events) == 1
+    assert resp.status_code == 410
+    assert resp.json()["detail"]["error_code"] == "SCOPE_RETIRED"
+    assert issued_token not in fake_db.active
+    assert not [event for event in fake_db.events if event["action"] == "CONSENT_GRANTED"]
 
 
 def test_pending_lookup_resolves_cross_linked_request_ids(monkeypatch):
@@ -376,6 +365,17 @@ def test_pending_lookup_resolves_cross_linked_request_ids(monkeypatch):
             },
         },
     )
+    fake_db._add_pending(
+        "req_retired_source_library",
+        {
+            "request_id": "req_retired_source_library",
+            "user_id": "investor_1",
+            "agent_id": "developer:legacy-source-library",
+            "scope": "attr.source_library.knowledge.*",
+            "issued_at": issued_at,
+            "poll_timeout_at": issued_at + 60000,
+        },
+    )
 
     app = _build_app()
     client = TestClient(app)
@@ -386,13 +386,17 @@ def test_pending_lookup_resolves_cross_linked_request_ids(monkeypatch):
             ("userId", "investor_1"),
             ("request_id", "req_email_scope"),
             ("request_id", "req_email_scope"),
+            ("request_id", "req_retired_source_library"),
             ("request_id", "missing_scope"),
         ],
     )
 
     assert resp.status_code == 200
     payload = resp.json()
-    assert payload["missing_request_ids"] == ["missing_scope"]
+    assert payload["missing_request_ids"] == [
+        "req_retired_source_library",
+        "missing_scope",
+    ]
     assert len(payload["items"]) == 1
     item = payload["items"][0]
     assert item["request_id"] == "req_email_scope"

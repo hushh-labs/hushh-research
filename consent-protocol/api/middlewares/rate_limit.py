@@ -95,6 +95,14 @@ class RateLimits:
     # Agent chat - moderate limit
     AGENT_CHAT = "30/minute"  # noqa: S105
 
+    # Human-entered Circle codes are deliberately short enough to type. Keep
+    # resolve/join attempts in their own authenticated-user bucket so guessing
+    # cannot consume unrelated consent budgets. RATE_LIMIT_STORAGE_URI remains
+    # the Redis/Memorystore upgrade seam for cross-instance precision.
+    ONE_LOCATION_CIRCLE_JOIN = "10/minute"  # noqa: S105
+
+    # Owners can rotate/revoke a code, but rapid churn is never a normal flow.
+    ONE_LOCATION_CIRCLE_MUTATION = "6/minute"  # noqa: S105
     # UAT-only One Location nearby-presence simulation. The roster is a stable,
     # bounded sample, and these per-principal limits additionally bound polling,
     # check-in churn, and alias-based connection attempts. Shared enforcement
@@ -106,6 +114,24 @@ class RateLimits:
     # comfortably interactive bucket so search cannot consume nearby roster or
     # check-in budgets while still bounding scripted abuse per signed owner.
     ONE_LOCATION_MAPS_PROVIDER = "30/minute"  # noqa: S105
+
+    # Advisor directory (FINRA BrokerCheck proxy). Every miss is an upstream
+    # call against a quota we own, so this stays bounded per principal. Paging
+    # is served from the upstream's own ranking cache and is therefore cheap;
+    # the limit is sized for browse-and-page, not for scraping the directory.
+    ONE_ADVISORS_DIRECTORY_READ = "20/minute"  # noqa: S105
+
+    # Insurance agent directory (Nationwide locator proxy). Same reasoning as
+    # the advisor directory, and deliberately the same number: both are browsed
+    # the same way from the same tab, and a caller allowed to page one of them
+    # at this rate has no reason to be held to a different rate on the other.
+    ONE_INSURANCE_AGENTS_DIRECTORY_READ = "20/minute"  # noqa: S105
+
+    # Places directory (Google Places proxy) on the same Connect tab. One open
+    # of a category is one provider call, and a reader flicking along the chip
+    # rail spends one per chip, so this sits above the two registry directories
+    # rather than beside them. It is still far below what scraping would need.
+    ONE_PLACES_DIRECTORY_READ = "40/minute"  # noqa: S105
 
     # Preference Subscription Fabric (PCHP RFC-002).
     # FABRIC_READ is the third-party-facing, monetizable subscriber read path;

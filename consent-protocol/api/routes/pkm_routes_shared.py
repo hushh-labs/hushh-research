@@ -1069,6 +1069,15 @@ async def update_scope_exposure(
                     "current_manifest_version": result.get("manifest_version"),
                 },
             )
+        if code == "invalid_scope_target":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "PKM_SCOPE_NOT_MUTABLE",
+                    "message": result.get("message")
+                    or "This sharing bundle is not available for an update.",
+                },
+            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=result.get("message") or "Failed to update PKM scope exposure.",

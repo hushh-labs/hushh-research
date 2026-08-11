@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -20,7 +20,6 @@ import {
 } from "@/components/onboarding/setup/setup-capability-coordinator";
 import { KycIdentityPreface } from "@/components/onboarding/setup/kyc-identity-preface";
 import { Switch } from "@/components/ui/switch";
-import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { isApplePrivateRelayEmail } from "@/lib/auth/private-relay";
@@ -33,16 +32,60 @@ import { AccountService } from "@/lib/services/account-service";
 
 type PreferenceLoadState = "loading" | "ready" | "error";
 
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import { KycIdentityProfileDraftService } from "@/lib/services/kyc-identity-profile-pkm-service";
+
 export function EmailOnboardingSetupClient() {
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
   const [enabled, setEnabled] = useState(false);
   const [loadState, setLoadState] = useState<PreferenceLoadState>("loading");
   const [saving, setSaving] = useState(false);
-  const [vaultOpen, setVaultOpen] = useState(false);
-  const [enablePending, setEnablePending] = useState(false);
   const [identityPrefaceComplete, setIdentityPrefaceComplete] = useState(false);
-  const enableAttemptRef = useRef(0);
+  const [checkingIdentity, setCheckingIdentity] = useState(true);
+
+  // Synchronously check local draft or asynchronously load from PKM identity domain
+  useEffect(() => {
+    if (!user?.uid) {
+      setCheckingIdentity(false);
+      return;
+    }
+    if (KycIdentityProfileDraftService.hasPending(user.uid)) {
+      setIdentityPrefaceComplete(true);
+      setCheckingIdentity(false);
+      return;
+    }
+    if (!vaultKey || !vaultOwnerToken) {
+      setCheckingIdentity(false);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const snapshot = await PkmDomainResourceService.getStaleFirst({
+          userId: user.uid,
+          domain: "identity",
+          vaultKey,
+          vaultOwnerToken,
+        });
+        const profile = snapshot?.data?.identity_profile as any;
+        if (!cancelled && profile?.about_me?.trim()) {
+          setIdentityPrefaceComplete(true);
+        }
+      } catch (err) {
+        console.warn("[EmailOnboardingSetupClient] Failed to load existing identity profile:", err);
+      } finally {
+        if (!cancelled) {
+          setCheckingIdentity(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, vaultKey, vaultOwnerToken]);
 
   const loadPreference = useCallback(async () => {
     if (!user?.uid) return;
@@ -91,7 +134,7 @@ export function EmailOnboardingSetupClient() {
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "email",
     isOperationallyReady: loadState === "ready",
-    settlementBlocked: saving || enablePending,
+    settlementBlocked: saving,
     finishActionId: "setup.finish_email",
     skipActionId: "setup.skip_email",
   });
@@ -139,38 +182,20 @@ export function EmailOnboardingSetupClient() {
       );
     } finally {
       setSaving(false);
-      setEnablePending(false);
     }
   }, [enabled, loadState, user, vaultKey, vaultOwnerToken]);
 
-  const handleToggle = useCallback((checked: boolean) => {
-    if (!user?.uid || loadState !== "ready" || saving || enablePending) return;
-    if (checked && (!vaultKey || !vaultOwnerToken)) {
-      setEnablePending(true);
-      setVaultOpen(true);
-      return;
-    }
-    void persistPreference(checked);
-  }, [enablePending, loadState, persistPreference, saving, user?.uid, vaultKey, vaultOwnerToken]);
+  const handleToggle = useCallback(
+    (checked: boolean) => {
+      if (!user?.uid || loadState !== "ready" || saving) return;
+      void persistPreference(checked);
+    },
+    [loadState, persistPreference, saving, user?.uid],
+  );
 
-  useEffect(() => {
-    if (
-      !enablePending ||
-      !vaultKey ||
-      !vaultOwnerToken ||
-      enableAttemptRef.current !== 0
-    ) return;
-    const attempt = 1;
-    enableAttemptRef.current = attempt;
-    void persistPreference(true).finally(() => {
-      if (enableAttemptRef.current === attempt) {
-        enableAttemptRef.current = 0;
-        setVaultOpen(false);
-      }
-    });
-  }, [enablePending, persistPreference, vaultKey, vaultOwnerToken]);
-
-  if (!user) return <SetupCapabilityLoading label="Preparing KYC setup…" />;
+  if (!user || checkingIdentity) {
+    return <SetupCapabilityLoading label="Preparing KYC setup…" />;
+  }
 
   if (!identityPrefaceComplete) {
     return <KycIdentityPreface onComplete={() => setIdentityPrefaceComplete(true)} />;
@@ -203,16 +228,16 @@ export function EmailOnboardingSetupClient() {
               loadState === "error"
                 ? "Preference unavailable. Retry before finishing."
                 : enabled
-                ? "Enabled for one@hushh.ai"
-                : isApplePrivateRelayEmail(user?.email)
-                  ? "Private Relay needs a verified non-relay sending address"
-                : "No email requests will trigger One"
+                  ? "Enabled for one@hushh.ai"
+                  : isApplePrivateRelayEmail(user?.email)
+                    ? "Private Relay needs a verified non-relay sending address"
+                    : "No email requests will trigger One"
             }
             trailing={
               <Switch
                 checked={enabled}
                 onCheckedChange={handleToggle}
-                disabled={saving || enablePending || loadState !== "ready"}
+                disabled={saving || loadState !== "ready"}
                 aria-label="Prepare KYC responses automatically"
                 data-voice-control-id="one-setup-email-drafting-toggle"
               />
@@ -231,21 +256,8 @@ export function EmailOnboardingSetupClient() {
         capabilityId="email"
         isOperationallyReady={loadState === "ready"}
         coordinator={coordinator}
-        pending={saving || enablePending}
+        pending={saving}
       />
-      {user ? (
-        <VaultUnlockDialog
-          user={user}
-          open={vaultOpen}
-          onOpenChange={(open) => {
-            setVaultOpen(open);
-            if (!open && !vaultOwnerToken) setEnablePending(false);
-          }}
-          title="Open your private vault"
-          description="KYC uses your private vault to prepare consent-bound responses."
-          onSuccess={() => setEnablePending(true)}
-        />
-      ) : null}
     </AppPageShell>
   );
 }

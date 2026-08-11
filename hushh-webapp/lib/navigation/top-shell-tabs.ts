@@ -15,11 +15,7 @@ import {
 } from "@/lib/navigation/ria-route-tabs";
 
 export type TopShellTabSetId =
-  | "location"
-  | "finance"
-  | "consent"
-  | "ria"
-  | "public";
+  "location" | "finance" | "consent" | "ria" | "public";
 
 export interface TopShellTabDefinition {
   id: TopShellTabSetId;
@@ -153,7 +149,8 @@ export const TOP_SHELL_TAB_REGISTRY = {
     id: "ria",
     label: "RIA workspace",
     queryParam: null,
-    defaultValue: "home",
+    // `/ria` is a compatibility redirect; Profile is the actual first tab.
+    defaultValue: "profile",
     tabs: RIA_TOP_SHELL_TABS,
   },
   public: {
@@ -262,6 +259,7 @@ export function resolveTopShellTabSet(routeKey: string): TopShellTabSet | null {
 
   if (
     pathname === ROUTES.RIA_HOME ||
+    pathname === ROUTES.RIA_PROFILE ||
     pathname.startsWith(`${ROUTES.RIA_CLIENTS}/`) ||
     pathname === ROUTES.RIA_CLIENTS ||
     pathname.startsWith(`${ROUTES.RIA_PICKS}/`) ||

@@ -35,9 +35,26 @@ import { mapAgentVoiceStatusToOneVoiceState } from "@/lib/voice/voice-ui-state-m
 
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
+// Queue playback slightly AHEAD of the clock rather than at it. Starting a
+// buffer at exactly `currentTime` hands the audio thread a start time inside
+// the render quantum it is already computing, which it rounds up to the next
+// block boundary -- audible as a click on every chunk that arrives late.
+// 80ms is well under the gap a listener notices and comfortably more than one
+// quantum of jitter.
+const OUTPUT_SCHEDULE_LEAD_SECONDS = 0.08;
+// Fade applied only where the stream was interrupted, never between
+// contiguous chunks. Ramping every chunk would put a tremolo on ordinary
+// speech; ramping only after a gap removes the discontinuity that cracks.
+const OUTPUT_RESUME_FADE_SECONDS = 0.006;
 // This is intentionally a coarse barge-in signal, not speech recognition.
 // It needs sustained energy to avoid treating microphone silence/noise as a
 // visitor turn and cancelling the idle welcome cue on every connection.
+/**
+ * Mirrors FRAME_SIZE in public/audio/gemini-live-capture.worklet.js. Only used
+ * to derive the real-time frame interval for the outbound pacing guard, so a
+ * drift between the two costs pacing accuracy, never correctness.
+ */
+const CAPTURE_FRAME_SIZE = 2048;
 const VISITOR_ACTIVITY_LEVEL = 0.08;
 const VISITOR_ACTIVITY_FRAMES = 8;
 
@@ -220,13 +237,18 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private runtimeVertexProject: string | null = null;
   private runtimeVertexLocation: string | null = null;
   private playheadTime = 0;
+  /** Times the playback queue ran dry mid-turn. Counted so "it sounds broken" has a number. */
+  private outputUnderruns = 0;
   private activeSources = new Set<AudioBufferSourceNode>();
+  private activeGains = new Map<AudioBufferSourceNode, GainNode>();
   private outputLevelTimer: ReturnType<typeof setInterval> | null = null;
   private state: GeminiLiveVoiceState = "idle";
   private sessionId: string | null = null;
   private sourceSeq = 0;
   /** Snapshot captured at start(), pushed as app_context after setup. */
   private startContext: OneVoiceContextSnapshot | null = null;
+  /** Most recent full snapshot; token refreshes must never replace it with {}. */
+  private latestContext: OneVoiceContextSnapshot | null = null;
   /**
    * Audio must not reach One until the relay has accepted the initial redacted
    * route and action inventory. Without this barrier a fast first utterance
@@ -238,6 +260,10 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   /** Consent token for One's specialist tools; rides only in app_context frames. */
   private consentToken: string | null = null;
   private visitorActivitySent = false;
+  /** Real-time pacing guard for outbound audio; see sendRealtimeAudio. */
+  private lastRealtimeAudioSentAt = 0;
+  /** Frames discarded as backlog. Non-zero means the main thread stalled. */
+  private droppedBacklogFrames = 0;
   private consecutiveSpeechFrames = 0;
   private bufferedVisitorSpeechFrames: Uint8Array[] = [];
   /**
@@ -312,6 +338,8 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.sessionId = createGeminiLiveSessionId();
     this.sourceSeq = 0;
     this.visitorActivitySent = false;
+    this.lastRealtimeAudioSentAt = 0;
+    this.droppedBacklogFrames = 0;
     this.consecutiveSpeechFrames = 0;
     this.bufferedVisitorSpeechFrames = [];
     this.initialContextReady = false;
@@ -320,6 +348,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
     const context = options?.context ?? null;
     this.startContext = context;
+    this.latestContext = context;
     this.consentToken = options?.consentToken ?? null;
     this.runtimeCredentialMode =
       options?.runtimeCredentialMode === "byok"
@@ -437,13 +466,58 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     };
   }
 
-  private sendRealtimeAudio(pcm: Uint8Array): void {
+  private sendRealtimeAudio(pcm: Uint8Array, paced = true): void {
     if (
       !this.ws ||
       this.ws.readyState !== WebSocket.OPEN ||
       !this.setupComplete
     )
       return;
+    // Never stream faster than real time.
+    //
+    // The capture worklet runs on the audio thread and posts a frame every
+    // ~43ms no matter what the main thread is doing. When the main thread
+    // stalls -- a dev route compile blocks it for seconds -- those messages
+    // queue, then drain in one synchronous burst, and the provider kills the
+    // socket with 1011 "client sending data too fast". Steady state is ~23
+    // frames/sec, so anything arriving well inside a frame interval is backlog
+    // being flushed, not live speech.
+    //
+    // Dropping is the correct response, not buffering: audio that late is
+    // already history in a live conversation, and re-sending it would only
+    // push the burst further out. Compared against a single clock so this
+    // cannot drift against the worklet's own timebase.
+    const frameIntervalMs =
+      (CAPTURE_FRAME_SIZE /
+        (this.inputContext?.sampleRate || INPUT_SAMPLE_RATE)) *
+      1000;
+    const now = performance.now();
+    // `paced === false` is the speech-onset flush: a bounded, once-per-session
+    // catch-up of frames deliberately withheld until the activity signal could
+    // precede them. It is intentional and small, unlike a stall backlog, and
+    // dropping it would clip the first words of the first sentence.
+    // A quarter-interval, not a half: frames legitimately arrive with tens of
+    // milliseconds of scheduling jitter, and dropping a merely-early frame
+    // punches a gap in the stream that the provider's VAD reads as end of
+    // speech -- ending the turn and cutting playback mid-sentence. A stall
+    // backlog drains ~0ms apart, so it is still caught with room to spare.
+    if (paced && now - this.lastRealtimeAudioSentAt < frameIntervalMs * 0.25) {
+      this.droppedBacklogFrames += 1;
+      // Surfaced, not merely counted. This counter existed and was read by
+      // nothing, so the only observable symptom of a stall was the provider
+      // closing the socket with 1011 -- indistinguishable from the pacer not
+      // running at all, which made "is the fix live in this browser?"
+      // unanswerable. Logged on rising powers of two so a pathological stall
+      // is loud while ordinary jitter stays quiet.
+      if ((this.droppedBacklogFrames & (this.droppedBacklogFrames - 1)) === 0) {
+        console.info(
+          `[VOICE_AUDIO] paced out ${this.droppedBacklogFrames} backlog frame(s) ` +
+            `this session; the main thread is stalling and would otherwise trip 1011`,
+        );
+      }
+      return;
+    }
+    this.lastRealtimeAudioSentAt = now;
     this.ws.send(
       JSON.stringify({
         realtimeInput: {
@@ -481,7 +555,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.visitorActivitySent = true;
     this.ws.send(JSON.stringify({ type: "voice_activity_start" }));
     for (const bufferedFrame of this.bufferedVisitorSpeechFrames) {
-      this.sendRealtimeAudio(bufferedFrame);
+      this.sendRealtimeAudio(bufferedFrame, false);
     }
     this.bufferedVisitorSpeechFrames = [];
     // A visitor who starts speaking should be able to barge in over an
@@ -934,6 +1008,11 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       context_id: context.snapshot_id,
       screen: context.route.screen,
       route_family: context.route.route_family,
+      // route_family is the path alone, so tabs sharing a path are
+      // indistinguishable without this. The relay derives the authoritative
+      // screen from both; dropping it here silently pins every tab to the
+      // path's default screen.
+      route_query: context.route.route_query,
       route_playbook_id: context.route.playbook_id,
       context_revision: `${context.revisions.route}:${context.revisions.ui}`,
       signed_in: context.auth?.signed_in === true,
@@ -952,6 +1031,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   updateContext(context: OneVoiceContextSnapshot): boolean {
+    this.latestContext = context;
     if (!this.setupComplete) {
       // Keep the newest route snapshot while the socket is opening. Otherwise
       // setupComplete would publish the stale screen captured by start().
@@ -1029,7 +1109,12 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const trimmed = consentToken?.trim() || null;
     if (trimmed === this.consentToken) return false;
     this.consentToken = trimmed;
-    return this.sendAppContext({});
+    // An authority-only update must retain the current route, inventory, and
+    // context revision. Sending `{}` here caused the relay to sanitize an
+    // empty screen and wipe a live Location journey mid-call.
+    return this.latestContext
+      ? this.sendSnapshotContext(this.latestContext)
+      : false;
   }
 
   reportActionSettlement(settlement: OneVoiceActionSettlement): boolean {
@@ -1158,16 +1243,49 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
     const node = context.createBufferSource();
     node.buffer = buffer;
-    node.connect(context.destination);
-    const startAt = Math.max(context.currentTime, this.playheadTime);
+    const gain = context.createGain();
+    node.connect(gain);
+    gain.connect(context.destination);
+    // The playhead falling behind the clock means the queue ran dry and
+    // silence has already played. Restarting exactly at `currentTime` -- which
+    // is what Math.max did -- lands inside the render quantum the audio thread
+    // is already computing, so it begins on the next block boundary instead,
+    // and the discontinuity is audible as a click. Reported as speech that
+    // "cracks and cuts".
+    //
+    // Resume slightly ahead of now instead, and fade in over a few
+    // milliseconds. Contiguous chunks are untouched: they still butt directly
+    // against the previous buffer with no ramp, because ramping every chunk
+    // would put a tremolo on ordinary speech.
+    const underran = this.playheadTime < context.currentTime;
+    if (underran) {
+      this.playheadTime = context.currentTime + OUTPUT_SCHEDULE_LEAD_SECONDS;
+      this.outputUnderruns += 1;
+      if ((this.outputUnderruns & (this.outputUnderruns - 1)) === 0) {
+        console.info(
+          `[VOICE_AUDIO] output underran ${this.outputUnderruns} time(s) this ` +
+            `session; playback queue ran dry and speech will have broken up`,
+        );
+      }
+    }
+    const startAt = this.playheadTime;
+    if (underran) {
+      gain.gain.setValueAtTime(0, startAt);
+      gain.gain.linearRampToValueAtTime(
+        1,
+        startAt + OUTPUT_RESUME_FADE_SECONDS,
+      );
+    }
     node.start(startAt);
     this.playheadTime = startAt + buffer.duration;
     this.lastAudioEnqueueAt = Date.now();
     this.modelTurnOpen = true;
     this.setState("speaking");
     this.activeSources.add(node);
+    this.activeGains.set(node, gain);
     node.onended = () => {
       this.activeSources.delete(node);
+      this.activeGains.delete(node);
       if (this.activeSources.size === 0 && !this.closed) {
         if (this.modelTurnOpen) {
           // Transient buffer underrun mid-turn: more chunks are coming
@@ -1198,14 +1316,26 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   private stopPlayback(): void {
+    const context = this.outputContext;
+    const FADE_SECONDS = 0.015;
     for (const node of this.activeSources) {
       try {
-        node.stop();
+        const gain = this.activeGains.get(node);
+        if (context && gain) {
+          const now = context.currentTime;
+          gain.gain.cancelScheduledValues(now);
+          gain.gain.setValueAtTime(gain.gain.value, now);
+          gain.gain.linearRampToValueAtTime(0, now + FADE_SECONDS);
+          node.stop(now + FADE_SECONDS);
+        } else {
+          node.stop();
+        }
       } catch {
         // ignore
       }
     }
     this.activeSources.clear();
+    this.activeGains.clear();
     if (this.outputContext) this.playheadTime = this.outputContext.currentTime;
     this.handlers.onOutputLevel?.(0);
   }

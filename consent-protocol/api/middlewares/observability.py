@@ -165,6 +165,35 @@ def _extract_bearer_user_id(request: Request) -> str | None:
     valid, _reason, payload = validate_token(consent_token)
     if valid and payload and payload.user_id:
         return str(payload.user_id)
+    firebase_uid = _unverified_jwt_subject(consent_token)
+    if firebase_uid:
+        return f"firebase:{firebase_uid}"
+    return None
+
+
+def _unverified_jwt_subject(token: str) -> str | None:
+    """Best-effort ``sub`` claim from a JWT, WITHOUT signature verification.
+
+    Used ONLY to pick a rate-limit bucket, never for authorization — the route
+    itself still verifies the token properly. Without this, every Firebase-
+    authenticated request through the Next.js proxy keys to the proxy's IP,
+    collapsing all users into one shared bucket: one noisy client then
+    rate-limits everyone (observed on /api/one/adk/relay-session).
+    """
+    import base64
+    import json
+
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        payload_raw = parts[1] + "=" * (-len(parts[1]) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload_raw))
+    except Exception:  # noqa: BLE001 - malformed tokens just fall to the IP bucket
+        return None
+    subject = claims.get("sub") or claims.get("user_id")
+    if isinstance(subject, str) and 0 < len(subject) <= 128:
+        return subject
     return None
 
 

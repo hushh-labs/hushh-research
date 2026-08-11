@@ -72,6 +72,7 @@ export const ROUTES = {
   PROFILE_ACCOUNT_PHONE: "/one/profile/account/phone",
   PROFILE_PREFERENCES: "/one/profile/preferences",
   PROFILE_PREFERENCES_KAI: "/one/profile/preferences/kai",
+  PROFILE_PREFERENCES_GEMINI: "/one/profile/preferences/gemini",
   PROFILE_PREFERENCES_DEVICE: "/one/profile/preferences/device",
   PROFILE_SECURITY: "/one/profile/security",
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
@@ -93,20 +94,27 @@ export const ROUTES = {
   PROFILE_PKM_AGENT_LAB: "/one/profile/pkm-agent-lab",
   PROFILE_RECEIPTS: "/one/profile/receipts",
   PROFILE_GMAIL_OAUTH_RETURN: "/one/profile/gmail/oauth/return",
+  /** Compatibility redirect only; Calendar now has its own agent workspace. */
+  PROFILE_INTEGRATIONS: "/one/profile/integrations",
+  PROFILE_GOOGLE_OAUTH_RETURN: "/one/profile/google/oauth/return",
   OAUTH_AUTHORIZE: "/oauth/authorize",
   ONE_SETUP: "/one/setup",
   ONE_SETUP_FINANCE: "/one/setup/finance",
   ONE_SETUP_FINANCE_IMPORT: "/one/setup/finance/import",
   ONE_SETUP_KAI: "/one/setup/kai",
   ONE_SETUP_GMAIL: "/one/setup/gmail",
+  ONE_SETUP_CALENDAR: "/one/setup/calendar",
   ONE_SETUP_LOCATION: "/one/setup/location",
   ONE_SETUP_EMAIL: "/one/setup/email",
   ONE_SETUP_RIA: "/one/setup/ria",
   ONE_SETUP_CONNECTED_SYSTEMS: "/one/setup/connected-systems",
   ONE_SETUP_CONNECTIONS: "/one/setup/connections",
   GMAIL: "/one/gmail",
+  CALENDAR: "/one/calendar",
   PKM: "/one/pkm",
   ONE_MARKETPLACE: "/one/marketplace",
+  /** Owner setup and management for the Apple Wallet profile pass. */
+  ONE_WALLET_CARD: "/one/wallet-card",
   CONNECTED_SYSTEMS: "/one/connected-systems",
   /** Canonical One workspace for consent review and access management. */
   CONSENTS: "/one/consent",
@@ -124,6 +132,13 @@ export const ROUTES = {
   ONE_LOCATION: "/one/location",
   /** Immersive, consented multi-person Location map. */
   ONE_LOCATION_MAP: "/one/location/map",
+  /**
+   * Nearby check-in. Its own destination, not a drawer over the map: the map
+   * shows people who already share with you, while check-in makes you briefly
+   * discoverable to opted-in people at a place. They were one screen and read
+   * as the same feature.
+   */
+  ONE_LOCATION_CHECK_IN: "/one/location/check-in",
   LEGACY_GMAIL: "/gmail",
   LEGACY_PKM: "/pkm",
   LEGACY_CONNECTED_SYSTEMS: "/connected-systems",
@@ -139,8 +154,10 @@ export const ROUTES = {
   LEGACY_KAI_ANALYSIS: "/kai/analysis",
   /** One-release redirect only. Optimize is no longer a product surface. */
   LEGACY_KAI_OPTIMIZE_COMPAT: "/kai/optimize",
+  /** Compatibility redirect only; new RIA entry points use the profile tab. */
   RIA_HOME: "/ria",
   RIA_ONBOARDING: "/ria/onboarding",
+  RIA_CLAIM: "/ria/claim",
   RIA_CLIENTS: "/ria/clients",
   RIA_WORKSPACE: "/ria/workspace",
   RIA_REQUESTS: "/ria/requests",
@@ -235,6 +252,7 @@ export function buildOneSetupCapabilityFinishRoute(
 /** Static setup workspaces. This is intentionally exact rather than a prefix. */
 export const SETUP_CAPABILITY_ROUTES: Readonly<Record<string, string>> = {
   gmail: ROUTES.ONE_SETUP_GMAIL,
+  calendar: ROUTES.ONE_SETUP_CALENDAR,
   location: ROUTES.ONE_SETUP_LOCATION,
   email: ROUTES.ONE_SETUP_EMAIL,
   finance: ROUTES.ONE_SETUP_FINANCE,
@@ -256,6 +274,7 @@ export const SETUP_NAVIGATION_ROUTES: readonly string[] = [
 export const CAPABILITY_HANDOFF_TARGETS: Readonly<Record<string, string>> = {
   finance: ROUTES.KAI_HOME,
   gmail: ROUTES.GMAIL,
+  calendar: ROUTES.CALENDAR,
   email: ROUTES.ONE_KYC,
   location: ROUTES.ONE_LOCATION,
   ria: ROUTES.RIA_ONBOARDING,
@@ -266,29 +285,39 @@ export function resolveCapabilityHandoffTarget(capabilityId: string): string {
   return CAPABILITY_HANDOFF_TARGETS[capabilityId] ?? ROUTES.ONE_SETUP;
 }
 
+export type CompletedSetupCapabilityEntry =
+  | { kind: "continue" }
+  | { kind: "acknowledge"; target: string }
+  | { kind: "redirect"; target: string };
+
 /**
- * Completed Location setup reopens its product workspace only after the root
- * setup journey is resolved. While `/one/setup` is still active, the authored
- * setup route remains replayable just like every other capability.
+ * Resolve a durable completion before a capability setup body mounts.
+ *
+ * Location is the only capability with a first-run flow that can finish while
+ * the root setup hub remains active. Re-entering that completed row briefly
+ * acknowledges the saved result and returns to the hub; it must never replay
+ * permissions, contacts, or the circle confirmation. Once root setup itself
+ * is resolved, the canonical Location workspace remains the handoff target.
  */
-export function resolveCompletedSetupCapabilityTarget(
-  {
-    capabilityId,
-    completedCapabilityIds,
-    rootSetupResolved,
-  }: {
-    capabilityId: string;
-    completedCapabilityIds: readonly string[];
-    rootSetupResolved: boolean;
-  },
-): string | null {
+export function resolveCompletedSetupCapabilityEntry({
+  capabilityId,
+  completedCapabilityIds,
+  rootSetupResolved,
+}: {
+  capabilityId: string;
+  completedCapabilityIds: readonly string[];
+  rootSetupResolved: boolean;
+}): CompletedSetupCapabilityEntry {
   if (
-    !rootSetupResolved ||
+    capabilityId !== "location" ||
     !completedCapabilityIds.includes(capabilityId)
   ) {
-    return null;
+    return { kind: "continue" };
   }
-  return capabilityId === "location" ? ROUTES.ONE_LOCATION : null;
+
+  return rootSetupResolved
+    ? { kind: "redirect", target: ROUTES.ONE_LOCATION }
+    : { kind: "acknowledge", target: ROUTES.ONE_SETUP };
 }
 
 /**
@@ -326,9 +355,17 @@ export const CAPABILITY_ONBOARDING_ROUTE_PREFIXES: Readonly<
     ROUTES.KAI_PLAID_OAUTH_RETURN,
   ],
   gmail: [ROUTES.ONE_SETUP_GMAIL, ROUTES.PROFILE_GMAIL_OAUTH_RETURN],
+  calendar: [ROUTES.ONE_SETUP_CALENDAR, ROUTES.PROFILE_GOOGLE_OAUTH_RETURN],
   email: [ROUTES.ONE_SETUP_EMAIL],
   location: [ROUTES.ONE_SETUP_LOCATION],
-  ria: [ROUTES.ONE_SETUP_RIA],
+  // RIA_CLAIM belongs to the ria capability: recognising an adviser from their
+  // filed number routes here from setup, and the journey guard must admit it
+  // or the redirect is bounced straight back to the hub.
+  // RIA_PROFILE too: the claim done screen offers "View profile", and the RIA
+  // onboarding page redirects established advisers there. Without admission the
+  // guard bounces that redirect to the onboarding page, which redirects back to
+  // the profile — an infinite loop while setup is unresolved.
+  ria: [ROUTES.ONE_SETUP_RIA, ROUTES.RIA_CLAIM, ROUTES.RIA_PROFILE],
   "connected-systems": [ROUTES.ONE_SETUP_CONNECTED_SYSTEMS],
 };
 
@@ -393,6 +430,9 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.LOGIN ||
     normalizedPathname === ROUTES.GETTING_STARTED ||
     normalizedPathname === ROUTES.PHONE_MANDATE ||
+    // Reached straight from the phone mandate when the number the adviser just
+    // verified is on an SEC filing, before any capability is active.
+    normalizedPathname === ROUTES.RIA_CLAIM ||
     normalizedPathname === ROUTES.LOGOUT ||
     normalizedPathname === ROUTES.PROFILE ||
     normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
@@ -610,6 +650,15 @@ export function isOneSetupSurfaceRoute(pathname: string): boolean {
   );
 }
 
+/**
+ * Public Wallet Profile prefix. Deliberately a module-local constant rather
+ * than a ROUTES entry: `/c` is a token namespace with no page of its own, so it
+ * needs neither a native-route-inventory classification nor a ROUTES-derived
+ * app-route-layout entry. Precedent: the location public-invite prefix is
+ * likewise not a ROUTES value.
+ */
+const WALLET_CARD_PUBLIC_PREFIX = "/c";
+
 export function isPublicRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
@@ -624,7 +673,25 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
-    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
+    normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
+    normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
+  );
+}
+
+/**
+ * Routes that must emit no analytics at all (Wallet Profile contract §7).
+ *
+ * A visitor scanning someone's Wallet Profile QR never agreed to anything with
+ * us — they are not a user, they arrived from a stranger's printed code, and we
+ * do not get to measure them. Deliberately much narrower than `isPublicRoute`:
+ * the marketing and auth routes there are ours to instrument.
+ */
+export function isAnalyticsExemptRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
+  return (
+    normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
+    normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
   );
 }
 

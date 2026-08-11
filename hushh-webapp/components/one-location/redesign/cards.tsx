@@ -71,19 +71,24 @@ export function TrustedPersonCard({
       className={cn(
         SUBCARD_SURFACE,
         "flex items-center gap-3 p-3.5",
-        selected && "border-[color:var(--app-accent)]/50 ring-1 ring-[color:var(--app-accent-ring)]",
+        // `ring-inset` draws the selection outline INSIDE the card bounds so a
+        // parent scroll/`overflow-hidden` container can never clip its edges or
+        // corners (the reported "incomplete blue outline"). `ring-2` gives a
+        // clean, complete 360° stroke; the border tints the same edge.
+        selected &&
+          "border-[color:var(--app-accent)] ring-2 ring-inset ring-[color:var(--app-accent)]",
       )}
     >
       <Avatar initials={initialsFrom(name)} />
       <div className="min-w-0 flex-1">
-        <p className="break-words text-[13px] font-semibold leading-snug text-foreground [overflow-wrap:anywhere] sm:text-base">
+        <p className="break-words text-[15px] font-semibold leading-5 text-foreground [overflow-wrap:anywhere] sm:text-[17px] sm:leading-[22px]">
           {name}
         </p>
         {subtitle ? (
           <p
             className={cn(
               MUTED_TEXT,
-              "break-words text-[11px] leading-snug [overflow-wrap:anywhere] sm:text-xs",
+              "break-words [overflow-wrap:anywhere]",
             )}
           >
             {subtitle}
@@ -205,20 +210,20 @@ export function RequestCard({
   return (
     <div className={cn(SUBCARD_SURFACE, "p-4")}>
       <div className="flex items-center gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#d8d8de] text-white dark:bg-white/15">
-          <User className="h-5 w-5" />
+        <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]">
+          <User className="h-[17px] w-[17px]" strokeWidth={1.9} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[16px] font-bold text-[#1c1c2e] dark:text-foreground">
+          <p className="text-[17px] font-normal leading-[22px] text-foreground">
             {name}
           </p>
-          <p className="mt-0.5 truncate text-[13px] text-black/50 dark:text-muted-foreground">
+          <p className="mt-0.5 truncate text-[15px] leading-5 text-muted-foreground">
             {promptLine}
           </p>
         </div>
       </div>
       {reason ? (
-        <p className="mt-2.5 rounded-lg bg-black/[0.03] px-2.5 py-1.5 text-xs italic text-black/50 dark:bg-white/5 dark:text-muted-foreground">
+        <p className={cn(MUTED_TEXT, "mt-2.5 rounded-[10px] bg-[color:var(--app-card-surface-compact)] px-2.5 py-1.5")}>
           {reason}
         </p>
       ) : null}
@@ -233,7 +238,7 @@ export function RequestCard({
         <Button
           onClick={onDecline}
           isLoading={declineBusy}
-          className="h-11 flex-1 rounded-full bg-[#ededf2] text-sm font-semibold text-[#1d1d1f] hover:bg-[#e2e2ea] dark:bg-white/10 dark:text-foreground"
+          className="h-11 flex-1 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-sm font-semibold text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]/80 dark:bg-white/10"
         >
           Decline
         </Button>
@@ -251,21 +256,32 @@ export function SharedWithMeCard({
   statusLine,
   onView,
   onDismiss,
+  onRecenter,
   mapHref,
   viewBusy,
   previewExpanded,
   children,
   message,
+  address,
+  addressLoading,
+  coordinatesFallback,
 }: {
   name: string;
   statusLine: string;
   onView: () => void;
   onDismiss?: () => void;
+  onRecenter?: () => void;
   mapHref?: string;
   viewBusy?: boolean;
   previewExpanded?: boolean;
   children?: ReactNode;
   message?: string;
+  /** Reverse-geocoded street address for the shared location, if resolved. */
+  address?: string | null;
+  /** True while the street address is being reverse-geocoded. */
+  addressLoading?: boolean;
+  /** "lat, lng" shown when no street address is available. */
+  coordinatesFallback?: string;
 }) {
   const canOpenMap = Boolean(previewExpanded && mapHref);
   const previewRegionId = useId();
@@ -294,29 +310,62 @@ export function SharedWithMeCard({
             </StatusPill>
           </div>
         </div>
-        {canTogglePreview ? (
-          <ShellActionSurface
-            variant="icon"
-            aria-label={`${isPreviewExpanded ? "Collapse" : "Expand"} shared location from ${name}`}
-            aria-expanded={isPreviewExpanded}
-            aria-controls={previewRegionId}
-            disabled={viewBusy && !isPreviewExpanded}
-            onClick={togglePreview}
-          >
-            {viewBusy && !isPreviewExpanded ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <ChevronDown
-                className={cn(
-                  "h-4 w-4 transition-transform duration-200",
-                  isPreviewExpanded && "rotate-180",
-                )}
-                aria-hidden="true"
-              />
-            )}
-          </ShellActionSurface>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-1">
+          {isPreviewExpanded && onRecenter ? (
+            <ShellActionSurface
+              variant="icon"
+              className="h-11 w-11 sm:h-9 sm:w-9"
+              aria-label={`Recenter map on ${name}'s location`}
+              aria-controls={previewRegionId}
+              title="Recenter map"
+              onClick={onRecenter}
+            >
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            </ShellActionSurface>
+          ) : null}
+          {canTogglePreview ? (
+            <ShellActionSurface
+              variant="icon"
+              className="h-11 w-11 sm:h-9 sm:w-9"
+              aria-label={`${isPreviewExpanded ? "Collapse" : "Expand"} shared location from ${name}`}
+              aria-expanded={isPreviewExpanded}
+              aria-controls={previewRegionId}
+              disabled={viewBusy && !isPreviewExpanded}
+              onClick={togglePreview}
+            >
+              {viewBusy && !isPreviewExpanded ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 transition-transform duration-200",
+                    isPreviewExpanded && "rotate-180",
+                  )}
+                  aria-hidden="true"
+                />
+              )}
+            </ShellActionSurface>
+          ) : null}
+        </div>
       </div>
+      {address || addressLoading || coordinatesFallback ? (
+        <div className="flex items-start gap-1.5">
+          <MapPin
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+          {addressLoading && !address ? (
+            <span
+              className="mt-0.5 h-3.5 w-40 max-w-full animate-pulse rounded bg-muted"
+              aria-hidden="true"
+            />
+          ) : (
+            <p className={cn(MUTED_TEXT, "min-w-0 break-words text-sm")}>
+              {address ?? coordinatesFallback}
+            </p>
+          )}
+        </div>
+      ) : null}
       <div id={previewRegionId} hidden={!isPreviewExpanded}>
         {children}
       </div>

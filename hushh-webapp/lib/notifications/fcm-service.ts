@@ -27,6 +27,8 @@ export const FCM_MESSAGE_EVENT = "fcm-message";
 const CONSENT_NOTIFICATION_ACTION_REVIEW = "CONSENT_REVIEW";
 const CONSENT_NOTIFICATION_ACTION_APPROVE = "CONSENT_APPROVE";
 const CONSENT_NOTIFICATION_ACTION_DENY = "CONSENT_DENY";
+const CONNECTION_REQUEST_NOTIFICATION_FALLBACK =
+  `${ROUTES.CONSENTS}?tab=connections`;
 
 export type FCMInitStatus =
   | "push_active"
@@ -43,6 +45,19 @@ export interface FCMInitResult {
 export type FCMInitOptions = {
   requestPermission?: boolean;
 };
+
+export function resolveNativeConnectionRequestNotificationHref(
+  data: Record<string, unknown> | undefined,
+): string {
+  const explicitHref =
+    (typeof data?.request_url === "string" && data.request_url) ||
+    (typeof data?.deep_link === "string" && data.deep_link) ||
+    CONNECTION_REQUEST_NOTIFICATION_FALLBACK;
+  const target = resolveConsentNavigationTarget(explicitHref, "pending");
+  return target.kind === "internal"
+    ? target.href
+    : CONNECTION_REQUEST_NOTIFICATION_FALLBACK;
+}
 
 let nativeListenersConfigured = false;
 let nativeListenersPromise: Promise<void> | null = null;
@@ -874,6 +889,18 @@ function setupNativeListeners(): Promise<void> {
             } else {
               assignWindowLocation(target.href || buildConsentTargetPath(data));
             }
+          } else if (
+            data &&
+            typeof data.type === "string" &&
+            data.type === "connection_request"
+          ) {
+            if (actionId === "dismiss") {
+              return;
+            }
+            requestInternalAppNavigation({
+              href: resolveNativeConnectionRequestNotificationHref(data),
+              scroll: false,
+            });
           } else if (
             data &&
             typeof data.type === "string" &&

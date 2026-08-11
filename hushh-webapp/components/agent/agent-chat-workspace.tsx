@@ -15,7 +15,6 @@ import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
-  Bot,
   Check,
   ChevronRight,
   Copy,
@@ -59,6 +58,10 @@ import {
   type AgentVisibleStreamStatus,
 } from "@/components/agent/agent-turn-stream-panel";
 import { describeSelection } from "@/lib/agent/describe-selection";
+import {
+  getWelcomePromptSetIndex,
+  getWelcomePrompts,
+} from "@/lib/agent/agent-welcome-prompts";
 import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { useAuth } from "@/hooks/use-auth";
@@ -117,9 +120,12 @@ import {
   type AgentSource,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
+import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
+import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import { runLocationDirective, type DelegateResult } from "@/lib/agent/specialist-directive-runtime";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
+import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { cn } from "@/lib/utils";
 import { useConsentActions, type PendingConsent } from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
@@ -239,12 +245,6 @@ type AgentChatWorkspaceProps = {
 const AGENT_GREETING =
   "Hi, I'm One \u2014 your private agent. Ask me about your markets, portfolio, memories, or consent workflows.";
 const AGENT_GREETING_TIMESTAMP = "Just now";
-const AGENT_WELCOME_PROMPTS = [
-  "Review my portfolio",
-  "Save a memory",
-  "Explain consent flows",
-] as const;
-
 const EMPTY_PKM_CONTEXT: AgentPkmContext = {
   text: "",
   domains: [],
@@ -585,10 +585,12 @@ function formatAgentDisplayName(displayName?: string | null, email?: string | nu
 
 function AgentWelcomePanel({
   name,
+  prompts,
   disabled,
   onPromptSelect,
 }: {
   name: string;
+  prompts: readonly string[];
   disabled: boolean;
   onPromptSelect: (prompt: string) => void;
 }) {
@@ -605,7 +607,7 @@ function AgentWelcomePanel({
           Ask One about your markets, portfolio, memories, or consent workflows.
         </p>
         <div className="mt-8 grid gap-3 sm:grid-cols-3">
-          {AGENT_WELCOME_PROMPTS.map((prompt) => (
+          {prompts.map((prompt) => (
             <button
               key={prompt}
               type="button"
@@ -829,9 +831,14 @@ function AgentBubble({
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
   const streamEvents = message.streamEvents ?? [];
+  const hasStreamContent =
+    streamEvents.length > 0 ||
+    Boolean(message.thought?.trim()) ||
+    Boolean(message.sources?.length) ||
+    Boolean(message.text.trim());
   const shouldRenderStreamPanel =
     !isUser &&
-    (isStreaming || streamEvents.length > 0 || Boolean(message.thought));
+    hasStreamContent;
   const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming);
   const assistantText = isUser ? message.text : animated.displayedText;
   const consentActionsPayload = !isUser
@@ -875,15 +882,10 @@ function AgentBubble({
   return (
     <div
       className={cn(
-        "motion-step-enter flex w-full gap-3",
+        "motion-step-enter flex w-full",
         isUser ? "justify-end" : "justify-start"
       )}
     >
-      {!isUser ? (
-        <div className="mt-1 hidden h-7 w-7 shrink-0 place-items-center rounded-md border border-border bg-muted text-muted-foreground sm:grid">
-          <Bot className="h-3.5 w-3.5" />
-        </div>
-      ) : null}
       <div
         className={cn(
           "min-w-0",
@@ -912,6 +914,7 @@ function AgentBubble({
             <AgentTurnStreamPanel
               streamEvents={streamEvents}
               thinkingText={message.thought}
+              sources={message.sources}
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
@@ -926,32 +929,6 @@ function AgentBubble({
             <AgentThinkingDots />
           )}
         </div>
-        {!isUser && message.sources && message.sources.length > 0 ? (
-          <nav
-            aria-label="Sources"
-            className="mt-2 flex flex-wrap items-center gap-1.5"
-          >
-            <span className="text-[11px] font-medium text-muted-foreground">
-              Sources
-            </span>
-            {message.sources.map((source) => (
-              <span
-                key={source.agentId}
-                title={source.reason || undefined}
-                className="inline-flex max-w-full items-center gap-1 rounded-full border border-black/10 bg-background/70 px-2 py-0.5 text-[11px] dark:border-white/10"
-              >
-                <span className="font-semibold text-foreground">
-                  {source.label}
-                </span>
-                {source.reason ? (
-                  <span className="max-w-[13rem] truncate text-muted-foreground">
-                    {source.reason}
-                  </span>
-                ) : null}
-              </span>
-            ))}
-          </nav>
-        ) : null}
         <div
           className={cn(
             "mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500",
@@ -1219,6 +1196,7 @@ export function AgentChatWorkspace({
   const [specialistBusyItemId, setSpecialistBusyItemId] = useState<string | null>(null);
   const voiceState = useAgentVoiceState((state) => state.status);
   const [hasPortfolioData, setHasPortfolioData] = useState(false);
+  const [welcomePromptSetIndex, setWelcomePromptSetIndex] = useState(0);
   const [backgroundTaskState, setBackgroundTaskState] = useState(() =>
     AppBackgroundTaskService.getState()
   );
@@ -1228,6 +1206,7 @@ export function AgentChatWorkspace({
   const historyDrawerRef = useRef<HTMLDivElement | null>(null);
   const historyDrawerReturnFocusRef = useRef<HTMLElement | null>(null);
   const historyLoadKeyRef = useRef<string | null>(null);
+  const welcomePromptSetInitializedRef = useRef(false);
   const historyRestoreEpochRef = useRef(0);
   const skipInitialHistoryLoadRef = useRef(false);
   const streamAbortControllerRef = useRef<AbortController | null>(null);
@@ -1608,6 +1587,17 @@ export function AgentChatWorkspace({
     return () => unsubscribe();
   }, [user?.uid]);
 
+  const welcomePrompts = useMemo(
+    () => getWelcomePrompts(welcomePromptSetIndex, { hasPortfolioData }),
+    [hasPortfolioData, welcomePromptSetIndex],
+  );
+
+  useEffect(() => {
+    if (welcomePromptSetInitializedRef.current) return;
+    welcomePromptSetInitializedRef.current = true;
+    setWelcomePromptSetIndex(getWelcomePromptSetIndex(null));
+  }, []);
+
   useEffect(() => {
     abortAgentTurnWork();
     setIsChatLoading(false);
@@ -1649,6 +1639,7 @@ export function AgentChatWorkspace({
     setAppActionBusy(false);
     setPendingSpecialistDirective(null);
     setSpecialistBusy(false);
+    setWelcomePromptSetIndex((current) => getWelcomePromptSetIndex(current));
   }, [abortAgentTurnWork]);
 
   const updateMessage = (
@@ -2093,7 +2084,7 @@ export function AgentChatWorkspace({
       const review = pkmReviews.find((item) => item.id === reviewId);
       const token = getVaultOwnerToken();
       if (!review || !user?.uid || !vaultKey || !token) {
-        toast.error("Unlock your vault before saving to PKM.");
+        toast.error("Unlock your vault before saving to Memory.");
         return;
       }
 
@@ -2154,7 +2145,7 @@ export function AgentChatWorkspace({
               vaultKey,
               forceRefresh: true,
             }).catch(() => undefined);
-            toast.success("Saved to PKM.");
+            toast.success("Saved to Memory.");
             return;
           }
 
@@ -2166,7 +2157,7 @@ export function AgentChatWorkspace({
           const message =
             error instanceof Error && error.message
               ? error.message
-              : "Failed to save PKM memory.";
+              : "Failed to save this memory.";
           appendDebugEvent(review.turnId, "pkm_review_save_failed", { message });
           trackEvent("agent_pkm_save_confirmation_completed", {
             route_id: "agent",
@@ -2446,7 +2437,7 @@ export function AgentChatWorkspace({
           reason: !vaultKey ? "vault_key_unavailable" : "vault_owner_token_unavailable",
           tool: toolEvent,
         });
-        upsertPkmStatusMessage("Unlock your vault before saving to PKM.", "error");
+        upsertPkmStatusMessage("Unlock your vault before saving to Memory.", "error");
         return;
       }
 
@@ -2461,7 +2452,7 @@ export function AgentChatWorkspace({
         current_domains: turnPkmContext.domains,
         source_text: sourceText,
       });
-      upsertPkmStatusMessage("Checking PKM and saving what fits...", "streaming");
+      upsertPkmStatusMessage("Checking what belongs in Memory...", "streaming");
 
       try {
         const preview = await previewAgentPkmMemory({
@@ -2499,24 +2490,24 @@ export function AgentChatWorkspace({
             cards: confirmationCards,
           });
           upsertPkmStatusMessage(
-            "Agent found PKM memory that needs your review before saving.",
+            "One found a memory that needs your review before saving.",
             "done"
           );
         }
 
         if (confirmationCards.length === 0) {
-          upsertPkmStatusMessage("I didn't find durable PKM memory to save from that.", "done");
+          upsertPkmStatusMessage("I didn't find a memory to save from that.", "done");
         }
       } catch (error) {
         const message =
           error instanceof Error && error.message
             ? error.message
-            : "Agent could not save that PKM memory.";
+            : "One could not save that memory.";
         appendDebugEvent(debugTurnId, "pkm_tool_failed", {
           message,
           tool: toolEvent,
         });
-        upsertPkmStatusMessage("Agent could not save that PKM memory.", "error");
+        upsertPkmStatusMessage("One could not save that memory.", "error");
       } finally {
         setActivePkmToolCount((count) => Math.max(0, count - 1));
       }
@@ -2538,7 +2529,7 @@ export function AgentChatWorkspace({
           actionId: toolEvent.actionId,
           label: toolEvent.label,
           routeBefore: pathname,
-          resultSummary: "PKM review prepared.",
+          resultSummary: "Memory review prepared.",
         };
       }
 
@@ -2710,7 +2701,7 @@ export function AgentChatWorkspace({
         execution: "frontend",
         current_domains: pkmContext.domains,
       });
-      upsertPkmStatusMessage("Checking whether this belongs in PKM...", "streaming");
+      upsertPkmStatusMessage("Checking whether this belongs in Memory...", "streaming");
 
       try {
         const preview = await previewAgentPkmMemory({
@@ -2760,7 +2751,7 @@ export function AgentChatWorkspace({
             cards: confirmationCards,
           });
           upsertPkmStatusMessage(
-            "Agent found PKM memory that needs your review before saving.",
+            "One found a memory that needs your review before saving.",
             "done"
           );
         }
@@ -2781,11 +2772,11 @@ export function AgentChatWorkspace({
         const message =
           error instanceof Error && error.message
             ? error.message
-            : "Agent could not update PKM memory for this turn.";
+            : "One could not update Memory for this message.";
         appendDebugEvent(debugTurnId, "pkm_memory_failed", {
           message,
         });
-        upsertPkmStatusMessage("Agent could not update PKM memory for this turn.", "error");
+        upsertPkmStatusMessage("One could not update Memory for this message.", "error");
       } finally {
         setActivePkmToolCount((count) => Math.max(0, count - 1));
       }
@@ -3926,6 +3917,7 @@ export function AgentChatWorkspace({
               {!hasStartedConversation ? (
                 <AgentWelcomePanel
                   name={displayName}
+                  prompts={welcomePrompts}
                   disabled={isChatLoading || isStreaming}
                   onPromptSelect={handleWelcomePromptSelect}
                 />
@@ -4259,6 +4251,99 @@ export function AgentChatWorkspace({
                         status: "cancelled",
                         display,
                       });
+                    }}
+                  />
+                ) : pendingSpecialistDirective.delegateAgentId === "agent_calendar" ? (
+                  <SpecialistDirectiveCard
+                    summary={String(
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .summary ?? pendingSpecialistDirective.message,
+                    )}
+                    confirmLabel={String(
+                      (pendingSpecialistDirective.directive.payload as Record<string, unknown>)
+                        .confirmLabel ?? "Continue",
+                    )}
+                    busy={specialistBusy}
+                    onConfirm={async () => {
+                      const directive = pendingSpecialistDirective;
+                      const payload = directive.directive.payload as Record<string, unknown>;
+                      const type = String(payload.type ?? "");
+                      if (type === "calendar.connect") {
+                        if (!user?.uid) {
+                          addErrorMessage("Sign in again before connecting Google Calendar.");
+                          return;
+                        }
+                        setSpecialistBusy(true);
+                        try {
+                          const accessLevel =
+                            payload.accessLevel === "manage" ? "manage" : "read";
+                          clearCalendarSetupOAuthReturn();
+                          const start = await GoogleCalendarService.startConnect({
+                            idToken: await user.getIdToken(),
+                            userId: user.uid,
+                            accessLevel,
+                          });
+                          setPendingSpecialistDirective(null);
+                          window.location.assign(start.authorize_url);
+                        } catch (error) {
+                          addErrorMessage(
+                            error instanceof Error
+                              ? error.message
+                              : "Unable to request Google Calendar permission.",
+                          );
+                        } finally {
+                          setSpecialistBusy(false);
+                        }
+                        return;
+                      }
+                      if (type !== "calendar.execute_proposal") {
+                        setPendingSpecialistDirective(null);
+                        addErrorMessage("That Calendar action is no longer available.");
+                        return;
+                      }
+                      const token = getVaultOwnerToken();
+                      if (!token || !user?.uid) {
+                        addErrorMessage("Vault access expired. Unlock again to continue.");
+                        return;
+                      }
+                      setSpecialistBusy(true);
+                      try {
+                        const label = String(payload.confirmLabel ?? "Confirm");
+                        appendMessage({
+                          id: `msg-${Date.now()}-calendar-confirm`,
+                          role: "user",
+                          text: label,
+                          timestamp: formatNow(),
+                          status: "done",
+                          kind: "selection",
+                        });
+                        const result = await runCalendarDirective(
+                          directive.directive,
+                          token,
+                          user.uid,
+                        );
+                        setPendingSpecialistDirective(null);
+                        appendMessage({
+                          id: `msg-${Date.now()}-calendar-result`,
+                          role: "assistant",
+                          text: result.detail || "Calendar updated.",
+                          timestamp: formatNow(),
+                          status: "done",
+                        });
+                      } catch (error) {
+                        setPendingSpecialistDirective(null);
+                        addErrorMessage(
+                          error instanceof Error
+                            ? error.message
+                            : "The Calendar change could not be completed.",
+                        );
+                      } finally {
+                        setSpecialistBusy(false);
+                      }
+                    }}
+                    onCancel={() => {
+                      setPendingSpecialistDirective(null);
+                      toast.info("Calendar change cancelled. Nothing was changed.");
                     }}
                   />
                 ) : pendingSpecialistDirective.delegateAgentId === "agent_connected_systems" ? (

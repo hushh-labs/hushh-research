@@ -380,6 +380,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setLoading(true);
 
       try {
+        // The sign-out mail must be asked for while the credential is still
+        // valid — a moment later `AuthService.signOut()` invalidates it and the
+        // route would reject the token. Not awaited: sign-out is a security
+        // action and must never wait on, or be failed by, a mail. Deliberately
+        // skipped for account deletion, where mailing "you signed out" to an
+        // account that no longer exists would be wrong.
+        if (currentUid && !options?.skipFcmCleanup) {
+          const signOutToken = await currentUser?.getIdToken().catch(() => undefined);
+          if (signOutToken) {
+            void ApiService.notifyAuthMail("signed_out", { idToken: signOutToken });
+          }
+        }
+
         // Delete FCM token before signing out (requires auth). Skipped for the
         // account-deletion flow: the backend already removes the account and its
         // push tokens, so this would only add a redundant network round-trip to

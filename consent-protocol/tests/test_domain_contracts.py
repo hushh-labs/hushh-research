@@ -12,6 +12,7 @@ from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_REGISTRY,
     CANONICAL_REGISTRY_KEYS,
     CANONICAL_SUBINTENT_KEYS,
+    CANONICAL_SUBINTENT_REGISTRY,
     FINANCIAL_DOMAIN_CONTRACT_VERSION,
     FINANCIAL_INTENT_MAP,
     FINANCIAL_SUBINTENT_REGISTRY,
@@ -175,7 +176,7 @@ class TestDerivedCollections:
         assert CANONICAL_DOMAIN_KEYS == derived
 
     def test_canonical_subintent_keys_match_registry(self) -> None:
-        derived = tuple(entry.domain_key for entry in FINANCIAL_SUBINTENT_REGISTRY)
+        derived = tuple(entry.domain_key for entry in CANONICAL_SUBINTENT_REGISTRY)
         assert CANONICAL_SUBINTENT_KEYS == derived
 
     def test_canonical_registry_keys_is_sorted_union(self) -> None:

@@ -44,6 +44,21 @@ import { cn } from "@/lib/utils";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { ConnectedSystemsResourceService } from "@/lib/services/connected-systems-resource-service";
 import {
+  clearCrmZkEphemeralKeys,
+  createCrmZkEnvelope,
+  decryptCrmZkPartnerResponse,
+  discardCrmZkEphemeralKey,
+  ensureCrmZkOwnerSigningKey,
+  signCrmZkApproval,
+  type CrmZkPartnerResponseEnvelope,
+} from "@/lib/connected-systems/crm-zk-v1";
+import {
+  clearCrmZkUatEphemeralKeys,
+  createCrmZkUatEnvelope,
+  decryptCrmZkUatReadResponse,
+  discardCrmZkUatEphemeralKey,
+} from "@/lib/connected-systems/crm-zk-uat-v1";
+import {
   ConnectedSystemsService,
   ConnectedSystemsRequestError,
   type ConnectedSystemMcpResponse,
@@ -67,6 +82,8 @@ type BusyState =
 
 type ConnectedSystemsPanelProps = {
   cacheUserId?: string | null;
+  /** Unlock-bound key used only to encrypt the owner's P-256 signing key in PKM. */
+  vaultKey?: string | null;
   vaultOwnerToken?: string | null;
   onRequestUnlock?: () => void;
   mode?: "list" | "detail";
@@ -213,18 +230,18 @@ export function ConnectedSystemLogo({
 }) {
   const logo = resolveCrmLogoAsset(system);
   const label = system?.customerDisplayName || system?.target || "CRM system";
+  // A registry mark is optional presentation metadata. Its absence must not
+  // change the row geometry: every system occupies the same fixed logo frame.
   const dimensions =
-    logo && size === "hero"
+    size === "hero"
       ? "h-14 w-28 rounded-[18px] p-2"
-      : logo
-        ? "h-11 w-[4.75rem] rounded-[14px] p-2"
-        : size === "hero"
-          ? "h-12 w-12 rounded-[14px] p-2.5"
-          : "h-10 w-10 rounded-[12px] p-2";
+      : "h-11 w-[4.75rem] rounded-[14px] p-2";
 
   return (
     <span
-      className={`${dimensions} inline-flex shrink-0 items-center justify-center border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-foreground shadow-[var(--shadow-xs)]`}
+      data-logo-kind={logo ? "brand" : "fallback"}
+      data-slot="connected-system-logo"
+      className={`${dimensions} inline-flex shrink-0 items-center justify-center overflow-hidden border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)] ${logo ? "!bg-white dark:!bg-white" : "text-muted-foreground"}`}
     >
       {logo ? (
         <Image
@@ -232,7 +249,7 @@ export function ConnectedSystemLogo({
           alt={logo.alt || `${label} logo`}
           width={size === "hero" ? 48 : 40}
           height={size === "hero" ? 48 : 40}
-          className="h-full w-full object-contain"
+          className="h-full w-full object-contain filter-none"
           unoptimized
         />
       ) : (
@@ -467,6 +484,7 @@ function changedFieldsFromValues(
 
 export function ConnectedSystemsPanel({
   cacheUserId,
+  vaultKey,
   vaultOwnerToken,
   onRequestUnlock,
   mode = "detail",
@@ -552,6 +570,21 @@ export function ConnectedSystemsPanel({
   const selectedSystem =
     systems.find((system) => system.systemId === systemId) ||
     (!systemId ? systems[0] || null : null);
+  const crmZkProfile = selectedSystem?.crmZk?.profile;
+  const crmZkUatEnabled = crmZkProfile === "crm-zk-uat.v1";
+  const crmZkFullEnabled = crmZkProfile === "crm-zk.v1";
+  const crmZkReadReady = selectedSystem?.crmZk?.readReady === true;
+  const crmZkUpdateReady = selectedSystem?.crmZk?.updateReady === true;
+  useEffect(() => {
+    if (!vaultOwnerToken) {
+      clearCrmZkEphemeralKeys();
+      clearCrmZkUatEphemeralKeys();
+    }
+    return () => {
+      clearCrmZkEphemeralKeys();
+      clearCrmZkUatEphemeralKeys();
+    };
+  }, [vaultOwnerToken]);
   useEffect(() => {
     if (selectedSystem) onSystemResolved?.(selectedSystem);
   }, [onSystemResolved, selectedSystem]);
@@ -600,6 +633,13 @@ export function ConnectedSystemsPanel({
   const canUseBackend = Boolean(vaultOwnerToken);
   const isSetupPresentation = presentation === "setup";
   const schemaReady = schema?.schemaStatus === "ready";
+  const schemaMatchesSelectedConfiguration = Boolean(
+    schema &&
+      selectedSystem &&
+      schema.systemId === selectedSystem.systemId &&
+      schema.objectType === (selectedSystem.objectTypeDefault || "Contact") &&
+      schema.configurationRevision === selectedConfigurationRevision,
+  );
   const supportsAction = (
     action: "schema" | "read" | "create" | "update" | "delete",
   ) =>
@@ -724,11 +764,22 @@ export function ConnectedSystemsPanel({
     schemaReady &&
     supportsAction("read") &&
     !boundRecordReadResolved;
+  const isSchemaPreparationPending =
+    mode === "detail" &&
+    canUseBackend &&
+    !effectiveError &&
+    Boolean(selectedSystem) &&
+    (!schemaMatchesSelectedConfiguration ||
+      schemaResource.loading ||
+      schemaResource.refreshing);
   const isRecordStateLoading =
     mode === "detail" &&
     canUseBackend &&
     !effectiveError &&
-    (!selectedSystem || !bindingResolved || isBoundRecordHydrating);
+    (!selectedSystem ||
+      !bindingResolved ||
+      isSchemaPreparationPending ||
+      isBoundRecordHydrating);
   const canShowUnboundRecordActions =
     !hasBoundRecord &&
     !isRecordStateLoading &&
@@ -1062,6 +1113,140 @@ export function ConnectedSystemsPanel({
     }
   };
 
+  const readBoundCrmZkRecord = async (returnFields: string[]) => {
+    if (!selectedSystem || !cacheUserId || !vaultKey || !vaultOwnerToken) {
+      throw new Error("Unlock your vault to read this CRM record privately.");
+    }
+    if (!crmZkReadReady) {
+      throw new Error("This CRM is not ready for its required private read protocol.");
+    }
+    const [configuration, context] = await Promise.all([
+      ConnectedSystemsService.getCrmZkConfiguration({
+        vaultOwnerToken,
+        systemId: selectedSystem.systemId,
+      }),
+      ConnectedSystemsService.prepareCrmZkContext({
+        vaultOwnerToken,
+        systemId: selectedSystem.systemId,
+        operation: "read",
+        objectType: selectedSystem.objectTypeDefault,
+        fieldNames: returnFields,
+      }),
+    ]);
+    const ownerSigningKey = await ensureCrmZkOwnerSigningKey({
+      userId: cacheUserId,
+      vaultKey,
+      vaultOwnerToken,
+      systemId: selectedSystem.systemId,
+    });
+    const envelope = await createCrmZkEnvelope({
+      context,
+      configuration,
+      ownerSigningKey,
+      payload: {},
+    });
+    let decrypted: Awaited<ReturnType<typeof decryptCrmZkPartnerResponse>>;
+    try {
+      const response = await ConnectedSystemsService.readCrmZkRecord({
+        vaultOwnerToken,
+        systemId: selectedSystem.systemId,
+        encryptedFields: envelope,
+      });
+      decrypted = await decryptCrmZkPartnerResponse({
+        context,
+        configuration,
+        response: response.encryptedFields as CrmZkPartnerResponseEnvelope,
+      });
+    } finally {
+      discardCrmZkEphemeralKey(context.contextId);
+    }
+    const rawFields =
+      decrypted.fields && typeof decrypted.fields === "object" && !Array.isArray(decrypted.fields)
+        ? (decrypted.fields as Record<string, unknown>)
+        : decrypted.record && typeof decrypted.record === "object" && !Array.isArray(decrypted.record)
+          ? (decrypted.record as Record<string, unknown>)
+          : {};
+    const allowed = new Set(context.fieldNames);
+    const fields = Object.fromEntries(
+      Object.entries(rawFields).filter(([name, value]) =>
+        allowed.has(name) && (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null)
+      )
+    ) as ConnectedSystemMcpResponse["records"] extends Array<infer RecordType>
+      ? RecordType extends { fields: infer FieldType } ? FieldType : never
+      : never;
+    return {
+      systemId: selectedSystem.systemId,
+      target: selectedSystem.target,
+      objectType: selectedSystem.objectTypeDefault,
+      recordId: currentRecordId || null,
+      resultClass: "succeeded",
+      records: [{ recordId: currentRecordId || null, fields }],
+      bindingStatus: "active",
+      binding: binding || undefined,
+    } satisfies ConnectedSystemMcpResponse;
+  };
+
+  const readCrmZkUatRecord = async (returnFields: string[]) => {
+    if (!selectedSystem || !vaultOwnerToken) {
+      throw new Error("Unlock your vault to read this CRM record privately.");
+    }
+    if (!crmZkReadReady) {
+      throw new Error("This CRM is not ready for its encrypted UAT read.");
+    }
+    const emailField = cleanFieldValue(schema?.profileFieldMappings?.email);
+    const phoneField = cleanFieldValue(schema?.profileFieldMappings?.phone);
+    const email = cleanFieldValue(profile?.email);
+    const phone = cleanFieldValue(profile?.phone);
+    if (!emailField || !phoneField || !email || !phone) {
+      throw new Error("Verified email and phone are required for the encrypted CRM lookup.");
+    }
+    const configuration = await ConnectedSystemsService.getCrmZkUatConfiguration({
+      vaultOwnerToken,
+      systemId: selectedSystem.systemId,
+    });
+    const envelope = await createCrmZkUatEnvelope({
+      configuration,
+      direction: "read_request",
+      payload: { searchFields: { [emailField]: email, [phoneField]: phone } },
+    });
+    let response: Awaited<ReturnType<typeof ConnectedSystemsService.searchCrmZkUatRecord>>;
+    let decrypted: Awaited<ReturnType<typeof decryptCrmZkUatReadResponse>>;
+    try {
+      response = await ConnectedSystemsService.searchCrmZkUatRecord({
+        vaultOwnerToken,
+        systemId: selectedSystem.systemId,
+        objectType: selectedSystem.objectTypeDefault,
+        returnFields,
+        encryptedFields: envelope,
+      });
+      decrypted = await decryptCrmZkUatReadResponse({
+        configuration,
+        response: response.encryptedFields,
+      });
+    } finally {
+      discardCrmZkUatEphemeralKey(envelope.clientOperationId);
+    }
+    const allowed = new Set(returnFields);
+    const fields = Object.fromEntries(
+      Object.entries(decrypted.returnFields).filter(([name, value]) =>
+        allowed.has(name) &&
+        (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null)
+      ),
+    ) as Record<string, string | number | boolean | null>;
+    return {
+      systemId: response.systemId,
+      target: selectedSystem.target,
+      objectType: response.objectType,
+      recordId: response.recordId || null,
+      resultClass: response.status === "failed" ? "failed" : "succeeded",
+      records: response.totalSize === 1
+        ? [{ recordId: response.recordId || null, fields }]
+        : [],
+      bindingStatus: response.bindingStatus,
+      binding: response.binding || undefined,
+    } satisfies ConnectedSystemMcpResponse;
+  };
+
   const readRecord = async (
     options: {
       silent?: boolean;
@@ -1088,15 +1273,19 @@ export function ConnectedSystemsPanel({
           objectType: selectedSystem?.objectTypeDefault,
           returnFields,
         };
-        const nextResult = options.bindSearch
-          ? await ConnectedSystemsService.searchRecord(
+        const nextResult = crmZkUatEnabled
+          ? await readCrmZkUatRecord(returnFields)
+          : options.bindSearch
+            ? await ConnectedSystemsService.searchRecord(
               vaultOwnerToken || "",
               payload,
             )
-          : await ConnectedSystemsService.readRecord(
-              vaultOwnerToken || "",
-              payload,
-            );
+          : crmZkFullEnabled
+            ? await readBoundCrmZkRecord(returnFields)
+            : await ConnectedSystemsService.readRecord(
+                vaultOwnerToken || "",
+                payload,
+              );
         if (completedReadKey) setReadResolvedKey(completedReadKey);
         return nextResult;
       },
@@ -1321,6 +1510,104 @@ export function ConnectedSystemsPanel({
         error: `${customerName} record could not be updated.`,
       },
       async () => {
+        if (crmZkUatEnabled) {
+          if (!selectedSystem || !vaultOwnerToken) {
+            throw new Error("Unlock your vault to approve this encrypted CRM update.");
+          }
+          if (!crmZkUpdateReady) {
+            throw new Error("This CRM is not ready for its encrypted UAT update.");
+          }
+          const configuration = await ConnectedSystemsService.getCrmZkUatConfiguration({
+            vaultOwnerToken,
+            systemId: selectedSystem.systemId,
+          });
+          const envelope = await createCrmZkUatEnvelope({
+            configuration,
+            direction: "update_request",
+            payload: { additionalFields: review.recordFields },
+          });
+          preparedIntent = await ConnectedSystemsService.createCrmZkUatUpdateIntent({
+            vaultOwnerToken,
+            systemId: selectedSystem.systemId,
+            objectType: selectedSystem.objectTypeDefault,
+            fieldNames: Object.keys(review.recordFields),
+            encryptedFields: envelope,
+          });
+          return ConnectedSystemsService.approveCrmZkUatIntent({
+            vaultOwnerToken,
+            systemId: selectedSystem.systemId,
+            intentId: preparedIntent.intentId,
+          });
+        }
+        if (crmZkFullEnabled) {
+          if (!selectedSystem || !cacheUserId || !vaultKey || !vaultOwnerToken) {
+            throw new Error("Unlock your vault to approve this private CRM update.");
+          }
+          if (!crmZkUpdateReady) {
+            throw new Error("This CRM is not ready for its required private update protocol.");
+          }
+          const [configuration, context] = await Promise.all([
+            ConnectedSystemsService.getCrmZkConfiguration({
+              vaultOwnerToken,
+              systemId: selectedSystem.systemId,
+            }),
+            ConnectedSystemsService.prepareCrmZkContext({
+              vaultOwnerToken,
+              systemId: selectedSystem.systemId,
+              operation: "update",
+              objectType: selectedSystem.objectTypeDefault,
+              fieldNames: Object.keys(review.recordFields),
+            }),
+          ]);
+          const ownerSigningKey = await ensureCrmZkOwnerSigningKey({
+            userId: cacheUserId,
+            vaultKey,
+            vaultOwnerToken,
+            systemId: selectedSystem.systemId,
+          });
+          const envelope = await createCrmZkEnvelope({
+            context,
+            configuration,
+            ownerSigningKey,
+            payload: review.recordFields,
+          });
+          try {
+            preparedIntent = await ConnectedSystemsService.createCrmZkUpdateIntent({
+              vaultOwnerToken,
+              systemId: selectedSystem.systemId,
+              encryptedFields: envelope,
+            });
+            const challenge = await ConnectedSystemsService.createCrmZkApprovalChallenge({
+              vaultOwnerToken,
+              systemId: selectedSystem.systemId,
+              intentId: preparedIntent.intentId,
+            });
+            const approvalProof = await signCrmZkApproval({
+              ownerSigningKey,
+              intentId: challenge.intentId,
+              envelopeDigest: challenge.envelopeDigest,
+              challengeId: challenge.challengeId,
+              nonce: challenge.nonce,
+              expiresAtMs: challenge.expiresAtMs,
+            });
+            const approved = await ConnectedSystemsService.approveCrmZkIntent({
+              vaultOwnerToken,
+              systemId: selectedSystem.systemId,
+              intentId: preparedIntent.intentId,
+              approvalProof,
+            });
+            if (approved.encryptedResponse) {
+              await decryptCrmZkPartnerResponse({
+                context,
+                configuration,
+                response: approved.encryptedResponse as CrmZkPartnerResponseEnvelope,
+              });
+            }
+            return approved;
+          } finally {
+            discardCrmZkEphemeralKey(context.contextId);
+          }
+        }
         preparedIntent = await ConnectedSystemsService.updateRecordIntent(
           vaultOwnerToken || "",
           {
@@ -1348,10 +1635,12 @@ export function ConnectedSystemsPanel({
       return;
     }
     setPendingUpdateReview(null);
-    setCrmBaselineValues((current) => ({
-      ...current,
-      ...review.recordFields,
-    }));
+    if (!crmZkUatEnabled) {
+      setCrmBaselineValues((current) => ({
+        ...current,
+        ...review.recordFields,
+      }));
+    }
     void readRecord({ silent: true });
   };
 
@@ -1699,11 +1988,13 @@ export function ConnectedSystemsPanel({
                 "CRM system";
               const availability = registryAvailabilityLabel(system);
               const rowState =
-                availability !== "Available"
-                  ? "Temporarily unavailable"
-                  : boundSystemIds.has(system.systemId)
-                    ? "Connected"
-                    : "Set up";
+                availability === "Needs setup"
+                  ? "Needs setup"
+                  : availability !== "Available"
+                    ? "Temporarily unavailable"
+                    : boundSystemIds.has(system.systemId)
+                      ? "Connected"
+                      : "Set up";
               return (
                 <SettingsRow
                   key={system.systemId}
@@ -1755,7 +2046,11 @@ export function ConnectedSystemsPanel({
       {isRecordStateLoading ? (
         <span
           role="status"
-          aria-label="Checking saved CRM record"
+          aria-label={
+            isSchemaPreparationPending
+              ? "Preparing your CRM profile"
+              : "Checking saved CRM record"
+          }
           className="flex justify-center py-2 text-muted-foreground"
         >
           <Icon icon={RefreshCw} size="sm" className="animate-spin" />
@@ -2082,10 +2377,10 @@ export function ConnectedSystemsPanel({
             aria-label="Changes to apply"
             className="min-h-0 max-h-[min(46dvh,30rem)] overflow-y-auto overscroll-contain border-y border-[color:var(--app-card-border-standard)]"
           >
-            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 bg-muted/45 px-5 py-2 text-[11px] font-semibold tracking-[0.16em] text-muted-foreground sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)] sm:px-6">
-              <span>FIELD</span>
-              <span className="hidden sm:block">CURRENT VALUE</span>
-              <span>UPDATED VALUE</span>
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 bg-muted/45 px-5 py-2 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)] sm:px-6">
+              <span>Field</span>
+              <span className="hidden sm:block">Current value</span>
+              <span>Updated value</span>
             </div>
             <dl className="divide-y divide-[color:var(--app-card-border-standard)]">
               {pendingUpdateReview?.fields.map((field) => (

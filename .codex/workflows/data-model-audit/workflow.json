@@ -1,7 +1,7 @@
 {
   "id": "data-model-audit",
   "title": "Data Model Audit",
-  "goal": "Verify runtime DB table families, migration-created tables, data classes, retention posture, access paths, and legacy memory write drift before data-model work is treated as production-ready.",
+  "goal": "Verify runtime DB table families and device-local SQLite mapping/index planes, including data classes, rebuildability, retention, access paths, and legacy memory write drift, before data-model work is treated as production-ready.",
   "owner_skill": "repo-context",
   "default_spoke": null,
   "task_type": "data-model-audit",
@@ -43,12 +43,14 @@
   },
   "deliverables": [
     "table-family classification report",
+    "device-local SQLite authority and rebuildability classification",
     "unclassified-table and legacy-write findings",
     "data-plane docs or contract updates",
     "verification summary"
   ],
   "impact_fields": [
     "Tables or migrations touched",
+    "Device-local SQLite mapping/index state touched",
     "Data classes changed",
     "Retention or deletion behavior changed",
     "Legacy memory write posture",
@@ -68,6 +70,7 @@
     "using vault_keys as a generic user parent for non-vault tables",
     "reintroducing legacy world-model or pkm_data writes",
     "treating provider caches as durable PKM memory",
+    "treating a rebuildable SQLite mapping/index as provider-blob or PKM authority",
     "adding indexes or retention policy without a real access path"
   ]
 }

@@ -286,7 +286,12 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
                             "decision_type": "BUY",
                             "confidence": 0.91,
                             "created_at": "2026-03-27T12:00:00Z",
-                            "metadata": {"source": "analysis_history"},
+                            "metadata": {
+                                "source": "analysis_history",
+                                "final_statement": "MODEL PROSE MUST NOT ENTER EVENTS",
+                                "agent_votes": {"analyst": "BUY"},
+                                "raw_card": {"private": "source artifact"},
+                            },
                         }
                     ]
                 },
@@ -345,6 +350,9 @@ async def test_store_domain_data_writes_per_domain_blob_manifest_and_events(monk
     assert "friendly_domain_name" not in str(event_rows[0]["metadata"])
     assert event_rows[2]["metadata"]["projection_mode"] == "replace_all"
     assert event_rows[2]["metadata"]["decisions"][0]["ticker"] == "AAPL"
+    assert "MODEL PROSE MUST NOT ENTER EVENTS" not in json.dumps(event_rows[2]["metadata"])
+    assert "agent_votes" not in json.dumps(event_rows[2]["metadata"])
+    assert "raw_card" not in json.dumps(event_rows[2]["metadata"])
 
 
 @pytest.mark.asyncio
@@ -649,6 +657,32 @@ async def test_mutation_sharing_impact_reports_only_matching_active_recipients(m
             "export_global",
             "export_portfolio",
         ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_source_library_mutation_has_no_external_sharing_impact(monkeypatch):
+    service = PersonalKnowledgeModelService()
+
+    class _UnexpectedConsentDBService:
+        def __init__(self):
+            raise AssertionError("private Source Library mutations must not inspect grants")
+
+    monkeypatch.setattr(consent_db_module, "ConsentDBService", _UnexpectedConsentDBService)
+
+    impact = await service.get_mutation_sharing_impact(
+        user_id="user-source",
+        domain="source_library",
+        scope_path="knowledge",
+    )
+
+    assert impact == {
+        "active_recipient_count": 0,
+        "recipient_labels": [],
+        "enters_next_export_revision": False,
+        "summary": "No active recipients are affected.",
+        "affected_grant_ids": [],
+        "affected_export_ids": [],
     }
 
 

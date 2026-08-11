@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 
 import pytest
@@ -71,6 +72,7 @@ def _operation_rows() -> list[dict]:
             "crm_id": "salesforce-fsc-customer0",
             "operation": "read",
             "tool_name": "read-crm-record",
+            "crm_zk_uat_tool_name": "read-crm-record-zk-uat",
             "http_method": None,
             "path": None,
             "description": "Read by email/phone.",
@@ -89,6 +91,7 @@ def _operation_rows() -> list[dict]:
             "crm_id": "salesforce-fsc-customer0",
             "operation": "update",
             "tool_name": "update-crm-record",
+            "crm_zk_uat_tool_name": "update-crm-record-zk-uat",
             "http_method": None,
             "path": None,
             "description": "Update by id.",
@@ -258,8 +261,8 @@ def test_pbkdf2_row_missing_kdf_params_raises_configuration_error(monkeypatch):
         crm_registry_repo.load_active_definition("salesforce-fsc-customer0", db=db)
 
 
-def test_bearer_row_passes_tool_args_without_decrypt(monkeypatch):
-    """MuleSoft-owned Bearer rows pass client id/secret row values to the MCP tool."""
+def test_bearer_row_passes_connector_ref_without_decrypt(monkeypatch):
+    """MuleSoft-owned Bearer rows never pass CRM config or OAuth values to a tool."""
     row = _pbkdf2_row()
     row["crm_id"] = "crm_001"
     row["crm_enterprise_name"] = "Macys"
@@ -268,6 +271,7 @@ def test_bearer_row_passes_tool_args_without_decrypt(monkeypatch):
     row["crm_client_secret_ciphertext"] = "encrypted-salesforce-client-secret"
     row["crm_client_id_blob"] = None
     row["crm_client_secret_blob"] = None
+    row["mulesoft_connector_ref"] = "mulesoft:crm-sandbox-contact"
     db = _FakeDb([row], [])
     monkeypatch.setattr(
         crm_registry_repo,
@@ -285,14 +289,59 @@ def test_bearer_row_passes_tool_args_without_decrypt(monkeypatch):
         ("client_secret", "gateway-secret"),
     )
     assert definition.transport_tool_arguments == {
-        "target": "Macys",
-        "crmBaseUrl": row["crm_base_url"],
-        "crmMcpEndpoint": row["crm_mcp_endpoint"],
-        "clientId": "plain-salesforce-client-id",
-        "clientSecret": "encrypted-salesforce-client-secret",
-        "crmTokenUrl": "",
-        "objectType": "Contact",
+        "connectorRef": "mulesoft:crm-sandbox-contact",
     }
+
+
+def test_bearer_row_without_connector_ref_fails_closed(monkeypatch):
+    row = _pbkdf2_row()
+    row["auth_header_style"] = "Bearer"
+    db = _FakeDb([row], [])
+    monkeypatch.setenv("OMNIGATEWAY_CLIENT_ID", "gateway-client")
+    monkeypatch.setenv("OMNIGATEWAY_CLIENT_SECRET", "gateway-secret")
+
+    with pytest.raises(ConnectedSystemConfigurationError, match="mulesoft_connector_ref"):
+        crm_registry_repo.load_active_definition("salesforce-fsc-customer0", db=db)
+
+
+def test_uat_bearer_row_uses_pinned_key_without_connector_ref(monkeypatch):
+    row = _pbkdf2_row()
+    row["auth_header_style"] = "Bearer"
+    row["crm_zk_uat_v1_enabled"] = True
+    row["crm_zk_v1_enabled"] = False
+    row["mulesoft_connector_ref"] = None
+    key = {
+        "key_id": "mulesoft-uat-static-1",
+        "public_key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=",
+        "public_key_fingerprint": f"sha256:{hashlib.sha256(bytes([2]) * 32).hexdigest()}",
+        "environment": "sandbox",
+        "status": "active",
+    }
+
+    class UatDb(_FakeDb):
+        def execute_raw(self, sql, params=None):
+            self.queries.append((sql, params))
+            if "crm_zk_uat_recipient_keys" in sql:
+                return _FakeQueryResult([key])
+            if "crm_operation_endpoints" in sql:
+                return _FakeQueryResult(list(self._operation_rows))
+            return _FakeQueryResult(list(self._registry_rows))
+
+    monkeypatch.setenv("OMNIGATEWAY_CLIENT_ID", "gateway-client")
+    monkeypatch.setenv("OMNIGATEWAY_CLIENT_SECRET", "gateway-secret")
+    definition = crm_registry_repo.load_active_definition(
+        "salesforce-fsc-customer0", db=UatDb([row], _operation_rows())
+    )
+
+    assert definition is not None
+    assert definition.crm_zk_uat_v1_enabled is True
+    assert definition.crm_zk_uat_recipient_key == {
+        "keyId": key["key_id"],
+        "publicKey": key["public_key"],
+        "publicKeyFingerprint": key["public_key_fingerprint"],
+        "environment": "sandbox",
+    }
+    assert definition.transport_tool_arguments is None
 
 
 def test_load_active_definitions_lists_all_active_rows_without_decrypt(monkeypatch):

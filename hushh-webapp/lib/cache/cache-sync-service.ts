@@ -12,6 +12,11 @@ import {
   clearAllLocationWorkspaceMemory,
   clearLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
+import {
+  clearAllOneLocationControlRuntime,
+  clearOneLocationControlRuntime,
+  forgetOneLocationControlPreference,
+} from "@/lib/one-location/location-control-state";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 
 type DomainSummaryPatch = Record<string, unknown>;
@@ -123,17 +128,19 @@ function sanitizeDomainSummary(
   return sanitized;
 }
 
-function isFullFinancialDomain(value: unknown): value is Record<string, unknown> {
+function isFullFinancialDomain(
+  value: unknown,
+): value is Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
   const domain = value as Record<string, unknown>;
   return Boolean(
     domain.portfolio ||
-      domain.documents ||
-      domain.sources ||
-      domain.schema_version ||
-      domain.domain_intent,
+    domain.documents ||
+    domain.sources ||
+    domain.schema_version ||
+    domain.domain_intent,
   );
 }
 
@@ -441,7 +448,13 @@ export class CacheSyncService {
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("pkm-domain-changed", {
-          detail: { userId, domain, dataVersion: null, updatedAt: null, operation: "cleared" },
+          detail: {
+            userId,
+            domain,
+            dataVersion: null,
+            updatedAt: null,
+            operation: "cleared",
+          },
         }),
       );
     }
@@ -476,7 +489,13 @@ export class CacheSyncService {
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("pkm-domain-changed", {
-          detail: { userId, domain, dataVersion: null, updatedAt: null, operation: "restored" },
+          detail: {
+            userId,
+            domain,
+            dataVersion: null,
+            updatedAt: null,
+            operation: "restored",
+          },
         }),
       );
     }
@@ -528,6 +547,7 @@ export class CacheSyncService {
     // server snapshot after the vault security boundary changes.
     OneLocationStateResource.invalidate(userId);
     clearLocationWorkspaceMemory(userId);
+    clearOneLocationControlRuntime(userId);
     if (typeof options?.hasVault === "boolean") {
       cache.set(
         CACHE_KEYS.VAULT_CHECK(userId),
@@ -593,6 +613,22 @@ export class CacheSyncService {
   }
 
   /**
+   * One-to-One requests can add, revoke, or leave capabilities unchanged.
+   * Keep every affected surface on the same invalidation contract rather than
+   * letting each request UI guess which RIA/Market resources it owns.
+   */
+  static onConnectionCapabilityMutated(userId: string): void {
+    this.onConsentMutated(userId);
+    // Accepting or declining a request also settles the incoming-request list,
+    // which is a connections cache rather than a consent one and so survives
+    // the cascade above. Left stale, the request the user just answered keeps
+    // rendering as still-pending until its TTL lapses.
+    CacheService.getInstance().invalidate(
+      CACHE_KEYS.CONNECTIONS_INCOMING(userId),
+    );
+  }
+
+  /**
    * Clear the persistent RIA tiers (IndexedDB device cache + native Preferences
    * hint) alongside the in-memory invalidations. Required now that the RIA
    * onboarding status is cached with SESSION (30m) TTL — otherwise a persona
@@ -606,9 +642,10 @@ export class CacheSyncService {
     // fetch dispatched before this clear has its write-back dropped (prevents a
     // stale exists:true from repopulating the persistent tiers after a delete).
     bumpRiaInvalidationEpoch(userId);
-    void DeviceResourceCacheService.invalidateResourcePrefix(userId, "ria:").catch(
-      () => undefined,
-    );
+    void DeviceResourceCacheService.invalidateResourcePrefix(
+      userId,
+      "ria:",
+    ).catch(() => undefined);
     void RiaOnboardingStatusLocalService.clear(userId).catch(() => undefined);
   }
 
@@ -708,19 +745,22 @@ export class CacheSyncService {
     if (userId) {
       OneLocationStateResource.invalidate(userId);
       clearLocationWorkspaceMemory(userId);
+      clearOneLocationControlRuntime(userId);
       cache.invalidateUser(userId);
       void import("@/lib/services/connected-systems-resource-service")
         .then(({ ConnectedSystemsResourceService }) =>
-          ConnectedSystemsResourceService.purgeUser(userId)
+          ConnectedSystemsResourceService.purgeUser(userId),
         )
         .catch(() => undefined);
       return;
     }
     clearAllLocationWorkspaceMemory();
+    clearAllOneLocationControlRuntime();
     cache.clear();
   }
 
   static onAccountDeleted(userId?: string | null): void {
     this.onAuthSignedOut(userId ?? null);
+    if (userId) forgetOneLocationControlPreference(userId);
   }
 }

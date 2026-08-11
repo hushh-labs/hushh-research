@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-07-19",
-  "total_routes": 103,
-  "native_required_routes": 93,
+  "generated_at": "2026-08-02",
+  "total_routes": 111,
+  "native_required_routes": 97,
   "excluded_routes": 10,
   "routes": [
     {
@@ -569,6 +569,20 @@
       ]
     },
     {
+      "route": "/one/location/check-in",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Flocation%2Fcheck-in",
+      "expectedMarker": "native-route-one-location-check-in",
+      "expectedRoute": "/one/location/check-in",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
       "route": "/one/profile",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile",
@@ -646,6 +660,18 @@
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fdevice",
       "expectedMarker": "native-route-profile",
       "expectedRoute": "/one/profile/preferences/device",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
+    },
+    {
+      "route": "/one/profile/preferences/gemini",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fgemini",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/preferences/gemini",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -917,6 +943,20 @@
       ]
     },
     {
+      "route": "/one/wallet-card",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fwallet-card",
+      "expectedMarker": "native-route-one-wallet-card",
+      "expectedRoute": "/one/wallet-card",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
       "route": "/connected-systems",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fconnected-systems",
@@ -1050,6 +1090,18 @@
       "allowedDataStates": [
         "loaded",
         "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/ria/claim",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fria%2Fclaim",
+      "expectedMarker": "native-route-ria-claim",
+      "expectedRoute": "/ria/claim",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
       ]
     },
     {
@@ -1236,6 +1288,22 @@
     },
     {
       "route": "/one/profile/pkm-agent-lab",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/one/calendar",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/one/setup/calendar",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/one/profile/google/oauth/return",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/one/profile/integrations",
       "classification": "excluded-web-only"
     }
   ]

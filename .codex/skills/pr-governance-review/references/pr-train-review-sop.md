@@ -42,10 +42,10 @@ integration/pr-train -> main promotion PR
 exact green main SHA -> UAT/production deploy
 ```
 
-`main` is the stable promotion lane, not the normal feature landing lane.
-Direct feature, contributor, or agent PRs into `main` stay blocked unless they
-are explicitly approved emergency hotfixes. Retarget first, then trust checks
-from the `integration/pr-train` base.
+`main` is the stable promotion lane. Governed maintainers shipping their own
+branches cut from `origin/main` may open directly into `main`; non-maintainer
+feature, contributor, or agent PRs use `integration/pr-train`. Apply the actor
+lane in `config/ci-governance.json` before retargeting or queue action.
 
 ## Async Train Default / Async Subagent Train Default
 

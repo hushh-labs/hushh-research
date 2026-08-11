@@ -48,6 +48,8 @@ import {
 } from "@/lib/cache/cache-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { DataTable } from "@/components/app-ui/data-table";
@@ -413,6 +415,9 @@ export function DashboardMasterView({
     activePortfolio,
     freshness,
     isPlaidRefreshing,
+    isChangingSource,
+    isChangingStatementSnapshot,
+    canChangePortfolioSource,
     changeActiveSource,
     changeActiveStatementSnapshot,
     deleteStatementSnapshot,
@@ -715,12 +720,13 @@ export function DashboardMasterView({
 
   const handleSourceChange = useCallback(
     (nextSource: PortfolioSource) => {
-      void changeActiveSource(nextSource).catch((error) => {
-        toast.error("Could not switch portfolio source.", {
-          description:
-            error instanceof Error ? error.message : "Please try again.",
-        });
+      const operation = changeActiveSource(nextSource);
+      void morphyToast.promise(operation, {
+        loading: "Changing active portfolio…",
+        success: "Active portfolio updated.",
+        error: "Could not update the active portfolio. Please try again.",
       });
+      return operation;
     },
     [changeActiveSource],
   );
@@ -794,12 +800,13 @@ export function DashboardMasterView({
 
   const handleStatementSnapshotChange = useCallback(
     (snapshotId: string) => {
-      void changeActiveStatementSnapshot(snapshotId).catch((error) => {
-        toast.error("Could not switch statements.", {
-          description:
-            error instanceof Error ? error.message : "Please try again.",
-        });
+      const operation = changeActiveStatementSnapshot(snapshotId);
+      void morphyToast.promise(operation, {
+        loading: "Changing saved statement…",
+        success: "Saved statement updated.",
+        error: "Could not update the saved statement. Please try again.",
       });
+      return operation;
     },
     [changeActiveStatementSnapshot],
   );
@@ -2082,6 +2089,15 @@ export function DashboardMasterView({
       purpose:
         "This screen is the holdings workspace for source switching, portfolio context, and optimization.",
       primaryEntity: sourceDisplayLabel,
+      // `primary_entity` is redacted at the trust boundary because several
+      // surfaces fill it with a person's name or email, so One knew it was on
+      // Portfolio but could not say which one. This names the screen's subject
+      // explicitly: the source label is a fixed "Statement" | "Plaid" literal,
+      // never an institution or account identifier, so it is safe to say out
+      // loud. Holdings and values deliberately stay behind the boundary.
+      spokenSubject: displayedPortfolio
+        ? `Portfolio, ${sourceDisplayLabel} source`
+        : "Portfolio setup",
       sections,
       actions,
       controls,
@@ -2103,6 +2119,8 @@ export function DashboardMasterView({
       lastInteractedControlId: lastVoiceControlId,
       busyOperations: [
         ...(isSourcesLoading ? ["portfolio_sources_load"] : []),
+        ...(isChangingSource ? ["portfolio_source_change"] : []),
+        ...(isChangingStatementSnapshot ? ["portfolio_statement_change"] : []),
         ...(isPlaidRefreshing ? ["plaid_refresh"] : []),
         ...(isLinkingPlaid ? ["plaid_link"] : []),
         ...(isSavingHoldings ? ["holdings_save"] : []),
@@ -2140,6 +2158,8 @@ export function DashboardMasterView({
     hasPlaidConnections,
     isDeletingImportedData,
     isDeletingStatementSnapshot,
+    isChangingSource,
+    isChangingStatementSnapshot,
     isLinkingPlaid,
     isPlaidView,
     isPlaidRefreshing,
@@ -2349,13 +2369,10 @@ export function DashboardMasterView({
           <SurfaceCard tone="feature" data-testid="portfolio-value-card">
             <SurfaceCardContent className="relative space-y-4 p-5 sm:p-6">
               <div className="absolute right-4 top-4">
-                <MorphyButton
-                  variant="none"
-                  effect="fade"
-                  size="sm"
+                <ShellActionSurface
+                  variant="icon"
                   onClick={() => void handleSharePortfolioPdf()}
                   disabled={!hasShareablePortfolioData || isSharingPortfolioPdf}
-                  className="h-10 w-10 rounded-full border border-transparent bg-[var(--app-card-surface-compact)] p-0 text-foreground shadow-[var(--shadow-xs)] hover:bg-[var(--app-card-surface-default)]"
                   aria-label="Share portfolio PDF"
                   data-voice-control-id="share_portfolio_pdf"
                 >
@@ -2364,7 +2381,7 @@ export function DashboardMasterView({
                   ) : (
                     <Share2 className="h-4 w-4" />
                   )}
-                </MorphyButton>
+                </ShellActionSurface>
               </div>
               <div className="pr-12">
                 <p className="text-xs font-medium text-muted-foreground">
@@ -2495,13 +2512,10 @@ export function DashboardMasterView({
                 : "Choose and manage the active portfolio source."
         }
         actions={
-          <MorphyButton
-            variant="none"
-            effect="fade"
-            size="sm"
+          <ShellActionSurface
+            variant="icon"
             onClick={() => void handleSharePortfolioPdf()}
             disabled={!hasShareablePortfolioData || isSharingPortfolioPdf}
-            className="h-10 w-10 rounded-full border border-transparent bg-[var(--app-card-surface-compact)] p-0 text-foreground shadow-[var(--shadow-xs)] hover:bg-[var(--app-card-surface-default)]"
             aria-label="Share portfolio PDF"
             title={
               hasShareablePortfolioData
@@ -2515,7 +2529,7 @@ export function DashboardMasterView({
             ) : (
               <Share2 className="h-4 w-4" />
             )}
-          </MorphyButton>
+          </ShellActionSurface>
         }
         actionsInlineMobile
       />
@@ -2549,6 +2563,9 @@ export function DashboardMasterView({
                 ? () => setDeleteImportedDialogOpen(true)
                 : undefined
             }
+            canChangePortfolioSource={canChangePortfolioSource}
+            isChangingSource={isChangingSource}
+            isChangingStatementSnapshot={isChangingStatementSnapshot}
             isRefreshing={isPlaidRefreshing || isLinkingPlaid}
             isDeletingPortfolio={isDeletingImportedData}
             isDeletingStatementSnapshot={isDeletingStatementSnapshot}

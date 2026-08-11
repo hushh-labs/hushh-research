@@ -284,7 +284,7 @@ async def lookup_user(
     if not required_token:
         raise HTTPException(status_code=503, detail="Lookup endpoint not configured")
     if not x_mcp_developer_token or not hmac.compare_digest(x_mcp_developer_token, required_token):
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     try:
         lookup_kind, lookup_value = resolve_lookup_identifier(

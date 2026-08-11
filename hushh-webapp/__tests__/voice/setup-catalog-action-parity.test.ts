@@ -1,5 +1,6 @@
 import gateway from "@/contracts/kai/kai-action-gateway.vnext.json";
 import gmailSetupContract from "@/app/one/setup/gmail/page.voice-action-contract.json";
+import calendarSetupContract from "@/app/one/setup/calendar/page.voice-action-contract.json";
 import hubContract from "@/components/onboarding/setup/one-setup-hub.voice-action-contract.json";
 import routeLayoutContract from "@/lib/navigation/app-route-layout.contract.json";
 import {
@@ -21,17 +22,20 @@ describe("setup catalog voice parity", () => {
 
     expect(ONE_SETUP_CAPABILITY_IDS).toEqual([
       "gmail",
+      "calendar",
       "location",
       "email",
       "finance",
       "ria",
       "connected-systems",
     ]);
-    expect(ONE_SETUP_CAPABILITIES).toHaveLength(5);
+    expect(ONE_SETUP_CAPABILITIES).toHaveLength(7);
     expect(ROUTE_SETUP_CAPABILITY_IDS).toBe(ONE_SETUP_CAPABILITY_IDS);
     expect(
       CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ).toEqual([
+      "Connect Gmail",
+      "Connect your calendar",
       "Set up location",
       "KYC",
       "Set up your finances",
@@ -43,7 +47,7 @@ describe("setup catalog voice parity", () => {
         .filter((action) => action.action_id.startsWith("setup.open_"))
         .map((action) => action.label),
     ).toEqual([
-      "Set up Connections",
+      "Set up AI access",
       ...CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ]);
     expect(actions.get("setup.open_connections")?.execution_target).toMatchObject({
@@ -86,18 +90,21 @@ describe("setup catalog voice parity", () => {
       "setup.hub_master_ack",
     ]);
 
-    expect(
-      hubContract.actions.some(
-        (action) => action.action_id === "setup.open_gmail",
-      ),
-    ).toBe(false);
-    // Gmail remains a direct-route contract for existing connected people, but
-    // the paused capability is deliberately absent from the setup-hub actions.
-    const connectAction = gmailSetupContract.actions.find(
+    const gmailConnectAction = gmailSetupContract.actions.find(
       (action) => action.action_id === "setup.connect_gmail",
     );
-    expect(connectAction?.reachability.routes).toEqual(["/one/setup/gmail"]);
-    expect(connectAction?.execution_target).toMatchObject({
+    expect(gmailConnectAction?.reachability.routes).toEqual(["/one/setup/gmail"]);
+    expect(gmailConnectAction?.execution_target).toMatchObject({
+      status: "wired",
+      path: "local_handler",
+    });
+    const calendarConnectAction = calendarSetupContract.actions.find(
+      (action) => action.action_id === "setup.connect_calendar",
+    );
+    expect(calendarConnectAction?.reachability.routes).toEqual([
+      "/one/setup/calendar",
+    ]);
+    expect(calendarConnectAction?.execution_target).toMatchObject({
       status: "wired",
       path: "local_handler",
     });

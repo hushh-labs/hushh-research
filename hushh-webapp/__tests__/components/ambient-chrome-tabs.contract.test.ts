@@ -26,10 +26,12 @@ describe("tabbed ambient chrome contract", () => {
     expect(styles).toContain("--ambient-chrome-top-solid-height");
     expect(styles).toContain("var(--top-chrome-collapse-px, 0px)");
     expect(styles).toContain("--ambient-chrome-top-visible-height");
-    expect(styles).toContain("--ambient-chrome-wash: 94%");
+    expect(styles).toContain(
+      "--ambient-chrome-wash: var(--ambient-chrome-fade-solid)",
+    );
     expect(styles).toContain("var(--top-fade-active)");
     expect(providers).toContain(
-      '"--top-fade-active": topShellMetrics.hasTabs ? "12px" : "14px"',
+      '"--top-fade-active": topShellMetrics.hasTabs ? "20px" : "22px"',
     );
     expect(providers).toContain('"--top-ambient-tab-tail-midpoint": "8px"');
     expect(styles).not.toContain(
@@ -80,18 +82,15 @@ describe("tabbed ambient chrome contract", () => {
       "backdrop-filter: var(--ambient-chrome-backdrop-filter)",
     );
     expect(styles).toContain(".ambient-chrome-mask--bottom");
-    expect(styles).toContain(
-      "color-mix(in srgb, var(--ambient-chrome-bg) 91%, transparent) 16%",
-    );
-    expect(styles).toContain(
-      "color-mix(in srgb, var(--ambient-chrome-bg) 38%, transparent) 64%",
-    );
+    expect(styles).toContain("--ambient-chrome-fade-solid: 94%");
+    expect(styles).toContain("--ambient-chrome-fade-dense: 91%");
+    expect(styles).toContain("--ambient-chrome-fade-mid: 72%");
+    expect(styles).toContain("--ambient-chrome-fade-soft: 38%");
+    expect(styles).toContain("--ambient-chrome-fade-trace: 12%");
     expect(styles).toContain(".ambient-chrome-mask--bottom");
-    expect(styles).toContain("rgba(0, 0, 0, 0.72) 38%");
-    expect(styles).toContain("rgba(0, 0, 0, 0.97)");
-    expect(styles).toContain("rgba(0, 0, 0, 0.77)");
-    expect(styles).toContain("rgba(0, 0, 0, 0.40)");
-    expect(styles).toContain("rgba(0, 0, 0, 0.13)");
+    expect(styles).toContain("var(--ambient-chrome-fade-mask-mid)");
+    expect(styles).toContain("var(--ambient-chrome-fade-mask-soft)");
+    expect(styles).toContain("var(--ambient-chrome-fade-mask-trace)");
   });
 
   it("drives top-shell collapse directly from the shared scroll progress", () => {

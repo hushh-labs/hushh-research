@@ -1,12 +1,18 @@
 """Privacy-bounded, short-lived nearby check-in presence for One Location.
 
 This operon is deliberately separate from recipient-scoped live-location
-grants. A fresh foreground GPS fix proves that the owner is near a public place
-they selected, but the device point is never persisted. The selected public
-place anchor is encrypted at rest and indexed only by a short-epoch,
-server-keyed spatial token. Candidate tokens are a broad-phase optimization;
-the service decrypts both anchors and performs an exact Haversine check before
-returning a peer or authorizing a Connect request.
+grants. A fresh foreground GPS fix proves that the owner is plausibly at a
+public place they selected, and is then discarded. Only that *place's*
+coordinates are retained, as short-lived authenticated ciphertext indexed by a
+short-epoch, server-keyed spatial token. Candidate tokens are a broad-phase
+optimization; the service decrypts both place anchors and performs an exact
+Haversine check before returning a peer or authorizing a Connect request.
+
+Anchoring on the venue rather than the receiver reading is what lets the same
+500 m guarantee hold on a 10 m native GPS fix and a 2 km browser fix alike:
+co-presence is a property of the places two people chose, not of how well their
+hardware happened to locate them. It also means the owner's true position is
+never persisted in any form.
 
 Postgres is authoritative today. ``NearbyPresenceStore`` is the replaceable
 port for a future Redis/Memorystore active-presence index without changing the
@@ -19,6 +25,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import math
 import os
 import re
@@ -35,25 +42,70 @@ from db.db_client import get_db
 from hushh_mcp.config import VAULT_DATA_KEY
 from hushh_mcp.services.connections_service import ConnectionsService
 
-NEARBY_PRESENCE_CONSENT_VERSION = "one-location-nearby-presence-v1"
+logger = logging.getLogger(__name__)
+
+NEARBY_PRESENCE_CONSENT_VERSION = "one-location-nearby-presence-v3"
 NEARBY_PRESENCE_DURATION_MINUTES = frozenset({30, 60, 120})
 NEARBY_PRESENCE_DEFAULT_DURATION_MINUTES = 60
 NEARBY_PRESENCE_RADIUS_METERS = 500
-NEARBY_PRESENCE_MAX_ACCURACY_METERS = 100.0
+# Co-presence is anchored to the *selected place*, not the reported point, so a
+# coarse fix can no longer smear the geofence. Accuracy is therefore only a
+# plausibility signal: it bounds how far the owner may be from the place they
+# claim. A browser on wifi/IP trilateration routinely reports 1-5 km, which the
+# previous 100 m ceiling rejected outright -- that made the whole flow (places
+# included) unreachable on desktop web and indoors. The ceiling now matches the
+# API contract bound (`accuracyM <= 5000`), and the tolerance below caps how
+# much slack a coarse reading may actually buy.
+NEARBY_PRESENCE_MAX_ACCURACY_METERS = 5_000.0
+NEARBY_PRESENCE_MAX_ACCURACY_TOLERANCE_METERS = 2_000.0
 NEARBY_PRESENCE_MAX_POINT_AGE_SECONDS = 300.0
 NEARBY_PRESENCE_FUTURE_TOLERANCE_SECONDS = 60.0
 NEARBY_PRESENCE_ROSTER_LIMIT = 20
 NEARBY_PRESENCE_CANDIDATE_LIMIT = 240
+
+# The reported point is client-supplied and cannot be attested, so nothing above
+# stops an account from claiming a place on the other side of the world. What
+# *can* be checked is continuity: consecutive check-ins have to be reachable
+# from one another at a speed a person could actually travel. This does not make
+# a single check-in honest -- it makes a roaming attack cost real time, which is
+# the difference between "appear anywhere instantly" and "move like a human".
+# Faster than a commercial jet is treated as impossible.
+NEARBY_PRESENCE_MAX_TRAVEL_SPEED_KMH = 900.0
+# Re-checking in at the same venue, or one next door, must never trip the guard:
+# below this the elapsed time is meaningless and the speed term explodes.
+NEARBY_PRESENCE_TELEPORT_GRACE_METERS = 750.0
+#
+# Still missing before this should reach a general production audience:
+#
+#   * Device attestation (Play Integrity / App Attest) on the check-in write.
+#     This is the only control that makes a *single* check-in trustworthy; the
+#     continuity guard above only makes a *sequence* of them expensive. Needs
+#     native plumbing on both platforms, so it is not a server-side change.
+#   * A daily distinct-place cap. The guard forces an attacker to move at
+#     human speed, but says nothing about how many places they visit over a
+#     day. Enforcing that needs check-in history, and the table keeps one row
+#     per owner -- so it needs a migration, deliberately deferred here.
+#   * Report/block, so a blocked pair can never match into the same roster.
+#
+# Until those exist, production admission is cohort-gated in the route layer.
 
 _CELL_EPOCH_SECONDS = 6 * 60 * 60
 _CELL_TILE_ZOOM = 16
 _MERCATOR_MAX_LATITUDE = 85.05112878
 _EARTH_RADIUS_METERS = 6_371_000.0
 _ANCHOR_ALGORITHM = "aes-256-gcm"
-_ANCHOR_AAD_PREFIX = b"hushh:one-location-nearby-presence:anchor:v1\0"
+_ANCHOR_SCHEMA_VERSION = 3
+# v3 stores the coordinates of the place the owner explicitly selected instead
+# of their captured GPS point. Co-presence becomes exact (two people at the same
+# venue always match, whatever their receiver reported) and the owner's true
+# position is never persisted at all. `_decrypt_anchor` rejects both the old
+# schema version and the old coordinate kind, and `get_state` checks the consent
+# version before it ever decrypts, so v2 rows are checked out rather than read.
+_ANCHOR_COORDINATE_KIND = "selected_place_point_v1"
+_ANCHOR_AAD_PREFIX = b"hushh:one-location-nearby-presence:check-in-point:v2\0"
 _KEY_DERIVATION_SALT = b"hushh:one-location-nearby-presence:kdf:v1"
-_ANCHOR_KEY_INFO = b"hushh:one-location-nearby-presence:anchor-encryption:v1"
-_SPATIAL_CELL_KEY_INFO = b"hushh:one-location-nearby-presence:spatial-cell-token:v1"
+_ANCHOR_KEY_INFO = b"hushh:one-location-nearby-presence:check-in-point-encryption:v2"
+_SPATIAL_CELL_KEY_INFO = b"hushh:one-location-nearby-presence:spatial-cell-token:v2"
 _ROSTER_RANKING_KEY_INFO = b"hushh:one-location-nearby-presence:roster-ranking:v1"
 _DEFAULT_NEARBY_DISPLAY_NAME = "One attendee"
 _PHONE_LIKE_DISPLAY_NAME = re.compile(r"\+?[\d\s().-]{7,}")
@@ -118,11 +170,14 @@ class NearbyPresenceStore(Protocol):
 
     def get_active_presence(self, user_id: str) -> dict[str, Any] | None: ...
 
+    def get_last_presence(self, user_id: str) -> dict[str, Any] | None: ...
+
     def read_active_candidates(
         self,
         *,
         viewer_user_id: str,
         viewer_version: int,
+        consent_version: str,
         cell_epochs: list[int],
         cell_tokens: list[str],
         roster_seed: str,
@@ -134,6 +189,7 @@ class NearbyPresenceStore(Protocol):
         *,
         viewer_user_id: str,
         participant_alias: str,
+        consent_version: str,
     ) -> list[dict[str, Any]]: ...
 
     def checkout(self, user_id: str) -> bool: ...
@@ -309,11 +365,32 @@ class PostgresNearbyPresenceStore:
             {"user_id": user_id},
         )
 
+    def get_last_presence(self, user_id: str) -> dict[str, Any] | None:
+        """The owner's most recent check-in, whatever state it ended in.
+
+        Deliberately not `get_active_presence`: the continuity guard has to see
+        a check-in the owner has already checked out of or let expire, which
+        that query filters away. The table keeps one row per owner, so this is
+        the previous check-in until it is overwritten or `purge_terminal`
+        removes it.
+        """
+
+        return self._execute_one(
+            """
+            SELECT p.*
+            FROM one_location_nearby_presences p
+            WHERE p.owner_user_id = :user_id
+            LIMIT 1
+            """,
+            {"user_id": user_id},
+        )
+
     def read_active_candidates(
         self,
         *,
         viewer_user_id: str,
         viewer_version: int,
+        consent_version: str,
         cell_epochs: list[int],
         cell_tokens: list[str],
         roster_seed: str,
@@ -332,6 +409,7 @@ class PostgresNearbyPresenceStore:
                AND profile.phone_verified = TRUE
               WHERE p.owner_user_id = :viewer_user_id
                 AND p.version = :viewer_version
+                AND p.consent_version = :consent_version
                 AND p.status = 'active'
                 AND p.expires_at > NOW()
               LIMIT 1
@@ -339,6 +417,7 @@ class PostgresNearbyPresenceStore:
             SELECT
               p.owner_user_id,
               p.participant_alias,
+              p.consent_version,
               p.allow_connection_requests,
               p.radius_meters,
               p.anchor_ciphertext,
@@ -382,6 +461,7 @@ class PostgresNearbyPresenceStore:
             JOIN one_location_nearby_presences p
               ON p.owner_user_id <> :viewer_user_id
              AND p.status = 'active'
+             AND p.consent_version = :consent_version
              AND p.expires_at > NOW()
              AND p.anchor_cell_epoch = ANY(:cell_epochs)
              AND p.anchor_cell_token = ANY(:cell_tokens)
@@ -394,6 +474,7 @@ class PostgresNearbyPresenceStore:
             {
                 "viewer_user_id": viewer_user_id,
                 "viewer_version": int(viewer_version),
+                "consent_version": consent_version,
                 "cell_epochs": cell_epochs,
                 "cell_tokens": cell_tokens,
                 "roster_seed": roster_seed,
@@ -409,6 +490,7 @@ class PostgresNearbyPresenceStore:
         *,
         viewer_user_id: str,
         participant_alias: str,
+        consent_version: str,
     ) -> list[dict[str, Any]]:
         self._expire_due()
         return self._execute_many(
@@ -416,6 +498,7 @@ class PostgresNearbyPresenceStore:
             SELECT
               p.owner_user_id,
               p.participant_alias,
+              p.consent_version,
               p.allow_connection_requests,
               p.radius_meters,
               p.anchor_ciphertext,
@@ -432,6 +515,7 @@ class PostgresNearbyPresenceStore:
                 p.owner_user_id = :viewer_user_id
                 OR p.participant_alias = CAST(:participant_alias AS UUID)
               )
+              AND p.consent_version = :consent_version
               AND p.status = 'active'
               AND p.expires_at > NOW()
             ORDER BY p.owner_user_id
@@ -439,6 +523,7 @@ class PostgresNearbyPresenceStore:
             {
                 "viewer_user_id": viewer_user_id,
                 "participant_alias": participant_alias,
+                "consent_version": consent_version,
             },
         )
 
@@ -494,6 +579,21 @@ def _normalize_captured_at(value: datetime) -> datetime:
         if value.tzinfo is None
         else value.astimezone(timezone.utc)
     )
+
+
+def _normalize_optional_timestamp(value: Any) -> datetime | None:
+    """UTC-normalize a stored timestamp, tolerating a driver that returns text."""
+
+    if isinstance(value, datetime):
+        return _normalize_captured_at(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            return _normalize_captured_at(
+                datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            )
+        except ValueError:
+            return None
+    return None
 
 
 def _distance_meters(
@@ -598,6 +698,10 @@ def _decrypt_anchor(row: dict[str, Any]) -> dict[str, Any]:
     value = json.loads(plaintext.decode("utf-8"))
     if not isinstance(value, dict):
         raise ValueError("invalid anchor")
+    if value.get("schemaVersion") != _ANCHOR_SCHEMA_VERSION:
+        raise ValueError("unsupported anchor schema")
+    if value.get("coordinateKind") != _ANCHOR_COORDINATE_KIND:
+        raise ValueError("unsupported anchor coordinate kind")
     lat = float(value.get("latitude"))
     lng = float(value.get("longitude"))
     if not _valid_coordinates(lat=lat, lng=lng):
@@ -612,12 +716,17 @@ def _cell_epoch(now: datetime) -> int:
 
 
 def _tile_xy(*, lat: float, lng: float) -> tuple[int, int]:
+    raw_lat = float(lat)
     normalized_lat = max(
         -_MERCATOR_MAX_LATITUDE,
-        min(_MERCATOR_MAX_LATITUDE, float(lat)),
+        min(_MERCATOR_MAX_LATITUDE, raw_lat),
     )
     normalized_lng = ((float(lng) + 180.0) % 360.0) - 180.0
     scale = 1 << _CELL_TILE_ZOOM
+    if raw_lat > _MERCATOR_MAX_LATITUDE:
+        return 0, 0
+    if raw_lat < -_MERCATOR_MAX_LATITUDE:
+        return 0, scale - 1
     x = int(math.floor(((normalized_lng + 180.0) / 360.0) * scale)) % scale
     lat_radians = math.radians(normalized_lat)
     mercator = math.asinh(math.tan(lat_radians))
@@ -651,28 +760,36 @@ def _tile_cover(
 ) -> set[tuple[int, int]]:
     """Return every z16 tile intersecting a conservative radius bounding box."""
 
-    bounded_lat = max(
-        -_MERCATOR_MAX_LATITUDE,
-        min(_MERCATOR_MAX_LATITUDE, float(lat)),
-    )
+    geodesic_lat = max(-90.0, min(90.0, float(lat)))
     angular = max(0.0, float(radius_meters)) / _EARTH_RADIUS_METERS
     latitude_delta = math.degrees(angular)
-    minimum_lat = max(
-        -_MERCATOR_MAX_LATITUDE,
-        bounded_lat - latitude_delta,
-    )
-    maximum_lat = min(
-        _MERCATOR_MAX_LATITUDE,
-        bounded_lat + latitude_delta,
-    )
-    cosine = abs(math.cos(math.radians(bounded_lat)))
-    longitude_delta = (
-        180.0
-        if cosine <= 1e-9
-        else math.degrees(math.asin(min(1.0, max(0.0, math.sin(angular) / cosine))))
-    )
+    geodesic_minimum_lat = max(-90.0, geodesic_lat - latitude_delta)
+    geodesic_maximum_lat = min(90.0, geodesic_lat + latitude_delta)
     scale = 1 << _CELL_TILE_ZOOM
     tiles: set[tuple[int, int]] = set()
+
+    # Web Mercator has no finite representation beyond +/-85.051 degrees.
+    # Collapse each polar cap into one broad-phase bucket, then keep exact
+    # Haversine distance authoritative after decryption. Add the cap bucket to
+    # crossing covers so pairs on opposite sides of the Mercator edge cannot be
+    # lost before the exact check.
+    if geodesic_maximum_lat > _MERCATOR_MAX_LATITUDE:
+        tiles.add((0, 0))
+    if geodesic_minimum_lat < -_MERCATOR_MAX_LATITUDE:
+        tiles.add((0, scale - 1))
+
+    minimum_lat = max(-_MERCATOR_MAX_LATITUDE, geodesic_minimum_lat)
+    maximum_lat = min(_MERCATOR_MAX_LATITUDE, geodesic_maximum_lat)
+    if minimum_lat > maximum_lat:
+        return tiles
+
+    cosine = abs(math.cos(math.radians(geodesic_lat)))
+    crosses_pole = abs(geodesic_lat) + latitude_delta >= 90.0
+    longitude_delta = (
+        180.0
+        if crosses_pole or cosine <= 1e-9
+        else math.degrees(math.asin(min(1.0, max(0.0, math.sin(angular) / cosine))))
+    )
     for minimum_lng, maximum_lng in _longitude_ranges(
         lng=lng,
         delta=longitude_delta,
@@ -715,6 +832,14 @@ def _roster_seed(now: datetime) -> str:
     ).hexdigest()
 
 
+def _anchor_coordinate(anchor: dict[str, Any], field: str) -> float | None:
+    try:
+        value = float(anchor[field])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
 def _presence_payload(row: dict[str, Any], anchor: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": "active",
@@ -725,6 +850,12 @@ def _presence_payload(row: dict[str, Any], anchor: dict[str, Any]) -> dict[str, 
         "checkedInAt": row.get("checked_in_at"),
         "expiresAt": row.get("expires_at"),
         "placeLabel": str(anchor.get("label") or "Selected place"),
+        # The owner's OWN anchor, returned only to the owner. It is the public
+        # venue they picked, and the map needs it to keep showing where they
+        # checked in after a reload -- distinct from where they now stand.
+        # Nobody else's anchor is ever serialized; see the roster payload.
+        "placeLat": _anchor_coordinate(anchor, "latitude"),
+        "placeLng": _anchor_coordinate(anchor, "longitude"),
     }
 
 
@@ -761,6 +892,83 @@ class OneLocationNearbyPresenceService:
                 "Verify your phone number before appearing to nearby people.",
                 status_code=403,
             )
+
+    def _require_reachable_from_last_check_in(
+        self,
+        *,
+        owner_user_id: str,
+        place_lat: float,
+        place_lng: float,
+        now: datetime,
+    ) -> None:
+        """Reject a check-in the owner could not physically have travelled to.
+
+        Everything else in this flow trusts a client-supplied point, so an
+        account can claim any single place. Consecutive claims, though, have to
+        be consistent with each other -- and that is checkable server-side with
+        no attestation. An account that checked in in London ten minutes ago is
+        not in Sydney now.
+
+        Fails open on our own data problems (no previous row, unreadable
+        anchor, unusable timestamp). A decryption bug must not lock people out
+        of a feature they are using honestly; the roaming attack this closes is
+        the deliberate one, and it needs a *readable* previous anchor to be
+        detected at all.
+        """
+
+        try:
+            previous = self._store.get_last_presence(owner_user_id)
+        except Exception:  # noqa: BLE001 - continuity is a guard, not a gate
+            return
+        if not previous:
+            return
+        try:
+            anchor = _decrypt_anchor(previous)
+        except Exception:  # noqa: BLE001 - see docstring
+            return
+
+        previous_lat = anchor.get("latitude")
+        previous_lng = anchor.get("longitude")
+        if not isinstance(previous_lat, (int, float)) or not isinstance(previous_lng, (int, float)):
+            return
+
+        previous_at = _normalize_optional_timestamp(previous.get("checked_in_at"))
+        if previous_at is None:
+            return
+
+        distance_meters = _distance_meters(
+            origin_lat=float(previous_lat),
+            origin_lng=float(previous_lng),
+            destination_lat=place_lat,
+            destination_lng=place_lng,
+        )
+        if (
+            not math.isfinite(distance_meters)
+            or distance_meters <= NEARBY_PRESENCE_TELEPORT_GRACE_METERS
+        ):
+            return
+
+        elapsed_seconds = (now - previous_at).total_seconds()
+        # A non-positive gap with real distance is itself impossible, so clamp
+        # rather than divide by zero -- the speed below then trips the guard.
+        elapsed_hours = max(elapsed_seconds, 1.0) / 3600.0
+        speed_kmh = (distance_meters / 1000.0) / elapsed_hours
+        if speed_kmh <= NEARBY_PRESENCE_MAX_TRAVEL_SPEED_KMH:
+            return
+
+        logger.warning(
+            "nearby_presence.teleport_rejected owner=%s distance_km=%.1f elapsed_s=%.0f speed_kmh=%.0f",
+            owner_user_id,
+            distance_meters / 1000.0,
+            elapsed_seconds,
+            speed_kmh,
+        )
+        raise NearbyPresenceError(
+            "NEARBY_PRESENCE_IMPLAUSIBLE_TRAVEL",
+            "That place is too far from your last check-in to be reachable yet. "
+            "Check in again once you have actually arrived.",
+            status_code=422,
+        )
 
     def check_in(
         self,
@@ -828,6 +1036,7 @@ class OneLocationNearbyPresenceService:
         ):
             raise NearbyPresenceError(
                 "NEARBY_PRESENCE_LOCATION_TOO_COARSE",
+                "Your location reading is too broad to place you. "
                 "Turn on precise location, then try again.",
                 status_code=422,
             )
@@ -855,17 +1064,39 @@ class OneLocationNearbyPresenceService:
             destination_lat=normalized_place_lat,
             destination_lng=normalized_place_lng,
         )
-        # Accuracy is uncertainty, not extra admission radius. Requiring the
-        # uncertainty envelope to fit keeps the effective geofence at 500 m.
-        if distance + normalized_accuracy > NEARBY_PRESENCE_RADIUS_METERS:
+        # The geofence now lives in two places that cannot be smeared by a coarse
+        # receiver: the place list the owner chose from is itself restricted to a
+        # 500 m circle around this same point, and co-presence is measured
+        # place-to-place below. So this check only asks "is the owner plausibly at
+        # the place they claim?" -- accuracy widens that envelope instead of
+        # shrinking the geofence. The old `distance + accuracy` form double-counted
+        # the radius and made any fix coarser than 100 m unable to confirm a place
+        # it legitimately sat on. Tolerance is capped so a deliberately coarse
+        # reading cannot buy unlimited reach.
+        tolerance = min(
+            normalized_accuracy,
+            NEARBY_PRESENCE_MAX_ACCURACY_TOLERANCE_METERS,
+        )
+        if distance > NEARBY_PRESENCE_RADIUS_METERS + tolerance:
             raise NearbyPresenceError(
                 "NEARBY_PRESENCE_OUTSIDE_RADIUS",
                 "Choose a place closer to your current location.",
                 status_code=422,
             )
 
+        self._require_reachable_from_last_check_in(
+            owner_user_id=owner_user_id,
+            place_lat=normalized_place_lat,
+            place_lng=normalized_place_lng,
+            now=now,
+        )
+
+        # Anchor on the selected place, never the captured point: it makes the
+        # roster exact regardless of receiver quality and keeps the owner's real
+        # position out of storage entirely.
         anchor = {
-            "placeId": normalized_place_id,
+            "schemaVersion": _ANCHOR_SCHEMA_VERSION,
+            "coordinateKind": _ANCHOR_COORDINATE_KIND,
             "label": str(place_label or "Selected place").strip()[:300],
             "latitude": normalized_place_lat,
             "longitude": normalized_place_lng,
@@ -894,6 +1125,9 @@ class OneLocationNearbyPresenceService:
         row = self._store.get_active_presence(owner_user_id)
         if not row:
             return {"presence": None, "attendees": []}
+        if str(row.get("consent_version") or "") != NEARBY_PRESENCE_CONSENT_VERSION:
+            self._store.checkout(owner_user_id)
+            return {"presence": None, "attendees": []}
         try:
             viewer_anchor = _decrypt_anchor(row)
         except Exception as exc:
@@ -915,6 +1149,7 @@ class OneLocationNearbyPresenceService:
         candidates = self._store.read_active_candidates(
             viewer_user_id=owner_user_id,
             viewer_version=int(row.get("version") or 0),
+            consent_version=NEARBY_PRESENCE_CONSENT_VERSION,
             cell_epochs=epochs,
             cell_tokens=tokens,
             roster_seed=_roster_seed(now),
@@ -922,6 +1157,8 @@ class OneLocationNearbyPresenceService:
         )
         attendees: list[dict[str, Any]] = []
         for candidate in candidates:
+            if str(candidate.get("consent_version") or "") != NEARBY_PRESENCE_CONSENT_VERSION:
+                continue
             try:
                 anchor = _decrypt_anchor(candidate)
             except Exception:
@@ -987,6 +1224,7 @@ class OneLocationNearbyPresenceService:
         rows = self._store.read_connection_pair(
             viewer_user_id=owner_user_id,
             participant_alias=normalized_alias,
+            consent_version=NEARBY_PRESENCE_CONSENT_VERSION,
         )
         viewer = next(
             (row for row in rows if str(row.get("owner_user_id") or "") == owner_user_id),
@@ -1001,6 +1239,8 @@ class OneLocationNearbyPresenceService:
             or not target
             or str(target.get("owner_user_id") or "") == owner_user_id
             or not bool(target.get("allow_connection_requests"))
+            or str(viewer.get("consent_version") or "") != NEARBY_PRESENCE_CONSENT_VERSION
+            or str(target.get("consent_version") or "") != NEARBY_PRESENCE_CONSENT_VERSION
         ):
             raise NearbyPresenceError(
                 "NEARBY_ATTENDEE_UNAVAILABLE",

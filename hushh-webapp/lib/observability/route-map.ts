@@ -18,6 +18,7 @@ export const ROUTE_ID_VALUES = [
   "profile_account_phone",
   "profile_preferences",
   "profile_preferences_kai",
+  "profile_preferences_gemini",
   "profile_preferences_device",
   "profile_security",
   "profile_security_vault",
@@ -56,11 +57,16 @@ export const ROUTE_ID_VALUES = [
   "one_marketplace",
   "one_location",
   "one_location_map",
+  "one_location_check_in",
   "one_location_public_request",
   "one_location_circle_invite",
+  "one_location_circle_join",
+  "one_wallet_card",
+  "wallet_card_public",
   "portfolio_shared",
   "ria_home",
   "ria_onboarding",
+  "ria_claim",
   "ria_clients",
   "ria_requests",
   "ria_picks",
@@ -115,6 +121,8 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.PROFILE_PREFERENCES) return "profile_preferences";
   if (pathname === ROUTES.PROFILE_PREFERENCES_KAI)
     return "profile_preferences_kai";
+  if (pathname === ROUTES.PROFILE_PREFERENCES_GEMINI)
+    return "profile_preferences_gemini";
   if (pathname === ROUTES.PROFILE_PREFERENCES_DEVICE)
     return "profile_preferences_device";
   if (pathname === ROUTES.PROFILE_SECURITY) return "profile_security";
@@ -187,14 +195,31 @@ export function resolveRouteId(pathname: string): RouteId {
   }
   if (pathname === ROUTES.ONE_KYC) return "one_kyc";
   if (pathname === ROUTES.ONE_LOCATION_MAP) return "one_location_map";
+  // Its own id rather than the map's: these are separate screens now, and
+  // folding them together would hide the split from every page-view metric.
+  if (pathname === ROUTES.ONE_LOCATION_CHECK_IN) return "one_location_check_in";
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
   if (pathname.startsWith("/one/location/request/"))
     return "one_location_public_request";
   if (pathname.startsWith("/one/location/invite/"))
     return "one_location_circle_invite";
+  // Recipient landing for a shared Circle join link. It only forwards into
+  // /one/location with the code pre-filled, but it still needs an id: falling
+  // through to "unknown" logs the raw pathname, and this route's query carries
+  // a join code. Same reasoning as the public request and invite links above.
+  if (pathname === "/circle/join") return "one_location_circle_join";
+  if (pathname === ROUTES.ONE_WALLET_CARD) return "one_wallet_card";
+  // The scanned page emits no analytics of its own (isAnalyticsExemptRoute),
+  // so this ID is never attached to a page view. It exists because "unknown"
+  // is not inert: callers that fall through to it log the raw pathname, and on
+  // this route the pathname *is* the share token. Same shape as the public
+  // location request link above.
+  if (pathname === "/c" || pathname.startsWith("/c/"))
+    return "wallet_card_public";
   if (pathname === "/portfolio/shared") return "portfolio_shared";
   if (pathname === ROUTES.RIA_HOME) return "ria_home";
   if (pathname === ROUTES.RIA_ONBOARDING) return "ria_onboarding";
+  if (pathname === ROUTES.RIA_CLAIM) return "ria_claim";
   if (pathname === ROUTES.RIA_CLIENTS) return "ria_clients";
   if (pathname === ROUTES.RIA_REQUESTS) return "ria_requests";
   if (pathname === ROUTES.RIA_PICKS) return "ria_picks";
@@ -703,6 +728,10 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/iam\/marketplace\/opt-in(?:\?.*)?$/i,
     template: "/api/iam/marketplace/opt-in",
+  },
+  {
+    regex: /^\/api\/iam\/contact-discoverability(?:\?.*)?$/i,
+    template: "/api/iam/contact-discoverability",
   },
   {
     regex: /^\/api\/ria\/onboarding\/submit(?:\?.*)?$/i,

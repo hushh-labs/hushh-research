@@ -68,11 +68,12 @@ Parent and child agents must apply [Bacterial Software Architecture](docs/vision
 5. Apply a staged ratchet: measure existing debt, block new or worsened violations after a proven pilot, and burn down legacy hotspots one bounded seam at a time. Never mass-split code to satisfy a line count.
 6. Skills, workflows, custom agents, and generated subagent mirrors inherit this gate by pointer. Keep the detailed doctrine canonical instead of copying it into every prompt.
 
-## Project-Wide Runtime Telemetry Default
+## Project-Wide Runtime Telemetry Default & Chat Session Naming
 
 When a coding agent runs the local server, run it IN the agent's own terminal session (in-process / background terminal) by default, so the agent streams live logs, errors, and telemetry directly and can act on them. Do NOT default to the visible-OS-terminal wrapper (`./bin/hushh terminal ...`) for agent-driven runs — that detaches the logs from the agent.
 
-- Agent default = THREE separate in-session terminals, one component each (there is no combined `stack` command): `./bin/hushh proxy --mode local`, then `./bin/hushh backend --mode local --reload`, then `./bin/hushh web --mode local`. Run each as a background/async terminal so the agent keeps working while tailing per-component telemetry.
+- Agent default = THREE separate in-session terminals, one component each (there is no combined `stack` command): `./bin/hushh proxy --mode local` (Cloud SQL proxy on `:6543`), then `./bin/hushh backend --mode local --reload` (FastAPI backend on `:8000`), then `./bin/hushh web --mode local` (Next.js web frontend on `:3000`). Run all three as background/async terminals so the agent streams per-component telemetry continuously.
+- Session Naming Standard: At completion, name and summarize the task/session with a clear, professional, descriptive title reflecting the scope (e.g., `Fix Setup Onboarding, Morphy KYC Polish & Local Server Stack`).
 - Native restart: rely on backend `--reload` hot-restart first; for a full restart, stop only the affected agent-managed terminal, confirm its port is free (`lsof -ti :6543` proxy / `:8000` backend / `:3000` frontend empty), relaunch that in-session command, and verify health (`./bin/hushh doctor --mode local`, web origin, backend `/docs`) before claiming success.
 - Use the visible-OS-terminal wrapper only when the developer explicitly wants to watch logs themselves, or for a detached session the agent does not need to read.
 

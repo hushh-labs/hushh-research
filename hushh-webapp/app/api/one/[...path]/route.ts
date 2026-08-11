@@ -15,6 +15,17 @@ const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   overrideEnvKey: "HUSHH_ONE_API_TIMEOUT_MS",
 });
 
+function privateResponseHeaders(upstream?: Response): Headers {
+  const headers = new Headers({
+    "Cache-Control": "private, no-store",
+    Pragma: "no-cache",
+  });
+  if (!upstream) return headers;
+  const retryAfter = upstream.headers.get("retry-after");
+  if (retryAfter) headers.set("Retry-After", retryAfter);
+  return headers;
+}
+
 function isUpstreamTimeoutError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const causeCode =
@@ -60,8 +71,36 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       body,
       signal: AbortSignal.timeout(ONE_API_TIMEOUT_MS),
     });
+
+    // A streamed upstream must be handed through untouched. The JSON path below
+    // buffers the whole body and swallows a parse failure into `{}`, which for
+    // an event-stream means the caller receives an empty object with status 200
+    // -- no frames, no error, and nothing to distinguish "the stream broke"
+    // from "there was nothing to send". The Kai proxy passes streams through
+    // for the same reason. Gated on the upstream content type, so every JSON
+    // route on this proxy keeps the exact behaviour it had.
+    const responseContentType = response.headers.get("content-type");
+    if (responseContentType?.includes("text/event-stream")) {
+      return new Response(response.body, {
+        status: response.status,
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "private, no-store, no-cache, no-transform",
+          Pragma: "no-cache",
+          Connection: "keep-alive",
+          // Stops a compressing hop buffering the body in order to encode it.
+          "Content-Encoding": "none",
+          "X-Accel-Buffering": "no",
+          "x-request-id": requestId,
+        },
+      });
+    }
+
     const data = await response.json().catch(() => ({}));
-    return withRequestIdJson(requestId, data, { status: response.status });
+    return withRequestIdJson(requestId, data, {
+      status: response.status,
+      headers: privateResponseHeaders(response),
+    });
   } catch (error) {
     const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
     return withRequestIdJson(
@@ -70,7 +109,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
         error: "One API unavailable",
         message: "The request could not be completed right now. Please try again.",
       },
-      { status: statusCode }
+      { status: statusCode, headers: privateResponseHeaders() }
     );
   }
 }

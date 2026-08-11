@@ -215,12 +215,20 @@ def get_database_ssl():
     """Return ssl config for asyncpg.
 
     Cloud SQL is reached either over the Cloud SQL Auth Proxy (local TCP,
-    already encrypted by the proxy) or over a Unix socket (Cloud Run); in both
-    cases asyncpg needs no extra SSL config. An explicit DB_SSLMODE=require can
-    still force TLS for any other remote host.
+    already encrypted by the proxy) or over a Unix socket (Cloud Run). For a
+    proxy connection we must explicitly return ``False``: asyncpg treats
+    ``None`` as SSL-preferred and attempts a second TLS negotiation against
+    the proxy's PostgreSQL socket. An explicit DB_SSLMODE=require can still
+    force TLS for any other remote host.
     """
     if os.getenv("DB_UNIX_SOCKET"):
         return None
+    db_host = str(os.getenv("DB_HOST", "")).strip().lower()
+    has_local_cloudsql_proxy = db_host in {"127.0.0.1", "localhost"} and bool(
+        str(os.getenv("CLOUDSQL_INSTANCE_CONNECTION_NAME", "")).strip()
+    )
+    if has_local_cloudsql_proxy:
+        return False
     if str(os.getenv("DB_SSLMODE", "")).strip().lower() == "require":
         return "require"
     return None

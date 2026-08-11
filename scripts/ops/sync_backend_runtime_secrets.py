@@ -37,7 +37,9 @@ LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _run(cmd: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _run(
+    cmd: list[str], *, input_text: str | None = None, check: bool = True
+) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         cmd,
         input=input_text,
@@ -180,12 +182,55 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "plaid_redirect_uri": args.plaid_redirect_uri,
         "plaid_tx_history_days": args.plaid_tx_history_days,
         "one_location_read_only_state_enabled": args.one_location_read_only_state_enabled,
+        "one_location_nearby_presence_mode": args.one_location_nearby_presence_mode,
+        "one_location_nearby_presence_cohort": args.one_location_nearby_presence_cohort,
         "consent_center_summary_v2_enabled": args.consent_center_summary_v2_enabled,
         "db_bulk_batching_enabled": args.db_bulk_batching_enabled,
         "hushh_trusted_device_enabled": args.hushh_trusted_device_enabled,
         "hushh_trusted_device_uat_allowlist": args.hushh_trusted_device_uat_allowlist,
+        "advisors_api_base_url": args.advisors_api_base_url,
+        "insurance_agents_api_base_url": args.insurance_agents_api_base_url,
+        "one_places_directory_enabled": args.one_places_directory_enabled,
     }
     return _drop_empty(config)
+
+
+def _mirror_directory_key(
+    *,
+    target_project: str,
+    target_secret: str,
+    source_project: str,
+    source_secret: str,
+) -> str | None:
+    """Mirror a directory key from its home project into this lane.
+
+    These keys live in one project and are consumed by several. Copying one by
+    hand is exactly what broke UAT: the source rotated and disabled the old
+    version, the hand-made copy did not follow, and the surface began answering
+    502 with a revoked credential. Re-mirroring on every deploy bounds that
+    drift to a single release instead of forever.
+
+    A lane without read access to the source simply gets nothing, and the
+    feature stays inert there rather than failing the deploy. That is a real
+    state, not a theoretical one — read access is a per-secret grant in the home
+    project and does not come with any lane's own project-level roles.
+    """
+    source_project = str(source_project or "").strip()
+    source_secret = str(source_secret or "").strip()
+    if not (source_project and source_secret):
+        return None
+
+    value = _read_secret(source_project, source_secret)
+    if not value:
+        return None
+
+    if _read_secret(target_project, target_secret) == value:
+        # The shared upsert helper adds a version unconditionally; skipping the
+        # write keeps a no-op deploy from minting a secret version each time.
+        return f"{target_secret} (unchanged)"
+
+    _upsert_secret(target_project, target_secret, value)
+    return f"{target_secret} (rotated)"
 
 
 def _upsert_secret(project: str, secret: str, value: str) -> None:
@@ -228,16 +273,67 @@ def main() -> int:
     parser.add_argument("--plaid-redirect-uri", default="")
     parser.add_argument("--plaid-tx-history-days", default="")
     parser.add_argument("--one-location-read-only-state-enabled", default="false")
+    # Nearby check-in admission. Blank leaves the flow closed in production and
+    # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
+    # config entirely rather than writing an empty string the gate would have to
+    # interpret. Opening production needs BOTH of these -- see the route gate.
+    parser.add_argument("--one-location-nearby-presence-mode", default="")
+    parser.add_argument("--one-location-nearby-presence-cohort", default="")
     parser.add_argument("--consent-center-summary-v2-enabled", default="false")
     parser.add_argument("--db-bulk-batching-enabled", default="false")
     parser.add_argument("--hushh-trusted-device-enabled", default="false")
     parser.add_argument("--hushh-trusted-device-uat-allowlist", default="")
+    # Advisor directory base URL. Non-secret, so it belongs in the generated
+    # runtime config rather than in the deploy step, which sits close to Cloud
+    # Build's arg ceiling. Blank leaves it out entirely and the surface reports
+    # unavailable; the bearer key is a real secret and is mounted separately.
+    parser.add_argument("--advisors-api-base-url", default="")
+    # The directory key is owned by one project and consumed by several, so it
+    # is mirrored rather than copied by hand — see _sync_advisors_api_key.
+    parser.add_argument("--advisors-api-key-source-project", default="hushh-tech-prod")
+    parser.add_argument("--advisors-api-key-source-secret", default="brokercheck-api-key")
+    # Insurance agent directory. Same split as the advisor directory directly
+    # above: a non-secret base URL in the generated runtime config, and a bearer
+    # key mirrored from the project that owns it.
+    parser.add_argument("--insurance-agents-api-base-url", default="")
+    parser.add_argument("--one-places-directory-enabled", default="")
+    parser.add_argument(
+        "--insurance-agents-api-key-source-project", default="hushh-tech-prod"
+    )
+    parser.add_argument(
+        "--insurance-agents-api-key-source-secret", default="insurance-agents-api-key"
+    )
     args = parser.parse_args()
 
     sync_summary: list[str] = []
 
+    for target_secret, source_project, source_secret in (
+        (
+            "ADVISORS_API_KEY",
+            args.advisors_api_key_source_project,
+            args.advisors_api_key_source_secret,
+        ),
+        (
+            "INSURANCE_AGENTS_API_KEY",
+            args.insurance_agents_api_key_source_project,
+            args.insurance_agents_api_key_source_secret,
+        ),
+    ):
+        status = _mirror_directory_key(
+            target_project=args.project,
+            target_secret=target_secret,
+            source_project=source_project,
+            source_secret=source_secret,
+        )
+        if status:
+            sync_summary.append(status)
+
     for canonical_name, fallback_names in LEGACY_SECRET_FALLBACKS.items():
-        if canonical_name in {"APP_FRONTEND_ORIGIN", "BACKEND_RUNTIME_CONFIG_JSON", "VOICE_RUNTIME_CONFIG_JSON"}:
+        if canonical_name in {
+            "APP_FRONTEND_ORIGIN",
+            "BACKEND_RUNTIME_CONFIG_JSON",
+            "VOICE_RUNTIME_CONFIG_JSON",
+        }:
             continue
         value = _resolve_secret(args.project, fallback_names)
         if not value:

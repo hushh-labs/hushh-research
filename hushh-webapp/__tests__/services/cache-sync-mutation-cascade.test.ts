@@ -78,6 +78,27 @@ describe("CacheSyncService mutation cascades", () => {
     expect(patternArgs).toContain(`ria_workspace_${userId}_`);
   });
 
+  it("onConnectionCapabilityMutated uses the same consent, RIA, and Market invalidation contract", () => {
+    CacheSyncService.onConnectionCapabilityMutated(userId);
+
+    const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
+    expect(invalidatedKeys).toContain(CACHE_KEYS.CONSENT_CENTER(userId, "all"));
+    expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_HOME(userId));
+    const patternArgs = spyInvalidatePattern.mock.calls.map((c) => c[0]);
+    expect(patternArgs).toContain(`ria_clients_${userId}_`);
+  });
+
+  it("onConnectionCapabilityMutated also settles the incoming-request list", () => {
+    // Answering a request resolves it, so the list it came from is stale too.
+    // That list is a connections cache, not a consent one, so it does not ride
+    // along on the consent cascade — left behind, the request the user just
+    // accepted keeps rendering as though it were still waiting.
+    CacheSyncService.onConnectionCapabilityMutated(userId);
+
+    const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
+    expect(invalidatedKeys).toContain(CACHE_KEYS.CONNECTIONS_INCOMING(userId));
+  });
+
   // ---------- 2. onPersonaStateChanged without preservePersonaState ----------
   it("onPersonaStateChanged invalidates PERSONA_STATE and RIA caches when preservePersonaState is falsy", () => {
     CacheSyncService.onPersonaStateChanged(userId);
@@ -161,43 +182,101 @@ describe("CacheSyncService mutation cascades", () => {
 
   it("onVaultRekeyed invalidates stale PKM session state and domain prefixes", () => {
     cache.set(CACHE_KEYS.PKM_METADATA(userId), { userId }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.PKM_BLOB(userId), { ciphertext: "old" }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId), { financial: {} }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"), { ciphertext: "old" }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.DOMAIN_DATA(userId, "financial"), { holdings: [] }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"), { domain: "financial" }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), { holdings: [] }, CACHE_TTL.SESSION);
+    cache.set(
+      CACHE_KEYS.PKM_BLOB(userId),
+      { ciphertext: "old" },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.PKM_DECRYPTED_BLOB(userId),
+      { financial: {} },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"),
+      { ciphertext: "old" },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
+      { holdings: [] },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"),
+      { domain: "financial" },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.PORTFOLIO_DATA(userId),
+      { holdings: [] },
+      CACHE_TTL.SESSION,
+    );
 
     CacheSyncService.onVaultRekeyed(userId);
 
     expect(cache.get(CACHE_KEYS.PKM_METADATA(userId))).toBeNull();
     expect(cache.get(CACHE_KEYS.PKM_BLOB(userId))).toBeNull();
     expect(cache.get(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId))).toBeNull();
-    expect(cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"))).toBeNull();
+    expect(
+      cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial")),
+    ).toBeNull();
     expect(cache.get(CACHE_KEYS.DOMAIN_DATA(userId, "financial"))).toBeNull();
-    expect(cache.get(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"))).toBeNull();
+    expect(
+      cache.get(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial")),
+    ).toBeNull();
     expect(cache.get(CACHE_KEYS.PORTFOLIO_DATA(userId))).toBeNull();
   });
 
   it("onPkmDomainRestored purges coherent-domain, upgrade, finance, and export caches", () => {
     cache.set(CACHE_KEYS.PKM_METADATA(userId), { userId }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.PKM_UPGRADE_STATUS(userId), { upgradeStatus: "running" }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"), { ciphertext: "new" }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.DOMAIN_DATA(userId, "financial"), { portfolio: {} }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"), { manifest_version: 7 }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), { holdings: [] }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.ANALYSIS_HISTORY(userId), { TEST: [] }, CACHE_TTL.SESSION);
+    cache.set(
+      CACHE_KEYS.PKM_UPGRADE_STATUS(userId),
+      { upgradeStatus: "running" },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"),
+      { ciphertext: "new" },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
+      { portfolio: {} },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"),
+      { manifest_version: 7 },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.PORTFOLIO_DATA(userId),
+      { holdings: [] },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.ANALYSIS_HISTORY(userId),
+      { TEST: [] },
+      CACHE_TTL.SESSION,
+    );
 
     CacheSyncService.onPkmDomainRestored(userId, "financial");
 
     expect(cache.get(CACHE_KEYS.PKM_METADATA(userId))).toBeNull();
     expect(cache.get(CACHE_KEYS.PKM_UPGRADE_STATUS(userId))).toBeNull();
-    expect(cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"))).toBeNull();
+    expect(
+      cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial")),
+    ).toBeNull();
     expect(cache.get(CACHE_KEYS.DOMAIN_DATA(userId, "financial"))).toBeNull();
-    expect(cache.get(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"))).toBeNull();
+    expect(
+      cache.get(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial")),
+    ).toBeNull();
     expect(cache.get(CACHE_KEYS.PORTFOLIO_DATA(userId))).toBeNull();
     expect(cache.get(CACHE_KEYS.ANALYSIS_HISTORY(userId))).toBeNull();
-    expect(spyInvalidatePattern).toHaveBeenCalledWith(`consent_export_${userId}_`);
+    expect(spyInvalidatePattern).toHaveBeenCalledWith(
+      `consent_export_${userId}_`,
+    );
   });
 
   // ---------- 9. onPkmDomainStored (financial) ----------

@@ -32,6 +32,7 @@ import {
   PORTFOLIO_STREAM_EVENT,
   KAI_STREAM_EVENT,
 } from "@/lib/capacitor/kai";
+import { isAnalyticsExemptRoute } from "@/lib/navigation/routes";
 import type { PortfolioSharePayload } from "@/lib/portfolio-share/contract";
 import {
   isKaiStreamEnvelope,
@@ -51,7 +52,10 @@ import {
   REQUEST_TIMESTAMP_HEADER,
 } from "@/lib/observability/request-id";
 import { resolveRouteId } from "@/lib/observability/route-map";
-import { resolveRuntimeBackendUrl } from "@/lib/runtime/settings";
+import {
+  resolveRuntimeBackendUrl,
+  resolveRuntimeFrontendUrl,
+} from "@/lib/runtime/settings";
 import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
@@ -349,7 +353,10 @@ async function apiFetch(
   options: RequestInit = {},
 ): Promise<Response> {
   const apiBase = getApiBaseUrl();
-  const url = `${apiBase}${path}`;
+  // An absolute path is already fully resolved. Native builds use this to reach
+  // a Next.js-only route on the web origin, which `apiBase` (the Python
+  // backend) does not host.
+  const url = /^https?:\/\//i.test(path) ? path : `${apiBase}${path}`;
   const requestStartedAt = Date.now();
   const httpMethod = (options.method || "GET").toUpperCase();
   const routeId =
@@ -481,6 +488,17 @@ async function apiFetch(
   };
 
   const recordApiRequestMetric = (statusCode: number | null) => {
+    // Analytics-exempt routes are exempt for every request they make, not just
+    // their page view. A Wallet Profile visitor is a stranger holding someone
+    // else's QR; ObservabilityRouteObserver already bails for them, and letting
+    // api_request_completed through here would put the scanned card's route id
+    // into the dataLayer anyway.
+    if (
+      typeof window !== "undefined" &&
+      isAnalyticsExemptRoute(window.location.pathname)
+    ) {
+      return;
+    }
     trackApiRequestCompleted({
       path,
       httpMethod,
@@ -1721,6 +1739,47 @@ export class ApiService {
       method: "POST",
       body: JSON.stringify(data),
     });
+  }
+
+  /**
+   * Ask the server to send a lifecycle mail through `hushh-mail-api`.
+   *
+   * Fire and forget by contract: the caller is a sign-in or a phone step, and
+   * neither may be delayed or failed by a mail. Every error resolves to `false`.
+   *
+   * `/api/auth/mail` is a Next.js route, so a native build — where `apiFetch`
+   * resolves against the Python backend — targets the web origin explicitly.
+   */
+  static async notifyAuthMail(
+    event: "signed_in" | "signed_out" | "phone_conflict" | "capabilities_linked",
+    options?: {
+      phoneNumber?: string;
+      /** Currently connected capability ids; the server diffs these. */
+      capabilities?: string[];
+      /** Ids whose state was resolvable this pass. Absent ids are unknown, not absent. */
+      observed?: string[];
+      idToken?: string;
+    },
+  ): Promise<boolean> {
+    try {
+      const idToken = options?.idToken || (await this.getFirebaseToken());
+      if (!idToken) return false;
+
+      const origin = Capacitor.isNativePlatform() ? resolveRuntimeFrontendUrl() : "";
+      const response = await apiFetch(`${origin}/api/auth/mail`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({
+          event,
+          ...(options?.phoneNumber ? { phoneNumber: options.phoneNumber } : {}),
+          ...(options?.capabilities ? { capabilities: options.capabilities } : {}),
+          ...(options?.observed ? { observed: options.observed } : {}),
+        }),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
   }
 
   static async refreshAccountIdentityShadow(
@@ -3140,7 +3199,11 @@ export class ApiService {
       signal: data?.signal,
     });
     if (!response.ok) {
-      throw new Error(`One voice relay session failed: ${response.status}`);
+      const error = new Error(
+        `One voice relay session failed: ${response.status}`,
+      ) as Error & { status: number };
+      error.status = response.status;
+      throw error;
     }
     return response.json();
   }
@@ -3196,6 +3259,12 @@ export class ApiService {
         throw new Error(
           "Check the Google Cloud project ID and Vertex location.",
         );
+      }
+      if (status === "permission_denied") {
+        throw new Error("This Google account needs Vertex AI User access for that project.");
+      }
+      if (status === "api_not_enabled") {
+        throw new Error("Enable the Vertex AI API in this Google Cloud project, then try again.");
       }
       if (status === "unsupported_model") {
         throw new Error("This Gemini key cannot access the model One uses.");
@@ -4682,8 +4751,6 @@ export class ApiService {
     riskProfile: string;
     userContext?: Record<string, unknown>;
     pickSource?: string;
-    pickSourceLabel?: string;
-    pickSourceKind?: string;
     vaultOwnerToken: string;
   }): Promise<Response> {
     const response = await apiFetch("/api/kai/analyze/run/start", {
@@ -4698,8 +4765,6 @@ export class ApiService {
         risk_profile: data.riskProfile,
         context: data.userContext,
         pick_source: data.pickSource,
-        pick_source_label: data.pickSourceLabel,
-        pick_source_kind: data.pickSourceKind,
       }),
     });
     if (response.ok) {

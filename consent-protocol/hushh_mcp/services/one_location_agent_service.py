@@ -10,12 +10,14 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterator
+from uuid import UUID
 
 from sqlalchemy import text
 
 from api.utils.fcm_messages import build_push_message
 from api.utils.firebase_admin import ensure_firebase_admin
 from db.db_client import DatabaseExecutionError, get_db, get_db_connection
+from hushh_mcp.consent.pii_sanitizer import mask_email
 from hushh_mcp.consent.token import issue_token, validate_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.location.policy import (
@@ -32,6 +34,18 @@ logger = logging.getLogger(__name__)
 # viewing is the authority the recipient device exercises when reading
 # ciphertext envelopes, so the grant's signed token carries this scope.
 LOCATION_GRANT_CONSENT_SCOPE = "cap.location.live.view"
+
+# One sentence for one rule. Every location authority path — grant creation,
+# the atomic grant+envelope write, and SMS contact selection — admits the same
+# two relationships: a direct connection, or shared membership of an active
+# named Circle. Wording is shared so a rejected user is never told a different
+# story depending on which endpoint refused them.
+LOCATION_PEER_NOT_ELIGIBLE_MESSAGE = (
+    "You can only share your live location with a connection or an active Circle member."
+)
+LOCATION_SMS_CONTACT_NOT_ELIGIBLE_MESSAGE = (
+    "Only an active connection or Circle member can be added as an SMS contact."
+)
 
 _NOTIFICATION_EXECUTOR = ThreadPoolExecutor(
     max_workers=max(1, int(os.getenv("ONE_LOCATION_NOTIFICATION_WORKERS", "2"))),
@@ -821,11 +835,23 @@ class OneLocationAgentService:
         notification_tag: str,
         request_url: str,
         data: dict[str, str | None],
-    ) -> None:
-        """Best-effort metadata-only FCM delivery for location workflow state."""
+    ) -> bool:
+        """Best-effort metadata-only FCM delivery for location workflow state.
+
+        Returns True when at least one push message was handed to FCM, False when
+        the recipient could not be reached at all -- no registered device token
+        (notifications never enabled, or the token was reaped after an uninstall),
+        Firebase not configured, or a payload the redaction guard rejected.
+
+        The boolean exists because Save My Soul must never report a confident
+        "SENT" for an alert that reached nobody. Actual FCM delivery stays
+        asynchronous and best-effort; this only reports whether there was a
+        device to deliver to, which is the failure the sender could otherwise
+        never see.
+        """
         safe_data = _notification_safe_data(data)
         if not user_id or _contains_plaintext_location_key(safe_data):
-            return
+            return False
         try:
             rows = (
                 get_db()
@@ -837,10 +863,10 @@ class OneLocationAgentService:
                 or []
             )
             if not rows:
-                return
+                return False
             configured, _ = ensure_firebase_admin()
             if not configured:
-                return
+                return False
             from firebase_admin import messaging
 
             message_data = {
@@ -858,7 +884,8 @@ class OneLocationAgentService:
                     notification_type,
                     redact_log_field("user_id", user_id),
                 )
-                return
+                return False
+            submitted = False
             seen: set[str] = set()
             for row in rows:
                 token = str(row.get("token") or "").strip()
@@ -884,6 +911,8 @@ class OneLocationAgentService:
                     notification_type=notification_type,
                     user_id=user_id,
                 )
+                submitted = True
+            return submitted
         except Exception as exc:
             logger.warning(
                 "one.location.notification_skipped type=%s user=%s error=%s",
@@ -891,6 +920,7 @@ class OneLocationAgentService:
                 redact_log_field("user_id", user_id),
                 exc,
             )
+            return False
 
     def _send_push_notification(
         self,
@@ -966,11 +996,13 @@ class OneLocationAgentService:
         if not row:
             return None
         display_name = str(row.get("display_name") or "").strip()
+        email = str(row.get("email") or "").strip()
         masked_phone = _mask_phone(row.get("phone_number"))
         user_id = str(row.get("user_id") or "")
         return {
             "userId": user_id,
             "displayName": display_name or masked_phone or "Verified user",
+            "maskedEmail": mask_email(email) if email else None,
             "maskedPhone": masked_phone,
             "phoneVerified": bool(row.get("phone_verified")),
             "keyId": str(row.get("key_id") or "") or None,
@@ -1350,11 +1382,20 @@ class OneLocationAgentService:
         rows = self._optional_signal_rows(
             signal_name="mutual_kai_relationships",
             sql="""
-            SELECT rel.investor_user_id, rel.status, rel.created_at, rel.updated_at,
+            SELECT rel.investor_user_id, rel.created_at, rel.updated_at,
                    rp.user_id AS ria_user_id
             FROM advisor_investor_relationships rel
             JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
-            WHERE rel.status IN ('approved', 'request_pending', 'discovered')
+            JOIN relationship_share_grants share
+              ON share.relationship_id = rel.id
+             AND share.grant_key = 'ria_active_picks_feed_v1'
+             AND share.status = 'active'
+             AND share.connection_scope_proposal_id IS NOT NULL
+            JOIN connection_scope_proposals proposal
+              ON proposal.id = share.connection_scope_proposal_id
+             AND proposal.status = 'active'
+             AND proposal.capability_key = 'ria_active_picks_feed_v1'
+            WHERE rel.status = 'approved'
             ORDER BY COALESCE(rel.updated_at, rel.created_at) DESC
             LIMIT 500
             """,
@@ -1422,9 +1463,15 @@ class OneLocationAgentService:
               share.granted_at AS relationship_share_granted_at
             FROM advisor_investor_relationships rel
             JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
-            LEFT JOIN relationship_share_grants share
+            JOIN relationship_share_grants share
               ON share.relationship_id = rel.id
+             AND share.grant_key = 'ria_active_picks_feed_v1'
              AND share.status = 'active'
+             AND share.connection_scope_proposal_id IS NOT NULL
+            JOIN connection_scope_proposals proposal
+              ON proposal.id = share.connection_scope_proposal_id
+             AND proposal.status = 'active'
+             AND proposal.capability_key = 'ria_active_picks_feed_v1'
             WHERE rel.investor_user_id = :owner_user_id
                OR rp.user_id = :owner_user_id
             ORDER BY COALESCE(rel.consent_granted_at, rel.updated_at, rel.created_at) DESC
@@ -1444,7 +1491,7 @@ class OneLocationAgentService:
             signal = signals[other_user_id]
             status = str(row.get("status") or "").lower()
             share_status = str(row.get("relationship_share_status") or "").lower()
-            if status == "approved" or share_status == "active":
+            if status == "approved" and share_status == "active":
                 self._add_recommendation_reason(
                     signal,
                     code="approved_professional_relationship",
@@ -1452,20 +1499,9 @@ class OneLocationAgentService:
                     weight=38,
                 )
                 signal["trusted"] = True
-            elif status == "request_pending":
-                self._add_recommendation_reason(
-                    signal,
-                    code="pending_professional_relationship",
-                    label="Pending advisor/investor relationship",
-                    weight=20,
-                )
             else:
-                self._add_recommendation_reason(
-                    signal,
-                    code="professional_graph_proximity",
-                    label="Advisor/investor network connection",
-                    weight=16,
-                )
+                # Defensive fail-closed posture for partially migrated rows.
+                continue
             signal["professional"] = True
             signal["relationship_type"] = signal.get("relationship_type") or relationship_label
             if str(row.get("ria_verification_status") or "").lower() in {"verified", "active"}:
@@ -1830,6 +1866,7 @@ class OneLocationAgentService:
             "updatedAt": _iso(row.get("updated_at")),
             "revokedAt": _iso(row.get("revoked_at")),
             "latestEnvelopeId": str(row.get("latest_envelope_id") or "") or None,
+            "sourceCircleId": str(row.get("source_circle_id") or "") or None,
             "shareKind": share_kind,
             "shareMessage": share_message,
         }
@@ -2523,6 +2560,72 @@ class OneLocationAgentService:
               )
               LIMIT 500
             ),
+            stale_named_circle_codes AS (
+              SELECT id
+              FROM one_location_circle_invite_codes
+              WHERE (
+                (
+                  status IN ('expired', 'revoked')
+                  AND COALESCE(revoked_at, updated_at, expires_at, created_at)
+                    <= NOW() - (:hours * INTERVAL '1 hour')
+                )
+                OR (
+                  status = 'active'
+                  AND expires_at <= NOW() - (:hours * INTERVAL '1 hour')
+                )
+              )
+              AND (
+                :user_id IS NULL
+                OR created_by_user_id = :user_id
+              )
+              LIMIT 500
+            ),
+            expired_named_circle_member_invite_candidates AS (
+              SELECT invite.id
+              FROM one_location_circle_member_invites invite
+              WHERE invite.status = 'pending'
+                AND invite.expires_at <= NOW()
+                AND (
+                  :user_id IS NULL
+                  OR invite.inviter_user_id = :user_id
+                  OR invite.invitee_user_id = :user_id
+                )
+              ORDER BY invite.expires_at, invite.id
+              LIMIT 500
+              FOR UPDATE SKIP LOCKED
+            ),
+            expired_named_circle_member_invites AS (
+              UPDATE one_location_circle_member_invites invite
+              SET status = 'expired',
+                  updated_at = NOW()
+              FROM expired_named_circle_member_invite_candidates candidate
+              WHERE invite.id = candidate.id
+              RETURNING invite.id
+            ),
+            stale_named_circle_member_invites AS (
+              SELECT invite.id
+              FROM one_location_circle_member_invites invite
+              WHERE invite.status IN (
+                  'accepted',
+                  'declined',
+                  'cancelled',
+                  'expired'
+                )
+                AND COALESCE(
+                  invite.responded_at,
+                  invite.cancelled_at,
+                  invite.updated_at,
+                  invite.expires_at,
+                  invite.created_at
+                ) <= NOW() - (:hours * INTERVAL '1 hour')
+                AND (
+                  :user_id IS NULL
+                  OR invite.inviter_user_id = :user_id
+                  OR invite.invitee_user_id = :user_id
+                )
+                AND (SELECT COUNT(*) FROM expired_named_circle_member_invites) >= 0
+              LIMIT 500
+            ),
             deleted_events AS (
               DELETE FROM one_location_events e
               WHERE e.grant_id IN (SELECT id FROM stale_grants)
@@ -2601,6 +2704,20 @@ class OneLocationAgentService:
               WHERE i.id IN (SELECT id FROM stale_circle_invites)
                 AND (SELECT COUNT(*) FROM deleted_public_invites) >= 0
               RETURNING id
+            ),
+            deleted_named_circle_codes AS (
+              DELETE FROM one_location_circle_invite_codes code
+              WHERE code.id IN (SELECT id FROM stale_named_circle_codes)
+                AND (SELECT COUNT(*) FROM deleted_circle_invites) >= 0
+              RETURNING id
+            ),
+            deleted_named_circle_member_invites AS (
+              DELETE FROM one_location_circle_member_invites invite
+              WHERE invite.id IN (
+                  SELECT id FROM stale_named_circle_member_invites
+                )
+                AND (SELECT COUNT(*) FROM deleted_named_circle_codes) >= 0
+              RETURNING id
             )
             SELECT
               (SELECT COUNT(*) FROM deleted_grants) AS deleted_grants,
@@ -2609,6 +2726,9 @@ class OneLocationAgentService:
               (SELECT COUNT(*) FROM deleted_referrals) AS deleted_referrals,
               (SELECT COUNT(*) FROM deleted_public_invites) AS deleted_public_invites,
               (SELECT COUNT(*) FROM deleted_circle_invites) AS deleted_circle_invites,
+              (SELECT COUNT(*) FROM deleted_named_circle_codes) AS deleted_named_circle_codes,
+              (SELECT COUNT(*) FROM deleted_named_circle_member_invites)
+                AS deleted_named_circle_member_invites,
               (SELECT COUNT(*) FROM deleted_public_submissions) AS deleted_public_submissions,
               (SELECT COUNT(*) FROM deleted_events) AS deleted_events
             """,
@@ -2623,6 +2743,10 @@ class OneLocationAgentService:
             "deleted_referrals": int(row.get("deleted_referrals") or 0),
             "deleted_public_invites": int(row.get("deleted_public_invites") or 0),
             "deleted_circle_invites": int(row.get("deleted_circle_invites") or 0),
+            "deleted_named_circle_codes": int(row.get("deleted_named_circle_codes") or 0),
+            "deleted_named_circle_member_invites": int(
+                row.get("deleted_named_circle_member_invites") or 0
+            ),
             "deleted_public_submissions": int(row.get("deleted_public_submissions") or 0),
             "deleted_events": int(row.get("deleted_events") or 0),
             "retention_hours": hours,
@@ -2815,19 +2939,25 @@ class OneLocationAgentService:
     def list_verified_recipients(
         self, *, owner_user_id: str, limit: int = 50
     ) -> list[dict[str, Any]]:
-        # A user appears as a One Location recipient only when the owner has an
-        # active connection with them (the two-way `connections` graph).
+        # A recipient is eligible through either the canonical two-way
+        # connections graph or shared active named-Circle membership. Neither
+        # relationship grants location access: the explicit encrypted grant
+        # below remains the sole authority.
+        #
+        # This predicate must stay identical to the one the authority paths
+        # enforce (`_resolve_location_peer_eligibility`,
+        # `_lock_circle_share_eligibility`, and the atomic private-share SQL).
+        # Offering someone the mutation will refuse produces a dead end the
+        # user has no way to resolve, so the direct-connection branch requires
+        # a non-`named_circle` origin here too: a pair whose only provenance is
+        # a Circle qualifies through the Circle branch, and stops qualifying
+        # the moment that Circle membership ends.
         rows = self._execute_many(
             """
             SELECT
-              a.user_id, a.display_name, a.phone_number, a.phone_verified,
+              a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
-            FROM connections c
-            JOIN actor_identity_cache a
-              ON a.user_id = CASE
-                   WHEN c.user_a_id = :owner_user_id THEN c.user_b_id
-                   ELSE c.user_a_id
-                 END
+            FROM actor_identity_cache a
             LEFT JOIN LATERAL (
               SELECT key_id, public_key_jwk, algorithm, created_at
               FROM one_location_recipient_keys
@@ -2836,9 +2966,36 @@ class OneLocationAgentService:
               ORDER BY created_at DESC
               LIMIT 1
             ) k ON TRUE
-            WHERE c.status = 'active'
-              AND (c.user_a_id = :owner_user_id OR c.user_b_id = :owner_user_id)
-              AND a.user_id <> :owner_user_id
+            WHERE a.user_id <> :owner_user_id
+              AND (
+                EXISTS (
+                  SELECT 1
+                  FROM connections c
+                  JOIN connection_origins origin
+                    ON origin.connection_id = c.id
+                   AND origin.status = 'active'
+                   AND origin.origin_kind <> 'named_circle'
+                  WHERE c.status = 'active'
+                    AND (
+                      (c.user_a_id = :owner_user_id AND c.user_b_id = a.user_id)
+                      OR
+                      (c.user_b_id = :owner_user_id AND c.user_a_id = a.user_id)
+                    )
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM one_location_circle_memberships mine
+                  JOIN one_location_circle_memberships theirs
+                    ON theirs.circle_id = mine.circle_id
+                   AND theirs.user_id = a.user_id
+                   AND theirs.status = 'active'
+                  JOIN one_location_circles circle
+                    ON circle.id = mine.circle_id
+                   AND circle.status = 'active'
+                  WHERE mine.user_id = :owner_user_id
+                    AND mine.status = 'active'
+                )
+              )
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
             LIMIT :limit
             """,
@@ -2869,10 +3026,39 @@ class OneLocationAgentService:
         # Privacy gate: a user who turned marketplace visibility OFF
         # (marketplace_public_profiles.is_discoverable = FALSE) disappears from
         # the directory too, UNLESS the owner has an explicit trusted edge.
+        return self.search_directory_candidates(
+            owner_user_id=owner_user_id,
+            page=1,
+            limit=limit,
+        )["items"]
+
+    def search_directory_candidates(
+        self,
+        *,
+        owner_user_id: str,
+        query: str = "",
+        page: int = 1,
+        limit: int = 20,
+        candidate_user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Search the eligible Connect directory before pagination.
+
+        This preserves the existing discovery policy while preventing callers
+        from being limited by an in-memory first page.  The result remains a
+        safe profile projection; it is not an all-account directory.
+        """
+        page = max(1, int(page or 1))
+        # Keep the legacy Ready People caller's 100-item ceiling intact. The
+        # Connect API applies its narrower public page limit before it gets
+        # here, so it cannot use this to request an unbounded directory.
+        limit = max(1, min(int(limit or 20), 100))
+        offset = (page - 1) * limit
+        needle = (query or "").strip().lower()
+        target = (candidate_user_id or "").strip() or None
         rows = self._execute_many(
             """
             SELECT
-              a.user_id, a.display_name, a.phone_number, a.phone_verified,
+              a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
               k.key_id, k.public_key_jwk, k.algorithm, k.created_at AS key_created_at
             FROM actor_identity_cache a
             LEFT JOIN LATERAL (
@@ -2884,6 +3070,7 @@ class OneLocationAgentService:
               LIMIT 1
             ) k ON TRUE
             WHERE a.user_id <> :owner_user_id
+              AND (:candidate_user_id IS NULL OR a.user_id = :candidate_user_id)
               AND (
                 EXISTS (
                   SELECT 1
@@ -2899,6 +3086,15 @@ class OneLocationAgentService:
                       SELECT 1
                       FROM advisor_investor_relationships air
                       JOIN ria_profiles rp ON rp.id = air.ria_profile_id
+                      JOIN relationship_share_grants share
+                        ON share.relationship_id = air.id
+                       AND share.grant_key = 'ria_active_picks_feed_v1'
+                       AND share.status = 'active'
+                       AND share.connection_scope_proposal_id IS NOT NULL
+                      JOIN connection_scope_proposals proposal
+                        ON proposal.id = share.connection_scope_proposal_id
+                       AND proposal.status = 'active'
+                       AND proposal.capability_key = 'ria_active_picks_feed_v1'
                       WHERE air.status = 'approved'
                         AND (
                           (air.investor_user_id = :owner_user_id AND rp.user_id = a.user_id)
@@ -2914,17 +3110,38 @@ class OneLocationAgentService:
                   )
                 )
               )
+              AND (
+                :query = ''
+                OR LOWER(COALESCE(a.display_name, '')) LIKE '%' || :query || '%'
+              )
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
-            LIMIT :limit
+            LIMIT :fetch_limit OFFSET :offset
             """,
-            {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
+            {
+                "owner_user_id": owner_user_id,
+                "candidate_user_id": target,
+                "query": needle,
+                "fetch_limit": limit + 1,
+                "offset": offset,
+            },
         )
-
-        recipients = [payload for row in rows if (payload := self._recipient_payload(row))]
-        return self._apply_kai_circle_recommendations(
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
+        recipients = [payload for row in page_rows if (payload := self._recipient_payload(row))]
+        items = self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,
         )
+        return {"items": items, "page": page, "hasMore": has_more}
+
+    def is_directory_candidate(self, *, owner_user_id: str, candidate_user_id: str) -> bool:
+        result = self.search_directory_candidates(
+            owner_user_id=owner_user_id,
+            candidate_user_id=candidate_user_id,
+            page=1,
+            limit=1,
+        )
+        return bool(result["items"])
 
     def _recipient_key_row(
         self,
@@ -3023,21 +3240,104 @@ class OneLocationAgentService:
                 status_code=403,
             )
 
-    def _is_active_connection(self, *, owner_user_id: str, other_user_id: str) -> bool:
+    # `_is_active_connection` used to live here and answered a narrower
+    # question than every caller needed: it recognized only a direct
+    # (non-`named_circle`) connection origin. Once named Circles shipped, the
+    # recipient picker legitimately offered Circle-only peers that this gate
+    # then refused, so a share the product intends failed with "you can only
+    # share with your connections". Location eligibility now has exactly one
+    # definition — `_resolve_location_peer_eligibility` — and callers use it.
+    def _resolve_location_peer_eligibility(
+        self,
+        *,
+        owner_user_id: str,
+        other_user_id: str,
+        source_circle_id: str | None = None,
+    ) -> tuple[bool, str | None]:
+        cleaned_source_circle_id: str | None = None
+        if source_circle_id is not None:
+            try:
+                cleaned_source_circle_id = str(UUID(str(source_circle_id)))
+            except (TypeError, ValueError, AttributeError) as exc:
+                raise OneLocationAgentError(
+                    "LOCATION_CIRCLE_NOT_FOUND",
+                    "Circle not found.",
+                    status_code=404,
+                ) from exc
         row = self._execute_one(
             """
-            SELECT 1
-            FROM connections
-            WHERE status = 'active'
-              AND (
-                (user_a_id = :a AND user_b_id = :b)
-                OR (user_a_id = :b AND user_b_id = :a)
-              )
+            SELECT
+              EXISTS (
+                SELECT 1
+                FROM connections connection
+                JOIN connection_origins origin
+                  ON origin.connection_id = connection.id
+                 AND origin.status = 'active'
+                 AND origin.origin_kind <> 'named_circle'
+                WHERE connection.status = 'active'
+                  AND :source_circle_id IS NULL
+                  AND (
+                    (
+                      connection.user_a_id = :owner_user_id
+                      AND connection.user_b_id = :other_user_id
+                    )
+                    OR
+                    (
+                      connection.user_b_id = :owner_user_id
+                      AND connection.user_a_id = :other_user_id
+                    )
+                  )
+              ) AS active_connection,
+              (
+                SELECT mine.circle_id::text
+                FROM one_location_circle_memberships mine
+                JOIN one_location_circle_memberships theirs
+                  ON theirs.circle_id = mine.circle_id
+                 AND theirs.user_id = :other_user_id
+                 AND theirs.status = 'active'
+                JOIN one_location_circles circle
+                  ON circle.id = mine.circle_id
+                 AND circle.status = 'active'
+                WHERE mine.user_id = :owner_user_id
+                  AND mine.status = 'active'
+                  AND (
+                    :source_circle_id IS NULL
+                    OR mine.circle_id = CAST(:source_circle_id AS UUID)
+                  )
+                ORDER BY mine.joined_at, mine.circle_id
+                LIMIT 1
+              ) AS eligible_circle_id
             LIMIT 1
             """,
-            {"a": owner_user_id, "b": other_user_id},
+            {
+                "owner_user_id": owner_user_id,
+                "other_user_id": other_user_id,
+                "source_circle_id": cleaned_source_circle_id,
+            },
         )
-        return row is not None
+        if not row:
+            return False, None
+        active_connection = bool(row.get("active_connection"))
+        eligible_circle_id = str(row.get("eligible_circle_id") or "").strip() or None
+        if cleaned_source_circle_id is not None:
+            return eligible_circle_id == cleaned_source_circle_id, eligible_circle_id
+        if active_connection:
+            return True, None
+        return eligible_circle_id is not None, eligible_circle_id
+
+    def _is_location_peer_eligible(
+        self,
+        *,
+        owner_user_id: str,
+        other_user_id: str,
+        source_circle_id: str | None = None,
+    ) -> bool:
+        eligible, _source_circle_id = self._resolve_location_peer_eligibility(
+            owner_user_id=owner_user_id,
+            other_user_id=other_user_id,
+            source_circle_id=source_circle_id,
+        )
+        return eligible
 
     def _is_sms_contact(self, *, owner_user_id: str, contact_user_id: str) -> bool:
         """Fail closed when the selected-contact table is unavailable.
@@ -3077,14 +3377,33 @@ class OneLocationAgentService:
             FROM one_location_sms_contacts sms
             WHERE sms.owner_user_id = :owner_user_id
               AND EXISTS (
-                SELECT 1
-                FROM connections c
-                WHERE c.status = 'active'
-                  AND (
-                    (c.user_a_id = :owner_user_id AND c.user_b_id = sms.contact_user_id)
-                    OR
-                    (c.user_b_id = :owner_user_id AND c.user_a_id = sms.contact_user_id)
-                  )
+                SELECT 1 WHERE EXISTS (
+                  SELECT 1
+                  FROM connections c
+                  JOIN connection_origins origin
+                    ON origin.connection_id = c.id
+                   AND origin.status = 'active'
+                   AND origin.origin_kind <> 'named_circle'
+                  WHERE c.status = 'active'
+                    AND (
+                      (c.user_a_id = :owner_user_id AND c.user_b_id = sms.contact_user_id)
+                      OR
+                      (c.user_b_id = :owner_user_id AND c.user_a_id = sms.contact_user_id)
+                    )
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM one_location_circle_memberships mine
+                  JOIN one_location_circle_memberships theirs
+                    ON theirs.circle_id = mine.circle_id
+                   AND theirs.user_id = sms.contact_user_id
+                   AND theirs.status = 'active'
+                  JOIN one_location_circles circle
+                    ON circle.id = mine.circle_id
+                   AND circle.status = 'active'
+                  WHERE mine.user_id = :owner_user_id
+                    AND mine.status = 'active'
+                )
               )
             ORDER BY sms.created_at, sms.contact_user_id
             """,
@@ -3096,20 +3415,62 @@ class OneLocationAgentService:
             if str(row.get("contact_user_id") or "").strip()
         ]
 
+    def _add_sms_contact_with_locked_eligibility(
+        self,
+        *,
+        owner_user_id: str,
+        contact_user_id: str,
+    ) -> None:
+        """Atomically validate Circle eligibility and persist SMS selection."""
+        try:
+            with get_db().engine.begin() as conn:
+                try:
+                    self._lock_circle_share_eligibility(
+                        conn,
+                        owner_user_id=owner_user_id,
+                        recipient_user_id=contact_user_id,
+                        requested_circle_id=None,
+                    )
+                except OneLocationAgentError as exc:
+                    if exc.code != "LOCATION_RECIPIENT_NOT_CONNECTED":
+                        raise
+                    raise OneLocationAgentError(
+                        "LOCATION_SMS_CONTACT_NOT_CONNECTED",
+                        LOCATION_SMS_CONTACT_NOT_ELIGIBLE_MESSAGE,
+                        status_code=403,
+                    ) from exc
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO one_location_sms_contacts (
+                          owner_user_id, contact_user_id, created_at, updated_at
+                        )
+                        VALUES (:owner_user_id, :contact_user_id, NOW(), NOW())
+                        ON CONFLICT (owner_user_id, contact_user_id) DO UPDATE
+                        SET updated_at = one_location_sms_contacts.updated_at
+                        """
+                    ),
+                    {
+                        "owner_user_id": owner_user_id,
+                        "contact_user_id": contact_user_id,
+                    },
+                )
+        except OneLocationAgentError:
+            raise
+        except Exception as exc:
+            logger.exception("one_location.sms_contact_transaction_failed")
+            raise OneLocationAgentError(
+                "LOCATION_SMS_CONTACT_UPDATE_FAILED",
+                "Could not update SMS contacts.",
+                status_code=500,
+            ) from exc
+
     def add_sms_contact(self, *, owner_user_id: str, contact_user_id: str) -> list[str]:
         if owner_user_id == contact_user_id:
             raise OneLocationAgentError(
                 "LOCATION_SMS_CONTACT_SELF",
                 "Choose a different connection as an SMS contact.",
                 status_code=422,
-            )
-        if not self._is_active_connection(
-            owner_user_id=owner_user_id, other_user_id=contact_user_id
-        ):
-            raise OneLocationAgentError(
-                "LOCATION_SMS_CONTACT_NOT_CONNECTED",
-                "Only an active connection can be added as an SMS contact.",
-                status_code=403,
             )
         # Reject contacts that cannot actually decrypt a live-location envelope.
         self._recipient_key_row(
@@ -3120,20 +3481,9 @@ class OneLocationAgentService:
                 "added as an SMS contact."
             ),
         )
-        self._execute_one(
-            """
-            INSERT INTO one_location_sms_contacts (
-              owner_user_id, contact_user_id, created_at, updated_at
-            )
-            VALUES (:owner_user_id, :contact_user_id, NOW(), NOW())
-            ON CONFLICT (owner_user_id, contact_user_id) DO UPDATE
-            SET updated_at = one_location_sms_contacts.updated_at
-            RETURNING contact_user_id
-            """,
-            {
-                "owner_user_id": owner_user_id,
-                "contact_user_id": contact_user_id,
-            },
+        self._add_sms_contact_with_locked_eligibility(
+            owner_user_id=owner_user_id,
+            contact_user_id=contact_user_id,
         )
         return self.list_sms_contact_ids(owner_user_id=owner_user_id)
 
@@ -3161,7 +3511,12 @@ class OneLocationAgentService:
         duration: float,
         reason: str | None,
         resolved_kind: str,
-    ) -> None:
+    ) -> bool:
+        """Notify the recipient. Returns False when they had no reachable device.
+
+        Save My Soul surfaces this per recipient, so a sender is never shown a
+        confident "SENT" for an alert that had nowhere to land.
+        """
         owner_identity = self._identity_row(owner_user_id)
         owner_label = _identity_notification_label(owner_identity)
         share_message = _visible_share_message(reason)
@@ -3195,7 +3550,7 @@ class OneLocationAgentService:
         else:
             notification_title = "Location shared"
             notification_body = f"{owner_label} shared location access with you."
-        self._send_metadata_notification(
+        return self._send_metadata_notification(
             user_id=recipient_user_id,
             notification_type="location_share_created",
             title=notification_title,
@@ -3225,6 +3580,252 @@ class OneLocationAgentService:
             },
         )
 
+    def _lock_circle_share_eligibility(
+        self,
+        conn: Any,
+        *,
+        owner_user_id: str,
+        recipient_user_id: str,
+        requested_circle_id: str | None,
+    ) -> str | None:
+        """Lock and revalidate a relationship before an authority mutation.
+
+        Circle and membership locks deliberately follow the same order as
+        membership removal: Circle first, memberships second. A share that
+        wins the lock commits before removal, so removal revokes it; a removal
+        that wins first makes the revalidation fail closed.
+        """
+        cleaned_circle_id: str | None = None
+        if requested_circle_id is not None:
+            try:
+                cleaned_circle_id = str(UUID(str(requested_circle_id)))
+            except (TypeError, ValueError, AttributeError) as exc:
+                raise OneLocationAgentError(
+                    "LOCATION_CIRCLE_NOT_FOUND",
+                    "Circle not found.",
+                    status_code=404,
+                ) from exc
+
+        if cleaned_circle_id is None:
+            connection_row = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT 1
+                        FROM connections connection
+                        JOIN connection_origins origin
+                          ON origin.connection_id = connection.id
+                         AND origin.status = 'active'
+                         AND origin.origin_kind <> 'named_circle'
+                        WHERE connection.status = 'active'
+                          AND (
+                            (
+                              connection.user_a_id = :owner_user_id
+                              AND connection.user_b_id = :recipient_user_id
+                            )
+                            OR
+                            (
+                              connection.user_b_id = :owner_user_id
+                              AND connection.user_a_id = :recipient_user_id
+                            )
+                          )
+                        LIMIT 1
+                        FOR SHARE OF connection, origin
+                        """
+                    ),
+                    {
+                        "owner_user_id": owner_user_id,
+                        "recipient_user_id": recipient_user_id,
+                    },
+                )
+                .mappings()
+                .first()
+            )
+            if connection_row:
+                return None
+
+            candidate_row = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT mine.circle_id::text AS circle_id
+                        FROM one_location_circle_memberships mine
+                        JOIN one_location_circle_memberships theirs
+                          ON theirs.circle_id = mine.circle_id
+                         AND theirs.user_id = :recipient_user_id
+                         AND theirs.status = 'active'
+                        JOIN one_location_circles circle
+                          ON circle.id = mine.circle_id
+                         AND circle.status = 'active'
+                        WHERE mine.user_id = :owner_user_id
+                          AND mine.status = 'active'
+                        ORDER BY mine.joined_at, mine.circle_id
+                        LIMIT 1
+                        """
+                    ),
+                    {
+                        "owner_user_id": owner_user_id,
+                        "recipient_user_id": recipient_user_id,
+                    },
+                )
+                .mappings()
+                .first()
+            )
+            cleaned_circle_id = (
+                str(candidate_row.get("circle_id") or "").strip() if candidate_row else None
+            )
+
+        if not cleaned_circle_id:
+            raise OneLocationAgentError(
+                "LOCATION_RECIPIENT_NOT_CONNECTED",
+                LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
+                status_code=403,
+            )
+
+        circle_row = (
+            conn.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM one_location_circles
+                    WHERE id = CAST(:circle_id AS UUID)
+                      AND status = 'active'
+                    FOR SHARE
+                    """
+                ),
+                {"circle_id": cleaned_circle_id},
+            )
+            .mappings()
+            .first()
+        )
+        if not circle_row:
+            raise OneLocationAgentError(
+                "LOCATION_RECIPIENT_NOT_CONNECTED",
+                LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
+                status_code=403,
+            )
+
+        membership_rows = (
+            conn.execute(
+                text(
+                    """
+                    SELECT user_id
+                    FROM one_location_circle_memberships
+                    WHERE circle_id = CAST(:circle_id AS UUID)
+                      AND user_id IN (:owner_user_id, :recipient_user_id)
+                      AND status = 'active'
+                    ORDER BY user_id
+                    FOR SHARE
+                    """
+                ),
+                {
+                    "circle_id": cleaned_circle_id,
+                    "owner_user_id": owner_user_id,
+                    "recipient_user_id": recipient_user_id,
+                },
+            )
+            .mappings()
+            .all()
+        )
+        locked_users = {str(row.get("user_id") or "").strip() for row in membership_rows}
+        if locked_users != {owner_user_id, recipient_user_id}:
+            raise OneLocationAgentError(
+                "LOCATION_RECIPIENT_NOT_CONNECTED",
+                LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
+                status_code=403,
+            )
+        return cleaned_circle_id
+
+    def _create_enforced_grant_row(
+        self,
+        *,
+        owner_user_id: str,
+        recipient_user_id: str,
+        requested_circle_id: str | None,
+        grant_params: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Atomically authorize and replace a relationship-backed grant."""
+        try:
+            with get_db().engine.begin() as conn:
+                source_circle_id = self._lock_circle_share_eligibility(
+                    conn,
+                    owner_user_id=owner_user_id,
+                    recipient_user_id=recipient_user_id,
+                    requested_circle_id=requested_circle_id,
+                )
+                params = {**grant_params, "source_circle_id": source_circle_id}
+                conn.execute(
+                    text(
+                        """
+                        UPDATE one_location_share_grants
+                        SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                        WHERE owner_user_id = :owner_user_id
+                          AND recipient_user_id = :recipient_user_id
+                          AND status = 'active'
+                        """
+                    ),
+                    params,
+                )
+                row = (
+                    conn.execute(
+                        text(
+                            """
+                            INSERT INTO one_location_share_grants (
+                              owner_user_id, recipient_user_id, recipient_key_id, status,
+                              consent_scope, capability_scopes, duration_hours, expires_at,
+                              source_circle_id, created_at, updated_at, metadata
+                            )
+                            VALUES (
+                              :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
+                              'cap.location.live.view', CAST(:capability_scopes AS JSONB),
+                              :duration_hours, :expires_at, CAST(:source_circle_id AS UUID),
+                              NOW(), NOW(), CAST(:metadata_json AS JSONB)
+                            )
+                            RETURNING *,
+                              :recipient_display_name AS recipient_display_name,
+                              :recipient_phone_number AS recipient_phone_number
+                            """
+                        ),
+                        params,
+                    )
+                    .mappings()
+                    .first()
+                )
+                if not row:
+                    return None
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO one_location_events (
+                          owner_user_id, actor_user_id, recipient_user_id,
+                          grant_id, event_type, metadata, created_at
+                        )
+                        VALUES (
+                          :owner_user_id, :owner_user_id, :recipient_user_id,
+                          CAST(:grant_id AS UUID), 'location_share_created',
+                          CAST(:event_metadata_json AS JSONB), NOW()
+                        )
+                        """
+                    ),
+                    {
+                        **params,
+                        "grant_id": str(row.get("id") or ""),
+                        "event_metadata_json": _json_param(
+                            {"duration_hours": params["duration_hours"]}
+                        ),
+                    },
+                )
+                return dict(row)
+        except OneLocationAgentError:
+            raise
+        except Exception as exc:
+            logger.exception("one_location.create_grant_transaction_failed")
+            raise OneLocationAgentError(
+                "LOCATION_GRANT_CREATE_FAILED",
+                "Could not create the location share.",
+                status_code=500,
+            ) from exc
+
     def create_grant(
         self,
         *,
@@ -3234,6 +3835,7 @@ class OneLocationAgentService:
         duration_hours: float,
         reason: str | None = None,
         share_kind: str | None = None,
+        source_circle_id: str | None = None,
         require_recipient_phone_verified: bool = True,
         enforce_connection: bool = False,
         _key_writer_guarded: bool = False,
@@ -3256,6 +3858,7 @@ class OneLocationAgentService:
                     duration_hours=duration_hours,
                     reason=reason,
                     share_kind=share_kind,
+                    source_circle_id=source_circle_id,
                     require_recipient_phone_verified=require_recipient_phone_verified,
                     enforce_connection=enforce_connection,
                     _key_writer_guarded=True,
@@ -3271,12 +3874,20 @@ class OneLocationAgentService:
                     resolved_kind=resolved_kind,
                 )
             return grant
-        if enforce_connection and not self._is_active_connection(
-            owner_user_id=owner_user_id, other_user_id=recipient_user_id
+        # The pre-check must use exactly the relationship the authoritative
+        # mutation below (`_create_enforced_grant_row`) will re-validate under
+        # lock: a direct connection OR shared active Circle membership. A
+        # narrower gate here rejects Circle-only peers that the recipient
+        # picker legitimately offers, which is a rejection the user cannot act
+        # on.
+        if enforce_connection and not self._is_location_peer_eligible(
+            owner_user_id=owner_user_id,
+            other_user_id=recipient_user_id,
+            source_circle_id=source_circle_id,
         ):
             raise OneLocationAgentError(
                 "LOCATION_RECIPIENT_NOT_CONNECTED",
-                "You can only share your live location with your connections.",
+                LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
                 status_code=403,
             )
         try:
@@ -3308,52 +3919,66 @@ class OneLocationAgentService:
             recipient_user_id=recipient_user_id,
             duration_hours=duration,
         )
-        self._execute_many(
-            """
-            UPDATE one_location_share_grants
-            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
-            WHERE owner_user_id = :owner_user_id
-              AND recipient_user_id = :recipient_user_id
-              AND status = 'active'
-            RETURNING id
-            """,
-            {"owner_user_id": owner_user_id, "recipient_user_id": recipient_user_id},
-        )
-        row = self._execute_one(
-            """
-            INSERT INTO one_location_share_grants (
-              owner_user_id, recipient_user_id, recipient_key_id, status,
-              consent_scope, capability_scopes, duration_hours, expires_at,
-              created_at, updated_at, metadata
+        grant_params = {
+            "owner_user_id": owner_user_id,
+            "recipient_user_id": recipient_user_id,
+            "recipient_key_id": key_id,
+            "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
+            "duration_hours": duration,
+            "expires_at": expires_at,
+            "source_circle_id": source_circle_id,
+            "metadata_json": _json_param(
+                {
+                    "reason": reason or "owner_approved",
+                    "share_kind": resolved_kind,
+                    "capability_token": capability["token"],
+                    "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
+                }
+            ),
+            "recipient_display_name": recipient.get("display_name"),
+            "recipient_phone_number": recipient.get("phone_number"),
+        }
+        if enforce_connection:
+            row = self._create_enforced_grant_row(
+                owner_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+                requested_circle_id=source_circle_id,
+                grant_params=grant_params,
             )
-            VALUES (
-              :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
-              'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-              :duration_hours, :expires_at, NOW(), NOW(), CAST(:metadata_json AS JSONB)
+        else:
+            self._execute_many(
+                """
+                UPDATE one_location_share_grants
+                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                WHERE owner_user_id = :owner_user_id
+                  AND recipient_user_id = :recipient_user_id
+                  AND status = 'active'
+                RETURNING id
+                """,
+                {
+                    "owner_user_id": owner_user_id,
+                    "recipient_user_id": recipient_user_id,
+                },
             )
-            RETURNING *,
-              :recipient_display_name AS recipient_display_name,
-              :recipient_phone_number AS recipient_phone_number
-            """,
-            {
-                "owner_user_id": owner_user_id,
-                "recipient_user_id": recipient_user_id,
-                "recipient_key_id": key_id,
-                "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
-                "duration_hours": duration,
-                "expires_at": expires_at,
-                "metadata_json": _json_param(
-                    {
-                        "reason": reason or "owner_approved",
-                        "share_kind": resolved_kind,
-                        "capability_token": capability["token"],
-                        "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
-                    }
-                ),
-                "recipient_display_name": recipient.get("display_name"),
-                "recipient_phone_number": recipient.get("phone_number"),
-            },
-        )
+            row = self._execute_one(
+                """
+                INSERT INTO one_location_share_grants (
+                  owner_user_id, recipient_user_id, recipient_key_id, status,
+                  consent_scope, capability_scopes, duration_hours, expires_at,
+                  source_circle_id, created_at, updated_at, metadata
+                )
+                VALUES (
+                  :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
+                  'cap.location.live.view', CAST(:capability_scopes AS JSONB),
+                  :duration_hours, :expires_at, CAST(:source_circle_id AS UUID),
+                  NOW(), NOW(), CAST(:metadata_json AS JSONB)
+                )
+                RETURNING *,
+                  :recipient_display_name AS recipient_display_name,
+                  :recipient_phone_number AS recipient_phone_number
+                """,
+                grant_params,
+            )
         grant = self._grant_payload(row)
         if not grant:
             raise OneLocationAgentError(
@@ -3361,14 +3986,15 @@ class OneLocationAgentService:
                 "Could not create the location share.",
                 status_code=500,
             )
-        self._insert_event(
-            owner_user_id=owner_user_id,
-            actor_user_id=owner_user_id,
-            recipient_user_id=recipient_user_id,
-            grant_id=grant["id"],
-            event_type="location_share_created",
-            metadata={"duration_hours": duration},
-        )
+        if not enforce_connection:
+            self._insert_event(
+                owner_user_id=owner_user_id,
+                actor_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+                grant_id=grant["id"],
+                event_type="location_share_created",
+                metadata={"duration_hours": duration},
+            )
         # Request approval has its own richer notification immediately after
         # this call. Sending share-created as well produces two alerts for one
         # user action. SMS waits until its first encrypted envelope is durably
@@ -3396,6 +4022,7 @@ class OneLocationAgentService:
         envelope: dict[str, Any],
         reason: str | None = None,
         share_kind: str | None = None,
+        source_circle_id: str | None = None,
         require_recipient_phone_verified: bool = True,
         enforce_connection: bool = False,
     ) -> dict[str, Any]:
@@ -3437,6 +4064,27 @@ class OneLocationAgentService:
                 status_code=422,
             ) from exc
         resolved_kind = share_kind or _classify_share_kind(reason)
+        # Record which relationship authorized this share. When the caller names
+        # a Circle it must be that Circle; otherwise a Circle-only peer still
+        # gets its source Circle stamped, so revoking the Circle later revokes
+        # the grant's provenance rather than leaving an unattributed share.
+        grant_source_circle_id: str | None = None
+        if enforce_connection:
+            eligible, relationship_circle_id = self._resolve_location_peer_eligibility(
+                owner_user_id=owner_user_id,
+                other_user_id=recipient_user_id,
+                source_circle_id=source_circle_id,
+            )
+            if not eligible:
+                raise OneLocationAgentError(
+                    "LOCATION_RECIPIENT_NOT_CONNECTED",
+                    LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
+                    status_code=403,
+                )
+            # On success this is the canonical UUID text of the Circle that
+            # authorized the share (equal to the requested one when given), or
+            # None when a direct connection authorized it.
+            grant_source_circle_id = relationship_circle_id
         # Check-In notes are recipient information, not audit metadata. The web
         # client encrypts the note with the point; this fixed marker is the only
         # Check-In reason persisted or sent through notification metadata.
@@ -3532,21 +4180,51 @@ class OneLocationAgentService:
                   <= INTERVAL '60 seconds'
                 AND NOW() - CAST(:confirmed_at AS TIMESTAMPTZ)
                   <= INTERVAL '10 minutes'
+                -- Same relationship rule as `_resolve_location_peer_eligibility`
+                -- and `_lock_circle_share_eligibility`: a direct (non-Circle)
+                -- connection origin, or shared membership of an active named
+                -- Circle. Re-evaluated inside this transaction so a membership
+                -- removed after the pre-check still fails closed. An explicitly
+                -- requested Circle narrows this to that Circle alone.
                 AND (
                   CAST(:enforce_connection AS BOOLEAN) IS FALSE
+                  OR (
+                    CAST(:source_circle_id AS UUID) IS NULL
+                    AND EXISTS (
+                      SELECT 1
+                      FROM connections c
+                      JOIN connection_origins origin
+                        ON origin.connection_id = c.id
+                       AND origin.status = 'active'
+                       AND origin.origin_kind <> 'named_circle'
+                      WHERE c.status = 'active'
+                        AND (
+                          (
+                            c.user_a_id = :owner_user_id
+                            AND c.user_b_id = :recipient_user_id
+                          )
+                          OR (
+                            c.user_a_id = :recipient_user_id
+                            AND c.user_b_id = :owner_user_id
+                          )
+                        )
+                    )
+                  )
                   OR EXISTS (
                     SELECT 1
-                    FROM connections c
-                    WHERE c.status = 'active'
+                    FROM one_location_circle_memberships mine
+                    JOIN one_location_circle_memberships theirs
+                      ON theirs.circle_id = mine.circle_id
+                     AND theirs.user_id = :recipient_user_id
+                     AND theirs.status = 'active'
+                    JOIN one_location_circles circle
+                      ON circle.id = mine.circle_id
+                     AND circle.status = 'active'
+                    WHERE mine.user_id = :owner_user_id
+                      AND mine.status = 'active'
                       AND (
-                        (
-                          c.user_a_id = :owner_user_id
-                          AND c.user_b_id = :recipient_user_id
-                        )
-                        OR (
-                          c.user_a_id = :recipient_user_id
-                          AND c.user_b_id = :owner_user_id
-                        )
+                        CAST(:source_circle_id AS UUID) IS NULL
+                        OR mine.circle_id = CAST(:source_circle_id AS UUID)
                       )
                   )
                 )
@@ -3575,13 +4253,14 @@ class OneLocationAgentService:
               INSERT INTO one_location_share_grants (
                 id, owner_user_id, recipient_user_id, recipient_key_id,
                 status, consent_scope, capability_scopes, duration_hours,
-                expires_at, created_at, updated_at, metadata
+                expires_at, source_circle_id, created_at, updated_at, metadata
               )
               SELECT
                 CAST(:grant_id AS UUID),
                 :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                 'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                :duration_hours, :expires_at, NOW(), NOW(),
+                :duration_hours, :expires_at,
+                CAST(:source_circle_id AS UUID), NOW(), NOW(),
                 CAST(:metadata_json AS JSONB)
               FROM eligible_recipient
               CROSS JOIN (SELECT COUNT(*) FROM revoked_grants) revoke_barrier
@@ -3689,6 +4368,7 @@ class OneLocationAgentService:
                 "confirmed_at": confirmed_at_value,
                 "require_phone_verified": require_recipient_phone_verified,
                 "enforce_connection": enforce_connection,
+                "source_circle_id": grant_source_circle_id,
                 "require_sms_contact": resolved_kind == "sos",
                 "envelope_metadata_json": envelope_fields["metadata_json"],
                 **{key: value for key, value in envelope_fields.items() if key != "metadata_json"},
@@ -3701,13 +4381,14 @@ class OneLocationAgentService:
             )
             if freshness_error is not None:
                 raise freshness_error
-            if enforce_connection and not self._is_active_connection(
+            if enforce_connection and not self._is_location_peer_eligible(
                 owner_user_id=owner_user_id,
                 other_user_id=recipient_user_id,
+                source_circle_id=source_circle_id,
             ):
                 raise OneLocationAgentError(
                     "LOCATION_RECIPIENT_NOT_CONNECTED",
-                    "You can only share your live location with your connections.",
+                    LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
                     status_code=403,
                 )
             if resolved_kind == "sos" and not self._is_sms_contact(
@@ -3856,8 +4537,15 @@ class OneLocationAgentService:
                 None,
             )
             if isinstance(post_commit_notification, dict):
-                self._send_location_share_created_notification(
-                    **post_commit_notification,
+                # Save My Soul notifies here rather than at grant creation, so
+                # this is the only place that knows whether the alert reached a
+                # device. Report it back instead of discarding it -- a sender
+                # whose contact has notifications off would otherwise still see
+                # a confident "SENT".
+                envelope_payload["recipientAlerted"] = (
+                    self._send_location_share_created_notification(
+                        **post_commit_notification,
+                    )
                 )
             return envelope_payload
         grant_row = self._execute_one(
@@ -3963,9 +4651,16 @@ class OneLocationAgentService:
                 "resolved_kind": "sos",
             }
             if _key_writer_guarded:
+                # Deferred: the caller sends it after the write commits and
+                # records the outcome there.
                 envelope_payload["_post_commit_notification"] = notification_args
             else:
-                self._send_location_share_created_notification(**notification_args)
+                # Direct route path (POST .../envelopes), which is the one
+                # runSosPanic drives. Record reachability so the sender can be
+                # told which contacts the alert actually reached.
+                envelope_payload["recipientAlerted"] = (
+                    self._send_location_share_created_notification(**notification_args)
+                )
         return envelope_payload
 
     def view_latest_envelope(self, *, recipient_user_id: str, grant_id: str) -> dict[str, Any]:
@@ -4877,6 +5572,36 @@ class OneLocationAgentService:
                 exc,
             )
             recipients = []
+        circle_service = None
+        try:
+            from hushh_mcp.services.one_location_circle_service import (
+                OneLocationCircleService,
+            )
+
+            circle_service = OneLocationCircleService()
+            named_circles = circle_service.list_circles(user_id=user_id)
+        except Exception as exc:  # noqa: BLE001 - additive schema rollout
+            logger.warning(
+                "one_location.list_state.named_circles_failed user=%s error=%s",
+                redact_log_field("user_id", user_id),
+                exc,
+            )
+            named_circles = []
+        try:
+            circle_member_invites = (
+                circle_service or OneLocationCircleService()
+            ).list_member_invites(
+                user_id=user_id,
+                direction="incoming",
+                expire_stale=not read_only_state,
+            )
+        except Exception as exc:  # noqa: BLE001 - additive schema rollout
+            logger.warning(
+                "one_location.list_state.circle_member_invites_failed user=%s error=%s",
+                redact_log_field("user_id", user_id),
+                exc,
+            )
+            circle_member_invites = []
         owner_grants = _safe_many(
             "owner_grants",
             """
@@ -4977,14 +5702,29 @@ class OneLocationAgentService:
             FROM one_location_sms_contacts sms
             WHERE sms.owner_user_id = :user_id
               AND EXISTS (
-                SELECT 1
-                FROM connections c
-                WHERE c.status = 'active'
-                  AND (
-                    (c.user_a_id = :user_id AND c.user_b_id = sms.contact_user_id)
-                    OR
-                    (c.user_b_id = :user_id AND c.user_a_id = sms.contact_user_id)
-                  )
+                SELECT 1 WHERE EXISTS (
+                  SELECT 1
+                  FROM connections c
+                  WHERE c.status = 'active'
+                    AND (
+                      (c.user_a_id = :user_id AND c.user_b_id = sms.contact_user_id)
+                      OR
+                      (c.user_b_id = :user_id AND c.user_a_id = sms.contact_user_id)
+                    )
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM one_location_circle_memberships mine
+                  JOIN one_location_circle_memberships theirs
+                    ON theirs.circle_id = mine.circle_id
+                   AND theirs.user_id = sms.contact_user_id
+                   AND theirs.status = 'active'
+                  JOIN one_location_circles circle
+                    ON circle.id = mine.circle_id
+                   AND circle.status = 'active'
+                  WHERE mine.user_id = :user_id
+                    AND mine.status = 'active'
+                )
               )
             ORDER BY sms.created_at, sms.contact_user_id
             """,
@@ -5035,6 +5775,7 @@ class OneLocationAgentService:
 
         return {
             "recipients": recipients,
+            "circles": named_circles,
             "myRecipientKey": my_recipient_key,
             "ownerGrants": [
                 payload
@@ -5078,6 +5819,7 @@ class OneLocationAgentService:
                     )
                 )
             ],
+            "circleMemberInvites": circle_member_invites,
             "networkConnections": [
                 payload
                 for row in network_connections
@@ -5484,11 +6226,36 @@ def location_error_detail(exc: OneLocationAgentError) -> dict[str, str]:
     return {"code": exc.code, "message": exc.message}
 
 
+_DB_UNAVAILABLE_HTTP_STATUS = 503
+_DB_UNAVAILABLE_MESSAGE = "Location storage is temporarily unavailable. Try again shortly."
+_DB_FAILED_MESSAGE = "Location request failed."
+
+
 def database_error_detail(exc: DatabaseExecutionError) -> dict[str, str]:
+    """Client-safe detail for a database failure.
+
+    `exc.details` is `str(<the DBAPI error>)`, and SQLAlchemy appends the failing
+    statement plus every bound value to that string (no engine here sets
+    `hide_parameters`). Location binds phone numbers, display labels, invite
+    tokens and coordinates, so the raw detail stays server-side: the caller gets
+    the stable code and the static hint, which is all it can act on anyway.
+    """
+    code = getattr(exc, "code", "DATABASE_EXECUTION_ERROR")
+    status_code = getattr(exc, "status_code", 500)
+    logger.error(
+        "one_location.database_error code=%s table=%s operation=%s",
+        code,
+        getattr(exc, "table_name", "unknown"),
+        getattr(exc, "operation", "unknown"),
+    )
     return {
-        "code": exc.code,
-        "message": exc.details,
-        "hint": exc.hint or "",
+        "code": code,
+        "message": (
+            _DB_UNAVAILABLE_MESSAGE
+            if status_code == _DB_UNAVAILABLE_HTTP_STATUS
+            else _DB_FAILED_MESSAGE
+        ),
+        "hint": getattr(exc, "hint", "") or "",
     }
 
 

@@ -51,6 +51,11 @@ const AGENT_SECTION_OVERRIDES: Record<
     screenId: "gmail",
     voiceRouteActionId: "route.profile_receipts",
   },
+  calendar: {
+    routeFamily: "one",
+    bottomNavScope: "one",
+    screenId: "calendar",
+  },
   email: {
     routeFamily: "one",
     bottomNavScope: "one",
@@ -108,7 +113,7 @@ const AGENTS_ROOT_SECTION: AgentSection = {
 const RIA_WORKSPACE_SECTION: AgentSection = {
   id: "ria",
   label: "RIA",
-  href: ROUTES.RIA_HOME,
+  href: ROUTES.RIA_PROFILE,
   icon: getOneCapability("ria")?.icon ?? lucideCapabilityIcon(LayoutDashboard),
   routeFamily: "ria",
   bottomNavScope: "ria",
@@ -122,13 +127,22 @@ const RIA_WORKSPACE_SECTION: AgentSection = {
 // under `/one/setup`. Without these aliases the shared dropdown falls back to
 // the root One selection while a person is completing Finance preferences or
 // choosing a portfolio source.
-const AGENT_SECTION_ROUTE_ALIASES: Readonly<Record<string, readonly string[]>> = {
-  finance: [
-    ROUTES.ONE_SETUP_FINANCE,
-    ROUTES.ONE_SETUP_FINANCE_IMPORT,
-    ROUTES.KAI_PLAID_OAUTH_RETURN,
-  ],
-};
+const AGENT_SECTION_ROUTE_ALIASES: Readonly<Record<string, readonly string[]>> =
+  {
+    finance: [
+      ROUTES.ONE_SETUP_FINANCE,
+      ROUTES.ONE_SETUP_FINANCE_IMPORT,
+      ROUTES.KAI_PLAID_OAUTH_RETURN,
+    ],
+    gmail: [ROUTES.ONE_SETUP_GMAIL, ROUTES.PROFILE_GMAIL_OAUTH_RETURN],
+    calendar: [
+      ROUTES.ONE_SETUP_CALENDAR,
+      ROUTES.PROFILE_GOOGLE_OAUTH_RETURN,
+    ],
+    // `/ria` remains a compatibility redirect. Keep it selected as RIA during
+    // the redirect rather than briefly falling back to the One root.
+    ria: [ROUTES.RIA_HOME],
+  };
 
 function normalizePathname(value: string | null | undefined): string {
   const raw =

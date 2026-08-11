@@ -7,12 +7,17 @@ import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 
-const { clearAgentPkmContext } = vi.hoisted(() => ({
+const { addToPKM, clearAgentPkmContext, previewAgentPkmMemory } = vi.hoisted(() => ({
+  addToPKM: vi.fn(),
   clearAgentPkmContext: vi.fn(),
+  previewAgentPkmMemory: vi.fn(),
 }));
 
 vi.mock("@/lib/agent/agent-pkm-memory", () => ({
+  addToPKM,
   clearAgentPkmContext,
+  getIgnoredPkmCards: () => [],
+  previewAgentPkmMemory,
 }));
 
 const push = vi.fn();
@@ -69,6 +74,13 @@ vi.mock("@/components/profile/pkm-section-preview", () => ({
   PkmSectionPreview: () => <div>Exact category preview</div>,
 }));
 
+async function openIndividualFieldReview() {
+  const label = await screen.findByText("Review individual fields");
+  const summary = label.closest("summary");
+  if (!summary) throw new Error("Expected individual field review disclosure");
+  fireEvent.click(summary);
+}
+
 describe("PkmNaturalPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -123,6 +135,22 @@ describe("PkmNaturalPanel", () => {
         enabledAt: enabled ? "2026-07-30T00:00:00.000Z" : null,
       }),
     );
+    previewAgentPkmMemory.mockResolvedValue({
+      cards: [
+        {
+          card_id: "memory-card-1",
+          write_mode: "confirm_first",
+          sharing_impact: { active_recipient_count: 0 },
+        },
+      ],
+    });
+    addToPKM.mockResolvedValue({
+      attempted: 1,
+      saved: 1,
+      failed: 0,
+      domains: ["financial"],
+      results: [],
+    });
   });
 
   it("uses the shared switch with an explicit automatic-saving state", async () => {
@@ -132,7 +160,6 @@ describe("PkmNaturalPanel", () => {
       name: "Turn automatic memory saving on",
     });
     expect(toggle).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByText("Off")).toBeTruthy();
 
     fireEvent.click(toggle);
 
@@ -152,7 +179,9 @@ describe("PkmNaturalPanel", () => {
         name: "Turn automatic memory saving off",
       }),
     ).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByText("On")).toBeTruthy();
+    expect(screen.getByTestId("memory-auto-save-row")).toContainElement(
+      screen.getByRole("switch", { name: "Turn automatic memory saving off" }),
+    );
   });
 
   it("loads metadata and the private memory preference before decrypting a category", async () => {
@@ -180,16 +209,99 @@ describe("PkmNaturalPanel", () => {
     expect(await screen.findByText("Exact category preview")).toBeTruthy();
   });
 
+  it("refreshes the Memory viewport after this owner saves PKM elsewhere", async () => {
+    const getMetadata = vi.spyOn(PersonalKnowledgeModelService, "getMetadata");
+    render(<PkmNaturalPanel />);
+
+    await screen.findByRole("button", { name: "Open Financial" });
+    window.dispatchEvent(
+      new CustomEvent("pkm-domain-changed", {
+        detail: { userId: "reviewer", domain: "financial" },
+      }),
+    );
+
+    await waitFor(() => expect(getMetadata).toHaveBeenCalledTimes(2));
+    expect(getMetadata).toHaveBeenLastCalledWith(
+      "reviewer",
+      true,
+      "memory-only-owner-token",
+    );
+  });
+
   it("uses the canonical settings-row geometry for the automatic-memory control", async () => {
     render(<PkmNaturalPanel />);
 
     await screen.findByRole("button", { name: "Open Financial" });
 
     expect(screen.getByTestId("memory-auto-save-group")).toBeTruthy();
-    expect(screen.getByTestId("memory-auto-save-row")).toBeTruthy();
+    const row = screen.getByTestId("memory-auto-save-row");
+    expect(row).toBeTruthy();
+    expect(row.firstElementChild).toHaveClass("grid-cols-1");
     expect(
       screen.getByRole("switch", { name: "Turn automatic memory saving on" }),
     ).toBeTruthy();
+  });
+
+  it("exposes the free-text review-first Memory flow without a rollout flag", async () => {
+    render(<PkmNaturalPanel />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add" }));
+    const note = await screen.findByRole("textbox", { name: "Memory note" });
+    fireEvent.change(note, {
+      target: { value: "I prefer morning flights whenever possible." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review note" }));
+
+    await waitFor(() =>
+      expect(previewAgentPkmMemory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: "reviewer",
+          message: "I prefer morning flights whenever possible.",
+          vaultOwnerToken: "memory-only-owner-token",
+        }),
+      ),
+    );
+    expect(await screen.findByText("Proposed saved detail")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save reviewed detail" }));
+    await waitFor(() =>
+      expect(addToPKM).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: "memory_workspace",
+          confirmation: expect.objectContaining({ confirmedByUser: true }),
+        }),
+      ),
+    );
+  });
+
+  it("keeps a failed automatic-memory update retryable without falsely telling the user to unlock", async () => {
+    vi.spyOn(AgentPkmAutoSavePolicy, "saveAgentPkmAutoSavePolicy").mockRejectedValueOnce(
+      new Error("Failed to store domain data: 422 - invalid request"),
+    );
+
+    render(<PkmNaturalPanel />);
+
+    const toggle = await screen.findByRole("switch", {
+      name: "Turn automatic memory saving on",
+    });
+    fireEvent.click(toggle);
+
+    expect(
+      await screen.findByText("Automatic memory saving couldn’t be updated. Try again."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/unlock your vault again/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() =>
+      expect(AgentPkmAutoSavePolicy.saveAgentPkmAutoSavePolicy).toHaveBeenCalledTimes(2),
+    );
+    expect(
+      await screen.findByRole("switch", {
+        name: "Turn automatic memory saving off",
+      }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 
   it("renders saved categories without waiting for the slower sharing request", async () => {
@@ -267,6 +379,7 @@ describe("PkmNaturalPanel", () => {
     await waitFor(() =>
       expect(PersonalKnowledgeModelService.getMutationSharingImpact).toHaveBeenCalled()
     );
+    await openIndividualFieldReview();
     fireEvent.click(await screen.findByRole("button", { name: "Correct saved detail" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Corrected detail value" }), {
       target: { value: "growth" },
@@ -313,6 +426,7 @@ describe("PkmNaturalPanel", () => {
     await waitFor(() =>
       expect(PersonalKnowledgeModelService.getMutationSharingImpact).toHaveBeenCalled()
     );
+    await openIndividualFieldReview();
     fireEvent.click(await screen.findByRole("button", { name: "Remove saved detail" }));
     await screen.findByText("Remove this saved detail?");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -338,6 +452,7 @@ describe("PkmNaturalPanel", () => {
     await waitFor(() =>
       expect(PersonalKnowledgeModelService.getMutationSharingImpact).toHaveBeenCalled()
     );
+    await openIndividualFieldReview();
     fireEvent.click(await screen.findByRole("button", { name: "Correct saved detail" }));
     fireEvent.click(screen.getByRole("button", { name: "Save corrected detail" }));
 
@@ -373,6 +488,7 @@ describe("PkmNaturalPanel", () => {
     expect(
       await screen.findByText("This update is shared with Planner Pro.")
     ).toBeTruthy();
+    await openIndividualFieldReview();
     fireEvent.click(screen.getByRole("button", { name: "Correct saved detail" }));
     expect(screen.queryByText(/encrypted export revision/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Save corrected detail" }));
@@ -393,6 +509,7 @@ describe("PkmNaturalPanel", () => {
         "Current sharing couldn’t be verified. Refresh before changing details."
       )
     ).toBeTruthy();
+    await openIndividualFieldReview();
     expect(screen.getByRole("button", { name: "Correct saved detail" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Remove saved detail" })).toBeDisabled();
   });

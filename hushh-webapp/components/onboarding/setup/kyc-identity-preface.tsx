@@ -1,60 +1,44 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { useState } from "react";
+import { Brain, Check, Copy } from "lucide-react";
 import { toast } from "sonner";
 
-import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
-import { Input } from "@/components/ui/input";
-import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
-import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import {
-  KycIdentityProfilePkmService,
+  KycIdentityProfileDraftService,
   type KycIdentityProfile,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { cn } from "@/lib/utils";
-import { useVault } from "@/lib/vault/vault-context";
 
-const STEPS = [
-  { id: "legal-name", label: "Legal name" },
-  { id: "date-of-birth", label: "Date of birth" },
-  { id: "residence", label: "Primary residence" },
-] as const;
+import { useVault } from "@/lib/vault/vault-context";
+import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 
 export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
   const { user } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
-  const [step, setStep] = useState(0);
-  const [legalName, setLegalName] = useState("");
-  const [dateOfBirth, setDateOfBirth] = useState("");
-  const [countryCode, setCountryCode] = useState("");
-  const [vaultOpen, setVaultOpen] = useState(false);
-  const [profileAwaitingUnlock, setProfileAwaitingUnlock] =
-    useState<KycIdentityProfile | null>(null);
+  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const [aboutMe, setAboutMe] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const selectedCountry = useMemo(
-    () =>
-      COUNTRY_PHONE_OPTIONS.find((country) => country.value === countryCode),
-    [countryCode],
-  );
-  const canContinue =
-    step === 0
-      ? legalName.trim().length > 1
-      : step === 1
-        ? Boolean(dateOfBirth)
-        : Boolean(selectedCountry);
-  const hasCompleteProfile =
-    legalName.trim().length > 1 &&
-    Boolean(dateOfBirth) &&
-    Boolean(selectedCountry);
+  const canContinue = aboutMe.trim().length > 5;
 
-  const saveProfileInBackground = useCallback(
-    async (profile: KycIdentityProfile) => {
-      if (!user?.uid || !vaultKey || !vaultOwnerToken) return;
+  const handlePrimary = async () => {
+    if (!canContinue || saving) return;
+    if (!user?.uid) {
+      toast.error("Sign in before saving your details.");
+      return;
+    }
 
+    const profile: KycIdentityProfile = {
+      aboutMe: aboutMe.trim(),
+    };
+
+    if (isVaultUnlocked && vaultKey && vaultOwnerToken) {
+      setSaving(true);
       try {
         const result = await KycIdentityProfilePkmService.saveProfile({
           userId: user.uid,
@@ -63,222 +47,138 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
           profile,
         });
         if (!result.success) {
-          throw new Error(result.message);
+          throw new Error(result.message || "Failed to save profile");
         }
-      } catch {
-        toast.error(
-          "We couldn't save your identity details. Please try again.",
-        );
+        onComplete();
+      } catch (_err) {
+        toast.error("Failed to save identity profile");
+      } finally {
+        setSaving(false);
       }
-    },
-    [user?.uid, vaultKey, vaultOwnerToken],
-  );
-
-  useEffect(() => {
-    if (!profileAwaitingUnlock || !vaultKey || !vaultOwnerToken) return;
-
-    const profile = profileAwaitingUnlock;
-    setProfileAwaitingUnlock(null);
-    setVaultOpen(false);
-    void saveProfileInBackground(profile);
-    onComplete();
-  }, [
-    onComplete,
-    profileAwaitingUnlock,
-    saveProfileInBackground,
-    vaultKey,
-    vaultOwnerToken,
-  ]);
-
-  const handlePrimary = () => {
-    if (!canContinue) return;
-    if (step < STEPS.length - 1) {
-      setStep((current) => current + 1);
-      return;
-    }
-    if (!hasCompleteProfile) {
+    } else {
+      // Capability setup is deliberately vault-free. Keep the sensitive draft
+      // only in process memory; the root Finish setup action is the one place
+      // that introduces the vault and flushes this profile after unlock.
+      KycIdentityProfileDraftService.stage(user.uid, profile);
       onComplete();
-      return;
     }
-    if (!user?.uid || !selectedCountry) {
-      toast.error("Sign in before saving your identity details.");
-      return;
-    }
-
-    const profile = {
-      legalName: legalName.trim(),
-      dateOfBirth,
-      countryCode: selectedCountry.value,
-      countryName: selectedCountry.label,
-    };
-    if (!vaultKey || !vaultOwnerToken) {
-      setProfileAwaitingUnlock(profile);
-      setVaultOpen(true);
-      return;
-    }
-
-    void saveProfileInBackground(profile);
-    onComplete();
   };
 
   const handleSkip = () => {
-    if (step < STEPS.length - 1) {
-      setStep((current) => current + 1);
-      return;
-    }
-
     onComplete();
   };
 
-  const primaryLabel = "Next";
+  const copyPrompt = () => {
+    const promptText =
+      "I want to transfer all my personal information about myself to another ai agent, can you tell in detail all the data you have stored within me.";
+    navigator.clipboard.writeText(promptText);
+    toast.success("Prompt copied to clipboard!");
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
-    <CapabilityCinematicIntroGate capabilityId="email">
-      <main
-        data-top-content-anchor="true"
-        className="flex h-[100dvh] w-full flex-col overflow-hidden bg-transparent px-5 pb-[var(--app-screen-footer-pad)] pt-[var(--top-content-pad)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
-      >
-        <div className="mx-auto flex min-h-0 w-full max-w-[25rem] flex-1 flex-col justify-start pb-0 pt-2 sm:pt-4">
-          <div className="w-full">
-            <div className="space-y-2.5">
-              <div className="flex min-h-8 items-center justify-between gap-3">
-                <Button
-                  type="button"
-                  variant="link"
-                  effect="fade"
-                  size="sm"
-                  onClick={() => setStep((current) => Math.max(0, current - 1))}
-                  disabled={step === 0}
-                  className={cn(
-                    "h-8 rounded-full px-2.5 text-[14px] font-medium text-primary hover:bg-primary/10",
-                    step === 0 && "invisible pointer-events-none",
-                  )}
-                  showRipple={false}
-                  aria-label="Previous question"
-                  tabIndex={step === 0 ? -1 : 0}
-                >
-                  <ArrowLeft className="mr-1 h-4 w-4" />
-                  Back
-                </Button>
-                <Button
-                  type="button"
-                  variant="link"
-                  effect="fade"
-                  size="sm"
-                  onClick={handleSkip}
-                  className="h-8 rounded-full px-2.5 text-[14px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-                  showRipple={false}
-                  aria-label={
-                    step === STEPS.length - 1
-                      ? "Skip KYC setup"
-                      : "Skip this question"
-                  }
-                >
-                  Skip
-                </Button>
-              </div>
-              <span className="block text-right type-footnote tabular-nums text-muted-foreground">
-                Step {step + 1} of {STEPS.length}
-              </span>
-              <OnboardingStepper
-                steps={STEPS}
-                currentIndex={step}
-                showLabel={false}
-                ariaLabel="KYC identity setup"
+    <CapabilityCinematicIntroGate capabilityId="email" routeOwnsTopOffset>
+      <div className="mx-auto flex min-h-0 w-full max-w-[32rem] my-auto flex-col justify-center px-4 py-8">
+        <div className="w-full space-y-8">
+          <div className="flex items-center justify-between">
+            <div className="w-16" />
+            <div className="h-1.5 w-12 rounded-full bg-muted/50" />
+            <Button
+              type="button"
+              variant="link"
+              effect="fade"
+              size="sm"
+              onClick={handleSkip}
+              className="w-16 justify-end text-[14px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground rounded-full px-3 py-1.5 h-auto transition-colors"
+              showRipple={false}
+              aria-label="Skip KYC setup"
+            >
+              Skip
+            </Button>
+          </div>
+
+          <div className="mx-auto flex w-full flex-col text-center">
+            <div className="space-y-2 mb-8">
+              <p className="text-sm font-medium uppercase tracking-widest text-primary/80">
+                Identity
+              </p>
+              <h1 className="text-3xl sm:text-4xl text-balance text-foreground font-semibold tracking-tight">
+                Tell us about yourself
+              </h1>
+            </div>
+
+            <div className="text-left w-full relative">
+              <Textarea
+                value={aboutMe}
+                onChange={(event) => setAboutMe(event.target.value)}
+                placeholder="Share details about your professional background, interests, residency, or other details. Only you and One can see this, and it stays entirely inside your private vault."
+                className="min-h-[140px] rounded-2xl p-5 text-[15px] leading-relaxed resize-none bg-background shadow-sm border border-input/60 focus-visible:ring-primary/20 focus-visible:ring-[4px] focus-visible:border-primary/40 transition-all"
+                aria-label="Tell us about yourself"
+                disabled={saving}
               />
             </div>
 
-            <div className="mx-auto flex w-full flex-col pt-8 sm:pt-9">
-              <div className="space-y-2 text-left">
-                <p className="type-subhead text-muted-foreground">
-                  A few details to get started.
-                </p>
-                <h1 className="type-title1 text-balance text-foreground">
-                  {step === 0
-                    ? "What is your legal name?"
-                    : step === 1
-                      ? "What is your date of birth?"
-                      : "Where is your primary residence?"}
-                </h1>
+            {/* External Agents Import Helper */}
+            <div className="mt-6 text-left rounded-3xl border border-border/40 bg-secondary/20 p-5 space-y-4 shadow-sm relative overflow-hidden">
+              <div className="absolute top-0 right-0 -mr-4 -mt-4 opacity-5 pointer-events-none">
+                <Brain className="w-32 h-32" />
+              </div>
+              <div className="flex items-start gap-4 relative z-10">
+                <div className="p-2.5 bg-background shadow-sm rounded-xl text-primary shrink-0 border border-border/50">
+                  <Brain className="h-5 w-5" />
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="text-sm font-semibold text-foreground">
+                    Import from ChatGPT or Claude
+                  </h3>
+                  <p className="text-[13px] leading-relaxed text-muted-foreground max-w-[95%]">
+                    Already have an active profile with another AI? Copy the prompt below to ask them to export your data, then paste it above.
+                  </p>
+                </div>
               </div>
 
-              <div className="mt-8 sm:mt-9">
-                {step === 0 ? (
-                  <Input
-                    value={legalName}
-                    onChange={(event) => setLegalName(event.target.value)}
-                    placeholder="Full legal name"
-                    autoComplete="name"
-                    autoCapitalize="words"
-                    className="h-14 rounded-xl px-4 text-base"
-                    aria-label="Legal name"
-                  />
-                ) : null}
-                {step === 1 ? (
-                  <Input
-                    type="date"
-                    value={dateOfBirth}
-                    onChange={(event) => setDateOfBirth(event.target.value)}
-                    autoComplete="bday"
-                    className="h-14 rounded-xl px-4 text-base"
-                    aria-label="Date of birth"
-                  />
-                ) : null}
-                {step === 2 ? (
-                  <select
-                    value={countryCode}
-                    onChange={(event) => setCountryCode(event.target.value)}
-                    autoComplete="country-name"
-                    aria-label="Primary residence"
-                    className="h-14 w-full appearance-none rounded-xl border border-input bg-background px-4 text-base text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
-                  >
-                    <option value="">Select country or region</option>
-                    {COUNTRY_PHONE_OPTIONS.map((country) => (
-                      <option key={country.value} value={country.value}>
-                        {country.label}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-              </div>
-
-              <div className="space-y-3 pt-8">
-                <Button
+              <div className="relative rounded-2xl border border-border/50 bg-background/80 backdrop-blur-sm p-4 pr-12 text-[13px] leading-relaxed text-foreground select-all shadow-sm transition-colors hover:border-border/80">
+                "I want to transfer all my personal information about myself to another ai agent, can you tell in detail all the data you have stored within me."
+                <button
                   type="button"
-                  variant="none"
-                  effect="fill"
-                  size="lg"
-                  fullWidth
-                  onClick={handlePrimary}
-                  disabled={!canContinue}
-                  showRipple
-                  className={cn(
-                    "h-12 rounded-full type-headline",
-                    "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-                    "active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100",
-                    canContinue
-                      ? "!bg-primary !text-primary-foreground hover:!bg-primary/90"
-                      : "!bg-muted !text-muted-foreground",
-                  )}
+                  onClick={copyPrompt}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 hover:bg-muted rounded-xl text-muted-foreground hover:text-foreground transition-all active:scale-95"
+                  title="Copy export prompt"
                 >
-                  {primaryLabel}
-                </Button>
+                  {copied ? (
+                    <Check className="h-4 w-4 text-emerald-500" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </button>
               </div>
+            </div>
+
+            <div className="pt-8">
+              <Button
+                type="button"
+                variant="none"
+                effect="fill"
+                size="lg"
+                fullWidth
+                onClick={handlePrimary}
+                disabled={!canContinue || saving}
+                showRipple
+                className={cn(
+                  "h-14 rounded-full text-base font-semibold shadow-sm",
+                  "transition-all duration-200 ease-out active:scale-[0.98]",
+                  canContinue && !saving
+                    ? "!bg-foreground !text-background hover:opacity-90"
+                    : "!bg-secondary !text-muted-foreground",
+                )}
+              >
+                {saving ? "Saving..." : "Save & Continue"}
+              </Button>
             </div>
           </div>
         </div>
-
-        {user ? (
-          <VaultUnlockDialog
-            user={user}
-            open={vaultOpen}
-            onOpenChange={setVaultOpen}
-            title="Unlock to continue"
-            description="Enter your passphrase to save these KYC details securely."
-            onSuccess={() => setVaultOpen(false)}
-          />
-        ) : null}
-      </main>
+      </div>
     </CapabilityCinematicIntroGate>
   );
 }
