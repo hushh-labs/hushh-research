@@ -994,9 +994,21 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
         logger.info("one_adk_goal_decision goal=%s status=preview_already_open", goal_id)
         return {
             "status": "preview_already_open",
+            # SAY NOTHING is the whole point of this branch, and the previous
+            # wording said the opposite: "Ask the person to confirm it there"
+            # instructed One to speak on a call whose only meaning is that it
+            # already spoke. Reported as the agent repeating its line when
+            # picking a person -- One called continue_app_goal twice, and the
+            # second answer told it to ask again, so it did.
+            #
+            # This is a tool RETURN, so it reaches the model where its turn
+            # already ends. Do not solve repetition by injecting content into
+            # a live turn: that preempts One mid-sentence and loops.
             "message": (
-                "This journey's step is already open on the screen. Ask the person "
-                "to confirm it there; do not start another one."
+                "Already done and waiting on the person -- this call changed "
+                "nothing. Say nothing at all and do not repeat your question; "
+                "you have already asked it and they have heard you. Wait for "
+                "the settlement."
             ),
             "goal_id": goal_id,
         }
