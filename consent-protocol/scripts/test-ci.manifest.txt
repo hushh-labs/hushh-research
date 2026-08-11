@@ -112,6 +112,7 @@ tests/test_pod_no_trace_reset.py
 tests/test_pod_observability_contract.py
 tests/test_pod_relay.py
 tests/test_pod_server.py
+tests/test_pod_spec_deployment_axes.py
 tests/test_pod_storage.py
 tests/test_pod_turn_relay.py
 tests/test_pod_turn_route.py

@@ -113,6 +113,30 @@ class PodSpec:
     runtime_version: Optional[str] = None
     prompt_version: Optional[str] = None
 
+    # -- the two axes, per person -----------------------------------------------
+    #
+    # WHERE this person's pod runs, and WHOSE model credential it uses. Until these
+    # existed here, both were process-wide environment variables, so every pod in a
+    # deployment necessarily ran on the same target with the same credential class
+    # and neither was expressible for one person.
+    #
+    # That is the gap the north star names as the FIRST change: "the first change is
+    # not credentials or IAM: it is putting both axes on PodSpec and on a per-user
+    # column, after which the rest becomes possible." It is also the deployment-
+    # agnostic test in concrete form — moving a pod to someone else's project must be
+    # setting a value, not editing code.
+    #
+    # It matters more now than when it was written: BYOC is the production path and
+    # the hussh-managed tier is strictly simulation, so "which target" is a per-person
+    # production fact, not a deployment-wide one.
+    #
+    # `None` means "use the deployment default", which is what every existing caller
+    # gets and why this is additive. `resolve_compute_backend` reads the target when
+    # one is set; the registry records both so a later read can tell what a pod was
+    # actually built as rather than what the environment happens to say today.
+    deployment_target: Optional[str] = None
+    model_credential_mode: Optional[str] = None
+
 
 @dataclass(frozen=True)
 class BackendHandle:
@@ -232,3 +256,22 @@ def resolve_compute_backend(backend_id: Optional[str] = None) -> ComputeBackend:
         f"compute backend '{chosen}' is not recognized "
         "(expected: null | gcp | anypoint | user_gcp; see docs/future/personal-agent/ROADMAP.md M4/M6/M7)"
     )
+
+
+def resolve_compute_backend_for_spec(spec: PodSpec) -> ComputeBackend:
+    """Pick the backend for ONE person, from their own spec.
+
+    `resolve_compute_backend()` answers "what does this deployment run?" — a
+    process-wide question, and the only one that could be asked while both axes lived
+    in environment variables. This answers "where does THIS person's pod run?", which
+    is the question BYOC actually poses: their pod runs in their project whatever the
+    hub happens to be configured for.
+
+    Falls back to the deployment default when the spec names no target, so this is a
+    superset of the existing behaviour rather than a second, competing resolver. An
+    unrecognised target still raises through `resolve_compute_backend` — a person
+    whose stored target is a typo must fail loudly, not silently land on the hub's
+    default, which for a BYOC user would mean provisioning into hushh's project
+    instead of their own. That is the one failure mode worth being noisy about.
+    """
+    return resolve_compute_backend(spec.deployment_target or None)

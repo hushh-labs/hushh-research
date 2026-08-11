@@ -249,6 +249,28 @@ class PersonalAgentProvisioningService:
         # external_agent_id, which is always NULL until a real backend provisions).
         self._backend: ComputeBackend = backend or NullBackend()
 
+    def _backend_for(self, spec: PodSpec) -> ComputeBackend:
+        """The backend that should build THIS person's pod.
+
+        The injected backend answers "what does this deployment run?". That was the
+        only question askable while both axes were process-wide env, and it is the
+        wrong one under BYOC: a person who has connected their own cloud must get a
+        pod in THEIR project, from a hub running in hushh's.
+
+        Injection still wins when the spec names no target, which keeps every existing
+        caller and every test that passes a fake backend working unchanged -- the
+        fake is the deployment default for that test.
+        """
+        if not spec.deployment_target:
+            return self._backend
+        # Deferred: importing the resolver at module scope would pull every backend
+        # implementation into any module that touches this service.
+        from hushh_mcp.services.compute_backend import (  # noqa: PLC0415
+            resolve_compute_backend_for_spec,
+        )
+
+        return resolve_compute_backend_for_spec(spec)
+
     async def provision(
         self,
         *,
@@ -257,6 +279,8 @@ class PersonalAgentProvisioningService:
         pod_public_key_b64: Optional[str] = None,
         pod_key_id: Optional[str] = None,
         pod_key_wrapping_alg: str = WRAPPING_ALG,
+        deployment_target: Optional[str] = None,
+        model_credential_mode: Optional[str] = None,
         ledger: Any = None,
     ) -> dict[str, Any]:
         """Stand up the user's agent. Owner authorization is the caller's job.
@@ -407,8 +431,18 @@ class PersonalAgentProvisioningService:
                 # Empty when deferred. No backend reads this field -- the pod holds its
                 # own key -- so an absent one changes nothing about what gets rendered.
                 pod_pubkey=pod_key.public_key_b64 if pod_key else "",
+                # Both default to None, which means "this deployment's default" and is
+                # exactly what every existing caller already got.
+                deployment_target=deployment_target,
+                model_credential_mode=model_credential_mode,
             )
-            handle = await self._backend.provision(spec)
+            # The person's own target wins over the one this service was constructed
+            # with. BYOC is the production path, so a pod belonging to someone who has
+            # connected their own cloud must be built THERE even though the hub that
+            # is building it runs on hushh's. Absent a per-person target this returns
+            # the injected backend unchanged, so nothing existing moves.
+            backend = self._backend_for(spec)
+            handle = await backend.provision(spec)
             await _record("provisioning", handle=handle)
 
             if pod_key is None:

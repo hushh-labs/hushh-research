@@ -41,7 +41,9 @@ _KNOWN_UNREACHABLE_FROM_ONE: dict[str, str] = {
     "agent_personal_information": (
         "Reachable only via its own route POST /api/one/information/chat, and "
         "explicitly rejected by Agent Chat. Registered for a dispatch path that no "
-        "roster tool takes. Open decision: bind a tool, or deregister."
+        "roster tool takes. RESOLVED (founder, 2026-08-11): the agent architecture is "
+        "preserved as-is and we build forward from it, so this registration stays and "
+        "the missing roster tool is work to be done -- not a registration to remove."
     ),
 }
 
