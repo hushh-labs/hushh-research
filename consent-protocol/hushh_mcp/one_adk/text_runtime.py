@@ -30,6 +30,7 @@ from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
     STATE_CONVERSATION_ID,
+    STATE_GROUNDING_REASON,
     STATE_PKM_CONTEXT,
     STATE_SCREEN,
     STATE_TIMEZONE,
@@ -312,6 +313,7 @@ async def _stream_one_text_turn_once(
     timezone: str | None,
     screen_context: dict[str, Any] | None,
     pkm_context: str | None,
+    grounding_reason: str | None = None,
     runtime_provider: str,
     runtime_model: str,
     runtime_mode: str,
@@ -371,6 +373,10 @@ async def _stream_one_text_turn_once(
             STATE_SCREEN: str(sanitized_context.get("screen") or "").strip()[:64],
             STATE_VOICE_CONTEXT: sanitized_context,
             STATE_PKM_CONTEXT: str(pkm_context or "").strip()[:20000],
+            # Only meaningful when the projection is empty; the instruction reads it
+            # solely on that branch. Carried rather than recomputed because the
+            # grounding service is the only thing that knows WHY.
+            STATE_GROUNDING_REASON: str(grounding_reason or "").strip()[:200],
         },
     )
 
@@ -480,6 +486,7 @@ async def stream_one_text_turn(
     timezone: str | None,
     screen_context: dict[str, Any] | None,
     pkm_context: str | None,
+    grounding_reason: str | None = None,
     runtime_provider: str,
     runtime_model: str,
     runtime_mode: str,
@@ -507,6 +514,7 @@ async def stream_one_text_turn(
                 timezone=timezone,
                 screen_context=screen_context,
                 pkm_context=pkm_context,
+                grounding_reason=grounding_reason,
                 runtime_provider=runtime_provider,
                 runtime_model=runtime_model,
                 runtime_mode=runtime_mode,

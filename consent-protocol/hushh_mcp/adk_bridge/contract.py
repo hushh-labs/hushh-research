@@ -45,6 +45,29 @@ class A2AAuthorityContext:
         return self.expires_at_ms is None or int(time.time() * 1000) < self.expires_at_ms
 
 
+def supplies_exact_authority(authority: A2AAuthorityContext | None) -> bool:
+    """Does this context carry anything beyond permission to START a task?
+
+    ``require_attenuated_authority`` refuses any specialist that needs to read
+    holdings or act unless the context carries the matching refs. Admission has to
+    answer that same question BEFORE dispatch, or it reports a specialist ``ready``
+    and the turn then fails -- which is exactly what it did: the pre-gate in
+    ``specialist_availability`` tested whether the specialist was *registered*,
+    and registration is not authorisation.
+
+    Derived from the object rather than declared alongside it, so it cannot drift
+    from whatever builds the context. The day a first-party hop starts carrying real
+    grant refs, this returns True and the pre-gate opens with no second edit.
+    """
+    if authority is None:
+        return False
+    return bool(
+        authority.information_grant_refs
+        or authority.encrypted_export_refs
+        or authority.action_capabilities
+    )
+
+
 def require_attenuated_authority(
     task: "A2ATask",
     *,

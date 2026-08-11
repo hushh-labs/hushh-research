@@ -13,6 +13,7 @@ tests/test_adk_a2a_compliance_script.py
 tests/test_advisors_coordinate_privacy.py
 tests/test_advisors_runtime_config_wiring.py
 tests/test_agent_manifest_index.py
+tests/test_agent_promises_match_tools.py
 tests/test_agent_prompt_routes.py
 tests/test_agent_prompt_service.py
 tests/test_agent_runtime_tool_resolution_error.py
@@ -60,6 +61,7 @@ tests/test_mcp_public_contract_v030.py
 tests/test_mcp_public_tools_v030.py
 tests/test_mcp_remote_endpoint.py
 tests/test_model_access_policy.py
+tests/test_one_grounding_honesty.py
 tests/test_one_location_db_error_detail_cwe209.py
 tests/test_one_location_routes.py
 tests/test_one_memory_service.py
@@ -130,6 +132,7 @@ tests/test_ria_iam_service_architecture.py
 tests/test_ria_onboarding_status_claim_event.py
 tests/test_scoped_export_download.py
 tests/test_simulation_phone_lane.py
+tests/test_specialist_availability_authority.py
 tests/test_standing_read_reissue.py
 tests/test_stream_agent_thinking_gemini_error_cwe209.py
 tests/test_stream_path_query_bounds_cwe400.py

@@ -709,6 +709,11 @@ async def stream_agent_chat(
                 timezone=body.timezone,
                 screen_context=sanitized_screen_context,
                 pkm_context=grounding.text or None,
+                # `resolve_grounding` already computes a human-readable reason for
+                # every branch, and this boundary used to drop it. Carrying it lets an
+                # ungrounded turn say WHY -- "no records stored yet" and "your vault is
+                # locked" lead to different honest answers.
+                grounding_reason=None if grounding.is_grounded else grounding.reason,
                 runtime=runtime,
                 runtime_credential=body.runtime_credential,
                 runtime_credential_transport=runtime.gemini_byok_transport,
