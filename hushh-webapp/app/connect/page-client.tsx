@@ -113,16 +113,55 @@ function matchByName<T>(
       .normalize("NFD")
       .replace(/\p{Diacritic}/gu, "")
       .toLowerCase()
+      // Punctuation out, so an initial is just a letter. Directories store
+      // "Abdul R." and "Abdul R" and "Abdul R,"; nobody says the full stop,
+      // and leaving it in means "r." can never be recognised as the start of
+      // "rashid".
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
       .replace(/\s+/g, " ")
       .trim();
   const target = normalize(spoken);
   if (!target) return [];
   const named = rows.filter((row) => normalize(String(nameOf(row) ?? "")).length > 0);
+
   const exact = named.filter((row) => normalize(String(nameOf(row))) === target);
   if (exact.length > 0) return exact;
-  return named.filter((row) => {
+
+  const contains = named.filter((row) => {
     const name = normalize(String(nameOf(row)));
     return name.startsWith(`${target} `) || name.split(" ").includes(target);
+  });
+  if (contains.length > 0) return contains;
+
+  // Last tier: every word of the shorter name accounted for in the longer.
+  //
+  // Names are not stored the way people say them. Someone says "Abdul
+  // Rashid" and the directory holds "Abdul R."; someone says "Abdul" and it
+  // holds "Abdul Kumar Rashid". Neither is exact, neither is a prefix, and
+  // neither contains the other as a whole word -- so both failed, about a
+  // person visible on screen.
+  //
+  // Word-level and prefix-wise, so "r" matches "rashid" and an initial does
+  // its job, but "abdul" can never match "abdullah" as a whole spoken name
+  // because the tiers above would have claimed a better candidate first.
+  const targetWords = target.split(" ").filter(Boolean);
+  return named.filter((row) => {
+    const nameWords = normalize(String(nameOf(row))).split(" ").filter(Boolean);
+    const [shorter, longer] =
+      targetWords.length <= nameWords.length
+        ? [targetWords, nameWords]
+        : [nameWords, targetWords];
+    if (shorter.length === 0) return false;
+    const remaining = [...longer];
+    return shorter.every((word) => {
+      const hit = remaining.findIndex(
+        (candidate) => candidate.startsWith(word) || word.startsWith(candidate),
+      );
+      if (hit === -1) return false;
+      // Consumed, so two spoken words cannot both claim the same stored one.
+      remaining.splice(hit, 1);
+      return true;
+    });
   });
 }
 
@@ -664,11 +703,31 @@ export default function ConnectPageClient() {
       // one exact person by that name", about people who were plainly there.
       // Bounded, because a directory is unbounded and a runaway loop here
       // would be worse than a refusal.
+      // Search on ONE word, then match the full name here.
+      //
+      // The server predicate is a single substring test --
+      // `LOWER(display_name) LIKE '%' || query || '%'` -- so passing the whole
+      // spoken name makes the whole name have to appear, contiguously, exactly
+      // as stored. "Abdul Rashid" then finds nobody when the directory holds
+      // "Abdul R.", and "Abdul" finds nobody when it holds "Abdul Kumar
+      // Rashid". Reported as voice being unable to find people plainly visible
+      // in the list, which is exactly what it was: the query could not reach
+      // them, so there was never a candidate for the matcher to consider.
+      //
+      // One token maximises what comes back; deciding WHICH person stays here,
+      // where the whole name is available. Longest word rather than first,
+      // because it is the most selective and least likely to be a title or
+      // initial.
+      const searchTerm =
+        spokenName
+          .split(/\s+/)
+          .filter(Boolean)
+          .sort((left, right) => right.length - left.length)[0] ?? spokenName;
       const candidates: DirectoryPerson[] = [];
       for (let pageNumber = 1; pageNumber <= DIRECTORY_RESOLVE_MAX_PAGES; pageNumber += 1) {
         const page = await ConnectionsService.searchDirectory({
           idToken,
-          query: spokenName,
+          query: searchTerm,
           page: pageNumber,
           limit: DIRECTORY_RESOLVE_PAGE_SIZE,
         });

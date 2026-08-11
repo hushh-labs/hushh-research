@@ -219,12 +219,14 @@ describe("Connect — People", () => {
     });
 
     expect(result).toMatchObject({ status: "succeeded" });
-    // Reads the whole result set for the name, not its first three rows. The
-    // old limit-3 read refused outright whenever `hasMore` was true, so it
-    // could not tell "no such person" from "not on the first page" -- and it
-    // gave the same answer to both, about people who were plainly there.
+    // Searches ONE word, then decides here. The server predicate is a single
+    // substring test on display_name, so sending the whole spoken name makes
+    // the entire name have to appear exactly as stored -- "Abdul Rashid"
+    // finds nobody when the directory holds "Abdul R.". Sending the longest
+    // word maximises what comes back; choosing between candidates happens in
+    // the browser, where the full name is available.
     expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({
-      query: "Person 9",
+      query: "Person",
       page: 1,
       limit: 50,
     });
@@ -249,6 +251,74 @@ describe("Connect — People", () => {
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     expect(sendRequest).not.toBeNull();
     const result = await sendRequest!({ person: "Person 9" });
+
+    expect(result).toMatchObject({ status: "blocked" });
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+  });
+
+  it("finds someone whose stored name is not how it was spoken", async () => {
+    // The bug this whole resolver exists for. The server matches a single
+    // substring against display_name, so "Abdul Rashid" reaches nobody when
+    // the directory holds "Abdul R." -- and the person is sitting in the list
+    // on screen the whole time.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Abdul R.")],
+      hasMore: false,
+      page: 1,
+    });
+    mocks.sendRequest.mockResolvedValue({ id: "request-9" });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
+    let result: Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
+    await act(async () => {
+      result = await sendRequest!({ person: "Abdul Rashid" });
+    });
+
+    expect(result).toMatchObject({ status: "succeeded" });
+    // Searched the longest word, not the whole phrase.
+    expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({ query: "Rashid" });
+    expect(mocks.sendRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ addresseeUserId: "u9" }),
+    );
+  });
+
+  it("finds someone whose stored name is longer than what was spoken", async () => {
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Abdul Kumar Rashid")],
+      hasMore: false,
+      page: 1,
+    });
+    mocks.sendRequest.mockResolvedValue({ id: "request-9" });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
+    let result: Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
+    await act(async () => {
+      result = await sendRequest!({ person: "Abdul Rashid" });
+    });
+
+    expect(result).toMatchObject({ status: "succeeded" });
+  });
+
+  it("still refuses to choose between two people the words could mean", async () => {
+    // Widening how names match must never widen who gets a request. Two
+    // plausible people is a question, not a coin toss.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u9", "Abdul Rashid"), person("u10", "Abdul Rashida")],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
+    let result: Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
+    await act(async () => {
+      result = await sendRequest!({ person: "Abdul" });
+    });
 
     expect(result).toMatchObject({ status: "blocked" });
     expect(mocks.sendRequest).not.toHaveBeenCalled();
