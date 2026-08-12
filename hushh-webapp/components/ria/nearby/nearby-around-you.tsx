@@ -3,26 +3,28 @@
 /**
  * "Around you" — public-association records near a place the advisor chose.
  *
- * The central job of this component is to be honest about coverage. Only one
- * market is approved today, so most locations on earth return a normal success
- * with an empty list. That is a correct answer, and each of its three shapes
- * gets its own explanation and its own next move. "No results found" would read
- * as failure and teach an advisor to distrust the surface.
+ * Two things this screen has to get right.
+ *
+ * Coverage honesty: only one market is approved, so most locations return a
+ * normal success with an empty list. That is an answer, not a failure, and each
+ * shape of it offers the one move that helps — pick a different place.
+ *
+ * Restraint: the location form used to sit at the top of every visit, and the
+ * filters offered four facets where the data supports one. Both are summoned
+ * now, not presented.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MapPinOff, Search, Star, UserRound } from "lucide-react";
+import { MapPin, Star, UserRound } from "lucide-react";
 
-import { InlineLoadingState } from "@/components/app-ui/inline-loading-state";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { NearbyFilterBar } from "@/components/ria/nearby/nearby-filters";
-import { NearbyLocationInput } from "@/components/ria/nearby/nearby-location-input";
+import { NearbyLocationDialog } from "@/components/ria/nearby/nearby-location-dialog";
 import { NearbyRecordSheet } from "@/components/ria/nearby/nearby-record-sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { useCurrentLocation } from "@/lib/one-location/use-current-location";
 import { Button } from "@/lib/morphy-ux/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState, StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "@/lib/morphy-ux/tokens/surfaces";
 import {
   DEFAULT_NEARBY_FILTERS,
@@ -37,32 +39,11 @@ import {
 } from "@/lib/services/nws-nearby-service";
 import { cn } from "@/lib/utils";
 
-/**
- * Each coverage state says what is true and what to do next.
- *
- * The upstream ships its own `message` for every one of these. It is accurate
- * but written for an integrator, not an advisor, so it is replaced here rather
- * than echoed — while the reason code it is keyed on is carried through
- * untouched.
- */
-const COVERAGE_COPY: Record<string, { title: string; body: string }> = {
-  NO_APPROVED_MARKET_DATA: {
-    title: "We understand this location.",
-    body: "We don't have reviewed records here yet. Nothing is hidden — there is nothing to show.",
-  },
-  COUNTRY_CONTEXT_DOES_NOT_MATCH_APPROVED_MARKET: {
-    title: "That country doesn't match this area.",
-    body: "Search by coordinates instead, or correct the country.",
-  },
-  POSTAL_CODE_NOT_IN_GEOGRAPHY_INDEX: {
-    title: "We don't have postal maps for this country yet.",
-    body: "Try coordinates instead.",
-  },
-};
-
-const FALLBACK_COVERAGE_COPY = {
-  title: "Nothing to show here yet.",
-  body: "This location is understood, but no reviewed records cover it.",
+/** One line per state. The reason code decides which; the advisor reads six words. */
+const COVERAGE_COPY: Record<string, string> = {
+  NO_APPROVED_MARKET_DATA: "No records here yet.",
+  COUNTRY_CONTEXT_DOES_NOT_MATCH_APPROVED_MARKET: "That country doesn't match this area.",
+  POSTAL_CODE_NOT_IN_GEOGRAPHY_INDEX: "No postal map for this country yet.",
 };
 
 export function NearbyAroundYou() {
@@ -76,15 +57,16 @@ export function NearbyAroundYou() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<NearbyRecord | null>(null);
   const [shortlisted, setShortlisted] = useState<Set<string>>(new Set());
-  const [saving, setSaving] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  // Filters are session-only by design, so nothing here is persisted. The ref
-  // exists purely to drop a response whose request has been superseded.
   const requestSeq = useRef(0);
+  // Read at fetch time rather than depended on, so a lane change — which must
+  // not refetch — cannot drag stale filters into the request either.
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
 
   // A granted position becomes the anchor, but never overrides a place the
-  // advisor typed: they chose that on purpose, and a late GPS fix arriving
-  // afterwards would silently move them somewhere else.
+  // advisor typed — a late GPS fix would otherwise move them somewhere else.
   useEffect(() => {
     if (!location.snapshot) return;
     setAnchor((current) =>
@@ -98,6 +80,10 @@ export function NearbyAroundYou() {
     );
   }, [location.snapshot]);
 
+  // Lane is deliberately NOT sent upstream. Every record carries its lane, so
+  // filtering client-side is exactly equivalent to the server's own lane filter
+  // — and it keeps one unfiltered response to count lanes from. Sector stays
+  // server-side, where its subset semantics live.
   const runSearch = useCallback(
     async (nextAnchor: NearbyAnchor, nextFilters: NearbyFilters) => {
       const idToken = await user?.getIdToken();
@@ -110,15 +96,13 @@ export function NearbyAroundYou() {
         const response = await NwsNearbyService.discover({
           idToken,
           anchor: nextAnchor,
-          filters: nextFilters,
+          filters: { ...nextFilters, lanes: [] },
         });
         if (seq !== requestSeq.current) return;
         setResult(response);
       } catch (caught) {
         if (seq !== requestSeq.current) return;
-        setError(
-          caught instanceof Error ? caught.message : "Nearby is unavailable right now.",
-        );
+        setError(caught instanceof Error ? caught.message : "Nearby is unavailable.");
         setResult(null);
       } finally {
         if (seq === requestSeq.current) setLoading(false);
@@ -127,10 +111,19 @@ export function NearbyAroundYou() {
     [user],
   );
 
+  // Held in a ref so a re-render cannot retrigger the fetch. runSearch closes
+  // over `user`, and an auth object whose identity changes each render would
+  // otherwise put this effect in a request loop.
+  const runSearchRef = useRef(runSearch);
+  useEffect(() => {
+    runSearchRef.current = runSearch;
+  }, [runSearch]);
+
   useEffect(() => {
     if (!anchor) return;
-    void runSearch(anchor, filters);
-  }, [anchor, filters, runSearch]);
+    void runSearchRef.current(anchor, filtersRef.current);
+    // Lane changes never refetch — they filter what is already on screen.
+  }, [anchor, filters.tag, filters.radiusKm, filters.minimumConfidenceGrade]);
 
   useEffect(() => {
     let cancelled = false;
@@ -143,13 +136,12 @@ export function NearbyAroundYou() {
         setShortlisted(
           new Set(
             entries
-              .filter((entry) => entry.status === "shortlisted")
-              .map((entry) => entry.target_key.replace(/^nws:/, "")),
+              .filter((e) => e.status === "shortlisted")
+              .map((e) => e.target_key.replace(/^nws:/, "")),
           ),
         );
       } catch {
-        // A shortlist that will not load must not block discovery; the star
-        // simply starts empty and the next save reconciles it.
+        // A shortlist that will not load must not block discovery.
       }
     })();
     return () => {
@@ -157,20 +149,19 @@ export function NearbyAroundYou() {
     };
   }, [user]);
 
-  // Memoised so the fallback empty array is not a new identity every render,
-  // which would recompute the lane counts and sector list on each pass.
-  const records = useMemo(() => result?.results ?? [], [result?.results]);
-  const laneCounts = useMemo(() => computeLaneCounts(records), [records]);
-  const tags = useMemo(() => availableTags(records), [records]);
+  const all = useMemo(() => result?.results ?? [], [result?.results]);
+  const laneCounts = useMemo(() => computeLaneCounts(all), [all]);
+  const tags = useMemo(() => availableTags(all), [all]);
+  const records = useMemo(() => {
+    const lane = filters.lanes[0];
+    return lane ? all.filter((r) => r.lane === lane) : all;
+  }, [all, filters.lanes]);
 
   const handleShortlist = useCallback(
     async (record: NearbyRecord) => {
       const idToken = await user?.getIdToken();
       if (!idToken) return;
       const already = shortlisted.has(record.personId);
-      setSaving(true);
-      // Optimistic: the star is the whole feedback signal, and a round trip
-      // before it moves reads as a dead control.
       setShortlisted((current) => {
         const next = new Set(current);
         if (already) next.delete(record.personId);
@@ -190,69 +181,83 @@ export function NearbyAroundYou() {
           else next.delete(record.personId);
           return next;
         });
-      } finally {
-        setSaving(false);
       }
     },
     [shortlisted, user],
   );
 
+  const picker = (
+    <NearbyLocationDialog
+      open={pickerOpen}
+      onOpenChange={setPickerOpen}
+      onAnchor={(next) => {
+        setFilters(DEFAULT_NEARBY_FILTERS);
+        setAnchor(next);
+      }}
+    />
+  );
+
+  // Nothing chosen yet: one action, one quiet alternative.
   if (!anchor) {
     return (
-      <SettingsGroup
-        eyebrow="Around you"
-        description="Public professionals associated with a place. Choose where to look."
-      >
-        <div className="p-4">
-          <NearbyLocationInput
-            onAnchor={setAnchor}
-            locationStatus={location.status}
-            onUseLocation={() => void location.request()}
-            busy={location.status === "locating"}
-          />
+      <SettingsGroup>
+        <div className="flex flex-col items-center gap-3 p-8 text-center">
+          <MapPin className="h-5 w-5 text-muted-foreground" aria-hidden />
+          <p className="type-headline">Look around a place</p>
+          <Button
+            type="button"
+            variant="blue-gradient"
+            effect="fill"
+            size="lg"
+            disabled={location.status === "locating"}
+            onClick={() => void location.request()}
+          >
+            Use my location
+          </Button>
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className={cn(MUTED_TEXT, "underline-offset-4 hover:underline")}
+          >
+            Enter a place
+          </button>
         </div>
+        {picker}
       </SettingsGroup>
     );
   }
 
   const coverage = result?.coverage;
   const covered = coverage?.status === "COVERED";
+  const place = covered
+    ? (coverage?.marketLabel ?? "Covered")
+    : anchor.kind === "postal"
+      ? `${anchor.postalCode} ${anchor.countryCode}`
+      : `${anchor.latitude.toFixed(2)}, ${anchor.longitude.toFixed(2)}`;
 
   return (
     <div className="flex flex-col gap-4">
-      <SettingsGroup eyebrow="Around you">
-        <div className="flex flex-col gap-4 p-4">
-          <NearbyLocationInput
-            onAnchor={setAnchor}
-            locationStatus={location.status}
-            onUseLocation={() => void location.request()}
-            busy={loading || location.status === "locating"}
-          />
-          {coverage ? (
-            <div className="flex flex-wrap items-center gap-2">
-              {covered ? (
-                <StatusPill tone="ready">
-                  {coverage.marketLabel ?? "Covered"}
-                </StatusPill>
-              ) : (
-                <StatusPill tone="neutral">Not covered</StatusPill>
-              )}
-              {covered ? (
-                <span className={MUTED_TEXT}>
-                  {result?.summary.returnedCount ?? 0} public records
-                </span>
-              ) : null}
-              {result?.snapshot.complete === false ? (
-                <StatusPill tone="pending">Provisional · early dataset</StatusPill>
-              ) : null}
-            </div>
-          ) : null}
+      <SettingsGroup>
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <div className="min-w-0">
+            <p className="truncate type-headline">{place}</p>
+            {covered ? (
+              <p className={MUTED_TEXT}>{records.length} public records</p>
+            ) : null}
+          </div>
+          <Button
+            type="button"
+            variant="none"
+            effect="fade"
+            size="sm"
+            onClick={() => setPickerOpen(true)}
+          >
+            Change
+          </Button>
         </div>
-      </SettingsGroup>
 
-      {covered ? (
-        <SettingsGroup eyebrow="Filters">
-          <div className="p-4">
+        {covered ? (
+          <div className="px-4 pb-4">
             <NearbyFilterBar
               filters={filters}
               onChange={setFilters}
@@ -261,65 +266,33 @@ export function NearbyAroundYou() {
               disabled={loading}
             />
           </div>
-        </SettingsGroup>
-      ) : null}
+        ) : null}
+      </SettingsGroup>
 
       {loading ? (
         <SettingsGroup>
           <div className="flex flex-col gap-2 p-4" aria-busy role="status">
-            <InlineLoadingState label="Looking around" />
             {[0, 1, 2, 3].map((row) => (
               <Skeleton key={row} className="h-14 w-full rounded-xl" />
             ))}
           </div>
         </SettingsGroup>
       ) : error ? (
-        <SettingsGroup>
-          <EmptyState
-            icon={<MapPinOff className="h-5 w-5" aria-hidden />}
-            title={error}
-            action={
-              <Button
-                type="button"
-                variant="none"
-                effect="fade"
-                size="sm"
-                onClick={() => void runSearch(anchor, filters)}
-              >
-                Try again
-              </Button>
-            }
-          />
-        </SettingsGroup>
-      ) : !covered && coverage ? (
-        <SettingsGroup>
-          <CoverageNotice reasonCode={coverage.reasonCode} />
-        </SettingsGroup>
+        <Quiet title={error} actionLabel="Try again" onAction={() => void runSearch(anchor, filters)} />
+      ) : !covered ? (
+        <Quiet
+          title={COVERAGE_COPY[coverage?.reasonCode ?? ""] ?? "Nothing here yet."}
+          actionLabel="Enter a place"
+          onAction={() => setPickerOpen(true)}
+        />
       ) : records.length === 0 ? (
-        <SettingsGroup>
-          <EmptyState
-            icon={<Search className="h-5 w-5" aria-hidden />}
-            title="No records match these filters."
-            description="Widen the focus or lower the confidence floor."
-            action={
-              <Button
-                type="button"
-                variant="none"
-                effect="fade"
-                size="sm"
-                onClick={() => setFilters(DEFAULT_NEARBY_FILTERS)}
-              >
-                Reset filters
-              </Button>
-            }
-          />
-        </SettingsGroup>
+        <Quiet
+          title="No matches."
+          actionLabel="Clear filters"
+          onAction={() => setFilters(DEFAULT_NEARBY_FILTERS)}
+        />
       ) : (
-        <SettingsGroup
-          eyebrow="Public records"
-          description="NWS is public professional network strength. Not net worth."
-          separatorInset
-        >
+        <SettingsGroup separatorInset>
           {records.map((record) => (
             <SettingsRow
               key={record.personId}
@@ -328,9 +301,7 @@ export function NearbyAroundYou() {
               density="compact"
               chevron
               title={record.displayName ?? "Public record"}
-              description={[record.headline, record.organization]
-                .filter(Boolean)
-                .join(" · ")}
+              description={[record.headline, record.organization].filter(Boolean).join(" · ")}
               onClick={() => setSelected(record)}
               trailing={
                 <span className="flex items-center gap-2">
@@ -340,11 +311,7 @@ export function NearbyAroundYou() {
                       aria-label="Shortlisted"
                     />
                   ) : null}
-                  <span className={cn(MUTED_TEXT, "tabular-nums")}>
-                    {record.publicLocation.distanceBand}
-                  </span>
-                  {/* The list ranks by nearbyRankScore, so that is the number
-                      shown. Displaying globalNws here would look mis-sorted. */}
+                  {/* Ranked by nearbyRankScore, so that is the number shown. */}
                   <span className="type-footnote tabular-nums">
                     {formatScore(record.nearbyRankScore)}
                   </span>
@@ -355,28 +322,41 @@ export function NearbyAroundYou() {
         </SettingsGroup>
       )}
 
+      {covered && records.length > 0 ? (
+        <p className={cn(MUTED_TEXT, "px-1")}>
+          Public work associations. Not homes, not net worth.
+        </p>
+      ) : null}
+
       <NearbyRecordSheet
         record={selected}
         open={Boolean(selected)}
-        onOpenChange={(next) => {
-          if (!next) setSelected(null);
-        }}
+        onOpenChange={(next) => !next && setSelected(null)}
         onShortlist={handleShortlist}
         shortlisted={selected ? shortlisted.has(selected.personId) : false}
-        saving={saving}
       />
+      {picker}
     </div>
   );
 }
 
-function CoverageNotice({ reasonCode }: { reasonCode: string | null }) {
-  const copy =
-    (reasonCode ? COVERAGE_COPY[reasonCode] : undefined) ?? FALLBACK_COVERAGE_COPY;
-
+function Quiet({
+  title,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  actionLabel: string;
+  onAction: () => void;
+}) {
   return (
-    <div className={cn(SUBCARD_SURFACE, "flex flex-col gap-1.5 p-6 text-center")}>
-      <p className="type-headline">{copy.title}</p>
-      <p className={MUTED_TEXT}>{copy.body}</p>
-    </div>
+    <SettingsGroup>
+      <div className={cn(SUBCARD_SURFACE, "flex flex-col items-center gap-3 p-8 text-center")}>
+        <p className="type-headline">{title}</p>
+        <Button type="button" variant="none" effect="fill" size="sm" onClick={onAction}>
+          {actionLabel}
+        </Button>
+      </div>
+    </SettingsGroup>
   );
 }
