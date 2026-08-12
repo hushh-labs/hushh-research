@@ -40,7 +40,11 @@ export function FullscreenFlowShell<T extends ElementType = "main">({
   return (
     <Component
       className={cn(
-        "fullscreen-flow-shell mx-auto flex w-full flex-col",
+        // `overscroll-none` stops pull-to-refresh / rubber-band bounce so the
+        // fullscreen flow (e.g. the setup capability intros) does not visually
+        // "move" on touchpads and mobile. Layout/anchoring is unchanged — the
+        // hero stays top-aligned (see #5165); this only kills overscroll chaining.
+        "fullscreen-flow-shell mx-auto flex w-full flex-col overscroll-none",
         className
       )}
       style={{ maxWidth: WIDTH_CLASS_MAP[width], ...style }}
