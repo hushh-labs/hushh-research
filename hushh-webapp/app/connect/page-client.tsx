@@ -1113,9 +1113,8 @@ export default function ConnectPageClient() {
     <AppPageShell
       as="main"
       fitContent
-
       width="reading"
-      className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      className="relative isolate"
       nativeTest={{
         routeId: "/one/connect",
         marker: "native-route-connect",
@@ -1452,6 +1451,7 @@ export default function ConnectPageClient() {
                         variant="none"
                         effect="fill"
                         size="sm"
+                        className="h-8 rounded-[10px] px-4 text-[13px] font-semibold"
                         disabled={loading || currentPage <= 1}
                         onClick={() => goToPage(currentPage - 1)}
                       >
@@ -1471,6 +1471,7 @@ export default function ConnectPageClient() {
                         variant="none"
                         effect="fill"
                         size="sm"
+                        className="h-8 rounded-[10px] px-4 text-[13px] font-semibold"
                         disabled={loading || !hasMore}
                         onClick={() => goToPage(currentPage + 1)}
                       >
