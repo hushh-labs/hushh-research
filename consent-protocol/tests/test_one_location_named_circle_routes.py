@@ -537,3 +537,60 @@ def test_circle_code_preview_rejects_a_malformed_code(monkeypatch) -> None:
         ).status_code
         == 422
     )
+
+
+def test_join_push_tells_the_sharer_their_code_was_used(monkeypatch) -> None:
+    import hushh_mcp.services.push_notifications as push_module
+
+    sent: list[dict] = []
+    monkeypatch.setattr(
+        push_module,
+        "send_circle_code_joined_push",
+        lambda **kwargs: sent.append(kwargs) or 1,
+    )
+
+    push_module.send_circle_code_joined_push(
+        inviter_user_id="owner-user",
+        joiner_display_name="Member",
+        circle_id=CIRCLE_ID,
+        circle_name="Meena Family",
+    )
+
+    assert sent == [
+        {
+            "inviter_user_id": "owner-user",
+            "joiner_display_name": "Member",
+            "circle_id": CIRCLE_ID,
+            "circle_name": "Meena Family",
+        }
+    ]
+
+
+def test_join_push_names_the_joiner_and_deep_links_to_people(monkeypatch) -> None:
+    import hushh_mcp.services.push_notifications as push_module
+
+    captured: dict = {}
+
+    def _fake_send(user_id, **kwargs):
+        captured["user_id"] = user_id
+        captured.update(kwargs)
+        return 1
+
+    monkeypatch.setattr(push_module, "send_user_data_push", _fake_send)
+
+    push_module.send_circle_code_joined_push(
+        inviter_user_id="owner-user",
+        joiner_display_name="Meena",
+        circle_id=CIRCLE_ID,
+        circle_name="Meena Family",
+    )
+
+    # Addressed to whoever shared the code -- they did the inviting, and they
+    # are the one person for whom a redemption is news.
+    assert captured["user_id"] == "owner-user"
+    assert captured["notification_type"] == "location_circle_code_joined"
+    # Named, because "someone joined" is exactly what the sender already knew.
+    assert captured["body"] == "Meena joined using your code."
+    assert captured["title"] == "Meena Family"
+    assert captured["deep_link"] == f"/one/location?tab=people&circleId={CIRCLE_ID}"
+    assert captured["notification_category"] == "ONE_LOCATION"

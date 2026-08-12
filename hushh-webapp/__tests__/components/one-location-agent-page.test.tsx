@@ -2457,7 +2457,14 @@ describe("OneLocationAgentPage", () => {
       screen.getByRole("main").getAttribute("class") || "";
     expect(onboardingShellClass).toContain("fixed");
     expect(onboardingShellClass).toContain("inset-0");
-    expect(onboardingShellClass).toContain("z-[540]");
+    // Above the agent bar's elevated z-540, not merely above its resting
+    // z-118. The bar raises itself for a pending confirmation or an
+    // interactive voice layer, and at 540 it tied with this overlay and won on
+    // DOM order -- drawing "Talk to One" across the primary CTA.
+    const shellZ = Number(
+      /z-\[(\d+)\]/u.exec(onboardingShellClass ?? "")?.[1] ?? "0",
+    );
+    expect(shellZ).toBeGreaterThan(540);
     expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
 
     await skipLocationEntryFlow({ expectMain: false });

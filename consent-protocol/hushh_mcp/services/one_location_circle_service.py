@@ -1210,8 +1210,44 @@ class OneLocationCircleService:
                 redact_log_field("user_id", user_id),
                 joined,
             )
+            circle = self.get_circle(user_id=user_id, circle_id=circle_id)
+            if joined:
+                # Best effort, and deliberately after the transaction: the
+                # membership is already durable, so a push failure must never
+                # undo a join that succeeded. Sending inside the transaction
+                # would also notify on a row that could still roll back.
+                try:
+                    from hushh_mcp.services.push_notifications import (
+                        send_circle_code_joined_push,
+                    )
+
+                    inviter_user_id = str(invite_row.get("created_by_user_id") or "")
+                    # The joiner is now a member, so their display name is
+                    # already in the detail payload -- no second lookup, and no
+                    # raw identifier in a notification body.
+                    joiner_name = next(
+                        (
+                            str(member.get("displayName") or "").strip()
+                            for member in (circle.get("members") or [])
+                            if str(member.get("userId") or "") == user_id
+                        ),
+                        "",
+                    )
+                    if inviter_user_id and inviter_user_id != user_id:
+                        send_circle_code_joined_push(
+                            inviter_user_id=inviter_user_id,
+                            joiner_display_name=joiner_name or "Someone",
+                            circle_id=circle_id,
+                            circle_name=str(circle.get("name") or ""),
+                        )
+                except Exception:
+                    logger.warning(
+                        "one_location.circle_joined_push_failed circle=%s",
+                        circle_id,
+                        exc_info=True,
+                    )
             return {
-                "circle": self.get_circle(user_id=user_id, circle_id=circle_id),
+                "circle": circle,
                 "joined": joined,
             }
         except OneLocationCircleError:

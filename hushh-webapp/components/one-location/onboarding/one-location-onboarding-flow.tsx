@@ -315,6 +315,7 @@ function WelcomeRadar() {
   return (
     <div
       className="relative mx-auto aspect-square w-[min(88vw,48dvh,390px)]"
+      data-one-welcome-radar
       aria-hidden="true"
     >
       {["inset-[5%]", "inset-[21%]", "inset-[37%]"].map((position, index) => (
@@ -425,6 +426,13 @@ function WelcomeScreen({
       </div>
       <style>{`
         @media (max-height: 720px) { [data-one-welcome-heading] { margin-top: 12px; font-size: 34px; } }
+        @media (max-height: 560px) {
+          [data-one-welcome-heading] { margin-top: 8px; font-size: 26px; line-height: 30px; }
+          [data-one-welcome-radar] { width: min(88vw, 30dvh, 390px); }
+        }
+        @media (max-height: 400px) {
+          [data-one-welcome-radar] { width: min(60vw, 26dvh, 390px); }
+        }
       `}</style>
     </div>
   );
@@ -2272,7 +2280,12 @@ export function OneLocationOnboardingFlow({
 
   return (
     <main
-      className="fixed inset-0 z-[540] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[#eef3f8] text-[#171d28] dark:bg-[#070a0f] dark:text-[#f4f7fb]"
+      // z-560, above the agent bar's elevated z-540. The bar normally sits at
+      // z-118 and onboarding covered it, but it raises itself to 540 for a
+      // pending confirmation or an interactive voice layer -- at which point it
+      // tied with this overlay and won on DOM order, drawing "Talk to One"
+      // across the primary CTA. Onboarding is modal; nothing belongs over it.
+      className="fixed inset-0 z-[560] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[#eef3f8] text-[#171d28] dark:bg-[#070a0f] dark:text-[#f4f7fb]"
       data-no-route-swipe
       data-testid="one-location-onboarding"
       data-location-onboarding-screen={screen}

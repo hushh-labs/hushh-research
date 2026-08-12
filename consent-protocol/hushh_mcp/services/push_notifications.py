@@ -182,6 +182,40 @@ def send_connection_request_push(addressee_user_id: str, requester_user_id: str)
     )
 
 
+def send_circle_code_joined_push(
+    *,
+    inviter_user_id: str,
+    joiner_display_name: str,
+    circle_id: str,
+    circle_name: str,
+) -> int:
+    """Tell whoever shared a code that it actually worked.
+
+    Sharing a Circle code was previously a one-way act: the sender pasted it
+    into a message and never learned whether anyone used it. That silence is
+    where the invite loop leaked -- there was no signal to act on and no reason
+    to open the app again.
+
+    Addressed to the code's creator, not the whole Circle: they did the
+    inviting, and they are the one person for whom this is news.
+    """
+
+    deep_link = f"/one/location?tab=people&circleId={circle_id}"
+    return send_user_data_push(
+        inviter_user_id,
+        notification_type="location_circle_code_joined",
+        title=circle_name or "Your Circle",
+        body=f"{joiner_display_name} joined using your code.",
+        deep_link=deep_link,
+        notification_tag=f"location-circle-code-joined:{circle_id}",
+        notification_category="ONE_LOCATION",
+        data={
+            "circle_id": circle_id,
+            "circle_name": circle_name,
+        },
+    )
+
+
 def send_circle_member_invite_push(
     *,
     invitee_user_id: str,

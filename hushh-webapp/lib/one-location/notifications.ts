@@ -41,7 +41,8 @@ export type OneLocationWorkflowNotificationType =
   | "location_referral_invite"
   | "location_public_invite_submitted"
   | "location_one_network_joined"
-  | "location_circle_member_invite";
+  | "location_circle_member_invite"
+  | "location_circle_code_joined";
 
 export type OneLocationNotificationSection =
   | "people"
@@ -96,6 +97,10 @@ const WORKFLOW_COPY: Record<
   location_circle_member_invite: {
     title: "Circle invitation",
     fallbackDescription: "A connection invited you to join their Circle.",
+  },
+  location_circle_code_joined: {
+    title: "Someone joined your Circle",
+    fallbackDescription: "Someone used your Circle code to join.",
   },
 };
 
@@ -429,6 +434,7 @@ export function oneLocationSectionForWorkflowNotificationType(
       return "my_requests";
     case "location_one_network_joined":
     case "location_circle_member_invite":
+    case "location_circle_code_joined":
       return "people";
     default:
       return "activity";
@@ -623,6 +629,13 @@ export function locationWorkflowNotificationCopy(params: {
       return {
         title: copy.title,
         description: `${networkLabel} invited you to join a Circle.`,
+      };
+    case "location_circle_code_joined":
+      // The one signal that a shared code worked. Named rather than generic,
+      // because "someone" is exactly what the sender already knew.
+      return {
+        title: copy.title,
+        description: `${networkLabel} joined using your Circle code.`,
       };
     default:
       return { title: copy.title, description: copy.fallbackDescription };
