@@ -114,6 +114,12 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # the advisor base URL directly above; the bearer key is a real
     # secret and is mounted through --set-secrets instead.
     "insurance_agents_api_base_url": "INSURANCE_AGENTS_API_BASE_URL",
+    # NWS Nearby Intelligence base URL. Non-secret and the same reasoning again;
+    # the X-NWS-API-Key is a real secret and is mounted through --set-secrets.
+    # Unlike the two directories above, this service lives in hushh-tech-prod
+    # rather than the lane project, so its key is mirrored across projects by
+    # scripts/ops/sync_backend_runtime_secrets.py before the deploy runs.
+    "nws_nearby_api_base_url": "NWS_NEARBY_API_BASE_URL",
     # Places directory switch. Deliberately its own key rather than reusing the
     # nearby-presence mode: that flag governs co-presence, and closing
     # co-presence in production must not also close a business directory.

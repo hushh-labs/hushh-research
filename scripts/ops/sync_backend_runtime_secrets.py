@@ -190,6 +190,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "hushh_trusted_device_uat_allowlist": args.hushh_trusted_device_uat_allowlist,
         "advisors_api_base_url": args.advisors_api_base_url,
         "insurance_agents_api_base_url": args.insurance_agents_api_base_url,
+        "nws_nearby_api_base_url": args.nws_nearby_api_base_url,
         "one_places_directory_enabled": args.one_places_directory_enabled,
     }
     return _drop_empty(config)
@@ -303,6 +304,18 @@ def main() -> int:
     parser.add_argument(
         "--insurance-agents-api-key-source-secret", default="insurance-agents-api-key"
     )
+    # NWS Nearby Intelligence. Same split again, with one deliberate difference:
+    # the base URL carries a real default instead of "". There is exactly one
+    # deployed NWS service and every lane calls it, so a blank default would
+    # leave any lane whose workflow forgot the flag silently unconfigured while
+    # the lane that remembered looked healthy. The two directories above are
+    # per-lane and correctly default to blank; this one is not.
+    parser.add_argument(
+        "--nws-nearby-api-base-url",
+        default="https://nws-nearby-intelligence-fro3hygenq-uc.a.run.app",
+    )
+    parser.add_argument("--nws-nearby-api-key-source-project", default="hushh-tech-prod")
+    parser.add_argument("--nws-nearby-api-key-source-secret", default="nws-nearby-api-key")
     args = parser.parse_args()
 
     sync_summary: list[str] = []
@@ -317,6 +330,11 @@ def main() -> int:
             "INSURANCE_AGENTS_API_KEY",
             args.insurance_agents_api_key_source_project,
             args.insurance_agents_api_key_source_secret,
+        ),
+        (
+            "NWS_NEARBY_API_KEY",
+            args.nws_nearby_api_key_source_project,
+            args.nws_nearby_api_key_source_secret,
         ),
     ):
         status = _mirror_directory_key(
