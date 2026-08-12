@@ -176,7 +176,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     expect(widths).toHaveLength(4);
     expect(new Set(widths).size).toBe(1);
-    expect(widths[0]).toBe("max-w-[480px]");
+    expect(widths[0]).toBe("max-w-[430px]");
   });
 
   it("keeps the mobile feature screen readable and fitted without page scrolling", () => {
@@ -184,7 +184,7 @@ describe("OneLocationOnboardingFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
     const featureShell = screen.getByTestId("one-location-onboarding-features");
-    expect(featureShell.className).toContain("max-w-[480px]");
+    expect(featureShell.className).toContain("max-w-[430px]");
     expect(featureShell.className).toContain("max-[431px]:max-w-none");
     const featureSurface = featureShell.firstElementChild;
     expect(featureSurface?.className).toContain("overflow-hidden");

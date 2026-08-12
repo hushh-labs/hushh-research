@@ -2339,15 +2339,19 @@ export function OneLocationOnboardingFlow({
       <section
         className={cn(
           "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[#0c1017]",
-          // One width for every screen. Features used to size off viewport
-          // HEIGHT and widen to 3xl on large windows, so on a desktop the flow
-          // visibly jumped wider on step two and back again on step three --
-          // the panel changing shape under the person as they advanced. A
-          // consistent column reads as one surface being stepped through.
+          // One width for every screen, and deliberately a phone's width.
+          //
+          // The feature cards style themselves with `@container (max-width:
+          // 420px)`, so the CARD decides its own tier, not the viewport. At a
+          // 480px panel the card measured 432px and fell out of that tier, so
+          // desktop rendered a different pill size, padding and type scale than
+          // the same screen on a phone -- which is the inconsistency, not any
+          // single element being misplaced. 430px puts the card at 382px, in
+          // the same tier a phone lands in, so the two render identically.
           //
           // 431px is the phone breakpoint: below it the panel goes full-bleed
           // rather than leaving side gutters on a device that has none.
-          "max-w-[480px] max-[431px]:max-w-none",
+          "max-w-[430px] max-[431px]:max-w-none",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >
