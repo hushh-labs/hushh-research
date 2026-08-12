@@ -1383,7 +1383,11 @@ function LocationDetailFlow({
                 <SharedWithMeCard
                   key={grant.id}
                   name={vm.grantOwnerLabel(grant)}
-                  statusLine={vm.expiresLabel(grant.expiresAt)}
+                  statusLine={
+                    grant.expiresAt
+                      ? `Access until ${vm.formatDateTime(grant.expiresAt)}`
+                      : "Access active"
+                  }
                   previewExpanded={expanded}
                   mapHref={point ? vm.mapLocationHref(point) : undefined}
                   onView={() => onExpandGrant(grant)}

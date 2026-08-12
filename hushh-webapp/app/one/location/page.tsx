@@ -77,6 +77,8 @@ import {
   type LocalOnboardingActionResult,
 } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7372,6 +7374,30 @@ export function OneLocationAgentPageContent({
         summary: "Nobody by that name is one of your emergency contacts.",
       };
     }
+    if (slots?.confirmed !== true) {
+      // Shown before it happens, not reported after. This list is the one
+      // consulted in an emergency, so a name misheard once quietly removes the
+      // person who would have been told.
+      const label = recipientLabel(match).trim() || "this person";
+      return {
+        status: "blocked" as const,
+        summary: `Removing ${label} needs a confirmation.`,
+        data: {
+          [VOICE_CONFIRM_DATA_KEY]: {
+            actionId: "location.remove_emergency_contact",
+            slots: { person: String(slots?.person ?? ""), confirmed: true },
+            prompt: `Remove ${label} as an emergency contact?`,
+            subject: {
+              name: label,
+              detail: recipientRecommendationLine(match) || null,
+            },
+            consequence:
+              getKaiActionById("location.remove_emergency_contact")?.meaning ?? null,
+            confirmLabel: "Remove",
+          },
+        },
+      };
+    }
     const removed = await handleRemoveSmsContact(matchedUserId);
     if (!removed) {
       return {
@@ -7682,6 +7708,30 @@ export function OneLocationAgentPageContent({
         return {
           status: "blocked" as const,
           summary: `${member.displayName} owns ${circle.name}, so they cannot be removed from it.`,
+        };
+      }
+      if (slots?.confirmed !== true) {
+        // Removing someone from a circle takes away what that circle shared
+        // with them. It is not the person's own data to put back, so this is
+        // shown before it happens rather than reported afterwards.
+        return {
+          status: "blocked" as const,
+          summary: `Removing ${member.displayName} from ${circle.name} needs a confirmation.`,
+          data: {
+            [VOICE_CONFIRM_DATA_KEY]: {
+              actionId: "location.remove_from_circle",
+              slots: {
+                person: spokenPerson,
+                circle: String(slots?.circle ?? ""),
+                confirmed: true,
+              },
+              prompt: `Remove ${member.displayName} from ${circle.name}?`,
+              subject: { name: member.displayName, detail: circle.name },
+              consequence:
+                getKaiActionById("location.remove_from_circle")?.meaning ?? null,
+              confirmLabel: "Remove",
+            },
+          },
         };
       }
       try {

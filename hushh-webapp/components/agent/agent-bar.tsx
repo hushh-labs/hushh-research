@@ -24,6 +24,7 @@ import { useTheme } from "next-themes";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
+import { VoiceActionCard } from "@/components/agent/voice-action-card";
 import { useAuth } from "@/hooks/use-auth";
 import {
   executeAgentGatewayAction,
@@ -1900,6 +1901,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       }
       aria-hidden={barHidden}
     >
+      {/* Sits above the approval card and never with it: a disambiguation is
+          raised when an action could not run at all, so there is nothing
+          pending to confirm at the same moment. */}
+      <VoiceActionCard />
       {pendingConfirmation ? (
         <div
           role="dialog"
