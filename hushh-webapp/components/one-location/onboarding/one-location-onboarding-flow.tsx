@@ -746,16 +746,9 @@ function CheckInFeatureCard() {
       >
         <MapBackdrop tone="checkin" />
         <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#f4f6f8] to-transparent dark:from-[#171d27]" />
-        <span
-          className="absolute bottom-[88px] right-[23%] z-20 h-7 w-7 drop-shadow-[0_7px_9px_rgba(28,177,103,0.26)]"
-          data-one-checkin-pin
-        >
-          <MapPin
-            className="h-full w-full fill-[#27b96a] text-[#27b96a]"
-            strokeWidth={1.8}
-          />
-          <span className="absolute left-1/2 top-[37%] h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
-        </span>
+        {/* Green location-pin overlay removed: the check-in card now shows the
+            clean building artwork on its own. The [data-one-checkin-pin]
+            responsive rules below are harmless no-ops now. */}
         <span
           className="absolute bottom-12 left-1/2 w-[54%] -translate-x-1/2"
           style={{ perspective: "320px", perspectiveOrigin: "50% 100%" }}
