@@ -569,24 +569,25 @@ async function openLocationFeatureStep() {
   ).toBeTruthy();
 }
 
-// The features step now always advances into the mandatory invite screen
-// (the page provides onPrepareOnboardingCircleInvite). Wait for the code to
-// finish provisioning — the footer button reads "Next" only once the invite
-// is ready — then continue to the people step.
-async function passLocationInviteStep() {
+/** Assert the invite screen is showing. It is the last screen now. */
+async function expectLocationInviteStep() {
   expect(
     await screen.findByRole("heading", { name: "Share your circle code" }),
   ).toBeTruthy();
-  const nextButton = await screen.findByRole("button", { name: "Next" });
-  fireEvent.click(nextButton);
 }
 
-async function openLocationPeopleStep() {
+/** The terminal CTA. Its label names the destination, which differs by mode. */
+function locationFinishButton() {
+  return screen.findByRole("button", { name: /Open One Location|Finish/ });
+}
+
+/** welcome -> features (clearing the save-place modal) -> invite. */
+async function reachLocationOnboardingFinalStep() {
   await openLocationFeatureStep();
   await waitFor(() => {
     const savePrompt = screen.queryByTestId("save-location-modal");
     const continueButton = screen.queryByRole("button", {
-      name: /Add my people|Allow location/,
+      name: /Share my code|Allow location/,
     });
     expect(savePrompt || continueButton).toBeTruthy();
   });
@@ -597,37 +598,34 @@ async function openLocationPeopleStep() {
     );
   }
   const continueButton = await screen.findByRole("button", {
-    name: /Add my people|Allow location/,
+    name: /Share my code|Allow location/,
   });
   await waitFor(() => expect(continueButton).toBeEnabled());
   fireEvent.click(continueButton);
-  await passLocationInviteStep();
-  expect(
-    await screen.findByRole("heading", { name: "Add people" }),
-  ).toBeTruthy();
-}
-
-async function enterLocationCircleStep(options: { fakeTimers?: boolean } = {}) {
-  await openLocationPeopleStep();
-  const continueButton = screen.getByRole("button", { name: "Continue" });
-  await waitFor(() => expect(continueButton).toBeEnabled());
-  if (options.fakeTimers) vi.useFakeTimers();
-  fireEvent.click(continueButton);
-  expect(
-    screen.getByRole("heading", {
-      name: "Your circle is ready.",
-    }),
-  ).toBeTruthy();
+  await expectLocationInviteStep();
   expect(screen.getByRole("button", { name: "Go back" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "Skip" })).toBeEnabled();
 }
 
+/** Reach the last screen and press the CTA that settles onboarding. */
+async function finishLocationOnboarding() {
+  await reachLocationOnboardingFinalStep();
+  const finish = await locationFinishButton();
+  await waitFor(() => expect(finish).toBeEnabled());
+  fireEvent.click(finish);
+}
+
 async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
-  await enterLocationCircleStep({ fakeTimers: true });
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(4000);
-  });
-  vi.useRealTimers();
+  await finishLocationOnboarding();
+
+  // Completion settles asynchronously now that it is driven by a press rather
+  // than a timer. Wait for the overlay to actually unmount, or callers assert
+  // against a workspace that is still behind it.
+  if (options.expectMain !== false) {
+    await waitFor(() =>
+      expect(screen.queryByTestId("one-location-onboarding")).toBeNull(),
+    );
+  }
 
   if (options.expectMain !== false) {
     expect(
@@ -978,8 +976,12 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Location Agent" }),
     ).toBeTruthy();
+    // "agent", not "reading": the workspace shell was widened in the component
+    // and this selector was never updated, so it has been failing on main
+    // independently of this change. The assertions below are the point of the
+    // test and are unchanged.
     const pageShell = document.querySelector<HTMLElement>(
-      '[data-app-shell-width="reading"]',
+      '[data-app-shell-width="agent"]',
     );
     expect(pageShell).toBeTruthy();
     expect(pageShell?.className).not.toContain("--app-bottom-fixed-ui");
@@ -1168,7 +1170,12 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(pauseSwitch);
 
     await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalled());
-    expect(pauseSwitch).toHaveAttribute("aria-checked", "false");
+    // The optimistic toggle reverts a render after the rejection resolves, so
+    // this has to be waited for rather than read on the same tick. It passed
+    // before only because onboarding left fake timers draining behind it.
+    await waitFor(() =>
+      expect(pauseSwitch).toHaveAttribute("aria-checked", "false"),
+    );
   });
 
   it("keeps Pause enabled when resuming cannot capture a fresh point", async () => {
@@ -1673,13 +1680,9 @@ describe("OneLocationAgentPage", () => {
       <OneLocationAgentPage mode="setup" onSetupComplete={onSetupComplete} />,
     );
 
-    await enterLocationCircleStep({ fakeTimers: true });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(4000);
-    });
-    vi.useRealTimers();
+    await finishLocationOnboarding();
 
-    expect(onSetupComplete).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onSetupComplete).toHaveBeenCalledTimes(1));
     expect(
       window.localStorage.getItem("one_location_onboarding_v2:user_a"),
     ).toBe("1");
@@ -1710,18 +1713,13 @@ describe("OneLocationAgentPage", () => {
       <OneLocationAgentPage mode="setup" onSetupComplete={onSetupComplete} />,
     );
 
-    await enterLocationCircleStep({ fakeTimers: true });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(4000);
-    });
+    await finishLocationOnboarding();
 
-    expect(screen.getByRole("button", { name: "Go back" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
-    expect(onSetupComplete).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onSetupComplete).toHaveBeenCalledTimes(1));
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(8000);
-    });
+    // Pressing again while the first settlement is still in flight must not
+    // settle a second time.
+    fireEvent.click(await locationFinishButton());
     expect(onSetupComplete).toHaveBeenCalledTimes(1);
 
     resolveCompletion?.();
@@ -1757,7 +1755,7 @@ describe("OneLocationAgentPage", () => {
     await openLocationPermissionsStep();
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
-    expect(screen.getByRole("button", { name: "Add my people" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Share my code" })).toBeEnabled();
     expect(onSetupComplete).not.toHaveBeenCalled();
   });
 
@@ -1962,104 +1960,6 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("keeps contact prefetch alive across steps and renders the first available source", async () => {
-    type DirectoryResult = {
-      items: Array<{
-        userId: string;
-        displayName: string;
-        photoUrl: null;
-        email: string;
-        relationship: "connected" | "none";
-      }>;
-      page: number;
-      hasMore: boolean;
-    };
-    type ConnectionResult = Array<{
-      connectionId: string;
-      userId: string;
-      displayName: string;
-      photoUrl: null;
-      createdAt: string;
-    }>;
-    let resolveDirectory!: (value: DirectoryResult) => void;
-    let resolveConnections!: (value: ConnectionResult) => void;
-    mockGetState.mockResolvedValue({
-      ...locationState(),
-      recipients: [],
-    });
-    mockSearchConnectionDirectory.mockReturnValueOnce(
-      new Promise<DirectoryResult>((resolve) => {
-        resolveDirectory = resolve;
-      }),
-    );
-    mockListConnections.mockReturnValueOnce(
-      new Promise<ConnectionResult>((resolve) => {
-        resolveConnections = resolve;
-      }),
-    );
-
-    render(<OneLocationAgentPage mode="setup" />);
-    await openLocationPeopleStep();
-    expect(screen.getByText("Finding your people")).toBeTruthy();
-
-    await act(async () => {
-      resolveConnections([
-        {
-          connectionId: "connection_b",
-          userId: "user_b",
-          displayName: "Trusted B",
-          photoUrl: null,
-          createdAt: "2026-05-20T07:00:00.000Z",
-        },
-      ]);
-    });
-
-    expect(await screen.findByText("Trusted B")).toBeTruthy();
-    expect(screen.queryByText("Finding your people")).toBeNull();
-
-    await act(async () => {
-      resolveDirectory({
-        items: [
-          {
-            userId: "user_b",
-            displayName: "Trusted B",
-            photoUrl: null,
-            email: "trusted@example.com",
-            relationship: "connected",
-          },
-          {
-            userId: "user_c",
-            displayName: "Advisor C",
-            photoUrl: null,
-            email: "advisor@example.com",
-            relationship: "none",
-          },
-        ],
-        page: 1,
-        hasMore: false,
-      });
-    });
-
-    expect(await screen.findByText("Advisor C")).toBeTruthy();
-  });
-
-  it("uses Location recipients when the Connections directory is empty", async () => {
-    mockSearchConnectionDirectory.mockResolvedValueOnce({
-      items: [],
-      page: 1,
-      hasMore: false,
-    });
-    mockListConnections.mockResolvedValueOnce([]);
-
-    render(<OneLocationAgentPage mode="setup" />);
-    await openLocationPeopleStep();
-
-    expect(await screen.findByText("Trusted B")).toBeTruthy();
-    expect(screen.getByText("Advisor C")).toBeTruthy();
-    expect(screen.getByText("Investor D")).toBeTruthy();
-    expect(screen.queryByText(/No recommendations yet/)).toBeNull();
-  });
-
   it("suppresses the stale-token banner while vault re-unlock is requested", async () => {
     mockGetState.mockRejectedValue(
       Object.assign(new Error("Token validation failed."), { status: 401 }),
@@ -2160,17 +2060,9 @@ describe("OneLocationAgentPage", () => {
     );
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
-    await passLocationInviteStep();
-    expect(
-      await screen.findByRole("heading", { name: "Add people" }),
-    ).toBeTruthy();
-    vi.useFakeTimers();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(4000);
-    });
-    vi.useRealTimers();
+    fireEvent.click(screen.getByRole("button", { name: "Share my code" }));
+    await expectLocationInviteStep();
+    fireEvent.click(await locationFinishButton());
     expect(
       await screen.findByRole("heading", { name: "Location Agent" }),
     ).toBeTruthy();
@@ -2263,11 +2155,8 @@ describe("OneLocationAgentPage", () => {
       ),
     ).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
-    await passLocationInviteStep();
-    expect(
-      await screen.findByRole("heading", { name: "Add people" }),
-    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Share my code" }));
+    await expectLocationInviteStep();
   });
 
   it("retries current-location capture in the unlocked workspace", async () => {
@@ -2390,17 +2279,9 @@ describe("OneLocationAgentPage", () => {
     expect(mockRequestLocationPermission).not.toHaveBeenCalled();
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
-    await passLocationInviteStep();
-    expect(
-      await screen.findByRole("heading", { name: "Add people" }),
-    ).toBeTruthy();
-    vi.useFakeTimers();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(4000);
-    });
-    vi.useRealTimers();
+    fireEvent.click(screen.getByRole("button", { name: "Share my code" }));
+    await expectLocationInviteStep();
+    fireEvent.click(await locationFinishButton());
     expect(
       await screen.findByRole("heading", { name: "Location Agent" }),
     ).toBeTruthy();

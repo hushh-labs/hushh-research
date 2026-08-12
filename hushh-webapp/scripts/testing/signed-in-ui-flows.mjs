@@ -76,12 +76,12 @@ export const UI_FLOWS = [
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[0] },
       { type: "click_button", name: "Get started" },
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[1] },
-      { type: "click_button", name: "Add my people" },
+      { type: "click_button", name: "Share my code" },
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[2] },
-      { type: "click_button", name: "Next" },
-      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[3] },
-      { type: "click_button", name: "Continue" },
-      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[4] },
+      // Stop here rather than pressing the final CTA. It settles the reviewer's
+      // Location capability, and this flow's contract is to traverse every
+      // screen once *without* mutating capability state.
+      { type: "wait_button", name: "Finish" },
     ],
   },
   {

@@ -196,6 +196,14 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "duration_bucket",
     "review_required",
   ],
+  one_location_onboarding_completed: [
+    ...BASE_ALLOWED_KEYS,
+    "result",
+    "exited_via",
+    "code_shared",
+    "code_copied",
+    "screens_seen",
+  ],
   one_location_contact_signal_synced: [
     ...BASE_ALLOWED_KEYS,
     "result",

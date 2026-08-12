@@ -886,6 +886,53 @@ class OneLocationCircleService:
         except Exception as exc:
             raise self._safe_db_failure("create_code", exc) from exc
 
+    def bootstrap_first_circle(
+        self,
+        *,
+        user_id: str,
+        name: str,
+    ) -> dict[str, Any]:
+        """Find-or-create the caller's own first Circle and return its live code.
+
+        Onboarding needs a shareable code before the vault exists, and the three
+        round trips the client used to make (list, create, mint) each required a
+        vault owner token. This composes them server-side so onboarding can ask
+        once, authenticated by Firebase alone.
+
+        Deliberately the narrowest possible surface: it takes no circle id, so it
+        can only ever act on a Circle the caller already owns or one it creates
+        for them, and it never rotates -- a caller who already owns a Circle gets
+        that Circle and the code it is already sharing. Every other Circle route
+        keeps its vault-owner gate.
+        """
+
+        owned = next(
+            (
+                circle
+                for circle in self.list_circles(user_id=user_id)
+                if str(circle.get("role") or "") == "owner"
+            ),
+            None,
+        )
+        circle = owned or self.create_circle(
+            owner_user_id=user_id,
+            name=name,
+            kind="family",
+        )
+        circle_id = str(circle.get("id") or "")
+        if not circle_id:
+            raise RuntimeError("Circle bootstrap resolved no circle id.")
+        invite = self.create_invite_code(
+            actor_user_id=user_id,
+            circle_id=circle_id,
+            rotate=False,
+        )
+        return {
+            "circleId": circle_id,
+            "circleName": str(circle.get("name") or name),
+            "code": str(invite.get("code") or ""),
+        }
+
     def resolve_invite_code(
         self,
         *,

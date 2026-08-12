@@ -53,7 +53,6 @@ import { PageHeader } from "@/components/app-ui/page-sections";
 import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
 import {
   OneLocationOnboardingFlow as OneLocationOnboardingExperience,
-  type ConnectionRequestResult,
   type OnboardingCircleInvite,
 } from "@/components/one-location/onboarding/one-location-onboarding-flow";
 
@@ -252,18 +251,12 @@ import {
   loadRecentDestinations,
 } from "@/lib/one-location/drive-recents";
 import { CacheService } from "@/lib/services/cache-service";
-import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   loadPersistedDriveSession,
   restoreDriveSession,
   saveDriveSession,
 } from "@/lib/one-location/drive-session-store";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
-import {
-  ConnectionsService,
-  type ConnectionSummaryEntry,
-  type DirectoryPerson,
-} from "@/lib/services/connections-service";
 import {
   CONSENT_STATE_CHANGED_EVENT,
   dispatchConsentStateChanged,
@@ -1340,33 +1333,6 @@ function displayNameFromRecipient(recipient: OneLocationRecipient): string {
   return recipientLabel(recipient);
 }
 
-function onboardingPeopleFromRecipients(
-  recipients: OneLocationRecipient[],
-): DirectoryPerson[] {
-  return recipients
-    .filter((recipient) => Boolean(recipient.userId))
-    .map((recipient) => ({
-      userId: recipient.userId,
-      displayName: displayNameFromRecipient(recipient),
-      photoUrl: null,
-      email: null,
-      relationship: "none" as const,
-    }));
-}
-
-function mergeOnboardingPeople(
-  primary: DirectoryPerson[],
-  fallback: DirectoryPerson[],
-): DirectoryPerson[] {
-  const merged = [...primary];
-  const seen = new Set(primary.map((person) => person.userId));
-  for (const person of fallback) {
-    if (!person.userId || seen.has(person.userId)) continue;
-    seen.add(person.userId);
-    merged.push(person);
-  }
-  return merged;
-}
 
 function initialsForLabel(label: string): string {
   const words = label
@@ -2073,17 +2039,6 @@ export function OneLocationAgentPageContent({
 
   const notificationOnboardingObservedBusyRef = useRef(false);
   const notificationOnboardingRetryOnFocusRef = useRef(false);
-  const [locationOnboardingPeople, setLocationOnboardingPeople] = useState<
-    DirectoryPerson[]
-  >([]);
-  const [locationOnboardingConnections, setLocationOnboardingConnections] =
-    useState<ConnectionSummaryEntry[]>([]);
-  const [locationOnboardingPeopleLoading, setLocationOnboardingPeopleLoading] =
-    useState(false);
-  const [locationOnboardingPeopleError, setLocationOnboardingPeopleError] =
-    useState<string | null>(null);
-  const [locationOnboardingPeopleRefresh, setLocationOnboardingPeopleRefresh] =
-    useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<ShareMode>("share");
   const locationTab = normalizeLocationTab(
@@ -2353,19 +2308,6 @@ export function OneLocationAgentPageContent({
     () => state?.circles ?? [],
     [state?.circles],
   );
-  const locationOnboardingRecipientsRef = useRef(recipients);
-  useEffect(() => {
-    locationOnboardingRecipientsRef.current = recipients;
-    if (locationOnboardingGate !== "show" || recipients.length === 0) return;
-    setLocationOnboardingPeople((current) =>
-      mergeOnboardingPeople(
-        current,
-        onboardingPeopleFromRecipients(recipients),
-      ),
-    );
-    setLocationOnboardingPeopleError(null);
-    setLocationOnboardingPeopleLoading(false);
-  }, [locationOnboardingGate, recipients]);
   const contactMatchedUserIds = useMemo(
     () => new Set(contactSignal.matchedUserIds),
     [contactSignal.matchedUserIds],
@@ -3027,117 +2969,6 @@ export function OneLocationAgentPageContent({
     }
   }, [auth.loading, auth.userId, refresh, stateEntry?.userId]);
 
-  useEffect(() => {
-    if (locationOnboardingGate !== "show" || !auth.user) {
-      return;
-    }
-
-    const authenticatedUser = auth.user;
-    let cancelled = false;
-    const loadPeople = async () => {
-      setLocationOnboardingPeopleLoading(true);
-      setLocationOnboardingPeopleError(null);
-      try {
-        const idToken = await authenticatedUser.getIdToken();
-        let directorySucceeded = false;
-        let renderedPeople = false;
-        let directoryError: unknown = null;
-        let connectionsError: unknown = null;
-
-        const directoryTask = ConnectionsService.searchDirectory({
-          idToken,
-          page: 1,
-          limit: 12,
-        })
-          .then((result) => {
-            directorySucceeded = true;
-            if (cancelled) return;
-            const items = result.items ?? [];
-            if (items.length === 0) return;
-            renderedPeople = true;
-            setLocationOnboardingPeople((current) =>
-              mergeOnboardingPeople(items, current),
-            );
-            setLocationOnboardingPeopleError(null);
-            setLocationOnboardingPeopleLoading(false);
-          })
-          .catch((error: unknown) => {
-            directoryError = error;
-          });
-
-        const connectionsTask = ConnectionsService.listConnections({ idToken })
-          .then((result) => {
-            if (cancelled) return;
-            setLocationOnboardingConnections(result);
-            if (renderedPeople || result.length === 0) return;
-            renderedPeople = true;
-            setLocationOnboardingPeople((current) =>
-              mergeOnboardingPeople(
-                result.map((connection) => ({
-                  userId: connection.userId,
-                  displayName: connection.displayName,
-                  photoUrl: connection.photoUrl,
-                  email: null,
-                  relationship: "connected" as const,
-                })),
-                current,
-              ),
-            );
-            setLocationOnboardingPeopleError(null);
-            setLocationOnboardingPeopleLoading(false);
-          })
-          .catch((error: unknown) => {
-            connectionsError = error;
-            if (!cancelled) setLocationOnboardingConnections([]);
-          });
-
-        await Promise.allSettled([directoryTask, connectionsTask]);
-        if (cancelled) return;
-
-        if (!renderedPeople) {
-          const fallbackPeople = onboardingPeopleFromRecipients(
-            locationOnboardingRecipientsRef.current,
-          );
-          setLocationOnboardingPeople((current) =>
-            mergeOnboardingPeople(fallbackPeople, current),
-          );
-          if (fallbackPeople.length > 0) {
-            setLocationOnboardingPeopleError(null);
-          } else if (!directorySucceeded) {
-            const error = directoryError ?? connectionsError;
-            setLocationOnboardingPeopleError(
-              error instanceof Error
-                ? error.message
-                : "Could not load recommended people.",
-            );
-          }
-        }
-      } catch (error) {
-        if (cancelled) return;
-        const fallbackPeople = onboardingPeopleFromRecipients(
-          locationOnboardingRecipientsRef.current,
-        );
-        setLocationOnboardingPeople((current) =>
-          mergeOnboardingPeople(fallbackPeople, current),
-        );
-        setLocationOnboardingConnections([]);
-        setLocationOnboardingPeopleError(
-          fallbackPeople.length > 0
-            ? null
-            : error instanceof Error
-              ? error.message
-              : "Could not load recommended people.",
-        );
-      } finally {
-        if (!cancelled) setLocationOnboardingPeopleLoading(false);
-      }
-    };
-
-    void loadPeople();
-    return () => {
-      cancelled = true;
-    };
-  }, [auth.user, locationOnboardingGate, locationOnboardingPeopleRefresh]);
 
   useEffect(() => {
     if (auth.loading) {
@@ -5431,9 +5262,6 @@ export function OneLocationAgentPageContent({
   // re-readable by active members and is never persisted in client storage/URLs.
   const handlePrepareOnboardingCircleInvite =
     useCallback(async (): Promise<OnboardingCircleInvite> => {
-      if (!vaultOwnerToken) {
-        throw new Error("Unlock One before preparing your circle code.");
-      }
       const ownerName = String(
         auth.user?.displayName || auth.user?.email || "",
       ).trim();
@@ -5441,6 +5269,22 @@ export function OneLocationAgentPageContent({
       const defaultCircleName = firstName
         ? `${firstName}'s Circle`
         : "My Circle";
+
+      // No vault yet — the wizard only introduces one once /one/setup finishes,
+      // so a first-run person has nothing but their sign-in. Bootstrap does the
+      // same find-or-create server-side against their user id, and the Circle
+      // rows it writes are the same rows the vault-gated calls below read later:
+      // the vault gates access to them, it never stored them.
+      if (!vaultOwnerToken) {
+        const idToken = await auth.user?.getIdToken();
+        if (!idToken) {
+          throw new Error("Sign in to prepare your circle code.");
+        }
+        return OneLocationService.bootstrapOnboardingCircle({
+          idToken,
+          name: defaultCircleName,
+        });
+      }
 
       // Reuse the person's first owned Circle so re-entering onboarding never
       // spawns duplicates; fall back to any membership, else create one.
@@ -7806,62 +7650,6 @@ export function OneLocationAgentPageContent({
     dismissLocationOnboarding();
   }, [dismissLocationOnboarding, mode, onSetupSkip]);
 
-  const handleSendLocationOnboardingConnectionRequests = useCallback(
-    async (userIds: string[]): Promise<ConnectionRequestResult> => {
-      if (!auth.user || userIds.length === 0) {
-        return { sentUserIds: [], failedUserIds: [] };
-      }
-
-      let idToken: string;
-      try {
-        idToken = await auth.user.getIdToken();
-      } catch {
-        toast.error("Your session could not be verified. Please try again.");
-        return { sentUserIds: [], failedUserIds: [...new Set(userIds)] };
-      }
-      const sentUserIds: string[] = [];
-      const failedUserIds: string[] = [];
-
-      // Keep requests sequential so a first-run selection cannot burst the
-      // connections endpoint. Each request is independently recoverable.
-      for (const userId of [...new Set(userIds)]) {
-        try {
-          await ConnectionsService.sendRequest({
-            idToken,
-            addresseeUserId: userId,
-            message: "I would like to add you to my private Location circle.",
-          });
-          sentUserIds.push(userId);
-        } catch {
-          failedUserIds.push(userId);
-        }
-      }
-
-      if (sentUserIds.length > 0) {
-        const sentSet = new Set(sentUserIds);
-        setLocationOnboardingPeople((current) =>
-          current.map((person) =>
-            sentSet.has(person.userId)
-              ? { ...person, relationship: "pending_outgoing" }
-              : person,
-          ),
-        );
-        CacheSyncService.onConnectionCapabilityMutated(auth.user.uid);
-        toast.success(
-          `${sentUserIds.length} connection request${sentUserIds.length === 1 ? "" : "s"} sent.`,
-        );
-      }
-      if (failedUserIds.length > 0) {
-        toast.error(
-          `${failedUserIds.length} request${failedUserIds.length === 1 ? "" : "s"} could not be sent.`,
-        );
-      }
-
-      return { sentUserIds, failedUserIds };
-    },
-    [auth.user],
-  );
-
   const handleDismissFirstRunGuide = useCallback(() => {
     setFirstRunGuideDismissed(true);
     if (typeof window !== "undefined" && auth.userId) {
@@ -8588,22 +8376,15 @@ export function OneLocationAgentPageContent({
               auth.user?.displayName || auth.user?.email || "You",
             ).trim() || "You"
           }
-          currentUserPhotoUrl={auth.user?.photoURL}
-          people={locationOnboardingPeople}
-          connections={locationOnboardingConnections}
-          peopleLoading={locationOnboardingPeopleLoading}
-          peopleError={locationOnboardingPeopleError}
           locationPermission={permission}
           notificationDeliveryMode={notificationDeliveryMode}
           notificationBusy={isRetryingPushRegistration}
           locationBusy={locationOnboardingBusy}
           nativeTest={nativeTestConfig}
-          onRetryPeople={() =>
-            setLocationOnboardingPeopleRefresh((current) => current + 1)
-          }
-          onSendConnectionRequests={
-            handleSendLocationOnboardingConnectionRequests
-          }
+          // Setup hands back to the wizard to finish the remaining capabilities;
+          // the workspace lands on the Location hub. Naming the destination beats
+          // a generic "Done" that leaves the person guessing.
+          completeLabel={mode === "setup" ? "Finish" : "Open One Location"}
           onRequestLocation={handleLocationOnboardingPermission}
           // Every onboarding run opens the pin-and-address flow once Location
           // is ready. Root setup stages the confirmed draft in memory; an
@@ -8614,18 +8395,13 @@ export function OneLocationAgentPageContent({
           onComplete={dismissLocationOnboarding}
           onSkip={skipLocationOnboarding}
           requireLocationToComplete={mode === "setup"}
-          // The circle code is minted server-side and every circle route is
-          // behind `require_vault_owner_token`, so there is nothing to show
-          // before the vault exists. Onboarding runs without one in `setup`
-          // mode, where this used to reach the Invite screen and fail with
-          // "Unlock One before preparing your circle code" -- a dead end during
-          // the very flow that creates the vault. Withholding the callback
-          // makes the flow omit that screen entirely (`inviteScreenEnabled`),
-          // so setup goes features -> people, and the code becomes available
-          // the moment the vault exists and onboarding is re-entered.
-          onPrepareOnboardingCircleInvite={
-            vaultOwnerToken ? handlePrepareOnboardingCircleInvite : undefined
-          }
+          // Always passed. This used to be withheld without a vault, which made
+          // the flow drop the invite screen entirely -- hiding it from exactly
+          // the first-run people onboarding exists for. The handler now falls
+          // back to the pre-vault bootstrap call, so the screen is always
+          // reachable and a failure degrades to its own retry rather than to a
+          // missing screen.
+          onPrepareOnboardingCircleInvite={handlePrepareOnboardingCircleInvite}
           onCopyOnboardingCircleCode={handleCopyNamedCircleCode}
           onShareOnboardingCircleCode={handleShareOnboardingCircleInvite}
         />

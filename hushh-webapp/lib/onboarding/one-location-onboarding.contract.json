@@ -3,9 +3,6 @@
   "screens": [
     { "key": "welcome", "testId": "one-location-onboarding-welcome" },
     { "key": "features", "testId": "one-location-onboarding-features" },
-    { "key": "invite", "testId": "one-location-onboarding-invite" },
-    { "key": "people", "testId": "one-location-onboarding-people" },
-    { "key": "circle", "testId": "one-location-onboarding-circle" }
-
+    { "key": "invite", "testId": "one-location-onboarding-invite" }
   ]
 }
