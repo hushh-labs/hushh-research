@@ -67,6 +67,15 @@ const ICON_SIZE_CLASS = {
     image: "h-full w-full object-contain",
     pixels: 40,
   },
+  // Larger rounded-square tile for the dashboard grid card (reference design).
+  "roster-lg": {
+    surface: "h-[68px] w-[68px]",
+    lucideSurface: "h-[68px] w-[68px] rounded-[18px]",
+    imageSurface: "rounded-[18px]",
+    lucide: "h-7 w-7",
+    image: "h-full w-full object-contain",
+    pixels: 72,
+  },
 } as const;
 
 const PROFILE_ICON_RADIUS_CLASS: Record<AgentSectionIconSize, string> = {
@@ -75,6 +84,7 @@ const PROFILE_ICON_RADIUS_CLASS: Record<AgentSectionIconSize, string> = {
   topbar: "rounded-[10px]",
   menu: "rounded-[11px]",
   roster: "rounded-[12px]",
+  "roster-lg": "rounded-[18px]",
 };
 
 type AgentSectionIconSize = keyof typeof ICON_SIZE_CLASS;

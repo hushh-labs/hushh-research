@@ -164,16 +164,8 @@ export function CapabilityCinematicIntroGate({
   const premise = copy.introPremise ?? copy.setupTitle;
   const promise = copy.introPromise ?? copy.setupBlurb;
   const introLayoutClass = embedded
-    ? "motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-col pt-8 text-center"
-    : // Top-aligned with balanced padding rather than centered inside a
-      // near-full-height box. Centering within `min-h:100dvh-16rem` stacked on
-      // top of the shell's own header clearance pushed the hero into the lower
-      // half and left a large dead band under the nav bar (worse on the short
-      // Location intro than the taller AI-access one, so the screens looked
-      // inconsistent). Anchoring to the top with a clean, safe-area-aware top
-      // padding removes the gap and makes every intro screen sit the same
-      // distance below the header across device sizes.
-      "motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-col items-center pb-10 pt-[max(1.5rem,calc(env(safe-area-inset-top)+1rem))] text-center";
+    ? "motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-1 flex-col justify-center items-center pb-10 pt-8 text-center"
+    : "motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-1 flex-col justify-center items-center pb-10 pt-8 text-center";
 
   const content = (
     <section
