@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/one", tags=["Connections"])
 
@@ -15,9 +19,23 @@ def _service() -> ConnectionsService:
 
 def _handle(exc: Exception) -> HTTPException:
     if isinstance(exc, ConnectionsError):
+        # Expected, and already carries a code the client can act on.
         return HTTPException(
             status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}
         )
+    # Everything else was invisible.
+    #
+    # Every route on this surface funnels unexpected failures through here and
+    # returned a bare 500 with nothing written down, so accepting a connection
+    # failed three times in a row and left no trace at all -- the request log
+    # showed `500 server_error` and the application log showed nothing. The
+    # person sees "That didn't go through. Try again.", retries, and produces
+    # another silent 500.
+    #
+    # The response body stays deliberately opaque: this surface deals in who
+    # knows whom, and an exception string can carry user ids or SQL. The
+    # traceback goes to the log, where it belongs.
+    logger.exception("connections_request_failed error=%s", type(exc).__name__)
     return HTTPException(status_code=500, detail="Connections request failed.")
 
 
