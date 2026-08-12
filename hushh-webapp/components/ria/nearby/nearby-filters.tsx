@@ -1,22 +1,21 @@
 "use client";
 
 /**
- * The advisor's ideal-client filters, for this visit only.
+ * Focus is the filter that earns its place on screen. The rest hide.
  *
- * Two of these controls are shaped by what the data can actually support rather
- * than by what the API accepts, and both would look like bugs otherwise.
+ * Confidence barely discriminates on the approved dataset (ten of eleven records
+ * are grade A), and radius matters little inside a single small market. Showing
+ * four equal facets implied four useful decisions where there is really one.
  *
- * Focus shows a live count per lane. Two of the six lanes are empty in the
- * approved dataset, so offering all six as equal choices means tapping one
- * returns a blank screen with no explanation.
- *
- * Sector takes one value at a time. The upstream matches tags as a *subset* of
- * a record's own tags, so two selections require a record carrying both — and
- * against the current dataset almost every pair returns nothing.
+ * Lane counts come from the *unfiltered* result set. Deriving them from the
+ * filtered one — the first version of this — zeroed every other lane the moment
+ * you picked one, so the control disabled its own way out.
  */
 
+import { useState } from "react";
+
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
-import { EYEBROW, MUTED_TEXT } from "@/lib/morphy-ux/tokens/surfaces";
+import { MUTED_TEXT } from "@/lib/morphy-ux/tokens/surfaces";
 import {
   NEARBY_LANES,
   NEARBY_RADIUS_OPTIONS_KM,
@@ -39,103 +38,96 @@ export function NearbyFilterBar({
   tags: string[];
   disabled?: boolean;
 }) {
+  const [more, setMore] = useState(false);
   const activeLane = filters.lanes[0] ?? "";
+  // An empty lane is not offered at all. There is nothing behind it, and a
+  // disabled chip is still a chip competing for attention.
+  const lanes = NEARBY_LANES.filter((lane) => (laneCounts[lane.value] ?? 0) > 0);
 
   return (
-    <div className="flex flex-col gap-4">
-      <Facet label="Focus">
-        <div className="flex flex-wrap gap-2">
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-2">
+        <Chip
+          label="All"
+          active={activeLane === ""}
+          disabled={disabled}
+          onClick={() => onChange({ ...filters, lanes: [] })}
+        />
+        {lanes.map((lane) => (
           <Chip
-            label="All"
-            active={activeLane === ""}
+            key={lane.value}
+            label={lane.label}
+            count={laneCounts[lane.value]}
+            active={activeLane === lane.value}
             disabled={disabled}
-            onClick={() => onChange({ ...filters, lanes: [] })}
-          />
-          {NEARBY_LANES.map((lane) => {
-            const count = laneCounts[lane.value] ?? 0;
-            return (
-              <Chip
-                key={lane.value}
-                label={lane.label}
-                count={count}
-                active={activeLane === lane.value}
-                // An empty lane stays visible but unselectable: hiding it would
-                // imply the taxonomy is smaller than it is.
-                disabled={disabled || count === 0}
-                onClick={() => onChange({ ...filters, lanes: [lane.value] })}
-              />
-            );
-          })}
-        </div>
-      </Facet>
-
-      {tags.length > 0 ? (
-        <Facet label="Sector">
-          <div className="flex flex-wrap gap-2">
-            <Chip
-              label="Any"
-              active={filters.tag === null}
-              disabled={disabled}
-              onClick={() => onChange({ ...filters, tag: null })}
-            />
-            {tags.map((tag) => (
-              <Chip
-                key={tag}
-                label={tag}
-                active={filters.tag === tag}
-                disabled={disabled}
-                onClick={() =>
-                  onChange({ ...filters, tag: filters.tag === tag ? null : tag })
-                }
-              />
-            ))}
-          </div>
-        </Facet>
-      ) : null}
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Facet label="Radius">
-          <SegmentedTabs
-            value={String(filters.radiusKm)}
-            disabled={disabled}
-            onValueChange={(value) =>
-              onChange({ ...filters, radiusKm: Number(value) })
-            }
-            options={NEARBY_RADIUS_OPTIONS_KM.map((km) => ({
-              value: String(km),
-              label: `${km} km`,
-            }))}
-          />
-        </Facet>
-
-        <Facet label="Minimum confidence">
-          <SegmentedTabs
-            value={filters.minimumConfidenceGrade}
-            disabled={disabled}
-            onValueChange={(value) =>
+            onClick={() =>
               onChange({
                 ...filters,
-                minimumConfidenceGrade: value as ConfidenceGrade,
+                lanes: activeLane === lane.value ? [] : [lane.value],
               })
             }
-            options={[
-              { value: "A", label: "A" },
-              { value: "B", label: "B" },
-              { value: "C", label: "C" },
-              { value: "D", label: "All" },
-            ]}
           />
-        </Facet>
+        ))}
       </div>
-    </div>
-  );
-}
 
-function Facet({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <span className={EYEBROW}>{label}</span>
-      {children}
+      <button
+        type="button"
+        onClick={() => setMore((v) => !v)}
+        className={cn(MUTED_TEXT, "self-start underline-offset-4 hover:underline")}
+      >
+        {more ? "Fewer filters" : "More filters"}
+      </button>
+
+      {more ? (
+        <div className="flex flex-col gap-3">
+          {tags.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              <Chip
+                label="Any sector"
+                active={filters.tag === null}
+                disabled={disabled}
+                onClick={() => onChange({ ...filters, tag: null })}
+              />
+              {tags.map((tag) => (
+                <Chip
+                  key={tag}
+                  label={tag}
+                  active={filters.tag === tag}
+                  disabled={disabled}
+                  onClick={() =>
+                    onChange({ ...filters, tag: filters.tag === tag ? null : tag })
+                  }
+                />
+              ))}
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <SegmentedTabs
+              value={String(filters.radiusKm)}
+              disabled={disabled}
+              onValueChange={(v) => onChange({ ...filters, radiusKm: Number(v) })}
+              options={NEARBY_RADIUS_OPTIONS_KM.map((km) => ({
+                value: String(km),
+                label: `${km} km`,
+              }))}
+            />
+            <SegmentedTabs
+              value={filters.minimumConfidenceGrade}
+              disabled={disabled}
+              onValueChange={(v) =>
+                onChange({ ...filters, minimumConfidenceGrade: v as ConfidenceGrade })
+              }
+              options={[
+                { value: "A", label: "A" },
+                { value: "B", label: "B" },
+                { value: "C", label: "C" },
+                { value: "D", label: "All" },
+              ]}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -165,7 +157,6 @@ function Chip({
         active
           ? "border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-fg)]"
           : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-foreground",
-        disabled && !active && "opacity-40",
       )}
     >
       <span>{label}</span>
