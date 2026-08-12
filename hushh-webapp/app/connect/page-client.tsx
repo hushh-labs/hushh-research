@@ -1452,6 +1452,7 @@ export default function ConnectPageClient() {
                         variant="none"
                         effect="fill"
                         size="sm"
+                        className="h-8 rounded-[10px] px-4 text-[13px] font-semibold"
                         disabled={loading || currentPage <= 1}
                         onClick={() => goToPage(currentPage - 1)}
                       >
@@ -1471,6 +1472,7 @@ export default function ConnectPageClient() {
                         variant="none"
                         effect="fill"
                         size="sm"
+                        className="h-8 rounded-[10px] px-4 text-[13px] font-semibold"
                         disabled={loading || !hasMore}
                         onClick={() => goToPage(currentPage + 1)}
                       >
