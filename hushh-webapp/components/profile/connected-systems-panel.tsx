@@ -44,20 +44,11 @@ import { cn } from "@/lib/utils";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { ConnectedSystemsResourceService } from "@/lib/services/connected-systems-resource-service";
 import {
-  clearCrmZkEphemeralKeys,
-  createCrmZkEnvelope,
-  decryptCrmZkPartnerResponse,
-  discardCrmZkEphemeralKey,
-  ensureCrmZkOwnerSigningKey,
-  signCrmZkApproval,
-  type CrmZkPartnerResponseEnvelope,
-} from "@/lib/connected-systems/crm-zk-v1";
-import {
-  clearCrmZkUatEphemeralKeys,
-  createCrmZkUatEnvelope,
-  decryptCrmZkUatReadResponse,
-  discardCrmZkUatEphemeralKey,
-} from "@/lib/connected-systems/crm-zk-uat-v1";
+  clearCrmEncryptedFieldsEphemeralKeys,
+  createCrmEncryptedFieldsEnvelope,
+  decryptCrmEncryptedFieldsReadResponse,
+  discardCrmEncryptedFieldsEphemeralKey,
+} from "@/lib/connected-systems/crm-encrypted-fields-v1";
 import {
   ConnectedSystemsService,
   ConnectedSystemsRequestError,
@@ -570,19 +561,15 @@ export function ConnectedSystemsPanel({
   const selectedSystem =
     systems.find((system) => system.systemId === systemId) ||
     (!systemId ? systems[0] || null : null);
-  const crmZkProfile = selectedSystem?.crmZk?.profile;
-  const crmZkUatEnabled = crmZkProfile === "crm-zk-uat.v1";
-  const crmZkFullEnabled = crmZkProfile === "crm-zk.v1";
-  const crmZkReadReady = selectedSystem?.crmZk?.readReady === true;
-  const crmZkUpdateReady = selectedSystem?.crmZk?.updateReady === true;
+  const encryptedFieldsEnabled = selectedSystem?.crmEncryptedFields?.profile === "crm-encrypted-fields.v1";
+  const encryptedFieldsReadReady = selectedSystem?.crmEncryptedFields?.readReady === true;
+  const encryptedFieldsUpdateReady = selectedSystem?.crmEncryptedFields?.updateReady === true;
   useEffect(() => {
     if (!vaultOwnerToken) {
-      clearCrmZkEphemeralKeys();
-      clearCrmZkUatEphemeralKeys();
+      clearCrmEncryptedFieldsEphemeralKeys();
     }
     return () => {
-      clearCrmZkEphemeralKeys();
-      clearCrmZkUatEphemeralKeys();
+      clearCrmEncryptedFieldsEphemeralKeys();
     };
   }, [vaultOwnerToken]);
   useEffect(() => {
@@ -1113,118 +1100,38 @@ export function ConnectedSystemsPanel({
     }
   };
 
-  const readBoundCrmZkRecord = async (returnFields: string[]) => {
-    if (!selectedSystem || !cacheUserId || !vaultKey || !vaultOwnerToken) {
-      throw new Error("Unlock your vault to read this CRM record privately.");
-    }
-    if (!crmZkReadReady) {
-      throw new Error("This CRM is not ready for its required private read protocol.");
-    }
-    const [configuration, context] = await Promise.all([
-      ConnectedSystemsService.getCrmZkConfiguration({
-        vaultOwnerToken,
-        systemId: selectedSystem.systemId,
-      }),
-      ConnectedSystemsService.prepareCrmZkContext({
-        vaultOwnerToken,
-        systemId: selectedSystem.systemId,
-        operation: "read",
-        objectType: selectedSystem.objectTypeDefault,
-        fieldNames: returnFields,
-      }),
-    ]);
-    const ownerSigningKey = await ensureCrmZkOwnerSigningKey({
-      userId: cacheUserId,
-      vaultKey,
-      vaultOwnerToken,
-      systemId: selectedSystem.systemId,
-    });
-    const envelope = await createCrmZkEnvelope({
-      context,
-      configuration,
-      ownerSigningKey,
-      payload: {},
-    });
-    let decrypted: Awaited<ReturnType<typeof decryptCrmZkPartnerResponse>>;
-    try {
-      const response = await ConnectedSystemsService.readCrmZkRecord({
-        vaultOwnerToken,
-        systemId: selectedSystem.systemId,
-        encryptedFields: envelope,
-      });
-      decrypted = await decryptCrmZkPartnerResponse({
-        context,
-        configuration,
-        response: response.encryptedFields as CrmZkPartnerResponseEnvelope,
-      });
-    } finally {
-      discardCrmZkEphemeralKey(context.contextId);
-    }
-    const rawFields =
-      decrypted.fields && typeof decrypted.fields === "object" && !Array.isArray(decrypted.fields)
-        ? (decrypted.fields as Record<string, unknown>)
-        : decrypted.record && typeof decrypted.record === "object" && !Array.isArray(decrypted.record)
-          ? (decrypted.record as Record<string, unknown>)
-          : {};
-    const allowed = new Set(context.fieldNames);
-    const fields = Object.fromEntries(
-      Object.entries(rawFields).filter(([name, value]) =>
-        allowed.has(name) && (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null)
-      )
-    ) as ConnectedSystemMcpResponse["records"] extends Array<infer RecordType>
-      ? RecordType extends { fields: infer FieldType } ? FieldType : never
-      : never;
-    return {
-      systemId: selectedSystem.systemId,
-      target: selectedSystem.target,
-      objectType: selectedSystem.objectTypeDefault,
-      recordId: currentRecordId || null,
-      resultClass: "succeeded",
-      records: [{ recordId: currentRecordId || null, fields }],
-      bindingStatus: "active",
-      binding: binding || undefined,
-    } satisfies ConnectedSystemMcpResponse;
-  };
-
-  const readCrmZkUatRecord = async (returnFields: string[]) => {
+  const readEncryptedFieldsRecord = async (returnFields: string[]) => {
     if (!selectedSystem || !vaultOwnerToken) {
       throw new Error("Unlock your vault to read this CRM record privately.");
     }
-    if (!crmZkReadReady) {
-      throw new Error("This CRM is not ready for its encrypted UAT read.");
+    if (!encryptedFieldsReadReady) {
+      throw new Error("This CRM is not ready for encrypted field reads.");
     }
-    const emailField = cleanFieldValue(schema?.profileFieldMappings?.email);
-    const phoneField = cleanFieldValue(schema?.profileFieldMappings?.phone);
-    const email = cleanFieldValue(profile?.email);
-    const phone = cleanFieldValue(profile?.phone);
-    if (!emailField || !phoneField || !email || !phone) {
-      throw new Error("Verified email and phone are required for the encrypted CRM lookup.");
-    }
-    const configuration = await ConnectedSystemsService.getCrmZkUatConfiguration({
+    const configuration = await ConnectedSystemsService.getCrmEncryptedFieldsConfiguration({
       vaultOwnerToken,
       systemId: selectedSystem.systemId,
     });
-    const envelope = await createCrmZkUatEnvelope({
+    const envelope = await createCrmEncryptedFieldsEnvelope({
       configuration,
       direction: "read_request",
-      payload: { searchFields: { [emailField]: email, [phoneField]: phone } },
+      payload: { searchFields: {} },
     });
-    let response: Awaited<ReturnType<typeof ConnectedSystemsService.searchCrmZkUatRecord>>;
-    let decrypted: Awaited<ReturnType<typeof decryptCrmZkUatReadResponse>>;
+    let response: Awaited<ReturnType<typeof ConnectedSystemsService.readCrmEncryptedFieldsRecord>>;
+    let decrypted: Awaited<ReturnType<typeof decryptCrmEncryptedFieldsReadResponse>>;
     try {
-      response = await ConnectedSystemsService.searchCrmZkUatRecord({
+      response = await ConnectedSystemsService.readCrmEncryptedFieldsRecord({
         vaultOwnerToken,
         systemId: selectedSystem.systemId,
         objectType: selectedSystem.objectTypeDefault,
         returnFields,
         encryptedFields: envelope,
       });
-      decrypted = await decryptCrmZkUatReadResponse({
+      decrypted = await decryptCrmEncryptedFieldsReadResponse({
         configuration,
         response: response.encryptedFields,
       });
     } finally {
-      discardCrmZkUatEphemeralKey(envelope.clientOperationId);
+      discardCrmEncryptedFieldsEphemeralKey(envelope.clientOperationId);
     }
     const allowed = new Set(returnFields);
     const fields = Object.fromEntries(
@@ -1273,15 +1180,13 @@ export function ConnectedSystemsPanel({
           objectType: selectedSystem?.objectTypeDefault,
           returnFields,
         };
-        const nextResult = crmZkUatEnabled
-          ? await readCrmZkUatRecord(returnFields)
-          : options.bindSearch
-            ? await ConnectedSystemsService.searchRecord(
+        const nextResult = options.bindSearch
+          ? await ConnectedSystemsService.searchRecord(
               vaultOwnerToken || "",
               payload,
             )
-          : crmZkFullEnabled
-            ? await readBoundCrmZkRecord(returnFields)
+          : encryptedFieldsEnabled
+            ? await readEncryptedFieldsRecord(returnFields)
             : await ConnectedSystemsService.readRecord(
                 vaultOwnerToken || "",
                 payload,
@@ -1510,103 +1415,34 @@ export function ConnectedSystemsPanel({
         error: `${customerName} record could not be updated.`,
       },
       async () => {
-        if (crmZkUatEnabled) {
+        if (encryptedFieldsEnabled) {
           if (!selectedSystem || !vaultOwnerToken) {
             throw new Error("Unlock your vault to approve this encrypted CRM update.");
           }
-          if (!crmZkUpdateReady) {
-            throw new Error("This CRM is not ready for its encrypted UAT update.");
+          if (!encryptedFieldsUpdateReady) {
+            throw new Error("This CRM is not ready for encrypted field updates.");
           }
-          const configuration = await ConnectedSystemsService.getCrmZkUatConfiguration({
+          const configuration = await ConnectedSystemsService.getCrmEncryptedFieldsConfiguration({
             vaultOwnerToken,
             systemId: selectedSystem.systemId,
           });
-          const envelope = await createCrmZkUatEnvelope({
+          const envelope = await createCrmEncryptedFieldsEnvelope({
             configuration,
             direction: "update_request",
             payload: { additionalFields: review.recordFields },
           });
-          preparedIntent = await ConnectedSystemsService.createCrmZkUatUpdateIntent({
+          preparedIntent = await ConnectedSystemsService.createCrmEncryptedFieldsUpdateIntent({
             vaultOwnerToken,
             systemId: selectedSystem.systemId,
             objectType: selectedSystem.objectTypeDefault,
             fieldNames: Object.keys(review.recordFields),
             encryptedFields: envelope,
           });
-          return ConnectedSystemsService.approveCrmZkUatIntent({
+          return ConnectedSystemsService.approveCrmEncryptedFieldsIntent({
             vaultOwnerToken,
             systemId: selectedSystem.systemId,
             intentId: preparedIntent.intentId,
           });
-        }
-        if (crmZkFullEnabled) {
-          if (!selectedSystem || !cacheUserId || !vaultKey || !vaultOwnerToken) {
-            throw new Error("Unlock your vault to approve this private CRM update.");
-          }
-          if (!crmZkUpdateReady) {
-            throw new Error("This CRM is not ready for its required private update protocol.");
-          }
-          const [configuration, context] = await Promise.all([
-            ConnectedSystemsService.getCrmZkConfiguration({
-              vaultOwnerToken,
-              systemId: selectedSystem.systemId,
-            }),
-            ConnectedSystemsService.prepareCrmZkContext({
-              vaultOwnerToken,
-              systemId: selectedSystem.systemId,
-              operation: "update",
-              objectType: selectedSystem.objectTypeDefault,
-              fieldNames: Object.keys(review.recordFields),
-            }),
-          ]);
-          const ownerSigningKey = await ensureCrmZkOwnerSigningKey({
-            userId: cacheUserId,
-            vaultKey,
-            vaultOwnerToken,
-            systemId: selectedSystem.systemId,
-          });
-          const envelope = await createCrmZkEnvelope({
-            context,
-            configuration,
-            ownerSigningKey,
-            payload: review.recordFields,
-          });
-          try {
-            preparedIntent = await ConnectedSystemsService.createCrmZkUpdateIntent({
-              vaultOwnerToken,
-              systemId: selectedSystem.systemId,
-              encryptedFields: envelope,
-            });
-            const challenge = await ConnectedSystemsService.createCrmZkApprovalChallenge({
-              vaultOwnerToken,
-              systemId: selectedSystem.systemId,
-              intentId: preparedIntent.intentId,
-            });
-            const approvalProof = await signCrmZkApproval({
-              ownerSigningKey,
-              intentId: challenge.intentId,
-              envelopeDigest: challenge.envelopeDigest,
-              challengeId: challenge.challengeId,
-              nonce: challenge.nonce,
-              expiresAtMs: challenge.expiresAtMs,
-            });
-            const approved = await ConnectedSystemsService.approveCrmZkIntent({
-              vaultOwnerToken,
-              systemId: selectedSystem.systemId,
-              intentId: preparedIntent.intentId,
-              approvalProof,
-            });
-            if (approved.encryptedResponse) {
-              await decryptCrmZkPartnerResponse({
-                context,
-                configuration,
-                response: approved.encryptedResponse as CrmZkPartnerResponseEnvelope,
-              });
-            }
-            return approved;
-          } finally {
-            discardCrmZkEphemeralKey(context.contextId);
-          }
         }
         preparedIntent = await ConnectedSystemsService.updateRecordIntent(
           vaultOwnerToken || "",
@@ -1635,7 +1471,7 @@ export function ConnectedSystemsPanel({
       return;
     }
     setPendingUpdateReview(null);
-    if (!crmZkUatEnabled) {
+    if (!encryptedFieldsEnabled) {
       setCrmBaselineValues((current) => ({
         ...current,
         ...review.recordFields,
