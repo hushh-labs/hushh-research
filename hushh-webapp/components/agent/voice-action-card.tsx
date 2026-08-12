@@ -4,7 +4,6 @@ import { User } from "lucide-react";
 import { useCallback, useState, useSyncExternalStore } from "react";
 
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
-import { Button } from "@/lib/morphy-ux/button";
 import {
   clearVoiceCard,
   readVoiceCard,
@@ -162,32 +161,33 @@ export function VoiceActionCard() {
           </p>
         ) : null}
 
-        {/* Cancel left, destructive right, and the same pair the Connect list
-            already uses for this exact decision -- same variants, effects and
-            sizing, so it behaves like the app rather than merely resembling it. */}
-        <div className="flex justify-end gap-2 pt-3">
-          <Button
+        {/* Cancel left, destructive right, both full-width and 48px tall.
+            The inline pair borrowed from the Connect list was 32px, which is
+            fine under a mouse and under the 44pt iOS touch minimum on the
+            build that actually ships to a phone. This matches the approval
+            card's own two-up geometry instead, so every voice card presents
+            its decision the same way at a thumb-sized target. */}
+        <div className="mt-4 grid grid-cols-2 gap-2.5">
+          <button
             type="button"
-            variant="none"
-            effect="fade"
-            size="sm"
-            className="h-8 rounded-[10px] px-3 text-[13px] font-medium"
             disabled={busy}
             onClick={() => clearVoiceCard()}
+            className="h-12 rounded-full bg-black/[0.05] text-[15px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
           >
             Cancel
-          </Button>
-          <Button
+          </button>
+          <button
             type="button"
-            variant="destructive"
-            effect="fill"
-            size="sm"
-            className="h-8 rounded-[10px] px-3 text-[13px] font-medium"
             disabled={busy}
             onClick={() => void confirmAction()}
+            // Tinted rather than filled: a solid red block reads as the
+            // primary thing to press, and the safe choice should not have to
+            // compete with it. Red text on a red-tinted ground says "this one
+            // is the dangerous one" while leaving Cancel equally easy to hit.
+            className="h-12 rounded-full bg-destructive/10 text-[15px] font-semibold text-destructive ring-1 ring-inset ring-destructive/35 transition-colors hover:bg-destructive/[0.16] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive disabled:opacity-50 dark:bg-destructive/[0.18] dark:ring-destructive/45 dark:hover:bg-destructive/25"
           >
             {busy ? "Working…" : confirm.confirmLabel}
-          </Button>
+          </button>
         </div>
       </div>
     );
@@ -217,7 +217,9 @@ export function VoiceActionCard() {
             <li
               key={candidate.id}
               className={
-                index > 0 ? "flex items-center gap-3 border-t border-border/40 py-2" : "flex items-center gap-3 py-2"
+                index > 0
+                  ? "flex items-center gap-3 border-t border-border/40 py-2.5"
+                  : "flex items-center gap-3 py-2.5"
               }
               data-testid="voice-action-card-row"
             >
@@ -228,15 +230,16 @@ export function VoiceActionCard() {
                 detail={candidate.detail ?? candidate.disabledReason}
               />
 
-              <Button
+              <button
                 type="button"
-                // Same control the Connect list renders for these people, so
-                // the button in the card is the button they already know.
-                variant="none"
-                effect="fill"
-                size="sm"
                 disabled={isDisabled || isRunning}
                 onClick={() => void choose(candidate)}
+                // 44px, the iOS minimum, and a floor on the width so a short
+                // label like "Connect" is not a sliver to aim at. A row cannot
+                // give this the full 48px the decision buttons get without the
+                // list growing taller than the card, but it must not be the
+                // 32px inline control this started as.
+                className="h-11 min-w-[92px] shrink-0 rounded-full bg-black/[0.05] px-4 text-[14px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-45 dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
                 // Two rows share a name, so the name alone cannot say which
                 // button this is. Screen readers get the detail too.
                 aria-label={`${candidate.actionLabel} ${candidate.name}${
@@ -244,7 +247,7 @@ export function VoiceActionCard() {
                 }`}
               >
                 {isRunning ? "Working…" : candidate.actionLabel}
-              </Button>
+              </button>
             </li>
           );
         })}
@@ -256,15 +259,20 @@ export function VoiceActionCard() {
         </p>
       ) : null}
 
-      <div className="flex justify-end pt-1">
-        <Button
+      {/* Cancel sits in the LEFT column, at the same size and in the same
+          place as on every other voice card -- including the ones that have a
+          second decision button beside it. It deliberately does not stretch
+          across the width: the muscle memory for "where is the way out" only
+          forms if the position never moves between variants. The right column
+          stays empty because this card's actions live in the rows above. */}
+      <div className="mt-3 grid grid-cols-2 gap-2.5">
+        <button
           type="button"
-          size="sm"
-          variant="none"
           onClick={() => clearVoiceCard()}
+          className="h-12 rounded-full bg-black/[0.05] text-[15px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
         >
           Cancel
-        </Button>
+        </button>
       </div>
     </div>
   );
