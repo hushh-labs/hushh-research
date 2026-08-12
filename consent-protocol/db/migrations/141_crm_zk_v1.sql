@@ -68,6 +68,16 @@ ALTER TABLE connected_system_intents
   ADD COLUMN IF NOT EXISTS client_operation_id TEXT,
   ADD COLUMN IF NOT EXISTS approval_challenge_id TEXT;
 
+-- Drop before adding, because the release guard runs this manifest in `replay`
+-- mode on every deploy. A bare ADD CONSTRAINT succeeds exactly once and then
+-- raises DuplicateObjectError forever after, which is what blocked the dev
+-- deploy of 4a3d22964 -- the constraint had been applied by the deploy three
+-- hours earlier. The ADD COLUMN statements above were already guarded; this one
+-- was missed, and its own rollback file (141_crm_zk_v1_down.sql) carries exactly
+-- this line. Matches the house pattern in 019, 024, 027 and 039.
+ALTER TABLE connected_system_intents
+  DROP CONSTRAINT IF EXISTS connected_system_intents_crm_zk_shape;
+
 ALTER TABLE connected_system_intents
   ADD CONSTRAINT connected_system_intents_crm_zk_shape CHECK (
     delivery_mode <> 'crm-zk.v1'
