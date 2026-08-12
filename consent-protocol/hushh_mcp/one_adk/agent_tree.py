@@ -55,6 +55,7 @@ from hushh_mcp.agents.onboarding.agent import (
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2, ManifestLoader
 from hushh_mcp.one_adk.action_tools import (
     continue_app_goal,
+    journey_for_specialist_request,
     list_app_actions,
     run_app_action,
     start_app_goal,
@@ -441,9 +442,15 @@ ONE_IDENTITY_INSTRUCTION: str = (
     # Section 5: guardrails.
     "Never invent tool results; if a specialist reports "
     "it cannot act (missing consent, locked vault, no information), relay that "
-    "honestly and tell the user what would unlock it. You never execute "
-    "sensitive actions directly: specialists validate consent and the app "
-    "confirms every state change.\n\n"
+    "honestly and tell the user what would unlock it. Running a generated "
+    "action or an authored journey IS the sanctioned path, not an exception to "
+    "it: the app re-checks every guard before executing and confirms each state "
+    "change, so calling start_app_goal or run_app_action is never 'acting "
+    "directly'. Specialists are for open questions and for capabilities with no "
+    "authored action. When someone names a concrete thing that has an action or "
+    "a journey, do that thing. Handing a named request to a specialist instead "
+    "is how something the app can finish comes back to the person as a refusal "
+    "about permissions.\n\n"
     "Guiding a new user through account setup is your job, the same way any "
     "other app action is: setup steps (welcome, sign-in, phone verification, "
     "the setup hub, and the Finance preferences wizard) are generated actions. "
@@ -970,9 +977,17 @@ async def ask_consent_agent(
     One semantically selects ``target``.  This function only validates that
     selection and preserves the authored hierarchy: ``consent`` reaches Nav;
     ``connections`` reaches Nav's declared Connections child.  It never
-    examines request words to choose a subagent.  Connections still requires
-    task-specific ingress authority and stays unavailable until that authority
-    is supplied.
+    examines request words to choose *between subagents* -- that selection
+    stays One's, and nothing here reroutes ``consent`` to ``connections`` or
+    the reverse.  Connections still requires task-specific ingress authority
+    and stays unavailable until that authority is supplied.
+
+    What the request words DO decide is whether a specialist is the right lane
+    at all.  A named, concrete request that an authored journey already
+    performs is refused here with a redirect to that journey, because sending
+    it onward produces a consent boundary the person cannot act on for
+    something the app can simply do.  This narrows what specialists receive; it
+    never widens it, and it cannot pick a different specialist.
     """
     agent_id = {"consent": "agent_nav", "connections": "agent_connections"}.get(target)
     if agent_id is None:
@@ -980,7 +995,47 @@ async def ask_consent_agent(
             "status": "invalid_target",
             "message": "Choose either the Consent Center or its Connections specialist.",
         }
-    return await _specialist_turn(agent_id, request, tool_context)
+    # A named, concrete request goes to the journey that does it, not to a
+    # specialist that can only talk about it.
+    #
+    # This is a hard block rather than guidance because the guidance did not
+    # hold: One asked this specialist to "connect me with Ankit", the specialist
+    # reported a consent boundary, and One relayed it -- so a request the app
+    # can satisfy end to end came back as "I don't have the right permissions",
+    # pointing at the consent screen. Refusing here is the same refuse-with-
+    # redirect shape `run_app_action` already uses in the opposite direction.
+    journey = journey_for_specialist_request(agent_id, request)
+    if journey is not None:
+        logger.info(
+            "one_adk_specialist_decision agent_id=%s status=use_journey action=%s score=%s",
+            agent_id,
+            journey["action_id"],
+            journey["score"],
+        )
+        return {
+            "status": "use_journey",
+            "reason": "authored_journey_available",
+            "action_id": journey["action_id"],
+            "goal_id": journey["goal_id"],
+            "message": (
+                f"Do not ask a specialist for this. {journey['label']} is an "
+                f"authored journey: call start_app_goal with "
+                f"{journey['goal_id']}, which opens the right screen and runs "
+                "it. Say what you are doing as it happens; do not ask "
+                "permission to navigate."
+            ),
+        }
+    result = await _specialist_turn(agent_id, request, tool_context)
+    # Every refusal branch in `_specialist_turn` returned silently, so a session
+    # where One asked a specialist and relayed its boundary left no trace at
+    # all -- indistinguishable in the logs from One never calling a tool.
+    logger.info(
+        "one_adk_specialist_decision agent_id=%s status=%s reason=%s",
+        agent_id,
+        result.get("status"),
+        result.get("reason"),
+    )
+    return result
 
 
 async def run_intro_navigation_action(action_id: str, tool_context: ToolContext) -> dict[str, Any]:
