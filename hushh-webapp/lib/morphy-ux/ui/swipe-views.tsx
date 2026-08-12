@@ -341,14 +341,16 @@ export function SwipeViews({
         (opt) => opt.value === activeValueRef.current,
       );
 
-      // Where the pane actually sits, against where the selected pane belongs.
-      const renderedAt = engine?.offsetLocation?.get?.();
+      // Where the pane is trying to go, against where the selected pane belongs.
+      // Checking `target` instead of `offsetLocation` allows normal animations
+      // to proceed without being aborted as "misaligned" mid-flight.
+      const targetAt = engine?.target?.get?.();
       const belongsAt = engine?.scrollSnaps?.[targetIdx];
       const misaligned =
         targetIdx !== -1 &&
-        typeof renderedAt === "number" &&
+        typeof targetAt === "number" &&
         typeof belongsAt === "number" &&
-        Math.abs(renderedAt - belongsAt) > 1;
+        Math.abs(targetAt - belongsAt) > 1;
 
       if (!widthChanged && !engineIsStale && !slideCountStale && !misaligned) return;
 

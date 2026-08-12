@@ -1720,3 +1720,84 @@ def test_sending_a_connection_request_is_reachable_from_every_screen():
         if _reachability(by_id[target], target, on_screen[screen])[0] == "unreachable_from_here"
     ]
     assert unreachable == [], f"{target} is a dead end on: {unreachable}"
+
+
+def test_no_wired_action_is_a_dead_end_from_a_foreign_screen():
+    """Asking for something from the wrong screen must never be a refusal.
+
+    Reported twice from the Connect surface, and the second time with the fair
+    complaint that nobody should have to discover this one action at a time.
+    So this checks every wired action at once rather than waiting for the next
+    one to be found by hand.
+
+    "Reachable" here means One can at least BEGIN: either the action is
+    navigation, or it has an authored journey that carries the person to it, or
+    discovery can name the route action to open first. Anything else is a dead
+    end -- One has nothing to offer and says so, which reads as the app
+    refusing to do something it can plainly do.
+
+    The allowlist is the OTP flow, and it is correct: a verification code
+    belongs to the screen showing it, and "start the code journey from
+    somewhere else" is not a thing anyone can mean.
+    """
+    from hushh_mcp.one_adk.action_tools import _reachability
+    from hushh_mcp.services.action_gateway import list_action_gateway_actions
+
+    SCREEN_BOUND_BY_DESIGN = {
+        "phone_mandate.close_country_picker",
+        "phone_mandate.select_country",
+        "phone_mandate.submit_code",
+        "phone_mandate.submit_number",
+    }
+
+    wired = [
+        entry
+        for entry in list_action_gateway_actions()
+        if (entry.get("execution_target") or {}).get("status") == "wired"
+    ]
+    assert len(wired) > 100, "wired inventory collapsed; the rest of this test is vacuous"
+
+    # An inventory with nothing mounted: the honest worst case, and exactly
+    # what standing on an unrelated screen looks like to the relay.
+    dead_ends = sorted(
+        entry["action_id"]
+        for entry in wired
+        if _reachability(entry, entry["action_id"], set())[0] == "unreachable_from_here"
+    )
+
+    assert set(dead_ends) <= SCREEN_BOUND_BY_DESIGN, (
+        "These wired actions cannot be started from another screen, so asking "
+        f"for one there is answered with a refusal: {sorted(set(dead_ends) - SCREEN_BOUND_BY_DESIGN)}"
+    )
+
+
+def test_the_actions_people_ask_for_by_name_carry_their_own_journey():
+    """A journey is what lets "remove Rashid" work from anywhere.
+
+    `navigate_first` is not the same promise: it tells One to open a screen and
+    try again, which is two turns and a hand-off it can drop. These are the
+    actions someone names directly, mid-sentence, from wherever they are
+    standing -- so each one carries an authored journey rather than relying on
+    One to chain two steps correctly.
+    """
+    from hushh_mcp.one_adk.action_tools import _is_journey_startable
+    from hushh_mcp.services.action_gateway import get_action_gateway_action
+
+    NAMED_DIRECTLY = (
+        "connect.send_request",
+        "connect.cancel_request",
+        "connect.remove_connection",
+        "location.remove_from_circle",
+        "location.remove_emergency_contact",
+        "location.add_to_circle",
+        "location.create_circle",
+    )
+    missing = [
+        action_id
+        for action_id in NAMED_DIRECTLY
+        if not _is_journey_startable(get_action_gateway_action(action_id) or {})
+    ]
+    assert missing == [], (
+        "These are asked for by name from any screen and would need One to "
+        f"chain a navigation itself, which is where it breaks: {missing}"
+    )

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import { RouteErrorBoundary } from "@/components/app-ui/route-error-boundary";
 import { OneSetupHub } from "@/components/onboarding/setup/one-setup-hub";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -39,7 +40,13 @@ export default function OneSetupPage() {
         authState="authenticated"
         dataState="loaded"
       />
-      <OneSetupHub />
+      {/* A render error in the setup hub used to take down the whole native
+          shell (the TestFlight "Hussh One … Crashed" alert). Wrapping the hub
+          in the shared route error boundary contains any such failure to a
+          recoverable in-app screen (Retry / Go home) instead of crashing. */}
+      <RouteErrorBoundary fallbackRoute={ROUTES.ONE_HOME}>
+        <OneSetupHub />
+      </RouteErrorBoundary>
     </>
   );
 }

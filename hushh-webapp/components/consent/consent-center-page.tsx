@@ -2783,19 +2783,18 @@ export function ConsentCenterPage() {
     setPreviousLocalPage,
   );
   return (
-    <AppPageShell as="main" width="reading" className="pb-24 sm:pb-28">
+    <AppPageShell as="main" width="reading" className="pb-24 sm:pb-28" fitContent>
       <AppPageContentRegion>
         <section
           data-testid="consent-manager-primary"
-          className="h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--bottom-chrome-full-height,0px)-0.5rem)] min-h-0"
+          className="min-h-0"
         >
           <section data-testid="consent-manager-list">
             <SettingsGroup
               embedded
               separatorInset
-              className="h-full"
-              shellClassName="flex h-full min-h-0 flex-col"
-              contentClassName="flex min-h-0 flex-1 flex-col"
+              shellClassName="flex min-h-0 flex-col"
+              contentClassName="flex min-h-0 flex-col"
             >
               <div className="flex items-center gap-2 border-b border-[color:var(--app-card-border-standard)]/45 px-3 py-3">
                 <div className="relative min-w-0 flex-1">
@@ -2870,7 +2869,7 @@ export function ConsentCenterPage() {
                 />
               ) : null}
 
-              <div className="min-h-0 flex-1">
+              <div className="min-h-0">
                 <SwipeViews
                   tabSetId={TOP_SHELL_TAB_REGISTRY.consent.id}
                   activeValue={visibleTab}
@@ -2883,7 +2882,7 @@ export function ConsentCenterPage() {
                   }
                   panelInset="none"
                   viewportMinHeight="0px"
-                  className="h-full"
+                  heightMode="active"
                 >
                   <ConsentSurfaceListSection
                     loading={pendingResource.loading}
