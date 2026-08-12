@@ -147,3 +147,29 @@ describe("how these actions can be reached", () => {
     expect(resolveNavigationJourney(SHARE)).toBeNull();
   });
 });
+
+/**
+ * The voice confirm card warns people using the action's OWN words -- it reads
+ * `meaning` straight from the generated contract rather than restating it, so
+ * the warning cannot drift away from what the action does.
+ *
+ * That makes `meaning` load-bearing for these actions specifically. If one were
+ * emptied, the card would still render and still remove the person, just with
+ * the sentence explaining the consequence silently gone. Nothing else in the
+ * build notices, because an empty string is a valid contract value.
+ */
+describe("destructive voice actions can explain themselves", () => {
+  const CONFIRMED_BY_CARD = [
+    "connect.remove_connection",
+    "location.remove_emergency_contact",
+    "location.remove_from_circle",
+  ] as const;
+
+  it.each(CONFIRMED_BY_CARD)("%s carries the words its card shows", (actionId) => {
+    const action = getKaiActionById(actionId);
+    expect(action, `${actionId} is not in the gateway`).not.toBeNull();
+    expect(action?.execution_target.status).toBe("wired");
+    // Long enough to be a sentence about consequences rather than a label.
+    expect((action?.meaning || "").length).toBeGreaterThan(40);
+  });
+});
