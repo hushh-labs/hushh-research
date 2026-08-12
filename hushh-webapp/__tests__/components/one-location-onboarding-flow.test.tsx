@@ -123,12 +123,37 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onSkip).not.toHaveBeenCalled();
   });
 
+  it("holds one column width across every screen", () => {
+    // Features used to size off viewport height and widen to 3xl on a large
+    // window, so on desktop the panel visibly jumped wider on step two and
+    // back again on step three -- the surface changing shape under the person
+    // as they advanced through it.
+    renderFlow({ contactsStepAvailable: true });
+    const widths: string[] = [];
+    const record = (testId: string) => {
+      const cls = screen.getByTestId(testId).className;
+      widths.push(/max-w-\[[^\]]+\]/u.exec(cls)?.[0] ?? "none");
+    };
+
+    record("one-location-onboarding-welcome");
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    record("one-location-onboarding-features");
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    record("one-location-onboarding-contacts");
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    record("one-location-onboarding-invite");
+
+    expect(widths).toHaveLength(4);
+    expect(new Set(widths).size).toBe(1);
+    expect(widths[0]).toBe("max-w-[480px]");
+  });
+
   it("keeps the mobile feature screen readable and fitted without page scrolling", () => {
     renderFlow();
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
     const featureShell = screen.getByTestId("one-location-onboarding-features");
-    expect(featureShell.className).toContain("max-w-[min(560px,58dvh)]");
+    expect(featureShell.className).toContain("max-w-[480px]");
     expect(featureShell.className).toContain("max-[431px]:max-w-none");
     const featureSurface = featureShell.firstElementChild;
     expect(featureSurface?.className).toContain("overflow-hidden");
@@ -772,6 +797,91 @@ describe("OneLocationOnboardingFlow", () => {
       // A wrong code is not a dead end.
       fireEvent.click(finishButton());
       expect(props.onComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses your own code without spending a lookup on it", async () => {
+      const onPreviewCircleCode = vi.fn();
+      const props = openJoin({
+        onPreviewCircleCode,
+        onPrepareOnboardingCircleInvite: vi.fn().mockResolvedValue(invite),
+      });
+
+      await waitFor(() =>
+        expect(
+          screen.getByTestId("one-location-onboarding-invite-code").textContent,
+        ).toContain("ABCD-EFGH-JKLM"),
+      );
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      // Typed the way it is displayed, dashes and all.
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "abcd-efgh-jklm" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+
+      // Your own code resolves to a circle you already own, so the generic
+      // "already a member" would be true and useless. And there is nothing to
+      // look up, so no request is made.
+      expect(await screen.findByText(/that's your own code/i)).toBeTruthy();
+      expect(onPreviewCircleCode).not.toHaveBeenCalled();
+      expect(props.onComplete).not.toHaveBeenCalled();
+    });
+
+    it("lets the person back out of a preview to try another code", async () => {
+      const props = openJoin();
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "ABCDEFGHJKLM" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+      expect(
+        await screen.findByTestId("onboarding-join-circle-preview"),
+      ).toBeTruthy();
+
+      // Previewing replaces the input, so without a way back a wrong code
+      // stranded the person looking at someone else's circle.
+      fireEvent.click(
+        screen.getByTestId("onboarding-join-circle-reset"),
+      );
+
+      expect(
+        screen.queryByTestId("onboarding-join-circle-preview"),
+      ).toBeNull();
+      const field = screen.getByLabelText("Circle code") as HTMLInputElement;
+      // The typed code survives, so fixing one wrong character is an edit
+      // rather than retyping all twelve.
+      expect(field.value).toBe("ABCDEFGHJKLM");
+
+      fireEvent.change(field, { target: { value: "MNPQRSTUVWXY" } });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+      await waitFor(() =>
+        expect(props.onPreviewCircleCode).toHaveBeenLastCalledWith(
+          "MNPQRSTUVWXY",
+        ),
+      );
+    });
+
+    it("clears a failed lookup when the code is edited", async () => {
+      openJoin({
+        onPreviewCircleCode: vi
+          .fn()
+          .mockRejectedValue(new Error("That code has expired.")),
+      });
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "NOPENOPENOPE" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+      expect(await screen.findByText("That code has expired.")).toBeTruthy();
+
+      // A stale error next to a freshly typed code reads as a verdict on the
+      // new one.
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "ABCDEFGHJKLM" },
+      });
+      expect(screen.queryByText("That code has expired.")).toBeNull();
     });
 
     it("is hidden when the parent cannot resolve codes", () => {

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
+import { normalizeCircleCode } from "@/lib/one-location/pending-circle-join";
 import { useGoogleMaps } from "@/lib/one-location/use-google-maps";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
@@ -1561,6 +1562,7 @@ function ReadyScreen({
   onJoinCodeChange,
   onPreviewJoinCode,
   onAcceptJoinCode,
+  onClearJoinPreview,
 }: {
   currentUserName: string;
   mapPoint: { lat: number; lng: number } | null;
@@ -1587,6 +1589,7 @@ function ReadyScreen({
   onJoinCodeChange: (value: string) => void;
   onPreviewJoinCode: () => void;
   onAcceptJoinCode: () => void;
+  onClearJoinPreview: () => void;
 }) {
   const firstName = safeName(currentUserName, "You").split(/\s+/)[0];
   const formattedCode = invite ? formatCircleCode(invite.code) : "";
@@ -1763,9 +1766,21 @@ function ReadyScreen({
                     Join {joinPreview.name}
                   </button>
                 )}
+                {/* The only way back. Previewing replaced the input, so without
+                    this a mistyped or wrong code left the person staring at
+                    someone else's circle with no route to try another. */}
+                <button
+                  type="button"
+                  onClick={onClearJoinPreview}
+                  disabled={joinBusy || leaving}
+                  className="press-scale mt-2 inline-flex min-h-11 w-full items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-bright)]"
+                  data-testid="onboarding-join-circle-reset"
+                >
+                  Use a different code
+                </button>
               </div>
             ) : (
-              <details className="group" data-testid="onboarding-join-circle-toggle">
+              <details className="group" data-testid="onboarding-join-circle-toggle" open={Boolean(joinCode)}>
                 <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]">
                   Someone sent you a code?
                 </summary>
@@ -2156,6 +2171,19 @@ export function OneLocationOnboardingFlow({
     if (!onPreviewCircleCode) return;
     const trimmed = joinCode.trim();
     if (!trimmed) return;
+    // Your own code resolves to a circle you already own, so the generic
+    // "you're already in this circle" would be technically true and useless.
+    // Caught before the request, because there is nothing to look up.
+    if (
+      circleInvite &&
+      normalizeCircleCode(trimmed) === normalizeCircleCode(circleInvite.code)
+    ) {
+      setJoinPreview(null);
+      setJoinError(
+        "That's your own code — send it to someone else so they can join you.",
+      );
+      return;
+    }
     setJoinBusy(true);
     setJoinError(null);
     try {
@@ -2170,7 +2198,7 @@ export function OneLocationOnboardingFlow({
     } finally {
       setJoinBusy(false);
     }
-  }, [joinCode, onPreviewCircleCode]);
+  }, [circleInvite, joinCode, onPreviewCircleCode]);
 
   const handleAcceptJoinCode = useCallback(async () => {
     if (!onAcceptCircleCode || !joinPreview) return;
@@ -2305,16 +2333,15 @@ export function OneLocationOnboardingFlow({
       <section
         className={cn(
           "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[#0c1017]",
-          // Features sizes off viewport HEIGHT so its artwork keeps its
-          // proportions on a short screen, but that left the whole panel a
-          // narrow strip on a wide one: `58dvh` shrinks as the window gets
-          // shorter, and 560px capped it however much room there was. Keep
-          // that behaviour where it earns its place -- phones and short
-          // windows -- and let a genuinely wide viewport use the width, the
-          // same way the SOS panel does.
-          screen === "features"
-            ? "max-w-[min(560px,58dvh)] max-[431px]:max-w-none lg:max-w-3xl"
-            : "max-w-[480px]",
+          // One width for every screen. Features used to size off viewport
+          // HEIGHT and widen to 3xl on large windows, so on a desktop the flow
+          // visibly jumped wider on step two and back again on step three --
+          // the panel changing shape under the person as they advanced. A
+          // consistent column reads as one surface being stepped through.
+          //
+          // 431px is the phone breakpoint: below it the panel goes full-bleed
+          // rather than leaving side gutters on a device that has none.
+          "max-w-[480px] max-[431px]:max-w-none",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >
@@ -2401,6 +2428,12 @@ export function OneLocationOnboardingFlow({
             }}
             onPreviewJoinCode={() => void handlePreviewJoinCode()}
             onAcceptJoinCode={() => void handleAcceptJoinCode()}
+            onClearJoinPreview={() => {
+              // Keep the typed code so a single wrong character is a quick
+              // edit rather than a retype of all twelve.
+              setJoinPreview(null);
+              setJoinError(null);
+            }}
           />
         ) : null}
       </section>
