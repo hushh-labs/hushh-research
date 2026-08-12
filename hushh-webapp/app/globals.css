@@ -2018,7 +2018,7 @@ html.kb-open .ambient-chrome-mask--bottom {
 }
 
 .fullscreen-flow-shell {
-  min-height: calc(100dvh - var(--app-fullscreen-flow-content-offset, 0px));
+  min-height: calc(100dvh - var(--app-fullscreen-flow-content-offset, 0px) - var(--app-bottom-inset, 0px));
   width: 100%;
   padding-top: var(--app-fullscreen-flow-content-offset);
   padding-bottom: var(--app-screen-footer-pad);

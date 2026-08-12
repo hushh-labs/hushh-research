@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
+import { cn } from "@/lib/utils";
 import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import { Button } from "@/lib/morphy-ux/button";
 import {
@@ -144,6 +145,21 @@ export function CapabilityCinematicIntroGate({
     setShouldFocusCapabilityBody(false);
   }, [showIntro, shouldFocusCapabilityBody]);
 
+  // Lock body scroll while the intro is visible to remove any excess blank
+  // space or tiny scrollbars caused by layout math mismatches with the voice bar.
+  useLayoutEffect(() => {
+    if (showIntro) {
+      const originalBodyOverflow = document.body.style.overflow;
+      const originalHtmlOverflow = document.documentElement.style.overflow;
+      document.body.style.overflow = "hidden";
+      document.documentElement.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = originalBodyOverflow;
+        document.documentElement.style.overflow = originalHtmlOverflow;
+      };
+    }
+  }, [showIntro]);
+
   // The prologue and the real capability body are two semantic screens inside
   // one route. Give the incoming body the same canonical in-route enter that
   // every controlled setup step uses; returning a raw fragment here made
@@ -163,9 +179,8 @@ export function CapabilityCinematicIntroGate({
 
   const premise = copy.introPremise ?? copy.setupTitle;
   const promise = copy.introPromise ?? copy.setupBlurb;
-  const introLayoutClass = embedded
-    ? "motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-1 flex-col justify-center items-center pb-10 pt-8 text-center"
-    : "motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-1 flex-col justify-center items-center pb-10 pt-8 text-center";
+  const introLayoutClass =
+    "motion-step-enter fixed inset-0 z-[5] mx-auto flex w-full flex-col justify-center items-center px-4 pb-[calc(var(--app-bottom-inset,0px)+4rem)] pt-[var(--top-shell-reserved-height,60px)] text-center overflow-hidden";
 
   const content = (
     <section
@@ -252,12 +267,5 @@ export function CapabilityCinematicIntroGate({
 
   if (embedded) return content;
 
-  return (
-    <FullscreenFlowShell
-      width="reading"
-      className={routeOwnsTopOffset ? "!pt-0" : undefined}
-    >
-      {content}
-    </FullscreenFlowShell>
-  );
+  return content;
 }

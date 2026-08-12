@@ -1249,7 +1249,7 @@ export default function RiaOnboardingPage({
         />
         <FullscreenFlowShell
           width="reading"
-          className="px-0"
+          className="px-0 !pb-0"
           style={
             {
               "--app-fullscreen-flow-content-offset":
