@@ -301,7 +301,7 @@ export function FeedPage() {
               ))
             : null}
 
-          {nextCursor ? (
+          {hasHistory && nextCursor ? (
             <div className="flex justify-center py-3">
               <Button
                 type="button"
