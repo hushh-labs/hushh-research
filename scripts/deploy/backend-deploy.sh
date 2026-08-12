@@ -105,6 +105,10 @@ append_optional_secret "${_GMAIL_OAUTH_CLIENT_ID_SECRET}" "GMAIL_OAUTH_CLIENT_ID
 append_optional_secret "${_GMAIL_OAUTH_CLIENT_SECRET_SECRET}" "GMAIL_OAUTH_CLIENT_SECRET"
 append_optional_secret "${_GMAIL_OAUTH_REDIRECT_URI_SECRET}" "GMAIL_OAUTH_REDIRECT_URI"
 append_optional_secret "${_GMAIL_OAUTH_TOKEN_KEY_SECRET}" "GMAIL_OAUTH_TOKEN_KEY"
+append_optional_secret "${_GOOGLE_OAUTH_CLIENT_ID_SECRET}" "GOOGLE_OAUTH_CLIENT_ID"
+append_optional_secret "${_GOOGLE_OAUTH_CLIENT_SECRET_SECRET}" "GOOGLE_OAUTH_CLIENT_SECRET"
+append_optional_secret "${_GOOGLE_OAUTH_REDIRECT_URI_SECRET}" "GOOGLE_OAUTH_REDIRECT_URI"
+append_optional_secret "${_GOOGLE_OAUTH_TOKEN_KEY_SECRET}" "GOOGLE_OAUTH_TOKEN_KEY"
 append_optional_secret "${_OPENAI_API_KEY_SECRET}" "OPENAI_API_KEY"
 append_optional_secret "${_GOOGLE_MAPS_API_KEY_SECRET}" "GOOGLE_MAPS_API_KEY"
 # Literal secret names, not substitutions -- these two are named identically in

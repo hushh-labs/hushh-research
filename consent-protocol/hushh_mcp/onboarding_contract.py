@@ -11,6 +11,7 @@ from typing import Any
 
 SETUP_CAPABILITY_ORDER = (
     "gmail",
+    "calendar",
     "location",
     "email",
     "finance",

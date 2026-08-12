@@ -9,18 +9,13 @@ generated, wired, and allowed by the browser-published inventory.
 from __future__ import annotations
 
 import json
+import logging
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
-from hushh_mcp.contracts_root import contracts_path, require_contracts_root
+from hushh_mcp.services.generated_contracts import generated_contract_path
 
-
-def _gateway_path() -> Path | None:
-    # Resolved per call rather than at import: the tree lives in a different place in
-    # a repo checkout than in the image, and a module-level constant froze the wrong
-    # one into the build. See hushh_mcp/contracts_root.py.
-    return contracts_path("kai", "kai-action-gateway.vnext.json")
+logger = logging.getLogger(__name__)
 
 
 def _strings(value: Any) -> list[str]:
@@ -70,13 +65,22 @@ def _normalize(raw: Any) -> dict[str, Any] | None:
 
 @lru_cache(maxsize=1)
 def load_action_gateway() -> dict[str, Any]:
-    gateway_path = _gateway_path()
-    if gateway_path is None or not gateway_path.exists():
-        require_contracts_root("action_gateway")
+    gateway_path = generated_contract_path("kai", "kai-action-gateway.vnext.json")
+    if not gateway_path.exists():
+        # Never let this stay quiet. An empty gateway is not a degraded mode: it
+        # makes One answer `unknown_action` for every id, so voice looks broken
+        # with no other signal anywhere. That is precisely how a packaging bug
+        # rode into UAT and production unnoticed.
+        logger.error(
+            "one_action_gateway_missing path=%s "
+            "(no actions will resolve; regenerate with `npm run build:voice-gateway`)",
+            gateway_path,
+        )
         return {"schema_version": "kai.action_gateway.vnext", "actions": [], "source": "missing"}
     raw = json.loads(gateway_path.read_text(encoding="utf-8"))
     raw_actions = raw.get("actions") if isinstance(raw, dict) else []
     actions = [entry for entry in (_normalize(item) for item in raw_actions or []) if entry]
+    logger.info("one_action_gateway_loaded actions=%d path=%s", len(actions), gateway_path)
     return {
         "schema_version": str(raw.get("schema_version") or "kai.action_gateway.vnext")
         if isinstance(raw, dict)

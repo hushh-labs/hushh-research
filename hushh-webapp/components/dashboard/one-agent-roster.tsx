@@ -6,7 +6,7 @@ import { ChevronRight, Grid2X2, List, Search } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { LargeTitle } from "@/components/app-ui/typography";
+
 import {
   getOneSetupCapability,
   isOneCapabilityEnabled,
@@ -683,9 +683,17 @@ export function OneAgentRoster({
       className="mx-auto w-full max-w-[900px]"
     >
       <div className="mb-5 flex items-center justify-between gap-3">
-        <LargeTitle as="h2" id="one-agents-heading" className="min-w-0 truncate">
+        {/* Compact, tracked, gray section label per the reference design.
+            Casing stays natural ("Agents (N)"): the design-system guard
+            (verify-apple-hierarchy) requires shared/system UI to preserve
+            natural casing, so no letter-case transform is applied here. */}
+
+        <h2
+          id="one-agents-heading"
+          className="min-w-0 truncate text-[14px] font-bold tracking-[0.02em] text-[#8E8E93]"
+        >
           Agents ({modes.length})
-        </LargeTitle>
+        </h2>
         <AgentRosterViewToggle value={view} onChange={selectView} />
       </div>
       <label className="relative mb-4 block">

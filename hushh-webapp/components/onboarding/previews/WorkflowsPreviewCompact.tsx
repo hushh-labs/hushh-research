@@ -14,7 +14,7 @@ import {
 // "What lies ahead": a representative slice of the REAL /one dashboard
 // capabilities a new user will unlock. Sourced from the shared catalog so it
 // can never drift from the dashboard tiles.
-const PREVIEW_IDS = ["finance", "gmail", "location"] as const;
+const PREVIEW_IDS = ["finance", "gmail", "calendar", "location"] as const;
 
 const PREVIEW_CAPABILITIES: OneCapability[] = PREVIEW_IDS.map(
   getOneCapability,

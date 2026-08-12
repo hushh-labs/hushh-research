@@ -95,11 +95,14 @@ function fallbackCopy(
 export function CapabilityCinematicIntroGate({
   capabilityId,
   children,
+  introSupplement,
   embedded = false,
   routeOwnsTopOffset = false,
 }: {
   capabilityId: CapabilityCinematicIntroId;
   children: ReactNode;
+  /** Optional capability-specific value summary shown only in the visual prologue. */
+  introSupplement?: ReactNode;
   /** The owning flow already provides its canonical FullscreenFlowShell. */
   embedded?: boolean;
   /** The standard route shell already contributes the fixed-header clearance. */
@@ -160,10 +163,20 @@ export function CapabilityCinematicIntroGate({
 
   const premise = copy.introPremise ?? copy.setupTitle;
   const promise = copy.introPromise ?? copy.setupBlurb;
+  const introLayoutClass = embedded
+    ? "motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-col pt-8 text-center"
+    : "motion-step-enter relative mx-auto flex min-h-[calc(100dvh-16rem-env(safe-area-inset-top))] w-full max-w-[36rem] flex-col items-center justify-center pt-[max(2rem,env(safe-area-inset-top))] text-center";
 
   const content = (
     <section
-      className="motion-step-enter relative mx-auto flex min-h-[calc(100dvh-16rem)] w-full max-w-[36rem] flex-col items-center justify-center text-center"
+      // Centered hero. On the iOS Capacitor webview `100dvh` does NOT subtract
+      // the native top bar / status-bar safe area, so a purely centered block
+      // rode up under the header and the copy sat too close to the back arrow
+      // (web was already correct). Add the top safe-area inset as padding AND
+      // subtract it from the min-height so the block clears the native header
+      // while staying vertically balanced. `env(safe-area-inset-top)` is 0 on
+      // web/desktop, so this is a no-op there and only affects notched/native.
+      className={introLayoutClass}
       aria-labelledby={`capability-intro-${capabilityId}`}
       data-capability-cinematic-intro={capabilityId}
     >
@@ -213,6 +226,9 @@ export function CapabilityCinematicIntroGate({
       <p className="mt-5 max-w-[34rem] text-pretty type-title3 text-muted-foreground">
         {promise}
       </p>
+      {introSupplement ? (
+        <div className="mt-8 w-full max-w-[34rem]">{introSupplement}</div>
+      ) : null}
       <div className="mt-10 w-full max-w-[30rem] self-center">
         <Button
           type="button"

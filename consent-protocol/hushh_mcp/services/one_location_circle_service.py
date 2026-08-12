@@ -1960,6 +1960,7 @@ class OneLocationCircleService:
                     for invitee_user_id in cleaned_invitee_user_ids
                 ]
             if created_invite_ids:
+                from hushh_mcp.services.feed_service import FeedService
                 from hushh_mcp.services.push_notifications import (
                     send_circle_member_invite_push,
                 )
@@ -1974,6 +1975,25 @@ class OneLocationCircleService:
                         circle_id=cleaned_circle_id,
                         invite_id=str(payload.get("id") or ""),
                     )
+                    # Feed is a best-effort, post-commit projection: the
+                    # invitation itself is already durable in
+                    # one_location_circle_member_invites, so a feed-write
+                    # failure must never fail the invite that produced it.
+                    try:
+                        FeedService().record_event(
+                            user_id=str(payload.get("inviteeUserId") or ""),
+                            source_domain="location",
+                            event_type="circle_member_invited",
+                            actor_label=str(payload.get("inviterDisplayName") or "") or None,
+                            metadata={
+                                "invite_id": str(payload.get("id") or ""),
+                                "circle_id": cleaned_circle_id,
+                                "circle_name": str(payload.get("circleName") or ""),
+                                "inviter_user_id": actor_user_id,
+                            },
+                        )
+                    except Exception:  # noqa: BLE001 - projection cannot roll back the invite
+                        logger.exception("one_location.circle_member_invite_feed_projection_failed")
             logger.info(
                 "one_location.circle_members_invited actor=%s requested=%s created=%s",
                 redact_log_field("user_id", actor_user_id),

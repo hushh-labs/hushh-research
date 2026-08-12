@@ -301,15 +301,30 @@ def main() -> int:
     # that typed selection and authority, but cannot infer it from message
     # keywords.
     one_tree_source = ONE_AGENT_TREE_PATH.read_text(encoding="utf-8")
+    # Collapse runs of whitespace before matching the prose fragment. The
+    # invariant is what the sentence SAYS, not how it happens to wrap, and a
+    # literal carrying an embedded "\n    " asserts the line break too: the
+    # 2026-08-12 main sync reworded this docstring (a genuine improvement -- it
+    # now says the selection "stays One's"), the reflow moved the break, and the
+    # check failed over the layout rather than the meaning. It went unnoticed on
+    # `main` because tests/test_product_agent_registry_v2.py is not in that
+    # branch's scripts/test-ci.manifest.txt, so the checker had never run there.
+    one_tree_prose = " ".join(one_tree_source.split())
     for required_fragment in (
         'target: Literal["consent", "connections"]',
         '"consent": "agent_nav", "connections": "agent_connections"',
-        "It never\n    examines request words to choose a subagent.",
     ):
         if required_fragment not in one_tree_source:
             errors.append(
                 f"{ONE_AGENT_TREE_PATH}: missing semantic Nav/Connections handoff contract `{required_fragment}`"
             )
+    # The boundary itself: selection between subagents is One's, never inferred
+    # here from the words of the request.
+    handoff_contract = "It never examines request words to choose *between subagents*"
+    if handoff_contract not in one_tree_prose:
+        errors.append(
+            f"{ONE_AGENT_TREE_PATH}: missing semantic Nav/Connections handoff contract `{handoff_contract}`"
+        )
 
     nav_bridge_source = NAV_BRIDGE_PATH.read_text(encoding="utf-8")
     for prohibited_fragment in ("_is_connections_query", "get_connections_a2a"):

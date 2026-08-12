@@ -8,26 +8,27 @@ the delegated-authority boundary.
 from __future__ import annotations
 
 import json
+import logging
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
-from hushh_mcp.contracts_root import contracts_path, require_contracts_root
+from hushh_mcp.services.generated_contracts import generated_contract_path
 
-
-def _index_path() -> Path | None:
-    # Per call, not a module constant: see hushh_mcp/contracts_root.py for why a
-    # repo-root-anchored constant resolved to the wrong place inside the image.
-    return contracts_path("kai", "one-route-orchestration-index.v1.json")
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
 def load_route_orchestration_index() -> dict[str, dict[str, Any]]:
-    index_path = _index_path()
-    if index_path is None or not index_path.exists():
-        # An empty index silently admits nothing, so delegate-admission decisions
-        # would be made against no data at all. Say so.
-        require_contracts_root("route_orchestration_index")
+    index_path = generated_contract_path("kai", "one-route-orchestration-index.v1.json")
+    if not index_path.exists():
+        # An empty index is not a degraded mode -- `is_one_delegate_admitted` then
+        # admits EVERYTHING, so delegate-admission decisions are made against no
+        # data at all while every surface still reports success. Say so out loud.
+        logger.error(
+            "one_route_orchestration_index_missing path=%s "
+            "(delegate admission will fall open; regenerate the contract chain)",
+            index_path,
+        )
         return {}
     try:
         payload = json.loads(index_path.read_text(encoding="utf-8"))

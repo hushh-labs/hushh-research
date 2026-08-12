@@ -277,12 +277,24 @@ def test_live_context_intersects_actions_and_screen_with_generated_route_policy(
     )
 
     assert context["screen"] == "one_setup_gmail"
-    # Navigation actions (route.*, allow_direct) survive on every route so
-    # cross-screen requests like "go to profile" stay proposable; the
-    # route-declared local action survives through the index intersection.
-    # Gmail setup is dormant, so only the globally-admitted navigation action
-    # remains after generated-contract intersection.
-    assert context["available_action_ids"] == ["route.profile"]
+    # Both survive, for the two different reasons the filter accepts:
+    #   route.profile        -- a navigation action (route.*, allow_direct), which
+    #                           survives on EVERY route so "go to profile" stays
+    #                           proposable from any screen.
+    #   setup.connect_gmail  -- declared by this route in the generated orchestration
+    #                           index AND present in the action gateway.
+    #
+    # This assertion used to read `== ["route.profile"]`, on the stated premise that
+    # "Gmail setup is dormant". That premise expired: the generated gateway now
+    # carries setup.connect_gmail with execution_target.status "wired" and
+    # reachability.routes ["/one/setup/gmail"]. Nothing caught the drift because this
+    # file is not in scripts/test-ci.manifest.txt and therefore had never run in CI --
+    # it is registered as of the 2026-08-12 main sync.
+    #
+    # Admission here is NOT authority. run_app_action re-validates screen and guards
+    # before parking a directive, and this action's activation_policy
+    # ("trusted_activation_required") still gates execution.
+    assert context["available_action_ids"] == ["route.profile", "setup.connect_gmail"]
 
 
 def test_live_context_keeps_navigation_actions_on_routes_without_local_actions():
@@ -689,3 +701,231 @@ def test_the_guard_distinguishes_different_inputs_to_the_same_action():
     assert _slot_fingerprint({"a": "1", "b": "2"}) == _slot_fingerprint({"b": "2", "a": "1"})
     # Naming a different person is a different request, and must get through.
     assert _slot_fingerprint({"person": "Sarah"}) != _slot_fingerprint({"person": "Abdul"})
+
+
+def test_an_action_that_just_failed_is_not_run_again():
+    """The other half of the guard above, and the half that actually loops.
+
+    Only successes were recorded, so a FAILED action left no trace anywhere:
+    the already-completed refusal could not fire, and the relay admitted the
+    identical call again. Live on UAT, sharing with someone whose account had
+    no encryption keys settled `failed` and `location.share_selected` went out
+    24 times in 15 seconds -- roughly twice a second, against a backend that
+    could only ever refuse it.
+
+    Failure is the case that loops hardest precisely because it leaves the
+    person's request unsatisfied, so the model keeps trying to satisfy it.
+    """
+    from hushh_mcp.services.live_voice_context import (
+        clear_completed_actions,
+        read_failed_action,
+        record_failed_action,
+    )
+
+    session = "session-failure-loop-test"
+    clear_completed_actions(session)
+    assert read_failed_action(session, "location.share_selected") is None
+
+    record_failed_action(
+        session,
+        "location.share_selected",
+        '{"person": "Abdul"}',
+        "Abdul has not finished setting up secure keys.",
+    )
+    record = read_failed_action(session, "location.share_selected")
+    assert record is not None
+    fingerprint, reason = record
+    assert fingerprint == '{"person": "Abdul"}'
+    # The reason is kept, not just the fingerprint. A refusal that hands One
+    # nothing to say is one it will try to satisfy by acting again.
+    assert reason == "Abdul has not finished setting up secure keys."
+
+    # Scoped to the action, and to the session, exactly like the success store.
+    assert read_failed_action(session, "location.pause_updates") is None
+    assert read_failed_action("someone-else", "location.share_selected") is None
+
+    # Fresh speech clears it: a person who fixes the problem and asks again
+    # must get through. This is why the guard needs no expiry window -- the
+    # next thing the person says already ends it.
+    clear_completed_actions(session)
+    assert read_failed_action(session, "location.share_selected") is None
+
+
+def test_a_later_success_retires_an_earlier_failure():
+    """Otherwise a fixed problem stays "broken" for the rest of the turn.
+
+    The person grants the missing permission, the action works, and without
+    this the next legitimate call is still refused by a record describing a
+    failure that no longer exists.
+    """
+    from hushh_mcp.services.live_voice_context import (
+        clear_completed_actions,
+        clear_failed_action,
+        read_failed_action,
+        record_failed_action,
+    )
+
+    session = "session-failure-retired-test"
+    clear_completed_actions(session)
+    record_failed_action(session, "location.share_selected", '{"person": "Abdul"}', "no keys")
+    assert read_failed_action(session, "location.share_selected") is not None
+
+    clear_failed_action(session, "location.share_selected")
+    assert read_failed_action(session, "location.share_selected") is None
+
+    # Clearing an action that never failed is a no-op, not a KeyError -- every
+    # success calls this, and most of them follow no failure at all.
+    clear_failed_action(session, "location.pause_updates")
+    clear_failed_action("session-that-does-not-exist", "location.share_selected")
+
+
+def test_a_failure_does_not_block_a_different_request_to_the_same_action():
+    """Changing the person or the duration is a new request, not the loop.
+
+    The guard matches on the value fingerprint, so "share with Abdul" failing
+    must never suppress "share with Sarah". Getting this wrong would turn one
+    unreachable contact into an action the person cannot use at all.
+    """
+    from hushh_mcp.one_adk.action_tools import _slot_fingerprint
+    from hushh_mcp.services.live_voice_context import (
+        clear_completed_actions,
+        read_failed_action,
+        record_failed_action,
+    )
+
+    session = "session-failure-scope-test"
+    clear_completed_actions(session)
+    record_failed_action(
+        session,
+        "location.share_selected",
+        _slot_fingerprint({"person": "Abdul"}),
+        "no keys",
+    )
+
+    record = read_failed_action(session, "location.share_selected")
+    assert record is not None
+    assert record[0] == _slot_fingerprint({"person": "Abdul"})
+    assert record[0] != _slot_fingerprint({"person": "Sarah"})
+
+
+def test_a_specialist_card_is_not_proposed_twice():
+    """The path that had no guard at all, rather than one being escaped.
+
+    `payload.actionId` is the admission gate for every piece of directive
+    governance on both sides -- the relay's issue/dedupe/ledger/GC block and the
+    browser's directive lease. A specialist directive carries `payload.type` and
+    no `actionId`, so it passes through both untouched: never issued, never
+    leased, and unable to settle, because the settlement validator refuses any
+    directive id the relay did not issue.
+
+    One is therefore never told the card landed. It is told the specialist is
+    waiting, the person speaks again, the same grant is re-proposed under the
+    same fixed state key with a freshly random payload id, and a second
+    identical card reaches the browser. QA saw the same line twice in the
+    transcript and heard it twice; both come from this.
+    """
+    from hushh_mcp.services.live_voice_context import (
+        clear_pending_specialist_directives,
+        read_pending_specialist_directive,
+        record_pending_specialist_directive,
+        specialist_directive_fingerprint,
+    )
+
+    session = "session-specialist-card"
+    clear_pending_specialist_directives(session)
+
+    share = specialist_directive_fingerprint("agent_location", "prompt", "publish_share")
+    assert read_pending_specialist_directive(session, share) is False
+
+    record_pending_specialist_directive(session, share)
+    assert read_pending_specialist_directive(session, share) is True
+
+    # Scoped by specialist, by kind, and by directive type, so an unrelated
+    # proposal is never suppressed by this one.
+    assert (
+        read_pending_specialist_directive(
+            session,
+            specialist_directive_fingerprint("agent_location", "prompt", "publish_checkin"),
+        )
+        is False
+    )
+    assert (
+        read_pending_specialist_directive(
+            session,
+            specialist_directive_fingerprint("agent_email", "prompt", "publish_share"),
+        )
+        is False
+    )
+    # And by session, so one person's open card never silences another's.
+    assert read_pending_specialist_directive("someone-else", share) is False
+
+    # Fresh speech releases it. These can never settle -- no directive id was
+    # ever issued for them -- so the next thing the person says is the only
+    # signal available that the moment has moved on, and someone deliberately
+    # asking twice must still get through.
+    clear_pending_specialist_directives(session)
+    assert read_pending_specialist_directive(session, share) is False
+
+
+def test_the_specialist_fingerprint_ignores_the_random_payload_id():
+    """Including it would make every repeat look new.
+
+    The specialist payload's own id is regenerated per call
+    (`"act-" + uuid4().hex[:12]`), so it is different on the duplicate card by
+    construction. Fingerprinting on identity that survives a re-proposal is the
+    whole reason this guard can fire.
+    """
+    from hushh_mcp.services.live_voice_context import specialist_directive_fingerprint
+
+    first = specialist_directive_fingerprint("agent_location", "prompt", "publish_share")
+    second = specialist_directive_fingerprint("agent_location", "prompt", "publish_share")
+    assert first == second
+    assert first != specialist_directive_fingerprint("agent_location", "action", "publish_share")
+
+
+def test_one_settlement_produces_one_turn_even_when_it_arms_a_continuation():
+    """A second `send_content` is a second answer, not a second instruction.
+
+    Each `send_content` closes a user turn on the Live API and elicits a full
+    model response. A settlement that armed a journey continuation used to send
+    two frames -- the outcome, then the continuation note -- so One answered
+    twice for one event. That is a second, independent source of the repetition
+    QA reported, separate from the specialist-card duplication.
+
+    The two continuation kinds cannot both be live: `continuation_ready_now`
+    requires a `one.goal_run.v1` navigation step (step_cursor 0) and
+    `journey_continuation_note` requires a `one.settled_action_journey.v1` run.
+    This pins that exclusivity, because folding them into one frame is only
+    safe while it holds.
+    """
+    from api.routes.one.adk_live import (
+        _is_navigation_step_settlement,
+        _navigation_continuation_screen,
+    )
+
+    navigation_run = {
+        "schema_version": "one.goal_run.v1",
+        "step_cursor": 0,
+        "expected_screen": "connect",
+    }
+    settled_run = {
+        "schema_version": "one.settled_action_journey.v1",
+        "deferred_action_id": "connect.send_request",
+    }
+
+    # A navigation step arms the navigation continuation...
+    assert _is_navigation_step_settlement(navigation_run) is True
+    assert _navigation_continuation_screen("goal.x", navigation_run, "succeeded") == "connect"
+    # ...and a settled-action journey never does, so the settled-journey note
+    # and the navigation note can never both be produced for one settlement.
+    assert _is_navigation_step_settlement(settled_run) is False
+    assert _navigation_continuation_screen("goal.x", settled_run, "succeeded") is None
+
+    # Past the navigation step, what settles is the journey's own action, whose
+    # result One is waiting on -- never another cue to act.
+    assert (
+        _navigation_continuation_screen("goal.x", {**navigation_run, "step_cursor": 1}, "succeeded")
+        is None
+    )
+    # A failed navigation arms nothing either.
+    assert _navigation_continuation_screen("goal.x", navigation_run, "failed") is None

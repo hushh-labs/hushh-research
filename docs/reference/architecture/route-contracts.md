@@ -96,7 +96,9 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/setup/finance`
 - `/one/setup/finance/import`
 - `/one/setup/kai`
+- `/one/setup/calendar`
 - `/one/setup/[capability]`
+- `/one/calendar`
 - `/one/kyc`
 - `/one/marketplace`
 - `/marketplace`
@@ -151,6 +153,11 @@ Canonical `/one/kai?tab=<market|portfolio|analysis>` is the One-owned finance wo
 Legacy `/profile?panel=...&detail=...` URLs remain compatibility inputs only.
 They redirect into the canonical `/one/profile/<panel>` family, which is owned
 by `hushh-webapp/lib/navigation/profile-routes.ts`.
+
+`/one/calendar` is a first-class One agent workspace. The former
+`/one/profile/integrations` address is a compatibility redirect only and must
+not be reintroduced as a Connected apps settings surface. Calendar OAuth
+returns through `/one/profile/google/oauth/return` and routes back to Calendar.
 
 The access manager is the One-owned `/one/consent` workspace. Legacy
 `/consents` links redirect there while preserving transient query state such as

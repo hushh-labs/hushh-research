@@ -120,7 +120,9 @@
     "139_ria_profile_brochure_provenance.sql",
     "140_one_contact_discoverability.sql",
     "141_crm_zk_v1.sql",
-    "142_source_library_scope_retirement.sql"
+    "142_source_library_scope_retirement.sql",
+    "143_crm_zk_uat_v1.sql",
+    "144_google_integrations_calendar_foundation.sql"
   ],
   "groups": {
     "iam": [
@@ -195,7 +197,9 @@
       "139_ria_profile_brochure_provenance.sql",
       "140_one_contact_discoverability.sql",
       "141_crm_zk_v1.sql",
-      "142_source_library_scope_retirement.sql"
+      "142_source_library_scope_retirement.sql",
+      "143_crm_zk_uat_v1.sql",
+      "144_google_integrations_calendar_foundation.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

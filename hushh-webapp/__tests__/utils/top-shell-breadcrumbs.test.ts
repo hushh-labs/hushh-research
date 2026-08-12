@@ -50,6 +50,15 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
+  it("uses the shared top-left back affordance for Calendar", () => {
+    expect(resolveTopShellBreadcrumb("/one/calendar")).toEqual({
+      backHref: "/one",
+      width: "profile",
+      align: "center",
+      items: [{ label: "One", href: "/one" }, { label: "Calendar" }],
+    });
+  });
+
   it("returns a query-selected CRM detail to the static connected-systems workspace", () => {
     expect(
       resolveTopShellBreadcrumb(

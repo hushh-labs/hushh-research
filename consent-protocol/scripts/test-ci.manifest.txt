@@ -29,7 +29,6 @@ tests/test_compute_backend_parity.py
 tests/test_consent_audit_chain.py
 tests/test_consent_token_asymmetric.py
 tests/test_console_triage_regressions.py
-tests/test_contracts_root_resolution.py
 tests/test_dco_signoff_is_unmissable.py
 tests/test_debug_route_is_local_only.py
 tests/test_deploy_sha_gate_payload_size.py
@@ -38,6 +37,7 @@ tests/test_dev_simulation_guard.py
 tests/test_developer_api_routes.py
 tests/test_export_projection.py
 tests/test_firebase_auth_contract.py
+tests/test_generated_contract_packaging.py
 tests/test_gcp_backend.py
 tests/test_gcp_backend_cost_labels.py
 tests/test_gcp_backend_cpu_allocation.py
@@ -63,6 +63,7 @@ tests/test_mcp_public_tools_v030.py
 tests/test_mcp_remote_endpoint.py
 tests/test_model_access_policy.py
 tests/test_no_orphaned_agents.py
+tests/test_one_adk_live_protocol.py
 tests/test_one_grounding_honesty.py
 tests/test_one_location_db_error_detail_cwe209.py
 tests/test_one_location_routes.py

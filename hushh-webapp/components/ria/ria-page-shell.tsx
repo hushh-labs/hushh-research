@@ -77,6 +77,7 @@ export function RiaPageShell({
   return (
     <AppPageShell
       as="main"
+      fitContent
       width={width}
       className={cn("pb-24 sm:pb-28", className)}
       nativeTest={nativeTest}

@@ -24,6 +24,7 @@ import logging
 import os
 from typing import Any, cast
 
+from hushh_mcp.onboarding_contract import SETUP_CAPABILITY_IDS
 from hushh_mcp.services.action_gateway import (
     get_action_gateway_action,
     is_navigation_action,
@@ -49,9 +50,10 @@ ONBOARDING_PHASES = frozenset(
     }
 )
 ONBOARDING_CALLBACK_STATES = frozenset({"none", "pending", "succeeded", "cancelled", "failed"})
-ONBOARDING_CAPABILITIES = frozenset(
-    {"gmail", "location", "email", "finance", "ria", "connected-systems"}
-)
+# Use the same canonical setup catalog that validates durable onboarding state.
+# A browser-provided capability must not be accepted here if the persistence
+# contract would reject it later.
+ONBOARDING_CAPABILITIES = SETUP_CAPABILITY_IDS
 ACTION_SETTLEMENT_STATUSES = frozenset(
     {"succeeded", "started", "blocked", "invalid", "failed", "noop"}
 )

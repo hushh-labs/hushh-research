@@ -2244,6 +2244,81 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/calendar",
+      "page_file": "app/one/calendar/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/calendar/calendar-agent-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceCard"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.calendar",
+          "purpose": "Connect Google Calendar and use the Calendar Agent for schedule summaries, availability, and confirmed meeting changes.",
+          "screen": "calendar",
+          "entry_cue": "Connect Calendar when you want schedule help from One.",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Calendar changes happen only after the person confirms the exact proposal in chat.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/calendar",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/google-calendar-service.ts",
+          "service_methods": [
+            "status",
+            "startConnect",
+            "disconnect",
+            "executeProposal"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/one/calendar/{status,connect/*,proposals/*}",
+          "native_transport": "Web-only Google OAuth; Calendar does not claim native authorization support."
+        }
+      ],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": {
+        "oauth_connection": "Google refresh tokens remain server-encrypted; the browser receives only connection status and an authorization URL.",
+        "mutation_authority": "Calendar creates, reschedules, and cancellations remain short-lived proposals and execute only after explicit owner confirmation in One chat."
+      }
+    },
+    {
       "route": "/one/connect",
       "page_file": "app/one/connect/page.tsx",
       "physical_page_exists": true,
@@ -2655,7 +2730,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.gmail",
-          "purpose": "Gmail is paused while its dormant connection route is retained for a future explicit enablement.",
+          "purpose": "Connect Gmail for receipt sync and use purchase-memory review through its dedicated agent workspace.",
           "screen": "gmail",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -3910,6 +3985,8 @@
       "voice_action_contract_ids": [
         "location.add_connections",
         "location.add_emergency_contact",
+        "location.add_to_circle",
+        "location.create_circle",
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
@@ -3930,6 +4007,7 @@
         "location.pause_updates",
         "location.refresh",
         "location.remove_emergency_contact",
+        "location.remove_from_circle",
         "location.resume_updates",
         "location.select_share_recipient",
         "location.set_auto_share",
@@ -5027,6 +5105,110 @@
           "redirect-valid",
           "unavailable-valid"
         ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/google/oauth/return",
+      "page_file": "app/one/profile/google/oauth/return/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "OAuth callback completes Calendar authorization and returns to the Calendar agent.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.google.oauth.return",
+          "purpose": "Finish the verified Google Calendar authorization callback without exposing credentials.",
+          "screen": "calendar",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Return to Calendar and explain that the connection was not completed.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Return to Calendar without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The callback completes only after the server verifies state and stores the connection.",
+          "next_route": "/one/calendar",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/google/oauth/return",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/profile/integrations",
+      "page_file": "app/one/profile/integrations/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Compatibility-only redirect; Calendar is now a first-class One agent at /one/calendar.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.profile.integrations",
+          "purpose": "Redirect a legacy Connected apps bookmark to Calendar without retaining a profile integration surface.",
+          "screen": "calendar",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Return to Calendar and retain a safe retry.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Return to Calendar without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Completion is spoken only after the Calendar route settles.",
+          "next_route": "/one/calendar",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/profile/integrations",
+        "classification": "excluded-web-only"
       },
       "shell": {
         "app_page_shell": false,
@@ -6230,6 +6412,8 @@
           "primary_action_id": "setup.open_connections",
           "happy_path_action_ids": [
             "setup.open_connections",
+            "setup.open_gmail",
+            "setup.open_calendar",
             "setup.open_location",
             "setup.open_email",
             "setup.open_finance",
@@ -6325,6 +6509,87 @@
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/setup/calendar",
+      "page_file": "app/one/setup/calendar/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/calendar/calendar-agent-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SetupCompletionFooter"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.calendar",
+          "purpose": "Connect Google Calendar, then explicitly finish or skip Calendar setup.",
+          "screen": "one_setup_calendar",
+          "entry_cue": "Connect Calendar when you are ready, or say skip Calendar setup.",
+          "proactivity": "on_entry",
+          "primary_action_id": "setup.connect_calendar",
+          "happy_path_action_ids": [
+            "setup.connect_calendar",
+            "setup.finish_calendar",
+            "setup.skip_calendar"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Keep Calendar setup open and preserve the active goal.",
+            "failed": "Explain that Calendar still needs a verified connection before it can finish.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Use the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Calendar setup finishes only after a verified connection and the setup hub route settles.",
+          "next_route": "/one/setup",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/calendar",
+        "classification": "excluded-web-only"
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/setup/calendar/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "setup.connect_calendar",
+        "setup.finish_calendar",
+        "setup.skip_calendar"
+      ],
+      "api_dependencies": [
+        {
+          "service_file": "lib/services/google-calendar-service.ts",
+          "service_methods": [
+            "status",
+            "startConnect",
+            "disconnect"
+          ],
+          "nextjs_api_route": "/api/one/{path*}",
+          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
+          "backend_endpoint_family": "/api/one/calendar/{status,connect/*}",
+          "native_transport": "Web-only Google OAuth; Calendar setup does not claim native authorization support."
+        }
+      ],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": {
+        "oauth_connection": "Google refresh tokens remain server-encrypted; setup receives only connection status and an authorization URL."
+      }
     },
     {
       "route": "/one/setup/connected-systems",
@@ -6692,22 +6957,26 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.setup.gmail",
-          "purpose": "Gmail setup is paused while its dormant capability route is retained for a future explicit enablement.",
+          "purpose": "Connect Gmail for receipt sync, then explicitly finish or skip Gmail setup.",
           "screen": "one_setup_gmail",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
+          "entry_cue": "Connect Gmail when you are ready, or say skip Gmail setup.",
+          "proactivity": "on_entry",
+          "primary_action_id": "setup.connect_gmail",
+          "happy_path_action_ids": [
+            "setup.connect_gmail",
+            "setup.finish_gmail",
+            "setup.skip_gmail"
+          ],
           "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Explain that Gmail setup is paused.",
-            "failed": "Explain that Gmail setup is paused.",
-            "timeout": "Explain that Gmail setup is paused.",
-            "callback_error": "Explain that Gmail setup is paused.",
+            "cancelled": "Keep Gmail setup open and preserve the active goal.",
+            "failed": "Explain that Gmail still needs a verified connection before it can finish.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Use the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "The paused setup route has no executable actions.",
+          "completion_boundary": "Gmail setup finishes only after a verified connection and the setup hub route settles.",
           "next_route": null,
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -7165,6 +7434,55 @@
           "empty-valid"
         ]
       },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/profile/google/oauth/return",
+      "page_file": "app/profile/google/oauth/return/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "redirect",
+        "exemption_reason": "Legacy Google Calendar OAuth callback; the canonical callback remains under /one/profile/google/oauth/return.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.legacy.profile.google.oauth.return",
+          "purpose": "Finish the verified Google Calendar authorization callback without exposing credentials.",
+          "screen": "calendar",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Return to Calendar and explain that the connection was not completed.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Return to Calendar without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The callback completes only after the server verifies state and stores the connection.",
+          "next_route": "/one/calendar",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": null,
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -8194,5 +8512,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "0fd7c4cf65e26d43d5d8c3c2d696fae9c3aa17657e0e0bf89df5378c9f544dea"
+  "content_sha256": "5613f8af6b53687283e6d65ed60bf0635824188e7e93ebbb35070c1f71027f9e"
 }

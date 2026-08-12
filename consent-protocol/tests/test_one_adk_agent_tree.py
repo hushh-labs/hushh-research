@@ -84,6 +84,12 @@ class TestAgentTreeShape:
             "ask_location_agent",
             "ask_connected_systems_agent",
             "ask_consent_agent",
+            "calendar_summary",
+            "calendar_events",
+            "calendar_availability",
+            "propose_calendar_event",
+            "propose_calendar_reschedule",
+            "propose_calendar_cancellation",
         } <= tool_names
         assert "ask_connections_agent" not in tool_names
         assert "ask_gmail_agent" not in tool_names
@@ -356,13 +362,19 @@ class TestSpecialistTurn:
 
     @pytest.mark.asyncio
     async def test_consent_tool_uses_ones_typed_selection_for_navs_connections_child(self):
+        # An OPEN question, deliberately. "Please show my trusted people" sat
+        # here and now redirects to `connect.open_people`, which is the better
+        # outcome -- someone asking to see their people wants the list, not a
+        # description of it. This phrase keeps the typed-selection contract
+        # under test without also pinning the old lane for a request that has
+        # an authored action.
         context = _tool_context({STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"})
         with patch(
             "hushh_mcp.one_adk.agent_tree._specialist_turn",
             new=AsyncMock(return_value={"status": "authority_required"}),
         ) as specialist_turn:
             result = await ask_consent_agent(
-                "Please show my trusted people.",
+                "How does trust work here?",
                 context,
                 target="connections",
             )
@@ -370,8 +382,58 @@ class TestSpecialistTurn:
         assert result["status"] == "authority_required"
         assert specialist_turn.await_args.args[:2] == (
             "agent_connections",
-            "Please show my trusted people.",
+            "How does trust work here?",
         )
+
+    @pytest.mark.asyncio
+    async def test_a_named_request_never_reaches_the_specialist_at_all(self):
+        """The redirect is a hard block, not advice the model may decline.
+
+        Guidance was tried first and did not hold: One was told specialists
+        validate consent, obeyed, and turned a doable request into a
+        permissions refusal. `_specialist_turn` must not even be awaited.
+        """
+        context = _tool_context({STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"})
+        with patch(
+            "hushh_mcp.one_adk.agent_tree._specialist_turn",
+            new=AsyncMock(return_value={"status": "authority_required"}),
+        ) as specialist_turn:
+            result = await ask_consent_agent(
+                "can you connect me with ankit",
+                context,
+                target="connections",
+            )
+
+        specialist_turn.assert_not_awaited()
+        assert result["status"] == "use_journey"
+        assert result["action_id"] == "connect.send_request"
+        assert result["goal_id"] == "goal.connect.send_request"
+        # Tells One what to call instead. A refusal with no next step is one it
+        # answers by apologising about permissions, which is the whole bug.
+        assert "start_app_goal" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_the_redirect_cannot_reroute_between_specialists(self):
+        """Words decide the LANE, never which specialist gets the request.
+
+        `consent` must keep reaching Nav even when the words look like
+        connections work, or this becomes exactly the word-sniffing subagent
+        selection the typed-target design exists to prevent.
+        """
+        context = _tool_context({STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"})
+        with patch(
+            "hushh_mcp.one_adk.agent_tree._specialist_turn",
+            new=AsyncMock(return_value={"status": "ok"}),
+        ) as specialist_turn:
+            await ask_consent_agent(
+                "connect me with ankit",
+                context,
+                target="consent",
+            )
+
+        # agent_nav declares no authored action surfaces, so it is never
+        # redirected and never swapped for agent_connections.
+        assert specialist_turn.await_args.args[0] == "agent_nav"
 
     @pytest.mark.asyncio
     async def test_location_setup_returns_recovery_without_specialist_dispatch(self):
@@ -783,7 +845,7 @@ class TestSettledActionJourneys:
         decision, made explicitly.
 
         `trusted_activation_required` is the one survivor and is a different
-        kind of thing entirely: those two actions open a browser popup, which
+        kind of thing entirely: those four actions open a browser popup, which
         platforms allow only during a fresh user gesture. Dropping it would
         break sign-in rather than streamline it.
         """
@@ -794,9 +856,10 @@ class TestSettledActionJourneys:
             assert flags["needsConfirmation"] is trusted, entry["action_id"]
             assert flags["trustedActivationRequired"] is trusted, entry["action_id"]
             confirming += 1 if flags["needsConfirmation"] else 0
-        # Small and deliberate. If this grows, someone has reintroduced asking
-        # by authoring an activation policy rather than by deciding to.
-        assert confirming == 2
+        # Small and deliberate: the two account sign-ins plus the two Google
+        # service connection flows. If this grows, someone has reintroduced
+        # asking by authoring an activation policy rather than by deciding to.
+        assert confirming == 4
 
     @pytest.mark.asyncio
     async def test_high_risk_location_share_runs_without_asking(self):
@@ -1514,7 +1577,7 @@ class TestNavigationActionMembership:
 
 
 class TestNamedShareChain:
-    """ "Share my location with Sarah" is navigate-first, ask-second.
+    """The named location-share journey is navigate-first, ask-second.
 
     The single question exists to catch a MIS-HEARD name, so it is worth
     nothing unless it says the name the app matched. One does not have that
@@ -1565,3 +1628,95 @@ class TestNamedShareChain:
         assert "never the" in instruction and "name you heard" in instruction
         # The matched name has exactly one source, and it is not a tool return.
         assert "settlement report is the first and only place" in instruction
+
+
+def test_a_named_request_goes_to_its_journey_not_to_a_specialist():
+    """The refusal that had no business happening.
+
+    One was told "you never execute sensitive actions directly: specialists
+    validate consent", written before journeys existed. Obeying it, One sent
+    "connect me with Ankit" to the connections specialist, the specialist hit a
+    consent boundary, and One relayed it honestly -- so a request the app can
+    satisfy end to end came back as "I don't have the right permissions",
+    pointing at the consent screen.
+
+    Nothing was broken underneath: the action outranks the specialist 182 to 80
+    on the spoken phrase, and is journey-reachable from 55 of 56 screens. Only
+    the decision was wrong, which is why the instruction alone was not trusted
+    to fix it.
+    """
+    from hushh_mcp.one_adk.action_tools import journey_for_specialist_request
+
+    for phrase in (
+        "send a connection request to ankit",
+        "connect me with ankit",
+        "can you connect me with ankit",
+    ):
+        journey = journey_for_specialist_request("agent_connections", phrase)
+        assert journey is not None, phrase
+        assert journey["action_id"] == "connect.send_request", phrase
+        assert journey["goal_id"] == "goal.connect.send_request", phrase
+
+    # Scoped to the specialist's own surface, not the whole gateway. Scored
+    # across everything, "connect me with ankit" ties three actions at 77 and
+    # `setup.connect_gmail` takes it on an alphabetical tiebreak -- a wrong
+    # answer that looks like a confident one.
+    assert (
+        journey_for_specialist_request("agent_connections", "remove my connection with rashid")
+        or {}
+    ).get("action_id") == "connect.remove_connection"
+
+
+def test_an_open_question_still_reaches_the_specialist():
+    """The redirect must not swallow what specialists are actually for.
+
+    Thresholds measured against the live gateway rather than picked: inside the
+    connections surface, concrete requests score 77-182 while open-ended ones
+    top out at 32. Anything here scoring above the cut would mean a person can
+    no longer ask a question without being navigated somewhere.
+    """
+    from hushh_mcp.one_adk.action_tools import journey_for_specialist_request
+
+    for phrase in (
+        "who do i trust",
+        "what are my consents",
+        "how does trust work here",
+        "what can you do",
+        "explain trusted connections",
+    ):
+        assert journey_for_specialist_request("agent_connections", phrase) is None, phrase
+
+    # A specialist with no authored surfaces is never redirected at all.
+    assert journey_for_specialist_request("agent_email", "send a connection request") is None
+    assert journey_for_specialist_request("", "connect me with ankit") is None
+
+
+def test_sending_a_connection_request_is_reachable_from_every_screen():
+    """You can ask for this from anywhere, so it has to be reachable anywhere.
+
+    A journey is what carries someone from where they are standing to where the
+    action lives. If a later edit narrows `reachability.screens`, this action
+    silently becomes a dead end on 55 screens and the failure looks like One
+    being unhelpful rather than a contract change.
+    """
+    from collections import defaultdict
+
+    from hushh_mcp.one_adk.action_tools import _reachability
+    from hushh_mcp.services.action_gateway import list_action_gateway_actions
+
+    entries = list(list_action_gateway_actions())
+    by_id = {entry["action_id"]: entry for entry in entries}
+    on_screen: dict[str, set[str]] = defaultdict(set)
+    for entry in entries:
+        for screen in (entry.get("reachability") or {}).get("screens") or []:
+            on_screen[screen].add(entry["action_id"])
+
+    assert len(on_screen) > 40, "screen inventory collapsed; the rest of this test is vacuous"
+
+    target = "connect.send_request"
+    unreachable = [
+        screen
+        for screen in on_screen
+        if _reachability(by_id[target], target, on_screen[screen])[0] == "unreachable_from_here"
+    ]
+    assert unreachable == [], f"{target} is a dead end on: {unreachable}"

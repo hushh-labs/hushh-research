@@ -1,6 +1,6 @@
 {
   "generated_at": "2026-08-02",
-  "total_routes": 107,
+  "total_routes": 111,
   "native_required_routes": 97,
   "excluded_routes": 10,
   "routes": [
@@ -1288,6 +1288,22 @@
     },
     {
       "route": "/one/profile/pkm-agent-lab",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/one/calendar",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/one/setup/calendar",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/one/profile/google/oauth/return",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/one/profile/integrations",
       "classification": "excluded-web-only"
     }
   ]

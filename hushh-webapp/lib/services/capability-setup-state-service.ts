@@ -103,7 +103,7 @@ export interface CapabilitySetupInputs {
   pendingConsents: number;
   /**
    * OAuth-connection booleans the caller already knows, keyed by capability id
-   * (e.g. `{ gmail: true }`). Absent keys mean "not connected / unknown" and
+ * (e.g. `{ gmail: true, calendar: true }`). Absent keys mean "not connected / unknown" and
    * are treated per the capability's own prerequisite rules.
    */
   oauthConnections?: Partial<Record<string, boolean>>;
@@ -133,7 +133,7 @@ export interface CapabilitySetupInputs {
 }
 
 /** Capabilities that require an OAuth connection to a third party. */
-const OAUTH_GATED = new Set<string>(["gmail"]);
+const OAUTH_GATED = new Set<string>(["gmail", "calendar"]);
 const TERMINAL_SETUP_IDS = new Set<string>(ONE_SETUP_CAPABILITY_IDS);
 
 function blocked(
@@ -360,8 +360,8 @@ export function resolveCapabilitySetupState(
   // cannot read real state, so report `unknown` with the vault prerequisite
   // rather than fabricating "Ready". Declared via the catalog `requiresVault`
   // flag so the set is explicit and testable (finance, gmail, email, location,
-  // pkm, connected-systems). Note gmail/connected-systems are handled by the
-  // OAuth branch above, so this covers email, location, and pkm.
+  // pkm, connected-systems, calendar). OAuth-gated capabilities are handled by
+  // the branch above, so this covers email, location, and pkm.
   if (capability?.requiresVault === true) {
     return resolveVaultGated(id, inputs);
   }

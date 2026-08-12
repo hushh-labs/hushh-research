@@ -225,6 +225,27 @@ one eligible request actually creates or advances work.
 | POST | `/api/one/kyc/workflows/{workflow_id}/redraft` | VAULT_OWNER Bearer | Record typed or voice-originated redraft instruction metadata; draft revision is client-local |
 | POST | `/api/one/kyc/retention/purge` | `X-Hushh-Maintenance-Token` | Redact terminal workflow drafts after the retention window |
 
+### One Google Calendar
+
+Calendar is a live Google provider integration. Connection lifecycle uses
+Firebase identity; event reads and all action proposals require `VAULT_OWNER`.
+Create, reschedule, and cancel are always two-step: a short-lived proposal is
+reviewed by the client and then executed once. Plans are deleted after execution
+or failure and become unusable after ten minutes; a subsequent Calendar mutation
+purges expired plans. Event data is not persisted as PKM or a Calendar cache in
+this first release.
+
+| Method | Path | Authorization | Description |
+| --- | --- | --- | --- |
+| POST | `/api/one/calendar/connect/start` | Firebase Bearer | Start incremental Google Calendar read or manage authorization; returns only an OAuth authorization URL and expiry. |
+| POST | `/api/one/calendar/connect/complete` | Firebase Bearer | Redeem a one-time, PKCE-bound OAuth callback and persist the encrypted provider credential and Calendar grant. |
+| GET | `/api/one/calendar/status/{user_id}` | Firebase Bearer | Return non-sensitive Calendar connection and permission state. |
+| POST | `/api/one/calendar/disconnect` | Firebase Bearer | Disable Calendar locally and delete pending actions without revoking sibling Google services. |
+| POST | `/api/one/calendar/events` | VAULT_OWNER Bearer | Read bounded primary-calendar events in a supplied ISO-8601 time range. |
+| POST | `/api/one/calendar/availability` | VAULT_OWNER Bearer | Read free/busy blocks for up to twenty requested calendars. |
+| POST | `/api/one/calendar/proposals` | VAULT_OWNER Bearer | Validate and persist a ten-minute create, reschedule, or cancel proposal; never mutates Google. |
+| POST | `/api/one/calendar/proposals/execute` | VAULT_OWNER Bearer | Execute one reviewed proposal after re-reading its event ETag; stale proposals fail closed. |
+
 ### One Location Agent
 
 One Location Agent is One-owned live-location sharing for trusted people. The
@@ -425,6 +446,15 @@ Macy's compatibility aliases only and are routed through the same schema
 validation. Create, update, and delete are auditable, idempotently approved
 intents. Only intent approval issues the registered direct MCP mutation.
 
+Two mutually exclusive encrypted profiles are default-off per connector.
+`crm-zk.v1` is the stronger production-candidate contract with authenticated
+metadata and signatures. `crm-zk-uat.v1` is a MuleSoft compatibility profile
+for sandbox conformance only: X25519, direct SHA-256 of the shared secret, and
+AES-256-GCM without AAD. It encrypts `searchFields`, read `returnFields`, and
+update `additionalFields`; it relies on Hussh owner authentication/approval and
+the authenticated gateway transport. It must not be described as independent
+cryptographic authorization, replay-proof, or production-ready.
+
 A successful exact-bound-id read with a valid registered response contract and
 an empty record collection returns `bindingStatus=remote_record_missing`.
 Malformed responses and transport, authorization, timeout, or MCP tool failures
@@ -448,6 +478,10 @@ active binding exists.
 | POST | `/api/connected-systems/{system_id}/records/delete` | Compatibility path that creates a reviewable delete intent; it never deletes immediately |
 | POST | `/api/connected-systems/{system_id}/intents/{intent_id}/approve` | Idempotently approve and execute a pending mutation through its registered MCP tool |
 | POST | `/api/connected-systems/{system_id}/intents/{intent_id}/reject` | Reject a pending intent without calling MCP |
+| GET | `/api/connected-systems/{system_id}/crm-zk-uat/config` | Return the registry-pinned sandbox recipient key for `crm-zk-uat.v1`; never accepts a request-supplied key or connector configuration |
+| POST | `/api/connected-systems/{system_id}/records/search-zk-uat` | Relay encrypted verified-profile `searchFields` only for an already owner-bound sandbox record; Hussh supplies the bound record ID and MuleSoft must reject any lookup result for another record |
+| POST | `/api/connected-systems/{system_id}/records/update-intents-zk-uat` | Create a ciphertext-only pending update intent from `{ objectType, fieldNames, encryptedFields }`; no record ID or field value is browser-controlled plaintext |
+| POST | `/api/connected-systems/{system_id}/intents/{intent_id}/approve-zk-uat` | Execute the already-reviewed opaque update once through Hussh's authenticated, idempotent approval lifecycle; accepts no approval proof body and returns a metadata-only acknowledgement |
 
 Registry activation is not an API. Operators use the local, ignored
 `crm-registry.v1` descriptor with

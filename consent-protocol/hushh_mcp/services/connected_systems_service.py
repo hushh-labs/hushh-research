@@ -13,10 +13,15 @@ import secrets
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from db.db_client import DatabaseExecutionError, get_db
+from hushh_mcp.services.crm_zk_uat_v1 import (
+    CRM_ZK_UAT_V1_PROFILE,
+    CrmZkUatEncryptedFields,
+    validate_crm_zk_uat_envelope,
+)
 from hushh_mcp.services.crm_zk_v1 import (
     CRM_ZK_V1_PROFILE,
     CrmZkApprovalProof,
@@ -45,6 +50,56 @@ REGISTRY_MCP_ENDPOINT = (
     "https://hussh-og-nonprod-ingress-a3e0me.y4rjsf.usa-e2.cloudhub.io/crm-connect/v1/mcp"
 )
 TERMINAL_INTENT_STATUSES = frozenset({"rejected", "succeeded", "partial", "failed"})
+_CRM_ZK_UAT_ACK_STATUSES = frozenset({"accepted", "success", "succeeded"})
+_OPAQUE_PARTNER_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
+
+
+def _crm_zk_uat_runtime_enabled() -> bool:
+    """Fail closed outside the hosted UAT runtime, even if a DB flag drifts."""
+    return (
+        str(os.getenv("ENVIRONMENT") or os.getenv("HUSHH_DEPLOY_ENV") or "").strip().lower()
+        == "uat"
+    )
+
+
+def _normalize_crm_zk_uat_ack(payload: Any) -> dict[str, Any]:
+    """Return the only plaintext partner metadata that may be persisted."""
+    raw = _ensure_dict(payload)
+    if set(raw) - {"status", "accepted", "operationId", "correlationId", "idempotent"}:
+        raise ConnectedSystemConfigurationError(
+            "The CRM partner returned an unsafe acknowledgement.",
+            code="CONNECTED_SYSTEM_CRM_ZK_UAT_ACK_INVALID",
+            status_code=502,
+        )
+    status = str(raw.get("status") or "").strip().lower()
+    if status not in _CRM_ZK_UAT_ACK_STATUSES or raw.get("accepted") is not True:
+        raise ConnectedSystemsError(
+            "The CRM partner did not accept the update.",
+            code="CONNECTED_SYSTEM_CRM_ZK_UAT_UPDATE_UNCONFIRMED",
+            status_code=502,
+        )
+    normalized: dict[str, Any] = {"status": status, "accepted": True}
+    if "idempotent" in raw:
+        if not isinstance(raw["idempotent"], bool):
+            raise ConnectedSystemConfigurationError(
+                "The CRM partner returned an unsafe acknowledgement.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UAT_ACK_INVALID",
+                status_code=502,
+            )
+        normalized["idempotent"] = raw["idempotent"]
+    for key in ("operationId", "correlationId"):
+        if key not in raw:
+            continue
+        value = raw[key]
+        if not isinstance(value, str) or not _OPAQUE_PARTNER_ID.fullmatch(value):
+            raise ConnectedSystemConfigurationError(
+                "The CRM partner returned an unsafe acknowledgement.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UAT_ACK_INVALID",
+                status_code=502,
+            )
+        normalized[key] = value
+    return normalized
+
 
 EXTERNAL_CRM_TOOL_CATALOG = (
     {
@@ -1016,6 +1071,10 @@ class ConnectedSystemDefinition:
     crm_zk_v1_enabled: bool = False
     mulesoft_connector_ref: str | None = None
     crm_zk_recipient_key: dict[str, Any] | None = None
+    # UAT-only compatibility profile. It is intentionally independent from
+    # the stronger crm-zk.v1 profile and must never be enabled at the same time.
+    crm_zk_uat_v1_enabled: bool = False
+    crm_zk_uat_recipient_key: dict[str, Any] | None = None
 
     def operation(self, operation: str) -> dict[str, Any] | None:
         return next(
@@ -1047,6 +1106,27 @@ class ConnectedSystemDefinition:
             and key.get("responseSigningPublicKey")
             and key.get("responseSigningKeyFingerprint")
         )
+
+    def crm_zk_uat_ready(self, operation: str) -> bool:
+        key = self.crm_zk_uat_recipient_key or {}
+        return bool(
+            self.crm_zk_uat_v1_enabled
+            and not self.crm_zk_v1_enabled
+            and _crm_zk_uat_runtime_enabled()
+            and operation in {"read", "update"}
+            and self.crm_zk_uat_tool_name(operation)
+            and key.get("keyId")
+            and key.get("publicKey")
+            and key.get("publicKeyFingerprint")
+            and key.get("environment") == "sandbox"
+        )
+
+    def crm_zk_uat_tool_name(self, operation: str) -> str | None:
+        if not self.crm_zk_uat_v1_enabled or operation not in {"read", "update"}:
+            return None
+        tool = self.operation(operation) or {}
+        name = str(tool.get("crmZkUatToolName") or "").strip()
+        return name or None
 
     def operation_endpoint(self, operation: str) -> str | None:
         tool = self.operation(operation) or {}
@@ -1122,10 +1202,24 @@ class ConnectedSystemDefinition:
                 "version": "crm-operation-contract.v1",
             },
             "crmZk": {
-                "enabled": self.crm_zk_v1_enabled,
-                "profile": "crm-zk.v1" if self.crm_zk_v1_enabled else None,
-                "readReady": self.crm_zk_ready("read"),
-                "updateReady": self.crm_zk_ready("update"),
+                "enabled": self.crm_zk_v1_enabled or self.crm_zk_uat_v1_enabled,
+                "profile": (
+                    "crm-zk.v1"
+                    if self.crm_zk_v1_enabled
+                    else CRM_ZK_UAT_V1_PROFILE
+                    if self.crm_zk_uat_v1_enabled
+                    else None
+                ),
+                "readReady": (
+                    self.crm_zk_ready("read")
+                    if self.crm_zk_v1_enabled
+                    else self.crm_zk_uat_ready("read")
+                ),
+                "updateReady": (
+                    self.crm_zk_ready("update")
+                    if self.crm_zk_v1_enabled
+                    else self.crm_zk_uat_ready("update")
+                ),
             },
         }
 
@@ -1426,7 +1520,12 @@ class ConnectedSystemIntentStore:
         raise NotImplementedError
 
     def get_zk_intent_by_client_operation(
-        self, *, user_id: str, system_id: str, client_operation_id: str
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        delivery_mode: str,
+        client_operation_id: str,
     ) -> dict[str, Any] | None:
         raise NotImplementedError
 
@@ -1530,7 +1629,12 @@ class InMemoryConnectedSystemIntentStore(ConnectedSystemIntentStore):
         return _deepcopy_json(intent)
 
     def get_zk_intent_by_client_operation(
-        self, *, user_id: str, system_id: str, client_operation_id: str
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        delivery_mode: str,
+        client_operation_id: str,
     ) -> dict[str, Any] | None:
         return next(
             (
@@ -1538,7 +1642,7 @@ class InMemoryConnectedSystemIntentStore(ConnectedSystemIntentStore):
                 for intent in self.intents.values()
                 if intent.get("user_id") == user_id
                 and intent.get("system_id") == system_id
-                and intent.get("delivery_mode") == "crm-zk.v1"
+                and intent.get("delivery_mode") == delivery_mode
                 and intent.get("client_operation_id") == client_operation_id
             ),
             None,
@@ -1823,18 +1927,25 @@ class DatabaseConnectedSystemIntentStore(ConnectedSystemIntentStore):
         return _intent_from_db_row(rows[0]) if rows else None
 
     def get_zk_intent_by_client_operation(
-        self, *, user_id: str, system_id: str, client_operation_id: str
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        delivery_mode: str,
+        client_operation_id: str,
     ) -> dict[str, Any] | None:
         rows = self.db.execute_raw(
             """
             SELECT * FROM connected_system_intents
             WHERE user_id = :user_id AND system_id = :system_id
-              AND delivery_mode = 'crm-zk.v1' AND client_operation_id = :client_operation_id
+              AND delivery_mode = :delivery_mode
+              AND client_operation_id = :client_operation_id
             LIMIT 1
             """,
             {
                 "user_id": user_id,
                 "system_id": system_id,
+                "delivery_mode": delivery_mode,
                 "client_operation_id": client_operation_id,
             },
         ).data
@@ -2494,7 +2605,9 @@ class ConnectedSystemsService:
         config = self._require_operation(system, operation)
         adapter = self._adapter_for_system(system)
         effective_payload = _deepcopy_json(payload)
-        if system.mulesoft_connector_ref and not replace_tool_arguments:
+        if (
+            system.mulesoft_connector_ref or system.crm_zk_uat_v1_enabled
+        ) and not replace_tool_arguments:
             # Every MuleSoft connector owns target/connection selection through
             # connectorRef. Never forward a backend target label as tool input,
             # including for the current plaintext create/delete compatibility
@@ -2956,6 +3069,7 @@ class ConnectedSystemsService:
             self.store.get_zk_intent_by_client_operation,
             user_id=user_id,
             system_id=system_id,
+            delivery_mode=CRM_ZK_V1_PROFILE,
             client_operation_id=binding.client_operation_id,
         )
         if existing:
@@ -2973,6 +3087,7 @@ class ConnectedSystemsService:
                 self.store.get_zk_intent_by_client_operation,
                 user_id=user_id,
                 system_id=system_id,
+                delivery_mode=CRM_ZK_V1_PROFILE,
                 client_operation_id=binding.client_operation_id,
             )
             if existing:
@@ -3332,6 +3447,406 @@ class ConnectedSystemsService:
             "responseSignerKeyId": response.response_signer_key_id,
             "responseSignature": response.response_signature,
         }
+
+    def _require_crm_zk_uat_system(
+        self, *, system_id: str, operation: str
+    ) -> ConnectedSystemDefinition:
+        system = self.get_system(system_id)
+        if not system.crm_zk_uat_ready(operation):
+            raise ConnectedSystemConfigurationError(
+                "This connected system is not configured for the CRM encrypted UAT profile.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UAT_UNAVAILABLE",
+            )
+        return system
+
+    def crm_zk_uat_configuration(self, *, system_id: str) -> dict[str, Any]:
+        system = self._require_crm_zk_uat_system(system_id=system_id, operation="read")
+        if not system.crm_zk_uat_ready("update"):
+            raise ConnectedSystemConfigurationError(
+                "CRM encrypted UAT update is not configured for this connected system.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UAT_UPDATE_UNAVAILABLE",
+            )
+        key = system.crm_zk_uat_recipient_key or {}
+        return {
+            "profile": CRM_ZK_UAT_V1_PROFILE,
+            "configurationRevision": system.configuration_revision,
+            "recipientKey": {"keyId": key["keyId"], "publicKey": key["publicKey"]},
+            "keyDerivation": "SHA-256(X25519 shared secret)",
+            "aad": False,
+        }
+
+    def _validated_crm_zk_uat_envelope(
+        self,
+        *,
+        system: ConnectedSystemDefinition,
+        encrypted_fields: dict[str, Any],
+        direction: Literal["read_request", "read_response", "update_request"],
+    ) -> CrmZkUatEncryptedFields:
+        key = system.crm_zk_uat_recipient_key or {}
+        try:
+            return validate_crm_zk_uat_envelope(
+                encrypted_fields,
+                expected_direction=direction,
+                expected_key_id=str(key.get("keyId") or ""),
+                now_ms=int(time.time() * 1000),
+            )
+        except Exception as error:
+            raise ConnectedSystemValidationError(
+                "The encrypted CRM UAT envelope is invalid or expired.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UAT_ENVELOPE_INVALID",
+            ) from error
+
+    async def search_record_crm_zk_uat(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        object_type: str | None,
+        return_fields: list[str],
+        search_field_names: list[str],
+        encrypted_fields: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Relay an opaque verified-profile lookup and bind transport metadata."""
+        system = self._require_crm_zk_uat_system(system_id=system_id, operation="read")
+        object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
+        record_id = self._require_bound_record_id(
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type_value,
+            supplied_record_id=None,
+        )
+        binding = self._store_call(
+            self.store.get_binding,
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type_value,
+        )
+        schema = await self.get_schema(
+            system_id=system_id, object_type=object_type_value, require_fresh=True
+        )
+        self._require_schema_action(schema, "read")
+        allowed_return = self._crm_zk_allowed_field_names(
+            schema=schema, operation="read", requested=return_fields, locked_field_names=set()
+        )
+        if len(search_field_names) != 2 or len(set(search_field_names)) != 2:
+            raise ConnectedSystemConfigurationError(
+                "Verified CRM lookup fields are not configured.",
+                code="CONNECTED_SYSTEM_PROFILE_FIELD_MAPPING_UNAVAILABLE",
+            )
+        schema_names = {str(field.get("key") or "") for field in schema.get("fields") or []}
+        if any(name not in schema_names for name in search_field_names):
+            raise ConnectedSystemConfigurationError(
+                "Verified CRM lookup fields do not match the current schema.",
+                code="CONNECTED_SYSTEM_PROFILE_FIELD_MAPPING_UNAVAILABLE",
+            )
+        envelope = self._validated_crm_zk_uat_envelope(
+            system=system, encrypted_fields=encrypted_fields, direction="read_request"
+        )
+        result = await self._call_crm_zk_uat_partner(
+            system=system,
+            operation="read",
+            payload={
+                "profile": CRM_ZK_UAT_V1_PROFILE,
+                "operation": "read",
+                "objectType": object_type_value,
+                "id": record_id,
+                "searchFieldNames": search_field_names,
+                "returnFields": allowed_return,
+                "encryptedFields": envelope.model_dump(mode="json"),
+            },
+        )
+        payload = _ensure_dict(result.get("payload"))
+        try:
+            total_size = int(payload.get("totalSize") or 0)
+        except (TypeError, ValueError):
+            total_size = -1
+        if total_size < 0 or total_size > 1:
+            raise ConnectedSystemBlockedError(
+                "The encrypted CRM lookup did not resolve exactly one safe result.",
+                code="CONNECTED_SYSTEM_RECORD_MATCH_AMBIGUOUS",
+                status_code=409,
+            )
+        response_fields = payload.get("encryptedFields")
+        if not isinstance(response_fields, dict):
+            raise ConnectedSystemConfigurationError(
+                "The CRM partner returned no encrypted field response.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UAT_RESPONSE_INVALID",
+                status_code=502,
+            )
+        response_envelope = self._validated_crm_zk_uat_envelope(
+            system=system, encrypted_fields=response_fields, direction="read_response"
+        )
+        if (
+            response_envelope.client_operation_id != envelope.client_operation_id
+            or response_envelope.client_public_key != envelope.client_public_key
+        ):
+            raise ConnectedSystemConfigurationError(
+                "The encrypted CRM response does not match this request.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UAT_RESPONSE_INVALID",
+                status_code=502,
+            )
+        returned_record_id = _clean_text(
+            payload.get("recordId") or payload.get("id"), max_length=128
+        )
+        if returned_record_id and returned_record_id != record_id:
+            raise ConnectedSystemConfigurationError(
+                "The CRM partner returned a different record than the owner binding.",
+                code="CONNECTED_SYSTEM_BOUND_RECORD_MISMATCH",
+                status_code=502,
+            )
+        response_status = str(payload.get("status") or "succeeded").strip().lower()
+        if response_status not in {"success", "succeeded"}:
+            raise ConnectedSystemConfigurationError(
+                "The CRM partner returned an invalid read status.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UAT_RESPONSE_INVALID",
+                status_code=502,
+            )
+        self._audit(
+            user_id=user_id,
+            system_id=system_id,
+            action="read",
+            object_type=object_type_value,
+            record_id=record_id,
+            field_names=allowed_return,
+            mcp_result_class="succeeded",
+            readback_result_class="encrypted_response_returned",
+            status="succeeded",
+            metadata={"profile": CRM_ZK_UAT_V1_PROFILE, "total_size": total_size},
+        )
+        return {
+            "profile": CRM_ZK_UAT_V1_PROFILE,
+            "systemId": system_id,
+            "objectType": object_type_value,
+            "status": response_status,
+            "totalSize": total_size,
+            "recordId": record_id,
+            "bindingStatus": "active",
+            "binding": self._public_binding(binding),
+            "encryptedFields": response_envelope.model_dump(mode="json", by_alias=True),
+        }
+
+    async def create_crm_zk_uat_update_intent(
+        self,
+        *,
+        user_id: str,
+        system_id: str,
+        object_type: str | None,
+        field_names: list[str],
+        encrypted_fields: dict[str, Any],
+        locked_field_names: set[str],
+    ) -> dict[str, Any]:
+        system = self._require_crm_zk_uat_system(system_id=system_id, operation="update")
+        object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
+        record_id = self._require_bound_record_id(
+            user_id=user_id,
+            system_id=system_id,
+            object_type=object_type_value,
+            supplied_record_id=None,
+        )
+        schema = await self.get_schema(
+            system_id=system_id, object_type=object_type_value, require_fresh=True
+        )
+        self._require_schema_action(schema, "update")
+        allowed_fields = self._crm_zk_allowed_field_names(
+            schema=schema,
+            operation="update",
+            requested=field_names,
+            locked_field_names=locked_field_names,
+        )
+        envelope = self._validated_crm_zk_uat_envelope(
+            system=system, encrypted_fields=encrypted_fields, direction="update_request"
+        )
+        existing = self._store_call(
+            self.store.get_zk_intent_by_client_operation,
+            user_id=user_id,
+            system_id=system_id,
+            delivery_mode=CRM_ZK_UAT_V1_PROFILE,
+            client_operation_id=envelope.client_operation_id,
+        )
+        if existing:
+            if existing.get("delivery_mode") != CRM_ZK_UAT_V1_PROFILE:
+                raise ConnectedSystemValidationError(
+                    "The encrypted CRM operation id is already in use.",
+                    code="CONNECTED_SYSTEM_CRM_ZK_UAT_REPLAYED",
+                )
+            return self._public_intent(existing)
+        return self._create_intent(
+            user_id=user_id,
+            system=system,
+            action="update",
+            object_type=object_type_value,
+            request_payload={},
+            readback_payload={},
+            field_names=allowed_fields,
+            record_id=record_id,
+            delivery_mode=CRM_ZK_UAT_V1_PROFILE,
+            encrypted_fields=envelope.model_dump(mode="json", by_alias=True),
+            zk_metadata={
+                "profile": CRM_ZK_UAT_V1_PROFILE,
+                "recipientKeyId": envelope.recipient_key_id,
+                "configurationRevision": system.configuration_revision,
+                "expiresAtMs": envelope.expires_at_ms,
+            },
+            envelope_digest=envelope.digest(),
+            client_operation_id=envelope.client_operation_id,
+        )
+
+    async def approve_crm_zk_uat_intent(
+        self, *, user_id: str, system_id: str, intent_id: str
+    ) -> dict[str, Any]:
+        system = self._require_crm_zk_uat_system(system_id=system_id, operation="update")
+        existing = self._store_call(
+            self.store.get_intent, user_id=user_id, system_id=system_id, intent_id=intent_id
+        )
+        if not existing:
+            raise ConnectedSystemNotFoundError("CRM intent was not found.")
+        if existing.get("delivery_mode") != CRM_ZK_UAT_V1_PROFILE:
+            raise ConnectedSystemValidationError(
+                "This approval route accepts only CRM encrypted UAT intents.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UAT_INTENT_REQUIRED",
+            )
+        if existing.get("status") in TERMINAL_INTENT_STATUSES:
+            return self._public_intent(existing)
+        if existing.get("status") == "pending":
+            approval = _approval_id()
+            intent = self._store_call(
+                self.store.claim_pending_intent, intent_id=intent_id, approval_id=approval
+            )
+        elif existing.get("status") == "approved" and existing.get("approval_id"):
+            approval = str(existing["approval_id"])
+            intent = existing
+        else:
+            return self._public_intent(existing)
+        if intent.get("approval_id") != approval:
+            return self._public_intent(intent)
+        partner_attempted = False
+        try:
+            record_id = self._require_bound_record_id(
+                user_id=user_id,
+                system_id=system_id,
+                object_type=str(intent.get("object_type") or ""),
+                supplied_record_id=str(intent.get("record_id") or ""),
+            )
+            metadata = _ensure_dict(intent.get("zk_metadata"))
+            if metadata.get("configurationRevision") != system.configuration_revision:
+                raise ConnectedSystemValidationError(
+                    "The CRM connector changed. Review and submit a fresh update.",
+                    code="CONNECTED_SYSTEM_CRM_ZK_UAT_CONFIGURATION_STALE",
+                )
+            envelope = self._validated_crm_zk_uat_envelope(
+                system=system,
+                encrypted_fields=_ensure_dict(intent.get("encrypted_fields")),
+                direction="update_request",
+            )
+            schema = await self.get_schema(
+                system_id=system_id,
+                object_type=str(intent.get("object_type") or ""),
+                require_fresh=True,
+            )
+            self._require_schema_action(schema, "update")
+            partner_attempted = True
+            result = await self._call_crm_zk_uat_partner(
+                system=system,
+                operation="update",
+                payload={
+                    "profile": CRM_ZK_UAT_V1_PROFILE,
+                    "operation": "update",
+                    "objectType": intent["object_type"],
+                    "id": record_id,
+                    "fieldNames": intent.get("field_names") or [],
+                    "intentId": intent_id,
+                    "approvalId": approval,
+                    "clientOperationId": envelope.client_operation_id,
+                    "encryptedFields": envelope.model_dump(mode="json"),
+                },
+            )
+            normalized_ack = _normalize_crm_zk_uat_ack(result.get("payload"))
+            updated = self._store_call(
+                self.store.update_intent,
+                intent_id=intent_id,
+                updates={
+                    "status": "succeeded",
+                    "approval_id": approval,
+                    "result_class": "succeeded",
+                    "result_payload": normalized_ack,
+                    "readback_result": {"resultClass": "metadata_acknowledged"},
+                    "error_code": None,
+                    "error_message": None,
+                },
+            )
+            self._audit_for_intent(
+                updated,
+                mcp_result_class="succeeded",
+                readback_result_class="metadata_acknowledged",
+                status="succeeded",
+                metadata={"profile": CRM_ZK_UAT_V1_PROFILE},
+            )
+            return self._public_intent(updated)
+        except Exception as error:
+            updated = self._store_call(
+                self.store.update_intent,
+                intent_id=intent_id,
+                updates={
+                    "status": "approved" if partner_attempted else "failed",
+                    "approval_id": approval,
+                    "error_code": getattr(
+                        error, "code", "CONNECTED_SYSTEM_CRM_ZK_UAT_APPROVAL_FAILED"
+                    ),
+                    "error_message": "CRM encrypted UAT approval could not be completed.",
+                },
+            )
+            self._audit_for_intent(
+                updated,
+                mcp_result_class="failed",
+                readback_result_class=None,
+                status="retry_pending" if partner_attempted else "failed",
+                metadata={
+                    "profile": CRM_ZK_UAT_V1_PROFILE,
+                    "error_code": updated.get("error_code"),
+                },
+            )
+            if isinstance(error, ConnectedSystemsError):
+                raise
+            raise ConnectedSystemsError(
+                "CRM encrypted UAT approval failed.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UAT_APPROVAL_FAILED",
+            ) from error
+
+    async def _call_crm_zk_uat_partner(
+        self,
+        *,
+        system: ConnectedSystemDefinition,
+        operation: Literal["read", "update"],
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Call the registered UAT tool without merging connector configuration."""
+        tool_name = system.crm_zk_uat_tool_name(operation)
+        if not tool_name:
+            raise ConnectedSystemConfigurationError(
+                "CRM encrypted UAT partner routing is not configured.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UAT_UNAVAILABLE",
+            )
+        try:
+            result = await self._call_operation(
+                system=system,
+                operation=operation,
+                payload=payload,
+                tool_name=tool_name,
+                replace_tool_arguments=True,
+            )
+            if bool(result.get("isError")):
+                raise ConnectedSystemsError(
+                    "CRM encrypted UAT partner request failed.",
+                    code="CONNECTED_SYSTEM_CRM_ZK_UAT_PARTNER_FAILED",
+                    status_code=502,
+                )
+            return result
+        except ConnectedSystemsError as error:
+            raise ConnectedSystemsError(
+                "CRM encrypted UAT partner request failed.",
+                code="CONNECTED_SYSTEM_CRM_ZK_UAT_PARTNER_FAILED",
+                status_code=502,
+            ) from error
 
     def list_record_binding_statuses(self, *, user_id: str) -> dict[str, Any]:
         """Return safe owner-scoped binding states without CRM ids or values."""
@@ -3995,9 +4510,9 @@ class ConnectedSystemsService:
         locked_field_names: set[str] | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
-        if system.crm_zk_v1_enabled:
+        if system.crm_zk_v1_enabled or system.crm_zk_uat_v1_enabled:
             raise ConnectedSystemBlockedError(
-                "This CRM requires the crm-zk.v1 update protocol.",
+                "This CRM requires its configured encrypted update protocol.",
                 code="CONNECTED_SYSTEM_CRM_ZK_UPDATE_REQUIRED",
             )
         self._require_operation(system, "update")
@@ -4255,9 +4770,9 @@ class ConnectedSystemsService:
         return_fields: list[str] | None = None,
     ) -> dict[str, Any]:
         system = self.get_system(system_id)
-        if system.crm_zk_v1_enabled:
+        if system.crm_zk_v1_enabled or system.crm_zk_uat_v1_enabled:
             raise ConnectedSystemBlockedError(
-                "This CRM requires the crm-zk.v1 bound-read protocol.",
+                "This CRM requires its configured encrypted read protocol.",
                 code="CONNECTED_SYSTEM_CRM_ZK_READ_REQUIRED",
             )
         object_type_value = _normalize_object_type(object_type, default=system.object_type_default)
@@ -4373,6 +4888,12 @@ class ConnectedSystemsService:
         force_refresh: bool = False,
     ) -> dict[str, Any]:
         """Find a record using only the authenticated owner's verified identity."""
+        system = self.get_system(system_id)
+        if system.crm_zk_uat_v1_enabled:
+            raise ConnectedSystemBlockedError(
+                "This CRM requires the encrypted UAT search protocol.",
+                code="CONNECTED_SYSTEM_CRM_ZK_READ_REQUIRED",
+            )
         profile = await self._verified_user_crm_profile(user_id=user_id)
         return await self.search_record(
             user_id=user_id,
@@ -4701,6 +5222,11 @@ class ConnectedSystemsService:
         )
         if not existing:
             raise ConnectedSystemNotFoundError("CRM intent was not found.")
+        if str(existing.get("delivery_mode") or "legacy") != "legacy":
+            raise ConnectedSystemValidationError(
+                "This approval route accepts only standard CRM intents.",
+                code="CONNECTED_SYSTEM_LEGACY_INTENT_REQUIRED",
+            )
         if existing.get("status") in TERMINAL_INTENT_STATUSES:
             # Retry-safe: callers receive the stored terminal result and never
             # cause a second MCP mutation.
@@ -5175,6 +5701,11 @@ def _payload_summary(intent: dict[str, Any]) -> dict[str, Any]:
         return {
             "profile": "crm-zk.v1",
             "contextId": metadata.get("contextId"),
+            "fieldNames": intent.get("field_names") or [],
+        }
+    if intent.get("delivery_mode") == CRM_ZK_UAT_V1_PROFILE:
+        return {
+            "profile": CRM_ZK_UAT_V1_PROFILE,
             "fieldNames": intent.get("field_names") or [],
         }
     payload = intent.get("request_payload") or {}

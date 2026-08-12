@@ -9,6 +9,7 @@ from hushh_mcp.onboarding_contract import (
 def test_setup_capability_contract_has_exact_product_order() -> None:
     assert SETUP_CAPABILITY_ORDER == (
         "gmail",
+        "calendar",
         "location",
         "email",
         "finance",
@@ -23,12 +24,14 @@ def test_setup_capability_normalization_drops_retired_and_malformed_ids() -> Non
         [
             "finance",
             " gmail ",
+            "calendar",
             "marketplace",
             "connections",
             "pkm",
             "gmail",
             None,
         ]
-    ) == ["connections", "gmail", "finance"]
+    ) == ["connections", "gmail", "calendar", "finance"]
     assert normalize_setup_capability_id(" connected-systems ") == "connected-systems"
+    assert normalize_setup_capability_id(" calendar ") == "calendar"
     assert normalize_setup_capability_id("consent") is None

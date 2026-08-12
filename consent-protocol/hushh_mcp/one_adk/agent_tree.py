@@ -42,6 +42,14 @@ from hushh_mcp.adk_bridge.contract import (
     supplies_exact_authority,
 )
 from hushh_mcp.adk_bridge.dispatch import dispatch
+from hushh_mcp.agents.calendar.tools import (
+    calendar_availability,
+    calendar_events,
+    calendar_summary,
+    propose_calendar_cancellation,
+    propose_calendar_event,
+    propose_calendar_reschedule,
+)
 from hushh_mcp.agents.onboarding.agent import (
     OnboardingAssessmentV1,
     OnboardingJourneyContext,
@@ -52,6 +60,7 @@ from hushh_mcp.agents.onboarding.agent import (
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2, ManifestLoader
 from hushh_mcp.one_adk.action_tools import (
     continue_app_goal,
+    journey_for_specialist_request,
     list_app_actions,
     run_app_action,
     start_app_goal,
@@ -67,6 +76,11 @@ from hushh_mcp.services.action_gateway import (
     get_action_gateway_action,
     is_navigation_action,
     list_action_gateway_actions,
+)
+from hushh_mcp.services.live_voice_context import (
+    read_pending_specialist_directive,
+    record_pending_specialist_directive,
+    specialist_directive_fingerprint,
 )
 
 logger = logging.getLogger(__name__)
@@ -341,6 +355,13 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "review). Route ALL finance, advisor, and investing requests through "
     "Finance.\n"
     "- Email: approval drafts and client request workflows.\n"
+    "- Calendar: your connected Google Calendar. For calendar summaries, event "
+    "lookups, or availability, use the Calendar tools. For scheduling, rescheduling, "
+    "or cancellation, collect a title, time-zone-qualified start and end, and any "
+    "attendees. Never guess missing details or an event id. A mutation tool creates "
+    "a review card only; tell the person it will run only after they press its explicit "
+    "confirmation control. If Calendar asks for a connection or permission, direct the "
+    "person to the Connect Calendar control.\n"
     "- KYC: approval-gated identity and client-request work lives in the KYC "
     "app surface. Navigate there with route.one_kyc; do not invent a direct "
     "conversational KYC tool or claim a workflow changed before the app confirms it.\n"
@@ -434,6 +455,24 @@ ONE_IDENTITY_INSTRUCTION: str = (
     # someone edits it back.
     "and choose again; never pick for them. If it says nobody matched, say so "
     "and stop.\n\n"
+    # Circles. Two things go wrong without being told. The small one is asking
+    # which circle when the person has exactly one. The serious one is
+    # reporting an invitation as a completed add: joining is the other
+    # person's decision, and calling it done asserts a consent nobody gave.
+    "Circles are named groups the person shares location with. These are "
+    "authored journeys, so use start_app_goal and let it open Location, then "
+    "continue_app_goal once the destination settles. To make one, use "
+    "'location.create_circle' with slots {'name': <the name exactly as you "
+    "heard it>}. To change who is in one, use 'location.add_to_circle' or "
+    "'location.remove_from_circle' with slots {'person': <name as heard>, "
+    "'circle': <circle name as heard>}. Leave the circle out when they did not "
+    "name one: the app uses their only circle if they have exactly one, and "
+    "otherwise answers with the names so you can ask. Never ask which circle "
+    "before trying, and never answer that you do not know their circles -- you "
+    "hold no such list, the app does. Adding someone is an INVITATION: they "
+    "join only if they accept. Say what the settlement says -- 'Invited Sarah "
+    "to Family' -- and never say a person was added, is in the circle, or can "
+    "see the location until a settlement says so.\n\n"
     "When an action needs confirmation, ASK FOR IT OUT LOUD as one short "
     "yes-or-no question naming what will happen and whatever makes it "
     "specific -- who, how long, how much: 'Share your location with Sarah for "
@@ -460,9 +499,15 @@ ONE_IDENTITY_INSTRUCTION: str = (
     # Section 5: guardrails.
     "Never invent tool results; if a specialist reports "
     "it cannot act (missing consent, locked vault, no information), relay that "
-    "honestly and tell the user what would unlock it. You never execute "
-    "sensitive actions directly: specialists validate consent and the app "
-    "confirms every state change.\n\n"
+    "honestly and tell the user what would unlock it. Running a generated "
+    "action or an authored journey IS the sanctioned path, not an exception to "
+    "it: the app re-checks every guard before executing and confirms each state "
+    "change, so calling start_app_goal or run_app_action is never 'acting "
+    "directly'. Specialists are for open questions and for capabilities with no "
+    "authored action. When someone names a concrete thing that has an action or "
+    "a journey, do that thing. Handing a named request to a specialist instead "
+    "is how something the app can finish comes back to the person as a refusal "
+    "about permissions.\n\n"
     "Guiding a new user through account setup is your job, the same way any "
     "other app action is: setup steps (welcome, sign-in, phone verification, "
     "the setup hub, and the Finance preferences wizard) are generated actions. "
@@ -968,6 +1013,44 @@ async def _specialist_turn(
             "and send the user's answer back through this same tool."
         )
     if result.directive is not None:
+        directive_payload = (
+            result.directive.payload if isinstance(result.directive.payload, dict) else {}
+        )
+        session_id = getattr(getattr(tool_context, "session", None), "id", None)
+        fingerprint = specialist_directive_fingerprint(
+            agent_id,
+            result.directive.kind,
+            str(directive_payload.get("type") or ""),
+        )
+        # Already on screen, unanswered.
+        #
+        # This path has no governance at all: `payload.actionId` is the
+        # admission gate for the relay's dedupe/ledger AND for the browser's
+        # directive lease, and a specialist directive has no actionId. So it is
+        # never issued, never leased, and can never settle -- meaning One is
+        # never told the card landed. It gets `next_step` saying the specialist
+        # is waiting, the person speaks again, the same specialist re-proposes
+        # the same grant under this same fixed key with a freshly random payload
+        # id, and the relay forwards a second identical card. That is the
+        # duplicate line QA saw in the transcript, and the sentence they heard
+        # twice.
+        #
+        # Refused as a RETURN VALUE. Injecting a note into the live turn was
+        # tried and reverted in 6be68af62: it preempts One mid-sentence and
+        # starts a fresh turn, which loops harder than the thing it fixes.
+        if read_pending_specialist_directive(session_id, fingerprint):
+            logger.info(
+                "one_adk_specialist_decision agent_id=%s status=already_proposed type=%s",
+                agent_id,
+                directive_payload.get("type"),
+            )
+            payload["status"] = "already_proposed"
+            payload["next_step"] = (
+                "That card is already in front of them from a moment ago. Say so "
+                "once, in a few words, and wait for their answer. Do not propose "
+                "it again and do not repeat the question."
+            )
+            return payload
         directive = {
             "kind": result.directive.kind,
             "payload": result.directive.payload,
@@ -980,6 +1063,7 @@ async def _specialist_turn(
         # Park it in state so the relay forwards it to the client for execution.
         directive_key = f"{STATE_PENDING_DIRECTIVE}:{agent_id}_specialist"
         tool_context.state[directive_key] = directive
+        record_pending_specialist_directive(session_id, fingerprint)
         if result.directive.kind == "prompt":
             payload["next_step"] = (
                 "The app is showing the user a choice card. Tell the user to pick an option there."
@@ -1054,9 +1138,17 @@ async def ask_consent_agent(
     One semantically selects ``target``.  This function only validates that
     selection and preserves the authored hierarchy: ``consent`` reaches Nav;
     ``connections`` reaches Nav's declared Connections child.  It never
-    examines request words to choose a subagent.  Connections still requires
-    task-specific ingress authority and stays unavailable until that authority
-    is supplied.
+    examines request words to choose *between subagents* -- that selection
+    stays One's, and nothing here reroutes ``consent`` to ``connections`` or
+    the reverse.  Connections still requires task-specific ingress authority
+    and stays unavailable until that authority is supplied.
+
+    What the request words DO decide is whether a specialist is the right lane
+    at all.  A named, concrete request that an authored journey already
+    performs is refused here with a redirect to that journey, because sending
+    it onward produces a consent boundary the person cannot act on for
+    something the app can simply do.  This narrows what specialists receive; it
+    never widens it, and it cannot pick a different specialist.
     """
     agent_id = {"consent": "agent_nav", "connections": "agent_connections"}.get(target)
     if agent_id is None:
@@ -1064,7 +1156,47 @@ async def ask_consent_agent(
             "status": "invalid_target",
             "message": "Choose either the Consent Center or its Connections specialist.",
         }
-    return await _specialist_turn(agent_id, request, tool_context)
+    # A named, concrete request goes to the journey that does it, not to a
+    # specialist that can only talk about it.
+    #
+    # This is a hard block rather than guidance because the guidance did not
+    # hold: One asked this specialist to "connect me with Ankit", the specialist
+    # reported a consent boundary, and One relayed it -- so a request the app
+    # can satisfy end to end came back as "I don't have the right permissions",
+    # pointing at the consent screen. Refusing here is the same refuse-with-
+    # redirect shape `run_app_action` already uses in the opposite direction.
+    journey = journey_for_specialist_request(agent_id, request)
+    if journey is not None:
+        logger.info(
+            "one_adk_specialist_decision agent_id=%s status=use_journey action=%s score=%s",
+            agent_id,
+            journey["action_id"],
+            journey["score"],
+        )
+        return {
+            "status": "use_journey",
+            "reason": "authored_journey_available",
+            "action_id": journey["action_id"],
+            "goal_id": journey["goal_id"],
+            "message": (
+                f"Do not ask a specialist for this. {journey['label']} is an "
+                f"authored journey: call start_app_goal with "
+                f"{journey['goal_id']}, which opens the right screen and runs "
+                "it. Say what you are doing as it happens; do not ask "
+                "permission to navigate."
+            ),
+        }
+    result = await _specialist_turn(agent_id, request, tool_context)
+    # Every refusal branch in `_specialist_turn` returned silently, so a session
+    # where One asked a specialist and relayed its boundary left no trace at
+    # all -- indistinguishable in the logs from One never calling a tool.
+    logger.info(
+        "one_adk_specialist_decision agent_id=%s status=%s reason=%s",
+        agent_id,
+        result.get("status"),
+        result.get("reason"),
+    )
+    return result
 
 
 async def run_intro_navigation_action(action_id: str, tool_context: ToolContext) -> dict[str, Any]:
@@ -1321,6 +1453,12 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         ask_location_agent,
         ask_connected_systems_agent,
         ask_consent_agent,
+        calendar_summary,
+        calendar_events,
+        calendar_availability,
+        propose_calendar_event,
+        propose_calendar_reschedule,
+        propose_calendar_cancellation,
     ]
 
 

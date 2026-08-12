@@ -18,8 +18,19 @@ from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 from hushh_mcp.runtime_settings import get_app_runtime_settings, pod_mode  # noqa: E402
 from mcp_modules.log_redaction import install_sensitive_log_filter  # noqa: E402
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging.
+#
+# Timestamps are not decoration here. Without them a log line cannot be placed
+# against anything the person actually did, so "voice repeated itself just now"
+# could not be tied to a session -- and the lines that would have answered it
+# were indistinguishable from ones written an hour earlier. Cloud Logging stamps
+# its own receipt time in production; this is what local and container stdout
+# get.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 install_sensitive_log_filter()
 logger = logging.getLogger(__name__)
 _APP_RUNTIME_SETTINGS = get_app_runtime_settings()
