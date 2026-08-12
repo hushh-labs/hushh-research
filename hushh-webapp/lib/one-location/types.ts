@@ -178,6 +178,8 @@ export type OneLocationAccessRequest = {
   requestedAt?: string | null;
   resolvedAt?: string | null;
   approvedGrantId?: string | null;
+  /** Advisory only -- the owner still picks their own duration on approve. */
+  requestedDurationHours?: number | null;
 };
 
 export type OneLocationReferral = {

@@ -4839,6 +4839,7 @@ export function OneLocationAgentPageContent({
           vaultOwnerToken: activeVaultOwnerToken,
           ownerUserId: owner.userId,
           message: buildOneLocationRequestMessage(reason, requestMessage),
+          durationHours: Number(durationHours) || undefined,
         });
         successCount += 1;
       }
@@ -4880,6 +4881,7 @@ export function OneLocationAgentPageContent({
   }, [
     auth.user,
     auth.userId,
+    durationHours,
     refresh,
     requestMessage,
     resetRequestComposer,

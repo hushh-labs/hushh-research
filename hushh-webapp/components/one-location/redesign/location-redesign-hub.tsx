@@ -1438,7 +1438,13 @@ function LocationDetailFlow({
               <RequestCard
                 key={request.id}
                 name={vm.requesterLabel(request)}
-                promptLine="Asks to see your location"
+                promptLine={
+                  request.requestedDurationHours
+                    ? `Asks to see your location for ${durationLabel(
+                        String(request.requestedDurationHours),
+                      )}`
+                    : "Asks to see your location"
+                }
                 reason={request.message ?? undefined}
                 onApprove={() => vm.onApprove(request)}
                 onDecline={() => vm.onDeny(request.id)}
@@ -1907,7 +1913,13 @@ function PeopleHub({
               icon={Send}
               iconTone="blue"
               title={vm.requestOwnerLabel(request)}
-              description={vm.formatDateTime(request.requestedAt)}
+              description={
+                request.requestedDurationHours
+                  ? `${vm.formatDateTime(request.requestedAt)} · Requested for ${durationLabel(
+                      String(request.requestedDurationHours),
+                    )}`
+                  : vm.formatDateTime(request.requestedAt)
+              }
               trailing={
                 /active|approved|shared|granted/i.test(request.status)
                   ? "Active"

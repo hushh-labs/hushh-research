@@ -1067,6 +1067,8 @@ export class OneLocationService {
     vaultOwnerToken: string;
     ownerUserId: string;
     message?: string;
+    /** Advisory only -- the owner still picks their own duration on approve. */
+    durationHours?: number;
   }): Promise<OneLocationAccessRequest> {
     const response = await apiJsonWithRetry<{
       request: OneLocationAccessRequest;
@@ -1078,6 +1080,7 @@ export class OneLocationService {
         body: JSON.stringify({
           ownerUserId: params.ownerUserId,
           message: params.message,
+          durationHours: params.durationHours,
         }),
       },
       1,

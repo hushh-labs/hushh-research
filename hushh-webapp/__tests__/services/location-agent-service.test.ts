@@ -199,6 +199,7 @@ describe("OneLocationService", () => {
       vaultOwnerToken: "vault-token",
       ownerUserId: "user_b",
       message: "Can you share?",
+      durationHours: 24,
     });
 
     expect(mockApiJson).toHaveBeenCalledWith("/api/one/location/requests", {
@@ -210,6 +211,7 @@ describe("OneLocationService", () => {
       body: JSON.stringify({
         ownerUserId: "user_b",
         message: "Can you share?",
+        durationHours: 24,
       }),
     });
   });
