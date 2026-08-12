@@ -87,6 +87,7 @@ class TestAgentTreeShape:
             "calendar_summary",
             "calendar_events",
             "calendar_availability",
+            "calendar_free_slots",
             "propose_calendar_event",
             "propose_calendar_reschedule",
             "propose_calendar_cancellation",
