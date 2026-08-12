@@ -1,6 +1,5 @@
 "use client";
 
-import { UserPlus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useGoogleMaps } from "@/lib/one-location/use-google-maps";
@@ -119,20 +118,6 @@ export function OnboardingLiveMap({
         <span className="relative flex h-5 w-5 items-center justify-center rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_6px_18px_rgba(24,57,91,0.35)]" />
       </span>
 
-      {/* The empty seat. Dashed and unlabelled by design: it shows where a
-          circle member will land without inventing a person who is not there,
-          which is what makes the invite below feel necessary rather than
-          administrative. */}
-      <span
-        className="pointer-events-none absolute left-[62%] top-[38%] flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-dashed border-[color:var(--app-accent)]/45 bg-white/55 dark:bg-white/[0.06]"
-        data-onboarding-map-companion
-      >
-        <UserPlus
-          className="h-4 w-4 text-[color:var(--app-accent)]/70"
-          strokeWidth={2.2}
-        />
-      </span>
-
       <style>{`
         [data-onboarding-map-pulse] {
           animation: oneOnboardingPulse 2600ms ease-out infinite;
@@ -142,21 +127,8 @@ export function OnboardingLiveMap({
           70%  { transform: translate(-50%, -50%) scale(1);    opacity: 0; }
           100% { transform: translate(-50%, -50%) scale(1);    opacity: 0; }
         }
-        [data-onboarding-map-companion] {
-          animation: oneOnboardingSeat 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
-          animation-delay: 900ms;
-        }
-        @keyframes oneOnboardingSeat {
-          from { opacity: 0; transform: translate(-50%, -30%) scale(0.7); }
-          to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-        }
         @media (prefers-reduced-motion: reduce) {
           [data-onboarding-map-pulse] { animation: none; opacity: 0.35; }
-          [data-onboarding-map-companion] {
-            animation: none;
-            opacity: 1;
-            transform: translate(-50%, -50%);
-          }
         }
       `}</style>
     </div>
