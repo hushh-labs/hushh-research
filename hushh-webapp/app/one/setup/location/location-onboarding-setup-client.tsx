@@ -63,7 +63,7 @@ export function LocationOnboardingCompletedScreen({
   return (
     <FullscreenFlowShell
       width="reading"
-      className="min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] justify-start px-[var(--page-inline-gutter-standard)] pb-10 pt-[max(56px,calc(env(safe-area-inset-top)+36px))]"
+      className="fixed inset-0 z-10 overflow-hidden bg-background min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] justify-start px-[var(--page-inline-gutter-standard)] pb-10 pt-[max(56px,calc(env(safe-area-inset-top)+36px))]"
       data-testid="location-onboarding-completed"
     >
       <section

@@ -76,7 +76,7 @@ export function LocationPermissionPrimerGate({
   return (
     <FullscreenFlowShell
       width="reading"
-      className="min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] justify-center px-[var(--page-inline-gutter-standard)] py-10"
+      className="fixed inset-0 z-10 overflow-hidden bg-background min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] justify-center px-[var(--page-inline-gutter-standard)] py-10"
       data-testid="location-permission-primer"
     >
       <section
