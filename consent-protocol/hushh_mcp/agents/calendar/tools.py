@@ -166,6 +166,38 @@ async def calendar_availability(
         raise
 
 
+async def calendar_free_slots(
+    tool_context: ToolContext,
+    start_at: str,
+    end_at: str,
+    duration_minutes: int,
+    limit: int = 3,
+) -> dict[str, Any]:
+    """Find the earliest 1–20 open slots in an exact time window.
+
+    Use this when the person gives a scheduling window and a call duration.
+    It searches only the owner's primary Calendar; it does not claim invitee
+    availability. Once a person chooses a slot, use the normal proposal tool
+    so the browser still presents the final explicit confirmation.
+    """
+    try:
+        return {
+            "status": "ok",
+            **await get_google_calendar_service().find_openings(
+                user_id=_user_id(tool_context),
+                start_at=_calendar_iso(start_at, tool_context),
+                end_at=_calendar_iso(end_at, tool_context),
+                duration_minutes=duration_minutes,
+                limit=limit,
+            ),
+        }
+    except GoogleConnectionError as exc:
+        directive = _handle_connection_error(tool_context, exc, access_level="read")
+        if directive is not None:
+            return directive
+        raise
+
+
 async def propose_calendar_event(
     tool_context: ToolContext,
     title: str,
@@ -249,16 +281,9 @@ async def _propose(
         raise
     plan = proposal["plan"]
     verb = {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
-    summary = (
-        f"{verb} “{plan.get('title') or plan.get('event_id')}”"
-        + (f" for {plan.get('start_at')} to {plan.get('end_at')}" if action != "cancel" else "")
-        + (
-            f" and notify {len(plan.get('attendees', []))} attendee(s)"
-            if plan.get("send_updates")
-            else " without sending updates"
-        )
-        + "?"
-    )
+    conflicts = plan.get("conflicts") if isinstance(plan.get("conflicts"), list) else []
+    summary = _proposal_summary(action=action, plan=plan, conflicts=conflicts)
+    confirm_label = f"{verb} anyway" if conflicts else verb
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = {
         "kind": "action",
         "delegateAgentId": "agent_calendar",
@@ -267,7 +292,7 @@ async def _propose(
             "proposalId": proposal["proposal_id"],
             "action": action,
             "summary": summary,
-            "confirmLabel": verb,
+            "confirmLabel": confirm_label,
             "expiresAt": proposal["expires_at"],
         },
     }
@@ -275,5 +300,61 @@ async def _propose(
         "status": "confirmation_required",
         "proposal_id": proposal["proposal_id"],
         "plan": plan,
-        "message": "The app is showing the exact calendar change for owner confirmation.",
+        "conflicts": conflicts,
+        "message": (
+            "Your requested time overlaps an existing Calendar event. The app is showing "
+            "the exact conflict and will only schedule after you explicitly choose to proceed."
+            if conflicts
+            else "The app is showing the exact calendar change for owner confirmation."
+        ),
     }
+
+
+def _proposal_summary(*, action: str, plan: dict[str, Any], conflicts: list[object]) -> str:
+    verb = {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
+    title = str(plan.get("title") or plan.get("event_id") or "this event")
+    timing = (
+        ""
+        if action == "cancel"
+        else f" for {_display_time(plan.get('start_at'), plan.get('time_zone'))}"
+    )
+    attendee_note = (
+        f" and notify {len(plan.get('attendees', []))} attendee(s)"
+        if plan.get("send_updates")
+        else " without sending updates"
+    )
+    details = [
+        _conflict_detail(item, time_zone=str(plan.get("time_zone") or "UTC"))
+        for item in conflicts
+        if isinstance(item, dict)
+    ]
+    if details:
+        return (
+            f"You already have {', '.join(details)}. "
+            f"{verb} “{title}”{timing}{attendee_note} anyway?"
+        )
+    return f"{verb} “{title}”{timing}{attendee_note}?"
+
+
+def _conflict_detail(event: dict[str, Any], *, time_zone: str) -> str:
+    title = str(event.get("title") or "an existing event")
+    start = event.get("start")
+    if isinstance(start, dict):
+        value = start.get("dateTime") or start.get("date")
+        if value:
+            return f"“{title}” at {_display_time(value, time_zone)}"
+    return f"“{title}” during that time"
+
+
+def _display_time(value: object, time_zone: object) -> str:
+    text = str(value or "").strip()
+    zone_name = str(time_zone or "UTC")
+    if not text:
+        return "the requested time"
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return text
+        return parsed.astimezone(ZoneInfo(zone_name)).strftime("%a, %b %-d at %-I:%M %p %Z")
+    except (ValueError, ZoneInfoNotFoundError):
+        return text
