@@ -48,7 +48,11 @@ import {
   type DirectoryPerson,
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
-import { VOICE_DISAMBIGUATION_DATA_KEY } from "@/lib/voice/voice-disambiguation";
+import {
+  VOICE_CONFIRM_DATA_KEY,
+  VOICE_DISAMBIGUATION_DATA_KEY,
+} from "@/lib/voice/voice-action-card";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { getDirectoryPersonDescription } from "./directory-person-label";
 
 type ConnectTab = "people" | "nearby";
@@ -991,31 +995,81 @@ export default function ConnectPageClient() {
 
   useLocalOnboardingActionHandler("connect.remove_connection", async (slots) => {
     const spokenName = typeof slots.person === "string" ? slots.person.trim() : "";
+    // Set by the card's destructive button and by nothing else. Voice never
+    // carries it, so a spoken sentence can raise this question but can never
+    // answer its own question.
+    const confirmed = slots.confirmed === true;
+    const chosenConnectionId =
+      typeof slots.connectionId === "string" ? slots.connectionId.trim() : "";
     if (!user) {
       return { status: "blocked", summary: "Sign in before removing a connection." };
     }
-    if (!spokenName) {
+    if (!spokenName && !chosenConnectionId) {
       return { status: "blocked", summary: "Say who you want to remove." };
     }
     try {
       const idToken = await user.getIdToken();
       const existing = await ConnectionsService.listConnections({ idToken });
-      const matches = matchByName(existing, spokenName, (entry) => entry.displayName);
+      const matches = chosenConnectionId
+        ? existing.filter((entry) => entry.connectionId === chosenConnectionId)
+        : matchByName(existing, spokenName, (entry) => entry.displayName);
       if (matches.length === 0) {
         return {
           status: "blocked",
-          summary: `${spokenName} is not one of your connections.`,
+          summary: chosenConnectionId
+            ? "That connection is no longer there."
+            : `${spokenName} is not one of your connections.`,
         };
       }
       if (matches.length > 1) {
+        // Same picker as sending a request. Removing the wrong person because
+        // two share a name is the worst version of this bug, not a milder one.
         return {
           status: "blocked",
-          summary: `More than one connection matches that name: ${matches
-            .map((entry) => entry.displayName ?? "someone")
-            .join(", ")}. Say which one.`,
+          summary: `${matches.length} connections are called ${spokenName}. Pick the right one.`,
+          data: {
+            [VOICE_DISAMBIGUATION_DATA_KEY]: {
+              actionId: "connect.remove_connection",
+              resolveSlot: "connectionId",
+              slots: { person: spokenName },
+              prompt: `${matches.length} connections are called ${spokenName}.`,
+              candidates: matches.map((entry) => ({
+                id: entry.connectionId,
+                name: entry.displayName || "Someone",
+                detail: getDirectoryPersonDescription(entry) ?? null,
+                actionLabel: "Remove",
+              })),
+            },
+          },
         };
       }
       const connection = matches[0]!;
+      if (!confirmed) {
+        // Ask before, not after. A name misheard once is a connection gone
+        // with no undo, and this is the one action here where being wrong
+        // cannot be walked back.
+        const displayName = connection.displayName || "this person";
+        return {
+          status: "blocked",
+          summary: `Removing ${displayName} needs a confirmation.`,
+          data: {
+            [VOICE_CONFIRM_DATA_KEY]: {
+              actionId: "connect.remove_connection",
+              slots: { person: spokenName, connectionId: connection.connectionId },
+              prompt: `Remove your connection with ${displayName}?`,
+              subject: {
+                name: displayName,
+                detail: getDirectoryPersonDescription(connection) ?? null,
+              },
+              // The action's own words from the generated contract, so what
+              // the person is warned about cannot drift from what happens.
+              consequence:
+                getKaiActionById("connect.remove_connection")?.meaning ?? null,
+              confirmLabel: "Remove",
+            },
+          },
+        };
+      }
       await ConnectionsService.removeConnection({
         idToken,
         connectionId: connection.connectionId,

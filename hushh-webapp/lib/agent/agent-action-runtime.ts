@@ -8,9 +8,9 @@ import {
 } from "@/lib/agent/local-onboarding-actions";
 import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
 import {
-  parseVoiceDisambiguation,
-  publishVoiceDisambiguation,
-} from "@/lib/voice/voice-disambiguation";
+  parseVoiceCard,
+  publishVoiceCard,
+} from "@/lib/voice/voice-action-card";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
 import {
@@ -192,7 +192,7 @@ function buildLocalHandlerResult(input: {
   // most often by tapping a row, which runs this same path and should retire
   // the card that produced it. Clearing only on success would leave a stale
   // list of people on screen after the question stopped being live.
-  publishVoiceDisambiguation(parseVoiceDisambiguation(input.handlerResult.data));
+  publishVoiceCard(parseVoiceCard(input.handlerResult.data));
 
   return buildResult({
     status:

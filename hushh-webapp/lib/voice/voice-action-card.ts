@@ -69,35 +69,140 @@ export type VoiceDisambiguation = {
   candidates: VoiceDisambiguationCandidate[];
 };
 
-/** The key a handler result carries its candidates under. */
-export const VOICE_DISAMBIGUATION_DATA_KEY = "disambiguation";
+/**
+ * A destructive action, shown before it happens rather than after.
+ *
+ * Confirmations were removed from voice on purpose: being asked "are you sure?"
+ * after saying a thing out loud is tiring, and a spoken yes adds nothing the
+ * sentence did not already carry. That reasoning holds for doing things. It
+ * does not hold for undoing them -- "remove Rashid" spoken once, misheard once,
+ * is a connection gone with no undo.
+ *
+ * So this is not the old confirmation returning. It is scoped to actions whose
+ * effect cannot be taken back, and it is opt-in per handler.
+ *
+ * Deliberately NOT gated on the contract's `risk_level`. That field marks 11
+ * wired actions high, and most of them are constructive: `connect.send_request`,
+ * `location.create_circle`, `location.add_emergency_contact`, and
+ * `location.share_selected` -- the hands-free share flow that was explicitly
+ * cleared of taps. Gating on it would put a tap back in the middle of the one
+ * flow that most needed to lose it.
+ */
+export type VoiceConfirm = {
+  /** The governed action to run if the person confirms. */
+  actionId: string;
+  /** Slots replayed verbatim on confirm. */
+  slots: Record<string, unknown>;
+  /** The question. Names the subject: "Remove your connection with Rashid?" */
+  prompt: string;
+  /** Who or what this acts on, rendered like a candidate row. */
+  subject?: {
+    name: string;
+    detail?: string | null;
+  } | null;
+  /**
+   * What the action actually does, in the person's terms. Sourced from the
+   * generated contract's own `meaning`, so the warning stays true when the
+   * behaviour changes instead of drifting into a comfortable fiction.
+   */
+  consequence?: string | null;
+  /** Label for the destructive button. "Remove", "Stop sharing". */
+  confirmLabel: string;
+};
 
-let current: VoiceDisambiguation | null = null;
+export type VoiceCardRequest =
+  | ({ kind: "choice" } & VoiceDisambiguation)
+  | ({ kind: "confirm" } & VoiceConfirm);
+
+/** The keys a handler result carries each shape under. */
+export const VOICE_DISAMBIGUATION_DATA_KEY = "disambiguation";
+export const VOICE_CONFIRM_DATA_KEY = "confirm";
+
+let current: VoiceCardRequest | null = null;
 const listeners = new Set<() => void>();
 
 function emit() {
   listeners.forEach((listener) => listener());
 }
 
-export function publishVoiceDisambiguation(next: VoiceDisambiguation | null) {
+export function publishVoiceCard(next: VoiceCardRequest | null) {
   current = next;
   emit();
 }
 
-export function readVoiceDisambiguation(): VoiceDisambiguation | null {
+export function readVoiceCard(): VoiceCardRequest | null {
   return current;
 }
 
-export function clearVoiceDisambiguation() {
+export function clearVoiceCard() {
   if (current === null) return;
   current = null;
   emit();
 }
 
-export function subscribeToVoiceDisambiguation(listener: () => void): () => void {
+export function subscribeToVoiceCard(listener: () => void): () => void {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
+  };
+}
+
+/**
+ * Read whichever shape a handler result carries, if either.
+ *
+ * Confirm is checked first. A handler that somehow emits both is asking a
+ * destructive question and a "which one" question at once, and the destructive
+ * one must not be the thing that gets skipped.
+ */
+export function parseVoiceCard(
+  data: Record<string, unknown> | undefined,
+): VoiceCardRequest | null {
+  const confirm = parseVoiceConfirm(data);
+  if (confirm) return { kind: "confirm", ...confirm };
+  const choice = parseVoiceDisambiguation(data);
+  if (choice) return { kind: "choice", ...choice };
+  return null;
+}
+
+/**
+ * Validate a confirm payload.
+ *
+ * A malformed one must leave the spoken answer in place rather than render a
+ * dialog with no question in it -- and, more importantly, must never render a
+ * destructive button whose label or subject failed to arrive.
+ */
+export function parseVoiceConfirm(
+  data: Record<string, unknown> | undefined,
+): VoiceConfirm | null {
+  const raw = data?.[VOICE_CONFIRM_DATA_KEY];
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Partial<VoiceConfirm>;
+  const actionId = String(value.actionId ?? "").trim();
+  const prompt = String(value.prompt ?? "").trim();
+  const confirmLabel = String(value.confirmLabel ?? "").trim();
+  // No silent defaults here. An unlabelled destructive button is one someone
+  // presses without knowing what it does.
+  if (!actionId || !prompt || !confirmLabel) return null;
+
+  const subjectRaw = value.subject;
+  const subject =
+    subjectRaw && typeof subjectRaw === "object"
+      ? {
+          name: String(subjectRaw.name ?? "").trim(),
+          detail: subjectRaw.detail ? String(subjectRaw.detail).trim() : null,
+        }
+      : null;
+
+  return {
+    actionId,
+    slots:
+      value.slots && typeof value.slots === "object"
+        ? (value.slots as Record<string, unknown>)
+        : {},
+    prompt,
+    subject: subject && subject.name ? subject : null,
+    consequence: value.consequence ? String(value.consequence).trim() : null,
+    confirmLabel,
   };
 }
 

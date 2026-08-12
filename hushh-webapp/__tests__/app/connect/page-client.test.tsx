@@ -68,7 +68,7 @@ vi.mock("sonner", () => ({
 
 import ConnectPageClient from "@/app/connect/page-client";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
-import { parseVoiceDisambiguation } from "@/lib/voice/voice-disambiguation";
+import { parseVoiceCard, parseVoiceConfirm } from "@/lib/voice/voice-action-card";
 
 function person(userId: string, displayName: string) {
   return {
@@ -288,7 +288,7 @@ describe("Connect — People", () => {
     const result = await sendRequest!({ person: "Ankit Kumar Singh" });
 
     expect(result).toMatchObject({ status: "blocked" });
-    const parsed = parseVoiceDisambiguation(result.data);
+    const parsed = parseVoiceCard(result.data);
     expect(parsed?.actionId).toBe("connect.send_request");
     expect(parsed?.resolveSlot).toBe("userId");
     expect(parsed?.candidates.map((c) => c.detail)).toEqual([
@@ -497,5 +497,84 @@ describe("Connect — People", () => {
     await waitFor(() =>
       expect(screen.queryByText("Connect to Selected (1/20)")).toBeNull(),
     );
+  });
+});
+
+describe("Connect — removing a connection", () => {
+  const RASHID = {
+    connectionId: "c-1",
+    userId: "u-rashid",
+    displayName: "Rashid",
+    maskedEmail: "r***d@gmail.com",
+  };
+
+  it("asks before removing, and does not remove on the asking turn", async () => {
+    // The one action here that cannot be walked back. A name misheard once is
+    // a connection gone with no undo, so the spoken turn may only raise the
+    // question -- it must not also answer it.
+    mocks.listConnections.mockResolvedValue([RASHID]);
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const remove = resolveLocalOnboardingHandler("connect.remove_connection");
+    const result = await remove!({ person: "Rashid" });
+
+    expect(result).toMatchObject({ status: "blocked" });
+    expect(mocks.removeConnection).not.toHaveBeenCalled();
+
+    const confirm = parseVoiceConfirm(result.data);
+    expect(confirm?.actionId).toBe("connect.remove_connection");
+    expect(confirm?.confirmLabel).toBe("Remove");
+    expect(confirm?.prompt).toBe("Remove your connection with Rashid?");
+    expect(confirm?.subject).toMatchObject({
+      name: "Rashid",
+      detail: "r***d@gmail.com",
+    });
+    // Warning text comes from the action's own contract `meaning`, so it
+    // cannot drift away from what the action actually does.
+    expect(confirm?.consequence).toContain("share");
+  });
+
+  it("removes only when the card confirms it", async () => {
+    mocks.listConnections.mockResolvedValue([RASHID]);
+    mocks.removeConnection.mockResolvedValue({});
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const remove = resolveLocalOnboardingHandler("connect.remove_connection");
+    let result: Awaited<ReturnType<NonNullable<typeof remove>>> | undefined;
+    await act(async () => {
+      result = await remove!({
+        person: "Rashid",
+        connectionId: "c-1",
+        confirmed: true,
+      });
+    });
+
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect(mocks.removeConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionId: "c-1" }),
+    );
+  });
+
+  it("offers a picker before it offers a confirmation when the name is ambiguous", async () => {
+    // Removing the WRONG person because two share a name is the worst version
+    // of the duplicate bug, not a milder one. Which-one comes first, then the
+    // are-you-sure for whoever was picked.
+    mocks.listConnections.mockResolvedValue([
+      RASHID,
+      { ...RASHID, connectionId: "c-2", userId: "u-2", maskedEmail: "r***2@gmail.com" },
+    ]);
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const remove = resolveLocalOnboardingHandler("connect.remove_connection");
+    const result = await remove!({ person: "Rashid" });
+
+    expect(result).toMatchObject({ status: "blocked" });
+    expect(mocks.removeConnection).not.toHaveBeenCalled();
+    const card = parseVoiceCard(result.data);
+    expect(card?.kind).toBe("choice");
+    expect(parseVoiceConfirm(result.data)).toBeNull();
   });
 });

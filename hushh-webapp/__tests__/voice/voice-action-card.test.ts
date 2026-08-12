@@ -2,12 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   VOICE_DISAMBIGUATION_DATA_KEY,
-  clearVoiceDisambiguation,
-  parseVoiceDisambiguation,
-  publishVoiceDisambiguation,
-  readVoiceDisambiguation,
-  subscribeToVoiceDisambiguation,
-} from "@/lib/voice/voice-disambiguation";
+  clearVoiceCard,
+  parseVoiceCard,
+  parseVoiceConfirm,
+  publishVoiceCard,
+  readVoiceCard,
+  subscribeToVoiceCard,
+} from "@/lib/voice/voice-action-card";
 
 function payload(overrides: Record<string, unknown> = {}) {
   return {
@@ -36,9 +37,9 @@ function payload(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("parseVoiceDisambiguation", () => {
+describe("parseVoiceCard", () => {
   it("reads a well-formed payload", () => {
-    const parsed = parseVoiceDisambiguation(payload());
+    const parsed = parseVoiceCard(payload());
     expect(parsed).not.toBeNull();
     expect(parsed?.actionId).toBe("connect.send_request");
     expect(parsed?.resolveSlot).toBe("userId");
@@ -50,7 +51,7 @@ describe("parseVoiceDisambiguation", () => {
     // The screenshot that prompted this feature had one row offering Connect
     // and the other showing a request already sent. A single shared label
     // would hand one of these people an action guaranteed to be refused.
-    const parsed = parseVoiceDisambiguation(payload());
+    const parsed = parseVoiceCard(payload());
     expect(parsed?.candidates[0]?.actionLabel).toBe("Connect");
     expect(parsed?.candidates[0]?.disabledReason).toBeNull();
     expect(parsed?.candidates[1]?.actionLabel).toBe("Requested");
@@ -58,7 +59,7 @@ describe("parseVoiceDisambiguation", () => {
   });
 
   it("keeps the detail line, which is the only thing telling the rows apart", () => {
-    const parsed = parseVoiceDisambiguation(payload());
+    const parsed = parseVoiceCard(payload());
     expect(parsed?.candidates[0]?.detail).toBe("a***t@hushh.ai");
     expect(parsed?.candidates[1]?.detail).toBe("a***3@gmail.com");
   });
@@ -67,30 +68,30 @@ describe("parseVoiceDisambiguation", () => {
     // Fewer than two candidates means the resolver should have answered
     // instead of asking. Rendering a card here would replace a working answer
     // with a pointless tap.
-    expect(parseVoiceDisambiguation(payload({ candidates: [] }))).toBeNull();
+    expect(parseVoiceCard(payload({ candidates: [] }))).toBeNull();
     expect(
-      parseVoiceDisambiguation(
+      parseVoiceCard(
         payload({ candidates: [{ id: "user-1", name: "Solo", actionLabel: "Connect" }] }),
       ),
     ).toBeNull();
-    expect(parseVoiceDisambiguation(undefined)).toBeNull();
-    expect(parseVoiceDisambiguation({})).toBeNull();
+    expect(parseVoiceCard(undefined)).toBeNull();
+    expect(parseVoiceCard({})).toBeNull();
   });
 
   it("refuses a malformed payload so the spoken refusal survives", () => {
     // An empty card is a worse dead end than the one being fixed: a list with
     // nothing in it and no sentence explaining why. Falling back to the normal
     // blocked summary at least tells the person something.
-    expect(parseVoiceDisambiguation(payload({ actionId: "" }))).toBeNull();
-    expect(parseVoiceDisambiguation(payload({ resolveSlot: "" }))).toBeNull();
-    expect(parseVoiceDisambiguation(payload({ candidates: "not-an-array" }))).toBeNull();
+    expect(parseVoiceCard(payload({ actionId: "" }))).toBeNull();
+    expect(parseVoiceCard(payload({ resolveSlot: "" }))).toBeNull();
+    expect(parseVoiceCard(payload({ candidates: "not-an-array" }))).toBeNull();
     expect(
-      parseVoiceDisambiguation({ [VOICE_DISAMBIGUATION_DATA_KEY]: "nonsense" }),
+      parseVoiceCard({ [VOICE_DISAMBIGUATION_DATA_KEY]: "nonsense" }),
     ).toBeNull();
   });
 
   it("drops candidates with no identity, since nothing could be run for them", () => {
-    const parsed = parseVoiceDisambiguation(
+    const parsed = parseVoiceCard(
       payload({
         candidates: [
           { id: "user-1", name: "Ankit", actionLabel: "Connect" },
@@ -103,7 +104,7 @@ describe("parseVoiceDisambiguation", () => {
   });
 
   it("fills in safe text rather than rendering a blank row", () => {
-    const parsed = parseVoiceDisambiguation(
+    const parsed = parseVoiceCard(
       payload({
         prompt: "",
         candidates: [
@@ -121,35 +122,107 @@ describe("parseVoiceDisambiguation", () => {
 
 describe("the disambiguation store", () => {
   beforeEach(() => {
-    clearVoiceDisambiguation();
+    clearVoiceCard();
   });
 
   it("publishes and clears, notifying subscribers", () => {
     const listener = vi.fn();
-    const unsubscribe = subscribeToVoiceDisambiguation(listener);
+    const unsubscribe = subscribeToVoiceCard(listener);
 
-    const parsed = parseVoiceDisambiguation(payload());
-    publishVoiceDisambiguation(parsed);
-    expect(readVoiceDisambiguation()).toBe(parsed);
+    const parsed = parseVoiceCard(payload());
+    publishVoiceCard(parsed);
+    expect(readVoiceCard()).toBe(parsed);
     expect(listener).toHaveBeenCalledTimes(1);
 
-    clearVoiceDisambiguation();
-    expect(readVoiceDisambiguation()).toBeNull();
+    clearVoiceCard();
+    expect(readVoiceCard()).toBeNull();
     expect(listener).toHaveBeenCalledTimes(2);
 
     unsubscribe();
-    publishVoiceDisambiguation(parsed);
+    publishVoiceCard(parsed);
     expect(listener).toHaveBeenCalledTimes(2);
-    clearVoiceDisambiguation();
+    clearVoiceCard();
   });
 
   it("does not notify when clearing an already-empty store", () => {
     // useSyncExternalStore re-renders on every emit, and the runtime clears on
     // every local handler result -- almost all of which carry no candidates.
     const listener = vi.fn();
-    const unsubscribe = subscribeToVoiceDisambiguation(listener);
-    clearVoiceDisambiguation();
+    const unsubscribe = subscribeToVoiceCard(listener);
+    clearVoiceCard();
     expect(listener).not.toHaveBeenCalled();
     unsubscribe();
+  });
+});
+
+describe("parseVoiceConfirm", () => {
+  function confirmPayload(overrides: Record<string, unknown> = {}) {
+    return {
+      confirm: {
+        actionId: "connect.remove_connection",
+        slots: { person: "Rashid", connectionId: "c-1" },
+        prompt: "Remove your connection with Rashid?",
+        subject: { name: "Rashid", detail: "r***d@gmail.com" },
+        consequence: "They stop being someone you can share things with.",
+        confirmLabel: "Remove",
+        ...overrides,
+      },
+    };
+  }
+
+  it("reads a well-formed destructive confirmation", () => {
+    const parsed = parseVoiceConfirm(confirmPayload());
+    expect(parsed?.actionId).toBe("connect.remove_connection");
+    expect(parsed?.confirmLabel).toBe("Remove");
+    expect(parsed?.subject?.name).toBe("Rashid");
+    expect(parsed?.subject?.detail).toBe("r***d@gmail.com");
+    expect(parsed?.slots).toEqual({ person: "Rashid", connectionId: "c-1" });
+  });
+
+  it("refuses to render a destructive button with no label or no question", () => {
+    // There are no safe defaults here. An unlabelled destructive button is one
+    // someone presses without knowing what it does, and a card with no prompt
+    // asks nothing while still offering to delete something.
+    expect(parseVoiceConfirm(confirmPayload({ confirmLabel: "" }))).toBeNull();
+    expect(parseVoiceConfirm(confirmPayload({ prompt: "" }))).toBeNull();
+    expect(parseVoiceConfirm(confirmPayload({ actionId: "" }))).toBeNull();
+    expect(parseVoiceConfirm(undefined)).toBeNull();
+    expect(parseVoiceConfirm({ confirm: "nonsense" })).toBeNull();
+  });
+
+  it("drops a subject with no name rather than rendering an empty row", () => {
+    const parsed = parseVoiceConfirm(
+      confirmPayload({ subject: { name: "", detail: "x" } }),
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.subject).toBeNull();
+  });
+});
+
+describe("parseVoiceCard", () => {
+  it("prefers the destructive question when a handler somehow sends both", () => {
+    // Asking "which one" and "are you sure" at once means the destructive half
+    // is the one that must not be skipped.
+    const both = {
+      confirm: {
+        actionId: "connect.remove_connection",
+        prompt: "Remove Rashid?",
+        confirmLabel: "Remove",
+      },
+      disambiguation: {
+        actionId: "connect.send_request",
+        resolveSlot: "userId",
+        candidates: [
+          { id: "a", name: "A", actionLabel: "Connect" },
+          { id: "b", name: "B", actionLabel: "Connect" },
+        ],
+      },
+    };
+    expect(parseVoiceCard(both)?.kind).toBe("confirm");
+  });
+
+  it("tags each shape so the card knows which to render", () => {
+    expect(parseVoiceCard(payload())?.kind).toBe("choice");
+    expect(parseVoiceCard(undefined)).toBeNull();
   });
 });
