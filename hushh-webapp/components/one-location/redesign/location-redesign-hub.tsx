@@ -516,15 +516,27 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
   const locationOn = vm.locationEnabled;
   const toggling = BUSY(vm, "selfLocation");
   const refreshing = BUSY(vm, "load");
+  
+  const [optimisticLocationOn, setOptimisticLocationOn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!toggling) {
+      setOptimisticLocationOn(null);
+    }
+  }, [toggling]);
+
+  const displayLocationOn = optimisticLocationOn !== null ? optimisticLocationOn : locationOn;
+
   const statusLabel = locationStatusLabel({
-    readiness: vm.locationBlocked ? "blocked" : locationOn ? "ready" : "askable",
-    previewOn: locationOn,
+    readiness: vm.locationBlocked ? "blocked" : displayLocationOn ? "ready" : "askable",
+    previewOn: displayLocationOn,
     paused: vm.locationPaused,
     accuracyLimited: vm.locationAccuracyLimited,
   });
 
   const handleLocationChange = (checked: boolean) => {
     if (checked === locationOn) return;
+    setOptimisticLocationOn(checked);
     if (checked) {
       vm.onShowMyLocation();
       return;
@@ -548,10 +560,10 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
         </span>
         <Switch
           size="ios"
-          checked={locationOn}
+          checked={displayLocationOn}
           onCheckedChange={handleLocationChange}
           disabled={toggling || refreshing}
-          aria-label={locationOn ? "Turn location off" : "Turn location on"}
+          aria-label={displayLocationOn ? "Turn location off" : "Turn location on"}
           // The same pair of contract actions the Settings toggle carries.
           // Both are the same control in two places, so voice can offer
           // pause/resume from the Now tab without opening Settings first.
