@@ -1718,30 +1718,36 @@ function PeopleHub({
           title="Connections"
           description="Connections and Circle members are eligible for explicit private sharing."
         >
-          <div className="grid grid-cols-1 gap-2">
-            <Button
-              onClick={onAddConnections}
-              data-voice-control-id="one-location-add-connections"
-              className="w-full"
-            >
-              <UsersRound className="mr-2 h-4 w-4" />
-              Add Connections
-            </Button>
-            <Button
-              variant="outline"
-              onClick={onInvite}
-              data-voice-control-id="one-location-action-invite"
-              className="w-full"
-            >
-              <UserPlus className="mr-2 h-4 w-4" />
-              Invite trusted person
-            </Button>
-            <div className="grid grid-cols-2 gap-2">
+          {/* Symmetric action layout with generous breathing room: a 2-col
+              primary row (Add / Invite) over a matching 2-col contact row
+              (Sync / Share), uniform h-12 buttons and gap-3.5 spacing. On
+              narrow phones the primary row collapses to one column. */}
+          <div className="space-y-3.5">
+            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+              <Button
+                onClick={onAddConnections}
+                data-voice-control-id="one-location-add-connections"
+                className="h-12 w-full font-medium"
+              >
+                <UsersRound className="mr-2 h-4 w-4" />
+                Add Connections
+              </Button>
+              <Button
+                variant="outline"
+                onClick={onInvite}
+                data-voice-control-id="one-location-action-invite"
+                className="h-12 w-full font-medium"
+              >
+                <UserPlus className="mr-2 h-4 w-4" />
+                Invite trusted person
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-3.5">
               <Button
                 variant="outline"
                 onClick={vm.onSyncContacts}
                 isLoading={vm.busy === "contactSync"}
-                className="w-full"
+                className="h-12 w-full font-medium"
               >
                 Sync contacts
               </Button>
@@ -1749,7 +1755,7 @@ function PeopleHub({
                 variant="outline"
                 onClick={vm.onShareToContacts}
                 isLoading={vm.busy === "contactInvite"}
-                className="w-full"
+                className="h-12 w-full font-medium"
               >
                 Share to contacts
               </Button>
@@ -1787,31 +1793,34 @@ function PeopleHub({
       />
 
       {/* Compact circle-management actions. Invite adds people; "Sync contacts"
-          tags which existing connections are in your phone contacts. */}
-      <div className="grid grid-cols-1 gap-2">
-        <Button
-          onClick={onAddConnections}
-          data-voice-control-id="one-location-add-connections"
-          className="w-full"
-        >
-          <UsersRound className="mr-2 h-4 w-4" />
-          Add Connections
-        </Button>
-        <Button
-          variant="outline"
-          onClick={onInvite}
-          data-voice-control-id="one-location-action-invite"
-          className="w-full border-[color:var(--app-accent)] text-[color:var(--app-accent)]"
-        >
-          <UserPlus className="mr-2 h-4 w-4" />
-          Invite trusted person
-        </Button>
-        <div className="grid grid-cols-2 gap-2">
+          tags which existing connections are in your phone contacts. Symmetric
+          2-col rows with gap-3.5 and uniform h-12 buttons for breathing room. */}
+      <div className="space-y-3.5">
+        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+          <Button
+            onClick={onAddConnections}
+            data-voice-control-id="one-location-add-connections"
+            className="h-12 w-full font-medium"
+          >
+            <UsersRound className="mr-2 h-4 w-4" />
+            Add Connections
+          </Button>
+          <Button
+            variant="outline"
+            onClick={onInvite}
+            data-voice-control-id="one-location-action-invite"
+            className="h-12 w-full font-medium border-[color:var(--app-accent)] text-[color:var(--app-accent)]"
+          >
+            <UserPlus className="mr-2 h-4 w-4" />
+            Invite trusted person
+          </Button>
+        </div>
+        <div className="grid grid-cols-2 gap-3.5">
           <Button
             variant="outline"
             onClick={vm.onSyncContacts}
             isLoading={vm.busy === "contactSync"}
-            className="w-full"
+            className="h-12 w-full font-medium"
           >
             Sync contacts
           </Button>
@@ -1819,7 +1828,7 @@ function PeopleHub({
             variant="outline"
             onClick={vm.onShareToContacts}
             isLoading={vm.busy === "contactInvite"}
-            className="w-full"
+            className="h-12 w-full font-medium"
           >
             Share to contacts
           </Button>
