@@ -2,7 +2,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 import {
   createPdfDocumentFormatter,
@@ -92,7 +92,7 @@ Options:
   --html <path>       Optional HTML output path.
   --title <text>      Browser title and PDF header label.
   --subtitle <text>   Small header subtitle.
-  --theme <name>      Foundation theme: light (default), dark, or molten-gold.
+  --theme <name>      light (default), dark, molten-gold-light, or molten-gold.
   --profile <name>    Formatter profile: technical (default), partner, or founder.
 `);
 }
@@ -386,6 +386,31 @@ function renderMarkdown(markdown) {
   return html.join("\n");
 }
 
+/**
+ * Merge every block matching a selector, in document order, so later declarations win.
+ *
+ * `globals.css` declares `.dark` several times by design -- surfaces in one place, the
+ * accent family in another. Sampling only the first and last silently drops whatever
+ * sits between them, which is precisely how the dark PDF theme was broken.
+ */
+function mergeAllCssBlocks(source, selector) {
+  const merged = {};
+  let cursor = 0;
+  for (;;) {
+    let block;
+    try {
+      block = extractCssBlock(source, selector, cursor);
+    } catch {
+      break; // no further match: every block has been merged
+    }
+    Object.assign(merged, readCssCustomProperties(block));
+    const next = source.indexOf(block, cursor);
+    if (next < 0) break;
+    cursor = next + block.length;
+  }
+  return merged;
+}
+
 function extractCssBlock(source, selector, startAt = 0) {
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const selectorPattern = new RegExp(`^\\s*${escapedSelector}\\s*\\{`, "m");
@@ -418,9 +443,14 @@ function visibleTitle(title) {
   return withoutBrand || title;
 }
 
-async function resolveFormatter(theme, profile) {
+/**
+ * Exported so the theme-canon test drives the REAL resolution rather than a copy of it.
+ * A test that reimplements the resolver passes while the resolver is broken -- which is
+ * how `dark` stayed broken through every prior test run.
+ */
+export async function resolveFormatter(theme, profile) {
   const globals = await readFile(path.join(repoRoot, "hushh-webapp/app/globals.css"), "utf8");
-  const useDarkFoundation = theme !== "light";
+  const useDarkFoundation = !theme.endsWith("light");
   const foundation = useDarkFoundation
     ? {
         ...readCssCustomProperties(
@@ -431,9 +461,27 @@ async function resolveFormatter(theme, profile) {
         ),
       }
     : readCssCustomProperties(extractCssBlock(globals, ":root"));
-  const accent = theme === "molten-gold"
-    ? readCssCustomProperties(extractCssBlock(globals, 'html[data-accent="gold"].dark'))
-    : foundation;
+  // Gold reads its own block; blue simply inherits the Foundation. The two gold
+  // themes differ ONLY in which block they read, so the light/dark pair stays a single
+  // source of truth in globals.css rather than a second palette living here.
+  // Blue reads the Foundation accent family; gold reads its own block. The two gold
+  // themes differ ONLY in which block they read, so globals.css stays the single source
+  // of truth rather than a second palette living here.
+  //
+  // Blue is NOT `foundation`. The foundation merge above takes the FIRST and LAST
+  // `.dark` blocks, and the one declaring the `--app-accent-*` family is neither -- so
+  // `theme=dark` raised "Missing Morphy accent token(s)" for all seven accent names and
+  // has never rendered. Reading every `.dark` block in order fixes it and is robust to
+  // blocks being added or reordered later, which the first/last approach never was.
+  const rootAccent = readCssCustomProperties(extractCssBlock(globals, ":root"));
+  const accent =
+    theme === "molten-gold"
+      ? readCssCustomProperties(extractCssBlock(globals, 'html[data-accent="gold"].dark'))
+      : theme === "molten-gold-light"
+        ? readCssCustomProperties(extractCssBlock(globals, 'html[data-accent="gold"]'))
+        : useDarkFoundation
+          ? { ...rootAccent, ...mergeAllCssBlocks(globals, ".dark") }
+          : rootAccent;
 
   return createPdfDocumentFormatter({ theme, profile, foundation, accent });
 }
@@ -734,9 +782,16 @@ async function renderPdf({ input, output, html: htmlOutput, title, subtitle, the
   }
 }
 
-const args = parseArgs(process.argv.slice(2));
-await renderPdf(args);
-console.log(`Wrote ${path.relative(repoRoot, args.output)}`);
-if (args.html) {
-  console.log(`Wrote ${path.relative(repoRoot, args.html)}`);
+// Run the CLI only when invoked as one. Without this guard, importing the module to
+// test `resolveFormatter` executes the exporter and dies on missing argv -- so the
+// resolver could only ever be tested by a COPY of itself, which is how `dark` stayed
+// broken through every prior test run. Making the module importable is what lets the
+// test drive the shipped code.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  const args = parseArgs(process.argv.slice(2));
+  await renderPdf(args);
+  console.log(`Wrote ${path.relative(repoRoot, args.output)}`);
+  if (args.html) {
+    console.log(`Wrote ${path.relative(repoRoot, args.html)}`);
+  }
 }

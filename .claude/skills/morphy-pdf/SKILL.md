@@ -1,15 +1,47 @@
 ---
 name: morphy-pdf
 description: >
-  Morphy AX/UX — the Hushh brand design system for polished PDF/HTML documents
-  (partner specs, architecture briefs, agent-experience docs). A modular theme
-  abstraction: one design language with light and dark variants plus a per-application
-  accent hook, so every document reads as one system while allowing creative variation.
-  Use when producing a branded PDF/document for Hushh, or when the user asks for the
-  "Morphy" look, a themed spec/brief, or a dark/light variant of a document.
+  DEPRECATED — do not use. Divergent parallel copy of the Morphy design language with
+  its own CSS, fonts and renderer; it never reads hushh-webapp/app/globals.css, so its
+  output ignores the Foundation tokens and the accent preference, and it cannot express
+  the molten-gold-light theme. The canonical document pipeline is
+  .codex/skills/founder-brief-curation (SKILL.md + references/pdf-artifact-generation.md)
+  driving hushh-webapp/scripts/reports/export-markdown-pdf.mjs. Retained read-only
 ---
 
-# Morphy AX/UX — modular brand theme for documents
+> **DEPRECATED — do not use for new documents.**
+>
+> This skill is a **parallel, divergent copy** of the Morphy design language. It ships its
+> own CSS, its own embedded fonts (Manrope + Inter) and its own renderer, and it never
+> reads `hushh-webapp/app/globals.css` — so a document produced here does not follow the
+> product's Foundation tokens, does not follow the accent preference, and drifts silently
+> the moment `globals.css` changes. It also predates the four-theme canon and cannot
+> express `molten-gold-light`, which is the theme the DocuSign document uses.
+>
+> **The canonical document pipeline is:**
+>
+> | Concern | Canonical path |
+> |---|---|
+> | Curation + authoring rules | `.codex/skills/founder-brief-curation/SKILL.md` |
+> | PDF artifact procedure | `.codex/skills/founder-brief-curation/references/pdf-artifact-generation.md` |
+> | Formatter + theme contract | `hushh-webapp/lib/morphy-ux/pdf-document-formatter.mjs` |
+> | Exporter (CLI) | `hushh-webapp/scripts/reports/export-markdown-pdf.mjs` |
+> | Design tokens (source of truth) | `hushh-webapp/app/globals.css` |
+> | Design system rules | `docs/reference/quality/design-system.md` |
+>
+> Generate documents with:
+>
+> ```bash
+> cd hushh-webapp
+> node scripts/reports/export-markdown-pdf.mjs \
+>   --input <doc.md> --output <doc.pdf> \
+>   --theme light|dark|molten-gold-light|molten-gold
+> ```
+>
+> Retained read-only so existing references resolve and so the divergence is legible.
+> Do not extend it; port anything still needed into the canonical formatter instead.
+
+# Morphy AX/UX — modular brand theme for documents (DEPRECATED)
 
 Morphy is Hushh's document design language: soft, layered surfaces; gently rounded
 cards with subtle elevation; a **Manrope** (geometric headers) + **Inter** (body)

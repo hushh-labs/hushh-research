@@ -37,7 +37,21 @@ export const PDF_FORMATTER_PROFILES = Object.freeze({
   }),
 });
 
-export const PDF_FORMATTER_THEMES = Object.freeze(["light", "dark", "molten-gold"]);
+/**
+ * The four canonical PDF themes. Two Foundation grounds (light, dark) crossed with
+ * two accents (iOS Blue, Molten Gold). `molten-gold-light` is the gold accent on the
+ * LIGHT ground -- the theme the DocuSign document uses.
+ *
+ * Theme names are a published contract: `--theme` on export-markdown-pdf.mjs takes
+ * these strings, and documents already in circulation name them. Rename nothing here
+ * without migrating those call sites.
+ */
+export const PDF_FORMATTER_THEMES = Object.freeze([
+  "light",
+  "dark",
+  "molten-gold-light",
+  "molten-gold",
+]);
 
 const REQUIRED_FOUNDATION_TOKENS = [
   "--foundation-off",
@@ -106,7 +120,10 @@ export function createPdfDocumentFormatter({ theme, profile, foundation, accent 
   requireTokens(foundation, REQUIRED_FOUNDATION_TOKENS, "Morphy Foundation");
   requireTokens(accent, REQUIRED_ACCENT_TOKENS, "Morphy accent");
   const selectedProfile = resolvePdfFormatterProfile(profile);
-  const dark = theme !== "light";
+  // Both light grounds end in "light" ("light", "molten-gold-light"), so the ground is
+  // read off the suffix rather than an equality that silently treats every new gold
+  // theme as dark -- which is exactly how molten-gold-light was unreachable before.
+  const dark = !theme.endsWith("light");
   const codePalette = dark
     ? {
         background: "#272822",

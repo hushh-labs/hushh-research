@@ -218,6 +218,53 @@ the relevant skill or agent definition in the same change, grounded in real repo
 findings and the north stars. Per `AGENTS.md`, lanes **inherit the kernel by pointer** —
 cite `AGENTS.md` rather than copying its doctrine into a skill prompt.
 
+## Branch synchronization — PERMANENT ENGINEERING RULE (founder directive, 2026-08-12)
+
+**Fetching `main` is not permission to overwrite this branch.** DEV is deliberately ahead
+of `main`: it carries the modular per-person pod deployment and represents the transition
+to the future architecture. `main` still carries the older shape. Git resolves text and has
+no opinion about which side is the architecture, so a merge resolved by recency can undo
+the direction of the work and leave a clean commit and a green diff behind.
+
+Measured 2026-08-12 in `deploy/backend.cloudbuild.yaml`: `_BUILD_POD_IMAGE` branch=5
+main=**0**; `Dockerfile.pod` branch=3 main=**0**; `consent-protocol-pod` branch=4 main=**0**.
+`main` does not build the per-user pod image at all. Taking its side of that one file
+deletes modular pod deployment, after which provisioning, the relay and the turn all
+address an image nobody publishes.
+
+**The procedure, every time:**
+
+1. **Assess before resolving.** `git merge-tree` first. Distinguish paths that genuinely
+   conflict from those that merely need a three-way merge — on the 2026-08-12 sync only
+   **10 of 19** truly conflicted, and the other 9 needed a semantic read, not a decision.
+2. **Resolve by architectural intent, never by recency.** For each conflict ask which side
+   carries the future architecture. Keep this branch's side on pod-deployment surfaces and
+   port genuinely new `main` content on top of it.
+3. **Never hand-merge generated artifacts.** Regenerate them, in dependency order, with the
+   topology index last because it digests the others. A hand-picked hash makes the artifact
+   lie about what it digests.
+4. **Watch for semantic conflicts git will not flag** — a `.gitignore` that merges cleanly
+   while contradicting a mirror the other side committed is the known example.
+5. **Verify the resulting codebase after every merge**, not just that it builds. Run
+   `consent-protocol/tests/test_pod_architecture_is_authoritative.py`, the generator
+   `--check` modes, and the affected suites.
+6. **Merge on a scratch integration branch**, never directly on the workstream branch.
+7. **UAT and PROD stay isolated** until the transition is explicitly approved. Preview on
+   the **dev** lane only.
+
+**The guard:** `consent-protocol/tests/test_pod_architecture_is_authoritative.py` asserts the
+architectural direction — pod image build, relay mount, turn router, the pod-conditional
+memory guard, the specialist authority gate, carried grounding, and migration 141's
+idempotency guard appearing exactly once. It goes red and names what was lost, which is the
+only moment the loss is cheap to undo. It is registered in `scripts/test-ci.manifest.txt`.
+
+**Commit identity is the GitHub-connected account, always.** Author and committer stay
+`40542375+kushaltrivedi5@users.noreply.github.com` per `github-contribution-governance` —
+never a generic, proxy, or assistant address, which would misattribute the work and cost the
+contribution credit. Tooling that suggests re-authoring commits to a proxy identity is to be
+declined; the resulting **Unverified** badge is a deliberate trade, documented above, not a
+defect to fix.
+
 ## Where to look
 
 - **Private Agent architecture — the single source of truth, inherited by pointer and

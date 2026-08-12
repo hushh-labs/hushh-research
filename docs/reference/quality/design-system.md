@@ -291,3 +291,52 @@ visible range, and current-page status with its page-jump controls. The shared
 bottom ambient material stays inside the measured fixed chrome footprint; its
 blur is clipped by the same edge dissolve as the tint and must never extend over
 the final route component.
+
+
+## Document + PDF Artifact Contract (canonical)
+
+Document generation has **exactly one lane**. `app/globals.css` is the single source of
+truth for tokens; the PDF pipeline reads it rather than restating it, so a token change
+reaches documents without a second edit.
+
+| Concern | Canonical path |
+|---|---|
+| Curation + authoring rules | `.codex/skills/founder-brief-curation/SKILL.md` |
+| PDF artifact procedure | `.codex/skills/founder-brief-curation/references/pdf-artifact-generation.md` |
+| Formatter + theme contract | `hushh-webapp/lib/morphy-ux/pdf-document-formatter.mjs` |
+| Exporter (CLI) | `hushh-webapp/scripts/reports/export-markdown-pdf.mjs` |
+| Design tokens | `hushh-webapp/app/globals.css` |
+| Design system rules | this document |
+
+### The four themes
+
+Two Foundation grounds crossed with two accents. These names are a **published contract** —
+documents already in circulation name them, and the DocuSign document is
+`molten-gold-light` — so they may not be renamed without migrating those call sites.
+
+| Theme | Ground | Accent | Accent source in `globals.css` |
+|---|---|---|---|
+| `light` | light | iOS Blue | `:root` |
+| `dark` | dark | iOS Blue | `:root` + every `.dark` block, merged in order |
+| `molten-gold-light` | light | Molten Gold | `html[data-accent="gold"]` |
+| `molten-gold` | dark | Molten Gold | `html[data-accent="gold"].dark` |
+
+```bash
+cd hushh-webapp
+node scripts/reports/export-markdown-pdf.mjs \
+  --input <doc.md> --output <doc.pdf> \
+  --theme light|dark|molten-gold-light|molten-gold
+```
+
+Guard: `hushh-webapp/__tests__/morphy-ax/pdf-theme-canon.test.ts`. It drives the **real**
+`resolveFormatter`, not a copy — an earlier version reimplemented the resolution logic and
+passed against broken code, which is how the `dark` theme stayed broken through every
+prior run.
+
+### Deprecated: `.claude/skills/morphy-pdf/`
+
+A divergent parallel copy with its own CSS, its own embedded fonts and its own renderer.
+It never reads `globals.css`, so its output ignores the Foundation tokens and the accent
+preference, and it cannot express `molten-gold-light`. Retained read-only so existing
+references resolve. **Do not extend it** — port anything still needed into the canonical
+formatter.
