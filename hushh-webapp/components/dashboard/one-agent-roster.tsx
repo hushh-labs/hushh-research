@@ -401,9 +401,12 @@ function metricLabelClassName(tone: AgentMetricTone): string {
 function AgentMetric({
   mode,
   compact = false,
+  align = "right",
 }: {
   mode: OneAgentMode;
   compact?: boolean;
+  /** Grid cards align the KPI to the left under the title (reference design). */
+  align?: "right" | "left";
 }) {
   const isTopWinner =
     mode.id === "finance" && mode.primaryMetric.label.endsWith("%");
@@ -415,10 +418,13 @@ function AgentMetric({
     <span
       data-testid={isTopWinner ? "one-finance-top-winner-kpi" : undefined}
       className={cn(
-        "inline-flex w-full min-w-0 items-baseline gap-1 text-right",
+        "inline-flex w-full min-w-0 items-baseline gap-1",
+        align === "left" ? "justify-start text-left" : "text-right",
         compact
           ? "max-w-full flex-wrap justify-center"
-          : "justify-end whitespace-nowrap",
+          : align === "left"
+            ? "flex-wrap"
+            : "justify-end whitespace-nowrap",
       )}
     >
       <span
@@ -460,7 +466,12 @@ function AgentGridItem({
       data-testid={`one-agent-tile-${mode.id}`}
       title={mode.description}
       className={cn(
-        "group relative flex min-h-[8.25rem] min-w-0 w-full flex-col items-center justify-start gap-2 overflow-hidden rounded-[12px] px-2.5 py-3 text-center",
+        // Reference design: left-aligned card — large pastel icon tile, then a
+        // bold title, then a single-line KPI. `min-w-0` + consistent gaps keep
+        // every cell's icon/title/KPI on the same baseline across columns so
+        // the previous ragged, split look is gone. Colors are unchanged (the
+        // tone logic in AgentMetric still drives them).
+        "group relative flex min-h-[9.5rem] min-w-0 w-full flex-col items-start justify-start gap-2.5 overflow-hidden rounded-[16px] px-3 py-3.5 text-left",
         "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[color:var(--app-card-surface-compact)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-inset active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
         className,
@@ -472,19 +483,19 @@ function AgentGridItem({
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
         isActive={mode.statusTone !== "muted"}
-        size="roster"
+        size="roster-lg"
         treatment="profile"
         glyphContrast="default"
         className="relative z-10"
       />
-      <span className="relative z-10 min-w-0">
+      <span className="relative z-10 flex w-full min-w-0 flex-col gap-1">
         <span
-          className="ui-text-row-label block truncate"
-          data-ui-role="body"
+          className="block truncate text-[16px] font-semibold leading-5 tracking-[-0.01em] text-[#1D1D1F] dark:text-[#F5F5F7]"
+          data-ui-role="body-strong"
         >
           {mode.title}
         </span>
-        <AgentMetric mode={mode} compact />
+        <AgentMetric mode={mode} align="left" />
       </span>
       <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
