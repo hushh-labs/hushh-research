@@ -131,5 +131,6 @@ Use `github-contribution-governance` when contribution graph visibility, verifie
 - [crm-registry-operations.md](./crm-registry-operations.md): CRM registry check, probe, apply, and deactivate operations.
 - [hussh-mcp-partner-integration-guide.md](./hussh-mcp-partner-integration-guide.md): partner-facing MCP integration guide.
 - [hussh-rebrand-classification.md](./hussh-rebrand-classification.md): non-breaking rebrand bucket model.
+- [android-bundle-id-migration.md](./android-bundle-id-migration.md): the com.hushh.app -> com.hussh.app Android-only bundle ID migration plan, including still-open sign-in items.
 - [mulesoft-crm-schema-contract-v1.json](./mulesoft-crm-schema-contract-v1.json): machine-readable CRM field-role contract.
 - [`../../../consent-protocol/scripts/README.md`](../../../consent-protocol/scripts/README.md): maintainer-only backend script map and when to use it.

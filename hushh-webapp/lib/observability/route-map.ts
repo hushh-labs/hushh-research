@@ -57,8 +57,10 @@ export const ROUTE_ID_VALUES = [
   "one_marketplace",
   "one_location",
   "one_location_map",
+  "one_location_check_in",
   "one_location_public_request",
   "one_location_circle_invite",
+  "one_location_circle_join",
   "one_wallet_card",
   "wallet_card_public",
   "portfolio_shared",
@@ -193,11 +195,19 @@ export function resolveRouteId(pathname: string): RouteId {
   }
   if (pathname === ROUTES.ONE_KYC) return "one_kyc";
   if (pathname === ROUTES.ONE_LOCATION_MAP) return "one_location_map";
+  // Its own id rather than the map's: these are separate screens now, and
+  // folding them together would hide the split from every page-view metric.
+  if (pathname === ROUTES.ONE_LOCATION_CHECK_IN) return "one_location_check_in";
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
   if (pathname.startsWith("/one/location/request/"))
     return "one_location_public_request";
   if (pathname.startsWith("/one/location/invite/"))
     return "one_location_circle_invite";
+  // Recipient landing for a shared Circle join link. It only forwards into
+  // /one/location with the code pre-filled, but it still needs an id: falling
+  // through to "unknown" logs the raw pathname, and this route's query carries
+  // a join code. Same reasoning as the public request and invite links above.
+  if (pathname === "/circle/join") return "one_location_circle_join";
   if (pathname === ROUTES.ONE_WALLET_CARD) return "one_wallet_card";
   // The scanned page emits no analytics of its own (isAnalyticsExemptRoute),
   // so this ID is never attached to a page view. It exists because "unknown"
@@ -718,6 +728,10 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/iam\/marketplace\/opt-in(?:\?.*)?$/i,
     template: "/api/iam/marketplace/opt-in",
+  },
+  {
+    regex: /^\/api\/iam\/contact-discoverability(?:\?.*)?$/i,
+    template: "/api/iam/contact-discoverability",
   },
   {
     regex: /^\/api\/ria\/onboarding\/submit(?:\?.*)?$/i,

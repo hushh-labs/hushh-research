@@ -834,7 +834,11 @@ export default function MarketplacePage() {
     try {
       setContactMatchLoading(true);
       setContactMatchError(null);
-      const lookupResult = await buildMarketplaceContactLookups({ limit: 500 });
+      const lookupResult = await buildMarketplaceContactLookups({
+        limit: 500,
+        // Resolves which region bare national contact numbers belong to.
+        accountPhoneNumber: user.phoneNumber,
+      });
       if (lookupResult.lookups.length === 0) {
         setContactMatches([]);
         setContactScanSummary("No phone numbers found in contacts.");
@@ -850,7 +854,7 @@ export default function MarketplacePage() {
         `${matches.length} match${matches.length === 1 ? "" : "es"} from ${lookupResult.totalContacts} contacts.`
       );
       if (matches.length === 0) {
-        toast.info("No Hushh contacts found", {
+        toast.info("No Hussh contacts found", {
           description: "Search is still available across public profiles.",
         });
       }
@@ -875,7 +879,7 @@ export default function MarketplacePage() {
     const investorUserId = marketplaceInvestorUserId(investor);
     if (!isMarketplaceInvestorConnectable(investor) || !investorUserId) {
       toast.info("Public investor profile", {
-        description: "This profile is discovery-only until an invite or verified Hushh account exists.",
+        description: "This profile is discovery-only until an invite or verified Hussh account exists.",
       });
       return;
     }
@@ -1212,7 +1216,7 @@ export default function MarketplacePage() {
                   Contacts
                 </p>
                 <h3 className="mt-1 line-clamp-1 text-[15px] font-semibold leading-snug tracking-normal text-foreground">
-                  Already on Hushh
+                  Already on Hussh
                 </h3>
               </div>
               <Button
@@ -1234,7 +1238,7 @@ export default function MarketplacePage() {
                   onClick={() => openContactMatch(match)}
                 >
                   <ProfileAvatar
-                    kind={match.kind}
+                    kind={match.kind === "one_user" ? "investor" : match.kind}
                     label={match.display_name}
                     className="h-11 w-11 rounded-2xl"
                     riaSurface={isRiaConnectSurface}
@@ -1660,7 +1664,7 @@ export default function MarketplacePage() {
                   {selectedInvestor.strategy_summary ||
                     (selectedInvestorConnectable
                       ? "This investor has opted into discovery and is available for a connection flow."
-                      : "This public investor profile is available for discovery review. Direct consent requests require a verified Hushh investor account.")}
+                      : "This public investor profile is available for discovery review. Direct consent requests require a verified Hussh investor account.")}
                 </p>
               </RiaSurface>
 

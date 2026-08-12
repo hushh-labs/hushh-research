@@ -383,25 +383,32 @@ function TopShellBreadcrumbTrail({
     <nav
       aria-label="Breadcrumb"
       data-testid="top-app-bar-breadcrumb-trail"
-      className="top-shell-ambient-ink pointer-events-auto flex min-w-0 items-center gap-1 text-[15px] font-medium text-current"
+      className="ui-text-navigation-title top-shell-ambient-ink pointer-events-auto flex min-w-0 items-center gap-1 text-current"
     >
       {items.map((item, index) => {
         const isLast = index === items.length - 1;
         return (
           <span
             key={`${item.label}-${index}`}
-            className="flex min-w-0 items-center gap-1"
+            className={cn(
+              "flex min-w-0 items-center gap-1",
+              // The last crumb (current page) keeps its full label; earlier
+              // ancestors are allowed to shrink and truncate so a deep trail
+              // like "Profile > Preferences > Gemini" collapses gracefully on
+              // narrow iOS widths instead of colliding/overflowing the header.
+              isLast ? "shrink-0" : "min-w-0 shrink",
+            )}
           >
             {index > 0 ? (
               <ChevronRight
-                className="h-3.5 w-3.5 shrink-0 opacity-40"
+                className="mx-0.5 h-3.5 w-3.5 shrink-0 text-[color:var(--app-tertiary-label)]"
                 aria-hidden
               />
             ) : null}
             {item.href && !isLast ? (
               <button
                 type="button"
-                className="max-w-[9rem] shrink-0 truncate opacity-65 transition-opacity hover:opacity-100"
+                className="min-w-0 max-w-[9rem] shrink truncate text-[color:var(--app-secondary-label)] transition-colors hover:text-current"
                 onClick={() =>
                   requestInternalAppNavigation({
                     href: item.href!,
@@ -416,8 +423,10 @@ function TopShellBreadcrumbTrail({
             ) : (
               <span
                 className={cn(
-                  "min-w-0 truncate",
-                  isLast ? "font-semibold" : "opacity-65",
+                  "truncate",
+                  isLast
+                    ? "min-w-0 shrink-0 font-semibold text-current"
+                    : "min-w-0 shrink text-[color:var(--app-secondary-label)]",
                 )}
                 aria-current={isLast ? "page" : undefined}
               >
@@ -719,9 +728,20 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   );
   const breadcrumbTrailItems = useMemo(() => {
     const raw = topShellBreadcrumb?.items ?? [];
+    // Defensively drop any crumb whose label is empty/whitespace before the
+    // trail renders. A resolver that spreads a conditional segment
+    // (`...(x ? [{label}] : [])`) can only ever yield real labels today, but
+    // guarding here means a future empty/undefined segment can never surface as
+    // a stray separator pair (the "Finance > , > > preview" artifact) in the
+    // shared chevron trail.
+    const cleaned = raw.filter(
+      (item) => typeof item.label === "string" && item.label.trim().length > 0,
+    );
     // Inner/"subagent" routes read as "Kai > Analysis", not
     // "One > Kai > Analysis": drop the app-root crumb from the visible trail.
-    return raw.length > 0 && raw[0]?.label === "One" ? raw.slice(1) : raw;
+    return cleaned.length > 0 && cleaned[0]?.label === "One"
+      ? cleaned.slice(1)
+      : cleaned;
   }, [topShellBreadcrumb]);
   const hasBreadcrumbTrail = !centerTitle && breadcrumbTrailItems.length > 0;
   const canShowPersonaSwitcher = useMemo(
@@ -858,6 +878,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   return (
     <div
       data-app-top-bar
+      data-ui-role="top-navigation"
       data-top-app-bar-tabs-only={tabsOnlyChrome || undefined}
       data-ambient-chrome-ignore
       className={cn(
@@ -949,6 +970,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         variant="icon"
                         aria-label="Go back"
                         onClick={handleTopShellBack}
+                        className="!text-[color:var(--app-accent)]"
                       >
                         <ArrowLeft className="h-5 w-5" />
                       </ShellActionSurface>

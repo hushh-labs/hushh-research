@@ -95,6 +95,8 @@ export function KaiMarketHubPage() {
   return (
     <AppPageShell
       as="div"
+      fitContent
+
       width="reading"
       className="relative !px-0 pb-32"
       data-finance-workspace="true"

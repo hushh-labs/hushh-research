@@ -157,6 +157,50 @@ function routeSort(left, right) {
 }
 
 const routeOverrides = {
+  "/one/calendar": {
+    api_dependencies: [
+      {
+        service_file: "lib/services/google-calendar-service.ts",
+        service_methods: [
+          "status",
+          "startConnect",
+          "disconnect",
+          "executeProposal",
+        ],
+        nextjs_api_route: "/api/one/{path*}",
+        nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+        backend_endpoint_family:
+          "/api/one/calendar/{status,connect/*,proposals/*}",
+        native_transport:
+          "Web-only Google OAuth; Calendar does not claim native authorization support.",
+      },
+    ],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      oauth_connection:
+        "Google refresh tokens remain server-encrypted; the browser receives only connection status and an authorization URL.",
+      mutation_authority:
+        "Calendar creates, reschedules, and cancellations remain short-lived proposals and execute only after explicit owner confirmation in One chat.",
+    },
+  },
+  "/one/setup/calendar": {
+    api_dependencies: [
+      {
+        service_file: "lib/services/google-calendar-service.ts",
+        service_methods: ["status", "startConnect", "disconnect"],
+        nextjs_api_route: "/api/one/{path*}",
+        nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+        backend_endpoint_family: "/api/one/calendar/{status,connect/*}",
+        native_transport:
+          "Web-only Google OAuth; Calendar setup does not claim native authorization support.",
+      },
+    ],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      oauth_connection:
+        "Google refresh tokens remain server-encrypted; setup receives only connection status and an authorization URL.",
+    },
+  },
   "/one/location": {
     api_dependencies: [
       {

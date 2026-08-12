@@ -1,0 +1,22 @@
+{
+  "profile": "crm-zk.v1",
+  "purpose": "cross-language canonical AAD conformance; no credential, key, or CRM value is present",
+  "hkdf": {
+    "hash": "SHA-256",
+    "salt_base64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    "info_utf8": "crm-zk.v1:key-wrap",
+    "output_bytes": 32
+  },
+  "context_digest": "sha256:dbbdea585a8cc0dad85838ce0c7d01e273aa829e46a4e3ee5fdd0d44d97fa12b",
+  "canonical_aad_utf8": "{\"clientEphemeralPublicKey\":\"AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=\",\"clientOperationId\":\"czko_vector_000000000000000000000001\",\"configurationRevision\":7,\"contextDigest\":\"sha256:dbbdea585a8cc0dad85838ce0c7d01e273aa829e46a4e3ee5fdd0d44d97fa12b\",\"contextId\":\"czkc_vector_000000000000000000000001\",\"direction\":\"update_request\",\"expiresAtMs\":4102444800000,\"fieldNames\":[\"Department\",\"Title\"],\"objectType\":\"Contact\",\"operation\":\"update\",\"profile\":\"crm-zk.v1\",\"recipientKeyFingerprint\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"recipientKeyId\":\"mulesoft-recipient-2026-08\",\"schemaFingerprint\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"systemId\":\"crm-vector\"}",
+  "aad_sha256": "sha256:0119f7aaaefc5602db5c70c4b1e765db556797c0bf1e5336ad33bc924cd11a8b",
+  "signature_format": "ECDSA P-256 SHA-256 IEEE P1363 fixed-width r||s (64 bytes)",
+  "required_negative_cases": [
+    "tampered AAD",
+    "tampered ciphertext/tag/wrapped key",
+    "wrong, retired, or fingerprint-mismatched recipient key",
+    "expired or replayed context/envelope/challenge",
+    "wrong owner or MuleSoft response signing key",
+    "lost ephemeral response key recovery via fresh bound read"
+  ]
+}

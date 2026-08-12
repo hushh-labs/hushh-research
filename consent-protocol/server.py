@@ -18,8 +18,19 @@ from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 from hushh_mcp.runtime_settings import get_app_runtime_settings  # noqa: E402
 from mcp_modules.log_redaction import install_sensitive_log_filter  # noqa: E402
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging.
+#
+# Timestamps are not decoration here. Without them a log line cannot be placed
+# against anything the person actually did, so "voice repeated itself just now"
+# could not be tied to a session -- and the lines that would have answered it
+# were indistinguishable from ones written an hour earlier. Cloud Logging stamps
+# its own receipt time in production; this is what local and container stdout
+# get.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 install_sensitive_log_filter()
 logger = logging.getLogger(__name__)
 _APP_RUNTIME_SETTINGS = get_app_runtime_settings()
@@ -404,6 +415,35 @@ logger.info(
 # that the guard reuses the already-warm pool instead of paying cold-start
 # connection cost a second time.
 # ============================================================================
+
+
+@app.on_event("startup")
+async def startup_widen_default_executor() -> None:
+    """Give the asyncio default thread-pool executor more room.
+
+    Why this exists
+    ----------------
+    Every synchronous SQLAlchemy DB call in this process (and
+    `asyncio.to_thread` calls like the one_location agent tools use) runs on
+    the SAME default executor asyncio itself uses for things like DNS
+    resolution (`loop.getaddrinfo`, which the `websockets` client uses to
+    connect out to the Gemini Live API). Python's default pool size --
+    `min(32, cpu_count + 4)` -- is easily saturated by concurrent blocking DB
+    work under load, at which point an unrelated, otherwise-instant operation
+    like that DNS lookup queues behind it and can time out. Observed directly:
+    a live voice session's outbound Gemini Live handshake failed with
+    "TimeoutError: timed out during opening handshake" at getaddrinfo, at the
+    exact moment two DB-heavy endpoints were each taking 40-50s. Widening the
+    pool doesn't fix the underlying DB cost, but it stops unrelated quick
+    executor work from being starved behind it.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    max_workers = int(os.getenv("ASYNCIO_DEFAULT_EXECUTOR_MAX_WORKERS", "64"))
+    asyncio.get_running_loop().set_default_executor(
+        ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="asyncio-default")
+    )
+    logger.info("startup.asyncio_default_executor_widened max_workers=%d", max_workers)
 
 
 @app.on_event("startup")

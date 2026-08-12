@@ -22,6 +22,7 @@ import {
   Search,
   UserRound,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   AppPageContentRegion,
   AppPageShell,
@@ -455,15 +456,20 @@ function filterConsentSurfaceEntries(
   locallyHandledRequestIds: Set<string>,
   locallyRevokedScopes: Set<string>,
 ): ConsentCenterEntry[] {
+  // Both of these surfaces list requests that are still open, so a row the
+  // user just answered has to disappear from either one. Keying this on
+  // "pending" alone kept an accepted connection request on screen, because
+  // connections are a separate surface with their own tab.
+  const listsOpenRequests = surface === "pending" || surface === "connections";
   return source.filter((entry) => {
     if (
-      surface === "pending" &&
+      listsOpenRequests &&
       entry.request_id &&
       locallyHandledRequestIds.has(entry.request_id)
     ) {
       return false;
     }
-    if (surface === "pending" && locallyHandledRequestIds.has(entry.id)) {
+    if (listsOpenRequests && locallyHandledRequestIds.has(entry.id)) {
       return false;
     }
     if (
@@ -785,7 +791,7 @@ function ConsentHistoryLifecycleDetails({
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  <div className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                     {lifecycleLabel(trailIndex)}
                   </div>
                   <div className="mt-1 text-sm font-semibold leading-5 text-foreground">
@@ -1137,7 +1143,7 @@ function ConsentEntryDetail({
         <dl className="grid gap-x-6 gap-y-4 px-1 py-1 sm:grid-cols-2">
           {detailItems.map(([label, value]) => (
             <div key={label} className="min-w-0 space-y-1">
-              <dt className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              <dt className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                 {label}
               </dt>
               <dd className="text-sm leading-5 text-foreground [overflow-wrap:anywhere]">
@@ -1765,6 +1771,34 @@ export function ConsentCenterPage() {
       isMarketplaceConsent(entry.metadata, entry.scope),
     [],
   );
+  /**
+   * Settle a connection request the user has just answered.
+   *
+   * Two separate things have to happen or the row survives its own decision.
+   * The local id retires it from the connections pane straight away, and the
+   * event has to carry `reconcile` — the listener ignores a bare event, so an
+   * accepted request used to sit there looking unanswered until a reload.
+   *
+   * The event deliberately carries no `action`: the optimistic summary maths
+   * behind that field counts consent rows, and a connection request is not
+   * one, so claiming an approve here would knock a real pending consent off
+   * the badge. The forced refetch settles the true counts a moment later.
+   */
+  const markConnectionRequestHandled = useCallback((requestId: string) => {
+    const normalized = requestId.trim();
+    if (normalized) {
+      setLocallyHandledRequestIds((current) => {
+        const next = new Set(current);
+        next.add(normalized);
+        return next;
+      });
+    }
+    window.dispatchEvent(
+      new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
+        detail: { reconcile: true },
+      }),
+    );
+  }, []);
   const approveEntry = useCallback(
     (
       entry: ConsentCenterEntry,
@@ -1777,24 +1811,24 @@ export function ConsentCenterPage() {
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
           if (!user) return;
+          const requestId = entry.request_id || entry.id;
           try {
             const idToken = await user.getIdToken();
             await ConnectionsService.accept({
               idToken,
-              requestId: entry.request_id || entry.id,
+              requestId,
               selectedRequestedScopeHandles:
                 scopeSelection?.requestedScopeHandles,
               selectedOfferedScopeHandles: scopeSelection?.offeredScopeHandles,
             });
             CacheSyncService.onConnectionCapabilityMutated(user.uid);
-            window.dispatchEvent(
-              new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT),
-            );
+            markConnectionRequestHandled(requestId);
           } catch (error) {
             console.error(
               "[ConsentCenter] Couldn't accept the connection request:",
               error,
             );
+            toast.error("Could not accept the connection request. Try again.");
           }
         })();
         return;
@@ -1815,6 +1849,7 @@ export function ConsentCenterPage() {
       handleMarketplaceApprove,
       isLocationEntry,
       isMarketplaceEntry,
+      markConnectionRequestHandled,
       user,
     ],
   );
@@ -1823,21 +1858,21 @@ export function ConsentCenterPage() {
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
           if (!user) return;
+          const requestId = entry.request_id || entry.id;
           try {
             const idToken = await user.getIdToken();
             await ConnectionsService.reject({
               idToken,
-              requestId: entry.request_id || entry.id,
+              requestId,
             });
             CacheSyncService.onConnectionCapabilityMutated(user.uid);
-            window.dispatchEvent(
-              new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT),
-            );
+            markConnectionRequestHandled(requestId);
           } catch (error) {
             console.error(
               "[ConsentCenter] Couldn't decline the connection request:",
               error,
             );
+            toast.error("Could not decline the connection request. Try again.");
           }
         })();
         return;
@@ -1858,6 +1893,7 @@ export function ConsentCenterPage() {
       handleMarketplaceDeny,
       isLocationEntry,
       isMarketplaceEntry,
+      markConnectionRequestHandled,
       user,
     ],
   );
@@ -2194,7 +2230,10 @@ export function ConsentCenterPage() {
     () =>
       filterConsentSurfaceEntries(
         tab === "connections" ? connectionItems : listData?.items || [],
-        listSurface,
+        // `listSurface` has no case for the connections tab and falls through
+        // to "active"; naming the surface honestly here is what lets a just-
+        // answered connection request be filtered out of the live pane.
+        tab === "connections" ? "connections" : listSurface,
         locallyHandledRequestIds,
         locallyRevokedScopes,
       ),

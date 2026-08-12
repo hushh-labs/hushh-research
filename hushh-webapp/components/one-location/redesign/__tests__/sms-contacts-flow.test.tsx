@@ -4,7 +4,6 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 
 import { describe, expect, it, vi } from "vitest";
@@ -70,6 +69,25 @@ const baseProps = {
 
 
 describe("SmsContactsFlow", () => {
+  it("grows past phone width and pairs the two lists on a wide screen", () => {
+    // The column used to be pinned at 430px at every size, so a tablet or a
+    // desktop window rendered a narrow ribbon in a field of grey. Asserting the
+    // breakpoint classes is how this file already checks layout, and it is the
+    // part a refactor is most likely to drop silently.
+    render(<SmsContactsFlow {...baseProps} />);
+
+    const column = screen.getByTestId("sms-contacts-screen")
+      .firstElementChild as HTMLElement;
+    expect(column).toHaveClass("max-w-[430px]");
+    expect(column).toHaveClass("md:max-w-[720px]", "xl:max-w-[960px]");
+
+    // "Alerted on SMS" and "Add from your circle" share one grid, so moving a
+    // person between them stays visible in a single glance.
+    const lists = screen.getByText("Alerted on SMS").closest("div")
+      ?.parentElement as HTMLElement;
+    expect(lists).toHaveClass("md:grid", "md:grid-cols-2");
+  });
+
   it("separates selected and available circle members", () => {
     render(<SmsContactsFlow {...baseProps} />);
 
@@ -107,21 +125,20 @@ describe("SmsContactsFlow", () => {
 
     const removeButton = screen.getByRole("button", { name: "Remove" });
     expect(removeButton).toHaveClass(
-      "bg-[#ffe9e9]",
-      "text-[#d70015]",
-      "border-[#ff3b30]/35",
+      "bg-[color:var(--app-destructive)]/10",
+      "text-[color:var(--app-destructive)]",
     );
     fireEvent.click(removeButton);
     expect(onRemove).not.toHaveBeenCalled();
     expect(screen.getByText("Remove Kushal?")).toBeInTheDocument();
 
     const title = screen.getByRole("heading", { name: /Remove Kushal\?/i });
-    expect(title.querySelector("span")).toHaveClass("text-[#17171c]");
+    expect(title.querySelector("span")).toHaveClass("text-foreground");
     expect(
       screen.getByText(
         "They'll no longer be alerted with your live location when you trigger SMS.",
       ),
-    ).toHaveClass("!text-[#17171c]");
+    ).toHaveClass("!text-muted-foreground");
 
     const removeButtons = screen.getAllByRole("button", {
       name: "Remove",
@@ -160,7 +177,7 @@ describe("SmsContactsFlow", () => {
     expect(screen.getByTestId("sms-contacts-screen")).toHaveClass(
       "fixed",
       "inset-0",
-      "bg-[#f2f3f7]",
+      "bg-background",
     );
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     expect(screen.getByRole("alertdialog")).toHaveClass(
@@ -171,62 +188,26 @@ describe("SmsContactsFlow", () => {
     );
   });
 
-  it("shares the Circle invite code in-context from the grow actions", async () => {
-    const onShareCircleCode = vi.fn().mockResolvedValue(undefined);
-    render(
-      <SmsContactsFlow
-        {...baseProps}
-        onShareCircleCode={onShareCircleCode}
-      />,
-    );
+  it("keeps Circle growth off this screen", () => {
+    // This screen answers one question: who gets the alert. A per-Circle
+    // "Invite people / Share code" block for every Circle pushed the contact
+    // lists below the fold and mixed a membership task into a contact-picking
+    // one. Growing a Circle belongs to the People tab, which owns membership.
+    render(<SmsContactsFlow {...baseProps} />);
 
-    const grow = screen.getByTestId("sms-circle-grow-actions-circle-1");
-    fireEvent.click(within(grow).getByRole("button", { name: /Share code/i }));
+    expect(
+      screen.queryByTestId("sms-circle-grow-actions-circle-1"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Grow /)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Invite people/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Share code/i }),
+    ).not.toBeInTheDocument();
 
-    await waitFor(() =>
-      expect(onShareCircleCode).toHaveBeenCalledWith("circle-1"),
-    );
-  });
-
-  it("invites an existing connection to grow the Circle without leaving SMS", async () => {
-    const onLoadCircleEligibleConnections = vi.fn().mockResolvedValue({
-      eligibleConnections: [
-        {
-          connectionId: "conn-1",
-          userId: "asha-user",
-          displayName: "Asha Meena",
-        },
-      ],
-      pendingInvites: [],
-      remainingCapacity: 1,
-    });
-    const onInviteCircleConnections = vi.fn().mockResolvedValue(undefined);
-
-    render(
-      <SmsContactsFlow
-        {...baseProps}
-        onLoadCircleEligibleConnections={onLoadCircleEligibleConnections}
-        onInviteCircleConnections={onInviteCircleConnections}
-      />,
-    );
-
-    const grow = screen.getByTestId("sms-circle-grow-actions-circle-1");
-    fireEvent.click(
-      within(grow).getByRole("button", { name: /Invite people/i }),
-    );
-
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: /Asha Meena Connected on One/i,
-      }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Invite 1 person" }));
-
-    await waitFor(() =>
-      expect(onInviteCircleConnections).toHaveBeenCalledWith("circle-1", [
-        "asha-user",
-      ]),
-    );
+    // The contact lists it exists for are untouched.
+    expect(screen.getByText("Add a Circle")).toBeInTheDocument();
   });
 });
 

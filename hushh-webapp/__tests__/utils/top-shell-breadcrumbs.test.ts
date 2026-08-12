@@ -3,6 +3,24 @@ import { describe, expect, it } from "vitest";
 import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
 
 describe("top shell breadcrumbs", () => {
+  it("returns a query-selected saved analysis to its Analysis workspace", () => {
+    expect(
+      resolveTopShellBreadcrumb(
+        "/one/kai",
+        new URLSearchParams("tab=analysis&analysis_id=run%3Adebate_123&ticker=NVDA"),
+      ),
+    ).toEqual({
+      backHref: "/one/kai?tab=analysis",
+      width: "content",
+      align: "center",
+      items: [
+        { label: "Finance", href: "/one/kai?tab=market" },
+        { label: "Analysis", href: "/one/kai?tab=analysis" },
+        { label: "NVDA analysis" },
+      ],
+    });
+  });
+
   it("returns every welcome workspace tab to One", () => {
     const research = new URLSearchParams("tab=research");
     const blog = new URLSearchParams("tab=blog");
@@ -29,6 +47,15 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       hideBack: false,
       items: [{ label: "One", href: "/one" }, { label: "Connect" }],
+    });
+  });
+
+  it("uses the shared top-left back affordance for Calendar", () => {
+    expect(resolveTopShellBreadcrumb("/one/calendar")).toEqual({
+      backHref: "/one",
+      width: "profile",
+      align: "center",
+      items: [{ label: "One", href: "/one" }, { label: "Calendar" }],
     });
   });
 

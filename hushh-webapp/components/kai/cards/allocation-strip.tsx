@@ -60,7 +60,7 @@ export function AllocationStrip({ cashPct, equitiesPct, bondsPct }: AllocationSt
 
   return (
     <div className="space-y-2 rounded-xl border border-border/60 bg-card/70 p-4">
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Allocation</h3>
+      <h3 className="text-[17px] font-semibold leading-[22px] tracking-normal text-foreground">Allocation</h3>
       <div className="h-3 w-full overflow-hidden rounded-full bg-muted">
         <div className="flex h-full w-full">
           {segments.map((segment) => (
@@ -72,7 +72,7 @@ export function AllocationStrip({ cashPct, equitiesPct, bondsPct }: AllocationSt
           ))}
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+      <div className="grid grid-cols-3 gap-2 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
         {segments.map((segment) => (
           <div key={segment.label} className="flex items-center gap-1.5">
             <span className={`h-2 w-2 rounded-full ${segment.className}`} />

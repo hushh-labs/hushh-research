@@ -113,18 +113,68 @@ def send_user_data_push(
         return 0
 
 
+_GENERIC_CONNECTION_REQUEST_BODY = "Someone wants to connect with you on hushh."
+
+
+def _connection_request_body(requester_name: str | None) -> str:
+    """Connection-request banner copy. Names the requester when we have one,
+    else falls back to the generic line — never emits ``None``/``undefined``."""
+    name = (requester_name or "").strip()
+    if not name:
+        return _GENERIC_CONNECTION_REQUEST_BODY
+    return f"{name} wants to connect with you on hushh."
+
+
+def _lookup_display_name(user_id: str) -> str:
+    """Best-effort requester display name from the actor identity cache.
+
+    Returns "" on any miss/error, and — mirroring ``send_user_data_push`` —
+    checks Firebase config FIRST so credential-less environments never touch the
+    database. The banner degrades to the generic copy when this returns "".
+    """
+    user_id = (user_id or "").strip()
+    if not user_id:
+        return ""
+    try:
+        from api.utils.firebase_admin import ensure_firebase_admin
+
+        configured, _ = ensure_firebase_admin()
+        if not configured:
+            return ""
+
+        from db.db_client import get_db
+
+        rows = (
+            get_db()
+            .execute_raw(
+                "SELECT display_name FROM actor_identity_cache WHERE user_id = :user_id LIMIT 1",
+                {"user_id": user_id},
+            )
+            .data
+            or []
+        )
+        if not rows:
+            return ""
+        return str(rows[0].get("display_name") or "").strip()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("push.name_lookup_skipped error=%s", exc)
+        return ""
+
+
 def send_connection_request_push(addressee_user_id: str, requester_user_id: str) -> int:
     """Nudge the addressee's client that a new connection request arrived.
 
     The payload's ``type`` drives the client (see notification-provider.tsx):
     on receipt it invalidates the consent-center cache so the incoming request
-    surfaces without a manual refresh. Body is intentionally generic (no
-    requester name lookup on the write hot path)."""
+    surfaces without a manual refresh. The banner names the requester when the
+    identity cache has a display name, and degrades to the generic line
+    otherwise (best-effort; the lookup never blocks or raises)."""
+    requester_name = _lookup_display_name(requester_user_id)
     return send_user_data_push(
         addressee_user_id,
         notification_type="connection_request",
         title="New connection request",
-        body="Someone wants to connect with you on hushh.",
+        body=_connection_request_body(requester_name),
         deep_link="/one/consent?tab=connections",
         notification_tag=f"connection-request:{addressee_user_id}",
         notification_category="ONE_CONNECTIONS",

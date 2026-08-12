@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -87,6 +88,7 @@ const metadataOnlySchema = {
   systemId: system.systemId,
   target: system.target,
   objectType: system.objectTypeDefault,
+  configurationRevision: system.configurationRevision,
   supportedFields: ["Email", "PreferredLanguage", "Birthdate"],
   schemaStatus: "capability_metadata_missing",
   effectiveActions: {
@@ -371,6 +373,66 @@ describe("ConnectedSystemsPanel", () => {
     expect(ConnectedSystemsService.getSchema).not.toHaveBeenCalled();
     expect(screen.queryByPlaceholderText("Search fields")).toBeNull();
     expect(screen.queryByText("Fields ready")).toBeNull();
+  });
+
+  it("does not show a terminal setup error while the current schema is preparing", async () => {
+    const cache = CacheService.getInstance();
+    cache.set(
+      CACHE_KEYS.CONNECTED_SYSTEMS_REGISTRY("user-1"),
+      { registryRevision: 1, systems: [system] },
+      CACHE_TTL.MEDIUM,
+    );
+    let resolveSchema!: (value: typeof readySchema) => void;
+    const schemaPromise = new Promise<typeof readySchema>((resolve) => {
+      resolveSchema = resolve;
+    });
+    vi.spyOn(ConnectedSystemsResourceService, "loadSchema").mockImplementation(
+      async (params) => {
+        const cacheKey = ConnectedSystemsResourceService.schemaCacheKey({
+          userId: params.userId,
+          systemId: params.systemId,
+          objectType: params.objectType,
+          configurationRevision: params.configurationRevision,
+        });
+        cache.set(
+          cacheKey,
+          {
+            ...metadataOnlySchema,
+            schemaMappingStatus: "unavailable",
+          },
+          CACHE_TTL.SHORT,
+        );
+        const schema = await schemaPromise;
+        cache.set(cacheKey, schema, CACHE_TTL.MEDIUM);
+        return schema;
+      },
+    );
+
+    render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={system.systemId}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("status", { name: "Preparing your CRM profile" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Profile setup is temporarily unavailable"),
+    ).toBeNull();
+
+    await act(async () => {
+      resolveSchema(readySchema);
+    });
+
+    expect(
+      await screen.findByRole("button", { name: "Find my record" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Profile setup is temporarily unavailable"),
+    ).toBeNull();
   });
 
   it("does not show a field catalogue before a fresh user has a linked record", async () => {

@@ -3199,7 +3199,11 @@ export class ApiService {
       signal: data?.signal,
     });
     if (!response.ok) {
-      throw new Error(`One voice relay session failed: ${response.status}`);
+      const error = new Error(
+        `One voice relay session failed: ${response.status}`,
+      ) as Error & { status: number };
+      error.status = response.status;
+      throw error;
     }
     return response.json();
   }

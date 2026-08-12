@@ -28,8 +28,8 @@ export function KaiSearchBar({
   appRuntimeState,
   capabilityState,
   surfaceMetadata,
+  userId = null,
   portfolioTickers = [],
-  topMover = null,
 }: {
   onSelectAction: (selection: KaiCommandPaletteSelection) => void;
   onSubmitPrompt: (prompt: string) => void;
@@ -37,6 +37,7 @@ export function KaiSearchBar({
   appRuntimeState?: AppRuntimeState;
   capabilityState?: VoiceCapabilityStateV1;
   surfaceMetadata?: VoiceSurfaceMetadata | null;
+  userId?: string | null;
   portfolioTickers?: Array<{
     symbol: string;
     name?: string;
@@ -45,10 +46,6 @@ export function KaiSearchBar({
     is_investable?: boolean;
     analyze_eligible?: boolean;
   }>;
-  topMover?: {
-    symbol: string;
-    companyName?: string | null;
-  } | null;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -72,9 +69,9 @@ export function KaiSearchBar({
       appRuntimeState={appRuntimeState}
       capabilityState={capabilityState}
       surfaceMetadata={surfaceMetadata}
+      userId={userId}
       disabled={disabled}
       portfolioTickers={portfolioTickers}
-      topMover={topMover}
     />
   );
 }

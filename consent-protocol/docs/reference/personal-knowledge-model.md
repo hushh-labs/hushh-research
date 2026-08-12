@@ -150,6 +150,45 @@ flowchart TB
 | Control and audit | Manifests, revisions, scope registry, coarse events, claims, and aggregate upgrade receipts | Plaintext values, prompts, model output, and raw extracts |
 | Recovery and quarantine | Lifetime encrypted origin snapshot, rolling rollback revisions, and uncertain legacy information | Private-agent context, MCP discovery, or public projections |
 
+### Reserved Source Library domain
+
+`source_library` is a fixed, canonical PKM capability boundary owned by the
+Source Library writer. It is not a consent scope, cloud-file catalog, raw-source
+store, or generic user domain. Semantic structure agents cannot select, create,
+redirect, or repurpose it.
+
+The mounted Google Drive, iCloud Drive, or local file remains the authoritative
+blob. Source Library keeps private encrypted `SourceLibraryMemoryV2` semantic
+and control memory for items, collections, reviewed knowledge, relationships,
+and logical roots. Its
+profile-scoped SQLite store is a rebuildable mapping and operations plane: it may
+hold opaque references, revisions, lifecycle state, timestamps, keyed lookup
+tokens, and encrypted device-local locators, but never document bytes, extracted
+text, plaintext paths or titles, recipient emails, provider identifiers, or raw
+content hashes.
+
+Hermes seals that local Source Library state with versioned AES-GCM keys derived
+from the unlocked vault key and a separate local-custody secret. The latter is a
+macOS Data Protection Keychain generic-password item configured for
+`WhenUnlockedThisDeviceOnly` and local user presence; it is cached only for the
+unlocked bridge session and is zeroized on lock, revocation, profile change, or
+disconnect. It is not an enclave-resident `SecKey`: the implementation must not
+claim Secure Enclave storage until a non-exportable `SecKey` adapter and its
+device re-enrollment lifecycle are shipped. Missing local custody with existing
+ciphertext fails closed as recovery/rebuild required rather than rotating a key.
+SQLite uses sealed fields and keyed lookup tokens, not full-page database
+encryption; its opaque mapping state remains rebuildable.
+
+Every `attr.source_library.*` form is non-discoverable, non-requestable, and
+non-authorizing. Source Library manifests expose no top-level consent scopes or
+externalizable paths, and the public-profile projection plane remains disabled.
+Sharing addresses a pinned file revision or reviewed knowledge artifact through
+an opaque `share_ref` and an owner-bound mounted share target. The provider file
+remains the source of truth; a SQLite share row is only local mapping state and
+never proves access, completes publication, or revokes a previously published
+file. Provider ACL administration and verified recipient-email roles are outside
+this mounted-filesystem contract.
+
 No field is deleted because it appears noisy. It must be classified into one of these
 planes. Unknown or conflicting information is preserved in an encrypted, private,
 non-exportable quarantine until deterministic local proof can place or restore it. The

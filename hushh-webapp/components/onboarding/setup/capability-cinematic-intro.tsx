@@ -95,12 +95,18 @@ function fallbackCopy(
 export function CapabilityCinematicIntroGate({
   capabilityId,
   children,
+  introSupplement,
   embedded = false,
+  routeOwnsTopOffset = false,
 }: {
   capabilityId: CapabilityCinematicIntroId;
   children: ReactNode;
+  /** Optional capability-specific value summary shown only in the visual prologue. */
+  introSupplement?: ReactNode;
   /** The owning flow already provides its canonical FullscreenFlowShell. */
   embedded?: boolean;
+  /** The standard route shell already contributes the fixed-header clearance. */
+  routeOwnsTopOffset?: boolean;
 }) {
   const [showIntro, setShowIntro] = useState(true);
   const [shouldFocusCapabilityBody, setShouldFocusCapabilityBody] =
@@ -157,14 +163,20 @@ export function CapabilityCinematicIntroGate({
 
   const premise = copy.introPremise ?? copy.setupTitle;
   const promise = copy.introPromise ?? copy.setupBlurb;
+  const introLayoutClass = embedded
+    ? "motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-col pt-8 text-center"
+    : "motion-step-enter relative mx-auto flex min-h-[calc(100dvh-16rem-env(safe-area-inset-top))] w-full max-w-[36rem] flex-col items-center justify-center pt-[max(2rem,env(safe-area-inset-top))] text-center";
 
   const content = (
     <section
-      className={`motion-step-enter relative mx-auto flex w-full max-w-[36rem] flex-col items-start my-auto ${
-        embedded
-          ? "min-h-[calc(100dvh-var(--top-shell-reserved-height,4rem)-var(--app-scroll-bottom-pad,2rem))] justify-center"
-          : ""
-      }`}
+      // Centered hero. On the iOS Capacitor webview `100dvh` does NOT subtract
+      // the native top bar / status-bar safe area, so a purely centered block
+      // rode up under the header and the copy sat too close to the back arrow
+      // (web was already correct). Add the top safe-area inset as padding AND
+      // subtract it from the min-height so the block clears the native header
+      // while staying vertically balanced. `env(safe-area-inset-top)` is 0 on
+      // web/desktop, so this is a no-op there and only affects notched/native.
+      className={introLayoutClass}
       aria-labelledby={`capability-intro-${capabilityId}`}
       data-capability-cinematic-intro={capabilityId}
     >
@@ -198,7 +210,13 @@ export function CapabilityCinematicIntroGate({
           ))}
         </ul>
       ) : null}
-      <p className="type-subhead text-muted-foreground">One · {copy.title}</p>
+      {/* Eyebrow was `text-muted-foreground`, which reads as heavily faded /
+          low-contrast on the light onboarding background. Use the primary
+          foreground token at reduced weight so it stays legible in both themes
+          without hardcoding a slate color that would break dark mode. */}
+      <p className="type-subhead font-medium text-foreground/80">
+        One · {copy.title}
+      </p>
       <h1
         id={`capability-intro-${capabilityId}`}
         className="mt-4 max-w-[16ch] text-balance type-display text-foreground"
@@ -208,6 +226,9 @@ export function CapabilityCinematicIntroGate({
       <p className="mt-5 max-w-[34rem] text-pretty type-title3 text-muted-foreground">
         {promise}
       </p>
+      {introSupplement ? (
+        <div className="mt-8 w-full max-w-[34rem]">{introSupplement}</div>
+      ) : null}
       <div className="mt-10 w-full max-w-[30rem] self-center">
         <Button
           type="button"
@@ -234,7 +255,7 @@ export function CapabilityCinematicIntroGate({
   return (
     <FullscreenFlowShell
       width="reading"
-      className="justify-center"
+      className={routeOwnsTopOffset ? "!pt-0" : undefined}
     >
       {content}
     </FullscreenFlowShell>

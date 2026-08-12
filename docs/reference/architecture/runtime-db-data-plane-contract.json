@@ -16,6 +16,8 @@
     "pkm_domain_revisions",
     "pkm_domain_commits",
     "kai_gmail_sync_runs",
+    "google_oauth_attempts",
+    "google_calendar_action_proposals",
     "agent_chat_messages",
     "one_action_directive_ledger",
     "kai_funding_webhook_events",
@@ -29,6 +31,12 @@
       "owner": "backend-runtime-governance",
       "mode": "report_only",
       "job_id": "gmail_retention_report"
+    },
+    {
+      "family_id": "google_integrations_provider_state",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "google_integrations_retention_report"
     },
     {
       "family_id": "kai_brokerage_provider_cache",
@@ -353,6 +361,24 @@
       "expected_row_growth": "high_provider_sync"
     },
     {
+      "id": "google_integrations_provider_state",
+      "owner": "backend-runtime-governance",
+      "data_class": "provider_cache",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "google_provider_connections",
+        "google_service_grants",
+        "google_oauth_attempts",
+        "google_calendar_action_proposals"
+      ],
+      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service",
+      "retention_policy": "OAuth attempts expire after ten minutes. Calendar proposals are deleted after execution or failure and are unusable after ten minutes; the next Calendar mutation purges expired proposals. Provider credentials and grants remain only while the user keeps the service connected.",
+      "deletion_behavior": "Cascade-delete with the actor profile; service disconnect locally disables the relevant grant and removes its short-lived proposals. Account-level Google revocation is separate because it affects sibling services.",
+      "trust_boundary": "AES-GCM encrypted OAuth credential envelopes; no Calendar event cache or PKM projection is written by this v1 service.",
+      "plaintext_posture": "encrypted_tokens_and_short_lived_workflow_metadata",
+      "expected_row_growth": "low_provider_workflow"
+    },
+    {
       "id": "kai_analyze_run_store",
       "owner": "backend-runtime-governance",
       "data_class": "workflow_state",
@@ -624,13 +650,15 @@
       "lifecycle_status": "customer0",
       "exact_tables": [
         "connected_system_intents",
-        "connected_system_record_bindings"
+        "connected_system_record_bindings",
+        "connected_system_zk_contexts",
+        "connected_system_intent_approval_challenges"
       ],
-      "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows",
-      "retention_policy": "Pending intents may retain the allowlisted CRM payload required to execute an approved write; terminal rows retain field names, ids, status, and sanitized result summaries only. Record bindings retain active and disconnected external CRM record pointers with workflow metadata so recovery does not erase linkage history.",
+      "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows, including CRM-ZK request contexts and one-time local-owner approval challenges",
+      "retention_policy": "Pending intents may retain the allowlisted CRM payload required to execute an approved write; terminal rows retain field names, ids, status, and sanitized result summaries only. CRM-ZK contexts and approval challenges expire or are consumed and are compacted promptly. Record bindings retain active and disconnected external CRM record pointers with workflow metadata so recovery does not erase linkage history.",
       "deletion_behavior": "Delete user-linked workflow rows on account deletion; compact terminal rows after the operational review window.",
-      "trust_boundary": "External CRM handoff is outside the Hussh zero-knowledge boundary when plaintext is sent to Salesforce. Store only purpose-bound workflow state and scrub terminal payload values.",
-      "plaintext_posture": "pending_allowlisted_payload_then_metadata",
+      "trust_boundary": "External CRM handoff is outside the Hussh zero-knowledge boundary when plaintext is sent to Salesforce. CRM-ZK rows hold purpose-bound signed context, public-key fingerprints, encrypted field envelopes, hashes, and one-time challenge metadata; private owner and recipient keys never persist in this family. Scrub terminal payload values.",
+      "plaintext_posture": "pending_allowlisted_or_encrypted_envelope_then_metadata",
       "expected_row_growth": "low_workflow"
     },
     {
@@ -647,6 +675,21 @@
       "trust_boundary": "Metadata-only audit evidence for external CRM actions. No vault data, raw PKM, full CRM payloads, credentials, or MCP tokens.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_append_only"
+    },
+    {
+      "id": "connected_system_owner_key_metadata",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "connected_system_owner_signing_keys"
+      ],
+      "primary_access_path": "Connected Systems CRM-ZK owner public-key registration, signature verification, rotation, and revocation",
+      "retention_policy": "Retain the active public signing-key metadata while the owner connection is active; retain retired/revoked metadata only for the bounded operational and audit review window.",
+      "deletion_behavior": "Delete user-linked key metadata on account deletion and mark keys revoked before connector disconnection completes.",
+      "trust_boundary": "Public SPKI, algorithm, status, and fingerprint metadata only. The owner private signing key remains device-local and is never stored or reconstructed by the service.",
+      "plaintext_posture": "public_key_metadata_only",
+      "expected_row_growth": "low_per_user"
     },
     {
       "id": "enterprise_crm_registry_audit",
@@ -670,13 +713,15 @@
       "lifecycle_status": "customer0",
       "exact_tables": [
         "enterprise_crm_registry",
-        "crm_operation_endpoints"
+        "crm_operation_endpoints",
+        "crm_zk_recipient_keys",
+        "crm_zk_uat_recipient_keys"
       ],
-      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL + per-operation MCP tool catalog for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)",
-      "retention_policy": "Retain active enterprise CRM integration config and per-operation tool catalog while the integration is provisioned; deactivate via is_active rather than delete to preserve audit lineage.",
+      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL, per-operation MCP tool catalog, and profile-specific CRM encrypted recipient public-key registries for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)",
+      "retention_policy": "Retain active enterprise CRM integration config, per-operation tool catalog, and recipient public-key records while the integration is provisioned; retire or revoke keys and deactivate the registry rather than delete active history.",
       "deletion_behavior": "Operator-managed reference config; not user-delete scoped. crm_operation_endpoints cascade-delete with their parent crm_id.",
-      "trust_boundary": "Client credentials stored only as AES-256-GCM envelopes (matches vault/encrypt.py EncryptedPayload), decrypted at request time with VAULT_DATA_KEY; gateway/base/token URLs are non-secret config in plaintext. No raw long-lived secrets at rest.",
-      "plaintext_posture": "config_urls_plaintext_credentials_encrypted",
+      "trust_boundary": "Client credentials stored only as AES-256-GCM envelopes (matches vault/encrypt.py EncryptedPayload), decrypted at request time with VAULT_DATA_KEY; CRM-ZK recipient and response-signing public keys plus fingerprints are non-secret verification material. Gateway/base/token URLs are non-secret config in plaintext. No raw long-lived secrets at rest.",
+      "plaintext_posture": "config_urls_and_public_keys_plaintext_credentials_encrypted",
       "expected_row_growth": "low_reference"
     },
     {

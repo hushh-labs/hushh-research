@@ -72,6 +72,13 @@ import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitiv
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 
 import { useConsentNotificationState } from "@/components/consent/notification-provider";
+import {
+  useLocalOnboardingActionHandler,
+  type LocalOnboardingActionResult,
+} from "@/lib/agent/local-onboarding-actions";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -149,9 +156,18 @@ import {
 } from "@/lib/one-location/notifications";
 import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
+import {
+  LOCATION_BLOCK_MESSAGE,
+  isLocationPermissionDeniedError,
+  locationBlockReason,
+  locationReadiness as resolveLocationReadiness,
+} from "@/lib/one-location/location-readiness";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
+  describeContactSyncOutcome,
+  openContactPermissionSettings,
   syncOneLocationContactSignals,
+  OneLocationContactSyncError,
   type OneLocationContactSignalResult,
 } from "@/lib/one-location/contact-signals";
 import { OneLocationActivityDashboard } from "@/components/one-location/activity-dashboard";
@@ -165,6 +181,7 @@ import {
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { buildOneLocationActivityFallback } from "@/lib/one-location/activity";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
+import { buildOneLocationRequestMessage } from "@/lib/one-location/request-message";
 import {
   clearLocationWorkspaceMemory,
   readLocationWorkspaceMemory,
@@ -194,9 +211,13 @@ import {
 } from "@/lib/one-location/sos-trigger";
 import {
   emergencyInfoForCountryCode,
+  readCachedEmergencyInfo,
+  writeCachedEmergencyInfo,
+  EMERGENCY_LOOKUP_TIMEOUT_MS,
   type EmergencyInfo,
   type EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
+import { buildCircleJoinUrl } from "@/lib/one-location/circle-join-url";
 import type {
   DriveDestination,
   DriveSharePayload,
@@ -210,6 +231,7 @@ import type {
   OneLocationCircleInvitePreview,
   OneLocationCircleKind,
   OneLocationCircleMemberInvite,
+  OneLocationCircleSummary,
   OneLocationEncryptedEnvelope,
   OneLocationGrant,
   OneLocationPublicInvite,
@@ -313,6 +335,123 @@ const SHOW_REFERRAL_SECTION = false;
 // scroll-to-section path statically unreachable code.
 const USE_LOCATION_REDESIGN: boolean = true;
 
+/**
+ * How the hub's own URL params read back to a person.
+ *
+ * The redesign addresses every tab as `?view=` and every focused flow as
+ * `?action=`, which is also how the voice action contract reaches them. These
+ * tables are the words for those values, so the surface One is told about and
+ * the surface on screen stay the same surface.
+ */
+const LOCATION_HUB_TAB_LABELS: Readonly<Record<string, string>> = {
+  now: "Now",
+  people: "People",
+  links: "Links",
+};
+
+const LOCATION_TAB_MODULES: Readonly<Record<string, string[]>> = {
+  now: ["Sharing status", "Active shares", "Shared with me", "Quick actions"],
+  people: ["Circles", "Connections"],
+  links: ["Temporary links"],
+};
+
+/**
+ * Exported for the contract-parity test, not for reuse.
+ *
+ * This map is load-bearing for voice in a way nothing about it advertises. A
+ * `?action=` flow's label becomes `visibleModules`, which feeds the relay's
+ * `content_key`, which is what makes a route-context note fire when the ROUTE
+ * has not changed -- opening a flow on a screen the person is already
+ * standing on. `?action=` itself never reaches the relay: `sanitizeRouteQuery`
+ * allowlists tab/view/focus/source/category and drops the rest.
+ *
+ * So a flow with no entry here is invisible to One. That is how voice learns
+ * the SOS control was opened, and there is nothing else carrying it.
+ */
+export const LOCATION_FLOW_LABELS: Readonly<Record<string, string>> = {
+  share: "Share location",
+  ask: "Ask for someone's location",
+  invite: "Invite someone",
+  "create-circle": "Create a circle",
+  "join-circle": "Join a circle",
+  "circle-detail": "Circle detail",
+  "temp-link": "Temporary link",
+  "check-in": "Check in",
+  sos: "Emergency SOS",
+  "sms-contacts": "Emergency contacts",
+  settings: "Location settings",
+  "active-shares": "Active shares",
+  "shared-with-me": "Shared with me",
+  "needs-review": "Requests to review",
+};
+
+/**
+ * The Location surface's own inventory, one entry per authored contract action.
+ * Every id here exists in `page.voice-action-contract.json`; nothing describes
+ * a capability the gateway does not carry.
+ */
+const LOCATION_VOICE_ACTIONS = [
+  // Local handlers FIRST, and the order is load-bearing.
+  //
+  // Every action on this surface names `one_location`, so they all tie for
+  // top rank in `prioritizeAvailableActionIds` and the 10-item cap falls back
+  // to the order they appear here. Route actions survive being cut regardless
+  // -- the relay admits navigation from any screen whether or not it was
+  // submitted -- but a dropped local handler is simply gone, and comes back
+  // from the relay as `action_unavailable`, which reads as a broken feature.
+  //
+  // With 24 actions and 10 slots, listing these last meant the only actions
+  // that DO something were the only ones guaranteed to be lost.
+  { id: "location.share_selected", actionId: "location.share_selected", label: "Share with the people I picked", purpose: "Start the share with whoever is already selected, for a duration you say." },
+  { id: "location.select_share_recipient", actionId: "location.select_share_recipient", label: "Pick someone for the share", purpose: "Select a named connection in the share composer without sending anything." },
+  { id: "location.pause_updates", actionId: "location.pause_updates", label: "Pause my location", purpose: "Stop sending location updates from this device." },
+  { id: "location.resume_updates", actionId: "location.resume_updates", label: "Resume my location", purpose: "Turn location updates back on for this device." },
+  { id: "location.refresh", actionId: "location.refresh", label: "Refresh location", purpose: "Reload location sharing state." },
+
+  { id: "location.open_now", actionId: "location.open_now", label: "Open Location now", purpose: "Show current sharing status and quick actions." },
+  { id: "location.open_people", actionId: "location.open_people", label: "Open Location people", purpose: "Show the people and circles you share with." },
+  { id: "location.open_links", actionId: "location.open_links", label: "Open Location links", purpose: "Show temporary sharing links." },
+  { id: "location.open_share", actionId: "location.open_share", label: "Share my location", purpose: "Open the share composer." },
+  { id: "location.open_ask", actionId: "location.open_ask", label: "Ask for someone's location", purpose: "Open the request composer." },
+  { id: "location.open_invite", actionId: "location.open_invite", label: "Invite someone to Location", purpose: "Invite someone not on Hushh yet." },
+  { id: "location.open_create_circle", actionId: "location.open_create_circle", label: "Create a circle", purpose: "Name a new circle to share with as a group." },
+  { id: "location.open_join_circle", actionId: "location.open_join_circle", label: "Join a circle", purpose: "Enter an invite code to join a circle." },
+  { id: "location.open_temporary_link", actionId: "location.open_temporary_link", label: "Create a temporary link", purpose: "Make a link that expires." },
+  { id: "location.open_check_in", actionId: "location.open_check_in", label: "Check in", purpose: "Send a one-off note of where you are." },
+  { id: "location.open_sos", actionId: "location.open_sos", label: "Open emergency SOS", purpose: "Open the emergency alert screen." },
+  { id: "location.open_sms_contacts", actionId: "location.open_sms_contacts", label: "Open emergency contacts", purpose: "Choose who receives an SOS text." },
+  { id: "location.open_settings", actionId: "location.open_settings", label: "Open Location privacy settings", purpose: "Open privacy and precision controls." },
+  { id: "location.open_active_shares", actionId: "location.open_active_shares", label: "Open active location shares", purpose: "See and stop what is live now." },
+  { id: "location.open_shared_with_me", actionId: "location.open_shared_with_me", label: "Open locations shared with me", purpose: "See who is sharing with you." },
+  { id: "location.open_needs_review", actionId: "location.open_needs_review", label: "Open location requests to review", purpose: "Approve or decline requests." },
+  { id: "location.add_connections", actionId: "location.add_connections", label: "Add people to share location with", purpose: "Open Connect to find people." },
+  { id: "location.open_map", actionId: "location.open_map", label: "Open the location map", purpose: "Open the full-screen map." },
+];
+
+const LOCATION_VOICE_CONTROLS = [
+  { id: "one-location-action-share", label: "Share location", purpose: "Open the share composer.", actionId: "location.open_share", role: "button" },
+  { id: "one-location-open-map", label: "Your Map", purpose: "Open the full-screen map.", actionId: "location.open_map", role: "button" },
+  { id: "one-location-action-active-shares", label: "Active shares", purpose: "See what is live now.", actionId: "location.open_active_shares", role: "button" },
+  { id: "one-location-action-shared-with-me", label: "Shared with me", purpose: "See who is sharing with you.", actionId: "location.open_shared_with_me", role: "button" },
+  { id: "one-location-action-needs-review", label: "Needs my review", purpose: "Approve or decline requests.", actionId: "location.open_needs_review", role: "button" },
+  { id: "one-location-action-settings", label: "Settings", purpose: "Open privacy controls.", actionId: "location.open_settings", role: "button" },
+  { id: "one-location-action-check-in", label: "Check-In", purpose: "Send a one-off check in.", actionId: "location.open_check_in", role: "button" },
+  { id: "one-location-action-sos", label: "SMS", purpose: "Open emergency SOS.", actionId: "location.open_sos", role: "button" },
+  { id: "one-location-action-ask", label: "Ask someone to share", purpose: "Request another person's location.", actionId: "location.open_ask", role: "button" },
+  { id: "one-location-action-invite", label: "Invite trusted person", purpose: "Invite someone not on Hushh yet.", actionId: "location.open_invite", role: "button" },
+  { id: "one-location-action-create-circle", label: "Create", purpose: "Create a circle.", actionId: "location.open_create_circle", role: "button" },
+  { id: "one-location-action-join-circle", label: "Join with code", purpose: "Join a circle by code.", actionId: "location.open_join_circle", role: "button" },
+  { id: "one-location-action-temp-link", label: "Create a new link", purpose: "Create a temporary link.", actionId: "location.open_temporary_link", role: "button" },
+  { id: "one-location-add-connections", label: "Add Connections", purpose: "Open Connect to find people.", actionId: "location.add_connections", role: "button" },
+  { id: "one-location-refresh", label: "Refresh", purpose: "Reload location state.", actionId: "location.refresh", role: "button" },
+  // One control, two contract actions: the direction is whichever one the
+  // switch is not already in. It is rendered in the header and again in
+  // Settings, so both places answer to the same id.
+  { id: "one-location-updates-toggle", label: "Location updates", purpose: "Pause or resume location updates from this device.", actionId: "location.pause_updates", role: "switch" },
+  { id: "one-location-confirm-share", label: "Start sharing", purpose: "Send the share to the selected people.", actionId: "location.share_selected", role: "button" },
+  { id: "one-location-share-recipient-search", label: "Search trusted people", purpose: "Find and select who to share with.", actionId: "location.select_share_recipient", role: "textbox" },
+];
+
 type BusyState =
   | "load"
   | "share"
@@ -360,6 +499,7 @@ type OneLocationContactSignalStatus =
   | "matched"
   | "empty"
   | "unavailable"
+  | "restricted"
   | "denied"
   | "error";
 
@@ -370,6 +510,10 @@ type OneLocationContactSignalState = {
   totalContacts: number;
   inviteCandidateCount: number;
   sourcePlatform?: OneLocationContactSignalResult["sourcePlatform"];
+  /** Only part of the contact book was readable, so "no matches" is not final. */
+  limited?: boolean;
+  /** The contact book was larger than the read or lookup caps. */
+  truncated?: boolean;
   error?: string | null;
   syncedAt?: string | null;
 };
@@ -380,6 +524,8 @@ const INITIAL_CONTACT_SIGNAL_STATE: OneLocationContactSignalState = {
   matchedCount: 0,
   totalContacts: 0,
   inviteCandidateCount: 0,
+  limited: false,
+  truncated: false,
   error: null,
   syncedAt: null,
 };
@@ -624,6 +770,28 @@ function toggleSelectedId(
   return [...selectedIds, recipientId];
 }
 
+function useShareRecipientSelectionState(): readonly [
+  string[],
+  (next: SetStateAction<string[]>) => string[],
+] {
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // React can batch multiple share actions before rerendering. This cursor lets
+  // each action compose from the latest queued selection while state remains
+  // the rendered source of truth.
+  const latestSelectedIdsRef = useRef<string[]>([]);
+  const updateSelectedIds = useCallback(
+    (next: SetStateAction<string[]>): string[] => {
+      const resolvedIds =
+        typeof next === "function" ? next(latestSelectedIdsRef.current) : next;
+      latestSelectedIdsRef.current = resolvedIds;
+      setSelectedIds(resolvedIds);
+      return resolvedIds;
+    },
+    [],
+  );
+  return [selectedIds, updateSelectedIds] as const;
+}
+
 type ShareReadyRecipient = OneLocationRecipient & {
   keyId: string;
   publicKeyJwk: JsonWebKey;
@@ -639,6 +807,64 @@ function isShareReadyRecipient(
 
 function peopleCountLabel(count: number): string {
   return count === 1 ? "1 person" : `${count} people`;
+}
+
+/** Normalize a spoken or stored name: no case, no accents, no punctuation. */
+export function normalizeSpokenName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    // Punctuation out so "Mum & Dad" and "Mum and Dad" are not two different
+    // circles to a speaker. Unicode classes, not [a-z0-9]: a circle named in
+    // Hindi or Arabic must stay matchable rather than normalizing to nothing.
+    // \p{M} is load-bearing -- Devanagari vowel signs are marks, not letters,
+    // so without it "परिवार" shreds into "पर व र" and never matches itself.
+    .replace(/[^\p{L}\p{N}\p{M}\s]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+/**
+ * Resolve a spoken circle name against the circles the person actually has.
+ *
+ * Tiered on purpose. A plain substring scan would let "family" resolve
+ * "Extended family trip" even when a circle literally called "Family" exists,
+ * and the person would then be editing the wrong group's membership without
+ * ever being told. Exact wins, then a whole-word prefix, and only then a
+ * contained match. Ambiguity within a tier is returned as ambiguity rather than
+ * being broken arbitrarily by array order.
+ */
+export function matchCircleByName<T extends { name: string }>(
+  circles: readonly T[],
+  spoken: string,
+): { match: T | null; ambiguous: T[] } {
+  const target = normalizeSpokenName(spoken);
+  if (!target) return { match: null, ambiguous: [] };
+  const indexed = circles.map((circle) => ({
+    circle,
+    normalized: normalizeSpokenName(circle.name),
+  }));
+
+  const tiers = [
+    indexed.filter((entry) => entry.normalized === target),
+    indexed.filter(
+      (entry) =>
+        entry.normalized.startsWith(`${target} `) ||
+        entry.normalized.endsWith(` ${target}`) ||
+        entry.normalized.split(" ").includes(target),
+    ),
+    indexed.filter((entry) => entry.normalized.includes(target)),
+  ];
+
+  for (const tier of tiers) {
+    const [only] = tier;
+    if (only && tier.length === 1) return { match: only.circle, ambiguous: [] };
+    if (tier.length > 1) {
+      return { match: null, ambiguous: tier.map((entry) => entry.circle) };
+    }
+  }
+  return { match: null, ambiguous: [] };
 }
 
 function oneLocationDurationBucket(value: string): OneLocationDurationBucket {
@@ -1393,15 +1619,19 @@ function isLocationServicesDisabled(
   return permission?.locationServicesEnabled === false;
 }
 
+/**
+ * Refuse a share only when no attempt could succeed.
+ *
+ * `denied` used to appear here, which meant a permission value we merely read
+ * could veto a share the device would have allowed — and on Safari, where the
+ * value is unreadable and arrived as `unavailable`, it vetoed every share on a
+ * perfectly working phone. The share paths now attempt and let a real denial
+ * stop them, so this only guards what genuinely cannot be attempted.
+ */
 function locationPermissionBlocksSharing(
   permission: HushhLocationPermissionState | null,
 ): boolean {
-  return (
-    isLocationServicesDisabled(permission) ||
-    permission?.state === "denied" ||
-    permission?.state === "restricted" ||
-    permission?.state === "unavailable"
-  );
+  return locationBlockReason(permission) !== null;
 }
 
 function locationServicesErrorMessage(error: unknown): string {
@@ -1480,7 +1710,10 @@ async function shareOneLocationLink(params: {
   throw new Error("Sharing is not supported on this device.");
 }
 
-function readinessCopy(permission: HushhLocationPermissionState | null): {
+function readinessCopy(
+  permission: HushhLocationPermissionState | null,
+  observedDenial = false,
+): {
   title: string;
   description: string;
   tone: "ready" | "warning" | "blocked" | "checking";
@@ -1512,13 +1745,26 @@ function readinessCopy(permission: HushhLocationPermissionState | null): {
       actionLabel: "Allow Location",
     };
   }
-  if (permission.state === "denied" || permission.state === "restricted") {
+  // Only a refusal we actually observed proves the device is blocked. A
+  // read-back `denied` may be stale, and on Safari it cannot be read at all —
+  // so this offers to ask rather than declaring a dead end the user cannot act
+  // on. `restricted` is genuinely unaskable and stays blocked.
+  if (permission.state === "restricted" || (permission.state === "denied" && observedDenial)) {
     return {
       title: "Location permission blocked",
       description:
         "Allow location access from app settings before you share your location.",
       tone: "blocked",
       actionLabel: "Open Location Settings",
+    };
+  }
+  if (permission.state === "denied") {
+    return {
+      title: "Allow location permission",
+      description:
+        "One will ask this device for location access the moment you share.",
+      tone: "warning",
+      actionLabel: "Allow Location",
     };
   }
   if (permission.state === "unavailable") {
@@ -1726,6 +1972,12 @@ export function OneLocationAgentPageContent({
   }, [auth.userId]);
   const [permission, setPermission] =
     useState<HushhLocationPermissionState | null>(null);
+  // Set only by a capture attempt that came back with a real PERMISSION_DENIED.
+  // A denial we observed is trustworthy in a way a queried one is not, so this
+  // — not the permission API — is what lets the UI say "blocked" and route the
+  // user to settings. Cleared the moment any capture succeeds.
+  const observedLocationDenialRef = useRef(false);
+  const [locationDenialObserved, setLocationDenialObserved] = useState(false);
   useEffect(() => {
     onSetupReadinessChange?.(
       permission?.state === "granted" &&
@@ -1741,6 +1993,18 @@ export function OneLocationAgentPageContent({
   // Monotonic counter bumped each time a share completes successfully, so the
   // redesign hub can close the 3-step share flow and return to the main screen.
   const [shareCompletedTick, setShareCompletedTick] = useState(0);
+  // Where to land once a share completes, when the caller wants somewhere
+  // other than the clean hub.
+  //
+  // A hands-free share is invisible: One says it started sharing and the
+  // screen returns to a hub that looks exactly as it did before. This lets
+  // the voice path ask to be dropped on Active shares instead, which is both
+  // the proof it happened and the way to stop it.
+  //
+  // A ref rather than state, because the value has to be readable by the
+  // completion effect on the very render the tick bumps -- and because taps
+  // must keep landing on the clean hub, which they do by never setting it.
+  const shareCompletedDestinationRef = useRef<string | null>(null);
 
   const [sosIncident, setSosIncident] = useState<SosIncident | null>(null);
   const [sosEmergency, setSosEmergency] = useState<EmergencyInfo | null>(null);
@@ -1847,9 +2111,8 @@ export function OneLocationAgentPageContent({
   const [oneNetworkListExpanded, setOneNetworkListExpanded] = useState(false);
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
   const [selectedRequestOwnerId, setSelectedRequestOwnerId] = useState("");
-  const [selectedRecipientIds, setSelectedRecipientIds] = useState<string[]>(
-    [],
-  );
+  const [selectedRecipientIds, setSelectedRecipientIds] =
+    useShareRecipientSelectionState();
   const [selectedRequestOwnerIds, setSelectedRequestOwnerIds] = useState<
     string[]
   >([]);
@@ -2234,8 +2497,7 @@ export function OneLocationAgentPageContent({
   // perfectly usable for picking the venue you are standing in.
   const locationAccuracyLimited =
     locationEnabled &&
-    (permission?.state !== "granted" ||
-      permission?.precise === false ||
+    (permission?.precise === false ||
       (typeof myLocationPoint?.accuracyM === "number" &&
         Number.isFinite(myLocationPoint.accuracyM) &&
         myLocationPoint.accuracyM > ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS));
@@ -2631,17 +2893,23 @@ export function OneLocationAgentPageContent({
       auth.user,
       auth.userId,
       contactMatchedUserIds,
+      setSelectedRecipientIds,
       stateEntry?.userId,
       vaultOwnerToken,
     ],
   );
 
   const refreshLocationPermission = useCallback(async () => {
+    // A failed read means we do not know, which is a reason to ask the device
+    // rather than to declare it unusable. Reporting `unavailable` here used to
+    // block every share path and pin the toggle off whenever the platform could
+    // not introspect its own permission — which is every iPhone, since WebKit
+    // has no `geolocation` entry in the Permissions API.
     const nextPermission = await OneLocationService.getPermissionState().catch(
       () => ({
-        state: "unavailable" as const,
-        precise: false,
-        background: "unavailable" as const,
+        state: "prompt" as const,
+        precise: null,
+        background: "foreground-only" as const,
         locationServicesEnabled: null,
       }),
     );
@@ -2678,11 +2946,20 @@ export function OneLocationAgentPageContent({
     }): Promise<{ ready: boolean; point?: PlainLocationPoint }> => {
       const shouldCapturePoint = Boolean(options?.capturePoint);
       const shouldOpenSettings = options?.autoOpenSettings !== false;
-      const shouldRequestNativePrompt = options?.requestNativePrompt === true;
       const currentPermission = await refreshLocationPermission();
 
-      if (isLocationServicesDisabled(currentPermission)) {
-        toast.error("Turn on phone Location before sharing.");
+      // Only two things stop us before we have tried, and neither can be fixed
+      // by asking: the OS location service is off, or the platform forbids the
+      // prompt outright (iOS `restricted`, or no geolocation at all).
+      //
+      // A read-back "denied" is deliberately NOT one of them. Refusing on it is
+      // what made this unrecoverable: on the web the browser's prompt appears
+      // only from `getCurrentPosition()`, so returning early guarantees the user
+      // is never asked, and a stale or unreadable value traps them for good. We
+      // attempt, and let a real PERMISSION_DENIED be the thing that blocks.
+      const blockReason = locationBlockReason(currentPermission);
+      if (blockReason) {
+        toast.error(LOCATION_BLOCK_MESSAGE[blockReason]);
         if (shouldOpenSettings) {
           await OneLocationService.openLocationSettings().catch(() => null);
         }
@@ -2690,32 +2967,19 @@ export function OneLocationAgentPageContent({
       }
 
       if (
-        currentPermission.state === "restricted" ||
-        (currentPermission.state === "denied" && !shouldRequestNativePrompt)
+        currentPermission.state === "granted" &&
+        !shouldCapturePoint &&
+        !observedLocationDenialRef.current
       ) {
-        toast.error("Allow location permission before sharing.");
-        if (shouldOpenSettings) {
-          await OneLocationService.openLocationSettings().catch(() => null);
-        }
-        return { ready: false };
-      }
-
-      if (currentPermission.state === "unavailable") {
-        toast.error(
-          "Location is unavailable. Check your phone Location settings.",
-        );
-        if (shouldOpenSettings) {
-          await OneLocationService.openLocationSettings().catch(() => null);
-        }
-        return { ready: false };
-      }
-
-      if (currentPermission.state === "granted" && !shouldCapturePoint) {
         return { ready: true };
       }
 
       try {
         const point = await OneLocationService.captureCurrentPosition();
+        // A coordinate in hand outranks anything the permission API says. This
+        // is what keeps Safari honest, where the value is simply unreadable.
+        observedLocationDenialRef.current = false;
+        setLocationDenialObserved(false);
         const nextPermission =
           await OneLocationService.getPermissionState().catch(() => null);
         setPermission(
@@ -2736,11 +3000,17 @@ export function OneLocationAgentPageContent({
         if (nextPermission) {
           setPermission(nextPermission);
         }
+        // Only an attempt can prove a denial. Record it so the UI can say
+        // "blocked" and offer settings, instead of guessing from a query.
+        const denied = isLocationPermissionDeniedError(error);
+        observedLocationDenialRef.current = denied;
+        setLocationDenialObserved(denied);
         const message = locationServicesErrorMessage(error);
         toast.error(message);
         if (
           shouldOpenSettings &&
-          (isLocationServicesDisabled(nextPermission) ||
+          (denied ||
+            isLocationServicesDisabled(nextPermission) ||
             message.toLowerCase().includes("turn on location"))
         ) {
           await OneLocationService.openLocationSettings().catch(() => null);
@@ -3232,7 +3502,7 @@ export function OneLocationAgentPageContent({
     setSelectedShareCircleSelection(null);
     setShareDurationHours(ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS);
     setShareMessage("");
-  }, []);
+  }, [setSelectedRecipientIds]);
   const resetRequestComposer = useCallback(() => {
     suppressAutoRecipientSelectionRef.current = true;
     setSelectedRequestOwnerId("");
@@ -3240,15 +3510,59 @@ export function OneLocationAgentPageContent({
     setRequestMessage("");
   }, []);
 
-  const handleShare = useCallback(async () => {
-    if (
-      !vaultOwnerToken ||
-      !shareReadySelectedRecipients.length ||
-      setupNeededSelectedRecipients.length ||
-      shareMessage.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH ||
-      locationPermissionBlocksSharing(permission)
-    )
-      return;
+  // `durationOverride` exists for the voice path. Setting `shareDurationHours`
+  // and then calling this would read the pre-render value, so the duration
+  // travels as an argument rather than through state it cannot see yet. Taps
+  // pass nothing and keep using whatever the composer shows.
+  const handleShare = useCallback(
+    async (
+      durationOverride?: string,
+      landOnAfter?: string,
+    ): Promise<LocalOnboardingActionResult> => {
+      const effectiveDurationHours = durationOverride ?? shareDurationHours;
+      // Set on every attempt, so a landing asked for by one share can never
+      // survive into the next one. Taps pass nothing and get the clean hub.
+      shareCompletedDestinationRef.current = landOnAfter ?? null;
+    if (!vaultOwnerToken) {
+      return { status: "blocked", summary: "Unlock One before sharing your location." };
+    }
+    // Test the SELECTION, not the share-ready subset of it. Those differ
+    // whenever someone is picked who has not finished their own Location
+    // setup, and reading the subset made this answer "nobody is selected"
+    // about a person who was visibly selected on screen -- sending the voice
+    // chain back to pick someone it had already picked. Observed live: the
+    // pick settled "Matched Abdul Rashid", and the share that followed it
+    // said nobody was selected.
+    if (!selectedShareRecipients.length) {
+      return {
+        status: "blocked",
+        summary:
+          "Nobody is selected yet. Pick who you want to share with, then say share again.",
+      };
+    }
+    if (setupNeededSelectedRecipients.length) {
+      // Name them. The person picked this contact by name a moment ago, so
+      // the name is already theirs and already spoken; "someone you picked"
+      // leaves them guessing which of several it means.
+      const blockedNames = setupNeededSelectedRecipients
+        .map((recipient) => recipientLabel(recipient).trim())
+        .filter(Boolean);
+      return {
+        status: "blocked",
+        summary: blockedNames.length
+          ? `${blockedNames.join(", ")} still needs to finish their own Location setup before you can share with them.`
+          : "Someone you picked still needs to finish their Location setup.",
+      };
+    }
+    if (shareMessage.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH) {
+      return { status: "blocked", summary: "The note on this share is too long." };
+    }
+    if (locationPermissionBlocksSharing(permission)) {
+      return {
+        status: "blocked",
+        summary: "Sharing needs device Location permission.",
+      };
+    }
     setBusy("share");
     let successCount = 0;
     let recipientFailureCount = 0;
@@ -3259,7 +3573,10 @@ export function OneLocationAgentPageContent({
         autoOpenSettings: true,
       });
       if (!readiness.ready || !readiness.point) {
-        return;
+        return {
+          status: "blocked",
+          summary: "Sharing needs device Location permission.",
+        };
       }
       const point = readiness.point;
       for (const recipient of shareReadySelectedRecipients) {
@@ -3268,7 +3585,7 @@ export function OneLocationAgentPageContent({
             vaultOwnerToken,
             recipientUserId: recipient.userId,
             recipientKeyId: recipient.keyId,
-            durationHours: Number(shareDurationHours),
+            durationHours: Number(effectiveDurationHours),
             reason: shareMessage.trim() || undefined,
             shareKind: "share",
             sourceCircleId:
@@ -3293,25 +3610,29 @@ export function OneLocationAgentPageContent({
         selected_count: shareReadySelectedRecipients.length,
         success_count: successCount,
         failure_count: recipientFailureCount,
-        duration_bucket: oneLocationDurationBucket(shareDurationHours),
+        duration_bucket: oneLocationDurationBucket(effectiveDurationHours),
         review_required: shareReviewOpen,
       });
+      const durationLabel =
+        DURATION_OPTIONS.find(
+          (option) => option.value === String(effectiveDurationHours),
+        )?.label ?? `${effectiveDurationHours} hours`;
+      let summary: string;
       if (recipientFailureCount) {
-        toast.warning(
-          `Location shared with ${peopleCountLabel(successCount)}. ${recipientFailureCount} ${
-            recipientFailureCount === 1 ? "person was" : "people were"
-          } no longer ready.`,
-        );
+        summary = `Location shared with ${peopleCountLabel(successCount)} for ${durationLabel}. ${recipientFailureCount} ${
+          recipientFailureCount === 1 ? "person was" : "people were"
+        } no longer ready.`;
+        toast.warning(summary);
       } else {
-        toast.success(
-          `Location shared with ${peopleCountLabel(successCount)}.`,
-        );
+        summary = `Location shared with ${peopleCountLabel(successCount)} for ${durationLabel}.`;
+        toast.success(summary);
       }
       resetShareComposer();
       // Signal the redesign hub to close the 3-step share flow and return to
       // the main One Location screen now that sharing finished.
       setShareCompletedTick((value) => value + 1);
       await refresh();
+      return { status: "succeeded", summary };
     } catch (error) {
       const failureCount =
         recipientFailureCount ||
@@ -3323,29 +3644,35 @@ export function OneLocationAgentPageContent({
         selected_count: shareReadySelectedRecipients.length,
         success_count: successCount,
         failure_count: failureCount,
-        duration_bucket: oneLocationDurationBucket(shareDurationHours),
+        duration_bucket: oneLocationDurationBucket(effectiveDurationHours),
         review_required: shareReviewOpen,
       });
-      toast.error(
-        error instanceof Error ? error.message : "Could not share location.",
-      );
+      const message =
+        error instanceof Error ? error.message : "Could not share location.";
+      toast.error(message);
+      return { status: "failed", summary: message };
     } finally {
       setBusy(null);
     }
-  }, [
-    ensureForegroundLocationReady,
-    namedCircleShareContext,
-    permission,
-    publishEnvelopeWithRetry,
-    refresh,
-    resetShareComposer,
-    setupNeededSelectedRecipients.length,
-    shareDurationHours,
-    shareMessage,
-    shareReviewOpen,
-    shareReadySelectedRecipients,
-    vaultOwnerToken,
-  ]);
+    },
+    [
+      ensureForegroundLocationReady,
+      namedCircleShareContext,
+      permission,
+      publishEnvelopeWithRetry,
+      refresh,
+      resetShareComposer,
+      // The whole list, not just its length: the blocked message now names
+      // who is holding the share up.
+      setupNeededSelectedRecipients,
+      selectedShareRecipients,
+      shareDurationHours,
+      shareMessage,
+      shareReviewOpen,
+      shareReadySelectedRecipients,
+      vaultOwnerToken,
+    ],
+  );
 
   const resolveSosLocation = useCallback(() => {
     const inFlight = sosLocationResolutionRef.current;
@@ -3374,11 +3701,22 @@ export function OneLocationAgentPageContent({
         }
         // Country lookup continues independently so a slow Maps response never
         // delays the actual Save My Soul SMS after the user completes the hold.
-        void OneLocationService.reverseGeocode({
+        // Cap the authoritative lookup: past EMERGENCY_LOOKUP_TIMEOUT_MS we stop
+        // waiting and fall back to the last cached local number, so the Call
+        // button is never stranded on a spinner during a safety-critical flow.
+        let lookupTimer: ReturnType<typeof setTimeout> | null = null;
+        const lookup = OneLocationService.reverseGeocode({
           vaultOwnerToken,
           lat: result.point.latitude,
           lng: result.point.longitude,
-        })
+        });
+        const lookupDeadline = new Promise<never>((_, reject) => {
+          lookupTimer = setTimeout(
+            () => reject(new Error("emergency-lookup-timeout")),
+            EMERGENCY_LOOKUP_TIMEOUT_MS,
+          );
+        });
+        void Promise.race([lookup, lookupDeadline])
           .then((place) => {
             if (sosEmergencyLookupIdRef.current !== emergencyLookupId) return;
             const emergency = emergencyInfoForCountryCode(place.countryCode);
@@ -3386,13 +3724,26 @@ export function OneLocationAgentPageContent({
               setSosEmergencyStatus("unavailable");
               return;
             }
+            // Warm the cache so a later slow/failed lookup can reuse this
+            // verified local number instantly instead of a dead spinner.
+            writeCachedEmergencyInfo(emergency);
             setSosEmergency(emergency);
             setSosEmergencyStatus("resolved");
           })
           .catch(() => {
-            if (sosEmergencyLookupIdRef.current === emergencyLookupId) {
+            if (sosEmergencyLookupIdRef.current !== emergencyLookupId) return;
+            // Slow or failed authoritative lookup: fall back to the last cached
+            // local number when we have one, else surface the retry state.
+            const cached = readCachedEmergencyInfo();
+            if (cached) {
+              setSosEmergency(cached);
+              setSosEmergencyStatus("resolved");
+            } else {
               setSosEmergencyStatus("unavailable");
             }
+          })
+          .finally(() => {
+            if (lookupTimer) clearTimeout(lookupTimer);
           });
         return result.point;
       } catch {
@@ -4317,6 +4668,10 @@ export function OneLocationAgentPageContent({
     }
   }, [refresh, sosIncident, vaultOwnerToken]);
 
+  // Lets the "Check more" remedy re-run the sync (and so reopen the web
+  // Contact Picker) without the callback having to reference itself.
+  const handleSyncContactSignalRef = useRef<(() => Promise<void>) | null>(null);
+
   const handleSyncContactSignal = useCallback(async () => {
     if (!auth.user?.getIdToken) {
       const message = "Sign in before syncing contacts.";
@@ -4338,7 +4693,12 @@ export function OneLocationAgentPageContent({
 
     try {
       const idToken = await auth.user.getIdToken();
-      const result = await syncOneLocationContactSignals({ idToken });
+      const result = await syncOneLocationContactSignals({
+        idToken,
+        // Tells the normalizer which region a bare "9876543210" belongs to.
+        // Without it every 10-digit contact was read as North American.
+        accountPhoneNumber: auth.user.phoneNumber,
+      });
       const nextStatus: OneLocationContactSignalStatus =
         result.matchedUserIds.length > 0 ? "matched" : "empty";
       setContactSignal({
@@ -4348,6 +4708,8 @@ export function OneLocationAgentPageContent({
         totalContacts: result.totalContacts,
         inviteCandidateCount: result.inviteCandidateCount,
         sourcePlatform: result.sourcePlatform,
+        limited: result.limited,
+        truncated: result.truncated,
         error: null,
         syncedAt: new Date().toISOString(),
       });
@@ -4358,50 +4720,72 @@ export function OneLocationAgentPageContent({
         contact_count_bucket: contactCountBucket(result.totalContacts),
         matched_count: result.matchedUserIds.length,
         invite_candidate_count: result.inviteCandidateCount,
+        contact_region: result.region ?? "unknown",
+        partial_access: result.limited,
+        truncated: result.truncated,
       });
+      // A partial read must never be reported as a whole one. The web Contact
+      // Picker and iOS limited access both return only a hand-picked subset,
+      // so "3 people added" would claim the whole address book was searched.
+      const outcome = describeContactSyncOutcome(result);
+      const outcomeOptions = {
+        description: outcome.description,
+        ...(outcome.remedy === "pick_more"
+          ? {
+              action: {
+                label: "Check more",
+                // Re-running the sync reopens the picker. There is no settings
+                // page to send a browser to; openAppSettings resolves false.
+                onClick: () => void handleSyncContactSignalRef.current?.(),
+              },
+            }
+          : outcome.remedy === "open_settings"
+            ? {
+                action: {
+                  label: "Open Settings",
+                  onClick: () => void openContactPermissionSettings(),
+                },
+              }
+            : {}),
+      };
       if (result.matchedUserIds.length > 0) {
-        toast.success(
-          `${peopleCountLabel(
-            result.matchedUserIds.length,
-          )} added as a contact signal.`,
-        );
+        toast.success(outcome.title, outcomeOptions);
       } else {
-        toast.info("No One users matched from this contact scan.");
+        toast.info(outcome.title, outcomeOptions);
       }
     } catch (error) {
+      const failure =
+        error instanceof OneLocationContactSyncError ? error.failure : "error";
       const message = oneLocationErrorMessage(
         error,
         "Could not sync contacts.",
       );
-      const normalized = message.toLowerCase();
-      const status: OneLocationContactSignalStatus =
-        normalized.includes("denied") || normalized.includes("permission")
-          ? "denied"
-          : normalized.includes("native") ||
-              normalized.includes("mobile") ||
-              normalized.includes("unavailable") ||
-              normalized.includes("web view")
-            ? "unavailable"
-            : "error";
       setContactSignal((current) => ({
         ...current,
-        status,
+        status: failure,
         error: message,
         syncedAt: new Date().toISOString(),
       }));
       trackEvent("one_location_contact_signal_synced", {
         route_id: "one_location",
-        result:
-          status === "denied" || status === "unavailable"
-            ? "expected_error"
-            : "error",
+        result: failure === "error" ? "error" : "expected_error",
         source_platform: contactSignal.sourcePlatform ?? "unknown",
         contact_count_bucket: contactCountBucket(contactSignal.totalContacts),
         matched_count: contactSignal.matchedCount,
         invite_candidate_count: contactSignal.inviteCandidateCount,
+        failure_reason: failure,
       });
-      if (status === "unavailable") {
-        toast.info("Contact sync is available in the iOS and Android app.");
+      if (failure === "denied") {
+        // The OS will not prompt again, so a retry button would do nothing.
+        // Settings is the only route back.
+        toast.error(message, {
+          action: {
+            label: "Open Settings",
+            onClick: () => void openContactPermissionSettings(),
+          },
+        });
+      } else if (failure === "unavailable") {
+        toast.info(message);
       } else {
         toast.error(message);
       }
@@ -4410,7 +4794,11 @@ export function OneLocationAgentPageContent({
     }
   }, [auth.user, contactSignal]);
 
-  const handleRequestAccess = useCallback(async () => {
+  useEffect(() => {
+    handleSyncContactSignalRef.current = handleSyncContactSignal;
+  }, [handleSyncContactSignal]);
+
+  const handleRequestAccess = useCallback(async (reason?: string | null) => {
     if (!vaultOwnerToken || !selectedRequestOwners.length) return;
     if (!auth.user || !auth.userId) {
       toast.error("Refresh your session before sending a location request.");
@@ -4450,7 +4838,7 @@ export function OneLocationAgentPageContent({
         await OneLocationService.requestAccess({
           vaultOwnerToken: activeVaultOwnerToken,
           ownerUserId: owner.userId,
-          message: requestMessage.trim() || undefined,
+          message: buildOneLocationRequestMessage(reason, requestMessage),
         });
         successCount += 1;
       }
@@ -4864,6 +5252,7 @@ export function OneLocationAgentPageContent({
     [
       handleResolveNamedCircleRecipients,
       selectedShareCircleSelection?.circle.id,
+      setSelectedRecipientIds,
     ],
   );
 
@@ -5013,10 +5402,17 @@ export function OneLocationAgentPageContent({
   const handleShareNamedCircleCode = useCallback(
     async (circle: OneLocationCircleDetail, code: string) => {
       try {
+        const joinUrl =
+          typeof window !== "undefined"
+            ? buildCircleJoinUrl(window.location.origin, code)
+            : undefined;
         const delivery = await shareNamedCircleCode({
           title: `Join ${circle.name} on One`,
-          text: `Join my ${circle.name} Circle on One with code ${code}. You'll connect with current and future members, while location and SMS stay private until you choose to share.`,
+          text: joinUrl
+            ? `Join my ${circle.name} Circle on One — tap to join: ${joinUrl} (or enter code ${code}). Location and SMS stay private until you choose to share.`
+            : `Join my ${circle.name} Circle on One with code ${code}. You'll connect with current and future members, while location and SMS stay private until you choose to share.`,
           dialogTitle: "Share Circle code",
+          url: joinUrl,
         });
         if (delivery === "copied") toast.success("Circle code copied.");
       } catch (error) {
@@ -5096,10 +5492,17 @@ export function OneLocationAgentPageContent({
   const handleShareOnboardingCircleInvite = useCallback(
     async (invite: OnboardingCircleInvite) => {
       try {
+        const joinUrl =
+          typeof window !== "undefined"
+            ? buildCircleJoinUrl(window.location.origin, invite.code)
+            : undefined;
         const delivery = await shareNamedCircleCode({
           title: `Join ${invite.circleName} on One`,
-          text: `Join my ${invite.circleName} Circle on One with code ${invite.code}. Set up One, then open Location → People → Join a circle and enter it. Location and SMS stay private until you choose to share.`,
+          text: joinUrl
+            ? `Join my ${invite.circleName} Circle on One — tap to join: ${joinUrl} (or enter code ${invite.code}). Set up One, then the link opens the join screen with the code filled in. Location and SMS stay private until you choose to share.`
+            : `Join my ${invite.circleName} Circle on One with code ${invite.code}. Set up One, then open Location → People → Join a circle and enter it. Location and SMS stay private until you choose to share.`,
           dialogTitle: "Share Circle code",
+          url: joinUrl,
         });
         if (delivery === "copied") toast.success("Circle code copied.");
       } catch (error) {
@@ -5379,7 +5782,7 @@ export function OneLocationAgentPageContent({
       setSelectedRecipientIds([recipientUserId]);
       setShareReviewOpen(false);
     },
-    [namedCircles],
+    [namedCircles, setSelectedRecipientIds],
   );
 
   const clearNamedCircleShareContext = useCallback(() => {
@@ -5543,9 +5946,10 @@ export function OneLocationAgentPageContent({
       selectionSurface: OneLocationSelectionSurface = "select_menu",
     ) => {
       const recipient = recipients.find((item) => item.userId === recipientId);
-      const nextSelectedIds = addSelectedId(selectedRecipientIds, recipientId);
+      const nextSelectedIds = setSelectedRecipientIds((current) =>
+        addSelectedId(current, recipientId),
+      );
       setSelectedRecipientId(recipientId);
-      setSelectedRecipientIds(nextSelectedIds);
       setShareReviewOpen(false);
       if (recipient) {
         trackRecommendationSelection(
@@ -5556,7 +5960,7 @@ export function OneLocationAgentPageContent({
         );
       }
     },
-    [recipients, selectedRecipientIds, trackRecommendationSelection],
+    [recipients, setSelectedRecipientIds, trackRecommendationSelection],
   );
   const toggleShareRecipient = useCallback(
     (
@@ -5564,12 +5968,10 @@ export function OneLocationAgentPageContent({
       selectionSurface: OneLocationSelectionSurface = "quick_circle",
     ) => {
       const recipient = recipients.find((item) => item.userId === recipientId);
-      const nextSelectedIds = toggleSelectedId(
-        selectedRecipientIds,
-        recipientId,
+      const nextSelectedIds = setSelectedRecipientIds((current) =>
+        toggleSelectedId(current, recipientId),
       );
       setSelectedRecipientId(recipientId);
-      setSelectedRecipientIds(nextSelectedIds);
       setShareReviewOpen(false);
       if (recipient) {
         trackRecommendationSelection(
@@ -5580,20 +5982,19 @@ export function OneLocationAgentPageContent({
         );
       }
     },
-    [recipients, selectedRecipientIds, trackRecommendationSelection],
+    [recipients, setSelectedRecipientIds, trackRecommendationSelection],
   );
   const removeShareRecipient = useCallback(
     (recipientId: string) => {
-      const nextSelectedIds = selectedRecipientIds.filter(
-        (selectedId) => selectedId !== recipientId,
+      const nextSelectedIds = setSelectedRecipientIds((current) =>
+        current.filter((selectedId) => selectedId !== recipientId),
       );
-      setSelectedRecipientIds(nextSelectedIds);
       setSelectedRecipientId((current) =>
         current === recipientId ? nextSelectedIds[0] || "" : current,
       );
       setShareReviewOpen(false);
     },
-    [selectedRecipientIds],
+    [setSelectedRecipientIds],
   );
   const addRequestOwner = useCallback(
     (
@@ -6348,6 +6749,159 @@ export function OneLocationAgentPageContent({
     : state
       ? "loaded"
       : "loading";
+  // Voice surface for the Location screen. Until this existed One could route
+  // here and delegate to the Location specialist, but arrived blind: it knew
+  // the screen's name and nothing about what was on it.
+  //
+  // Only the workspace instance publishes. `/one/setup/location` renders this
+  // same component and publishes its own metadata, and two publishers on one
+  // route is exactly the race that made One describe the wrong screen.
+  const locationVoiceSurfaceMetadata = useMemo(() => {
+    if (mode !== "workspace") return null;
+    // Read from the hub's own params. This memo used to describe the legacy
+    // compose/activity tabs, which USE_LOCATION_REDESIGN made unreachable, so
+    // One was handed a confident account of a screen nobody could see.
+    const hubTab = LOCATION_HUB_TAB_LABELS[
+      String(searchParams.get("view") || "").trim()
+    ]
+      ? String(searchParams.get("view") || "").trim()
+      : "now";
+    const hubTabLabel = LOCATION_HUB_TAB_LABELS[hubTab];
+    const openFlow =
+      String(searchParams.get("action") || "").trim() || null;
+    const openFlowLabel = openFlow
+      ? (LOCATION_FLOW_LABELS[openFlow] ?? null)
+      : null;
+    const actions = LOCATION_VOICE_ACTIONS;
+    // Location can only be shared with a connection or a circle member, so an
+    // account with neither cannot finish either of these flows however long it
+    // stays on them. The screen says "no connections" and stops; this is what
+    // lets One finish the sentence and offer to open Connect.
+    const hasSomeoneToShareWith =
+      shareRecipientPool.length > 0 || namedCircles.length > 0;
+    const deadEnd = (() => {
+      if (!openFlow) return null;
+      if (!hasSomeoneToShareWith) {
+        if (openFlow === "sms-contacts") {
+          return {
+            reason:
+              "There is no one to add as an emergency contact yet: contacts come from your connections and circles, and this account has neither.",
+            remedyActionId: "location.add_connections",
+          };
+        }
+        if (openFlow === "share") {
+          return {
+            reason:
+              "There is no one to share location with yet: sharing needs a connection or a circle member, and this account has neither.",
+            remedyActionId: "location.add_connections",
+          };
+        }
+        return null;
+      }
+      // There ARE people to share with, but none are picked. Saying "share my
+      // location" here refuses -- deliberately, because the recipient is never
+      // a voice slot -- and without this the person just hears no twice and is
+      // told nothing about which half is missing. Naming the remedy turns the
+      // refusal into the next step.
+      if (openFlow === "share" && shareReadySelectedRecipients.length === 0) {
+        return {
+          reason:
+            "Nobody is picked for this share yet, so starting it will refuse. The share needs a person chosen before it can run.",
+          remedyActionId: "location.select_share_recipient",
+        };
+      }
+      return null;
+    })();
+    return {
+      screenId: "one_location",
+      title: "Location",
+      purpose:
+        "This screen shares live location with chosen people and reviews who currently has access.",
+      // Deliberately null. The subjects here are people and places -- the
+      // recipients of a share, their names, an address. None of that crosses
+      // into what the model may say aloud, so this screen names only itself.
+      primaryEntity: null,
+      spokenSubject: openFlowLabel
+        ? `Location, ${openFlowLabel}`
+        : `Location, ${hubTabLabel} tab`,
+      deadEnd,
+      sections: [
+        { id: "now", title: "Now", purpose: "See current sharing status and start a quick action." },
+        { id: "people", title: "People", purpose: "See the people and circles you share location with." },
+        { id: "links", title: "Links", purpose: "See and create temporary sharing links." },
+      ],
+      actions,
+      controls: LOCATION_VOICE_CONTROLS,
+      concepts: [
+        {
+          id: "location_share",
+          label: "Location share",
+          explanation:
+            "A location share gives a chosen person time-limited access to your live location, and can be revoked at any time.",
+          aliases: ["location", "share location", "live location"],
+        },
+        {
+          id: "location_circle",
+          label: "Circle",
+          explanation:
+            "A circle is a named group you can share location with at once. Members join by invite or code, and a circle member can be shared with even if they are not a connection.",
+          aliases: ["circle", "group", "my circle"],
+        },
+      ],
+      activeSection: openFlowLabel || hubTabLabel,
+      activeTab: hubTab,
+      selectedEntity: null,
+      visibleModules: openFlowLabel
+        ? [openFlowLabel]
+        : LOCATION_TAB_MODULES[hubTab],
+      focusedWidget: openFlowLabel || `${hubTabLabel} tab`,
+      availableActions: actions.map((action) => action.label),
+      activeControlId: null,
+      lastInteractedControlId: null,
+      busyOperations: [
+        ...(dataState === "loading" ? ["location_state_load"] : []),
+        ...(busy ? [`location_${busy}`] : []),
+      ],
+      // Counts only -- never who, never where.
+      screenMetadata: {
+        location_tab: hubTab,
+        location_flow: openFlow,
+        data_state: dataState,
+        permission_state: permission?.state ?? null,
+        pending_request_count: pendingOwnerRequests.length,
+        connection_count: shareRecipientPool.length,
+        circle_count: namedCircles.length,
+        has_load_error: Boolean(loadError),
+      },
+    };
+  }, [
+    busy,
+    dataState,
+    loadError,
+    mode,
+    namedCircles.length,
+    pendingOwnerRequests.length,
+    permission?.state,
+    searchParams,
+    shareRecipientPool.length,
+    // Picking someone clears the dead end, so the metadata has to be rebuilt
+    // when the selection changes -- not only when the pool does.
+    shareReadySelectedRecipients.length,
+  ]);
+  usePublishVoiceSurfaceMetadata(locationVoiceSurfaceMetadata);
+
+  // `location.open_compose` / `location.open_activity` used to be wired here.
+  // They drove the legacy compose/activity page tabs, which USE_LOCATION_REDESIGN
+  // made unreachable: `setLocationTab` wrote `?view=compose`, the hub read a value
+  // it does not know and fell back to Now, so both actions silently landed the
+  // person on the wrong screen. Every hub tab and action flow is now authored as
+  // a `route` action in this surface's contract, addressed by the same
+  // `?view=` / `?action=` params the hub already owns — so One can reach them
+  // from anywhere, instead of only while standing on this page.
+  useLocalOnboardingActionHandler("location.refresh", () => {
+    void refresh();
+    return { status: "succeeded", summary: "Location refreshed." };
+  });
   const showInitialSkeleton =
     !loadError &&
     !state &&
@@ -6355,8 +6909,8 @@ export function OneLocationAgentPageContent({
       busy === "load" ||
       Boolean(auth.userId && vaultOwnerToken));
   const locationReadiness = useMemo(
-    () => readinessCopy(permission),
-    [permission],
+    () => readinessCopy(permission, locationDenialObserved),
+    [permission, locationDenialObserved],
   );
   const handleRequestLocationPermission = useCallback(async () => {
     setBusy("locationSettings");
@@ -6370,53 +6924,83 @@ export function OneLocationAgentPageContent({
     }
   }, [ensureForegroundLocationReady]);
 
-  const handleShowMyLiveLocation = useCallback(async () => {
-    setBusy("selfLocation");
-    setMyLocationError(null);
-    try {
-      const result = await ensureForegroundLocationReady({
-        capturePoint: true,
-        autoOpenSettings: true,
-      });
-      if (!result.ready || !result.point) {
-        const message =
-          "Live location preview needs device Location permission.";
+  // Returns its outcome so the voice handler below can report what actually
+  // happened rather than assuming success. Tap call sites discard it.
+  const handleShowMyLiveLocation =
+    useCallback(async (): Promise<LocalOnboardingActionResult> => {
+      setBusy("selfLocation");
+      setMyLocationError(null);
+      try {
+        const result = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: true,
+        });
+        if (!result.ready || !result.point) {
+          const message =
+            "Live location preview needs device Location permission.";
+          setMyLocationError(message);
+          return { status: "blocked", summary: message };
+        }
+        setMapViewportResetKey((current) => current + 1);
+        toast.success("Your live location preview is ready.");
+        return {
+          status: "succeeded",
+          summary: "Location updates are on again for this device.",
+        };
+      } catch (error) {
+        const message = locationServicesErrorMessage(error);
         setMyLocationError(message);
-        return;
+        toast.error(message);
+        return { status: "failed", summary: message };
+      } finally {
+        setBusy(null);
       }
-      setMapViewportResetKey((current) => current + 1);
-      toast.success("Your live location preview is ready.");
-    } catch (error) {
-      const message = locationServicesErrorMessage(error);
-      setMyLocationError(message);
-      toast.error(message);
-    } finally {
-      setBusy(null);
-    }
-  }, [ensureForegroundLocationReady]);
+    }, [ensureForegroundLocationReady]);
 
   // One coordinated pause owns every Location entry point. Private grants keep
   // their consent/expiry contract, but all new foreground/background updates
   // stop. Nearby presence is a separate authority and must explicitly check
   // out before the UI may claim that Location is paused.
-  const handleHideMyLiveLocation = useCallback(async () => {
-    if (!auth.userId) return;
+  const handleHideMyLiveLocation =
+    useCallback(async (): Promise<LocalOnboardingActionResult> => {
+    if (!auth.userId) {
+      return { status: "blocked", summary: "Sign in to pause your location." };
+    }
     if (nearbyCheckInAvailable && !vaultOwnerToken) {
-      toast.error("Unlock One before pausing nearby location.");
-      return;
+      const message = "Unlock One before pausing nearby location.";
+      toast.error(message);
+      return { status: "blocked", summary: message };
     }
 
     setBusy("selfLocation");
     automaticPrivatePublishingAllowedRef.current = false;
-    try {
-      if (nearbyCheckInAvailable && vaultOwnerToken) {
+    // Nearby checkout is attempted first and is allowed to fail on its own.
+    //
+    // It used to sit inside the main try, so a throw from either nearby call
+    // abandoned the WHOLE pause -- including the local pause, which would
+    // have worked. Observed live: every spoken "pause my location" settled
+    // `failed` with "you may still be visible nearby", while resume always
+    // succeeded. Resume touches nearby not at all, which is the entire
+    // asymmetry: the failure was never about pausing.
+    //
+    // Hiding locally is the part the person asked for and the part that can
+    // still be delivered, so it is no longer held hostage to the other. What
+    // is NOT done is call it a clean pause when the nearby half failed --
+    // that would be the one lie this action must never tell.
+    let nearbyCheckoutFailed = false;
+    if (nearbyCheckInAvailable && vaultOwnerToken) {
+      try {
         const nearby = await OneLocationService.getNearbyPresence({
           vaultOwnerToken,
         });
         if (nearby.presence) {
           await OneLocationService.checkoutNearby({ vaultOwnerToken });
         }
+      } catch {
+        nearbyCheckoutFailed = true;
       }
+    }
+    try {
       updateOneLocationControlState(auth.userId, (current) => ({
         ...current,
         paused: true,
@@ -6427,13 +7011,31 @@ export function OneLocationAgentPageContent({
       clearMyLocationPreview();
       setBackgroundShareEnabled(false);
       setMyLocationError(null);
+      if (nearbyCheckoutFailed) {
+        // Both halves of the truth, in the order that matters: what is now
+        // private, then what is not. Told as `succeeded` because the thing
+        // asked for did happen -- reporting failure would send someone to
+        // retry a pause that is already in effect, while the part that is
+        // actually still exposed goes unmentioned.
+        const message =
+          "Location updates are paused on this device, but I could not check you out of nearby presence -- you may still be visible to people around you.";
+        toast.error(message);
+        return { status: "succeeded", summary: message };
+      }
       toast.success("Location updates are paused on this device.");
+      return {
+        status: "succeeded",
+        summary: "Location updates are paused on this device.",
+      };
     } catch {
       automaticPrivatePublishingAllowedRef.current =
         locationControl.autoShareEnabled;
-      toast.error(
-        "Pause did not complete. You may still be visible nearby; please try again.",
-      );
+      const message =
+        "Pause did not complete. You may still be visible nearby; please try again.";
+      toast.error(message);
+      // Reported as failed, not blocked: the person may still be visible, and
+      // saying "paused" here would be the one lie this action must never tell.
+      return { status: "failed", summary: message };
     } finally {
       setBusy(null);
     }
@@ -6448,6 +7050,707 @@ export function OneLocationAgentPageContent({
   const handleResumeMyLocation = useCallback(() => {
     void handleShowMyLiveLocation();
   }, [handleShowMyLiveLocation]);
+
+  // The Location surface's first two actions that DO something rather than
+  // open something. Both delegate to the same callbacks the on-screen controls
+  // use, so voice can never take a path a tap could not, and both report the
+  // real outcome -- including a refusal -- instead of assuming success.
+  //
+  // The asymmetry in policy is deliberate and is the whole safety argument
+  // here. Pausing only ever removes visibility, so it runs directly: someone
+  // who says "hide my location" is in no position to be asked twice. Resuming
+  // makes them visible again to every active grant, so its contract marks it
+  // `confirm_required` and it does not run until they have looked at it.
+  useLocalOnboardingActionHandler(
+    "location.pause_updates",
+    () => handleHideMyLiveLocation(),
+  );
+  useLocalOnboardingActionHandler(
+    "location.resume_updates",
+    () => handleShowMyLiveLocation(),
+  );
+
+  // Sharing a live location is the most consequential thing this surface can
+  // do, so voice is given exactly one half of it: the duration, and the word
+  // go. WHO it goes to is never a slot. The recipients come from what the
+  // person has selected in the composer with their own hands, and if that is
+  // empty this refuses and says so rather than choosing anyone.
+  //
+  // That division is what makes a spoken share safe without a name resolver:
+  // the worst a misheard sentence can do is send to the people already on
+  // screen for the wrong number of hours, which the person is looking at.
+  // Saying a name resolves to a SELECTION, never to a send.
+  //
+  // The obvious design -- One resolves "Sarah" to a user id and shares with
+  // her -- would need the model to know who your connections are, and the
+  // live-context boundary redacts exactly that: `selected_entity` and
+  // `primary_entity` are stripped server-side because surfaces fill them with
+  // real names and email addresses. Handing the model a contact list to search
+  // would reverse that decision for the sake of one convenience.
+  //
+  // So the matching happens here, in the browser, against the list it already
+  // holds. The model only ever echoes back a name the person just said out
+  // loud, and gets no names in return: the summaries below deliberately count
+  // people rather than name them, because the summary is relayed to the model
+  // while the SCREEN is what shows the person who was picked.
+  //
+  // And it stops at selected. A misheard name becomes a wrong face on screen,
+  // in front of someone who can see it, rather than a live location already
+  // sent to the wrong person.
+  useLocalOnboardingActionHandler("location.select_share_recipient", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim().toLowerCase();
+    if (!spoken) {
+      return { status: "blocked" as const, summary: "Say who you want to share with." };
+    }
+    let matches = rankedRecipients.filter((recipient) =>
+      recommendationSearchText(recipient).includes(spoken),
+    );
+    // Finding nobody while the vault is LOCKED says nothing about who the
+    // person is connected to -- the protected recipient list cannot be read at
+    // all without the owner token, so "nobody matches that name" would be a
+    // statement about their connections made without being able to see them.
+    // It reads as "that person is not your connection", which may be flatly
+    // untrue, and sends someone off to re-add somebody they already have.
+    if (matches.length === 0 && !vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see who you are connected to while the vault is locked, so I cannot tell whether they are there.",
+      };
+    }
+    // A navigation journey can arrive before the full Location workspace
+    // snapshot has finished loading. Do one focused, server-authoritative
+    // recipient read before concluding that the named connection is absent.
+    // This stays inside the browser's existing vault-authorized boundary; the
+    // private agent still receives only the words the person spoke.
+    if (matches.length === 0 && vaultOwnerToken) {
+      try {
+        const freshRecipients = await OneLocationService.listRecipients(
+          vaultOwnerToken,
+        );
+        matches = rankRecipientsForRecommendation(
+          enrichRecipientsWithContactSignal(
+            freshRecipients,
+            contactMatchedUserIds,
+          ),
+          contactMatchedUserIds,
+        ).filter((recipient) => recommendationSearchText(recipient).includes(spoken));
+      } catch {
+        return {
+          status: "blocked" as const,
+          summary: "Location is still loading your connections. Please try that name again in a moment.",
+        };
+      }
+    }
+    if (matches.length === 0) {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody in your connections matches that name.",
+      };
+    }
+    if (matches.length > 1) {
+      // Never guess between people. Two colleagues sharing a first name is
+      // ordinary, and picking the wrong one here is not recoverable once the
+      // share starts.
+      // Naming them is the point: "which Sarah?" is only answerable if the
+      // person hears both. Bounded to the handful that actually matched the
+      // name they just said.
+      const names = matches
+        .slice(0, 4)
+        .map((recipient) => recipientLabel(recipient).trim())
+        .filter(Boolean)
+        .join(", ");
+      return {
+        status: "blocked" as const,
+        summary: names
+          ? `${matches.length} people match that name: ${names}. Ask which one they meant.`
+          : `${matches.length} people match that name. Ask which one they meant.`,
+      };
+    }
+    const match = matches[0];
+    const matchedUserId = match?.userId;
+    if (!match || !matchedUserId) {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody in your connections matches that name.",
+      };
+    }
+    setSelectedRecipientIds((current) =>
+      current.includes(matchedUserId) ? current : [...current, matchedUserId],
+    );
+    // The RESOLVED name goes back, and that is the safety mechanism rather
+    // than a leak.
+    //
+    // Phase 4 deliberately counted people instead of naming them, to keep the
+    // contact list out of the model's context. Echoing back what the person
+    // already said verifies nothing though: "sarah" confirms only that we
+    // heard a sound. Hearing "Sarah Chen" is what lets a wrong match die in
+    // the question instead of on someone's phone.
+    //
+    // The disclosure is bounded to exactly that: one contact, the person's
+    // own, resolved from a name they just said aloud, spoken back to them.
+    // No id, no address, no list -- and still nothing about anyone they did
+    // not name.
+    const matchedName = recipientLabel(match).trim();
+    return {
+      status: "succeeded" as const,
+      // Say the matched name and keep going. This used to end "ask the person
+      // to confirm that is who they meant", which was the design when the
+      // question existed to catch a mis-heard name -- but a spoken yes to a
+      // question One just asked adds nothing the original sentence did not,
+      // and it was the last thing standing between this flow and hands-free.
+      //
+      // Naming the match out loud still does the work the question was for:
+      // the person hears "Abdul Rashid" when they said "Abdul", and a wrong
+      // match is audible at the moment it happens rather than after.
+      summary: matchedName
+        ? `Matched ${matchedName}. Now start the share with location.share_selected and the duration they asked for; say who it is going to as you do it.`
+        : "Matched one person. Now start the share with location.share_selected and the duration they asked for.",
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.share_selected", async (slots) => {
+    const requested = String(slots?.duration_hours ?? "").trim();
+    // Only the durations the composer itself offers. An unrecognised value is
+    // ignored in favour of what is on screen rather than coerced into some
+    // nearest number the person never asked for.
+    const duration = DURATION_OPTIONS.some((option) => option.value === requested)
+      ? requested
+      : undefined;
+    if (duration) setShareDurationHours(duration);
+
+    // A hands-free share is otherwise invisible: One says it started and the
+    // screen returns to a hub that looks exactly as it did before. Landing on
+    // Active shares makes the result something the person can see and stop.
+    // Only set for the voice path -- taps keep returning to the clean hub.
+    const landOn = "/one/location?action=active-shares";
+    const result = await handleShare(duration, landOn);
+    if (result.status !== "succeeded") return result;
+    // Declared only once the completion effect will really navigate there.
+    // `routeAfter` makes the runtime WAIT for that settlement -- on an action
+    // that does not navigate it waits for nothing and times out into a false
+    // "started", which is why it cannot simply be returned unconditionally.
+    return { ...result, routeAfter: landOn, screenAfter: "one_location" };
+  });
+
+  useLocalOnboardingActionHandler("location.stop_sos", async () => {
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary: "Unlock One before stopping an SOS.",
+      };
+    }
+    const incident = sosIncident;
+    if (!incident?.grantIds.length) {
+      return {
+        status: "blocked" as const,
+        summary: "There is no SOS running to stop.",
+      };
+    }
+    const grantCount = incident.grantIds.length;
+    // Reuses the screen's own teardown rather than revoking here. That loop
+    // tolerates a grant that has already expired and keeps tearing the rest
+    // down, which is the behaviour worth having: a half-stopped SOS is the
+    // worst outcome, so one failure must not abandon the others.
+    await handleStopSos();
+    return {
+      status: "succeeded" as const,
+      // Says what was torn down, not that every recipient definitely lost
+      // access -- individual revokes are best-effort by design and a claim
+      // stronger than that would be one this cannot actually check.
+      summary:
+        grantCount === 1
+          ? "Stopped the SOS and revoked the share it created."
+          : `Stopped the SOS and revoked the ${grantCount} shares it created.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.add_emergency_contact", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim().toLowerCase();
+    if (!spoken) {
+      return {
+        status: "blocked" as const,
+        summary: "Say who you want as an emergency contact.",
+      };
+    }
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see who you are connected to while the vault is locked.",
+      };
+    }
+    // Resolved against the people who are ELIGIBLE to receive an SOS, not the
+    // whole connection list. Someone who has not finished their own Location
+    // setup cannot receive one, and adding them would build an emergency
+    // contact list that quietly does not work when it is needed.
+    const matches = sosActionRecipients.filter((recipient) =>
+      recommendationSearchText(recipient).includes(spoken),
+    );
+    if (matches.length === 0) {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody in your connections can receive an SOS under that name.",
+      };
+    }
+    if (matches.length > 1) {
+      return {
+        status: "blocked" as const,
+        summary: `More than one person matches that name: ${matches
+          .map((recipient) => recipientLabel(recipient).trim())
+          .filter(Boolean)
+          .join(", ")}. Say which one.`,
+      };
+    }
+    const match = matches[0];
+    const matchedUserId = match?.userId;
+    if (!match || !matchedUserId) {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody in your connections matches that name.",
+      };
+    }
+    if (smsContactUserIds.includes(matchedUserId)) {
+      return {
+        status: "succeeded" as const,
+        summary: `${recipientLabel(match).trim()} is already one of your emergency contacts.`,
+      };
+    }
+    const added = await handleAddSmsContact(matchedUserId);
+    if (!added) {
+      return {
+        status: "failed" as const,
+        summary: "Could not add that emergency contact.",
+      };
+    }
+    return {
+      status: "succeeded" as const,
+      summary: `${recipientLabel(match).trim()} will now be sent your location if you trigger an SOS.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.remove_emergency_contact", async (slots) => {
+    const spoken = String(slots?.person ?? "").trim().toLowerCase();
+    if (!spoken) {
+      return {
+        status: "blocked" as const,
+        summary: "Say which emergency contact to remove.",
+      };
+    }
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see your emergency contacts while the vault is locked.",
+      };
+    }
+    // Only the people actually ON the list. Matching the wider connection list
+    // would let "remove Sarah" report success about somebody who was never an
+    // emergency contact, leaving the real list untouched and the person
+    // believing otherwise.
+    const matches = smsActionRecipients.filter((recipient) =>
+      recommendationSearchText(recipient).includes(spoken),
+    );
+    if (matches.length === 0) {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody by that name is one of your emergency contacts.",
+      };
+    }
+    if (matches.length > 1) {
+      return {
+        status: "blocked" as const,
+        summary: `More than one emergency contact matches that name: ${matches
+          .map((recipient) => recipientLabel(recipient).trim())
+          .filter(Boolean)
+          .join(", ")}. Say which one.`,
+      };
+    }
+    const match = matches[0];
+    const matchedUserId = match?.userId;
+    if (!match || !matchedUserId) {
+      return {
+        status: "blocked" as const,
+        summary: "Nobody by that name is one of your emergency contacts.",
+      };
+    }
+    if (slots?.confirmed !== true) {
+      // Shown before it happens, not reported after. This list is the one
+      // consulted in an emergency, so a name misheard once quietly removes the
+      // person who would have been told.
+      const label = recipientLabel(match).trim() || "this person";
+      return {
+        status: "blocked" as const,
+        summary: `Removing ${label} needs a confirmation.`,
+        data: {
+          [VOICE_CONFIRM_DATA_KEY]: {
+            actionId: "location.remove_emergency_contact",
+            slots: { person: String(slots?.person ?? ""), confirmed: true },
+            prompt: `Remove ${label} as an emergency contact?`,
+            subject: {
+              name: label,
+              detail: recipientRecommendationLine(match) || null,
+            },
+            consequence:
+              getKaiActionById("location.remove_emergency_contact")?.meaning ?? null,
+            confirmLabel: "Remove",
+          },
+        },
+      };
+    }
+    const removed = await handleRemoveSmsContact(matchedUserId);
+    if (!removed) {
+      return {
+        status: "failed" as const,
+        summary: "Could not remove that emergency contact.",
+      };
+    }
+    return {
+      status: "succeeded" as const,
+      summary: `${recipientLabel(match).trim()} will no longer be sent your location in an SOS.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler("location.set_auto_share", async (slots) => {
+    const spoken = String(slots?.enabled ?? "").trim().toLowerCase();
+    const turnOn = ["on", "true", "yes", "enable", "enabled", "resume"].includes(spoken);
+    const turnOff = ["off", "false", "no", "disable", "disabled", "stop"].includes(spoken);
+    // Never guess a disclosure setting. An unrecognised word here would
+    // otherwise fall to a default, and one of the two defaults silently starts
+    // sending live updates to every approved share.
+    if (!turnOn && !turnOff) {
+      return {
+        status: "blocked" as const,
+        summary: "Say whether automatic sharing should be on or off.",
+      };
+    }
+    handleAutoShareChange(turnOn);
+    return {
+      status: "succeeded" as const,
+      summary: turnOn
+        ? "Automatic sharing is on. Approved shares will now receive live updates."
+        : "Automatic sharing is off. Shares will only update when you explicitly share.",
+    };
+  });
+
+  /**
+   * Shared by the add/remove circle voice handlers.
+   *
+   * Returns either the single circle the person meant, or the sentence One
+   * should say instead of guessing. Membership changes are irreversible from
+   * the other person's side, so an ambiguous circle name must stop the action
+   * rather than resolve to whichever circle happens to sort first.
+   */
+  const resolveVoiceCircle = useCallback(
+    (
+      spoken: string,
+    ): { circle: OneLocationCircleSummary } | { blocked: string } => {
+      const circleNames = namedCircles.map((circle) => circle.name).join(", ");
+      if (!namedCircles.length) {
+        return {
+          blocked: "You do not have any circles yet. Say create a circle first.",
+        };
+      }
+      if (!spoken) {
+        // One circle means there is nothing to disambiguate, so not naming it is
+        // unambiguous rather than incomplete.
+        const [onlyCircle] = namedCircles;
+        if (onlyCircle && namedCircles.length === 1) {
+          return { circle: onlyCircle };
+        }
+        return { blocked: `Say which circle: ${circleNames}.` };
+      }
+      const { match, ambiguous } = matchCircleByName(namedCircles, spoken);
+      if (ambiguous.length) {
+        return {
+          blocked: `More than one circle matches that: ${ambiguous
+            .map((circle) => circle.name)
+            .join(", ")}. Say which one.`,
+        };
+      }
+      if (!match) {
+        return {
+          blocked: `You do not have a circle by that name. Your circles are: ${circleNames}.`,
+        };
+      }
+      return { circle: match };
+    },
+    [namedCircles],
+  );
+
+  useLocalOnboardingActionHandler("location.create_circle", async (slots) => {
+    const spokenName = String(slots?.name ?? "").trim();
+    if (!spokenName) {
+      return {
+        status: "blocked" as const,
+        summary: "Say what you want to call the circle.",
+      };
+    }
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot create a circle while the vault is locked.",
+      };
+    }
+    const spokenKind = String(slots?.kind ?? "")
+      .trim()
+      .toLowerCase();
+    const kind: OneLocationCircleKind =
+      spokenKind === "family"
+        ? "family"
+        : spokenKind === "friends"
+          ? "friends"
+          : "other";
+    // Exact name only. A near match must still create the circle the person
+    // asked for; silently treating "Family trip" as the existing "Family" would
+    // leave them adding people to the wrong group.
+    const duplicate = namedCircles.find(
+      (circle) =>
+        normalizeSpokenName(circle.name) === normalizeSpokenName(spokenName),
+    );
+    if (duplicate) {
+      return {
+        status: "succeeded" as const,
+        summary: `You already have a circle called ${duplicate.name}.`,
+      };
+    }
+    try {
+      const circle = await handleCreateNamedCircle(spokenName, kind);
+      return {
+        status: "succeeded" as const,
+        summary: `Created the circle ${circle.name}. Nobody is in it yet -- say who to add.`,
+      };
+    } catch (error) {
+      return {
+        status: "failed" as const,
+        summary: oneLocationErrorMessage(error, "Could not create the circle."),
+      };
+    }
+  });
+
+  useLocalOnboardingActionHandler("location.add_to_circle", async (slots) => {
+    const spokenPerson = String(slots?.person ?? "").trim();
+    if (!spokenPerson) {
+      return {
+        status: "blocked" as const,
+        summary: "Say who you want to add to the circle.",
+      };
+    }
+    if (!vaultOwnerToken) {
+      return {
+        status: "blocked" as const,
+        summary:
+          "Unlock One first -- I cannot see your circles while the vault is locked.",
+      };
+    }
+    const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+    if ("blocked" in resolved) {
+      return { status: "blocked" as const, summary: resolved.blocked };
+    }
+    const circle = resolved.circle;
+    if (circle.viewerCapabilities?.canInviteMembers === false) {
+      return {
+        status: "blocked" as const,
+        summary: `You cannot invite people to ${circle.name}. Only its owner can.`,
+      };
+    }
+    let eligible: OneLocationCircleEligibleConnections;
+    try {
+      eligible = await handleLoadNamedCircleEligibleConnections(circle.id);
+    } catch (error) {
+      return {
+        status: "failed" as const,
+        summary: oneLocationErrorMessage(
+          error,
+          "Could not check who can be added to that circle.",
+        ),
+      };
+    }
+    const target = normalizeSpokenName(spokenPerson);
+    // Answer about an invitation that already exists rather than sending a
+    // second one the other person would see twice.
+    const alreadyInvited = eligible.pendingInvites.find(
+      (invite) =>
+        invite.status === "pending" &&
+        normalizeSpokenName(String(invite.inviteeDisplayName ?? "")).includes(
+          target,
+        ),
+    );
+    if (alreadyInvited) {
+      return {
+        status: "succeeded" as const,
+        summary: `${alreadyInvited.inviteeDisplayName} already has a pending invitation to ${circle.name}.`,
+      };
+    }
+    // Server-authoritative: eligible connections already exclude current
+    // members and anyone not connected, so a match here is genuinely addable.
+    const matches = eligible.eligibleConnections.filter((connection) =>
+      normalizeSpokenName(connection.displayName).includes(target),
+    );
+    if (matches.length === 0) {
+      return {
+        status: "blocked" as const,
+        summary: `Nobody who can be added to ${circle.name} matches that name. They have to be connected to you and not already in it.`,
+      };
+    }
+    if (matches.length > 1) {
+      return {
+        status: "blocked" as const,
+        summary: `More than one person matches that name: ${matches
+          .map((connection) => connection.displayName)
+          .join(", ")}. Say which one.`,
+      };
+    }
+    if (eligible.remainingCapacity < 1) {
+      return {
+        status: "blocked" as const,
+        summary: `${circle.name} is already at its member limit.`,
+      };
+    }
+    const invitee = matches[0];
+    if (!invitee) {
+      return {
+        status: "blocked" as const,
+        summary: `Nobody who can be added to ${circle.name} matches that name.`,
+      };
+    }
+    try {
+      await handleInviteNamedCircleConnections(circle.id, [invitee.userId]);
+    } catch (error) {
+      return {
+        status: "failed" as const,
+        summary: oneLocationErrorMessage(
+          error,
+          "Could not send that circle invitation.",
+        ),
+      };
+    }
+    scheduleNamedCircleStateRefresh();
+    // "Invited", never "added". Joining is the other person's decision, and
+    // reporting it as done would claim a consent that has not been given.
+    return {
+      status: "succeeded" as const,
+      summary: `Invited ${invitee.displayName} to ${circle.name}. They join once they accept.`,
+    };
+  });
+
+  useLocalOnboardingActionHandler(
+    "location.remove_from_circle",
+    async (slots) => {
+      const spokenPerson = String(slots?.person ?? "").trim();
+      if (!spokenPerson) {
+        return {
+          status: "blocked" as const,
+          summary: "Say who you want to remove from the circle.",
+        };
+      }
+      if (!vaultOwnerToken) {
+        return {
+          status: "blocked" as const,
+          summary:
+            "Unlock One first -- I cannot see your circles while the vault is locked.",
+        };
+      }
+      const resolved = resolveVoiceCircle(String(slots?.circle ?? "").trim());
+      if ("blocked" in resolved) {
+        return { status: "blocked" as const, summary: resolved.blocked };
+      }
+      const circle = resolved.circle;
+      if (circle.viewerCapabilities?.canManageCircle === false) {
+        return {
+          status: "blocked" as const,
+          summary: `You cannot change who is in ${circle.name}. Only its owner can.`,
+        };
+      }
+      let detail: OneLocationCircleDetail;
+      try {
+        detail = await handleLoadNamedCircle(circle.id);
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(
+            error,
+            "Could not load who is in that circle.",
+          ),
+        };
+      }
+      const target = normalizeSpokenName(spokenPerson);
+      // Only people actually IN the circle. Matching the wider connection list
+      // would let "remove Sarah" report success about somebody who was never a
+      // member, leaving the real membership untouched and the person believing
+      // otherwise.
+      const matches = detail.members.filter((member) =>
+        normalizeSpokenName(member.displayName).includes(target),
+      );
+      if (matches.length === 0) {
+        return {
+          status: "blocked" as const,
+          summary: `Nobody in ${circle.name} matches that name.`,
+        };
+      }
+      if (matches.length > 1) {
+        return {
+          status: "blocked" as const,
+          summary: `More than one person in ${circle.name} matches that name: ${matches
+            .map((member) => member.displayName)
+            .join(", ")}. Say which one.`,
+        };
+      }
+      const member = matches[0];
+      if (!member) {
+        return {
+          status: "blocked" as const,
+          summary: `Nobody in ${circle.name} matches that name.`,
+        };
+      }
+      if (member.role === "owner") {
+        return {
+          status: "blocked" as const,
+          summary: `${member.displayName} owns ${circle.name}, so they cannot be removed from it.`,
+        };
+      }
+      if (slots?.confirmed !== true) {
+        // Removing someone from a circle takes away what that circle shared
+        // with them. It is not the person's own data to put back, so this is
+        // shown before it happens rather than reported afterwards.
+        return {
+          status: "blocked" as const,
+          summary: `Removing ${member.displayName} from ${circle.name} needs a confirmation.`,
+          data: {
+            [VOICE_CONFIRM_DATA_KEY]: {
+              actionId: "location.remove_from_circle",
+              slots: {
+                person: spokenPerson,
+                circle: String(slots?.circle ?? ""),
+                confirmed: true,
+              },
+              prompt: `Remove ${member.displayName} from ${circle.name}?`,
+              subject: { name: member.displayName, detail: circle.name },
+              consequence:
+                getKaiActionById("location.remove_from_circle")?.meaning ?? null,
+              confirmLabel: "Remove",
+            },
+          },
+        };
+      }
+      try {
+        await handleRemoveNamedCircleMember(circle.id, member.userId);
+      } catch (error) {
+        return {
+          status: "failed" as const,
+          summary: oneLocationErrorMessage(
+            error,
+            "Could not remove that person from the circle.",
+          ),
+        };
+      }
+      return {
+        status: "succeeded" as const,
+        summary: `Removed ${member.displayName} from ${circle.name}. They no longer get your location through it.`,
+      };
+    },
+  );
 
   const handleAutoShareChange = useCallback(
     (enabled: boolean) => {
@@ -6861,6 +8164,9 @@ export function OneLocationAgentPageContent({
   );
 
   const handleSkipSaveOnboardingLocation = useCallback(() => {
+    // Dismissing the saved-place picker must stay reversible during onboarding.
+    // Going back and continuing again should offer the picker again.
+    savedLocationPromptedRef.current = false;
     if (auth.userId) {
       PreVaultSensitiveDraftService.clearSavedLocation(auth.userId);
     }
@@ -7049,10 +8355,7 @@ export function OneLocationAgentPageContent({
         return;
       }
 
-      if (
-        permission?.state === "denied" ||
-        permission?.state === "restricted"
-      ) {
+      if (permission?.state === "restricted") {
         await openAppSettingsForOnboarding();
         return;
       }
@@ -7087,7 +8390,12 @@ export function OneLocationAgentPageContent({
         return;
       }
 
-      if (requestedPermission.state !== "granted") {
+      if (
+        requestedPermission.state !== "granted" &&
+        !(await OneLocationService.captureCurrentPosition()
+          .then(() => true)
+          .catch(() => false))
+      ) {
         await openAppSettingsForOnboarding();
         return;
       }
@@ -7111,14 +8419,32 @@ export function OneLocationAgentPageContent({
   ]);
 
   useEffect(() => {
+    // Onboarding's own retry, unchanged: it owns the flag and the ordering that
+    // the saved-place prompt depends on.
     const refreshIfPending = () => {
       if (!locationOnboardingRetryOnResumeRef.current) return;
       locationOnboardingRetryOnResumeRef.current = false;
       void refreshLocationPermission();
     };
+    // Separately, and for everyone: permission is changed outside the app — iOS
+    // Settings, Safari's site settings, the Android sheet — so coming back is
+    // exactly when our copy of it is most likely to be stale. Re-reading only
+    // behind onboarding's flag left every other surface showing an old verdict
+    // until a full reload.
+    const refreshPermissionOnReturn = () => {
+      void refreshLocationPermission().then((next) => {
+        // Once it is actually granted, an old observed denial is history, so
+        // the UI stops claiming "blocked" the moment that stops being true.
+        if (next?.state === "granted") {
+          observedLocationDenialRef.current = false;
+          setLocationDenialObserved(false);
+        }
+      });
+    };
     const refreshWhenVisible = () => {
       if (document.visibilityState === "hidden") return;
       refreshIfPending();
+      refreshPermissionOnReturn();
     };
 
     window.addEventListener("focus", refreshWhenVisible);
@@ -7288,8 +8614,17 @@ export function OneLocationAgentPageContent({
           onComplete={dismissLocationOnboarding}
           onSkip={skipLocationOnboarding}
           requireLocationToComplete={mode === "setup"}
+          // The circle code is minted server-side and every circle route is
+          // behind `require_vault_owner_token`, so there is nothing to show
+          // before the vault exists. Onboarding runs without one in `setup`
+          // mode, where this used to reach the Invite screen and fail with
+          // "Unlock One before preparing your circle code" -- a dead end during
+          // the very flow that creates the vault. Withholding the callback
+          // makes the flow omit that screen entirely (`inviteScreenEnabled`),
+          // so setup goes features -> people, and the code becomes available
+          // the moment the vault exists and onboarding is re-entered.
           onPrepareOnboardingCircleInvite={
-            handlePrepareOnboardingCircleInvite
+            vaultOwnerToken ? handlePrepareOnboardingCircleInvite : undefined
           }
           onCopyOnboardingCircleCode={handleCopyNamedCircleCode}
           onShareOnboardingCircleCode={handleShareOnboardingCircleInvite}
@@ -7353,6 +8688,7 @@ export function OneLocationAgentPageContent({
     busy,
     revokingGrantId,
     shareCompletedTick,
+    shareCompletedDestination: shareCompletedDestinationRef.current,
     readiness: {
       tone: locationReadiness.tone,
       title: locationReadiness.title,
@@ -7361,6 +8697,12 @@ export function OneLocationAgentPageContent({
     },
     permissionIsPrompt: permission?.state === "prompt",
     locationEnabled,
+    locationBlocked:
+      resolveLocationReadiness({
+        permission,
+        hasFix: Boolean(myLocationPoint),
+        observedDenial: locationDenialObserved,
+      }) === "blocked",
     autoShareEnabled: locationControl.autoShareEnabled,
     locationPaused: locationControl.paused,
     locationAccuracyLimited,
@@ -7424,7 +8766,7 @@ export function OneLocationAgentPageContent({
     onShareToContacts: () => void handleShareContactInvite(),
     onOpenShareReview: () => void handleOpenShareReview(),
     onConfirmShare: () => void handleShare(),
-    onSendRequest: () => void handleRequestAccess(),
+    onSendRequest: (reason) => void handleRequestAccess(reason),
     onApprove: (request) => void handleApprove(request),
     onDeny: (requestId) => void handleDeny(requestId),
     onViewGrant: (grant) => void handleView(grant),
@@ -7483,6 +8825,8 @@ export function OneLocationAgentPageContent({
     ),
     mapLocationHref: googleMapsLocationUrl,
     decryptedPoints,
+    reverseGeocodePoint: (point) =>
+      reverseGeocodeForSavedLocation(point.latitude, point.longitude),
     sosRecipients: sosActionRecipients,
     smsRecipients: smsActionRecipients,
     smsContactCandidates: sosActionRecipients,
@@ -7524,11 +8868,11 @@ export function OneLocationAgentPageContent({
     }
     return (
       <AppPageShell
-        width="reading"
+        width="agent"
         className="relative isolate"
         nativeTest={nativeTestConfig}
       >
-        <AppPageContentRegion className="min-w-0 space-y-6 overflow-x-hidden">
+        <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden">
           {/* Only surface the load-failure banner on a genuine cold load (no
               data yet). Once `state` is populated the hub is fully usable, so a
               transient failure from the 5s background poll must NOT flash a
@@ -7571,6 +8915,7 @@ export function OneLocationAgentPageContent({
               onClick={() => void refresh()}
               disabled={busy === "load"}
               className="h-9 rounded-full px-3"
+              data-voice-control-id="one-location-refresh"
             >
               {busy === "load" ? (
                 <Loader2

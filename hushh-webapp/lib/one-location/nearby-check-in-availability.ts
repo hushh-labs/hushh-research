@@ -22,11 +22,23 @@ export const ONE_LOCATION_NEARBY_MAX_ACCURACY_METERS = 5_000;
 export const ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS = 200;
 
 /**
- * Radius-based nearby discovery is a local/UAT simulation until production
- * admission and abuse-prevention controls are available. The backend remains
- * authoritative; this frontend gate prevents collecting a location for a flow
- * that production will reject.
+ * Whether to offer nearby check-in in this build.
+ *
+ * Outside production the flow is always on. Production is off unless the build
+ * opts in, because the check-in point is client-supplied and cannot be
+ * attested: the backend bounds a roaming attack through its continuity guard
+ * but cannot prove any single check-in is honest.
+ *
+ * The backend remains authoritative and admits production callers by cohort.
+ * This gate only avoids collecting a location for a flow that would then be
+ * refused, so it is deliberately the looser of the two — a build with the flag
+ * on still gets a 404 from the backend unless that account is admitted.
  */
 export function isOneLocationNearbyCheckInAvailable(): boolean {
-  return resolveAppEnvironment() !== "production";
+  if (resolveAppEnvironment() !== "production") return true;
+  return (
+    String(process.env.NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN ?? "")
+      .trim()
+      .toLowerCase() === "true"
+  );
 }

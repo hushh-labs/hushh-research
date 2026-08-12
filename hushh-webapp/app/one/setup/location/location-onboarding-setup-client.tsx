@@ -63,26 +63,26 @@ export function LocationOnboardingCompletedScreen({
   return (
     <FullscreenFlowShell
       width="reading"
-      className="min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] justify-center px-[var(--page-inline-gutter-standard)] py-10"
+      className="min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] justify-start px-[var(--page-inline-gutter-standard)] pb-10 pt-[max(56px,calc(env(safe-area-inset-top)+36px))]"
       data-testid="location-onboarding-completed"
     >
       <section
         className="motion-step-enter mx-auto flex w-full max-w-[34rem] flex-col items-center text-center"
         aria-labelledby="location-onboarding-completed-title"
       >
-        <span className="flex size-16 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 sm:size-20">
-          <CheckCircle2 className="size-9 sm:size-11" aria-hidden="true" />
+        <span className="flex h-[52px] w-[52px] items-center justify-center rounded-[16px] bg-[color:var(--app-success)]/12 text-[color:var(--app-success)]">
+          <CheckCircle2 className="h-7 w-7" aria-hidden="true" />
         </span>
-        <p className="mt-6 type-subhead text-muted-foreground">
+        <p className="mt-5 text-[13px] font-normal leading-[18px] text-muted-foreground">
           One · Location
         </p>
         <h1
           id="location-onboarding-completed-title"
-          className="mt-3 max-w-[18ch] text-balance type-display text-foreground"
+          className="ui-text-agent-title mt-2 max-w-[18ch] text-balance"
         >
           Your Location onboarding is complete
         </h1>
-        <p className="mt-4 max-w-[34rem] text-pretty type-title3 text-muted-foreground">
+        <p className="mt-3 max-w-[34rem] text-pretty text-[15px] font-normal leading-[20px] text-muted-foreground">
           Everything is ready. You can manage Location anytime from One.
         </p>
         <div className="mt-8 w-full max-w-[30rem]">

@@ -15,7 +15,6 @@ import {
   Building2,
   CheckCircle2,
   ChevronLeft,
-  ExternalLink,
   Loader2,
   ShieldCheck,
   UserRound,
@@ -26,6 +25,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import {
+  formatAum,
+  RiaSecRecordSection,
+  titleCase,
+} from "@/components/ria/profile/ria-sec-record-section";
 import { useAuth } from "@/hooks/use-auth";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { toNanpDigits } from "@/lib/ria/ria-claim-entry";
@@ -41,7 +45,6 @@ import {
   type RiaClaimCompleteResult,
   type RiaClaimFirm,
   type RiaClaimLookupResult,
-  type RiaClaimProfileFacts,
   type RiaClaimVerifyResult,
 } from "@/lib/services/ria-service";
 
@@ -55,27 +58,6 @@ function formatUsPhone(digits: string): string {
   if (digits.length <= 3) return digits;
   if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
-}
-
-function formatAum(aum: number | null | undefined): string | null {
-  if (!aum || aum <= 0) return null;
-  if (aum >= 1_000_000_000) return `$${(aum / 1_000_000_000).toFixed(1)}B AUM`;
-  if (aum >= 1_000_000) return `$${Math.round(aum / 1_000_000)}M AUM`;
-  return `$${Math.round(aum / 1_000)}K AUM`;
-}
-
-function titleCase(value: string | null | undefined): string {
-  const text = String(value ?? "").trim();
-  if (!text) return "";
-  const keepUpper = new Set(["llc", "lp", "llp", "pc", "pa", "ltd", "inc"]);
-  return text
-    .split(/\s+/)
-    .map((word) => {
-      const cleaned = word.replace(/[.,]+$/, "").toLowerCase();
-      if (keepUpper.has(cleaned)) return word.toLowerCase().replace(cleaned, cleaned.toUpperCase());
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(" ");
 }
 
 function FirmCard({ firm, adviserCount }: { firm: RiaClaimFirm; adviserCount?: number | null }) {
@@ -172,78 +154,6 @@ function CodeCells({
         className="absolute inset-0 h-full w-full cursor-default opacity-0"
         data-voice-control-id="ria-claim-code-input"
       />
-    </div>
-  );
-}
-
-/** One labelled fact row, matching the review-card grammar. */
-function FactRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex min-h-[44px] items-center justify-between gap-4 border-t border-[color:var(--border)] px-4 py-2.5 first:border-t-0">
-      <span className="text-[13px] text-muted-foreground">{label}</span>
-      <span className="text-right text-[15px] font-medium">{value}</span>
-    </div>
-  );
-}
-
-/** What the regulator publishes, filled in without asking the adviser. */
-function ClaimedFacts({ facts }: { facts: RiaClaimProfileFacts }) {
-  const rows: { label: string; value: string }[] = [];
-  if (facts.crd_number) rows.push({ label: "CRD", value: facts.crd_number });
-  if (facts.regulator) {
-    rows.push({
-      label: "Regulator",
-      value: [facts.regulator, facts.regulator_status].filter(Boolean).join(" · "),
-    });
-  }
-  if (facts.registered_since) {
-    rows.push({ label: "Registered since", value: facts.registered_since });
-  }
-  const office = [titleCase(facts.branch_city), facts.branch_state].filter(Boolean).join(", ");
-  if (office) rows.push({ label: "Office", value: office });
-  const aum = formatAum(facts.aum);
-  if (aum) rows.push({ label: "Firm assets", value: aum.replace(" AUM", "") });
-  if (facts.num_accounts) {
-    rows.push({ label: "Accounts", value: facts.num_accounts.toLocaleString() });
-  }
-  const exams = (facts.exams ?? []).map((e) => e.code).filter(Boolean);
-  if (exams.length) rows.push({ label: "Exams", value: exams.join(", ") });
-  const states = (facts.registered_states ?? []).map((s) => s.state).filter(Boolean);
-  if (states.length) {
-    rows.push({
-      label: states.length === 1 ? "Registered in" : `Registered in ${states.length}`,
-      value: states.slice(0, 3).join(", ") + (states.length > 3 ? "…" : ""),
-    });
-  }
-  const filed = facts.notice_filed_states ?? [];
-  if (filed.length) {
-    rows.push({ label: `Notice filed in ${filed.length}`, value: filed.slice(0, 3).join(", ") + (filed.length > 3 ? "…" : "") });
-  }
-  const prior = facts.previous_firms ?? [];
-  if (prior.length) {
-    rows.push({ label: "Previously", value: titleCase(prior[0]?.firm_name) });
-  }
-  if (!rows.length) return null;
-
-  return (
-    <div className="space-y-3">
-      <p className="text-[13px] text-muted-foreground">From your SEC record.</p>
-      <div className="overflow-hidden rounded-[22px] border border-[color:var(--border)] bg-[color:var(--card)] shadow-[0_8px_24px_rgba(62,48,30,0.05)]">
-        {rows.map((row) => (
-          <FactRow key={row.label} label={row.label} value={row.value} />
-        ))}
-      </div>
-      {facts.report_url ? (
-        <a
-          href={facts.report_url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[color:var(--app-accent)]"
-        >
-          View on adviserinfo.sec.gov
-          <ExternalLink className="h-3.5 w-3.5" />
-        </a>
-      ) : null}
     </div>
   );
 }
@@ -358,14 +268,6 @@ export default function RiaClaimPage() {
     void handleLookup(seededPhone);
   }, [seededPhone, user, authLoading, handleLookup]);
 
-  // True when the number being claimed is the one already verified on this
-  // account, so the backend can prove possession from its own record.
-  const claimingVerifiedAccountPhone =
-    phoneDigits.length === 10 &&
-    phoneDigits === toNanpDigits(accountPhone || user?.phoneNumber);
-
-
-
   const completeClaim = useCallback(
     async (ticket: string, type: ClaimType, individualCrd: number | null) => {
       if (!firmCrd) return;
@@ -469,23 +371,25 @@ export default function RiaClaimPage() {
       try {
         const idToken = await getIdToken();
 
-        // If this IS the number already verified on the account, the backend
-        // proves possession from its own record. Asking for a second passcode
-        // on the number they verified moments ago is friction, not security.
-        if (claimingVerifiedAccountPhone) {
-          try {
-            const verified = await RiaService.claimVerify(idToken, {
-              phone: phoneDigits,
-              claim_type: type,
-              firm_crd: firmCrd,
-              individual_crd: type === "individual" ? candidateCrd : undefined,
-            });
-            await settleVerifyResult(verified, type, candidateCrd);
-            return;
-          } catch {
-            // Fall through to the passcode: the account record did not satisfy
-            // the backend, so possession must still be proven the normal way.
-          }
+        // Always try the tokenless verify first: the server checks the number
+        // against its own record of the account phone and answers 422
+        // CLAIM_PROOF_REQUIRED when possession still needs proving. The client
+        // must not pre-gate this — useAuth().phoneNumber is stale right after
+        // sign-up verification, and a wrong guess forces a second passcode on
+        // a number proven moments ago. Cost: one extra round-trip, mismatch
+        // case only.
+        try {
+          const verified = await RiaService.claimVerify(idToken, {
+            phone: phoneDigits,
+            claim_type: type,
+            firm_crd: firmCrd,
+            individual_crd: type === "individual" ? candidateCrd : undefined,
+          });
+          await settleVerifyResult(verified, type, candidateCrd);
+          return;
+        } catch {
+          // Server said CLAIM_PROOF_REQUIRED (or was unreachable): possession
+          // must still be proven the normal way — fall through to the passcode.
         }
 
         const start = await RiaService.claimOtpStart(idToken, { phone: phoneDigits });
@@ -506,14 +410,7 @@ export default function RiaClaimPage() {
         setBusy(false);
       }
     },
-    [
-      firmCrd,
-      busy,
-      phoneDigits,
-      getIdToken,
-      claimingVerifiedAccountPhone,
-      settleVerifyResult,
-    ],
+    [firmCrd, busy, phoneDigits, getIdToken, settleVerifyResult],
   );
 
   const handleCodeFilled = useCallback(
@@ -974,8 +871,17 @@ export default function RiaClaimPage() {
                   </div>
                 </div>
               </div>
+              {completeResult.dossier?.status === "queued" ? (
+                <p
+                  className="text-[13px] text-muted-foreground"
+                  data-testid="ria-claim-dossier-line"
+                >
+                  Your dossier is on its way to{" "}
+                  {completeResult.dossier.email_masked || "your email"}
+                </p>
+              ) : null}
               {completeResult.facts ? (
-                <ClaimedFacts facts={completeResult.facts} />
+                <RiaSecRecordSection facts={completeResult.facts} />
               ) : null}
               {!verified ? (
                 <p className="text-[13px] leading-relaxed text-muted-foreground">

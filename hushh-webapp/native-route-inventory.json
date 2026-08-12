@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-08-02",
-  "total_routes": 106,
-  "native_required_routes": 96,
+  "total_routes": 111,
+  "native_required_routes": 97,
   "excluded_routes": 10,
   "routes": [
     {
@@ -560,6 +560,20 @@
       "initialRoute": "/login?redirect=%2Fone%2Flocation%2Fmap",
       "expectedMarker": "native-route-one-location-map",
       "expectedRoute": "/one/location/map",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/location/check-in",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Flocation%2Fcheck-in",
+      "expectedMarker": "native-route-one-location-check-in",
+      "expectedRoute": "/one/location/check-in",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -1274,6 +1288,22 @@
     },
     {
       "route": "/one/profile/pkm-agent-lab",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/one/calendar",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/one/setup/calendar",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/one/profile/google/oauth/return",
+      "classification": "excluded-web-only"
+    },
+    {
+      "route": "/one/profile/integrations",
       "classification": "excluded-web-only"
     }
   ]

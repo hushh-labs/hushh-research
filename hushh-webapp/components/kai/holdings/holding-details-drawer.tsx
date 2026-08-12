@@ -1,6 +1,7 @@
 "use client";
 
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { SectionLabel } from "@/components/app-ui/typography";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
 import type { HoldingMobileCardViewModel } from "@/components/kai/holdings/holding-mobile-card";
@@ -36,7 +37,7 @@ interface HoldingDetailsDrawerProps {
 function DetailRow({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
   return (
     <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2.5">
-      <p className="app-label-text uppercase tracking-wide text-muted-foreground">{label}</p>
+      <SectionLabel as="p">{label}</SectionLabel>
       <p className={cn("app-body-text mt-1 font-semibold text-foreground", valueClassName)}>{value}</p>
     </div>
   );

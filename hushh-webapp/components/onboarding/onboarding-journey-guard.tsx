@@ -13,6 +13,7 @@ import {
   isOnboardingAdmissionExemptRoute,
   isOneSetupRoute,
   isOneSetupSurfaceRoute,
+  normalizeStaticExportPathname,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
@@ -123,8 +124,19 @@ export function OnboardingJourneyGuard({
     persistentSetupResolved ||
       (cachedState && PreVaultUserStateService.isSetupResolved(cachedState)),
   );
+  // Finance setup remains a valid, bounded capability entry after the one-time
+  // root journey is dismissed. Root completion (including Skip) is not the
+  // durable Finance completion signal. This covers BOTH the Finance
+  // questionnaire route AND its portfolio-import terminal: completing the
+  // questionnaire redirects to `/one/setup/finance/import`, and without that
+  // route in the allowlist a root-resolved user was ejected to ONE_HOME
+  // ("Opening One…" → main dashboard) instead of reaching the import step.
+  const normalizedGuardPathname = normalizeStaticExportPathname(pathname);
+  const isPostRootFinanceSetup =
+    normalizedGuardPathname === ROUTES.ONE_SETUP_FINANCE ||
+    normalizedGuardPathname === ROUTES.ONE_SETUP_FINANCE_IMPORT;
   const shouldEjectSetupSurface = Boolean(
-    setupSurface && setupDismissed,
+    setupSurface && setupDismissed && !isPostRootFinanceSetup,
   );
 
   useEffect(() => {

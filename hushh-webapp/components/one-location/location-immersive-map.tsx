@@ -35,6 +35,11 @@ import {
   encryptLocationForRecipient,
 } from "@/lib/one-location/encryption";
 import {
+  buildCheckInHrefFromYourMap,
+  CHECK_IN_SOURCE_PARAM,
+  resolveCheckInDismissHref,
+} from "@/lib/one-location/check-in-navigation";
+import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
@@ -255,7 +260,22 @@ function pairBounds(
  * foreground location fix so the initial camera settles on the current device;
  * it never starts a background watcher or publishes that fix to recipients.
  */
-export function LocationImmersiveMap() {
+/**
+ * `surface` decides which product this screen is.
+ *
+ * "map" is Your Map: the people who already share their location with you,
+ * pinned, plus your own position. "check-in" is the nearby flow: a place you
+ * pick, the 500 m area around it, and a list of opted-in people there. They
+ * were the same route with a drawer on top, so both read as one feature and QA
+ * could not tell them apart. The private-share pins and the people tray belong
+ * to Your Map only, and are withheld here.
+ */
+export function LocationImmersiveMap({
+  surface = "map",
+}: {
+  surface?: "map" | "check-in";
+} = {}) {
+  const isCheckInSurface = surface === "check-in";
   const searchParams = useSearchParams();
   const router = useRouter();
   const auth = useRequireAuth();
@@ -311,6 +331,13 @@ export function LocationImmersiveMap() {
   const [status, setStatus] = useState<
     "idle" | "loading" | "ready" | "unavailable" | "error"
   >("idle");
+  // Why the map is unavailable. Both causes used to render the same card, which
+  // told the user "no location was captured or exposed" when their location was
+  // fine and the build simply had no Maps key — sending them to debug the wrong
+  // thing entirely.
+  const [unavailableReason, setUnavailableReason] = useState<
+    "maps-key" | "renderer"
+  >("maps-key");
   const [busy, setBusy] = useState<"presence" | "locate" | null>(null);
   const [nearbyConnectionBusyAlias, setNearbyConnectionBusyAlias] = useState<
     string | null
@@ -364,13 +391,49 @@ export function LocationImmersiveMap() {
       });
       return;
     }
-    const requested = action === "check-in";
+    // `?action=check-in` on the map route is the old entry point. Rather than
+    // chase every caller -- the hub, breadcrumbs, notification deep links, and
+    // anything already shared -- send them all to the destination that now owns
+    // the flow. One redirect keeps old links working and stops the map from
+    // rendering check-in over Your Map ever again.
+    if (!isCheckInSurface && action === "check-in") {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("action");
+      const query = params.toString();
+      router.replace(
+        query
+          ? `${ROUTES.ONE_LOCATION_CHECK_IN}?${query}`
+          : ROUTES.ONE_LOCATION_CHECK_IN,
+        { scroll: false },
+      );
+      return;
+    }
+    // On its own route the sheet is the screen, not an overlay the URL
+    // toggles -- there is no Your Map underneath to fall back to.
+    const requested = isCheckInSurface;
     setNearbyCheckInOpen(requested);
     if (
       !requested ||
       nearbyHistoryPreparedRef.current ||
       typeof window === "undefined"
     ) {
+      return;
+    }
+
+    if (isCheckInSurface) {
+      // A real route is already its own history entry: Back leaves check-in
+      // without help. The synthetic boundary below existed only because the
+      // sheet had no URL of its own, and re-creating it here would cost a
+      // second Back press to escape. Consume any resume token and strip it so
+      // a refresh cannot replay it.
+      const surfaceResumeToken = searchParams.get(NEARBY_PRIVATE_RESUME_PARAM);
+      if (surfaceResumeToken && typeof window !== "undefined") {
+        consumeNearbyPrivateReturn(surfaceResumeToken);
+        const resumedUrl = new URL(window.location.href);
+        resumedUrl.searchParams.delete(NEARBY_PRIVATE_RESUME_PARAM);
+        window.history.replaceState(window.history.state, "", resumedUrl.href);
+      }
+      nearbyHistoryPreparedRef.current = true;
       return;
     }
 
@@ -395,27 +458,50 @@ export function LocationImmersiveMap() {
     window.history.replaceState(window.history.state, "", plainMapUrl.href);
     window.history.pushState(window.history.state, "", actionUrl.href);
     nearbyHistoryPreparedRef.current = true;
-  }, [nearbyCheckInAvailable, router, searchParams]);
+  }, [isCheckInSurface, nearbyCheckInAvailable, router, searchParams]);
 
   const openNearbyCheckIn = useCallback(() => {
     if (
       !nearbyCheckInAvailable ||
       !rendererReady ||
       demoMode ||
+      // Nothing to open: on the check-in route the flow already is the screen.
+      isCheckInSurface ||
       searchParams.get("action") === "check-in"
     ) {
       return;
     }
     setTrayExpanded(false);
-    nearbyHistoryPreparedRef.current = true;
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("action", "check-in");
-    router.push(`${ROUTES.ONE_LOCATION_MAP}?${params.toString()}`, {
+    // Recording Your Map as the opener is what lets dismiss come back here
+    // instead of dropping the person on the Location hub.
+    router.push(buildCheckInHrefFromYourMap(searchParams), {
       scroll: false,
     });
-  }, [demoMode, nearbyCheckInAvailable, rendererReady, router, searchParams]);
+  }, [
+    demoMode,
+    isCheckInSurface,
+    nearbyCheckInAvailable,
+    rendererReady,
+    router,
+    searchParams,
+  ]);
 
   const closeNearbyCheckIn = useCallback(() => {
+    // Dismissing on the dedicated route must leave it. Clearing the flag alone
+    // would strand the person on a bare map that is not Your Map and has none
+    // of its content -- the emptiest possible screen.
+    if (isCheckInSurface) {
+      // `replace`, not `push`: check-in is done with, and leaving it on the
+      // stack made the very next Back press re-open the flow just dismissed.
+      // History is not consulted for the destination either -- this app's back
+      // is authored, because the browser stack carries external origins and on
+      // iOS walking it can eject the person out of the app entirely.
+      router.replace(
+        resolveCheckInDismissHref(searchParams.get(CHECK_IN_SOURCE_PARAM)),
+        { scroll: false },
+      );
+      return;
+    }
     setNearbyCheckInOpen(false);
     if (
       typeof window !== "undefined" &&
@@ -423,7 +509,7 @@ export function LocationImmersiveMap() {
     ) {
       window.history.back();
     }
-  }, []);
+  }, [isCheckInSurface, router, searchParams]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -695,6 +781,7 @@ export function LocationImmersiveMap() {
     if (!rendererReady || !mapElement.current) return;
     const apiKey = mapApiKey();
     if (!apiKey) {
+      setUnavailableReason("maps-key");
       setStatus("unavailable");
       return;
     }
@@ -755,11 +842,23 @@ export function LocationImmersiveMap() {
         setMapReady(true);
       })
       .catch(() => {
-        if (!cancelled) setStatus("unavailable");
+        if (cancelled) return;
+        setUnavailableReason("renderer");
+        setStatus("unavailable");
       });
     return () => {
       cancelled = true;
       setMapReady(false);
+      // Destroy the native map instance and drop the ref on teardown. Without
+      // this, closing Your Map left the @capacitor/google-maps instance
+      // (registered under MAP_ID) alive; re-opening then raced a fresh create()
+      // against the stale instance and rendered a blank canvas the second time.
+      // Nulling the ref also stops the unmount effect from double-destroying it.
+      const staleMap = mapRef.current;
+      mapRef.current = null;
+      markerIdsRef.current = [];
+      markerByMapIdRef.current.clear();
+      void staleMap?.destroy();
     };
   }, [auth.userId, rendererReady]);
 
@@ -861,11 +960,16 @@ export function LocationImmersiveMap() {
   }, [nearbyCheckInOpen, nearbyPlaceFocus]);
 
   const visibleMarkers = useMemo(() => {
-    const next = [...markers];
+    // Private-share pins are Your Map's answer to "where are the people who
+    // share with me". Drawing them behind the check-in flow put that answer on
+    // both screens and made the two read as one feature. Check-in shows only
+    // the two points its own question needs: where you are, and the place you
+    // are checking in to.
+    const next = isCheckInSurface ? [] : [...markers];
     if (selfMarker) next.push(selfMarker);
     if (nearbyPlaceMarker) next.push(nearbyPlaceMarker);
     return next;
-  }, [markers, nearbyPlaceMarker, selfMarker]);
+  }, [isCheckInSurface, markers, nearbyPlaceMarker, selfMarker]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1432,21 +1536,27 @@ export function LocationImmersiveMap() {
     if (closeRequestedRef.current) return;
     closeRequestedRef.current = true;
     setClosing(true);
+    // Tear the native map down immediately. The @capacitor/google-maps view
+    // renders BELOW the WebView; if it lingers it can swallow the very taps that
+    // should dismiss the overlay (the on-device "X does nothing" report), and it
+    // must never cover the next screen. Destroying it up front frees the touch
+    // surface before we navigate.
     void mapRef.current?.disableTouch();
+    void mapRef.current?.destroy();
     beginRouteTransition(
       ROUTES.ONE_LOCATION,
       () => router.replace(ROUTES.ONE_LOCATION, { scroll: false }),
       "tap",
       "full",
     );
-    // If route settlement is externally interrupted, allow an explicit retry
-    // rather than leaving the visible close affordance inert.
+    // Guaranteed exit: if the SPA route transition is interrupted (observed on
+    // native, where the map layer/transition could leave the close affordance
+    // inert), force a hard navigation to the Location dashboard so the user is
+    // never trapped in the full-screen map.
     window.setTimeout(() => {
       if (window.location.pathname !== ROUTES.ONE_LOCATION_MAP) return;
-      closeRequestedRef.current = false;
-      setClosing(false);
-      void mapRef.current?.enableTouch();
-    }, 1_500);
+      window.location.assign(ROUTES.ONE_LOCATION);
+    }, 1_200);
   }, [router]);
 
   useEffect(() => {
@@ -1509,7 +1619,12 @@ export function LocationImmersiveMap() {
       />
       <div
         ref={topControlsRef}
-        className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))]"
+        // z-30 (above the z-20 map loading/error overlay and people tray): at
+        // equal z-index the later-in-DOM full-screen overlay painted on top of
+        // the close X and could swallow the tap that dismisses the map. Keeping
+        // the controls strictly above every map layer guarantees the back/X and
+        // locate buttons stay tappable in every state (loading, error, tray open).
+        className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))]"
       >
         <ShellActionSurface
           className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
@@ -1567,12 +1682,22 @@ export function LocationImmersiveMap() {
         {rendererReady ? (
           <ShellActionSurface
             className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
-            aria-label="Show my location"
+            aria-label={
+              busy === "locate" ? "Finding your location" : "Show my location"
+            }
+            aria-busy={busy === "locate"}
             data-testid="one-location-map-locate"
             disabled={busy === "locate"}
             onClick={() => void locateMe()}
           >
-            <LocateFixed className="h-5 w-5 stroke-[2.25]" />
+            {busy === "locate" ? (
+              <Loader2
+                className="h-5 w-5 animate-spin stroke-[2.25]"
+                aria-hidden="true"
+              />
+            ) : (
+              <LocateFixed className="h-5 w-5 stroke-[2.25]" />
+            )}
           </ShellActionSurface>
         ) : null}
       </div>
@@ -1666,17 +1791,32 @@ export function LocationImmersiveMap() {
         </section>
       ) : null}
       {rendererReady && status === "unavailable" ? (
-        <section className="absolute inset-x-4 bottom-4 z-20 rounded-3xl bg-background/95 p-5 shadow-xl">
-          <h1 className="font-semibold">
-            Your Map needs secure map configuration
+        // Full-bleed styled fallback. Previously only a small bottom card sat
+        // over the (blank) native canvas, so most of Your Map read as a blank
+        // white screen when the Maps key was missing. Cover the whole surface
+        // with an intentional muted placeholder (subtle grid + pin) so it never
+        // looks broken, and center the explanation.
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-[#eef2f7] px-6 text-center dark:bg-[#10151d]">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 opacity-[0.5] [background-image:linear-gradient(to_right,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px)] [background-size:32px_32px]"
+          />
+          <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-background text-[color:var(--app-accent,#087ff5)] shadow-lg">
+            <MapPin className="h-7 w-7" strokeWidth={2} aria-hidden />
+          </span>
+          <h1 className="relative font-semibold">
+            {unavailableReason === "maps-key"
+              ? "This build has no Maps key"
+              : "The map could not start"}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            No location was captured or exposed. Try again after the app’s
-            restricted Maps key is configured.
+          <p className="relative max-w-sm text-sm text-muted-foreground">
+            {unavailableReason === "maps-key"
+              ? "Your location is fine — this app build was packaged without its restricted Google Maps key, so the map cannot render. Nothing about your location was captured or shared."
+              : "The map renderer failed to load. Check your connection and try again — your location was not captured or shared."}
           </p>
-        </section>
+        </div>
       ) : null}
-      {rendererReady && status !== "unavailable" ? (
+      {rendererReady && status !== "unavailable" && !isCheckInSurface ? (
         <section
           ref={peopleTrayRef}
           className="absolute left-1/2 z-20 isolate flex min-h-0 flex-col overflow-hidden border border-[var(--app-accent-border)] bg-background/95 shadow-[0_18px_60px_color-mix(in_oklab,var(--app-accent)_18%,transparent)] backdrop-blur-xl motion-reduce:transition-none"

@@ -24,6 +24,20 @@ def test_local_database_unavailable_hint_is_present_for_proxy_backed_local_env(
     assert "127.0.0.1:6543" in hint
 
 
+def test_local_cloud_sql_proxy_explicitly_disables_asyncpg_tls(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("DB_HOST", "127.0.0.1")
+    monkeypatch.setenv(
+        "CLOUDSQL_INSTANCE_CONNECTION_NAME", "hushh-pda-uat:us-central1:hushh-uat-pg"
+    )
+    monkeypatch.setenv("DB_SSLMODE", "require")
+
+    db_connection = importlib.import_module("db.connection")
+
+    assert db_connection.get_database_ssl() is False
+
+
 def test_format_database_unavailable_details_appends_local_hint(
     monkeypatch: pytest.MonkeyPatch,
 ):

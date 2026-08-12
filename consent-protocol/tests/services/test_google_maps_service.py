@@ -675,3 +675,66 @@ async def test_reverse_geocode_falls_back_to_nearest_place_address(monkeypatch):
         "formattedAddress": "Kasturba Road, Bengaluru, Karnataka 560001, India",
         "countryCode": "IN",
     }
+
+
+# ---------------------------------------------------------------------------
+# Postal-code resolution — Text Search, because the Geocoding API is not
+# enabled for this key (REQUEST_DENIED: "This API is not activated").
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_resolve_postal_code_reads_the_places_component(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/places:searchText")
+        assert json.loads(request.content)["textQuery"] == "MENDOCINO, CA, USA"
+        return httpx.Response(
+            200,
+            json={
+                "places": [
+                    {
+                        "addressComponents": [
+                            {"longText": "Mendocino", "types": ["locality", "political"]},
+                            {"longText": "95460", "types": ["postal_code"]},
+                        ]
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+    assert await gms.GoogleMapsService().resolve_postal_code(query="MENDOCINO, CA, USA") == "95460"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(200, json={"places": []}),
+        httpx.Response(200, json={"places": [{"addressComponents": []}]}),
+        httpx.Response(403, json={"error": {"message": "denied"}}),
+        httpx.Response(200, content=b"not json"),
+    ],
+    ids=["no-place", "no-postal-component", "upstream-error", "unparseable"],
+)
+async def test_resolve_postal_code_never_raises_into_the_caller(monkeypatch, response):
+    """Enrichment only: a lookup failure must not fail the dossier worker."""
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "k")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(lambda _r: response))
+    assert await gms.GoogleMapsService().resolve_postal_code(query="SANDY, UT") == ""
+
+
+@pytest.mark.asyncio
+async def test_resolve_postal_code_without_a_key_makes_no_call(monkeypatch):
+    called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(200, json={"places": []})
+
+    monkeypatch.setattr(gms, "GOOGLE_MAPS_API_KEY", "")
+    monkeypatch.setattr(gms, "_async_client", lambda: _client_with(handler))
+    assert await gms.GoogleMapsService().resolve_postal_code(query="SANDY, UT") == ""
+    assert called is False

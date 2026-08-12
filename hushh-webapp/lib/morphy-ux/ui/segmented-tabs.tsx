@@ -66,7 +66,7 @@ export function SegmentedTabs({
           >
             {/* Ripple sits BEHIND the label (z-0) and never intercepts taps. */}
             <MaterialRipple variant="none" effect="fade" className="z-0" />
-            <span className="relative z-10 block min-w-0 truncate text-center text-xs tracking-tight sm:text-sm">
+            <span className="ui-text-form-label relative z-10 block min-w-0 truncate text-center">
               {option.label}
             </span>
           </button>

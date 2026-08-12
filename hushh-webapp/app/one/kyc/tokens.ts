@@ -16,13 +16,11 @@ export const CARD_SURFACE =
 export const SUBCARD_SURFACE =
   "rounded-[var(--app-card-radius-compact,16px)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)]";
 
-/** Small uppercase eyebrow label. */
-export const EYEBROW =
-  "text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground";
+/** Shared readable section label. */
+export const EYEBROW = "ui-text-section-label";
 
-/** Accent eyebrow (for emphasis on active/accent sections). */
-export const EYEBROW_ACCENT =
-  "text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--app-accent)]";
+/** Shared readable accent section label. */
+export const EYEBROW_ACCENT = "ui-text-section-label";
 
 /**
  * Primary pill CTA (compact). Solid accent pill, accent-foreground label. Meets

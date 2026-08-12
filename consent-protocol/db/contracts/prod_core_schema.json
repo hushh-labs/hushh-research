@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 136,
+  "expected_migration_version": 144,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -52,6 +52,7 @@
       "personas",
       "last_active_persona",
       "investor_marketplace_opt_in",
+      "contact_discoverable",
       "created_at",
       "updated_at"
     ],
@@ -101,6 +102,9 @@
       "fee_structure",
       "min_engagement_amount",
       "min_engagement_currency",
+      "profile_source",
+      "profile_source_url",
+      "profile_source_filed_on",
       "created_at",
       "updated_at"
     ],
@@ -129,6 +133,23 @@
       "raw_response",
       "status",
       "created_at"
+    ],
+    "ria_claim_dossiers": [
+      "id",
+      "ria_profile_id",
+      "crd_number",
+      "user_id",
+      "status",
+      "scan_id",
+      "result_markdown",
+      "result_summary",
+      "mail_message_id",
+      "mail_recipient",
+      "mail_intended_recipient",
+      "mail_delivery_mode",
+      "error",
+      "requested_at",
+      "completed_at"
     ],
     "advisor_investor_relationships": [
       "id",
@@ -859,6 +880,12 @@
       "result_class",
       "result_payload_json",
       "readback_result_json",
+      "delivery_mode",
+      "encrypted_fields_json",
+      "zk_metadata_json",
+      "envelope_digest",
+      "client_operation_id",
+      "approval_challenge_id",
       "error_code",
       "error_message",
       "created_at",
@@ -1011,7 +1038,10 @@
       "kdf_iterations",
       "crm_delete_endpoint",
       "configuration_revision",
-      "validated_at"
+      "validated_at",
+      "crm_zk_v1_enabled",
+      "crm_zk_uat_v1_enabled",
+      "mulesoft_connector_ref"
     ],
     "crm_operation_endpoints": [
       "crm_id",
@@ -1021,7 +1051,81 @@
       "path",
       "description",
       "mcp_endpoint",
-      "response_contract"
+      "response_contract",
+      "crm_zk_tool_name",
+      "crm_zk_uat_tool_name"
+    ],
+    "crm_zk_recipient_keys": [
+      "crm_id",
+      "key_id",
+      "public_key",
+      "public_key_fingerprint",
+      "response_signing_public_key",
+      "response_signing_key_id",
+      "response_signing_key_fingerprint",
+      "profile",
+      "environment",
+      "status",
+      "activated_at",
+      "retires_at",
+      "retired_at",
+      "created_at",
+      "updated_at"
+    ],
+    "crm_zk_uat_recipient_keys": [
+      "crm_id",
+      "key_id",
+      "public_key",
+      "public_key_fingerprint",
+      "environment",
+      "status",
+      "activated_at",
+      "retires_at",
+      "retired_at",
+      "created_at",
+      "updated_at"
+    ],
+    "connected_system_owner_signing_keys": [
+      "user_id",
+      "key_id",
+      "public_key_spki",
+      "public_key_fingerprint",
+      "algorithm",
+      "status",
+      "created_at",
+      "retired_at",
+      "revoked_at"
+    ],
+    "connected_system_zk_contexts": [
+      "context_id",
+      "user_id",
+      "system_id",
+      "action",
+      "object_type",
+      "record_id",
+      "field_names_json",
+      "schema_fingerprint",
+      "configuration_revision",
+      "recipient_key_id",
+      "recipient_key_fingerprint",
+      "client_operation_id",
+      "context_digest",
+      "context_signer_key_id",
+      "context_signature",
+      "expires_at",
+      "consumed_at",
+      "created_at"
+    ],
+    "connected_system_intent_approval_challenges": [
+      "challenge_id",
+      "intent_id",
+      "user_id",
+      "system_id",
+      "envelope_digest",
+      "nonce_hash",
+      "expires_at",
+      "consumed_at",
+      "created_at"
     ],
     "crm_schema_mapping_cache": [
       "crm_id",
@@ -1218,6 +1322,15 @@
       "created_at",
       "metadata"
     ],
+    "google_provider_connections": [
+      "user_id", "provider", "provider_subject", "provider_email", "status",
+      "refresh_token_ciphertext", "refresh_token_iv", "refresh_token_tag",
+      "access_token_ciphertext", "access_token_iv", "access_token_tag",
+      "token_key_version", "access_token_expires_at", "connected_at", "revoked_at", "created_at", "updated_at"
+    ],
+    "google_service_grants": ["user_id", "provider", "service", "status", "scope_csv", "access_level", "last_used_at", "disconnected_at", "created_at", "updated_at"],
+    "google_oauth_attempts": ["attempt_id", "user_id", "service", "redirect_uri", "requested_scope_csv", "state_digest", "verifier_ciphertext", "verifier_iv", "verifier_tag", "expires_at", "consumed_at", "created_at"],
+    "google_calendar_action_proposals": ["proposal_id", "user_id", "action", "payload_json", "expected_event_etag", "status", "expires_at", "executed_at", "created_at"],
     "one_wallet_cards": [
       "user_id",
       "pass_serial",

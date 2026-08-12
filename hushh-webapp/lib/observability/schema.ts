@@ -203,6 +203,10 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "contact_count_bucket",
     "matched_count",
     "invite_candidate_count",
+    "contact_region",
+    "partial_access",
+    "truncated",
+    "failure_reason",
   ],
   one_location_request_sent: [
     ...BASE_ALLOWED_KEYS,

@@ -17,6 +17,18 @@ vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: "user_1" } }),
 }));
 
+// Both tests below exercise the vault-locked path deliberately ("without
+// opening the vault") -- the component stages the draft in memory instead of
+// saving to the PKM vault whenever isVaultUnlocked/vaultKey/vaultOwnerToken
+// aren't all present.
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({
+    isVaultUnlocked: false,
+    vaultKey: null,
+    vaultOwnerToken: null,
+  }),
+}));
+
 vi.mock("@/lib/services/kyc-identity-profile-pkm-service", () => ({
   KycIdentityProfilePkmService: {
     saveProfile: mocks.saveProfile,
@@ -38,6 +50,21 @@ describe("KycIdentityPreface", () => {
     vi.clearAllMocks();
     window.sessionStorage.clear();
     mocks.saveProfile.mockResolvedValue({ success: true });
+  });
+
+  it("keeps the shared gutter while removing the standard route's duplicate top offset", () => {
+    const { container } = render(
+      <KycIdentityPreface onComplete={vi.fn()} />,
+    );
+
+    expect(
+      container.querySelector('[data-capability-cinematic-intro="email"]'),
+    ).toBeInTheDocument();
+    const shell = container.querySelector(
+      '[data-fullscreen-flow-shell="true"]',
+    );
+    expect(shell).toBeInTheDocument();
+    expect(shell?.className).toContain("!pt-0");
   });
 
   it("stages the about-me summary in memory without opening the vault", () => {

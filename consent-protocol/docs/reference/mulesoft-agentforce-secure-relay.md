@@ -7,9 +7,10 @@ Canonical visual owner: [consent-protocol](../README.md).
 ## Decision
 
 Hussh retains one `/mcp/` endpoint, one canonical five-tool consent lifecycle,
-and the existing envelope-v2 `X25519-AES256-GCM` profile. Salesforce does not
-receive a second endpoint, reduced catalog, alternate consent flow, or
-Salesforce-specific cryptographic profile.
+and the existing envelope-v2 `X25519-AES256-GCM` profile for consent exports.
+That compatibility profile is not changed by Connected Systems. CRM ZK is a
+separate, generic `crm-zk.v1` protocol for registered CRM connectors; it is
+not a Salesforce-specific replacement for consent export.
 
 The selected enterprise delivery target is a partner-authorized MuleSoft
 connector with a separately reviewed Java 17/JCA crypto component. The
@@ -25,9 +26,20 @@ decrypted export. AgentExchange may distribute a Salesforce action or user
 experience, but it is not required for decryption when MuleSoft owns that
 boundary.
 
-The existing MuleSoft-backed Connected Systems mutation path is current. The
-Java/JCA consent-export decryptor and an encrypted Connected Systems mutation
-envelope remain proposed and require partner UAT before production use.
+The existing MuleSoft-backed Connected Systems plaintext create/delete and
+legacy mutation path is current. Normal MuleSoft CRM operations identify only
+a server-owned `connectorRef`; MuleSoft resolves connection details from its
+own secret store. The repository contains a feature-gated `crm-zk.v1`
+bound-read/update contract, but no connector is enabled until its MuleSoft
+conformance vectors, keys, server context-signing key, and UAT proof are
+registered. This is code readiness, not partner-production evidence.
+
+For partner UAT, the repository also carries a separate, default-off
+`crm-zk-uat.v1` compatibility profile. It does not change consent/PCHP and does
+not weaken `crm-zk.v1`. Its only claim is that Hussh cannot decrypt CRM field
+values on the gated read/update path. It deliberately omits HKDF, AAD, P-256
+signatures, MuleSoft approval-proof validation, and signed responses. Those
+omissions make it a transport-trusting sandbox profile, not production ZK.
 
 ```mermaid
 flowchart LR
@@ -52,8 +64,9 @@ flowchart LR
 5. Hussh receives only the connector public key, key ID, algorithm, and
    fingerprint. It never receives the connector private key or readable scoped
    information.
-6. No HKDF, forward-secrecy, envelope-version, or wire-shape change is part of
-   this decision.
+6. No HKDF, forward-secrecy, envelope-version, or wire-shape change is made to
+   consent export. `crm-zk.v1` is separately versioned and cannot be selected
+   by the consent-export APIs.
 
 ## One runtime, two authority lanes
 
@@ -62,7 +75,7 @@ MuleSoft may host both lanes, but they do not share authority:
 | Lane | Authority | Current state |
 | --- | --- | --- |
 | Consent delivery | Partner execute app, exact approved scope, active grant, connector key binding | Hussh lifecycle and encrypted export are current; MuleSoft/JCA decryptor is UAT-gated |
-| Connected Systems mutation | Signed-in vault owner, typed CRM intent, trusted confirmation, bound CRM record, idempotent execution and readback | Existing MuleSoft-backed mutation sends readable fields over TLS; encrypted mutation delivery is a target |
+| Connected Systems mutation | Signed-in vault owner, typed CRM intent, trusted confirmation, bound CRM record, idempotent execution and readback | Legacy create/delete remain plaintext. `crm-zk.v1` code is gated per connector and disabled until MuleSoft conformance/UAT. |
 
 Each lane keeps independent policy, correlation, idempotency, audit, and
 recovery. A `grant_ref` never authorizes a CRM mutation. Reusing the same
@@ -70,24 +83,90 @@ partner-controlled connector and key-custody runtime does not require a second
 key channel, but a future mutation envelope must bind its distinct lane,
 purpose, destination, and confirmation receipt in authenticated metadata.
 
-The target mutation sequence is:
+## CRM ZK v1: gated bound reads and updates
 
-1. Register and pin the MuleSoft connector public key and key fingerprint.
-2. Keep the existing typed intent, owner-bound CRM record, and trusted
-   confirmation as the mutation authority.
-3. After confirmation, seal only the approved fields with the existing
-   `X25519-AES256-GCM` construction.
-4. Bind `connected_systems_mutation`, intent ID, approval receipt, connector,
-   operation, object type, bound record, field names, expiry, key fingerprint,
-   and idempotency reference into authenticated metadata.
-5. Let the trusted MuleSoft connector decrypt outside model context, mutate the
-   CRM, read it back, and return a metadata-only settlement.
+`crm-zk.v1` is enabled only when the registered connector has an active X25519
+recipient key, a pinned MuleSoft P-256 response-signing key, a server-owned
+`connectorRef`, dedicated `read-crm-record-zk` / `update-crm-record-zk` tools,
+and current UAT approval. Hussh never accepts CRM URLs, OAuth client IDs,
+OAuth client secrets, token URLs, endpoints, targets, or partner public keys
+from browser/tool arguments. MuleSoft resolves its connection from its secret
+store using `connectorRef`.
 
-Sealing inside FastAPI protects only the Hussh-to-MuleSoft application leg
-because Hussh has already received and staged readable fields. End-to-end
-browser-to-MuleSoft confidentiality requires client-side sealing and
-ciphertext-only pending-intent storage. That is a larger change and must not be
-represented as already shipped.
+1. The backend resolves the owner's active record binding and issues a
+   five-minute, single-use P-256-signed binding context. Its digest commits to
+   the system, operation, object type, raw bound record ID, allowed fields,
+   schema/registry revision, recipient key, idempotency reference, and expiry.
+2. With an unlocked vault, the browser loads one P-256 owner signing private
+   key from encrypted PKM, creates a new X25519 ephemeral key, and encrypts a
+   read nonce or exactly the locally reviewed update diff.
+3. It derives the AES key-wrap key using X25519 then HKDF-SHA256 with a 32-byte
+   all-zero salt, `info="crm-zk.v1:key-wrap"`, and 32-byte output. Both
+   AES-256-GCM operations use recursively key-sorted compact UTF-8 JSON AAD.
+4. The owner signs the complete normalized opaque envelope (including all IV,
+   tag, wrapped-key, digest, and ciphertext fields) with P-256. The API
+   verifies metadata, binding, field names, key state, expiry, AAD hash, and
+   signature without decrypting CRM values. The relay carries the registered
+   owner public SPKI with its key ID; MuleSoft must match it to its owner-key
+   registry before independently verifying the signature.
+5. For updates, the API stores only the opaque envelope and public metadata in
+   a pending intent. A short-lived approval challenge is signed over intent ID,
+   envelope digest, nonce, and expiry; consumption is atomic and idempotent.
+6. MuleSoft validates the server context signature, owner envelope signature,
+   approval proof, key state, AAD, expiry, and replay fences before it decrypts
+   outside model context. It returns an independently P-256-signed encrypted
+   response to the browser's ephemeral key.
+7. The API records settlement metadata only. The browser verifies the pinned
+   MuleSoft response signature before decrypting in memory. On lost session,
+   the ephemeral key is gone; recovery is a fresh bound read, never persisted
+   ephemeral private-key material.
+
+Verified email/phone discovery remains a narrow server-side identity lookup.
+For a ZK connector it returns binding metadata only; it never returns CRM field
+values. Create and delete retain their existing behavior. A ZK-enabled
+connector rejects legacy bound-read and update routes—there is no plaintext
+downgrade.
+
+The precise cross-language canonicalization and browser contract live in
+`hushh_mcp/services/crm_zk_v1.py` and
+`hushh-webapp/lib/connected-systems/crm-zk-v1.ts`. Java/MuleSoft must use the
+same normalized snake_case signed-envelope form, raw 64-byte P-256 P1363
+signatures, exact base64 byte lengths, and zero-salt HKDF vector before enable.
+
+## CRM encrypted UAT v1: MuleSoft compatibility profile
+
+`crm-zk-uat.v1` is mutually exclusive with `crm-zk.v1` and may be enabled only
+for an allowlisted sandbox CRM with a pinned static X25519 `key_id` and public
+key. The browser creates a fresh ephemeral X25519 key, random payload key, and
+fresh 12-byte IVs for every operation; each envelope expires within five
+minutes. The wrapping key is
+`SHA-256(X25519 shared secret)`. Both AES-256-GCM operations omit AAD.
+
+- READ requires an existing owner binding. Hussh sends its backend-resolved
+  record ID, plaintext `objectType`, expected lookup/return field names, and
+  `encryptedFields`; its ciphertext decrypts only at MuleSoft to
+  `{ "searchFields": { ... } }`. MuleSoft returns plaintext status/count and
+  the same matched record ID as verification metadata, plus `encryptedFields`
+  decrypting in browser memory to `{ "returnFields": { ... } }`. This profile
+  never creates a binding from opaque browser lookup values; UAT bindings must
+  be established beforehand with safe synthetic fixtures.
+- UPDATE sends the backend-resolved bound record ID and allowlisted field names
+  only after the browser has reviewed the diff locally. `encryptedFields`
+  decrypts at MuleSoft to `{ "additionalFields": { ... } }`. Hussh persists an
+  opaque pending intent and its ordinary owner approval is the UAT authority.
+  MuleSoft returns only an allowlisted plaintext status/correlation
+  acknowledgement—never values or readback.
+- CREATE and DELETE remain on the existing plaintext lifecycle.
+
+Hussh sends no CRM URL, OAuth credential, token endpoint, arbitrary target, or
+browser-selected record ID. The compatibility call replaces registry tool
+arguments instead of merging secrets or a `connectorRef`; the selected Omni
+Gateway route/application must therefore resolve its fixed sandbox connection.
+MuleSoft must reject a decrypted key set that differs from the plaintext
+`searchFieldNames` or `fieldNames` allowlist supplied by Hussh.
+The backend also rejects this profile unless the runtime environment is exactly
+`uat`. No plaintext fallback is allowed when this profile is enabled. Production
+promotion requires returning to the full `crm-zk.v1` conformance gate.
 
 ## Connector identity and key custody
 

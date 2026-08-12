@@ -453,12 +453,17 @@ export const Navbar = ({
   return (
     <nav
       data-app-bottom-nav
+      data-ui-role="bottom-tab-bar"
       data-ambient-chrome-ignore
       className={cn(
         layout === "slot"
           ? "flex w-full justify-center"
           : "fixed inset-x-0 flex justify-center px-4 transform-gpu",
         layout === "fixed" && (isVaultUnlocked ? "z-[120]" : "z-[505]"),
+        // No breakpoint gate here. The bottom pill IS the primary navigation on
+        // every viewport — there is no desktop/sidebar nav that takes over at
+        // `lg`, so hiding it above 1024px leaves signed-in users with no way to
+        // reach One / Connect / Feed / Search at all.
         "pointer-events-none",
       )}
       style={
@@ -500,8 +505,8 @@ export const Navbar = ({
               ariaLabel="Route navigation"
               className={cn(
                 "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-                "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-semibold",
-                "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
+                "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-medium",
+                "[&_[data-segment-indicator]]:bg-transparent [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none",
               )}
             />
           </div>

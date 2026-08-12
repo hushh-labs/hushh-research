@@ -9,23 +9,18 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
-_INDEX_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "contracts"
-    / "kai"
-    / "one-route-orchestration-index.v1.json"
-)
+from hushh_mcp.services.generated_contracts import generated_contract_path
 
 
 @lru_cache(maxsize=1)
 def load_route_orchestration_index() -> dict[str, dict[str, Any]]:
-    if not _INDEX_PATH.exists():
+    index_path = generated_contract_path("kai", "one-route-orchestration-index.v1.json")
+    if not index_path.exists():
         return {}
     try:
-        payload = json.loads(_INDEX_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     routes = payload.get("routes") if isinstance(payload, dict) else []
@@ -36,7 +31,28 @@ def load_route_orchestration_index() -> dict[str, dict[str, Any]]:
     }
 
 
-def resolve_route_orchestration_entry(route_family: str | None) -> dict[str, Any] | None:
+def _path_segments(path: str) -> list[str]:
+    return path.strip("/").split("/") if path != "/" else []
+
+
+def _segments_match(pattern_segments: list[str], route_segments: list[str]) -> bool:
+    if len(pattern_segments) != len(route_segments):
+        return False
+    return all(
+        (pattern_segment.startswith("[") and pattern_segment.endswith("]"))
+        or pattern_segment == route_segment
+        for pattern_segment, route_segment in zip(pattern_segments, route_segments, strict=False)
+    )
+
+
+def _query_pairs(query: str) -> set[str]:
+    """Order-insensitive ``key=value`` pairs; authored and live order differ."""
+    return {pair for pair in str(query or "").split("&") if pair and "=" in pair}
+
+
+def resolve_route_orchestration_entry(
+    route_family: str | None, route_query: str | None = None
+) -> dict[str, Any] | None:
     """Resolve a canonical browser route against the generated route index.
 
     Route patterns are authored by Next.js and may contain ``[param]``
@@ -44,31 +60,47 @@ def resolve_route_orchestration_entry(route_family: str | None) -> dict[str, Any
     exact dictionary lookup silently dropped policy for dynamic routes such as
     ``/one/setup/finance``.  Match only whole path segments and prefer an
     exact entry; this is descriptive route policy, never a route executor.
-    """
-    route = str(route_family or "").strip().split("?", 1)[0]
-    if not route.startswith("/"):
-        return None
-    route = route.rstrip("/") or "/"
-    index = load_route_orchestration_index()
-    exact = index.get(route)
-    if exact is not None:
-        return exact
 
-    route_segments = route.strip("/").split("/") if route != "/" else []
+    ``route_query`` selects between screens that share one path.  Tab surfaces
+    such as ``/one/kai?tab=analysis`` and ``?tab=market`` are the same physical
+    route, so a path-only lookup reported one canonical_screen for both -- and
+    because the relay derives the authoritative screen here rather than
+    trusting the browser, the losing tab was unobservable to a journey waiting
+    on it.  A query-qualified entry wins only when every parameter it declares
+    is present, so an unrelated extra parameter cannot demote the match, and
+    the path-only entry stays the fallback for every route without variants.
+    """
+    raw = str(route_family or "").strip()
+    inline_path, _, inline_query = raw.partition("?")
+    if not inline_path.startswith("/"):
+        return None
+    route = inline_path.rstrip("/") or "/"
+    query = _query_pairs(route_query if route_query is not None else inline_query)
+    index = load_route_orchestration_index()
+    route_segments = _path_segments(route)
+
+    best: dict[str, Any] | None = None
+    best_specificity = -1
+    fallback: dict[str, Any] | None = None
     for pattern, entry in index.items():
-        pattern_segments = pattern.strip("/").split("/") if pattern != "/" else []
-        if len(pattern_segments) != len(route_segments):
-            continue
-        if all(
-            pattern_segment.startswith("[")
-            and pattern_segment.endswith("]")
-            or pattern_segment == route_segment
-            for pattern_segment, route_segment in zip(
-                pattern_segments, route_segments, strict=False
-            )
+        pattern_path, _, pattern_query = pattern.partition("?")
+        pattern_path = pattern_path.rstrip("/") or "/"
+        if pattern_path != route and not _segments_match(
+            _path_segments(pattern_path), route_segments
         ):
-            return entry
-    return None
+            continue
+        declared = _query_pairs(pattern_query)
+        if not declared:
+            # Exact path beats a dynamic-segment match for the same fallback slot.
+            if fallback is None or pattern_path == route:
+                fallback = entry
+            continue
+        if not query or not declared.issubset(query):
+            continue
+        if len(declared) > best_specificity:
+            best = entry
+            best_specificity = len(declared)
+    return best if best is not None else fallback
 
 
 def is_one_delegate_admitted(route_family: str | None, agent_id: str) -> bool | None:

@@ -16,6 +16,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
+import { HelperText } from "@/components/app-ui/typography";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { cn } from "@/lib/utils";
 
@@ -52,7 +53,7 @@ export const AppStreamEventList = memo(function AppStreamEventList({
 }: AppStreamEventListProps) {
   if (items.length === 0) {
     return emptyLabel ? (
-      <div className={cn("px-2.5 py-2 text-xs text-muted-foreground", className)}>
+      <div className={cn("ui-text-caption px-2.5 py-2", className)}>
         {emptyLabel}
       </div>
     ) : null;
@@ -69,9 +70,9 @@ export const AppStreamEventList = memo(function AppStreamEventList({
       {items.map((item) => {
         const status = item.status ?? "running";
         return (
-          <li key={item.id} className="flex gap-2 text-xs">
+          <li key={item.id} className="ui-text-caption flex gap-2">
             {item.badge ? (
-              <span className="mt-0.5 shrink-0 rounded border border-border/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <span className="mt-0.5 shrink-0 rounded border border-border/50 px-1.5 py-0.5 font-medium text-muted-foreground">
                 {item.badge}
               </span>
             ) : (
@@ -123,7 +124,7 @@ export function AppStreamSection({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="group flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+            className="ui-text-section-label group flex w-full items-center justify-between gap-3 px-[6px] py-2 text-left transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
           >
             <span className="inline-flex min-w-0 items-center gap-2">
               <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -131,7 +132,7 @@ export function AppStreamSection({
             </span>
             <span className="inline-flex shrink-0 items-center gap-2">
               {typeof count === "number" ? (
-                <span className="rounded-full bg-accent-surface px-2 py-0.5 text-[10px] font-semibold text-accent-strong">
+                <span className="rounded-full bg-accent-surface px-2 py-0.5 text-[12px] font-semibold leading-4 text-accent-strong">
                   {count}
                 </span>
               ) : null}
@@ -230,7 +231,7 @@ export function AppStreamPanel({
               )
             ) : null}
             {statusMessage ? (
-              <p className="text-xs text-muted-foreground">{statusMessage}</p>
+              <HelperText>{statusMessage}</HelperText>
             ) : null}
             {progressItems.length > 0 ? (
               <AppStreamSection

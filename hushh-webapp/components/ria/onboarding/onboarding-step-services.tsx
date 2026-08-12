@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { RiaAiActionPill } from "@/components/ria/ui/ria-primitives";
@@ -25,7 +26,7 @@ const FEE_OPTIONS = ["Fee-only", "AUM %", "Flat", "Hourly"];
 
 
 
-/** Gold uppercase section label (FEE STRUCTURE / SHORT BIO / BUSINESS LOCATION). */
+/** Section label that follows the shared readable settings scale. */
 function SectionLabel({
   children,
   htmlFor,
@@ -33,16 +34,15 @@ function SectionLabel({
   children: React.ReactNode;
   htmlFor?: string;
 }) {
-  const cls =
-    "text-[12px] font-semibold uppercase tracking-[2px] text-[color:var(--ria-gold)]";
-  if (htmlFor) {
-    return (
-      <label htmlFor={htmlFor} className={cn("block", cls)}>
-        {children}
-      </label>
-    );
-  }
-  return <p className={cls}>{children}</p>;
+  return (
+    <AppSectionLabel
+      as={htmlFor ? "label" : "p"}
+      htmlFor={htmlFor}
+      className="block px-[6px]"
+    >
+      {children}
+    </AppSectionLabel>
+  );
 }
 
 function TextRow({

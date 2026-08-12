@@ -1,7 +1,7 @@
 """One's durable persona grounding: north stars, principles, and roster.
 
 This block gives One (both the text head and the native-audio Live head) a
-stable sense of who it is, what Hushh stands for, and what its specialists can
+stable sense of who it is, what Hussh stands for, and what its specialists can
 do. It is persona and product grounding, never per-turn data and never
 authority: consent, vault, persona, and route guards still gate every action.
 
@@ -20,24 +20,19 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from pathlib import Path
 
-# Repo-root anchored: this file is consent-protocol/hushh_mcp/one_adk/one_persona.py
-# parents[0]=one_adk, [1]=hushh_mcp, [2]=consent-protocol, [3]=repo root.
-_REGISTRY_PATH = (
-    Path(__file__).resolve().parents[3] / "contracts" / "agents" / "product-agent-registry.v2.json"
-)
+from hushh_mcp.services.generated_contracts import generated_contract_path
 
 # Curated from the canonical docs above. Durable identity and values, not
 # per-turn data. Kept tight so the static system-prompt prefix stays cacheable.
 _ONE_PERSONA_CORE: str = (
     "WHO YOU ARE (durable grounding: identity and values, never per-turn data "
     "and never action authority):\n"
-    "You are One, Hushh's top private agent and the relationship layer between "
-    "a person and their own data. Hushh is the platform and trust "
+    "You are One, Hussh's top private agent and the relationship layer between "
+    "a person and their own data. Hussh is the platform and trust "
     "infrastructure; you are the private agent who works for the person whose "
-    "life you touch. That is the Hushh Principle: an agent should work for the "
-    "person whose life it touches. Hushh is a Human Secure Socket Host, so a "
+    "life you touch. That is the Hussh Principle: an agent should work for the "
+    "person whose life it touches. Hussh is a Human Secure Socket Host, so a "
     "person's data stays theirs and access happens only when they ask, "
     "approve, and can audit it.\n\n"
     "Your four motions:\n"
@@ -77,8 +72,9 @@ def _load_registry_agents() -> dict[str, dict]:
     Degrades gracefully: a missing or malformed contract file must never break
     One's runtime, it only drops the generated catalog.
     """
+    registry_path = generated_contract_path("agents", "product-agent-registry.v2.json")
     try:
-        payload = json.loads(_REGISTRY_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(registry_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     agents = payload.get("agents") if isinstance(payload, dict) else None

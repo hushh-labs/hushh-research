@@ -132,6 +132,10 @@ export function LocationPickerMap({
   const [hasInteracted, setHasInteracted] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
+  // Safety net: if the map never reaches "ready" within this window, fall back
+  // to the captured-point flow so the owner is never blocked behind an infinite
+  // "Loading map…". See the timeout effect below.
+  const [timedOut, setTimedOut] = useState(false);
 
 
   useEffect(() => {
@@ -415,6 +419,19 @@ export function LocationPickerMap({
     setResolving(false);
   }, [status]);
 
+  // Timeout fallback: if the map hasn't reached "ready" within 5s, stop showing
+  // the infinite "Loading map…" and switch to the captured-point flow so the
+  // owner can still Confirm. Clears itself the moment the map becomes ready.
+  useEffect(() => {
+    if (status === "ready") {
+      setTimedOut(false);
+      return;
+    }
+    if (status === "error") return;
+    const timer = window.setTimeout(() => setTimedOut(true), 5000);
+    return () => window.clearTimeout(timer);
+  }, [status]);
+
   const handleLocateMe = useCallback(async () => {
     if (!onLocateMe || locating) return;
     setLocating(true);
@@ -473,7 +490,10 @@ export function LocationPickerMap({
     onConfirm({ latitude: lat, longitude: lng, address });
   }, [address, onConfirm]);
 
-  const unavailable = status === "error";
+  // Treat a hard SDK error OR the 5s load timeout as "unavailable" so the owner
+  // is never trapped behind an infinite "Loading map…"; both fall back to the
+  // captured-point confirm flow below.
+  const unavailable = status === "error" || timedOut;
 
   const accuracyHint = unavailable
     ? "Review the captured point, then complete the address details on the next step."
@@ -513,6 +533,22 @@ export function LocationPickerMap({
         )}
       >
 
+        {/* NATIVE: the @capacitor/google-maps element must be mounted BEFORE
+            GoogleMap.create runs (create needs a real element). Gating it behind
+            status==="ready" deadlocked the picker — the element only mounted
+            once ready, but ready only arrives after create succeeds against the
+            element — which is what left it stuck on "Loading map…". So on native
+            we always mount the element (unless the map is truly unavailable) and
+            overlay the loader on top until it's ready. */}
+        {native && !unavailable ? (
+          <capacitor-google-map
+            ref={(element: HTMLElement | null) => {
+              nativeMapElementRef.current = element;
+            }}
+            className="block h-full w-full bg-transparent"
+          />
+        ) : null}
+
         {unavailable ? (
           <div
             role="status"
@@ -534,20 +570,16 @@ export function LocationPickerMap({
             </p>
           </div>
         ) : status !== "ready" ? (
-          <div className="flex h-full items-center justify-center gap-2 text-[13px] text-[#5b6472] dark:text-[#9aa6b6]">
+          // Overlay (not a replacement): on native the map element stays mounted
+          // underneath so create() can resolve; this loader simply covers it
+          // until ready.
+          <div className="absolute inset-0 flex h-full items-center justify-center gap-2 bg-[#eef2f7] text-[13px] text-[#5b6472] dark:bg-[#10151d] dark:text-[#9aa6b6]">
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading
             map…
           </div>
         ) : (
           <>
-            {native ? (
-              <capacitor-google-map
-                ref={(element: HTMLElement | null) => {
-                  nativeMapElementRef.current = element;
-                }}
-                className="block h-full w-full bg-transparent"
-              />
-            ) : (
+            {native ? null : (
               <div
                 key={colorScheme}
                 ref={containerRef}
@@ -646,7 +678,7 @@ export function LocationPickerMap({
           <MapPin className="h-4 w-4" strokeWidth={2.4} aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#8b93a1] dark:text-[#7f8a99]">
+          <p className="text-[13px] font-normal leading-[18px] tracking-normal text-[#8b93a1] dark:text-[#7f8a99]">
             Selected spot
           </p>
           {resolving ? (

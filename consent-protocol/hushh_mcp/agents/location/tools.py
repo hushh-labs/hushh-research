@@ -6,6 +6,7 @@ OneLocationAgentService and scope checks inside @hushh_tool.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -48,12 +49,15 @@ def _require_uuid(value: str, label: str) -> str:
 async def list_location_recipients(limit: int = 50) -> dict[str, Any]:
     """List verified recipients eligible for a per-recipient location grant."""
     context = _ctx()
-    return {
-        "recipients": _service().list_verified_recipients(
-            owner_user_id=context.user_id,
-            limit=limit,
-        )
-    }
+    # list_verified_recipients does several sequential synchronous DB round-trips;
+    # running it inline here blocks the event loop for every concurrent voice
+    # session on this worker, not just this one. Offload it to a thread.
+    recipients = await asyncio.to_thread(
+        _service().list_verified_recipients,
+        owner_user_id=context.user_id,
+        limit=limit,
+    )
+    return {"recipients": recipients}
 
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="create_location_share")

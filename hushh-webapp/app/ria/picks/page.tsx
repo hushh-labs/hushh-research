@@ -6,7 +6,6 @@ import type { ColumnDef } from "@tanstack/react-table";
 import {
   AlertTriangle,
   Crown,
-  Download,
   FileSpreadsheet,
   Loader2,
   Medal,
@@ -37,6 +36,7 @@ import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceCard, SurfaceCardContent, SurfaceInset } from "@/components/app-ui/surfaces";
 import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
 import { RiaCompatibilityState } from "@/components/ria/ria-page-shell";
+import { TemplatePreviewModal } from "@/components/ria/template-preview-modal";
 import {
   Table,
   TableBody,
@@ -427,12 +427,7 @@ function UploadPanel({
               <Upload className="mr-2 h-4 w-4" />
               {submitting ? "Uploading..." : "Upload and replace top picks"}
             </Button>
-            <Button asChild variant="none" effect="fade" size="sm">
-              <a href="/templates/ria-picks-template.csv" download>
-                <Download className="mr-2 h-4 w-4" />
-                Download template
-              </a>
-            </Button>
+            <TemplatePreviewModal triggerLabel="Download template" />
           </div>
         </div>
       </SurfaceCardContent>
@@ -2511,22 +2506,11 @@ export default function RiaPicksPage() {
                     <Upload className="mr-2 h-4 w-4" />
                     {uploadOpen ? "Close upload" : "Upload"}
                   </Button>
-                  <Button
-                    asChild
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    className="w-full justify-center"
-                  >
-                    <a
-                      href="/templates/ria-picks-template.csv"
-                      download
-                      data-voice-control-id="ria_picks_download_template"
-                    >
-                      <Download className="mr-2 h-4 w-4" />
-                      Template
-                    </a>
-                  </Button>
+                  <TemplatePreviewModal
+                    triggerLabel="Template"
+                    triggerClassName="w-full justify-center"
+                    triggerVoiceControlId="ria_picks_download_template"
+                  />
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2 xl:mx-auto xl:max-w-[28rem]">
                   <Button

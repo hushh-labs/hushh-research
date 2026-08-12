@@ -167,16 +167,16 @@ if (goldBlockStart === -1) {
 }
 
 // ── Apple design grammar (see design-system.md → Radius/Weight/Elevation) ──
-// 1. Weight ladder is 300 / 400 / 600 / 700; weight 500 (font-medium) is
-//    deliberately absent from morphy-ux primitives. Labels are 400; active/
-//    strong emphasis is 600.
+// 1. Weight ladder is 300 / 400 / 600 / 700 for prose and general emphasis.
+//    The Apple-system web spec allows 500 for segmented/bottom-tab labels.
+const WEIGHT_500_ALLOWLIST = new Set(["lib/morphy-ux/ui/segmented-pill.tsx"]);
 const morphyDir = path.join(repoRoot, "lib/morphy-ux");
 if (fs.existsSync(morphyDir)) {
   for (const filePath of listFiles(morphyDir)) {
     const repoPath = path
       .relative(repoRoot, filePath)
       .replaceAll(path.sep, "/");
-    if (isAllowed(repoPath)) continue;
+    if (isAllowed(repoPath) || WEIGHT_500_ALLOWLIST.has(repoPath)) continue;
     const source = fs.readFileSync(filePath, "utf8");
     if (source.includes("font-medium")) {
       const line =

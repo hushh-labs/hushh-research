@@ -17,6 +17,7 @@ from hushh_mcp.services.one_location_nearby_presence_service import (
 def client(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.delenv("ONE_LOCATION_NEARBY_PRESENCE_MODE", raising=False)
+    monkeypatch.delenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT", raising=False)
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "u1"}
@@ -240,6 +241,75 @@ def test_simulation_fails_closed_without_environment_identity(client, monkeypatc
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "NEARBY_PRESENCE_UNAVAILABLE"
+
+
+def _stub_presence_state(monkeypatch):
+    class FakePresenceService:
+        def get_state(self, *, user_id):
+            assert user_id == "u1"
+            return {"presence": None, "attendees": []}
+
+    monkeypatch.setattr(
+        location_routes,
+        "_nearby_presence_service",
+        lambda: FakePresenceService(),
+    )
+
+
+def test_production_stays_closed_without_an_explicit_mode(client, monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("ONE_LOCATION_NEARBY_PRESENCE_MODE", raising=False)
+    monkeypatch.setenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT", "all")
+
+    response = client.get("/api/one/location/nearby-presence")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "NEARBY_PRESENCE_UNAVAILABLE"
+
+
+def test_production_stays_closed_when_the_cohort_is_missing(client, monkeypatch):
+    """Forgetting the cohort must fail safe, not open the flow to everyone.
+
+    Production admission deliberately needs two variables. If setting the mode
+    alone were enough, a half-finished rollout would silently expose a
+    stranger-discovery surface to the whole user base.
+    """
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("ONE_LOCATION_NEARBY_PRESENCE_MODE", "production")
+    monkeypatch.delenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT", raising=False)
+
+    response = client.get("/api/one/location/nearby-presence")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "NEARBY_PRESENCE_UNAVAILABLE"
+
+
+def test_production_admits_only_the_named_cohort(client, monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("ONE_LOCATION_NEARBY_PRESENCE_MODE", "production")
+    monkeypatch.setenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT", "someone-else,u2")
+
+    assert client.get("/api/one/location/nearby-presence").status_code == 404
+
+    monkeypatch.setenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT", "u1,u2")
+    _stub_presence_state(monkeypatch)
+
+    response = client.get("/api/one/location/nearby-presence")
+
+    assert response.status_code == 200
+    assert response.json()["presence"] is None
+
+
+def test_production_cohort_all_admits_everyone(client, monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("ONE_LOCATION_NEARBY_PRESENCE_MODE", "production")
+    monkeypatch.setenv("ONE_LOCATION_NEARBY_PRESENCE_COHORT", "all")
+    _stub_presence_state(monkeypatch)
+
+    response = client.get("/api/one/location/nearby-presence")
+
+    assert response.status_code == 200
 
 
 def test_checkout_remains_available_when_simulation_is_disabled(client, monkeypatch):

@@ -219,10 +219,16 @@ jobs:
 
           FB_MEASUREMENT="$(get NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID)"
           MAPS_IOS_KEY="$(get NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY)"
+          # The immersive "Your Map" uses the native SDK (iOS key), but the
+          # onboarding location picker and LiveMap render Maps JS inside the
+          # WKWebView and read the BROWSER key. Without it the webview map has no
+          # key at all and silently degrades to the iframe embed.
+          MAPS_BROWSER_KEY="$(get NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY)"
 
           echo "::add-mask::$FB_API_KEY"
           echo "::add-mask::$FB_VAPID"
           [ -n "$MAPS_IOS_KEY" ] && echo "::add-mask::$MAPS_IOS_KEY"
+          [ -n "$MAPS_BROWSER_KEY" ] && echo "::add-mask::$MAPS_BROWSER_KEY"
 
           put APP_RUNTIME_PROFILE "uat"
           put NEXT_PUBLIC_APP_ENV "uat"
@@ -238,6 +244,7 @@ jobs:
           put NEXT_PUBLIC_FIREBASE_VAPID_KEY "$FB_VAPID"
           [ -n "$FB_MEASUREMENT" ] && put NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID "$FB_MEASUREMENT"
           [ -n "$MAPS_IOS_KEY" ] && put NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY "$MAPS_IOS_KEY"
+          [ -n "$MAPS_BROWSER_KEY" ] && put NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY "$MAPS_BROWSER_KEY"
           put NEXT_PUBLIC_OBSERVABILITY_ENABLED "true"
           put NEXT_PUBLIC_OBSERVABILITY_DEBUG "false"
           put NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE "1"

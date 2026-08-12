@@ -17,6 +17,8 @@ flowchart TD
   kyc["KYC<br/>agent_kyc"]
   support["Location, Email, Connections,<br/>Connected Systems, Personal Info"]
   memory["World Model agents<br/>PKM structure + memory reducers"]
+  source["Hermes-local Source Library Steward<br/>bounded product leaf"]
+  sourceplane["Mounted provider files<br/>private PKM + local SQLite"]
   operons["Tools + operons"]
   services["Services + encrypted PKM/vault"]
   consent["Consent tokens, encrypted exports,<br/>TrustLinks, device capability tokens"]
@@ -29,6 +31,7 @@ flowchart TD
   one --> nav_tool
   one --> agenttools
   one --> a2a
+  one -.local host delegation.-> source
   a2a --> kai
   a2a --> nav
   a2a --> kyc
@@ -39,6 +42,7 @@ flowchart TD
   kyc --> operons
   support --> operons
   memory --> operons
+  source --> sourceplane
   operons --> services
   consent --> one
   consent --> a2a
@@ -63,13 +67,14 @@ This page is current-state implementation truth. It does not rename runtime iden
 | Consent Center parent | `agent_nav` | Consent, scope review, vault friction, deletion, revocation; parent of Connections | `agent.nav.review` |
 | Identity specialist | `agent_kyc` | KYC workflow state, approved disclosure formatter, structured PKM writeback | `agent.kyc.process` and approved optional scopes |
 | Location specialist | `agent_location` | Trusted-people live location workflow | Exact location capability and data authority per flow |
-| Connections subagent | `agent_connections` | Nav's trusted-connection graph specialist and the hierarchy parent for dormant Gmail; the Connections UI owns private runtime configuration | Exact specialist and `attr.*` authority per hop; never receives provider credentials |
+| Connections subagent | `agent_connections` | Nav's trusted-connection graph specialist; the Connections UI owns private runtime configuration | Exact specialist and `attr.*` authority per hop; never receives provider credentials |
 | Connected systems | `agent_connected_systems` | CRM and connected-system workflow planning | Exact specialist and `attr.*` authority per hop |
 | Email specialist | `agent_email` | Inbox, approval-draft, and client-request planning behind One | Exact specialist and `attr.*` authority per hop |
-| Gmail specialist | `agent_gmail` | Disabled Connections child retained as a dormant receipt-sync manifest and route | No active One, voice, Search, or generated-discovery authority |
+| Gmail specialist | `agent_gmail` | Active read-only receipt-sync and purchase-memory specialist under One | Dedicated Gmail workspace and generated navigation only; canonical One chat remains unwired until it receives explicit scoped Gmail authority |
 | Personal information | `agent_personal_information` | Information Marketplace and consented information-slice workflows | `cap.pkm.marketplace.view` plus exact per-hop information authority |
 | Information Marketplace | standalone product | Separate consent-first Marketplace routes and APIs | Not admitted to One Voice, Agent Chat, or command discovery |
 | World Model agents | `agent_memory_intent`, `agent_memory_segmentation`, `agent_memory_merge`, `agent_pkm_structure`, `agent_summary_reducer` | Semantic memory shaping and summary reduction | Must stay under vault/PKM consent and redaction boundaries |
+| Hermes-local product leaf | Source Library Steward | Query, virtual organization, revision-pinned file management, synchronization, and mounted-target sharing | Exact local `hussh_one_sources` tools only; no terminal, generic filesystem, credentials, vault keys, provider APIs, shared memory, or delegation |
 
 `agent_one` and `agent_orchestrator` are not two product heads. The orchestrator path is a compatibility implementation namespace for One.
 
@@ -81,7 +86,7 @@ for trusted-connection information or mutation authority.
 
 ## Wiring Modes
 
-The hierarchy has three current wiring modes. Do not collapse them into one claim.
+The hierarchy has four current wiring modes. Do not collapse them into one claim.
 
 Official A2A v1 Tasks remain a release gate. The contained One invocation preview
 and the legacy Kai compatibility server are not advertised as official v1.
@@ -110,6 +115,22 @@ The in-process `dispatch` table wires `agent_location`, `agent_nav`, and `agent_
 Kai has a dedicated A2A server in `adk_bridge/kai_agent.py`. KYC is manifest/service-backed through One Email KYC and approved disclosure formatting; it is scope-gated but not an in-process dispatch handler today.
 
 Therefore, not every scope-gated specialist is registered in the in-process dispatch table.
+
+### Hermes-local bounded product leaf
+
+The Source Library Steward is composed inside `hushh-one-hermes`, below the
+local One parent. It is not authored in the Research `AgentManifestV2`
+registry, advertised as an A2A service, admitted to hosted MCP, or represented
+by an `attr.source_library.*` scope. The parent may delegate a bounded source
+task, but the leaf receives only its dedicated toolset and bounded untrusted
+source text. Deterministic services—not the model—perform an approved mutation
+after revision and containment revalidation.
+
+The mounted provider file remains the authoritative blob. Private encrypted PKM
+holds semantic/control memory, and profile-scoped SQLite is a rebuildable
+mapping and operations plane. Sharing publishes a pinned file or reviewed
+knowledge artifact through an owner-bound mounted target; it never shares the
+PKM capability boundary or claims provider ACL administration.
 
 ## Execution Stack
 

@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 _PLACES_BASE = "https://places.googleapis.com"
 _PLACES_NEARBY_URL = f"{_PLACES_BASE}/v1/places:searchNearby"
+_PLACES_TEXT_URL = f"{_PLACES_BASE}/v1/places:searchText"
 _ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 _GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
 _NEARBY_CHECK_IN_RADIUS_METERS = 500.0
@@ -147,6 +148,101 @@ _NON_CHECK_IN_PRIMARY_TYPE_PREFIXES = (
 _GENERIC_ESTABLISHMENT_TYPES = frozenset({"establishment", "point_of_interest"})
 
 
+# Deliberately a SEPARATE table from `_NEARBY_PLACE_CATEGORY_TYPES`, not an
+# extension of it. `nearby_places` builds its "All" sweep by iterating that dict,
+# so every key added there becomes another concurrent provider call on every
+# check-in drawer open. The directory needs finer buckets than the picker wants
+# (a person choosing where they are standing does not need "banking" split from
+# "shops"), and the picker must not pay for that. Two readers, two tables.
+#
+# The three buckets the picker does not have -- banking, fitness_beauty, auto --
+# are a re-partition of its single `shopping_services` chip, which jams retail,
+# laundry, beauty, vehicle service and cash machines into one filter. Every type
+# below already appears in the picker's table; none is new to this codebase.
+_DIRECTORY_CATEGORY_TYPES: dict[str, tuple[str, ...]] = {
+    "hotels_stays": (
+        "hotel",
+        "lodging",
+        "motel",
+        "hostel",
+        "bed_and_breakfast",
+        "campground",
+    ),
+    "food_drink": ("restaurant", "cafe", "bakery", "bar", "meal_takeaway"),
+    "health": ("hospital", "medical_clinic", "doctor", "dentist", "pharmacy"),
+    "banking": ("bank", "atm"),
+    "shops": (
+        "store",
+        "shopping_mall",
+        "supermarket",
+        "convenience_store",
+        "laundry",
+        "post_office",
+    ),
+    "fitness_beauty": (
+        "gym",
+        "beauty_salon",
+        "hair_salon",
+        "barber_shop",
+        "spa",
+    ),
+    "auto": (
+        "car_repair",
+        "car_wash",
+        "car_dealer",
+        "gas_station",
+        "electric_vehicle_charging_station",
+    ),
+    "transit": (
+        "transit_station",
+        "bus_stop",
+        "train_station",
+        "subway_station",
+        "airport",
+        "parking",
+    ),
+    "education": (
+        "school",
+        "university",
+        "preschool",
+        "library",
+        "educational_institution",
+    ),
+    "outdoors": (
+        "park",
+        "tourist_attraction",
+        "museum",
+        "art_gallery",
+        "historical_landmark",
+        "beach",
+        "garden",
+        "plaza",
+    ),
+}
+
+DIRECTORY_CATEGORY_SLUGS: tuple[str, ...] = tuple(_DIRECTORY_CATEGORY_TYPES)
+
+# Search Nearby (New) caps one response at 20 regardless of what we ask for.
+_DIRECTORY_MAX_RESULT_COUNT = 20
+# Google rejects a radius above 50 km outright.
+_DIRECTORY_MAX_RADIUS_METERS = 50_000.0
+
+# Kept to the cheap field tiers on purpose. Rating, opening hours, phone and
+# website are billed higher and are only worth buying for the one place a reader
+# actually opened, so they live on `directory_place_details` instead of on every
+# row of every list.
+_DIRECTORY_LIST_FIELD_MASK = (
+    "places.id,places.displayName,places.shortFormattedAddress,"
+    "places.formattedAddress,places.location,places.primaryType,"
+    "places.types,places.primaryTypeDisplayName,places.businessStatus"
+)
+_DIRECTORY_DETAIL_FIELD_MASK = (
+    "id,displayName,formattedAddress,shortFormattedAddress,location,"
+    "primaryType,primaryTypeDisplayName,types,businessStatus,"
+    "nationalPhoneNumber,websiteUri,regularOpeningHours,googleMapsUri"
+)
+
+
 def _build_category_index() -> dict[str, tuple[str, ...]]:
     """Reverse index from a Places type to the drawer's category chips.
 
@@ -266,6 +362,23 @@ def _country_code_from_components(components: Any) -> str | None:
     return None
 
 
+def _postal_code_from_components(components: Any) -> str:
+    """Read a postal code from Geocoding or Places address components."""
+    if not isinstance(components, list):
+        return ""
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        types = component.get("types") or []
+        if "postal_code" not in types:
+            continue
+        value = component.get("long_name") or component.get("longText")
+        normalized = str(value or "").strip()
+        if normalized:
+            return normalized
+    return ""
+
+
 def _distance_meters(
     *,
     origin_lat: float,
@@ -360,6 +473,57 @@ def _check_in_place_identity(
 
 
 class GoogleMapsService:
+    async def resolve_place(self, *, query: str) -> dict[str, Any]:
+        """Postal code and coordinates for a free-text place ("FIRM, CITY, ST").
+
+        Text Search (New), not Geocoding: the Geocoding API is not enabled for
+        this key, and Places already is — the same reason ``reverse_geocode``
+        falls back to a nearby place. Enrichment only, so every failure path
+        (no key, transport, upstream error, no match) returns empty values and
+        never raises into the caller.
+        """
+        empty: dict[str, Any] = {"postal_code": "", "latitude": None, "longitude": None}
+        text = str(query or "").strip()
+        if not text or not GOOGLE_MAPS_API_KEY:
+            return empty
+        try:
+            async with _async_client() as client:
+                response = await client.post(
+                    _PLACES_TEXT_URL,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+                        "X-Goog-FieldMask": "places.addressComponents,places.location",
+                    },
+                    json={"textQuery": text, "maxResultCount": 1},
+                )
+        except httpx.HTTPError as exc:
+            logger.info("maps.resolve_place transport %s", type(exc).__name__)
+            return empty
+        if response.status_code >= 400:
+            logger.info("maps.resolve_place upstream %s", response.status_code)
+            return empty
+        try:
+            places = response.json().get("places") or []
+        except ValueError:
+            return empty
+        if not places or not isinstance(places[0], dict):
+            return empty
+        place = places[0]
+        location = place.get("location")
+        location = location if isinstance(location, dict) else {}
+        latitude = location.get("latitude")
+        longitude = location.get("longitude")
+        return {
+            "postal_code": _postal_code_from_components(place.get("addressComponents")),
+            "latitude": float(latitude) if isinstance(latitude, int | float) else None,
+            "longitude": float(longitude) if isinstance(longitude, int | float) else None,
+        }
+
+    async def resolve_postal_code(self, *, query: str) -> str:
+        """Just the postal code — see :meth:`resolve_place`."""
+        return str((await self.resolve_place(query=query)).get("postal_code") or "")
+
     async def _nearest_place_address(
         self,
         *,
@@ -735,6 +899,226 @@ class GoogleMapsService:
             _NEARBY_CHECK_IN_MERGED_LIMIT if category == "all" else _NEARBY_CHECK_IN_RESULT_LIMIT
         )
         return results[:limit]
+
+    async def search_directory_category(
+        self,
+        *,
+        lat: float,
+        lng: float,
+        category: str,
+        radius_meters: float,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Places of one directory category around a point, nearest first.
+
+        One provider call, one category. The caller fans these out and streams
+        each result the moment it lands, so this deliberately does no merging of
+        its own -- merging is what forces a caller to wait for the slowest
+        bucket, which is the behaviour the directory exists to avoid.
+
+        Unlike the check-in picker's sweep, radius and count are arguments. The
+        picker is answering "where am I standing", so 500 m is the honest bound;
+        a directory is answering "what is around here", where the reader chooses.
+
+        The request point is sent to Google for this foreground request only. It
+        is not cached, logged, or persisted by this service.
+        """
+
+        key = _require_key()
+        included = _DIRECTORY_CATEGORY_TYPES.get(category)
+        if not included:
+            raise GoogleMapsError(
+                f"Unknown directory category: {category}",
+                status_code=400,
+                code="ONE_PLACES_UNKNOWN_CATEGORY",
+            )
+
+        bounded_radius = max(1.0, min(float(radius_meters), _DIRECTORY_MAX_RADIUS_METERS))
+        bounded_limit = max(1, min(int(limit), _DIRECTORY_MAX_RESULT_COUNT))
+
+        body: dict[str, Any] = {
+            "maxResultCount": bounded_limit,
+            "rankPreference": "DISTANCE",
+            "includedTypes": list(included),
+            "locationRestriction": {
+                "circle": {
+                    "center": {"latitude": float(lat), "longitude": float(lng)},
+                    "radius": bounded_radius,
+                }
+            },
+        }
+
+        async with _async_client() as client:
+            try:
+                response = await client.post(
+                    _PLACES_NEARBY_URL,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Goog-Api-Key": key,
+                        "X-Goog-FieldMask": _DIRECTORY_LIST_FIELD_MASK,
+                    },
+                    json=body,
+                )
+            except httpx.HTTPError as exc:
+                raise GoogleMapsError(
+                    f"Directory lookup failed: {exc}",
+                    status_code=502,
+                ) from exc
+
+        if response.status_code >= 400:
+            # Never log the category with coordinates alongside it.
+            logger.warning("maps.directory upstream %s", response.status_code)
+            raise GoogleMapsError("Directory lookup failed.", status_code=502)
+
+        payload = _provider_object(response, "Directory lookup")
+        provider_places = payload.get("places") or []
+        if not isinstance(provider_places, list):
+            raise GoogleMapsError(
+                "Directory lookup returned an invalid response.",
+                status_code=502,
+            )
+
+        rows: list[dict[str, Any]] = []
+        for place in provider_places:
+            if not isinstance(place, dict):
+                continue
+            row = self._normalize_directory_place(place, lat=lat, lng=lng, category=category)
+            if row is not None:
+                rows.append(row)
+
+        rows.sort(key=lambda item: (item["distanceMeters"], str(item["name"]).casefold()))
+        return rows
+
+    def _normalize_directory_place(
+        self,
+        place: dict[str, Any],
+        *,
+        lat: float,
+        lng: float,
+        category: str,
+    ) -> dict[str, Any] | None:
+        """Shape one provider record for a directory row, or drop it."""
+
+        place_id = str(place.get("id") or "").strip()
+        if not place_id or len(place_id) > 300:
+            return None
+
+        location = place.get("location") or {}
+        if not isinstance(location, dict):
+            return None
+        try:
+            place_lat = float(location.get("latitude"))
+            place_lng = float(location.get("longitude"))
+        except (TypeError, ValueError):
+            return None
+        if not _valid_coordinates(lat=place_lat, lng=place_lng):
+            return None
+
+        display_name = place.get("displayName") or {}
+        if not isinstance(display_name, dict):
+            display_name = {}
+        name = str(display_name.get("text") or "").strip()[:160]
+        if not name:
+            return None
+
+        primary_type = str(place.get("primaryType") or "").strip() or None
+        if primary_type and _is_non_check_in_type(primary_type):
+            # A geocoded address is not a business, whatever filter surfaced it.
+            return None
+
+        type_display = place.get("primaryTypeDisplayName") or {}
+        if not isinstance(type_display, dict):
+            type_display = {}
+        category_label = str(type_display.get("text") or "").strip()[:80] or None
+
+        distance = _distance_meters(
+            origin_lat=lat,
+            origin_lng=lng,
+            destination_lat=place_lat,
+            destination_lng=place_lng,
+        )
+
+        return {
+            "placeId": place_id,
+            "name": name,
+            "address": (
+                str(
+                    place.get("shortFormattedAddress") or place.get("formattedAddress") or ""
+                ).strip()[:300]
+                or None
+            ),
+            "distanceMeters": int(distance),
+            "primaryType": primary_type,
+            "categoryLabel": category_label,
+            # The directory's own bucket, not `_place_categories` -- that reads
+            # the picker's table and would answer in the picker's vocabulary.
+            "category": category,
+            "businessStatus": str(place.get("businessStatus") or "").strip() or None,
+        }
+
+    async def directory_place_details(self, place_id: str) -> dict[str, Any]:
+        """The richer record behind one directory row.
+
+        Phone, website and posted hours sit in a dearer billing tier than the
+        list fields, so they are bought once, for the one place a reader opened,
+        rather than for every row of every category they scrolled past.
+        """
+
+        key = _require_key()
+        async with _async_client() as client:
+            try:
+                response = await client.get(
+                    f"{_PLACES_BASE}/v1/places/{quote(place_id, safe='')}",
+                    headers={
+                        "X-Goog-Api-Key": key,
+                        "X-Goog-FieldMask": _DIRECTORY_DETAIL_FIELD_MASK,
+                    },
+                )
+            except httpx.HTTPError as exc:
+                raise GoogleMapsError(f"Place details failed: {exc}", status_code=502) from exc
+
+        if response.status_code >= 400:
+            logger.warning("maps.directory_details upstream %s", response.status_code)
+            raise GoogleMapsError("Place details failed.", status_code=502)
+
+        data = _provider_object(response, "Place details lookup")
+
+        display_name = data.get("displayName") or {}
+        if not isinstance(display_name, dict):
+            display_name = {}
+        type_display = data.get("primaryTypeDisplayName") or {}
+        if not isinstance(type_display, dict):
+            type_display = {}
+
+        hours = data.get("regularOpeningHours") or {}
+        if not isinstance(hours, dict):
+            hours = {}
+        raw_descriptions = hours.get("weekdayDescriptions")
+        weekday_descriptions = (
+            [str(entry)[:120] for entry in raw_descriptions[:7]]
+            if isinstance(raw_descriptions, list)
+            else []
+        )
+
+        return {
+            "placeId": str(data.get("id") or place_id),
+            "name": str(display_name.get("text") or "").strip()[:160] or None,
+            "address": (
+                str(
+                    data.get("formattedAddress") or data.get("shortFormattedAddress") or ""
+                ).strip()[:300]
+                or None
+            ),
+            "categoryLabel": str(type_display.get("text") or "").strip()[:80] or None,
+            "phone": str(data.get("nationalPhoneNumber") or "").strip()[:40] or None,
+            "website": str(data.get("websiteUri") or "").strip()[:500] or None,
+            "mapsUrl": str(data.get("googleMapsUri") or "").strip()[:500] or None,
+            "businessStatus": str(data.get("businessStatus") or "").strip() or None,
+            # Posted hours only. Google's `openNow` is a live claim we would be
+            # repeating without being able to stand behind it, so it is not read
+            # and the UI never says "open now".
+            "weekdayDescriptions": weekday_descriptions,
+        }
 
     async def place_details(
         self,

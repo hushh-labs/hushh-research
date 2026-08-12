@@ -18,9 +18,6 @@ Two halves of this contract:
    emitter and the real signer were updated together but the new behaviour
    doesn't match prior outputs).
 
-The Swift port at ``apps/one-mac/Sources/OneConsent/TokenCodec.swift`` is
-gated by the same golden JSON via
-``apps/one-mac/Tests/OneConsentTests/GoldenVectorTests.swift``.
 """
 
 from __future__ import annotations

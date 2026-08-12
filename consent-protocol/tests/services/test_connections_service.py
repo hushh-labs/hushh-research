@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
+from hushh_mcp.services.connection_graph_service import ORIGIN_DIRECT_REQUEST
 from hushh_mcp.services.connections_service import (
     _RIA_ACTIVE_PICKS_CAPABILITY,
     ConnectionsError,
@@ -573,7 +574,14 @@ def test_search_directory_delegates_pagination_to_eligible_directory_query():
     def directory_search(owner_user_id: str, **options: object) -> dict[str, object]:
         calls.append((owner_user_id, options))
         return {
-            "items": [{"userId": "user-c", "displayName": "Cara"}],
+            "items": [
+                {
+                    "userId": "user-c",
+                    "displayName": "Cara",
+                    "maskedPhone": "******4455",
+                    "maskedEmail": "c***a@example.com",
+                }
+            ],
             "page": 2,
             "hasMore": True,
         }
@@ -591,6 +599,8 @@ def test_search_directory_delegates_pagination_to_eligible_directory_query():
                 "displayName": "Cara",
                 "photoUrl": None,
                 "email": None,
+                "maskedPhone": "******4455",
+                "maskedEmail": "c***a@example.com",
                 "relationship": "none",
             }
         ],
@@ -1066,3 +1076,67 @@ def test_resolve_pending_scope_proposals_declines_all_and_audits():
     assert [e["proposal_id"] for e in events] == ["p1", "p2"]
     assert {e["event_type"] for e in events} == {"DECLINED"}
     assert {e["reason"] for e in events} == {"connection_rejected"}
+
+
+def test_accept_records_the_direct_request_origin_location_needs():
+    """Accepting must materialize Location eligibility, not just Connect's row.
+
+    Connect lists anyone with an active `connections` row. Location requires
+    that AND an active non-circle `connection_origins` row. Acceptance wrote
+    only the first, so a person could be connected in Connect and absent from
+    Location's recipient list -- One answering "nobody in your connections
+    matches that name" about someone plainly there, and "connect with X then
+    share my location with X" breaking at a step that looked successful.
+
+    The origin has to be written on the transaction connection, inside the same
+    transaction that activates the connection, or the two can disagree.
+    """
+    svc = _svc()
+    events: list = []
+    db = _TransactionalDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                }
+            ],
+            [],  # no scope proposals
+            [{"id": "conn-1"}],
+            [{"id": "tc-1"}],
+            [{"id": "tc-2"}],
+            [{"id": "req-1"}],
+        ],
+        events,
+    )
+
+    recorded: list[dict] = []
+
+    def _capture_origin(conn, **kwargs):
+        recorded.append({"conn": conn, **kwargs})
+        return {"origin_kind": kwargs.get("kind")}
+
+    with (
+        patch("hushh_mcp.services.connections_service.get_db", lambda: db),
+        patch(
+            "hushh_mcp.services.connections_service.ensure_connection_origin",
+            _capture_origin,
+        ),
+    ):
+        out = svc.accept_request("user-b", "req-1")
+
+    assert out["status"] == "accepted"
+    assert len(recorded) == 1, "acceptance must record exactly one origin"
+    origin = recorded[0]
+    # `direct_request`, never a circle kind: Location's eligibility query
+    # excludes circle-derived origins, so recording one of those would leave
+    # the same invisible-recipient bug in place while looking fixed.
+    assert origin["kind"] == ORIGIN_DIRECT_REQUEST
+    assert {origin["user_a_id"], origin["user_b_id"]} == {"user-a", "user-b"}
+    # Traceable back to the request that authorized it.
+    assert origin["source_ref"] == "req-1"
+    # On the TRANSACTION's connection, so it commits or rolls back with the
+    # connection row rather than landing independently.
+    assert origin["conn"] is db.connection

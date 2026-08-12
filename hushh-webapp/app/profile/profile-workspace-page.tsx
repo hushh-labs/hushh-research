@@ -14,6 +14,7 @@ import {
   Bug,
   CodeXml,
   Code2,
+  ContactRound,
   ExternalLink,
   Fingerprint,
   Folder,
@@ -543,7 +544,7 @@ function ProfilePageContent() {
   useEffect(() => {
     setCanShowPkmAgentLab(
       process.env.NODE_ENV === "development" &&
-        isPkmDeveloperHost(window.location.hostname)
+        isPkmDeveloperHost(window.location.hostname),
     );
   }, []);
 
@@ -557,10 +558,7 @@ function ProfilePageContent() {
     startPhoneReplacement,
     confirmPhoneReplacement,
   } = useAuth();
-  const {
-    personaState,
-    refresh: refreshPersonaState,
-  } = usePersonaState();
+  const { personaState, refresh: refreshPersonaState } = usePersonaState();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const pendingConsents = useConsentPendingSummaryCount();
   const { registerSteps, completeStep, reset } = useStepProgress();
@@ -653,6 +651,13 @@ function ProfilePageContent() {
   const [marketplaceOptIn, setMarketplaceOptIn] = useState(false);
   const [loadingMarketplaceOptIn, setLoadingMarketplaceOptIn] = useState(true);
   const [savingMarketplaceOptIn, setSavingMarketplaceOptIn] = useState(false);
+  // Contact discoverability defaults ON, so the optimistic initial value is
+  // true; a user who has opted out sees the toggle settle once the fetch lands.
+  const [contactDiscoverable, setContactDiscoverable] = useState(true);
+  const [loadingContactDiscoverable, setLoadingContactDiscoverable] =
+    useState(true);
+  const [savingContactDiscoverable, setSavingContactDiscoverable] =
+    useState(false);
   const [supportKind, setSupportKind] =
     useState<SupportMessageKind>("support_request");
   const [supportSubject, setSupportSubject] = useState("");
@@ -908,7 +913,6 @@ function ProfilePageContent() {
           detail?: ProfileDetail | null;
         },
         mode: "push" | "replace" = "push",
-
       ) => {
         // Preserve only the `from` origin marker (not transient vault/return
         // keys, which must not re-fire while drilling panels) so the shared
@@ -932,7 +936,6 @@ function ProfilePageContent() {
       },
     [activeDetail, activePanel, router, searchParams],
   );
-
 
   useEffect(() => {
     let cancelled = false;
@@ -1032,6 +1035,36 @@ function ProfilePageContent() {
     setMarketplaceOptIn(Boolean(personaState.investor_marketplace_opt_in));
     setLoadingMarketplaceOptIn(false);
   }, [personaState, user]);
+
+  useEffect(() => {
+    if (!user) {
+      setContactDiscoverable(true);
+      setLoadingContactDiscoverable(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        const result = await RiaService.getContactDiscoverability(idToken);
+        if (!cancelled) {
+          setContactDiscoverable(Boolean(result.contact_discoverable));
+        }
+      } catch (error) {
+        // Leave the default in place; a failed read must not silently present
+        // the user as opted out when they are not.
+        console.error(
+          "[ProfilePage] Failed to load contact discoverability:",
+          error,
+        );
+      } finally {
+        if (!cancelled) setLoadingContactDiscoverable(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
 
   const refreshPkmMetadata = useCallback(
@@ -1497,6 +1530,30 @@ function ProfilePageContent() {
     }
   };
 
+  const handleContactDiscoverableToggle = async () => {
+    if (!user) return;
+    const next = !contactDiscoverable;
+    try {
+      setSavingContactDiscoverable(true);
+      const idToken = await user.getIdToken();
+      const result = await RiaService.setContactDiscoverability(idToken, next);
+      setContactDiscoverable(Boolean(result.contact_discoverable));
+      toast.success(
+        result.contact_discoverable
+          ? "People who have your number can find you on Hussh."
+          : "You are hidden from contact sync.",
+      );
+    } catch (error) {
+      console.error(
+        "[ProfilePage] Failed to update contact discoverability:",
+        error,
+      );
+      toast.error("Could not update contact discoverability.");
+    } finally {
+      setSavingContactDiscoverable(false);
+    }
+  };
+
   const handleMarketplaceOptInToggle = async () => {
     if (!user) return;
     try {
@@ -1953,6 +2010,11 @@ function ProfilePageContent() {
     : marketplaceOptIn
       ? "Discoverable to RIAs"
       : "Hidden from marketplace search";
+  const contactDiscoverableStatusText = loadingContactDiscoverable
+    ? "Checking discoverability…"
+    : contactDiscoverable
+      ? "People who have your number can find you"
+      : "Hidden from contact sync";
   const phoneSummaryText = phoneNumber
     ? maskPhoneNumber(phoneNumber)
     : "No phone number linked yet";
@@ -2950,6 +3012,23 @@ function ProfilePageContent() {
           onClick={() => router.push(ROUTES.CONSENTS)}
         />
         <SettingsRow
+          icon={ContactRound}
+          title="Find me by phone number"
+          description={contactDiscoverableStatusText}
+          trailing={
+            <Switch
+              checked={contactDiscoverable}
+              disabled={loadingContactDiscoverable || savingContactDiscoverable}
+              aria-label="Toggle contact discoverability"
+              onPointerDown={(event) => {
+                event.stopPropagation();
+              }}
+              onClick={(event) => event.stopPropagation()}
+              onCheckedChange={() => void handleContactDiscoverableToggle()}
+            />
+          }
+        />
+        <SettingsRow
           icon={RefreshCw}
           title="Marketplace visibility"
           description={marketplaceStatusText}
@@ -2979,20 +3058,23 @@ function ProfilePageContent() {
   };
 
   const accountContent = (
-    <div className="space-y-4">
+    <div className="profile-account-content space-y-4">
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={User}
+          iconTone="blue"
           title="Display name"
           description={user.displayName || "Not available"}
         />
         <SettingsRow
           icon={Mail}
+          iconTone="blue"
           title="Email"
           description={user.email || "Not available"}
         />
         <SettingsRow
           icon={Phone}
+          iconTone="green"
           title="Phone number"
           description={phoneSummaryText}
           trailing={
@@ -3007,12 +3089,15 @@ function ProfilePageContent() {
         />
         <SettingsRow
           icon={Fingerprint}
+          iconTone="green"
           title="Sign-in provider"
           description={provider.name}
         />
         {walletCardEntryEnabled ? (
           <SettingsRow
             icon={Wallet}
+            iconTone="purple"
+            className="profile-account-service-row"
             title={WALLET_CARD_COPY.profileEntry.title}
             description={WALLET_CARD_COPY.profileEntry.description}
             chevron
@@ -3023,14 +3108,16 @@ function ProfilePageContent() {
       <SettingsGroup title="Account actions">
         <SettingsRow
           icon={RefreshCw}
+          iconTone="orange"
+          className="profile-account-reset-row"
           title="Reset account"
           description={resetRowDescription}
-          tone="destructive"
           chevron
           onClick={() => void handleResetClick()}
         />
         <SettingsRow
           icon={Trash2}
+          className="profile-account-delete-row"
           title={deleteButtonLabel}
           description={deleteRowDescription}
           tone="destructive"
@@ -3049,7 +3136,10 @@ function ProfilePageContent() {
           title="Appearance"
           description="Light, dark, or system."
           trailing={
-            <ThemeToggleLean size="expanded" className="w-full sm:w-60 min-w-0" />
+            <ThemeToggleLean
+              size="expanded"
+              className="w-full sm:w-60 min-w-0"
+            />
           }
           stackTrailingOnMobile
         />
@@ -3099,7 +3189,7 @@ function ProfilePageContent() {
         <SettingsRow
           leading={<GeminiLogo className="h-8 w-8" />}
           title="Gemini"
-          description="Choose Hushh managed Gemini or keep your own key in your encrypted vault."
+          description="Choose Hussh managed Gemini or keep your own key in your encrypted vault."
           chevron
           onClick={() =>
             updateProfileView(
@@ -3196,6 +3286,7 @@ function ProfilePageContent() {
   const connectedSystemsContent = (
     <ConnectedSystemsPanel
       cacheUserId={user?.uid}
+      vaultKey={vaultKey}
       vaultOwnerToken={vaultOwnerToken}
       onRequestUnlock={() => requestVaultUnlock("profile_data")}
       profile={{
@@ -3896,20 +3987,20 @@ function ProfilePageContent() {
   }
 
   const profileRootContent = (
-    <>
+    <div className="profile-home-screen">
       <AppPageHeaderRegion>
         <header
-          className="flex w-full min-w-0 flex-col items-center gap-2.5 px-4 text-center sm:px-6"
+          className="profile-home-hero flex w-full min-w-0 flex-col items-center gap-2.5 px-0 text-center sm:px-6"
           data-slot="page-header"
           data-page-primary="true"
         >
           <ProfileAvatarEditor />
-          <div className="min-w-0 max-w-full space-y-1.5">
-            <h1 className="text-[28px] font-medium leading-[1.08] tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
+          <div className="profile-home-copy w-full min-w-0 max-w-full space-y-1.5">
+            <h1 className="profile-home-name ui-text-identity-name [overflow-wrap:anywhere]">
               {user.displayName || "User"}
             </h1>
             <div
-              className="inline-flex max-w-full items-center justify-center gap-2 text-sm text-muted-foreground"
+              className="profile-home-meta flex w-full min-w-0 items-center justify-center gap-2 text-sm text-muted-foreground"
               title={provider.name}
             >
               <ProviderIcon providerId={provider.id} />
@@ -3923,7 +4014,7 @@ function ProfilePageContent() {
 
       <AppPageContentRegion>
         <SurfaceStack compact>
-          <div className="space-y-4 sm:space-y-5">
+          <div className="profile-home-content space-y-4 sm:space-y-5">
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
                 icon={UserRound}
@@ -3989,7 +4080,7 @@ function ProfilePageContent() {
           </div>
         </SurfaceStack>
       </AppPageContentRegion>
-    </>
+    </div>
   );
 
   if (legacyProfileRedirectHref) {

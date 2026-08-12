@@ -111,13 +111,20 @@ export function StockComparisonPreview({
             accent="default"
             actions={
               onBrowseRecommendations || onChangeStock ? (
-                <div className="flex items-center gap-1">
+                // Both action pills must stay fully visible on narrow iOS
+                // widths. `flex-nowrap` previously let "Change stock" overflow
+                // and clip off the card's right edge (see bug report). Allow the
+                // row to WRAP the second pill onto a new line instead of
+                // clipping it, and give the group full width so it aligns left
+                // under the title on phones and right on wider screens.
+                <div className="flex w-full flex-wrap items-center justify-start gap-1.5 sm:w-auto sm:justify-end">
                   {onBrowseRecommendations ? (
                     <Button
                       type="button"
                       variant="none"
                       effect="fade"
                       size="sm"
+                      className="min-w-0 whitespace-nowrap px-2.5 text-xs sm:text-sm"
                       onClick={onBrowseRecommendations}
                     >
                       Recommendations
@@ -129,9 +136,10 @@ export function StockComparisonPreview({
                       variant="none"
                       effect="fade"
                       size="sm"
+                      className="min-w-0 whitespace-nowrap px-2.5 text-xs sm:text-sm"
                       onClick={onChangeStock}
                     >
-                      <Search className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                      <Search className="mr-1 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                       Change stock
                     </Button>
                   ) : null}
@@ -153,7 +161,7 @@ export function StockComparisonPreview({
             <SurfaceInset className="p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0 space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                     Debate source
                   </p>
                   <p className="text-sm text-muted-foreground">
@@ -194,7 +202,7 @@ export function StockComparisonPreview({
             <SurfaceInset className="p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                     Live market
                   </p>
                   <h3 className="text-lg font-semibold text-foreground">
@@ -223,7 +231,7 @@ export function StockComparisonPreview({
 
             <SurfaceInset className="p-4">
               <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                   List comparison
                 </p>
                 <h3 className="text-lg font-semibold text-foreground">
@@ -256,7 +264,7 @@ export function StockComparisonPreview({
             <SurfaceInset className="p-4">
               <div className="space-y-3">
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                     Your advisor shared
                   </p>
                   <h3 className="text-base font-semibold text-foreground">{advisorSummary.source_label}</h3>
