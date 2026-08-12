@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { preload } from "react-dom";
+import { preconnect, preload } from "react-dom";
 import {
   ArrowLeft,
   Check,
@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
+import { useGoogleMaps } from "@/lib/one-location/use-google-maps";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import locationOnboardingContract from "@/lib/onboarding/one-location-onboarding.contract.json";
@@ -1881,6 +1882,16 @@ export function OneLocationOnboardingFlow({
     preload(source, { as: "image", fetchPriority: "high" });
   }
 
+  // The finale is a map, and a map that arrives after the screen does reads as
+  // the product being slow at the exact moment it is trying to impress. Warm
+  // the connection from the very first screen so DNS and TLS are already paid
+  // for, then start the Maps script immediately -- the loader is a module-level
+  // singleton, so this is the same request the finale would make, only several
+  // screens earlier and off the critical path.
+  preconnect("https://maps.googleapis.com");
+  preconnect("https://maps.gstatic.com");
+  useGoogleMaps({ enabled: true });
+
   const [screen, setScreen] = useState<OnboardingScreen>(() =>
     initialScreen(startAt),
   );
@@ -2328,6 +2339,18 @@ export function OneLocationOnboardingFlow({
             onSkip={() => void runSkip()}
             leaving={leaving}
             onContinue={continueFromFeatures}
+          />
+        ) : null}
+        {/* Tile prewarm. The script being ready is only half of it -- the map
+            still has to fetch imagery for this exact point, and doing that on
+            arrival is what makes the finale look like it is thinking. A
+            full-size instance renders here, invisibly, so the tiles are in the
+            browser cache before the screen that shows them exists. It unmounts
+            as the finale mounts, so there is never a second live map. */}
+        {screen === "contacts" && mapPoint ? (
+          <OnboardingLiveMap
+            point={mapPoint}
+            className="pointer-events-none absolute inset-0 -z-10 opacity-0"
           />
         ) : null}
         {screen === "contacts" ? (
