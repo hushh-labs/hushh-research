@@ -34,6 +34,7 @@ from hushh_mcp.services.action_gateway import (
 )
 from hushh_mcp.services.live_voice_context import (
     read_completed_action,
+    read_failed_action,
     read_live_voice_context,
 )
 
@@ -276,6 +277,32 @@ async def run_app_action(
                 "inputs, and doing it again would do it twice. Tell the person "
                 "what was done, once, and stop. Only run it again if they ask "
                 "for it again."
+            ),
+        }
+    # Already tried, this turn, with these exact inputs, and it did not work.
+    #
+    # The already-completed refusal above only covers actions that SUCCEEDED,
+    # because only successes were ever recorded. That left the louder case
+    # unguarded: a failure leaves the person's request unsatisfied, so One keeps
+    # trying to satisfy it, and nothing in the loop can tell it the attempt is
+    # hopeless. Live, `location.share_selected` went out 24 times in 15 seconds
+    # against a recipient who had no encryption keys and never would within that
+    # turn.
+    #
+    # The recorded reason is handed back rather than a bare refusal. One is not
+    # being asked to fall silent -- it is being given the sentence it should
+    # have said the first time, which is what actually ends the loop.
+    failed_record = read_failed_action(session_id, clean_id)
+    if failed_record is not None and failed_record[0] == _slot_fingerprint(clean_slots):
+        failure_reason = failed_record[1] or "The app did not say why."
+        logger.info("one_adk_action_decision action=%s status=already_failed", clean_id)
+        return {
+            "status": "already_failed",
+            "message": (
+                f"{clean_id} was just tried with these exact inputs and failed: "
+                f"{failure_reason} Running it again right now would fail the same "
+                "way. Tell the person what went wrong, once, and stop. If they "
+                "change something or ask again, it will be allowed through."
             ),
         }
     if isinstance(context, dict) and context.get("pending_settlement") is True:
