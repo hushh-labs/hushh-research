@@ -53,8 +53,8 @@ import { PageHeader } from "@/components/app-ui/page-sections";
 import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
 import {
   OneLocationOnboardingFlow as OneLocationOnboardingExperience,
-  type ConnectionRequestResult,
   type OnboardingCircleInvite,
+  type OnboardingContactSyncResult,
 } from "@/components/one-location/onboarding/one-location-onboarding-flow";
 
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
@@ -124,6 +124,7 @@ function BodyPortal({ children }: { children: ReactNode }) {
   return createPortal(children, document.body);
 }
 
+import { HushhContacts } from "@/lib/capacitor";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
@@ -252,18 +253,18 @@ import {
   loadRecentDestinations,
 } from "@/lib/one-location/drive-recents";
 import { CacheService } from "@/lib/services/cache-service";
-import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   loadPersistedDriveSession,
   restoreDriveSession,
   saveDriveSession,
 } from "@/lib/one-location/drive-session-store";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
+import { ConnectionsService } from "@/lib/services/connections-service";
 import {
-  ConnectionsService,
-  type ConnectionSummaryEntry,
-  type DirectoryPerson,
-} from "@/lib/services/connections-service";
+  clearPendingCircleJoin,
+  readPendingCircleJoin,
+  rememberPendingCircleJoin,
+} from "@/lib/one-location/pending-circle-join";
 import {
   CONSENT_STATE_CHANGED_EVENT,
   dispatchConsentStateChanged,
@@ -1340,33 +1341,6 @@ function displayNameFromRecipient(recipient: OneLocationRecipient): string {
   return recipientLabel(recipient);
 }
 
-function onboardingPeopleFromRecipients(
-  recipients: OneLocationRecipient[],
-): DirectoryPerson[] {
-  return recipients
-    .filter((recipient) => Boolean(recipient.userId))
-    .map((recipient) => ({
-      userId: recipient.userId,
-      displayName: displayNameFromRecipient(recipient),
-      photoUrl: null,
-      email: null,
-      relationship: "none" as const,
-    }));
-}
-
-function mergeOnboardingPeople(
-  primary: DirectoryPerson[],
-  fallback: DirectoryPerson[],
-): DirectoryPerson[] {
-  const merged = [...primary];
-  const seen = new Set(primary.map((person) => person.userId));
-  for (const person of fallback) {
-    if (!person.userId || seen.has(person.userId)) continue;
-    seen.add(person.userId);
-    merged.push(person);
-  }
-  return merged;
-}
 
 function initialsForLabel(label: string): string {
   const words = label
@@ -2073,17 +2047,6 @@ export function OneLocationAgentPageContent({
 
   const notificationOnboardingObservedBusyRef = useRef(false);
   const notificationOnboardingRetryOnFocusRef = useRef(false);
-  const [locationOnboardingPeople, setLocationOnboardingPeople] = useState<
-    DirectoryPerson[]
-  >([]);
-  const [locationOnboardingConnections, setLocationOnboardingConnections] =
-    useState<ConnectionSummaryEntry[]>([]);
-  const [locationOnboardingPeopleLoading, setLocationOnboardingPeopleLoading] =
-    useState(false);
-  const [locationOnboardingPeopleError, setLocationOnboardingPeopleError] =
-    useState<string | null>(null);
-  const [locationOnboardingPeopleRefresh, setLocationOnboardingPeopleRefresh] =
-    useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<ShareMode>("share");
   const locationTab = normalizeLocationTab(
@@ -2353,19 +2316,6 @@ export function OneLocationAgentPageContent({
     () => state?.circles ?? [],
     [state?.circles],
   );
-  const locationOnboardingRecipientsRef = useRef(recipients);
-  useEffect(() => {
-    locationOnboardingRecipientsRef.current = recipients;
-    if (locationOnboardingGate !== "show" || recipients.length === 0) return;
-    setLocationOnboardingPeople((current) =>
-      mergeOnboardingPeople(
-        current,
-        onboardingPeopleFromRecipients(recipients),
-      ),
-    );
-    setLocationOnboardingPeopleError(null);
-    setLocationOnboardingPeopleLoading(false);
-  }, [locationOnboardingGate, recipients]);
   const contactMatchedUserIds = useMemo(
     () => new Set(contactSignal.matchedUserIds),
     [contactSignal.matchedUserIds],
@@ -3027,117 +2977,6 @@ export function OneLocationAgentPageContent({
     }
   }, [auth.loading, auth.userId, refresh, stateEntry?.userId]);
 
-  useEffect(() => {
-    if (locationOnboardingGate !== "show" || !auth.user) {
-      return;
-    }
-
-    const authenticatedUser = auth.user;
-    let cancelled = false;
-    const loadPeople = async () => {
-      setLocationOnboardingPeopleLoading(true);
-      setLocationOnboardingPeopleError(null);
-      try {
-        const idToken = await authenticatedUser.getIdToken();
-        let directorySucceeded = false;
-        let renderedPeople = false;
-        let directoryError: unknown = null;
-        let connectionsError: unknown = null;
-
-        const directoryTask = ConnectionsService.searchDirectory({
-          idToken,
-          page: 1,
-          limit: 12,
-        })
-          .then((result) => {
-            directorySucceeded = true;
-            if (cancelled) return;
-            const items = result.items ?? [];
-            if (items.length === 0) return;
-            renderedPeople = true;
-            setLocationOnboardingPeople((current) =>
-              mergeOnboardingPeople(items, current),
-            );
-            setLocationOnboardingPeopleError(null);
-            setLocationOnboardingPeopleLoading(false);
-          })
-          .catch((error: unknown) => {
-            directoryError = error;
-          });
-
-        const connectionsTask = ConnectionsService.listConnections({ idToken })
-          .then((result) => {
-            if (cancelled) return;
-            setLocationOnboardingConnections(result);
-            if (renderedPeople || result.length === 0) return;
-            renderedPeople = true;
-            setLocationOnboardingPeople((current) =>
-              mergeOnboardingPeople(
-                result.map((connection) => ({
-                  userId: connection.userId,
-                  displayName: connection.displayName,
-                  photoUrl: connection.photoUrl,
-                  email: null,
-                  relationship: "connected" as const,
-                })),
-                current,
-              ),
-            );
-            setLocationOnboardingPeopleError(null);
-            setLocationOnboardingPeopleLoading(false);
-          })
-          .catch((error: unknown) => {
-            connectionsError = error;
-            if (!cancelled) setLocationOnboardingConnections([]);
-          });
-
-        await Promise.allSettled([directoryTask, connectionsTask]);
-        if (cancelled) return;
-
-        if (!renderedPeople) {
-          const fallbackPeople = onboardingPeopleFromRecipients(
-            locationOnboardingRecipientsRef.current,
-          );
-          setLocationOnboardingPeople((current) =>
-            mergeOnboardingPeople(fallbackPeople, current),
-          );
-          if (fallbackPeople.length > 0) {
-            setLocationOnboardingPeopleError(null);
-          } else if (!directorySucceeded) {
-            const error = directoryError ?? connectionsError;
-            setLocationOnboardingPeopleError(
-              error instanceof Error
-                ? error.message
-                : "Could not load recommended people.",
-            );
-          }
-        }
-      } catch (error) {
-        if (cancelled) return;
-        const fallbackPeople = onboardingPeopleFromRecipients(
-          locationOnboardingRecipientsRef.current,
-        );
-        setLocationOnboardingPeople((current) =>
-          mergeOnboardingPeople(fallbackPeople, current),
-        );
-        setLocationOnboardingConnections([]);
-        setLocationOnboardingPeopleError(
-          fallbackPeople.length > 0
-            ? null
-            : error instanceof Error
-              ? error.message
-              : "Could not load recommended people.",
-        );
-      } finally {
-        if (!cancelled) setLocationOnboardingPeopleLoading(false);
-      }
-    };
-
-    void loadPeople();
-    return () => {
-      cancelled = true;
-    };
-  }, [auth.user, locationOnboardingGate, locationOnboardingPeopleRefresh]);
 
   useEffect(() => {
     if (auth.loading) {
@@ -4672,6 +4511,102 @@ export function OneLocationAgentPageContent({
   // Contact Picker) without the callback having to reference itself.
   const handleSyncContactSignalRef = useRef<(() => Promise<void>) | null>(null);
 
+  // Onboarding's own contacts step. It reuses the same matcher as the hub, but
+  // returns a typed result instead of driving hub state: onboarding needs to
+  // render the matches inline, and the contact-permission prompt is fired by a
+  // deliberate tap on that screen rather than by opening the app.
+  // Can this device read an address book at all? A desktop browser without the
+  // Contact Picker reports "unavailable", and onboarding then skips the step
+  // instead of showing a screen whose only content is that it cannot work.
+  // Assume it can until proven otherwise, so a slow plugin never costs the step
+  // on a phone that does support it.
+  const [contactsStepAvailable, setContactsStepAvailable] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    void HushhContacts.getPermissionState()
+      .then((state) => {
+        if (!cancelled && state?.state === "unavailable") {
+          setContactsStepAvailable(false);
+        }
+      })
+      .catch(() => {
+        // No plugin at all is the same answer as "unavailable".
+        if (!cancelled) setContactsStepAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSyncOnboardingContacts =
+    useCallback(async (): Promise<OnboardingContactSyncResult> => {
+      const idToken = await auth.user?.getIdToken();
+      if (!idToken) {
+        return {
+          status: "failed",
+          message: "Sign in to check your contacts.",
+          canOpenSettings: false,
+        };
+      }
+      try {
+        const result = await syncOneLocationContactSignals({
+          idToken,
+          accountPhoneNumber: auth.user?.phoneNumber,
+        });
+        const matches = result.matches
+          .map((match) => ({
+            userId: match.user_id,
+            displayName: match.display_name,
+          }))
+          .filter((match) => match.userId && match.userId !== auth.userId);
+        trackEvent("one_location_contact_signal_synced", {
+          route_id: "one_location",
+          result: "success",
+          source_platform: result.sourcePlatform,
+          contact_count_bucket: contactCountBucket(result.totalContacts),
+          matched_count: matches.length,
+          invite_candidate_count: result.inviteCandidateCount,
+          contact_region: result.region ?? "unknown",
+          partial_access: result.limited,
+          truncated: result.truncated,
+        });
+        if (matches.length > 0) return { status: "matched", matches };
+        // A partial read is not proof that nobody matched -- the web picker and
+        // iOS limited access only ever return a hand-picked subset.
+        return { status: "none", partial: result.limited };
+      } catch (error) {
+        const failure =
+          error instanceof OneLocationContactSyncError ? error.failure : "error";
+        const canOpenSettings =
+          failure === "denied" || failure === "restricted";
+        return {
+          status: "failed",
+          message:
+            failure === "denied"
+              ? "One does not have access to your contacts yet."
+              : failure === "restricted"
+                ? "Contact access is restricted on this device."
+                : failure === "unavailable"
+                  ? "Reading contacts is not available here. You can add people later from the People tab."
+                  : "We couldn't check your contacts. You can try again later.",
+          canOpenSettings,
+        };
+      }
+    }, [auth.user, auth.userId]);
+
+  const handleAddOnboardingContact = useCallback(
+    async (addresseeUserId: string) => {
+      const idToken = await auth.user?.getIdToken();
+      if (!idToken) throw new Error("Sign in to add people.");
+      await ConnectionsService.sendRequest({
+        idToken,
+        addresseeUserId,
+        message: "I would like to add you to my private Location circle.",
+      });
+    },
+    [auth.user],
+  );
+
   const handleSyncContactSignal = useCallback(async () => {
     if (!auth.user?.getIdToken) {
       const message = "Sign in before syncing contacts.";
@@ -5429,11 +5364,72 @@ export function OneLocationAgentPageContent({
   // by the onboarding flow when the Invite screen opens. Provisioning is quiet
   // (no create/rotate toasts) since it runs implicitly during setup. The code is
   // re-readable by active members and is never persisted in client storage/URLs.
+  const handlePreviewCircleCode = useCallback(
+    async (code: string) => {
+      const idToken = await auth.user?.getIdToken();
+      if (!idToken) throw new Error("Sign in to look up a circle code.");
+      const preview = await OneLocationService.previewOnboardingCircleCode({
+        idToken,
+        code,
+      });
+      return {
+        name: preview.name,
+        ownerDisplayName: preview.ownerDisplayName,
+        memberCount: preview.memberCount,
+        alreadyMember: preview.alreadyMember,
+      };
+    },
+    [auth.user],
+  );
+
+  const handleAcceptCircleCode = useCallback(
+    async (code: string) => {
+      // Redeem now if a vault already exists; otherwise park it. Joining is
+      // vault-gated and the vault arrives only when the setup wizard finishes,
+      // so the accept and the redeem genuinely cannot be the same moment for a
+      // first-run joiner.
+      if (vaultOwnerToken) {
+        await OneLocationService.joinNamedCircle({ vaultOwnerToken, code });
+        scheduleNamedCircleStateRefresh();
+        return;
+      }
+      if (!auth.userId || !rememberPendingCircleJoin(auth.userId, code)) {
+        throw new Error(
+          "We couldn't hold on to that code here. You can join from Circles once setup finishes.",
+        );
+      }
+    },
+    [auth.userId, scheduleNamedCircleStateRefresh, vaultOwnerToken],
+  );
+
+  // Redeem a parked code the moment a vault token exists. Runs once per code:
+  // it is cleared before the request so a rejection cannot loop, and a spent or
+  // expired code simply fails closed with the circle unjoined.
+  useEffect(() => {
+    if (!vaultOwnerToken || !auth.userId) return;
+    const pending = readPendingCircleJoin(auth.userId);
+    if (!pending) return;
+    clearPendingCircleJoin(auth.userId);
+    let cancelled = false;
+    void OneLocationService.joinNamedCircle({ vaultOwnerToken, code: pending })
+      .then((result) => {
+        if (cancelled) return;
+        scheduleNamedCircleStateRefresh();
+        toast.success(`You joined ${result?.circle?.name ?? "the circle"}.`);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        toast.error(
+          "That circle code could not be used. Ask for a fresh one from Circles.",
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.userId, scheduleNamedCircleStateRefresh, vaultOwnerToken]);
+
   const handlePrepareOnboardingCircleInvite =
     useCallback(async (): Promise<OnboardingCircleInvite> => {
-      if (!vaultOwnerToken) {
-        throw new Error("Unlock One before preparing your circle code.");
-      }
       const ownerName = String(
         auth.user?.displayName || auth.user?.email || "",
       ).trim();
@@ -5441,6 +5437,22 @@ export function OneLocationAgentPageContent({
       const defaultCircleName = firstName
         ? `${firstName}'s Circle`
         : "My Circle";
+
+      // No vault yet — the wizard only introduces one once /one/setup finishes,
+      // so a first-run person has nothing but their sign-in. Bootstrap does the
+      // same find-or-create server-side against their user id, and the Circle
+      // rows it writes are the same rows the vault-gated calls below read later:
+      // the vault gates access to them, it never stored them.
+      if (!vaultOwnerToken) {
+        const idToken = await auth.user?.getIdToken();
+        if (!idToken) {
+          throw new Error("Sign in to prepare your circle code.");
+        }
+        return OneLocationService.bootstrapOnboardingCircle({
+          idToken,
+          name: defaultCircleName,
+        });
+      }
 
       // Reuse the person's first owned Circle so re-entering onboarding never
       // spawns duplicates; fall back to any membership, else create one.
@@ -7806,62 +7818,6 @@ export function OneLocationAgentPageContent({
     dismissLocationOnboarding();
   }, [dismissLocationOnboarding, mode, onSetupSkip]);
 
-  const handleSendLocationOnboardingConnectionRequests = useCallback(
-    async (userIds: string[]): Promise<ConnectionRequestResult> => {
-      if (!auth.user || userIds.length === 0) {
-        return { sentUserIds: [], failedUserIds: [] };
-      }
-
-      let idToken: string;
-      try {
-        idToken = await auth.user.getIdToken();
-      } catch {
-        toast.error("Your session could not be verified. Please try again.");
-        return { sentUserIds: [], failedUserIds: [...new Set(userIds)] };
-      }
-      const sentUserIds: string[] = [];
-      const failedUserIds: string[] = [];
-
-      // Keep requests sequential so a first-run selection cannot burst the
-      // connections endpoint. Each request is independently recoverable.
-      for (const userId of [...new Set(userIds)]) {
-        try {
-          await ConnectionsService.sendRequest({
-            idToken,
-            addresseeUserId: userId,
-            message: "I would like to add you to my private Location circle.",
-          });
-          sentUserIds.push(userId);
-        } catch {
-          failedUserIds.push(userId);
-        }
-      }
-
-      if (sentUserIds.length > 0) {
-        const sentSet = new Set(sentUserIds);
-        setLocationOnboardingPeople((current) =>
-          current.map((person) =>
-            sentSet.has(person.userId)
-              ? { ...person, relationship: "pending_outgoing" }
-              : person,
-          ),
-        );
-        CacheSyncService.onConnectionCapabilityMutated(auth.user.uid);
-        toast.success(
-          `${sentUserIds.length} connection request${sentUserIds.length === 1 ? "" : "s"} sent.`,
-        );
-      }
-      if (failedUserIds.length > 0) {
-        toast.error(
-          `${failedUserIds.length} request${failedUserIds.length === 1 ? "" : "s"} could not be sent.`,
-        );
-      }
-
-      return { sentUserIds, failedUserIds };
-    },
-    [auth.user],
-  );
-
   const handleDismissFirstRunGuide = useCallback(() => {
     setFirstRunGuideDismissed(true);
     if (typeof window !== "undefined" && auth.userId) {
@@ -8588,22 +8544,15 @@ export function OneLocationAgentPageContent({
               auth.user?.displayName || auth.user?.email || "You",
             ).trim() || "You"
           }
-          currentUserPhotoUrl={auth.user?.photoURL}
-          people={locationOnboardingPeople}
-          connections={locationOnboardingConnections}
-          peopleLoading={locationOnboardingPeopleLoading}
-          peopleError={locationOnboardingPeopleError}
           locationPermission={permission}
           notificationDeliveryMode={notificationDeliveryMode}
           notificationBusy={isRetryingPushRegistration}
           locationBusy={locationOnboardingBusy}
           nativeTest={nativeTestConfig}
-          onRetryPeople={() =>
-            setLocationOnboardingPeopleRefresh((current) => current + 1)
-          }
-          onSendConnectionRequests={
-            handleSendLocationOnboardingConnectionRequests
-          }
+          // Setup hands back to the wizard to finish the remaining capabilities;
+          // the workspace lands on the Location hub. Naming the destination beats
+          // a generic "Done" that leaves the person guessing.
+          completeLabel={mode === "setup" ? "Finish" : "Open One Location"}
           onRequestLocation={handleLocationOnboardingPermission}
           // Every onboarding run opens the pin-and-address flow once Location
           // is ready. Root setup stages the confirmed draft in memory; an
@@ -8614,18 +8563,32 @@ export function OneLocationAgentPageContent({
           onComplete={dismissLocationOnboarding}
           onSkip={skipLocationOnboarding}
           requireLocationToComplete={mode === "setup"}
-          // The circle code is minted server-side and every circle route is
-          // behind `require_vault_owner_token`, so there is nothing to show
-          // before the vault exists. Onboarding runs without one in `setup`
-          // mode, where this used to reach the Invite screen and fail with
-          // "Unlock One before preparing your circle code" -- a dead end during
-          // the very flow that creates the vault. Withholding the callback
-          // makes the flow omit that screen entirely (`inviteScreenEnabled`),
-          // so setup goes features -> people, and the code becomes available
-          // the moment the vault exists and onboarding is re-entered.
-          onPrepareOnboardingCircleInvite={
-            vaultOwnerToken ? handlePrepareOnboardingCircleInvite : undefined
+          // Always passed. This used to be withheld without a vault, which made
+          // the flow drop the invite screen entirely -- hiding it from exactly
+          // the first-run people onboarding exists for. The handler now falls
+          // back to the pre-vault bootstrap call, so the screen is always
+          // reachable and a failure degrades to its own retry rather than to a
+          // missing screen.
+          // The point onboarding already captured for the save-place step.
+          // Reused rather than re-requested: asking the device twice for the
+          // same fix costs a second permission round-trip and a visible delay
+          // on the one screen that has to feel instant. Null renders the
+          // stylised map, which is a composed screen rather than an error.
+          mapPoint={
+            saveLocationPoint
+              ? {
+                  lat: saveLocationPoint.latitude,
+                  lng: saveLocationPoint.longitude,
+                }
+              : null
           }
+          contactsStepAvailable={contactsStepAvailable}
+          onPreviewCircleCode={handlePreviewCircleCode}
+          onAcceptCircleCode={handleAcceptCircleCode}
+          onSyncOnboardingContacts={handleSyncOnboardingContacts}
+          onAddOnboardingContact={handleAddOnboardingContact}
+          onOpenContactSettings={() => void openContactPermissionSettings()}
+          onPrepareOnboardingCircleInvite={handlePrepareOnboardingCircleInvite}
           onCopyOnboardingCircleCode={handleCopyNamedCircleCode}
           onShareOnboardingCircleCode={handleShareOnboardingCircleInvite}
         />
