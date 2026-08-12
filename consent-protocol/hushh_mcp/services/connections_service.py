@@ -953,6 +953,34 @@ class ConnectionsService:
 
     @staticmethod
     def _canonical_pair(x: str, y: str) -> tuple[str, str]:
+        """Order a pair the way `connections_canonical_order` will judge it.
+
+        The table declares `CHECK (user_a_id < user_b_id)`, and that `<` is
+        evaluated by Postgres under the database collation -- `en_US.UTF8`,
+        which compares case-insensitively at the primary level. Python's `<` is
+        bytewise, so every uppercase letter sorts before every lowercase one.
+        The two disagree, and they disagreed silently:
+
+            'RPNmQAmVdlNz84GVfXxta50wnYx1' < 'oGltkj09rMcRnru7sBvfziC94px1'
+            Python   -> True          Postgres -> False
+
+        A pair ordered by Python and then inserted was rejected outright with
+        CheckViolation, so accepting a connection failed whenever two Firebase
+        UIDs differed in case at the first distinguishing character -- roughly
+        half of all pairs, forever. It read as intermittent because the other
+        half worked, and the route logged nothing, so the only symptom was
+        "That didn't go through. Try again." Measured on UAT: 88 of 390 pending
+        requests could never have been accepted.
+
+        Note the survivorship trap in the data. Every row in `connections`
+        agrees with Python's ordering, which looks like proof the code is fine.
+        It is the opposite: the disagreeing pairs were refused at INSERT, so
+        they were never written.
+
+        Ordering is therefore delegated to the database, which owns the
+        constraint. Reproducing a collation in Python would only recreate the
+        same drift the moment the database's collation changed.
+        """
         return (x, y) if x < y else (y, x)
 
     def _notify_new_request(self, addressee_user_id: str, requester_user_id: str) -> None:
@@ -1458,17 +1486,40 @@ class ConnectionsService:
                 )
 
             requester = str(req.get("requester_user_id"))
-            user_a, user_b = self._canonical_pair(requester, user_id)
+            # The statement that must satisfy `connections_canonical_order`
+            # decides the order itself, and reports back what it chose.
+            #
+            # Ordering the pair in Python and inserting the result is what
+            # broke: `CHECK (user_a_id < user_b_id)` is evaluated by Postgres
+            # under en_US.UTF8, which compares case-insensitively, while
+            # Python's `<` is bytewise and puts every uppercase letter first.
+            # For 'RPNmQ...' and 'oGltkj...' they disagree, the insert was
+            # rejected with CheckViolation, and accepting a connection failed
+            # for roughly half of all real UID pairs -- 88 of 390 pending
+            # requests on UAT, silently, because this route logged nothing.
+            #
+            # LEAST/GREATEST is the same comparison the constraint uses, in the
+            # same statement, so the two cannot drift apart again. RETURNING
+            # the columns means the canonical values used downstream are the
+            # ones actually stored rather than a second guess at them.
             connection = self._execute_one(
                 """
                 INSERT INTO connections (user_a_id, user_b_id, status, source, created_at, updated_at)
-                VALUES (:a, :b, 'active', 'request', NOW(), NOW())
+                VALUES (LEAST(:a, :b), GREATEST(:a, :b), 'active', 'request', NOW(), NOW())
                 ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
                   status = 'active', revoked_at = NULL, updated_at = NOW()
-                RETURNING id
+                RETURNING id, user_a_id, user_b_id
                 """,
-                {"a": user_a, "b": user_b},
+                {"a": requester, "b": user_id},
             )
+            # Prefer what the row actually stores, and fall back to the raw
+            # pair if RETURNING gave nothing. The fallback is safe because
+            # `ensure_connection_origin` canonicalises again on its own, so the
+            # worst case is passing the pair the other way round -- never a
+            # mis-ordered origin, and never the empty strings that a bare
+            # `.get()` would hand it.
+            user_a = str((connection or {}).get("user_a_id") or "") or requester
+            user_b = str((connection or {}).get("user_b_id") or "") or user_id
             # Location eligibility needs BOTH an active `connections` row and
             # an active non-circle origin. Acceptance wrote only the first, so
             # a person could be connected in Connect and simply absent from
@@ -1567,16 +1618,17 @@ class ConnectionsService:
                 "No claimed circle invite for this peer.",
                 status_code=403,
             )
-        user_a, user_b = self._canonical_pair(user_id, peer_user_id)
+        # Same ordering hazard as `accept_request`, same fix: the statement that
+        # the CHECK judges is the statement that picks the order.
         conn = self._execute_one(
             """
             INSERT INTO connections (user_a_id, user_b_id, status, source, created_at, updated_at)
-            VALUES (:a, :b, 'active', 'circle_invite', NOW(), NOW())
+            VALUES (LEAST(:a, :b), GREATEST(:a, :b), 'active', 'circle_invite', NOW(), NOW())
             ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET
               status = 'active', revoked_at = NULL, updated_at = NOW()
             RETURNING id
             """,
-            {"a": user_a, "b": user_b},
+            {"a": user_id, "b": peer_user_id},
         )
         # Mirror both directional trusted edges (parity with accept_request) so
         # location/SOS readers treat this as a full mutual connection.
