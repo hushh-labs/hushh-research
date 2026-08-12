@@ -1383,7 +1383,11 @@ function LocationDetailFlow({
                 <SharedWithMeCard
                   key={grant.id}
                   name={vm.grantOwnerLabel(grant)}
-                  statusLine={vm.expiresLabel(grant.expiresAt)}
+                  statusLine={
+                    grant.expiresAt
+                      ? `Access until ${vm.formatDateTime(grant.expiresAt)}`
+                      : "Access active"
+                  }
                   previewExpanded={expanded}
                   mapHref={point ? vm.mapLocationHref(point) : undefined}
                   onView={() => onExpandGrant(grant)}
@@ -2442,6 +2446,10 @@ function AskFlow({
   onClose: () => void;
 }) {
   const filtered = vm.visibleRecipients;
+  // Keep the person on this screen after sending so the confirmation is tied to
+  // the specific request they just made, rather than popping straight back to
+  // the hub. `justSent` latches the success state and blocks duplicate submits.
+  const [justSent, setJustSent] = useState(false);
   return (
     <div className="space-y-5">
       <TaskFlowHeader
@@ -2449,6 +2457,19 @@ function AskFlow({
         title="Make it comfortable"
         description="Requests should explain why. The other person chooses whether to share."
       />
+
+      {justSent ? (
+        <div
+          role="status"
+          className="flex items-start gap-2.5 rounded-2xl border border-[color:var(--app-success)]/30 bg-[color:var(--app-success)]/10 px-3.5 py-3"
+        >
+          <ShieldCheck className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[color:var(--app-success)]" />
+          <p className="text-sm font-medium text-foreground">
+            Request sent. We&apos;ll notify you here when they respond.
+          </p>
+        </div>
+      ) : null}
+
 
       <SectionCard title="Person">
         <PersonSearchInput
@@ -2497,7 +2518,14 @@ function AskFlow({
       </SectionCard>
 
       <SectionCard title="Reason">
-        <ReasonChips value={reason} onChange={setReason} label="" />
+        {/* Dropdown (not chips) to match the Duration field's select
+            presentation on this same screen. */}
+        <ReasonChips
+          value={reason}
+          onChange={setReason}
+          label=""
+          presentation="select"
+        />
       </SectionCard>
 
       <SectionCard title="Message">
@@ -2515,34 +2543,59 @@ function AskFlow({
         description="They approve, decline, or ignore."
       />
 
-      {/* Single source of truth for whether the request can be sent: at least
-          one recipient AND a duration AND a reason must be chosen. Previously
-          the button only checked the recipient count, so it could look/act
-          submittable before every required selection existed. */}
+      {/* Send is enabled once at least one recipient is chosen. Duration and
+          reason default to sensible values, so gating Send on them too (added
+          in #5108) blocked submitting even when the request was already valid;
+          that extra gating is intentionally removed here. The "Request Sent"
+          success latch below is preserved. */}
       {(() => {
-        const isFormValid =
-          vm.selectedRequestOwnerIds.length > 0 &&
-          Boolean(vm.durationHours) &&
-          Boolean(reason);
+        const isFormValid = vm.selectedRequestOwnerIds.length > 0;
         const sending = vm.busy === "request";
         return (
           <Button
             onClick={() => {
               // Never submit an incomplete form even if the click somehow
-              // reaches the handler (e.g. keyboard/AT), and never double-fire.
-              if (!isFormValid || sending) return;
+              // reaches the handler (e.g. keyboard/AT), and never double-fire
+              // once it has already succeeded.
+              if (!isFormValid || sending || justSent) return;
               vm.onSendRequest(reason);
-              onClose();
+              // Stay on this screen and show inline confirmation tied to THIS
+              // request instead of popping straight back to the hub. The button
+              // latches to a disabled "Request Sent" success state so a second
+              // tap cannot fire a duplicate request.
+              setJustSent(true);
             }}
-            disabled={!isFormValid || sending}
-            aria-disabled={!isFormValid || sending}
+            disabled={!isFormValid || sending || justSent}
+            aria-disabled={!isFormValid || sending || justSent}
             isLoading={sending}
-            className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:pointer-events-none disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+            className={cn(
+              "h-12 w-full rounded-2xl text-base font-semibold text-[color:var(--app-accent-fg)] disabled:pointer-events-none",
+              justSent
+                ? "bg-[color:var(--app-success)] opacity-100 hover:bg-[color:var(--app-success)]"
+                : "bg-[color:var(--app-accent)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35",
+            )}
           >
-            Send request
+            {justSent ? (
+              <>
+                <ShieldCheck className="mr-1.5 h-[18px] w-[18px]" aria-hidden />
+                Request Sent
+              </>
+            ) : (
+              "Send request"
+            )}
           </Button>
         );
       })()}
+
+      {justSent ? (
+        <Button
+          variant="ghost"
+          onClick={onClose}
+          className="h-11 w-full rounded-2xl text-sm"
+        >
+          Done
+        </Button>
+      ) : null}
     </div>
   );
 }

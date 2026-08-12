@@ -530,6 +530,13 @@ describe("LocationImmersiveMap demo experience", () => {
       );
     });
 
+    expect(
+      screen.getByText("0 live locations on your map"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("0 people sharing with you"),
+    ).not.toBeInTheDocument();
+
     const trayToggle = screen.getByTestId("one-location-map-tray-toggle");
     if (trayToggle.getAttribute("aria-expanded") === "false") {
       fireEvent.click(trayToggle);

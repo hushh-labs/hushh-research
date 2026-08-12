@@ -659,7 +659,21 @@ export default function ConnectPageClient() {
       (person.displayName || person.email || person.userId)
         .trim()
         .toLowerCase();
-    return [...people].sort((a, b) => {
+    // Strict prefix filter. The directory API matches a substring anywhere
+    // (`LIKE '%q%'`), so typing "z" returned "Abdul Zalil" and "shankz".
+    // Constrain the rendered list to entries whose NAME (full or any word) or
+    // EMAIL local-part starts with the query, which is what the user expects
+    // from a name search. Applied on top of the server result, so it never
+    // fetches more; it only hides the substring-only matches.
+    const prefixMatches = (person: DirectoryPerson): boolean => {
+      if (!q) return true;
+      const name = nameOf(person);
+      if (name.startsWith(q)) return true;
+      if (name.split(/\s+/).some((word) => word.startsWith(q))) return true;
+      const email = (person.email || "").trim().toLowerCase();
+      return email.startsWith(q) || email.split("@")[0]?.startsWith(q) === true;
+    };
+    return [...people].filter(prefixMatches).sort((a, b) => {
       const nameA = nameOf(a);
       const nameB = nameOf(b);
       if (q) {
@@ -1247,6 +1261,16 @@ export default function ConnectPageClient() {
                       // locks the results out of view. Scoped to this field's
                       // focus lifecycle and cleaned up on blur.
                       const field = event.currentTarget;
+                      // Scroll the field into view above the on-screen keyboard.
+                      // Tapping it otherwise leaves it hidden behind the keyboard
+                      // until the user manually scrolls up. The delay lets the
+                      // keyboard animate in so the shrunken viewport is measured.
+                      window.setTimeout(() => {
+                        field.scrollIntoView({
+                          block: "center",
+                          behavior: "smooth",
+                        });
+                      }, 300);
                       const dismiss = () => field.blur();
                       window.addEventListener("touchmove", dismiss, {
                         passive: true,
