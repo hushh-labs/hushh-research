@@ -1,19 +1,19 @@
-/** Browser crypto for the isolated, UAT-only `crm-zk-uat.v1` profile. */
+/** Browser crypto for the external-CRM `crm-encrypted-fields.v1` profile. */
 
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
 
-export const CRM_ZK_UAT_V1_PROFILE = "crm-zk-uat.v1" as const;
+export const CRM_ENCRYPTED_FIELDS_V1_PROFILE = "crm-encrypted-fields.v1" as const;
 
-export type CrmZkUatConfiguration = {
-  profile: typeof CRM_ZK_UAT_V1_PROFILE;
+export type CrmEncryptedFieldsConfiguration = {
+  profile: typeof CRM_ENCRYPTED_FIELDS_V1_PROFILE;
   configurationRevision: number;
   recipientKey: { keyId: string; publicKey: string };
   keyDerivation: "SHA-256(X25519 shared secret)";
   aad: false;
 };
 
-export type CrmZkUatEncryptedFields = {
-  profile: typeof CRM_ZK_UAT_V1_PROFILE;
+export type CrmEncryptedFields = {
+  profile: typeof CRM_ENCRYPTED_FIELDS_V1_PROFILE;
   direction: "read_request" | "read_response" | "update_request";
   recipientKeyId: string;
   clientOperationId: string;
@@ -66,13 +66,13 @@ async function wrappingKey(sharedSecret: ArrayBuffer): Promise<CryptoKey> {
   );
 }
 
-export async function createCrmZkUatEnvelope(params: {
-  configuration: CrmZkUatConfiguration;
+export async function createCrmEncryptedFieldsEnvelope(params: {
+  configuration: CrmEncryptedFieldsConfiguration;
   direction: "read_request" | "update_request";
   payload: { searchFields: Record<string, string> } | { additionalFields: Record<string, string> };
-}): Promise<CrmZkUatEncryptedFields> {
-  if (params.configuration.profile !== CRM_ZK_UAT_V1_PROFILE) {
-    throw new Error("CRM encrypted UAT profile mismatch.");
+}): Promise<CrmEncryptedFields> {
+  if (params.configuration.profile !== CRM_ENCRYPTED_FIELDS_V1_PROFILE) {
+    throw new Error("CRM encrypted-fields profile mismatch.");
   }
   const x25519 = { name: "X25519" } as unknown as AlgorithmIdentifier;
   let pair: CryptoKeyPair;
@@ -111,7 +111,7 @@ export async function createCrmZkUatEnvelope(params: {
   const publicKey = bytesToBase64(
     new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey)),
   );
-  const clientOperationId = `czku_${crypto.randomUUID().replace(/-/g, "")}`;
+  const clientOperationId = `cef_${crypto.randomUUID().replace(/-/g, "")}`;
   const expiresAtMs = Date.now() + 5 * 60 * 1000;
   for (const [operationId, key] of ephemeralKeys) {
     if (key.expiresAtMs <= Date.now()) ephemeralKeys.delete(operationId);
@@ -124,7 +124,7 @@ export async function createCrmZkUatEnvelope(params: {
     });
   }
   return {
-    profile: CRM_ZK_UAT_V1_PROFILE,
+    profile: CRM_ENCRYPTED_FIELDS_V1_PROFILE,
     direction: params.direction,
     recipientKeyId: params.configuration.recipientKey.keyId,
     clientOperationId,
@@ -139,9 +139,9 @@ export async function createCrmZkUatEnvelope(params: {
   };
 }
 
-export async function decryptCrmZkUatReadResponse(params: {
-  configuration: CrmZkUatConfiguration;
-  response: CrmZkUatEncryptedFields;
+export async function decryptCrmEncryptedFieldsReadResponse(params: {
+  configuration: CrmEncryptedFieldsConfiguration;
+  response: CrmEncryptedFields;
 }): Promise<{ returnFields: Record<string, unknown> }> {
   const ephemeral = ephemeralKeys.get(params.response.clientOperationId);
   if (!ephemeral || ephemeral.expiresAtMs <= Date.now()) {
@@ -150,7 +150,7 @@ export async function decryptCrmZkUatReadResponse(params: {
   }
   try {
     if (
-      params.response.profile !== CRM_ZK_UAT_V1_PROFILE ||
+      params.response.profile !== CRM_ENCRYPTED_FIELDS_V1_PROFILE ||
       params.response.direction !== "read_response" ||
       params.response.recipientKeyId !== params.configuration.recipientKey.keyId ||
       params.response.clientPublicKey !== ephemeral.publicKey ||
@@ -197,10 +197,10 @@ export async function decryptCrmZkUatReadResponse(params: {
   }
 }
 
-export function clearCrmZkUatEphemeralKeys(): void {
+export function clearCrmEncryptedFieldsEphemeralKeys(): void {
   ephemeralKeys.clear();
 }
 
-export function discardCrmZkUatEphemeralKey(clientOperationId: string): boolean {
+export function discardCrmEncryptedFieldsEphemeralKey(clientOperationId: string): boolean {
   return ephemeralKeys.delete(clientOperationId);
 }

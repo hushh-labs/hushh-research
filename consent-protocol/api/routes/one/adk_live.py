@@ -1633,9 +1633,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             _gc_directive(directive_id, action_id)
                         )
 
-                if not isinstance(payload, dict) or not _bounded_text(
-                    payload.get("actionId"), 128
-                ):
+                if not isinstance(payload, dict) or not _bounded_text(payload.get("actionId"), 128):
                     # Specialist directives leave no other trace. They are not
                     # gateway actions, so nothing above logged them, they are
                     # never issued, and they can never settle -- which is why

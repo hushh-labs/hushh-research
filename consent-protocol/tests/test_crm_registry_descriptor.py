@@ -114,3 +114,22 @@ def test_descriptor_fails_closed_when_operation_contract_is_missing(tmp_path, mo
 
     with pytest.raises(CrmRegistryDescriptorError, match="read.responseContract"):
         load_and_validate_descriptor(path)
+
+
+def test_descriptor_requires_explicit_cross_object_probe_mode(tmp_path, monkeypatch):
+    monkeypatch.setenv("CRM_ALPHA_CLIENT_ID", "id")
+    monkeypatch.setenv("CRM_ALPHA_CLIENT_SECRET", "secret")
+    raw = _descriptor(read_only=False)
+    raw["operations"]["create"]["objectType"] = "Account"
+    raw["operations"]["read"]["objectType"] = "Contact"
+    raw["operations"]["update"]["objectType"] = "Contact"
+    raw["operations"]["delete"]["objectType"] = "Contact"
+    path = tmp_path / "crm.json"
+    path.write_text(json.dumps(raw))
+
+    with pytest.raises(CrmRegistryDescriptorError, match="Person Account create id"):
+        load_and_validate_descriptor(path)
+
+    raw["probe"] = {"mode": "cross-object-bound-lifecycle.v1"}
+    path.write_text(json.dumps(raw))
+    assert load_and_validate_descriptor(path).crm_id == "crm_alpha"

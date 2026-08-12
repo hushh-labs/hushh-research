@@ -174,7 +174,6 @@ class ConnectionsService:
         name = str((row or {}).get("display_name") or "").strip()
         return name or None
 
-
     @staticmethod
     def _row_mapping(row: Any) -> dict[str, Any]:
         """Normalize SQLAlchemy and lightweight-test rows at one boundary."""

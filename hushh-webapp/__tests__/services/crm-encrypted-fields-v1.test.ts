@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  CRM_ZK_UAT_V1_PROFILE,
-  createCrmZkUatEnvelope,
-  discardCrmZkUatEphemeralKey,
-} from "@/lib/connected-systems/crm-zk-uat-v1";
+  CRM_ENCRYPTED_FIELDS_V1_PROFILE,
+  createCrmEncryptedFieldsEnvelope,
+  discardCrmEncryptedFieldsEphemeralKey,
+} from "@/lib/connected-systems/crm-encrypted-fields-v1";
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
 
 function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -20,16 +20,16 @@ function joined(ciphertext: string, tag: string): ArrayBuffer {
   return arrayBuffer(value);
 }
 
-describe("crm-zk-uat.v1 browser envelope", () => {
+describe("crm-encrypted-fields.v1 browser envelope", () => {
   it("uses X25519 then direct SHA-256 and AES-GCM without AAD", async () => {
     const x25519 = { name: "X25519" } as unknown as AlgorithmIdentifier;
     const partner = await crypto.subtle.generateKey(x25519, true, ["deriveBits"]) as CryptoKeyPair;
     const publicKey = bytesToBase64(
       new Uint8Array(await crypto.subtle.exportKey("raw", partner.publicKey)),
     );
-    const envelope = await createCrmZkUatEnvelope({
+    const envelope = await createCrmEncryptedFieldsEnvelope({
       configuration: {
-        profile: CRM_ZK_UAT_V1_PROFILE,
+        profile: CRM_ENCRYPTED_FIELDS_V1_PROFILE,
         configurationRevision: 1,
         recipientKey: { keyId: "mulesoft-uat-1", publicKey },
         keyDerivation: "SHA-256(X25519 shared secret)",
@@ -70,14 +70,14 @@ describe("crm-zk-uat.v1 browser envelope", () => {
     expect(envelope).not.toHaveProperty("aadSha256");
     expect(envelope).not.toHaveProperty("ownerSignature");
     expect(envelope).not.toHaveProperty("recipientKeyFingerprint");
-    expect(discardCrmZkUatEphemeralKey(envelope.clientOperationId)).toBe(false);
+    expect(discardCrmEncryptedFieldsEphemeralKey(envelope.clientOperationId)).toBe(false);
   });
 
   it("creates fresh keys, operation ids, and IVs for every operation", async () => {
     const x25519 = { name: "X25519" } as unknown as AlgorithmIdentifier;
     const partner = await crypto.subtle.generateKey(x25519, true, ["deriveBits"]) as CryptoKeyPair;
     const configuration = {
-      profile: CRM_ZK_UAT_V1_PROFILE,
+      profile: CRM_ENCRYPTED_FIELDS_V1_PROFILE,
       configurationRevision: 1,
       recipientKey: {
         keyId: "mulesoft-uat-1",
@@ -86,10 +86,10 @@ describe("crm-zk-uat.v1 browser envelope", () => {
       keyDerivation: "SHA-256(X25519 shared secret)" as const,
       aad: false as const,
     };
-    const first = await createCrmZkUatEnvelope({
+    const first = await createCrmEncryptedFieldsEnvelope({
       configuration, direction: "read_request", payload: { searchFields: { Email: "a@example.test" } },
     });
-    const second = await createCrmZkUatEnvelope({
+    const second = await createCrmEncryptedFieldsEnvelope({
       configuration, direction: "read_request", payload: { searchFields: { Email: "a@example.test" } },
     });
 
@@ -97,7 +97,7 @@ describe("crm-zk-uat.v1 browser envelope", () => {
     expect(second.clientPublicKey).not.toBe(first.clientPublicKey);
     expect(second.wrappedKeyIv).not.toBe(first.wrappedKeyIv);
     expect(second.payloadIv).not.toBe(first.payloadIv);
-    expect(discardCrmZkUatEphemeralKey(first.clientOperationId)).toBe(true);
-    expect(discardCrmZkUatEphemeralKey(second.clientOperationId)).toBe(true);
+    expect(discardCrmEncryptedFieldsEphemeralKey(first.clientOperationId)).toBe(true);
+    expect(discardCrmEncryptedFieldsEphemeralKey(second.clientOperationId)).toBe(true);
   });
 });

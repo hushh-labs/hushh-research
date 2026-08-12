@@ -1717,8 +1717,7 @@ def test_sending_a_connection_request_is_reachable_from_every_screen():
     unreachable = [
         screen
         for screen in on_screen
-        if _reachability(by_id[target], target, on_screen[screen])[0]
-        == "unreachable_from_here"
+        if _reachability(by_id[target], target, on_screen[screen])[0] == "unreachable_from_here"
     ]
     assert unreachable == [], f"{target} is a dead end on: {unreachable}"
 
