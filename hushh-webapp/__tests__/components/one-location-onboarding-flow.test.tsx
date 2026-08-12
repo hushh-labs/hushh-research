@@ -1236,6 +1236,25 @@ describe("OneLocationOnboardingFlow", () => {
       expect(map.contains(seat)).toBe(false);
     });
 
+    it("yields map height on short windows so the join link stays on screen", () => {
+      renderFlow({ mapPoint: { lat: 19.076, lng: 72.8777 } });
+      openInviteScreen();
+
+      const surface = screen.getByTestId(
+        "one-location-onboarding-ready-surface",
+      );
+      const styles = Array.from(surface.querySelectorAll("style"))
+        .map((n) => n.textContent ?? "")
+        .join(" ");
+
+      // 34dvh of map is right on a phone, which is tall. A 1366x768 laptop is
+      // shorter than an iPhone, and there the same fraction pushed "Someone
+      // sent you a code?" below the fold -- the last thing on the screen took
+      // a scroll to discover it existed. The map yields, not the content.
+      expect(styles).toContain("max-height: 820px");
+      expect(styles).toContain("24dvh");
+    });
+
     it("renders a composed map even with no point and no Maps key", () => {
       // A missing or referrer-blocked browser key is common enough that it is
       // the entire local-dev story. The last screen must still look finished:

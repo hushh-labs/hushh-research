@@ -1849,6 +1849,15 @@ function ReadyScreen({
         [data-one-ready-title] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; }
         [data-one-ready-seat] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 900ms; }
         [data-one-ready-code] { animation: oneReadyRise 560ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 1350ms; }
+        /* 34dvh of map is right on a phone, which is tall. A 1366x768 laptop is
+           shorter than an iPhone, and there the same fraction pushed the join
+           link below the fold -- so the last thing on the screen needed a
+           scroll to discover it existed. The map yields the height instead,
+           since it is atmosphere and the link is a way in. Phones are past 820px
+           and keep the taller band. */
+        @media (max-height: 820px) {
+          [data-testid="onboarding-live-map"] { height: 24dvh; min-height: 150px; }
+        }
         @keyframes oneReadyRise {
           from { opacity: 0; transform: translateY(14px); }
           to   { opacity: 1; transform: translateY(0); }
