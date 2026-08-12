@@ -140,7 +140,7 @@ function CircleJoinLanding() {
             </div>
           ) : error ? (
             <p
-              className="mt-6 text-[15px] leading-6 text-[color:var(--app-danger,#c8372d)]"
+              className="mt-6 text-[15px] leading-6 text-[#c8372d] dark:text-[#ff9a90]"
               role="status"
             >
               {error}

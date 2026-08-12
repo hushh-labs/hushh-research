@@ -1425,7 +1425,7 @@ function ContactsScreen({
           <>
             <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 dark:border-white/[0.08] dark:bg-[#1c212a]">
               {state.kind === "busy" ? (
-                <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86]">
+                <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[#8d99a8]">
                   <Loader2 className="h-5 w-5 animate-spin" /> Checking your
                   contacts
                 </div>
@@ -1663,13 +1663,13 @@ function ReadyScreen({
           data-one-ready-code
         >
           {loading ? (
-            <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86]">
+            <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[#8d99a8]">
               <Loader2 className="h-5 w-5 animate-spin" /> Preparing your circle
               code
             </div>
           ) : error ? (
             <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
-              <p className="max-w-[260px] text-sm leading-5 text-[#6f7580]">
+              <p className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[#aeb8c7]">
                 {error}
               </p>
               <button
@@ -1817,7 +1817,7 @@ function ReadyScreen({
             )}
             {joinError ? (
               <p
-                className="mt-2 text-center text-[13px] leading-[18px] text-[#c8372d]"
+                className="mt-2 text-center text-[13px] leading-[18px] text-[#c8372d] dark:text-[#ff9a90]"
                 role="status"
               >
                 {joinError}
