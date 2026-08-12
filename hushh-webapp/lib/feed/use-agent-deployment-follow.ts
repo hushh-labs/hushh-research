@@ -15,6 +15,11 @@ import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { ApiService } from "@/lib/services/api-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 
+// Three consecutive failures at the follow interval is ~seconds of sustained
+// failure, which is past any single flaky request and well short of the minutes a
+// person waits during provisioning.
+const FAILURES_BEFORE_WARNING = 3;
+
 const VALID: readonly string[] = [
   "reserved",
   "provisioning",
@@ -113,6 +118,9 @@ export function useAgentDeploymentFollow(options?: {
   // Refs, not state: these drive the loop and must not themselves re-trigger it.
   const previousRef = useRef<string | null>(null);
   const startedAtRef = useRef<number>(Date.now());
+  // A run of failures, not a total: one flaky poll in a long session is noise, a
+  // sustained run is the signal.
+  const consecutiveFailuresRef = useRef<number>(0);
 
   useEffect(() => {
     if (!enabled) return;
@@ -125,6 +133,7 @@ export function useAgentDeploymentFollow(options?: {
         const res = await ApiService.getPersonalAgentStatus();
         const raw = String(res?.state ?? "");
         next = VALID.includes(raw) ? raw : null;
+        consecutiveFailuresRef.current = 0;
         if (!cancelled) {
           // Set outside the transition branch below: these are properties of the
           // agent, not of a state CHANGE. A pod that is already `active` when the
@@ -133,12 +142,27 @@ export function useAgentDeploymentFollow(options?: {
           setHushhId(res?.hushhId ? String(res.hushhId) : null);
           setHealth(res?.health ? String(res.health) : null);
         }
-      } catch {
+      } catch (error) {
         // A transient status failure is not a state change. Keep the last known
         // value and try again on the next tick -- guessing here would make the
         // UI disagree with the backend, which is the failure this whole surface
         // exists to avoid.
         next = previousRef.current;
+        // But a PERSISTENT failure is not transient, and silence made the two
+        // indistinguishable: a status call that 401s on every tick renders exactly
+        // like an agent that has not changed state, so onboarding appears to hang
+        // with nothing in the console to say why. Warn once when the run of failures
+        // is long enough to mean something, not on every tick -- a warning per poll
+        // is noise that trains people to ignore the console.
+        consecutiveFailuresRef.current += 1;
+        if (consecutiveFailuresRef.current === FAILURES_BEFORE_WARNING) {
+          console.warn(
+            "[AgentDeployment] status has failed",
+            FAILURES_BEFORE_WARNING,
+            "times in a row; the displayed state is the last known value, not current.",
+            error,
+          );
+        }
       }
       if (cancelled) return;
 

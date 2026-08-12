@@ -215,10 +215,15 @@ def pod_public_key() -> dict:
 
 @app.on_event("startup")
 async def _pod_startup() -> None:
+    # The HusshID is logged as a VALUE, not a presence bit. It is the opaque public
+    # handle (personal_agent_identity_service) -- it is already this pod's Cloud Run
+    # service name (`one-pod-<hushh_id>`) and its A2A route, so redacting it here
+    # protected nothing and cost the only key that joins this pod's logs to the hub's
+    # provisioning story. `space_id` stays a presence bit: it is not an address.
     logger.info(
-        "pod.startup pod_mode=%s hushh_id_present=%s space_id_present=%s",
+        "pod.startup pod_mode=%s hushh_id=%s space_id_present=%s",
         pod_mode(),
-        bool(os.getenv("HUSSH_ID")),
+        os.getenv("HUSSH_ID") or "<none>",
         bool(os.getenv("HUSSH_SPACE_ID")),
     )
 

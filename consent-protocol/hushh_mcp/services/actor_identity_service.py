@@ -190,7 +190,22 @@ class ActorIdentityService:
         try:
             await service.provision(user_id=user_id, phone_e164=phone_number)
         except Exception:
-            logger.exception("personal_agent.autoprovision_failed")
+            # The HusshID is derived, not carried, so it is re-derived here purely to
+            # label the failure. Without it this traceback is unattributable: it is the
+            # first thing that runs for a new person, it runs fire-and-forget where
+            # nobody is reading a response, and on a shared dev lane several signups
+            # produce identical, unjoinable stack traces.
+            try:
+                from hushh_mcp.services.personal_agent_identity_service import mint_hushh_id
+
+                failed_hushh_id = mint_hushh_id(phone_number)
+            except Exception:  # labelling must never mask the real failure
+                failed_hushh_id = "<underivable>"
+            logger.exception(
+                "personal_agent.autoprovision_failed hushh_id=%s service=one-pod-%s",
+                failed_hushh_id,
+                failed_hushh_id.lower().replace("_", "-"),
+            )
 
     async def _known_actor_ids(self, user_ids: Iterable[str]) -> set[str]:
         normalized_ids = [str(user_id or "").strip() for user_id in user_ids]

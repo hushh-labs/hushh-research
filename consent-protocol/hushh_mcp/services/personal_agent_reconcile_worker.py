@@ -277,10 +277,10 @@ class PersonalAgentReconcileWorker:
                     user_id=record.user_id, event_type=FEED_EVENT_PROVISIONING
                 )
                 logger.info(
-                    "[%s] personal_agent.retried status=%s hushh_id_present=%s",
+                    "[%s] personal_agent.retried status=%s hushh_id=%s",
                     _LABEL,
                     record.status,
-                    bool(record.hushh_id),
+                    record.hushh_id or "<none>",
                 )
             except Exception:
                 failed += 1
@@ -313,10 +313,10 @@ class PersonalAgentReconcileWorker:
                     user_id=pod.user_id, event_type=FEED_EVENT_REAPED
                 )
                 logger.info(
-                    "[%s] personal_agent.reaped idle_since=%s hushh_id_present=%s",
+                    "[%s] personal_agent.reaped idle_since=%s hushh_id=%s",
                     _LABEL,
                     idle_since.isoformat(),
-                    bool(pod.hushh_id),
+                    pod.hushh_id or "<none>",
                 )
             except Exception:
                 failed += 1

@@ -455,8 +455,9 @@ class PersonalAgentProvisioningService:
                     user_id=user_id, event_type=FEED_EVENT_CONNECTING
                 )
                 logger.info(
-                    "personal_agent.connecting hushh_id_present=%s backend=%s",
-                    bool(hushh_id),
+                    "personal_agent.connecting hushh_id=%s service=%s backend=%s",
+                    hushh_id or "<none>",
+                    handle.external_agent_id or "<none>",
                     handle.backend or "null",
                 )
                 return {
@@ -495,8 +496,9 @@ class PersonalAgentProvisioningService:
 
         await record_provisioning_feed_event_safe(user_id=user_id, event_type=FEED_EVENT_READY)
         logger.info(
-            "personal_agent.provisioned hushh_id_present=%s backend=%s",
-            bool(hushh_id),
+            "personal_agent.provisioned hushh_id=%s service=%s backend=%s",
+            hushh_id or "<none>",
+            handle.external_agent_id or "<none>",
             handle.backend or "null",
         )
         return {
@@ -594,7 +596,7 @@ class PersonalAgentProvisioningService:
                     pod_key_wrapping_alg=pod_key.wrapping_alg,
                     status="provisioned",
                 )
-                logger.info("personal_agent.pod_key_rotated hushh_id_present=%s", bool(hushh_id))
+                logger.info("personal_agent.pod_key_rotated hushh_id=%s", hushh_id or "<none>")
                 return {"hushhId": hushh_id, "status": "provisioned", "rotated": True}
             # A row still mid-provision rotates by falling through to the full
             # attach path below -- the mint has not happened yet, so this is just
@@ -637,7 +639,7 @@ class PersonalAgentProvisioningService:
             raise
 
         await record_provisioning_feed_event_safe(user_id=user_id, event_type=FEED_EVENT_READY)
-        logger.info("personal_agent.pod_key_attached hushh_id_present=%s", bool(hushh_id))
+        logger.info("personal_agent.pod_key_attached hushh_id=%s", hushh_id or "<none>")
         return {
             "hushhId": hushh_id,
             "status": "provisioned",
@@ -693,7 +695,7 @@ class PersonalAgentProvisioningService:
             raise
 
         await record_provisioning_feed_event_safe(user_id=user_id, event_type=FEED_EVENT_RESERVED)
-        logger.info("personal_agent.registered_pending hushh_id_present=%s", bool(hushh_id))
+        logger.info("personal_agent.registered_pending hushh_id=%s", hushh_id or "<none>")
         return {"hushhId": hushh_id, "status": "pending"}
 
     async def deprovision(

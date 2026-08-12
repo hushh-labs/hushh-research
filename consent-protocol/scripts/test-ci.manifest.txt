@@ -47,6 +47,7 @@ tests/test_gcp_run_invoker_binding.py
 tests/test_health_ready.py
 tests/test_health_ready_pod_fleet.py
 tests/test_hushh_managed_is_simulation_only.py
+tests/test_journey_is_traceable.py
 tests/test_kai_analyze_durable_run_store_deploy_parity.py
 tests/test_kai_analyze_run_store.py
 tests/test_kai_auth_matrix.py
@@ -101,6 +102,7 @@ tests/test_pod_heartbeat_route.py
 tests/test_pod_hub_data_path.py
 tests/test_pod_identity_byoc_binding.py
 tests/test_pod_image_build_contract.py
+tests/test_pod_journey_trace.py
 tests/test_pod_key_collection.py
 tests/test_pod_key_custody.py
 tests/test_pod_key_custody_derivation.py

@@ -11,6 +11,7 @@ registry.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -139,6 +140,69 @@ _HEALTH_BY_REGISTRY_HEALTH_STATE: dict[str, str] = {
 # there is no host yet to be reachable or not.
 _STATES_WITH_A_HOST = ("active", "connecting")
 
+# How long a journey may run before the handshake is called overdue. Provisioning a
+# Cloud Run service and waiting for the pod to boot and push its key is a ~150s
+# operation on a cold economy pod, so this is deliberately well past the slow end of
+# healthy rather than a tight SLO -- a warning that fires during normal onboarding
+# teaches operators to ignore it, which is worse than not logging at all.
+_HANDSHAKE_OVERDUE_SECONDS = 600
+
+# Hard ceiling on how much of an exception's text reaches a log line. These are
+# infrastructure errors (HTTP status, connection refused, timeout), not holdings --
+# but a bound is kept because nothing guarantees a future exception type keeps it
+# that way, and an unbounded str() is how a payload ends up in a log.
+_DIAGNOSTIC_DETAIL_MAX = 200
+
+
+def _diagnostic_detail(exc: BaseException) -> str:
+    """A bounded, single-line rendering of why something failed.
+
+    The exception CLASS alone is not a diagnosis: `ClientResponseError` names neither
+    the status nor the URL, and that was the entire content of the log line covering
+    the most important failure in the onboarding journey.
+    """
+    text = " ".join(str(exc).split())
+    if not text:
+        return "<no detail>"
+    return text[:_DIAGNOSTIC_DETAIL_MAX]
+
+
+def _warn_if_handshake_is_overdue(row: Optional[dict], status: str) -> None:
+    """Say so when a row has been waiting on its pod for longer than it should.
+
+    Observation only -- it writes nothing. `connecting` means the host EXISTS and is
+    mid-handshake, so anything that mutated the row here risks replacing a running
+    service, which is exactly why the retry sweep leaves this state alone.
+
+    Age is measured from ``created_at``. The repo never writes ``updated_at`` and the
+    column has no ON UPDATE trigger, so it equals ``created_at`` and would measure the
+    same thing while implying it measured something better. This is therefore the age
+    of the whole journey, not time-in-state, and is named that way.
+    """
+    if status != "connecting" or not row:
+        return
+    created_raw = str(row.get("created_at") or "").strip()
+    if not created_raw:
+        return
+    try:
+        created = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+    except ValueError:
+        return
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - created).total_seconds()
+    if age_seconds < _HANDSHAKE_OVERDUE_SECONDS:
+        return
+    logger.warning(
+        "personal_agent.handshake_overdue hushh_id=%s service=%s journey_age_seconds=%d "
+        "-- the host exists but the pod has not published its public key. Check the pod's "
+        "own logs (`pod.startup`, `pod.key_push_*`) and that HUSSH_POD_INVOKER_MEMBER is "
+        "set, or the hub is not permitted to call it.",
+        row.get("hushh_id") or "<none>",
+        row.get("external_agent_id") or "<none>",
+        int(age_seconds),
+    )
+
 
 async def resolve_personal_agent_status(
     *,
@@ -164,7 +228,11 @@ async def resolve_personal_agent_status(
     try:
         row = await repo.get(user_id)
     except Exception as exc:  # fail safe: never break the home on a registry hiccup
-        logger.warning("personal_agent.status_read_failed err=%s", type(exc).__name__)
+        logger.warning(
+            "personal_agent.status_read_failed err=%s detail=%s",
+            type(exc).__name__,
+            _diagnostic_detail(exc),
+        )
 
     status = str((row or {}).get("status") or "").strip()
 
@@ -182,7 +250,28 @@ async def resolve_personal_agent_status(
         if collected:
             status = collected
     except Exception as exc:  # the status read must never fail because a pod is slow
-        logger.warning("personal_agent.key_collection_failed err=%s", type(exc).__name__)
+        # This is THE failure of the 0->1 journey: the host exists and the handshake
+        # that would make it usable did not happen. It used to log only the exception
+        # CLASS, which named neither the pod nor the reason -- so the one line an
+        # operator most needs read `err=ClientResponseError` and pointed nowhere.
+        logger.warning(
+            "personal_agent.key_collection_failed hushh_id=%s service=%s err=%s detail=%s",
+            (row or {}).get("hushh_id") or "<none>",
+            (row or {}).get("external_agent_id") or "<none>",
+            type(exc).__name__,
+            _diagnostic_detail(exc),
+        )
+
+    # Nothing else in the system watches a row parked in `connecting`. The retry sweep
+    # deliberately excludes it (re-provisioning would replace a running service --
+    # personal_agent_registry_repo.fetch_stalled_agents), which leaves its stall "owned
+    # by the pod's startup key push". If that push never lands, the row sits here
+    # forever, the person watches a spinner, and NOTHING reports a fault.
+    #
+    # This poll is the natural place to notice: it is what the browser calls while the
+    # person waits, it already holds the row, and it costs one comparison. It only
+    # OBSERVES -- it must never mutate a row whose host is live.
+    _warn_if_handshake_is_overdue(row, status)
 
     state = _STATE_BY_REGISTRY_STATUS.get(status, _DEFAULT_STATE)
     result: dict = {"state": state, "featureEnabled": personal_agent_enabled()}
