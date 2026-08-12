@@ -794,3 +794,80 @@ def test_a_failure_does_not_block_a_different_request_to_the_same_action():
     assert record is not None
     assert record[0] == _slot_fingerprint({"person": "Abdul"})
     assert record[0] != _slot_fingerprint({"person": "Sarah"})
+
+
+def test_a_specialist_card_is_not_proposed_twice():
+    """The path that had no guard at all, rather than one being escaped.
+
+    `payload.actionId` is the admission gate for every piece of directive
+    governance on both sides -- the relay's issue/dedupe/ledger/GC block and the
+    browser's directive lease. A specialist directive carries `payload.type` and
+    no `actionId`, so it passes through both untouched: never issued, never
+    leased, and unable to settle, because the settlement validator refuses any
+    directive id the relay did not issue.
+
+    One is therefore never told the card landed. It is told the specialist is
+    waiting, the person speaks again, the same grant is re-proposed under the
+    same fixed state key with a freshly random payload id, and a second
+    identical card reaches the browser. QA saw the same line twice in the
+    transcript and heard it twice; both come from this.
+    """
+    from hushh_mcp.services.live_voice_context import (
+        clear_pending_specialist_directives,
+        read_pending_specialist_directive,
+        record_pending_specialist_directive,
+        specialist_directive_fingerprint,
+    )
+
+    session = "session-specialist-card"
+    clear_pending_specialist_directives(session)
+
+    share = specialist_directive_fingerprint("agent_location", "prompt", "publish_share")
+    assert read_pending_specialist_directive(session, share) is False
+
+    record_pending_specialist_directive(session, share)
+    assert read_pending_specialist_directive(session, share) is True
+
+    # Scoped by specialist, by kind, and by directive type, so an unrelated
+    # proposal is never suppressed by this one.
+    assert (
+        read_pending_specialist_directive(
+            session,
+            specialist_directive_fingerprint("agent_location", "prompt", "publish_checkin"),
+        )
+        is False
+    )
+    assert (
+        read_pending_specialist_directive(
+            session,
+            specialist_directive_fingerprint("agent_email", "prompt", "publish_share"),
+        )
+        is False
+    )
+    # And by session, so one person's open card never silences another's.
+    assert read_pending_specialist_directive("someone-else", share) is False
+
+    # Fresh speech releases it. These can never settle -- no directive id was
+    # ever issued for them -- so the next thing the person says is the only
+    # signal available that the moment has moved on, and someone deliberately
+    # asking twice must still get through.
+    clear_pending_specialist_directives(session)
+    assert read_pending_specialist_directive(session, share) is False
+
+
+def test_the_specialist_fingerprint_ignores_the_random_payload_id():
+    """Including it would make every repeat look new.
+
+    The specialist payload's own id is regenerated per call
+    (`"act-" + uuid4().hex[:12]`), so it is different on the duplicate card by
+    construction. Fingerprinting on identity that survives a re-proposal is the
+    whole reason this guard can fire.
+    """
+    from hushh_mcp.services.live_voice_context import specialist_directive_fingerprint
+
+    first = specialist_directive_fingerprint("agent_location", "prompt", "publish_share")
+    second = specialist_directive_fingerprint("agent_location", "prompt", "publish_share")
+    assert first == second
+    assert first != specialist_directive_fingerprint(
+        "agent_location", "action", "publish_share"
+    )

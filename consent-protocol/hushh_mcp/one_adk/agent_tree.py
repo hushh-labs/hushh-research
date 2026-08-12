@@ -71,6 +71,11 @@ from hushh_mcp.services.action_gateway import (
     is_navigation_action,
     list_action_gateway_actions,
 )
+from hushh_mcp.services.live_voice_context import (
+    read_pending_specialist_directive,
+    record_pending_specialist_directive,
+    specialist_directive_fingerprint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -891,6 +896,44 @@ async def _specialist_turn(
             "and send the user's answer back through this same tool."
         )
     if result.directive is not None:
+        directive_payload = (
+            result.directive.payload if isinstance(result.directive.payload, dict) else {}
+        )
+        session_id = getattr(getattr(tool_context, "session", None), "id", None)
+        fingerprint = specialist_directive_fingerprint(
+            agent_id,
+            result.directive.kind,
+            str(directive_payload.get("type") or ""),
+        )
+        # Already on screen, unanswered.
+        #
+        # This path has no governance at all: `payload.actionId` is the
+        # admission gate for the relay's dedupe/ledger AND for the browser's
+        # directive lease, and a specialist directive has no actionId. So it is
+        # never issued, never leased, and can never settle -- meaning One is
+        # never told the card landed. It gets `next_step` saying the specialist
+        # is waiting, the person speaks again, the same specialist re-proposes
+        # the same grant under this same fixed key with a freshly random payload
+        # id, and the relay forwards a second identical card. That is the
+        # duplicate line QA saw in the transcript, and the sentence they heard
+        # twice.
+        #
+        # Refused as a RETURN VALUE. Injecting a note into the live turn was
+        # tried and reverted in 6be68af62: it preempts One mid-sentence and
+        # starts a fresh turn, which loops harder than the thing it fixes.
+        if read_pending_specialist_directive(session_id, fingerprint):
+            logger.info(
+                "one_adk_specialist_decision agent_id=%s status=already_proposed type=%s",
+                agent_id,
+                directive_payload.get("type"),
+            )
+            payload["status"] = "already_proposed"
+            payload["next_step"] = (
+                "That card is already in front of them from a moment ago. Say so "
+                "once, in a few words, and wait for their answer. Do not propose "
+                "it again and do not repeat the question."
+            )
+            return payload
         directive = {
             "kind": result.directive.kind,
             "payload": result.directive.payload,
@@ -903,6 +946,7 @@ async def _specialist_turn(
         # Park it in state so the relay forwards it to the client for execution.
         directive_key = f"{STATE_PENDING_DIRECTIVE}:{agent_id}_specialist"
         tool_context.state[directive_key] = directive
+        record_pending_specialist_directive(session_id, fingerprint)
         if result.directive.kind == "prompt":
             payload["next_step"] = (
                 "The app is showing the user a choice card. Tell the user to pick an option there."

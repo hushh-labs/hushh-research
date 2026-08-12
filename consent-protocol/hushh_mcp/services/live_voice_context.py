@@ -56,6 +56,7 @@ def clear_live_voice_context(session_id: str | None) -> None:
         _LIVE_CONTEXT_BY_SESSION.pop(clean_id, None)
         _COMPLETED_ACTIONS_BY_SESSION.pop(clean_id, None)
         _FAILED_ACTIONS_BY_SESSION.pop(clean_id, None)
+        _PENDING_SPECIALIST_DIRECTIVES_BY_SESSION.pop(clean_id, None)
 
 
 # Actions that have already SUCCEEDED in this session, and are therefore not
@@ -105,6 +106,7 @@ def clear_completed_actions(session_id: str | None) -> None:
     if clean_id:
         _COMPLETED_ACTIONS_BY_SESSION.pop(clean_id, None)
         _FAILED_ACTIONS_BY_SESSION.pop(clean_id, None)
+        _PENDING_SPECIALIST_DIRECTIVES_BY_SESSION.pop(clean_id, None)
 
 
 # Actions that have already FAILED in this session, with the reason they gave.
@@ -169,3 +171,72 @@ def clear_failed_action(session_id: str | None, action_id: str) -> None:
     session_failures = _FAILED_ACTIONS_BY_SESSION.get(clean_id)
     if session_failures is not None:
         session_failures.pop(clean_action, None)
+
+
+# Specialist directives already in front of the person and still unanswered.
+#
+# Every other guard in this file is keyed on a gateway action id, and that is
+# precisely the problem. `payload.actionId` is the admission gate for ALL
+# directive governance on both sides -- the relay's issue/dedupe/ledger/GC block
+# and the browser's directive lease each sit behind it. A specialist directive
+# (`publish_share` and friends) carries `payload.type` and no `actionId`, so it
+# passes through both untouched: never issued, never leased, never recorded, and
+# unable to settle, because the settlement validator refuses any directive id
+# the relay did not issue.
+#
+# So nothing was escaping a guard here. There was no guard on this path at all,
+# and the five that exist could not have caught it however they were tuned.
+#
+# What it looked like: the specialist proposes a share card, the browser shows
+# it and moves the person into chat, One is told "the specialist needs a reply"
+# and never learns anything landed. The next utterance runs the same specialist,
+# which re-proposes the same grant -- parked under the same fixed state key,
+# carrying a freshly random payload id -- and the relay forwards it again. The
+# person sees the same sentence twice, in the transcript and in the audio, from
+# one cause.
+#
+# Fingerprinted deliberately WITHOUT the payload's own id: that is regenerated
+# per call, so including it would make every repeat look new.
+_PENDING_SPECIALIST_DIRECTIVES_BY_SESSION: dict[str, set[str]] = {}
+
+
+def specialist_directive_fingerprint(agent_id: str, kind: str, directive_type: str) -> str:
+    """Identity of a specialist proposal, stable across repeats."""
+    return "|".join(
+        (
+            str(agent_id or "").strip(),
+            str(kind or "").strip(),
+            str(directive_type or "").strip(),
+        )
+    )
+
+
+def record_pending_specialist_directive(session_id: str | None, fingerprint: str) -> None:
+    """Remember that this proposal is already on screen and unanswered."""
+    clean_id = str(session_id or "").strip()
+    clean_fingerprint = str(fingerprint or "").strip()
+    if not clean_id or not clean_fingerprint:
+        return
+    _PENDING_SPECIALIST_DIRECTIVES_BY_SESSION.setdefault(clean_id, set()).add(clean_fingerprint)
+
+
+def read_pending_specialist_directive(session_id: str | None, fingerprint: str) -> bool:
+    """Whether this exact proposal is already in front of the person."""
+    clean_id = str(session_id or "").strip()
+    clean_fingerprint = str(fingerprint or "").strip()
+    if not clean_id or not clean_fingerprint:
+        return False
+    return clean_fingerprint in _PENDING_SPECIALIST_DIRECTIVES_BY_SESSION.get(clean_id, set())
+
+
+def clear_pending_specialist_directives(session_id: str | None) -> None:
+    """Forget outstanding proposals, because the person has spoken again.
+
+    A specialist directive can never settle -- the validator refuses any
+    directive id the relay did not issue, and these are never issued -- so fresh
+    speech is the only signal available that the moment has moved on. It is also
+    the right one: someone deliberately asking twice must still get through.
+    """
+    clean_id = str(session_id or "").strip()
+    if clean_id:
+        _PENDING_SPECIALIST_DIRECTIVES_BY_SESSION.pop(clean_id, None)

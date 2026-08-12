@@ -91,6 +91,7 @@ from hushh_mcp.services.live_voice_context import (
     clear_completed_actions,
     clear_failed_action,
     clear_live_voice_context,
+    clear_pending_specialist_directives,
     publish_live_voice_context,
     record_completed_action,
     record_failed_action,
@@ -917,6 +918,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # guard exists only to stop One repeating ITSELF inside one
                 # uninterrupted turn, never to stop a person repeating theirs.
                 clear_completed_actions(session_id)
+                clear_pending_specialist_directives(session_id)
                 greeting_gate.cancel_for_visitor_activity()
                 _cancel_pending_greeting()
                 queue.send_activity_start()
@@ -1312,6 +1314,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 if isinstance(text, str) and text.strip():
                     await _disarm_open_directives()
                     clear_completed_actions(session_id)
+                    clear_pending_specialist_directives(session_id)
                     greeting_gate.cancel_for_visitor_activity()
                     _cancel_pending_greeting()
                     queue.send_content(
@@ -1621,6 +1624,20 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             _gc_directive(directive_id, action_id)
                         )
 
+                if not isinstance(payload, dict) or not _bounded_text(
+                    payload.get("actionId"), 128
+                ):
+                    # Specialist directives leave no other trace. They are not
+                    # gateway actions, so nothing above logged them, they are
+                    # never issued, and they can never settle -- which is why
+                    # two identical cards reaching the browser looked, in the
+                    # logs, exactly like nothing happening at all.
+                    logger.info(
+                        "one_adk_live_specialist_directive kind=%s type=%s delegate=%s",
+                        outgoing_directive.get("kind"),
+                        (payload or {}).get("type") if isinstance(payload, dict) else None,
+                        outgoing_directive.get("delegateAgentId"),
+                    )
                 await websocket.send_text(json.dumps({"clientDirective": outgoing_directive}))
 
             if getattr(event, "turn_complete", False):
