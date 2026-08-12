@@ -3,11 +3,6 @@ name: codex-bridge
 description: Answers questions about and routes tasks for the hushh-research codebase. Use whenever the user asks about or wants to change anything this repo owns, including consent-protocol, Operons, HCT, Kai, MCP, IAM, PKM, vault, backend, frontend, mobile, security, docs, comms, ops, skill authoring, and any new specialist added under .codex/ later. Reads .codex/skills/, .codex/workflows/, and .codex/agents/ at invocation time, composes a briefing the way codex route-task does (workflow plus owner_skill plus default_spoke unioned), surfaces .codex/agents/* as advisory delegation lanes, and auto-discovers anything added to the tree without a bridge edit.
 argument-hint: "[skill-or-workflow-name | --list | --check | --coverage | free-text]"
 allowed-tools: Read Grep Glob Bash(python3 *)
-paths:
-  - .codex/**
-  - consent-protocol/**
-  - hushh-webapp/**
-  - docs/**
 ---
 
 # Codex Bridge

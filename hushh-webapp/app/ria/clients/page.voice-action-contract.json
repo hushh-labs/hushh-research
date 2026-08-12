@@ -119,6 +119,113 @@
         "hushh-webapp/lib/navigation/routes.ts"
       ],
       "speaker_persona": "kai"
+    },
+    {
+      "action_id": "ria.clients.switch_to_nearby",
+      "label": "Show People Around You",
+      "meaning": "Switches the clients screen from the connected roster to public-association records near a chosen location.",
+      "aliases": [
+        "show people around me",
+        "switch to around you",
+        "open nearby records"
+      ],
+      "search_keywords": [
+        "around you",
+        "nearby",
+        "prospects",
+        "public records"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients"
+        ],
+        "screens": [
+          "ria_clients"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "RIA onboarding must be complete."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "control",
+        "target": "ria_clients_view_switch"
+      },
+      "control_ids": [
+        "ria_clients_view_switch"
+      ],
+      "state_exposure": [
+        "selected clients view"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/ria/clients/page.tsx",
+        "hushh-webapp/components/ria/nearby/nearby-around-you.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
+      "action_id": "ria.clients.nearby_shortlist_record",
+      "label": "Shortlist Nearby Record",
+      "meaning": "Represents the shortlist control on an opened public-association record. Choosing a specific record stays manual until voice carries a selected record id.",
+      "aliases": [
+        "shortlist this person",
+        "save this record",
+        "add to my shortlist"
+      ],
+      "search_keywords": [
+        "shortlist",
+        "save",
+        "prospect"
+      ],
+      "reachability": {
+        "routes": [
+          "/ria/clients"
+        ],
+        "screens": [
+          "ria_clients"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "A public-association record must be open."
+        ],
+        "active_personas": [
+          "ria"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "ria_persona_available",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Shortlisting requires a person id from the opened record.",
+        "intended_handler": "NwsNearbyService.shortlist"
+      },
+      "control_ids": [
+        "ria_clients_nearby_shortlist"
+      ],
+      "state_exposure": [
+        "visible public record names",
+        "shortlisted state"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/ria/nearby/nearby-record-sheet.tsx",
+        "hushh-webapp/lib/services/nws-nearby-service.ts"
+      ],
+      "speaker_persona": "kai"
     }
   ]
 }

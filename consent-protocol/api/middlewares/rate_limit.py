@@ -133,6 +133,19 @@ class RateLimits:
     # rather than beside them. It is still far below what scraping would need.
     ONE_PLACES_DIRECTORY_READ = "40/minute"  # noqa: S105
 
+    # NWS Nearby Intelligence on the RIA clients screen. Deliberately tighter
+    # than the Connect directories: the upstream rate-limits on
+    # {api_key}:{client_ip} in process, and every Hushh caller reaches it from
+    # this backend's egress address under one key, so its 60/min is the whole
+    # surface's budget rather than one principal's. Most repeat queries are
+    # served from the service-layer cache and never reach it at all; this bound
+    # is what stops one principal from spending the shared allowance.
+    RIA_NEARBY_DIRECTORY_READ = "20/minute"  # noqa: S105
+
+    # Shortlisting is a local upsert with no upstream call, so it is bounded for
+    # write hygiene rather than to protect a quota.
+    RIA_NEARBY_SHORTLIST_WRITE = "30/minute"  # noqa: S105
+
     # Preference Subscription Fabric (PCHP RFC-002).
     # FABRIC_READ is the third-party-facing, monetizable subscriber read path;
     # it must be firmly bounded per principal so no brand can drain an owner's

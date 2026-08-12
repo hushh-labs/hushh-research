@@ -322,7 +322,7 @@ export function SettingsRow({
     // need a full-width hairline; otherwise the divider appears arbitrarily cut
     // off, as it did on Connect's plain-text rows.
     icon || leading
-      ? "group-data-[inset-separators=true]/settings-list:after:left-[66px] sm:group-data-[inset-separators=true]/settings-list:after:left-[66px]"
+      ? "group-data-[inset-separators=true]/settings-list:after:left-[62px] sm:group-data-[inset-separators=true]/settings-list:after:left-[62px]"
       : "group-data-[inset-separators=true]/settings-list:after:left-0";
   const rowShellClassName = cn(
     "group/settings-row relative isolate overflow-hidden bg-transparent",
@@ -356,13 +356,13 @@ export function SettingsRow({
             // Keep settings icons as iOS-style rounded-square utility wells.
             // Agent artwork continues to use AgentSectionIcon, which owns the
             // larger launcher/menu geometry separately.
-            "inline-flex h-[38px] w-[38px] shrink-0 items-center justify-center self-center rounded-[12px]",
+            "inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center self-center rounded-[10px]",
             resolvedDensity !== "compact" &&
-              "sm:h-[38px] sm:w-[38px] sm:rounded-[12px]",
+              "sm:h-[34px] sm:w-[34px] sm:rounded-[10px]",
             SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
           )}
         >
-          <Icon icon={icon} size={20} />
+          <Icon icon={icon} size={17} />
         </span>
       ) : null}
       <div className="min-w-0 flex-1 space-y-0.5">
