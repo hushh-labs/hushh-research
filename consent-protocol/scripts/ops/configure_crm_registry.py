@@ -156,7 +156,11 @@ async def _probe(descriptor: ValidatedCrmRegistryDescriptor) -> dict[str, Any]:
             await session.initialize()
             listed = await session.list_tools()
     listed_names = {str(tool.name) for tool in listed.tools}
-    required_names = {str(config["toolName"]) for config in descriptor.operations.values()}
+    # The encrypted profile may reuse the standard read/update tool names, but
+    # it may never point at a tool absent from the MuleSoft catalog. Include
+    # both mappings here so ``apply --activate`` proves the entire declared
+    # capability surface before changing the registry.
+    required_names = set(descriptor.required_mcp_tool_names)
     missing_names = sorted(required_names - listed_names)
     if missing_names:
         raise CrmRegistryDescriptorError(

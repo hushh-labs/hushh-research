@@ -13,6 +13,10 @@ from urllib.parse import urlparse
 from hushh_mcp.services.connected_systems_service import (
     _valid_operation_response_contract,
 )
+from hushh_mcp.services.crm_encrypted_fields_v1 import (
+    CrmEncryptedFieldsValidationError,
+    validate_crm_encrypted_fields_recipient_key,
+)
 
 OPERATIONS = ("schema", "read", "create", "update", "delete")
 
@@ -62,6 +66,19 @@ class ValidatedCrmRegistryDescriptor:
     def encrypted_fields(self) -> dict[str, Any] | None:
         value = self.raw.get("encryptedFields")
         return dict(value) if isinstance(value, dict) else None
+
+    @property
+    def required_mcp_tool_names(self) -> tuple[str, ...]:
+        """All tool names an activation probe must find before it can enable a CRM.
+
+        An encrypted-fields tool may intentionally be the same registered
+        ``read`` or ``update`` tool. It is still listed here so a descriptor
+        cannot point the encrypted path at an undeployed MuleSoft capability.
+        """
+        names = {_text(config.get("toolName")) for config in self.operations.values()}
+        encrypted_tools = (self.encrypted_fields or {}).get("tools") or {}
+        names.update(_text(encrypted_tools.get(operation)) for operation in ("read", "update"))
+        return tuple(sorted(name for name in names if name))
 
 
 def load_and_validate_descriptor(
@@ -160,12 +177,23 @@ def load_and_validate_descriptor(
             raise CrmRegistryDescriptorError(
                 "encryptedFields.recipientKey requires keyId, publicKey, and publicKeyFingerprint."
             )
+        try:
+            validate_crm_encrypted_fields_recipient_key(recipient_key)
+        except CrmEncryptedFieldsValidationError as error:
+            raise CrmRegistryDescriptorError(
+                "encryptedFields.recipientKey must contain a 32-byte X25519 public key "
+                "and its matching SHA-256 fingerprint."
+            ) from error
         tools = encrypted_fields.get("tools")
         if not isinstance(tools, dict) or not all(
             _text(tools.get(key)) for key in ("read", "update")
         ):
             raise CrmRegistryDescriptorError(
                 "encryptedFields.tools requires read and update tool names."
+            )
+        if set(tools) != {"read", "update"}:
+            raise CrmRegistryDescriptorError(
+                "encryptedFields.tools may contain only read and update tool names."
             )
 
     if capability_set.intersection({"create", "update", "delete"}):

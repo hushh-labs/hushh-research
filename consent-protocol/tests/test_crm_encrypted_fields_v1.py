@@ -23,6 +23,7 @@ from hushh_mcp.services.crm_encrypted_fields_v1 import (
     CrmEncryptedFields,
     CrmEncryptedFieldsValidationError,
     validate_crm_encrypted_fields_envelope,
+    validate_crm_encrypted_fields_recipient_key,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -77,6 +78,18 @@ def test_encrypted_fields_envelope_accepts_only_exact_binary_shape_key_and_direc
             expected_key_id="mulesoft-uat-1",
             now_ms=wrong_key["expiresAtMs"] - 1,
         )
+
+
+def test_encrypted_fields_recipient_key_requires_a_matching_fingerprint() -> None:
+    key = {
+        "keyId": "mulesoft-uat-1",
+        "publicKey": _b64(32),
+        "publicKeyFingerprint": _fingerprint(),
+    }
+    validate_crm_encrypted_fields_recipient_key(key)
+
+    with pytest.raises(CrmEncryptedFieldsValidationError, match="recipient_key_mismatch"):
+        validate_crm_encrypted_fields_recipient_key({**key, "publicKeyFingerprint": "sha256:wrong"})
 
 
 @pytest.mark.parametrize(
@@ -278,12 +291,12 @@ async def test_encrypted_fields_update_is_ciphertext_only_and_approval_is_idempo
             {
                 "operation": "read",
                 "name": "read-crm-record",
-                "crmEncryptedFieldsToolName": "read-crm-record-encrypted",
+                "crmEncryptedFieldsToolName": "read-crm-record",
             },
             {
                 "operation": "update",
                 "name": "update-crm-record",
-                "crmEncryptedFieldsToolName": "update-crm-record-encrypted",
+                "crmEncryptedFieldsToolName": "update-crm-record",
             },
         ),
         crm_encrypted_fields_v1_enabled=True,
@@ -377,6 +390,8 @@ async def test_encrypted_fields_update_is_ciphertext_only_and_approval_is_idempo
     )
     assert partner_calls[1]["payload"]["id"] == "backend-bound-record"
     assert partner_calls[1]["payload"]["fieldNames"] == ["Title"]
+    assert partner_calls[1]["payload"]["encryptedFields"]["client_public_key"] == _b64(32, 2)
+    assert "clientPublicKey" not in partner_calls[1]["payload"]["encryptedFields"]
 
 
 @pytest.mark.parametrize(

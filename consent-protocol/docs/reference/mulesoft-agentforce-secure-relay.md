@@ -63,9 +63,16 @@ before update. The browser never supplies a CRM ID.
 
 MuleSoft receives a registered tool call with no CRM URL, OAuth credentials,
 client secret, token URL, arbitrary target, browser-selected record ID, or
-request-supplied public key.
+request-supplied recipient public key. The browser's one-time ephemeral public
+key is part of `encryptedFields` by design.
 
-Read tool `read-crm-record-encrypted`:
+The registry maps the encrypted profile to deployed MuleSoft tools. For the
+current external CRM endpoint, use the existing `read-crm-record` and
+`update-crm-record` names; no second tool catalogue is required. The connector
+must recognise this profile and reject a plaintext fallback when
+`encryptedFields` is present.
+
+Read tool `read-crm-record`:
 
 ```json
 {
@@ -77,22 +84,24 @@ Read tool `read-crm-record-encrypted`:
   "encryptedFields": {
     "profile": "crm-encrypted-fields.v1",
     "direction": "read_request",
-    "recipientKeyId": "mulesoft-sandbox-key-1",
-    "clientOperationId": "cef_<random>",
-    "expiresAtMs": 0,
-    "clientPublicKey": "<base64-x25519-public-key>",
-    "wrappedPayloadKey": "<base64>",
-    "wrappedKeyIv": "<base64-12-byte-iv>",
-    "wrappedKeyTag": "<base64-16-byte-tag>",
-    "payloadIv": "<base64-12-byte-iv>",
-    "payloadTag": "<base64-16-byte-tag>",
+    "recipient_key_id": "mulesoft-sandbox-key-1",
+    "client_operation_id": "cef_<random>",
+    "expires_at_ms": 0,
+    "client_public_key": "<base64-x25519-public-key>",
+    "wrapped_payload_key": "<base64>",
+    "wrapped_key_iv": "<base64-12-byte-iv>",
+    "wrapped_key_tag": "<base64-16-byte-tag>",
+    "payload_iv": "<base64-12-byte-iv>",
+    "payload_tag": "<base64-16-byte-tag>",
     "ciphertext": "<base64>"
   }
 }
 ```
 
-Update tool `update-crm-record-encrypted` adds `intentId`, `approvalId`,
-`clientOperationId`, and allowed `fieldNames`; it carries the same
+The browser-facing Hussh API uses camelCase. The registered MuleSoft tool
+payload uses the snake_case envelope shown above, matching the existing MCP
+field convention. Update tool `update-crm-record` adds `intentId`,
+`approvalId`, `clientOperationId`, and allowed `fieldNames`; it carries the same
 `encryptedFields` shape with `direction: "update_request"`. MuleSoft returns
 only `{ "status": "accepted", "accepted": true, "operationId": "<opaque-id>" }`.
 

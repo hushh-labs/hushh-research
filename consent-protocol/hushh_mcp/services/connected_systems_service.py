@@ -19,6 +19,7 @@ from hushh_mcp.services.crm_encrypted_fields_v1 import (
     CRM_ENCRYPTED_FIELDS_V1_PROFILE,
     CrmEncryptedFields,
     validate_crm_encrypted_fields_envelope,
+    validate_crm_encrypted_fields_recipient_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -1051,6 +1052,10 @@ class ConnectedSystemDefinition:
 
     def crm_encrypted_fields_ready(self, operation: str) -> bool:
         key = self.crm_encrypted_fields_recipient_key or {}
+        try:
+            validate_crm_encrypted_fields_recipient_key(key)
+        except Exception:
+            return False
         return bool(
             self.crm_encrypted_fields_v1_enabled
             and _crm_encrypted_fields_runtime_enabled()
