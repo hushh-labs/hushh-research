@@ -1770,13 +1770,17 @@ class FourUserMemoryService(OneLocationAgentService):
                 "requested_at": datetime.now(timezone.utc),
                 "resolved_at": None,
                 "approved_grant_id": None,
+                "metadata": json.loads(params.get("metadata_json") or "{}"),
             }
             self.requests[request_id] = row
             return row
-        if "UPDATE one_location_access_requests" in sql and "SET message = :message" in sql:
+        if "UPDATE one_location_access_requests" in sql and "SET message = " in sql:
             request = self.requests.get(params["request_id"])
             if request and request["status"] == "pending":
-                request["message"] = params["message"]
+                if params.get("message") is not None:
+                    request["message"] = params["message"]
+                if "metadata_json" in params:
+                    request["metadata"] = json.loads(params["metadata_json"])
                 request["requested_at"] = datetime.now(timezone.utc)
                 return request
             return None
@@ -2589,14 +2593,18 @@ def test_four_user_location_workflow_contract() -> None:
         requester_user_id=user_c,
         owner_user_id=user_a,
         message="Can you share where you are?",
+        requested_duration_hours=4,
     )
+    assert direct_request_c["requestedDurationHours"] == 4
     duplicate_request_c = service.request_access(
         requester_user_id=user_c,
         owner_user_id=user_a,
         message="Can you share where you are now?",
+        requested_duration_hours=24,
     )
     assert duplicate_request_c["id"] == direct_request_c["id"]
     assert duplicate_request_c["message"] == "Can you share where you are now?"
+    assert duplicate_request_c["requestedDurationHours"] == 24
 
     approved_c = service.approve_request(
         owner_user_id=user_a,

@@ -1896,6 +1896,10 @@ class OneLocationAgentService:
     def _request_payload(row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not row:
             return None
+        metadata = _loads_json(row.get("metadata")) or {}
+        requested_duration_hours = (
+            metadata.get("requestedDurationHours") if isinstance(metadata, dict) else None
+        )
         return {
             "id": str(row.get("id") or ""),
             "ownerUserId": str(row.get("owner_user_id") or ""),
@@ -1908,6 +1912,11 @@ class OneLocationAgentService:
             "requestedAt": _iso(row.get("requested_at")),
             "resolvedAt": _iso(row.get("resolved_at")),
             "approvedGrantId": str(row.get("approved_grant_id") or "") or None,
+            "requestedDurationHours": (
+                float(requested_duration_hours)
+                if isinstance(requested_duration_hours, (int, float))
+                else None
+            ),
         }
 
     @staticmethod
@@ -5915,6 +5924,7 @@ class OneLocationAgentService:
         referred_by_user_id: str | None = None,
         notify_owner: bool = True,
         require_requester_key_material: bool = False,
+        requested_duration_hours: float | None = None,
     ) -> dict[str, Any]:
         if requester_user_id == owner_user_id:
             raise OneLocationAgentError(
@@ -5926,6 +5936,14 @@ class OneLocationAgentService:
                 require_phone_verified=False,
             )
         message_value = (message or "").strip()[:500] or None
+        # The requester's picker is advisory context for the owner, not a grant
+        # duration of its own -- approve_request() always takes its own
+        # duration_hours from the owner. Stash it in metadata (no schema
+        # migration needed) purely so the value the requester saw survives the
+        # round trip instead of being silently dropped.
+        metadata_value = (
+            {"requestedDurationHours": requested_duration_hours} if requested_duration_hours else {}
+        )
         row = self._execute_one(
             """
             SELECT *
@@ -5952,7 +5970,7 @@ class OneLocationAgentService:
                 )
                 VALUES (
                   :owner_user_id, :requester_user_id, :referred_by_user_id, 'pending',
-                  :message, NOW(), '{}'::jsonb
+                  :message, NOW(), CAST(:metadata_json AS JSONB)
                 )
                 RETURNING *
                 """,
@@ -5961,21 +5979,43 @@ class OneLocationAgentService:
                     "requester_user_id": requester_user_id,
                     "referred_by_user_id": referred_by_user_id,
                     "message": message_value,
+                    "metadata_json": _json_param(metadata_value),
                 },
             )
-        elif message_value and str(row.get("message") or "") != message_value:
-            refreshed = self._execute_one(
-                """
-                UPDATE one_location_access_requests
-                SET message = :message,
-                    requested_at = NOW()
-                WHERE id = CAST(:request_id AS UUID)
-                  AND status = 'pending'
-                RETURNING *
-                """,
-                {"request_id": str(row.get("id") or ""), "message": message_value},
+        else:
+            existing_metadata = _loads_json(row.get("metadata")) or {}
+            existing_duration = (
+                existing_metadata.get("requestedDurationHours")
+                if isinstance(existing_metadata, dict)
+                else None
             )
-            row = refreshed or row
+            message_changed = bool(message_value and str(row.get("message") or "") != message_value)
+            duration_changed = bool(
+                requested_duration_hours and requested_duration_hours != existing_duration
+            )
+            if message_changed or duration_changed:
+                merged_metadata = (
+                    dict(existing_metadata) if isinstance(existing_metadata, dict) else {}
+                )
+                if duration_changed:
+                    merged_metadata["requestedDurationHours"] = requested_duration_hours
+                refreshed = self._execute_one(
+                    """
+                    UPDATE one_location_access_requests
+                    SET message = COALESCE(:message, message),
+                        metadata = CAST(:metadata_json AS JSONB),
+                        requested_at = NOW()
+                    WHERE id = CAST(:request_id AS UUID)
+                      AND status = 'pending'
+                    RETURNING *
+                    """,
+                    {
+                        "request_id": str(row.get("id") or ""),
+                        "message": message_value if message_changed else None,
+                        "metadata_json": _json_param(merged_metadata),
+                    },
+                )
+                row = refreshed or row
         request = self._request_payload(row)
         if not request:
             raise OneLocationAgentError(

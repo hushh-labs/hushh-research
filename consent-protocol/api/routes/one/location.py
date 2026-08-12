@@ -124,6 +124,7 @@ class UpdateMapPreferencesRequest(_CamelModel):
 class CreateAccessRequest(_CamelModel):
     owner_user_id: str = Field(alias="ownerUserId", min_length=1, max_length=160)
     message: str | None = Field(default=None, max_length=500)
+    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
 
 
 class ResolveAccessRequest(_CamelModel):
@@ -1293,6 +1294,7 @@ def request_location_access(
                 requester_user_id=_user_id(token_data),
                 owner_user_id=payload.owner_user_id,
                 message=payload.message,
+                requested_duration_hours=payload.duration_hours,
             )
         }
     except Exception as exc:
