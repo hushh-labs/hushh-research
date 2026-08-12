@@ -36,6 +36,19 @@ def _decode(value: str, *, name: str, expected_bytes: int | None = None) -> byte
     return decoded
 
 
+def validate_crm_encrypted_fields_recipient_key(value: dict[str, Any]) -> None:
+    """Prove a configured recipient key and fingerprint describe the same key."""
+    key_id = str(value.get("keyId") or "").strip()
+    public_key = value.get("publicKey")
+    fingerprint = str(value.get("publicKeyFingerprint") or "").strip().lower()
+    if not key_id or len(key_id) > 160 or not isinstance(public_key, str):
+        raise CrmEncryptedFieldsValidationError("crm_encrypted_fields_invalid_recipient_key")
+    decoded_public_key = _decode(public_key, name="recipient_public_key", expected_bytes=32)
+    expected_fingerprint = f"sha256:{hashlib.sha256(decoded_public_key).hexdigest()}"
+    if fingerprint != expected_fingerprint:
+        raise CrmEncryptedFieldsValidationError("crm_encrypted_fields_recipient_key_mismatch")
+
+
 class CrmEncryptedFields(BaseModel):
     """Opaque value envelope shared by browser, Hussh, and MuleSoft."""
 
