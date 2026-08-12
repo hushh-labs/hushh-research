@@ -1391,7 +1391,10 @@ function ContactsScreen({
       className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]"
       data-testid="one-location-onboarding-contacts-surface"
     >
-      <header className="flex h-16 shrink-0 items-center justify-between px-5 pt-2">
+      {/* pt clears the status bar and notch. A bare pt-2 put Back and Skip
+          under the clock and battery on every notched iPhone -- reachable
+          only by guessing where they were. */}
+      <header className="flex min-h-16 shrink-0 items-center justify-between px-5 pb-2 pt-[max(var(--app-safe-area-top-effective,0px),8px)]">
         <button
           type="button"
           onClick={onBack}
@@ -1612,7 +1615,10 @@ function ReadyScreen({
 
       {/* Floats over the map: the controls stay reachable without stealing a
           band of the map, and both sit on their own translucent chips. */}
-      <header className="absolute inset-x-0 top-0 z-20 flex h-16 shrink-0 items-center justify-between px-5 pt-2">
+      {/* Same clearance, and it matters more here: the header floats over
+          the map, so without it the controls sit directly under the status
+          bar with map tiles behind both. */}
+      <header className="absolute inset-x-0 top-0 z-20 flex min-h-16 shrink-0 items-center justify-between px-5 pb-2 pt-[max(var(--app-safe-area-top-effective,0px),8px)]">
         <button
           type="button"
           onClick={onBack}

@@ -123,6 +123,37 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onSkip).not.toHaveBeenCalled();
   });
 
+  it("keeps Back and Skip clear of the iOS status bar on every screen", () => {
+    // The notch and the clock live at the top of every modern iPhone. These two
+    // controls are the only way backwards, so putting them under it is worse
+    // than ugly -- they become findable only by guessing.
+    //
+    // min-h, never a fixed h: a fixed-height header shrinks its content box as
+    // the inset grows, and a vertically centred button then overflows UPWARD.
+    // Adding clearance moved the buttons higher, which is how this was missed.
+    renderFlow({ contactsStepAvailable: true });
+    const headerOf = (testId: string) =>
+      screen.getByTestId(testId).querySelector("header") ??
+      screen.getByTestId(testId).querySelector("nav");
+
+    const advance = [
+      ["one-location-onboarding-welcome", "Get started"],
+      ["one-location-onboarding-features", "Find my people"],
+      ["one-location-onboarding-contacts", "Not now"],
+      ["one-location-onboarding-invite", null],
+    ] as const;
+
+    for (const [testId, next] of advance) {
+      const surface = screen.getByTestId(testId);
+      const header = headerOf(testId);
+      const inset =
+        (header?.className ?? "") + " " + (surface.firstElementChild?.className ?? "");
+      expect(inset).toContain("--app-safe-area-top-effective");
+      if (header) expect(header.className).not.toMatch(/h-16/u);
+      if (next) fireEvent.click(screen.getByRole("button", { name: next }));
+    }
+  });
+
   it("holds one column width across every screen", () => {
     // Features used to size off viewport height and widen to 3xl on a large
     // window, so on desktop the panel visibly jumped wider on step two and
