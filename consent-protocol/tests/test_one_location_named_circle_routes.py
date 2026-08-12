@@ -408,9 +408,7 @@ def test_circle_bootstrap_cannot_be_pointed_at_another_circle(monkeypatch) -> No
 def test_circle_bootstrap_requires_a_usable_name(monkeypatch) -> None:
     client, _service = _bootstrap_client(monkeypatch)
 
-    assert (
-        client.post("/api/one/location/circles/bootstrap", json={"name": "x"}).status_code == 422
-    )
+    assert client.post("/api/one/location/circles/bootstrap", json={"name": "x"}).status_code == 422
     assert (
         client.post(
             "/api/one/location/circles/bootstrap",
@@ -464,9 +462,7 @@ def test_bootstrap_creates_a_first_circle_when_the_caller_owns_none() -> None:
 
 
 def test_bootstrap_reuses_an_owned_circle_and_never_rotates_its_code() -> None:
-    service, calls = _bootstrap_probe(
-        [{"id": CIRCLE_ID, "name": "Meena Family", "role": "owner"}]
-    )
+    service, calls = _bootstrap_probe([{"id": CIRCLE_ID, "name": "Meena Family", "role": "owner"}])
 
     invite = service.bootstrap_first_circle(user_id="owner-user", name="Ignored Name")
 
