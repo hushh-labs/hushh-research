@@ -7,7 +7,7 @@ BEGIN
     WHERE delivery_mode = 'crm-encrypted-fields.v1'
   ) THEN
     RAISE EXCEPTION
-      'Migration 144 rollback requires zero crm-encrypted-fields.v1 intents; retain encrypted audit rows instead';
+      'Migration 145 rollback requires zero crm-encrypted-fields.v1 intents; retain encrypted audit rows instead';
   END IF;
 END $$;
 

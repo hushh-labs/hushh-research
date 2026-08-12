@@ -1131,6 +1131,21 @@ def test_pre_vault_serialization_drops_retired_setup_capabilities():
     assert state["onboardingActiveCapability"] is None
 
 
+@pytest.mark.asyncio
+async def test_pre_vault_update_accepts_calendar_active_capability():
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
+
+    state = await service.update_pre_vault_state(
+        user_id="user-calendar-capability",
+        onboarding_phase="capability_setup",
+        onboarding_active_capability="calendar",
+    )
+
+    assert state["onboardingActiveCapability"] == "calendar"
+
+
 def test_pre_vault_serialization_keeps_only_strict_non_secret_runtime_choices():
     valid = VaultKeysService._serialize_user_entry(
         {

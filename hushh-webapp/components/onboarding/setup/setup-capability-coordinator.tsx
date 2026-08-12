@@ -164,6 +164,7 @@ type UseSetupCapabilityCoordinatorParams = {
 
 const SETUP_CAPABILITY_SCREEN: Record<OneSetupCapabilityId, string> = {
   gmail: "one_setup_gmail",
+  calendar: "one_setup_calendar",
   location: "one_setup_location",
   email: "one_setup_email",
   finance: "one_setup_finance_import",

@@ -111,19 +111,20 @@ export function StockComparisonPreview({
             accent="default"
             actions={
               onBrowseRecommendations || onChangeStock ? (
-                // Keep both action pills on ONE horizontal line (they were
-                // wrapping/stacking on narrow iOS widths). `flex-nowrap` + a
-                // shared `min-w-0` and compact padding/label sizing let both
-                // fit at 375px without clipping "Change stock" or overflowing
-                // the card's right edge.
-                <div className="flex flex-nowrap items-center justify-end gap-1.5">
+                // Both action pills must stay fully visible on narrow iOS
+                // widths. `flex-nowrap` previously let "Change stock" overflow
+                // and clip off the card's right edge (see bug report). Allow the
+                // row to WRAP the second pill onto a new line instead of
+                // clipping it, and give the group full width so it aligns left
+                // under the title on phones and right on wider screens.
+                <div className="flex w-full flex-wrap items-center justify-start gap-1.5 sm:w-auto sm:justify-end">
                   {onBrowseRecommendations ? (
                     <Button
                       type="button"
                       variant="none"
                       effect="fade"
                       size="sm"
-                      className="min-w-0 shrink whitespace-nowrap px-2.5 text-xs sm:text-sm"
+                      className="min-w-0 whitespace-nowrap px-2.5 text-xs sm:text-sm"
                       onClick={onBrowseRecommendations}
                     >
                       Recommendations
@@ -135,7 +136,7 @@ export function StockComparisonPreview({
                       variant="none"
                       effect="fade"
                       size="sm"
-                      className="min-w-0 shrink whitespace-nowrap px-2.5 text-xs sm:text-sm"
+                      className="min-w-0 whitespace-nowrap px-2.5 text-xs sm:text-sm"
                       onClick={onChangeStock}
                     >
                       <Search className="mr-1 h-3.5 w-3.5 shrink-0" aria-hidden="true" />

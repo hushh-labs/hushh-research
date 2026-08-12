@@ -35,6 +35,11 @@ import {
   encryptLocationForRecipient,
 } from "@/lib/one-location/encryption";
 import {
+  buildCheckInHrefFromYourMap,
+  CHECK_IN_SOURCE_PARAM,
+  resolveCheckInDismissHref,
+} from "@/lib/one-location/check-in-navigation";
+import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
@@ -460,25 +465,41 @@ export function LocationImmersiveMap({
       !nearbyCheckInAvailable ||
       !rendererReady ||
       demoMode ||
+      // Nothing to open: on the check-in route the flow already is the screen.
+      isCheckInSurface ||
       searchParams.get("action") === "check-in"
     ) {
       return;
     }
     setTrayExpanded(false);
-    nearbyHistoryPreparedRef.current = true;
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("action", "check-in");
-    router.push(`${ROUTES.ONE_LOCATION_MAP}?${params.toString()}`, {
+    // Recording Your Map as the opener is what lets dismiss come back here
+    // instead of dropping the person on the Location hub.
+    router.push(buildCheckInHrefFromYourMap(searchParams), {
       scroll: false,
     });
-  }, [demoMode, nearbyCheckInAvailable, rendererReady, router, searchParams]);
+  }, [
+    demoMode,
+    isCheckInSurface,
+    nearbyCheckInAvailable,
+    rendererReady,
+    router,
+    searchParams,
+  ]);
 
   const closeNearbyCheckIn = useCallback(() => {
     // Dismissing on the dedicated route must leave it. Clearing the flag alone
     // would strand the person on a bare map that is not Your Map and has none
     // of its content -- the emptiest possible screen.
     if (isCheckInSurface) {
-      router.push(ROUTES.ONE_LOCATION);
+      // `replace`, not `push`: check-in is done with, and leaving it on the
+      // stack made the very next Back press re-open the flow just dismissed.
+      // History is not consulted for the destination either -- this app's back
+      // is authored, because the browser stack carries external origins and on
+      // iOS walking it can eject the person out of the app entirely.
+      router.replace(
+        resolveCheckInDismissHref(searchParams.get(CHECK_IN_SOURCE_PARAM)),
+        { scroll: false },
+      );
       return;
     }
     setNearbyCheckInOpen(false);
@@ -488,7 +509,7 @@ export function LocationImmersiveMap({
     ) {
       window.history.back();
     }
-  }, [isCheckInSurface, router]);
+  }, [isCheckInSurface, router, searchParams]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1432,9 +1453,9 @@ export function LocationImmersiveMap({
       }
       return "No one checked in nearby";
     }
-    return `${markers.length} ${
-      markers.length === 1 ? "person" : "people"
-    } sharing with you`;
+    return `${markers.length} live ${
+      markers.length === 1 ? "location" : "locations"
+    } on your map`;
   }, [markers.length, nearbyAttendees.length, nearbyPresenceState.presence]);
 
   const peopleDrawerSubtitle = nearbyPresenceState.presence
@@ -1598,7 +1619,12 @@ export function LocationImmersiveMap({
       />
       <div
         ref={topControlsRef}
-        className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))]"
+        // z-30 (above the z-20 map loading/error overlay and people tray): at
+        // equal z-index the later-in-DOM full-screen overlay painted on top of
+        // the close X and could swallow the tap that dismisses the map. Keeping
+        // the controls strictly above every map layer guarantees the back/X and
+        // locate buttons stay tappable in every state (loading, error, tray open).
+        className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))]"
       >
         <ShellActionSurface
           className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}

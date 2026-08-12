@@ -1,6 +1,5 @@
 {
   "schema_version": "kai.local_action_contract.v1",
-  "availability": "paused",
   "surface_id": "gmail",
   "surface_title": "Gmail",
   "docs_references": ["docs/reference/kai/kai-action-gateway-vnext.md"],

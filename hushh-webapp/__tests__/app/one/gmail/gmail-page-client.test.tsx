@@ -7,15 +7,17 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace }),
 }));
 
+vi.mock("@/components/gmail/gmail-receipts-page", () => ({
+  default: () => <div>Gmail workspace</div>,
+}));
+
 import OneGmailPageClient from "@/app/one/gmail/gmail-page-client";
 
 describe("OneGmailPageClient", () => {
-  it("does not mount Gmail in One while the registry is paused", async () => {
+  it("mounts Gmail in One when the shared registry enables the agent", async () => {
     render(<OneGmailPageClient />);
 
-    expect(screen.getByRole("status", { name: "Opening One…" })).toBeTruthy();
-    await waitFor(() => {
-      expect(replace).toHaveBeenCalledWith("/one");
-    });
+    expect(screen.getByText("Gmail workspace")).toBeTruthy();
+    await waitFor(() => expect(replace).not.toHaveBeenCalled());
   });
 });

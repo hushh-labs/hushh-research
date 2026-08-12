@@ -7,6 +7,10 @@ import {
   type LocalOnboardingActionResult,
 } from "@/lib/agent/local-onboarding-actions";
 import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
+import {
+  parseVoiceCard,
+  publishVoiceCard,
+} from "@/lib/voice/voice-action-card";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
 import {
@@ -180,6 +184,16 @@ function buildLocalHandlerResult(input: {
   goalId: string;
   handlerResult: LocalOnboardingActionResult;
 }): AgentActionRuntimeResult {
+  // Every local handler result funnels through here, so this is the one place
+  // that has to know about disambiguation.
+  //
+  // Publishing unconditionally is deliberate, including the null case: a
+  // handler result that carries no candidates means the person has moved on --
+  // most often by tapping a row, which runs this same path and should retire
+  // the card that produced it. Clearing only on success would leave a stale
+  // list of people on screen after the question stopped being live.
+  publishVoiceCard(parseVoiceCard(input.handlerResult.data));
+
   return buildResult({
     status:
       input.handlerResult.status === "started"

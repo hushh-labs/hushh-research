@@ -177,11 +177,13 @@ vi.mock(
   () => ({
     NearbyCheckInSheet: ({
       open,
+      onOpenChange,
       onStateChange,
       onSearchAreaChange,
       onPlaceFocusChange,
     }: {
       open: boolean;
+      onOpenChange: (open: boolean) => void;
       onStateChange: (state: unknown) => void;
       onSearchAreaChange: (point: unknown) => void;
       onPlaceFocusChange: (focus: unknown) => void;
@@ -191,6 +193,13 @@ vi.mock(
         data-one-location-nearby-check-in-sheet=""
         data-open={open ? "true" : "false"}
       >
+        <button
+          type="button"
+          data-testid="dismiss-nearby-check-in"
+          onClick={() => onOpenChange(false)}
+        >
+          Dismiss check-in
+        </button>
         <button
           type="button"
           data-testid="publish-nearby-state"
@@ -521,6 +530,13 @@ describe("LocationImmersiveMap demo experience", () => {
       );
     });
 
+    expect(
+      screen.getByText("0 live locations on your map"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("0 people sharing with you"),
+    ).not.toBeInTheDocument();
+
     const trayToggle = screen.getByTestId("one-location-map-tray-toggle");
     if (trayToggle.getAttribute("aria-expanded") === "false") {
       fireEvent.click(trayToggle);
@@ -560,7 +576,7 @@ describe("LocationImmersiveMap demo experience", () => {
     );
     fireEvent.click(screen.getByTestId("one-location-map-nearby-check-in"));
     expect(navigationHarness.push).toHaveBeenCalledWith(
-      "/one/location/map?action=check-in",
+      "/one/location/check-in?source=map",
       { scroll: false },
     );
 
@@ -617,7 +633,7 @@ describe("LocationImmersiveMap demo experience", () => {
       }),
     );
     expect(navigationHarness.push).toHaveBeenCalledWith(
-      "/one/location/map?action=check-in",
+      "/one/location/check-in?source=map",
       { scroll: false },
     );
   });
@@ -1029,6 +1045,66 @@ describe("LocationImmersiveMap demo experience", () => {
     render(<LocationImmersiveMap surface="check-in" />);
     await openMap();
     expect(screen.queryByTestId("one-location-map-people-tray")).toBeNull();
+  });
+
+  it("returns to Your Map when check-in was opened from Your Map", async () => {
+    // The reported bug: check in from Your Map, close the sheet, and you were
+    // thrown past the map onto the Location hub's Now tab -- two screens back,
+    // right after making yourself discoverable. Dismiss now follows the opener
+    // recorded when Your Map pushed the route.
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "source=map";
+
+    render(<LocationImmersiveMap surface="check-in" />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
+        "data-open",
+        "true",
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
+
+    // `replace`, not `push`: a dismissed flow must not be what the next Back
+    // press re-opens.
+    expect(navigationHarness.replace).toHaveBeenCalledWith(
+      "/one/location/map",
+      { scroll: false },
+    );
+    expect(navigationHarness.push).not.toHaveBeenCalledWith(
+      "/one/location",
+      expect.anything(),
+    );
+    expect(navigationHarness.push).not.toHaveBeenCalledWith("/one/location");
+  });
+
+  it("returns to the Location hub when nothing recorded an opener", async () => {
+    // The hub's own "Check in" card, notification deep links and old shared
+    // URLs record nothing. The hub is where those came from and where they go.
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "";
+
+    render(<LocationImmersiveMap surface="check-in" />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
+        "data-open",
+        "true",
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
+
+    expect(navigationHarness.replace).toHaveBeenCalledWith("/one/location", {
+      scroll: false,
+    });
   });
 
   it("does not build a synthetic history boundary on the check-in route", async () => {

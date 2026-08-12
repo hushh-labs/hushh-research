@@ -67,13 +67,31 @@ export function FeedPage() {
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const markedReadRef = useRef(false);
   const paginationInitializedRef = useRef(false);
-  // Session-scoped clear. There is no backend delete endpoint for the feed yet,
-  // so "Clear" marks everything read (which the server DOES persist) and hides
-  // the already-loaded history rows for this visit. A later visit / refresh
-  // re-fetches from the server until a real clear endpoint exists; the empty
-  // state below reflects the cleared session immediately.
-  const [cleared, setCleared] = useState(false);
+  // Durable clear. There is no backend feed-delete endpoint yet, so "Clear"
+  // (a) marks everything read (which the server persists) and (b) records a
+  // per-user "cleared up to this timestamp" watermark in localStorage. Every
+  // load then hides items at or older than that watermark, so the cleared state
+  // survives tab switches and refreshes — anything genuinely NEWER than the last
+  // clear still shows. Replaces the old session-only boolean that reset on
+  // remount (the bug: switching tabs and back re-showed cleared notifications).
+  const [clearedAt, setClearedAt] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+
+  const clearedStorageKey = user?.uid
+    ? `hushh:feed-cleared-at:${user.uid}`
+    : null;
+
+  // Hydrate the persisted watermark once the signed-in user is known. Reading in
+  // an effect (not the initializer) avoids any SSR/hydration mismatch, since the
+  // feed only renders meaningfully after auth resolves client-side.
+  useEffect(() => {
+    if (!clearedStorageKey) return;
+    try {
+      setClearedAt(window.localStorage.getItem(clearedStorageKey));
+    } catch {
+      // Storage can be disabled; fall back to no persisted clear.
+    }
+  }, [clearedStorageKey]);
 
 
   const { actionables } = useFeedActionables();
@@ -121,13 +139,23 @@ export function FeedPage() {
     // twice (duplicate React keys) if it reappears across the seam.
     const seen = new Set<string>();
     const merged: FeedItem[] = [];
+    // Drop anything at or older than the persisted "cleared" watermark so a
+    // prior Clear survives tab switches and refreshes.
+    const clearedMs = clearedAt ? new Date(clearedAt).getTime() : null;
     for (const item of [...(data?.items ?? []), ...additionalItems]) {
       if (seen.has(item.id)) continue;
+      if (
+        clearedMs !== null &&
+        Number.isFinite(clearedMs) &&
+        new Date(item.created_at).getTime() <= clearedMs
+      ) {
+        continue;
+      }
       seen.add(item.id);
       merged.push(item);
     }
     return merged;
-  }, [data, additionalItems]);
+  }, [data, additionalItems, clearedAt]);
   const error = resourceError
     ? "Feed could not be loaded right now."
     : loadMoreError;
@@ -168,14 +196,24 @@ export function FeedPage() {
       dispatchFeedStateChanged();
       setAdditionalItems([]);
       setNextCursor(null);
-      setCleared(true);
+      // Persist the clear as a timestamp watermark so it survives tab
+      // switches and refreshes (the old session flag reset on remount).
+      const nowIso = new Date().toISOString();
+      setClearedAt(nowIso);
+      if (clearedStorageKey) {
+        try {
+          window.localStorage.setItem(clearedStorageKey, nowIso);
+        } catch {
+          // Storage disabled: clear still applies for this session.
+        }
+      }
       toast.success("Feed notifications cleared");
     } catch {
       toast.error("Failed to clear feed notifications");
     } finally {
       setClearing(false);
     }
-  }, [user, clearing, items]);
+  }, [user, clearing, items, clearedStorageKey]);
 
 
   // Present strictly newest-first by wall-clock time, then club into day
@@ -192,7 +230,7 @@ export function FeedPage() {
   const hasActionables = actionables.length > 0;
   // Once cleared this session, the loaded history rows are hidden even though
   // `items` still holds them (no backend delete yet), so the empty state shows.
-  const hasHistory = !cleared && items.length > 0;
+  const hasHistory = items.length > 0;
   const showEmpty = !loading && !hasActionables && !hasHistory && !error;
   // The Clear affordance only makes sense when there is dismissable history
   // showing. Actionables ("Needs you") are deliberately NOT cleared: they are
@@ -232,7 +270,7 @@ export function FeedPage() {
 
           {showEmpty ? (
             <div role="status" className="px-4 py-16 text-center text-sm text-muted-foreground">
-              {cleared ? "No notifications yet." : "You're all caught up."}
+              {clearedAt ? "No notifications yet." : "You're all caught up."}
             </div>
           ) : null}
 
@@ -263,7 +301,7 @@ export function FeedPage() {
               ))
             : null}
 
-          {nextCursor ? (
+          {hasHistory && nextCursor ? (
             <div className="flex justify-center py-3">
               <Button
                 type="button"

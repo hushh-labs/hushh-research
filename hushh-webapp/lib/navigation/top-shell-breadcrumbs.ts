@@ -808,6 +808,17 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
+  if (pathname === ROUTES.CALENDAR) {
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    return {
+      backHref:
+        resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Calendar" }],
+    };
+  }
+
   if (pathname === ROUTES.PKM) {
     // Origin-aware so a setup-hub-opened surface (?from=/one/setup) retraces to
     // the hub; no marker → One home (unchanged).

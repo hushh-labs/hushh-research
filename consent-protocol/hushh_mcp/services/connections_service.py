@@ -152,6 +152,28 @@ class ConnectionsService:
         result = get_db().execute_raw(sql, params or {})
         return result.data or []
 
+    def _display_name_for(self, user_id: str) -> str | None:
+        """Best-effort full display name for a user, for feed copy only.
+
+        Reads the same `actor_identity_cache.display_name` the connection and
+        directory queries already surface, so this never widens what the app
+        exposes about a mutual connection. Returns None when unresolved, letting
+        the feed fall back to its safe generic line.
+        """
+        uid = (user_id or "").strip()
+        if not uid:
+            return None
+        try:
+            row = self._execute_one(
+                "SELECT display_name FROM actor_identity_cache WHERE user_id = :uid",
+                {"uid": uid},
+            )
+        except Exception:  # noqa: BLE001 - name is cosmetic; never break the action
+            logger.exception("connections.feed_display_name_lookup_failed")
+            return None
+        name = str((row or {}).get("display_name") or "").strip()
+        return name or None
+
     @staticmethod
     def _row_mapping(row: Any) -> dict[str, Any]:
         """Normalize SQLAlchemy and lightweight-test rows at one boundary."""
@@ -1493,11 +1515,15 @@ class ConnectionsService:
         # caller to retry an already-authorized connection transition.
         for owner, counterpart in ((user_id, requester), (requester, user_id)):
             try:
+                counterpart_metadata: dict[str, Any] = {"counterpart_user_id": counterpart}
+                counterpart_name = self._display_name_for(counterpart)
+                if counterpart_name:
+                    counterpart_metadata["counterpart_label"] = counterpart_name
                 FeedService().record_event(
                     user_id=owner,
                     source_domain="connections",
                     event_type="connection_accepted",
-                    metadata={"counterpart_user_id": counterpart},
+                    metadata=counterpart_metadata,
                 )
             except Exception:  # noqa: BLE001 - feed projection cannot roll back consent
                 logger.exception("connections.accepted_feed_projection_failed")
@@ -1583,11 +1609,15 @@ class ConnectionsService:
             )
             requester = str(req.get("requester_user_id"))
         try:
+            rejected_metadata: dict[str, Any] = {"counterpart_user_id": user_id}
+            rejected_name = self._display_name_for(user_id)
+            if rejected_name:
+                rejected_metadata["counterpart_label"] = rejected_name
             FeedService().record_event(
                 user_id=requester,
                 source_domain="connections",
                 event_type="connection_rejected",
-                metadata={"counterpart_user_id": user_id},
+                metadata=rejected_metadata,
             )
         except Exception:  # noqa: BLE001 - projection cannot roll back rejection
             logger.exception("connections.rejected_feed_projection_failed")
@@ -1853,16 +1883,26 @@ class ConnectionsService:
                 {"id": (connection_id or "").strip()},
             )
         if conn:
+            user_a_id = str(user_a or "")
+            user_b_id = str(user_b or "")
+            user_a_name = self._display_name_for(user_a_id)
+            user_b_name = self._display_name_for(user_b_id)
+            a_metadata: dict[str, Any] = {"counterpart_user_id": user_b_id}
+            if user_b_name:
+                a_metadata["counterpart_label"] = user_b_name
+            b_metadata: dict[str, Any] = {"counterpart_user_id": user_a_id}
+            if user_a_name:
+                b_metadata["counterpart_label"] = user_a_name
             FeedService().record_event(
-                user_id=user_a,
+                user_id=user_a_id,
                 source_domain="connections",
                 event_type="connection_revoked",
-                metadata={"counterpart_user_id": user_b},
+                metadata=a_metadata,
             )
             FeedService().record_event(
-                user_id=user_b,
+                user_id=user_b_id,
                 source_domain="connections",
                 event_type="connection_revoked",
-                metadata={"counterpart_user_id": user_a},
+                metadata=b_metadata,
             )
         return {"removed": 1 if conn else 0}

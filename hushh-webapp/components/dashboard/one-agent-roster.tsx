@@ -6,7 +6,7 @@ import { ChevronRight, Grid2X2, List, Search } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { LargeTitle } from "@/components/app-ui/typography";
+
 import {
   getOneSetupCapability,
   isOneCapabilityEnabled,
@@ -401,30 +401,47 @@ function metricLabelClassName(tone: AgentMetricTone): string {
 function AgentMetric({
   mode,
   compact = false,
+  align = "right",
 }: {
   mode: OneAgentMode;
   compact?: boolean;
+  /**
+   * `left`/`right` are the list-view alignments. `grid` is the dashboard card:
+   * one centered line — value + label together at a smaller size — that never
+   * wraps or clips (labels shrink to fit; see the 11px label class below).
+   */
+  align?: "right" | "left" | "grid";
 }) {
   const isTopWinner =
     mode.id === "finance" && mode.primaryMetric.label.endsWith("%");
   const tone = resolveMetricTone(mode);
   const valueTone = isTopWinner ? "default" : tone;
   const labelTone = isTopWinner ? "positive" : tone;
+  const isGrid = align === "grid";
 
   return (
     <span
       data-testid={isTopWinner ? "one-finance-top-winner-kpi" : undefined}
       className={cn(
-        "inline-flex w-full min-w-0 items-baseline gap-1 text-right",
-        compact
-          ? "max-w-full flex-wrap justify-center"
-          : "justify-end whitespace-nowrap",
+        "inline-flex w-full min-w-0 items-baseline gap-1",
+        isGrid
+          ? "justify-center whitespace-nowrap text-center"
+          : align === "left"
+            ? "justify-start text-left"
+            : "text-right",
+        !isGrid &&
+          (compact
+            ? "max-w-full flex-wrap justify-center"
+            : align === "left"
+              ? "flex-wrap"
+              : "justify-end whitespace-nowrap"),
       )}
     >
       <span
         data-ui-role="body-strong"
         className={cn(
-          "shrink-0 tabular-nums text-[15px] font-semibold leading-5 tracking-normal",
+          "shrink-0 tabular-nums font-semibold tracking-normal",
+          isGrid ? "text-[11px] leading-4" : "text-[15px] leading-5",
           metricValueClassName(valueTone),
         )}
       >
@@ -433,10 +450,12 @@ function AgentMetric({
       <span
         data-ui-role="trailing-value"
         className={cn(
-          "min-w-0 text-[15px] font-normal leading-5 tracking-normal",
-          compact
-            ? "min-w-0 whitespace-normal text-center [overflow-wrap:anywhere]"
-            : "truncate",
+          "min-w-0 font-normal tracking-normal",
+          isGrid ? "truncate text-[11px] leading-4" : "text-[15px] leading-5",
+          !isGrid &&
+            (compact
+              ? "whitespace-normal text-center [overflow-wrap:anywhere]"
+              : "truncate"),
           metricLabelClassName(labelTone),
         )}
       >
@@ -460,7 +479,12 @@ function AgentGridItem({
       data-testid={`one-agent-tile-${mode.id}`}
       title={mode.description}
       className={cn(
-        "group relative flex min-h-[8.25rem] min-w-0 w-full flex-col items-center justify-start gap-2 overflow-hidden rounded-[12px] px-2.5 py-3 text-center",
+        // Reference design: centered card — large pastel icon tile, then a
+        // bold title, then a single-line KPI ("1 action due"). `min-w-0` +
+        // consistent gaps keep every cell's icon/title/KPI on the same
+        // baseline across columns. Colors are unchanged (the tone logic in
+        // AgentMetric still drives them).
+        "group relative flex min-h-[9.5rem] min-w-0 w-full flex-col items-center justify-start gap-2.5 overflow-hidden rounded-[16px] px-2 py-3.5 text-center",
         "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[color:var(--app-card-surface-compact)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-inset active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
         className,
@@ -472,19 +496,19 @@ function AgentGridItem({
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
         isActive={mode.statusTone !== "muted"}
-        size="roster"
+        size="roster-lg"
         treatment="profile"
         glyphContrast="default"
         className="relative z-10"
       />
-      <span className="relative z-10 min-w-0">
+      <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-1 text-center">
         <span
-          className="ui-text-row-label block truncate"
-          data-ui-role="body"
+          className="block w-full truncate text-center text-[16px] font-semibold leading-5 tracking-[-0.01em] text-[#1D1D1F] dark:text-[#F5F5F7]"
+          data-ui-role="body-strong"
         >
           {mode.title}
         </span>
-        <AgentMetric mode={mode} compact />
+        <AgentMetric mode={mode} align="grid" />
       </span>
       <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
@@ -637,9 +661,17 @@ export function OneAgentRoster({
       className="mx-auto w-full max-w-[900px]"
     >
       <div className="mb-5 flex items-center justify-between gap-3">
-        <LargeTitle as="h2" id="one-agents-heading" className="min-w-0 truncate">
+        {/* Compact, tracked, gray section label per the reference design.
+            Casing stays natural ("Agents (N)"): the design-system guard
+            (verify-apple-hierarchy) requires shared/system UI to preserve
+            natural casing, so no letter-case transform is applied here. */}
+
+        <h2
+          id="one-agents-heading"
+          className="min-w-0 truncate text-[14px] font-bold tracking-[0.02em] text-[#8E8E93]"
+        >
           Agents ({modes.length})
-        </LargeTitle>
+        </h2>
         <AgentRosterViewToggle value={view} onChange={selectView} />
       </div>
       <label className="relative mb-4 block">

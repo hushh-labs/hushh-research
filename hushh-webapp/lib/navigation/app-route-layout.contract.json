@@ -87,6 +87,8 @@
       "primaryActionId": "setup.open_connections",
       "happyPathActionIds": [
         "setup.open_connections",
+        "setup.open_gmail",
+        "setup.open_calendar",
         "setup.open_location",
         "setup.open_email",
         "setup.open_finance",
@@ -574,7 +576,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.gmail",
-      "purpose": "Gmail is paused while its dormant connection route is retained for a future explicit enablement.",
+      "purpose": "Connect Gmail for receipt sync and use purchase-memory review through its dedicated agent workspace.",
       "screen": "gmail",
       "entryCue": "",
       "proactivity": "ambient",
@@ -592,6 +594,42 @@
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
       "nextRoute": null,
       "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/calendar",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/calendar/calendar-agent-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceCard"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.calendar",
+      "purpose": "Connect Google Calendar and use the Calendar Agent for schedule summaries, availability, and confirmed meeting changes.",
+      "screen": "calendar",
+      "entryCue": "Connect Calendar when you want schedule help from One.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Calendar changes happen only after the person confirms the exact proposal in chat.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -1606,23 +1644,67 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.setup.gmail",
-      "purpose": "Gmail setup is paused while its dormant capability route is retained for a future explicit enablement.",
+      "purpose": "Connect Gmail for receipt sync, then explicitly finish or skip Gmail setup.",
       "screen": "one_setup_gmail",
-      "entryCue": "",
-      "proactivity": "ambient",
-      "primaryActionId": null,
-      "happyPathActionIds": [],
+      "entryCue": "Connect Gmail when you are ready, or say skip Gmail setup.",
+      "proactivity": "on_entry",
+      "primaryActionId": "setup.connect_gmail",
+      "happyPathActionIds": [
+        "setup.connect_gmail",
+        "setup.finish_gmail",
+        "setup.skip_gmail"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
-        "cancelled": "Explain that Gmail setup is paused.",
-        "failed": "Explain that Gmail setup is paused.",
-        "timeout": "Explain that Gmail setup is paused.",
-        "callbackError": "Explain that Gmail setup is paused.",
+        "cancelled": "Keep Gmail setup open and preserve the active goal.",
+        "failed": "Explain that Gmail still needs a verified connection before it can finish.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Use the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "The paused setup route has no executable actions.",
+      "completionBoundary": "Gmail setup finishes only after a verified connection and the setup hub route settles.",
       "nextRoute": null,
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/setup/calendar",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/calendar/calendar-agent-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SetupCompletionFooter"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.calendar",
+      "purpose": "Connect Google Calendar, then explicitly finish or skip Calendar setup.",
+      "screen": "one_setup_calendar",
+      "entryCue": "Connect Calendar when you are ready, or say skip Calendar setup.",
+      "proactivity": "on_entry",
+      "primaryActionId": "setup.connect_calendar",
+      "happyPathActionIds": [
+        "setup.connect_calendar",
+        "setup.finish_calendar",
+        "setup.skip_calendar"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Keep Calendar setup open and preserve the active goal.",
+        "failed": "Explain that Calendar still needs a verified connection before it can finish.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Use the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Calendar setup finishes only after a verified connection and the setup hub route settles.",
+      "nextRoute": "/one/setup",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
@@ -3275,6 +3357,87 @@
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
       "nextRoute": null,
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/profile/google/oauth/return",
+    "mode": "redirect",
+    "exemptionReason": "Legacy Google Calendar OAuth callback; the canonical callback remains under /one/profile/google/oauth/return.",
+    "voicePlaybook": {
+      "playbookId": "route.legacy.profile.google.oauth.return",
+      "purpose": "Finish the verified Google Calendar authorization callback without exposing credentials.",
+      "screen": "calendar",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Return to Calendar and explain that the connection was not completed.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Return to Calendar without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The callback completes only after the server verifies state and stores the connection.",
+      "nextRoute": "/one/calendar",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/google/oauth/return",
+    "mode": "redirect",
+    "exemptionReason": "OAuth callback completes Calendar authorization and returns to the Calendar agent.",
+    "voicePlaybook": {
+      "playbookId": "route.profile.google.oauth.return",
+      "purpose": "Finish the verified Google Calendar authorization callback without exposing credentials.",
+      "screen": "calendar",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Return to Calendar and explain that the connection was not completed.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Return to Calendar without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The callback completes only after the server verifies state and stores the connection.",
+      "nextRoute": "/one/calendar",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/integrations",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility-only redirect; Calendar is now a first-class One agent at /one/calendar.",
+    "voicePlaybook": {
+      "playbookId": "route.profile.integrations",
+      "purpose": "Redirect a legacy Connected apps bookmark to Calendar without retaining a profile integration surface.",
+      "screen": "calendar",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Return to Calendar and retain a safe retry.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Return to Calendar without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the Calendar route settles.",
+      "nextRoute": "/one/calendar",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }

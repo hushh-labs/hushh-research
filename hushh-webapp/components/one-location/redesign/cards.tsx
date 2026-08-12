@@ -71,7 +71,12 @@ export function TrustedPersonCard({
       className={cn(
         SUBCARD_SURFACE,
         "flex items-center gap-3 p-3.5",
-        selected && "border-[color:var(--app-accent)]/50 ring-1 ring-[color:var(--app-accent-ring)]",
+        // `ring-inset` draws the selection outline INSIDE the card bounds so a
+        // parent scroll/`overflow-hidden` container can never clip its edges or
+        // corners (the reported "incomplete blue outline"). `ring-2` gives a
+        // clean, complete 360° stroke; the border tints the same edge.
+        selected &&
+          "border-[color:var(--app-accent)] ring-2 ring-inset ring-[color:var(--app-accent)]",
       )}
     >
       <Avatar initials={initialsFrom(name)} />
@@ -300,8 +305,8 @@ export function SharedWithMeCard({
           </p>
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
             <p className={cn(MUTED_TEXT, "min-w-0 truncate")}>{statusLine}</p>
-            <StatusPill tone="live" className="shrink-0">
-              Live
+            <StatusPill tone="ready" className="shrink-0">
+              Access active
             </StatusPill>
           </div>
         </div>

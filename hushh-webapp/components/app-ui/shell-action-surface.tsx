@@ -16,7 +16,10 @@ import { cn } from "@/lib/utils";
 // carry the muted eyebrow tone on the stroke and warm to full foreground on
 // hover; pill controls add horizontal padding + label text.
 const shellActionSurfaceVariants = cva(
-  "shell-action-surface group/shell-action relative isolate inline-flex overflow-hidden rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] transition-[color,background-color,transform] duration-200 hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
+  // `touch-manipulation` removes the iOS ~300ms double-tap delay that made the
+  // top-bar back/close controls feel like they needed a second tap. Kept on the
+  // base so every shell control (back, close, theme, profile) gets it.
+  "shell-action-surface group/shell-action relative isolate inline-flex touch-manipulation overflow-hidden rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] transition-[color,background-color,transform] duration-200 hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
   {
     variants: {
       variant: {

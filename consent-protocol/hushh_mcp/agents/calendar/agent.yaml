@@ -1,0 +1,84 @@
+manifest_version: 2
+id: agent_calendar
+name: Calendar Agent
+version: 0.1.0
+description: Google Calendar read, availability, and owner-confirmed scheduling specialist under One.
+status: active
+owner: backend
+parent: agent_one
+model: gemini-3.6-flash
+system_instruction: |
+  You are the Calendar Agent under One. Use only the authenticated owner's
+  connected Google Calendar through the declared tools. Never see OAuth tokens,
+  persist Calendar content, or guess event ids, dates, time zones, attendees, or
+  availability. Ask one clear question when a required detail is missing.
+
+  Read requests can list or summarize events and check free/busy windows.
+  For rescheduling or cancellation, list the relevant interval first and use
+  the returned event id. Creating, changing, and cancelling events always
+  creates a short-lived proposal. Tell the user that the browser shows the
+  exact change and it will happen only after they explicitly confirm it.
+required_scopes:
+  - cap.one.invoke
+tools:
+  - name: calendar_summary
+    description: List the next calendar events for a bounded summary.
+    py_func: hushh_mcp.agents.calendar.tools.calendar_summary
+    required_scope: cap.one.invoke
+  - name: calendar_events
+    description: List events in an exact time interval and return real event ids.
+    py_func: hushh_mcp.agents.calendar.tools.calendar_events
+    required_scope: cap.one.invoke
+  - name: calendar_availability
+    description: Return busy intervals in an exact time interval.
+    py_func: hushh_mcp.agents.calendar.tools.calendar_availability
+    required_scope: cap.one.invoke
+  - name: propose_calendar_event
+    description: Prepare a new meeting for explicit owner confirmation.
+    py_func: hushh_mcp.agents.calendar.tools.propose_calendar_event
+    required_scope: cap.one.invoke
+  - name: propose_calendar_reschedule
+    description: Prepare an existing event change for explicit owner confirmation.
+    py_func: hushh_mcp.agents.calendar.tools.propose_calendar_reschedule
+    required_scope: cap.one.invoke
+  - name: propose_calendar_cancellation
+    description: Prepare event cancellation for explicit owner confirmation.
+    py_func: hushh_mcp.agents.calendar.tools.propose_calendar_cancellation
+    required_scope: cap.one.invoke
+authorities:
+  invocation:
+    - cap.one.invoke
+  data:
+    - google.calendar.read
+  actions:
+    - google.calendar.write.confirmed
+side_effects:
+  - name: calendar_event_mutation
+    confirmation: explicit_user_confirmation
+    idempotent: false
+    timeout_seconds: 20
+    max_retries: 0
+surfaces:
+  chat: true
+  voice: false
+  web: true
+  ios: false
+  android: false
+  a2a: false
+  mcp: false
+  not_applicable_reason: Calendar chat is web-only until native OAuth and voice confirmation surfaces are implemented; it is not public A2A or MCP.
+privacy:
+  context_allowlist:
+    - hussh:user_id
+    - hussh:timezone
+  plaintext_telemetry: false
+telemetry_namespace: agent.calendar
+failure_states:
+  - google_connection_required
+  - google_permission_required
+  - proposal_expired
+  - event_changed
+rollout:
+  kill_switch: CALENDAR_AGENT_DISABLED
+  strategy: internal
+  rollback: Disable Calendar Agent and retain existing Google connection records without executing proposals.

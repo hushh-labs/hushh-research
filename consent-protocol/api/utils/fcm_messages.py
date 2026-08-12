@@ -12,6 +12,35 @@ ONE_LOCATION_SMS_EMERGENCY_ANDROID_CHANNEL = "one_location_sms_emergency_v1"
 ONE_LOCATION_SMS_EMERGENCY_IOS_SOUND = "one_location_sms_alarm.wav"
 
 
+def _webpush_link(request_url: str) -> str | None:
+    """Absolute HTTPS target for WebpushFCMOptions, or None when impossible.
+
+    FCM rejects a non-HTTPS ``WebpushFCMOptions.link`` outright, and that
+    rejection fails the whole ``messaging.send`` -- so a relative deep link
+    (every caller passes one) silently killed the entire notification rather
+    than just its click target. Callers keep passing app-relative paths, so
+    resolve them against the configured frontend origin here, and drop
+    fcm_options when the result still is not HTTPS (local http dev). The
+    click target survives either way: WebpushNotification.data carries the
+    same URL for the service worker to handle.
+    """
+
+    url = str(request_url or "").strip()
+    if url.lower().startswith("https://"):
+        return url
+    if not url.startswith("/"):
+        return None
+    try:
+        from hushh_mcp.services.consent_request_links import frontend_origin
+
+        origin = str(frontend_origin() or "").strip().rstrip("/")
+    except Exception:  # noqa: BLE001 - never let link resolution break a push
+        return None
+    if not origin.lower().startswith("https://"):
+        return None
+    return f"{origin}{url}"
+
+
 def _is_one_location_sms_emergency(data: dict[str, str]) -> bool:
     profile = str(data.get("notification_profile") or "").strip().lower()
     if profile == ONE_LOCATION_SMS_EMERGENCY_PROFILE:
@@ -40,6 +69,7 @@ def build_push_message(
     notification = messaging.Notification(title=title, body=body) if show_alert else None
 
     webpush = None
+    webpush_link = _webpush_link(request_url)
     if show_alert and normalized_platform == "web":
         webpush = messaging.WebpushConfig(
             headers={"Urgency": "high"},
@@ -53,7 +83,7 @@ def build_push_message(
                 silent=False,
                 vibrate=[240, 120, 240, 120, 520] if is_sms_emergency else None,
             ),
-            fcm_options=messaging.WebpushFCMOptions(link=request_url),
+            fcm_options=(messaging.WebpushFCMOptions(link=webpush_link) if webpush_link else None),
         )
 
     android = None

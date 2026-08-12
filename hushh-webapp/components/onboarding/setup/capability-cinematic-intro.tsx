@@ -2,7 +2,6 @@
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
-import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
 import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import { Button } from "@/lib/morphy-ux/button";
@@ -95,11 +94,14 @@ function fallbackCopy(
 export function CapabilityCinematicIntroGate({
   capabilityId,
   children,
+  introSupplement,
   embedded = false,
-  routeOwnsTopOffset = false,
+  routeOwnsTopOffset: _routeOwnsTopOffset = false,
 }: {
   capabilityId: CapabilityCinematicIntroId;
   children: ReactNode;
+  /** Optional capability-specific value summary shown only in the visual prologue. */
+  introSupplement?: ReactNode;
   /** The owning flow already provides its canonical FullscreenFlowShell. */
   embedded?: boolean;
   /** The standard route shell already contributes the fixed-header clearance. */
@@ -141,6 +143,22 @@ export function CapabilityCinematicIntroGate({
     setShouldFocusCapabilityBody(false);
   }, [showIntro, shouldFocusCapabilityBody]);
 
+  // Lock body scroll while the intro is visible to remove any excess blank
+  // space or tiny scrollbars caused by layout math mismatches with the voice bar.
+  useLayoutEffect(() => {
+    if (!showIntro) return;
+
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = originalBodyOverflow;
+      document.documentElement.style.overflow = originalHtmlOverflow;
+    };
+  }, [showIntro]);
+
   // The prologue and the real capability body are two semantic screens inside
   // one route. Give the incoming body the same canonical in-route enter that
   // every controlled setup step uses; returning a raw fragment here made
@@ -160,6 +178,8 @@ export function CapabilityCinematicIntroGate({
 
   const premise = copy.introPremise ?? copy.setupTitle;
   const promise = copy.introPromise ?? copy.setupBlurb;
+  const introLayoutClass =
+    "motion-step-enter fixed inset-0 z-[5] mx-auto flex w-full flex-col justify-center items-center px-4 pb-[calc(var(--app-bottom-inset,0px)+4rem)] pt-[var(--top-shell-reserved-height,60px)] text-center overflow-hidden";
 
   const content = (
     <section
@@ -170,7 +190,7 @@ export function CapabilityCinematicIntroGate({
       // subtract it from the min-height so the block clears the native header
       // while staying vertically balanced. `env(safe-area-inset-top)` is 0 on
       // web/desktop, so this is a no-op there and only affects notched/native.
-      className="motion-step-enter relative mx-auto flex min-h-[calc(100dvh-16rem-env(safe-area-inset-top))] w-full max-w-[36rem] flex-col items-center justify-center pt-[max(2rem,env(safe-area-inset-top))] text-center"
+      className={introLayoutClass}
       aria-labelledby={`capability-intro-${capabilityId}`}
       data-capability-cinematic-intro={capabilityId}
     >
@@ -220,6 +240,9 @@ export function CapabilityCinematicIntroGate({
       <p className="mt-5 max-w-[34rem] text-pretty type-title3 text-muted-foreground">
         {promise}
       </p>
+      {introSupplement ? (
+        <div className="mt-8 w-full max-w-[34rem]">{introSupplement}</div>
+      ) : null}
       <div className="mt-10 w-full max-w-[30rem] self-center">
         <Button
           type="button"
@@ -243,12 +266,5 @@ export function CapabilityCinematicIntroGate({
 
   if (embedded) return content;
 
-  return (
-    <FullscreenFlowShell
-      width="reading"
-      className={routeOwnsTopOffset ? "!pt-0" : undefined}
-    >
-      {content}
-    </FullscreenFlowShell>
-  );
+  return content;
 }

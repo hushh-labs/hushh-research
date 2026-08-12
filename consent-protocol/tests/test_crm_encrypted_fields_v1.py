@@ -166,12 +166,12 @@ async def test_encrypted_fields_partner_call_replaces_registry_arguments_and_sen
 
 
 def test_encrypted_fields_profile_migration_is_release_managed_and_default_off() -> None:
-    migration = (ROOT / "db/migrations/144_crm_encrypted_fields_v1.sql").read_text("utf-8")
-    retirement = (ROOT / "db/migrations/146_retire_crm_zk_runtime_profiles.sql").read_text("utf-8")
+    migration = (ROOT / "db/migrations/145_crm_encrypted_fields_v1.sql").read_text("utf-8")
+    retirement = (ROOT / "db/migrations/147_retire_crm_zk_runtime_profiles.sql").read_text("utf-8")
     manifest = json.loads((ROOT / "db/release_migration_manifest.json").read_text("utf-8"))
 
-    assert "144_crm_encrypted_fields_v1.sql" in manifest["ordered_migrations"]
-    assert "146_retire_crm_zk_runtime_profiles.sql" in manifest["ordered_migrations"]
+    assert "145_crm_encrypted_fields_v1.sql" in manifest["ordered_migrations"]
+    assert "147_retire_crm_zk_runtime_profiles.sql" in manifest["ordered_migrations"]
     assert "crm_encrypted_fields_v1_enabled BOOLEAN NOT NULL DEFAULT FALSE" in migration
     assert "environment = 'sandbox'" in migration
     assert "crm-encrypted-fields.v1" in migration
