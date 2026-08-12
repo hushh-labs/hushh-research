@@ -16,9 +16,9 @@ import {
   MapPin,
   Share2,
   UserPlus,
-  Users,
 } from "lucide-react";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import locationOnboardingContract from "@/lib/onboarding/one-location-onboarding.contract.json";
@@ -102,6 +102,8 @@ type OneLocationOnboardingFlowProps = {
    * matters, because a screen that disappears because a caller forgot to pass
    * a handler is the bug this flow just removed.
    */
+  /** Where to centre the finale map. Null renders the stylised fallback. */
+  mapPoint?: { lat: number; lng: number } | null;
   contactsStepAvailable?: boolean;
   /**
    * Read the address book and return whichever contacts already have One.
@@ -1489,8 +1491,22 @@ function ContactsScreen({
   );
 }
 
-function InviteScreen({
+/**
+ * The last thing a new person sees: themselves, on a real map.
+ *
+ * This screen used to be a wall -- a code to copy before you were allowed
+ * through. That is an errand, not a reason to stay. The map is the product, so
+ * the map is the finale: your own pin lands, an empty seat appears beside it,
+ * and the circle code sits underneath as the way to fill that seat.
+ *
+ * It deliberately does not re-list Share / Check in / SOS. The features screen
+ * already introduces those; saying them twice in a four-screen flow turns the
+ * payoff into a summary slide. What is new here is the map, and the one thing
+ * the map cannot show on its own -- that it is empty until someone joins.
+ */
+function ReadyScreen({
   currentUserName,
+  mapPoint,
   invite,
   loading,
   error,
@@ -1507,6 +1523,7 @@ function InviteScreen({
   settlementRetryCount,
 }: {
   currentUserName: string;
+  mapPoint: { lat: number; lng: number } | null;
   invite: OnboardingCircleInvite | null;
   loading: boolean;
   error: string | null;
@@ -1526,41 +1543,74 @@ function InviteScreen({
   const formattedCode = invite ? formatCircleCode(invite.code) : "";
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
-      <header className="flex h-16 shrink-0 items-center justify-between px-5 pt-2">
+    <div
+      className="relative flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]"
+      data-testid="one-location-onboarding-ready-surface"
+    >
+      {/* The map gets its own band rather than sitting behind the copy.
+          A translucent scrim over a live map is a contrast gamble that depends
+          on whatever streets happen to be under the text -- dense city tiles
+          win, and the copy becomes unreadable. Giving the map the top third and
+          the words an opaque sheet means both are always legible, and it is the
+          layout every map product converges on for the same reason. */}
+      <OnboardingLiveMap
+        point={mapPoint}
+        className="h-[34dvh] max-h-[300px] min-h-[190px] w-full shrink-0"
+      />
+
+      {/* Floats over the map: the controls stay reachable without stealing a
+          band of the map, and both sit on their own translucent chips. */}
+      <header className="absolute inset-x-0 top-0 z-20 flex h-16 shrink-0 items-center justify-between px-5 pt-2">
         <button
           type="button"
           onClick={onBack}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-white/85 text-[#1f2b3d] shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[#1c212a]/85 dark:text-white"
           aria-label="Go back"
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
-        <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
-          <Users className="h-7 w-7" strokeWidth={2} />
+        <span className="rounded-full bg-white/85 px-1 shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[#1c212a]/85">
+          <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
         </span>
-        <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[#f5f7fb]">
-          Share your circle code
+      </header>
+
+      <div className="relative z-10 -mt-6 min-h-0 flex-1 overflow-y-auto rounded-t-[28px] bg-white px-6 pb-4 pt-6 shadow-[0_-8px_24px_rgba(24,57,91,0.10)] dark:bg-[#14171d]">
+        <h1
+          className="ui-text-agent-title text-[#151b26] dark:!text-[#f5f7fb]"
+          data-one-ready-title
+        >
+          You&apos;re on the map, {firstName}.
         </h1>
         <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
-          Send this code to your loved ones. When they set up One, they enter it
-          under &ldquo;Join a circle&rdquo; to connect with you.
+          Only you can see this until you choose to share it.
+        </p>
+
+        <p
+          className="mt-6 flex items-center gap-2 text-[14px] font-medium leading-5 text-[#5c626c] dark:text-[#aeb8c7]"
+          data-testid="onboarding-ready-empty-seat"
+          data-one-ready-seat
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-[color:var(--app-accent)]/45">
+            <UserPlus
+              className="h-3.5 w-3.5 text-[color:var(--app-accent)]/70"
+              strokeWidth={2.2}
+            />
+          </span>
+          Your people show up here once they join.
         </p>
 
         <div
-          className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center shadow-none dark:border-white/[0.08] dark:bg-[#1c212a]"
+          className="mt-5 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-white/[0.08] dark:bg-[#1c212a]"
           data-testid="one-location-onboarding-invite-card"
+          data-one-ready-code
         >
           {loading ? (
-            <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86]">
+            <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86]">
               <Loader2 className="h-5 w-5 animate-spin" /> Preparing your circle
               code
             </div>
           ) : error ? (
-            <div className="flex min-h-32 flex-col items-center justify-center gap-3 text-center">
+            <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
               <p className="max-w-[260px] text-sm leading-5 text-[#6f7580]">
                 {error}
               </p>
@@ -1574,28 +1624,23 @@ function InviteScreen({
             </div>
           ) : invite ? (
             <>
-              <p className="text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73] dark:text-[#aeb8c7]">
-                {invite.circleName}
+              <p className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[#aeb8c7]">
+                Bring your people to {invite.circleName}
               </p>
               <p
-                // Scales with the viewport instead of sitting at a fixed 30px.
-                // The code is 14 glyphs of wide-tracked monospace, which at
-                // 30px is wider than the card on a 390px phone, and this is the
-                // one thing on the screen that must stay readable in one line.
-                className="mt-3 select-all whitespace-nowrap font-mono text-[clamp(20px,6vw,30px)] font-bold uppercase leading-none tracking-[0.12em] text-[#151b26] dark:text-[#f5f7fb]"
+                className="mt-2 select-all whitespace-nowrap font-mono text-[clamp(20px,6vw,28px)] font-bold uppercase leading-none tracking-[0.12em] text-[#151b26] dark:text-[#f5f7fb]"
                 data-testid="one-location-onboarding-invite-code"
               >
                 {formattedCode}
               </p>
-              <p className="mt-3 text-[12px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
-                Expires in 72 hours. You can always get a fresh code later from
-                your circle.
+              <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[#8d99a8]">
+                Expires in 72 hours. You can get a fresh one any time.
               </p>
-              <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="mt-4 grid grid-cols-2 gap-3">
                 <button
                   type="button"
                   onClick={onCopy}
-                  className="press-scale inline-flex h-12 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                  className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
                 >
                   {copied ? (
                     <Check className="h-5 w-5" strokeWidth={2.5} />
@@ -1607,7 +1652,7 @@ function InviteScreen({
                 <button
                   type="button"
                   onClick={onShare}
-                  className="press-scale inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)]"
+                  className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)]"
                 >
                   <Share2 className="h-5 w-5" strokeWidth={2} />
                   Share
@@ -1615,22 +1660,15 @@ function InviteScreen({
               </div>
             </>
           ) : (
-            // No code and nothing in flight: the card must still say something.
-            // The screen is terminal, so a blank box here would read as a
-            // broken screen right before the person taps to finish.
-            <p className="flex min-h-32 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[#8d99a8]">
+            <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[#8d99a8]">
               Your circle code will be ready in One. You can share it any time
               from your circle.
             </p>
           )}
         </div>
-
-        <p className="mx-auto mt-5 max-w-[350px] text-center text-[12px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
-          Joining connects you as {firstName}&apos;s circle. Location and SMS
-          always stay private until each person chooses to share.
-        </p>
       </div>
-      <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3">
+
+      <footer className="relative z-10 shrink-0 bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 dark:bg-[#14171d]">
         {settlementRetryCount > 0 ? (
           <p
             className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]"
@@ -1639,18 +1677,33 @@ function InviteScreen({
             That didn&apos;t save. Tap again to finish setting up Location.
           </p>
         ) : null}
-        {/* Always the completion CTA, never "Skip for now". A code that failed
-            to load is not a reason to record the whole capability as skipped --
-            the person granted permission and saved a place, so finishing is the
-            honest outcome. Retrying the code lives inside the card above. */}
-        <PrimaryButton
-          onClick={onContinue}
-          busy={completing}
-          disabled={leaving}
-        >
+        {/* Always the completion CTA. A code that failed to load is not a
+            reason to record the whole capability as skipped -- the person
+            granted permission and saved a place, so finishing is the honest
+            outcome. Retrying the code lives inside the card above. */}
+        <PrimaryButton onClick={onContinue} busy={completing} disabled={leaving}>
           {completeLabel}
         </PrimaryButton>
       </footer>
+
+      <style>{`
+        [data-one-ready-title] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+        [data-one-ready-seat] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 900ms; }
+        [data-one-ready-code] { animation: oneReadyRise 560ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 1350ms; }
+        @keyframes oneReadyRise {
+          from { opacity: 0; transform: translateY(14px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          [data-one-ready-title],
+          [data-one-ready-seat],
+          [data-one-ready-code] {
+            animation: none;
+            opacity: 1;
+            transform: none;
+          }
+        }
+      `}</style>
     </div>
   );
 }
@@ -1676,6 +1729,7 @@ export function OneLocationOnboardingFlow({
   onSkip = onComplete,
   requireLocationToComplete = false,
   completeLabel = "Open One Location",
+  mapPoint = null,
   contactsStepAvailable = true,
   onSyncOnboardingContacts,
   onAddOnboardingContact,
@@ -2100,8 +2154,9 @@ export function OneLocationOnboardingFlow({
           />
         ) : null}
         {screen === "invite" ? (
-          <InviteScreen
+          <ReadyScreen
             currentUserName={currentUserName}
+            mapPoint={mapPoint}
             invite={circleInvite}
             loading={circleInviteLoading}
             error={circleInviteError}

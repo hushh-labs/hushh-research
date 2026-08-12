@@ -485,7 +485,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
     expect(
-      screen.getByRole("heading", { name: "Share your circle code" }),
+      screen.getByRole("heading", { name: /You're on the map/ }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
@@ -869,7 +869,7 @@ describe("OneLocationOnboardingFlow", () => {
             .textContent,
         ).toContain("ABCD-EFGH-JKLM"),
       );
-      expect(screen.getByText("Meena Family")).toBeTruthy();
+      expect(screen.getByText(/Bring your people to Meena Family/)).toBeTruthy();
 
       fireEvent.click(screen.getByRole("button", { name: /Copy/ }));
       expect(onCopyOnboardingCircleCode).toHaveBeenCalledWith(
@@ -926,6 +926,87 @@ describe("OneLocationOnboardingFlow", () => {
       expect(props.onComplete).toHaveBeenCalledTimes(1);
     });
 
+    it("ends on the map, with the code resting on it rather than gating it", () => {
+      const props = renderFlow({
+        mapPoint: { lat: 19.076, lng: 72.8777 },
+        onPrepareOnboardingCircleInvite: vi.fn().mockResolvedValue(invite),
+      });
+      openInviteScreen();
+
+      // The payoff is seeing yourself on a map, not being handed an errand.
+      expect(
+        screen.getByRole("heading", { name: /You're on the map/ }),
+      ).toBeTruthy();
+      expect(screen.getByTestId("onboarding-live-map")).toBeTruthy();
+
+      // The empty seat, which is the only thing here the map cannot show by
+      // itself and the reason the code below matters.
+      expect(screen.getByTestId("onboarding-ready-empty-seat")).toBeTruthy();
+
+      // And explicitly NOT a second telling of Share / Check in / SOS: the
+      // features screen already introduces those, and repeating them turns the
+      // payoff into a summary slide.
+      expect(screen.queryByText("Share where you are")).toBeNull();
+      expect(screen.queryByText("Check in when you arrive")).toBeNull();
+      expect(screen.queryByText("Send an SOS")).toBeNull();
+
+      // Nothing here blocks leaving.
+      expect(props.onComplete).not.toHaveBeenCalled();
+      fireEvent.click(finishButton());
+      expect(props.onComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it("never lays copy over live map tiles", () => {
+      renderFlow({ mapPoint: { lat: 19.076, lng: 72.8777 } });
+      openInviteScreen();
+
+      const map = screen.getByTestId("onboarding-live-map");
+      const seat = screen.getByTestId("onboarding-ready-empty-seat");
+      const sheet = seat.closest("div.overflow-y-auto");
+
+      // The map owns a band of its own; the words sit on an opaque sheet below
+      // it. A translucent scrim over live tiles is a contrast gamble that dense
+      // city streets win, and the copy loses.
+      expect(map.className).toContain("shrink-0");
+      expect(map.className).not.toContain("absolute");
+      expect(sheet?.className).toContain("bg-white");
+      expect(sheet?.className).not.toMatch(/bg-white\/\d/u);
+      expect(map.contains(seat)).toBe(false);
+    });
+
+    it("renders a composed map even with no point and no Maps key", () => {
+      // A missing or referrer-blocked browser key is common enough that it is
+      // the entire local-dev story. The last screen must still look finished:
+      // onboarding cannot end on an error panel.
+      renderFlow({ mapPoint: null });
+      openInviteScreen();
+
+      const map = screen.getByTestId("onboarding-live-map");
+      expect(map.getAttribute("data-map-state")).toBe("stylised");
+      expect(
+        screen.getByRole("heading", { name: /You're on the map/ }),
+      ).toBeTruthy();
+      expect(finishButton()).toBeEnabled();
+    });
+
+    it("keeps the reveal decorative, so reduced motion loses nothing", () => {
+      renderFlow({ mapPoint: { lat: 19.076, lng: 72.8777 } });
+      openInviteScreen();
+
+      const surface = screen.getByTestId(
+        "one-location-onboarding-ready-surface",
+      );
+      // Both blocks matter: the map's pin pulse and the content reveal.
+      const styles = Array.from(surface.querySelectorAll("style"))
+        .map((node) => node.textContent ?? "")
+        .join(" ");
+      expect(styles.match(/prefers-reduced-motion: reduce/g)).toHaveLength(2);
+      // The animation is an entrance, never a gate: reduced motion resolves it
+      // to the finished state rather than removing the content.
+      expect(styles).toContain("animation: none");
+      expect(styles).toContain("opacity: 1");
+    });
+
     it("keeps the final screen fitted and iOS-safe on a small phone", async () => {
       const onPrepareOnboardingCircleInvite = vi
         .fn()
@@ -956,7 +1037,7 @@ describe("OneLocationOnboardingFlow", () => {
       const code = screen.getByTestId("one-location-onboarding-invite-code");
       // 14 wide-tracked monospace glyphs at a fixed 30px overflow the card on a
       // 390px phone, so the size scales and the code stays on one line.
-      expect(code.className).toContain("text-[clamp(20px,6vw,30px)]");
+      expect(code.className).toContain("text-[clamp(20px,6vw,28px)]");
       expect(code.className).toContain("whitespace-nowrap");
     });
 

@@ -8500,6 +8500,19 @@ export function OneLocationAgentPageContent({
           // back to the pre-vault bootstrap call, so the screen is always
           // reachable and a failure degrades to its own retry rather than to a
           // missing screen.
+          // The point onboarding already captured for the save-place step.
+          // Reused rather than re-requested: asking the device twice for the
+          // same fix costs a second permission round-trip and a visible delay
+          // on the one screen that has to feel instant. Null renders the
+          // stylised map, which is a composed screen rather than an error.
+          mapPoint={
+            saveLocationPoint
+              ? {
+                  lat: saveLocationPoint.latitude,
+                  lng: saveLocationPoint.longitude,
+                }
+              : null
+          }
           contactsStepAvailable={contactsStepAvailable}
           onSyncOnboardingContacts={handleSyncOnboardingContacts}
           onAddOnboardingContact={handleAddOnboardingContact}

@@ -572,7 +572,7 @@ async function openLocationFeatureStep() {
 /** Assert the invite screen is showing. It is the last screen now. */
 async function expectLocationInviteStep() {
   expect(
-    await screen.findByRole("heading", { name: "Share your circle code" }),
+    await screen.findByRole("heading", { name: /You're on the map/ }),
   ).toBeTruthy();
 }
 
