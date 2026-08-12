@@ -92,6 +92,18 @@ type OneLocationOnboardingFlowProps = {
    */
   completeLabel?: string;
   /**
+   * Whether this device can read an address book at all.
+   *
+   * False on a desktop browser, where there is nothing to read. The step is
+   * then skipped rather than rendered as an apology: a screen whose entire
+   * content is "this does not work here" is a step that should not exist.
+   *
+   * This is a platform capability, not a missing prop -- the distinction
+   * matters, because a screen that disappears because a caller forgot to pass
+   * a handler is the bug this flow just removed.
+   */
+  contactsStepAvailable?: boolean;
+  /**
    * Read the address book and return whichever contacts already have One.
    * Called only after the person taps on the contacts screen, never on mount.
    */
@@ -1664,6 +1676,7 @@ export function OneLocationOnboardingFlow({
   onSkip = onComplete,
   requireLocationToComplete = false,
   completeLabel = "Open One Location",
+  contactsStepAvailable = true,
   onSyncOnboardingContacts,
   onAddOnboardingContact,
   onOpenContactSettings,
@@ -2020,7 +2033,7 @@ export function OneLocationOnboardingFlow({
       void prepareSavedLocation();
       return;
     }
-    setScreen("contacts");
+    setScreen(contactsStepAvailable ? "contacts" : "invite");
   };
 
 
@@ -2096,7 +2109,9 @@ export function OneLocationOnboardingFlow({
             onRetry={() => void prepareCircleInvite()}
             onCopy={handleCopyCircleInvite}
             onShare={handleShareCircleInvite}
-            onBack={() => setScreen("contacts")}
+            onBack={() =>
+              setScreen(contactsStepAvailable ? "contacts" : "features")
+            }
             onSkip={() => void runSkip()}
             onContinue={finishFromInvite}
             leaving={leaving}

@@ -792,6 +792,44 @@ describe("OneLocationOnboardingFlow", () => {
       expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
     });
 
+    it("is skipped entirely where no address book can be read", () => {
+      // A desktop browser has nothing to read. Rendering the step there means a
+      // screen whose whole content is "this does not work here" -- a wasted tap
+      // that reads as a dead end. Where it cannot work, it does not exist.
+      const onSyncOnboardingContacts = vi.fn();
+      renderFlow({ contactsStepAvailable: false, onSyncOnboardingContacts });
+
+      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+
+      expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
+      expect(
+        screen.queryByTestId("one-location-onboarding-contacts"),
+      ).toBeNull();
+      expect(onSyncOnboardingContacts).not.toHaveBeenCalled();
+    });
+
+    it("sends Back to the features screen when the step is skipped", () => {
+      renderFlow({ contactsStepAvailable: false });
+
+      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+      fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+
+      // Back must not land on a screen that was never shown.
+      expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    });
+
+    it("still completes when the step is skipped", () => {
+      const props = renderFlow({ contactsStepAvailable: false });
+
+      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+      fireEvent.click(finishButton());
+
+      expect(props.onComplete).toHaveBeenCalledTimes(1);
+    });
+
     it("lets Skip leave from the contacts screen without syncing", () => {
       const onSyncOnboardingContacts = vi.fn();
       const props = renderFlow({ onSyncOnboardingContacts });

@@ -124,6 +124,7 @@ function BodyPortal({ children }: { children: ReactNode }) {
   return createPortal(children, document.body);
 }
 
+import { HushhContacts } from "@/lib/capacitor";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
@@ -4509,6 +4510,29 @@ export function OneLocationAgentPageContent({
   // returns a typed result instead of driving hub state: onboarding needs to
   // render the matches inline, and the contact-permission prompt is fired by a
   // deliberate tap on that screen rather than by opening the app.
+  // Can this device read an address book at all? A desktop browser without the
+  // Contact Picker reports "unavailable", and onboarding then skips the step
+  // instead of showing a screen whose only content is that it cannot work.
+  // Assume it can until proven otherwise, so a slow plugin never costs the step
+  // on a phone that does support it.
+  const [contactsStepAvailable, setContactsStepAvailable] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    void HushhContacts.getPermissionState()
+      .then((state) => {
+        if (!cancelled && state?.state === "unavailable") {
+          setContactsStepAvailable(false);
+        }
+      })
+      .catch(() => {
+        // No plugin at all is the same answer as "unavailable".
+        if (!cancelled) setContactsStepAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleSyncOnboardingContacts =
     useCallback(async (): Promise<OnboardingContactSyncResult> => {
       const idToken = await auth.user?.getIdToken();
@@ -8476,6 +8500,7 @@ export function OneLocationAgentPageContent({
           // back to the pre-vault bootstrap call, so the screen is always
           // reachable and a failure degrades to its own retry rather than to a
           // missing screen.
+          contactsStepAvailable={contactsStepAvailable}
           onSyncOnboardingContacts={handleSyncOnboardingContacts}
           onAddOnboardingContact={handleAddOnboardingContact}
           onOpenContactSettings={() => void openContactPermissionSettings()}

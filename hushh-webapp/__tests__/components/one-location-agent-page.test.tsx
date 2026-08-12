@@ -602,9 +602,9 @@ async function reachLocationOnboardingFinalStep() {
   });
   await waitFor(() => expect(continueButton).toBeEnabled());
   fireEvent.click(continueButton);
-  // Contacts step: decline it, so these tests never depend on a contacts
-  // permission. The engaged path is covered in the flow component's own tests.
-  fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
+  // No contacts step here: jsdom has no Contact Picker, so the capability check
+  // reports "unavailable" and the flow skips it -- exactly what a desktop
+  // browser does. The engaged path is covered in the flow component's tests.
   await expectLocationInviteStep();
   expect(screen.getByRole("button", { name: "Go back" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "Skip" })).toBeEnabled();
@@ -2064,7 +2064,6 @@ describe("OneLocationAgentPage", () => {
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
@@ -2160,7 +2159,6 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
     await expectLocationInviteStep();
   });
 
@@ -2285,7 +2283,6 @@ describe("OneLocationAgentPage", () => {
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
     fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
