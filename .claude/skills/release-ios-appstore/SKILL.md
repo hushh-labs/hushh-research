@@ -3,13 +3,6 @@ name: release-ios-appstore
 description: Compatibility entry point for the canonical Hushh iOS App Store release skill. Use only when explicitly asked to prepare or submit an App Store release.
 argument-hint: "[sha: <green-main-sha>] [dry_run: true|false] [whats_new: <text>] [submit: true|false] [notes: <text>]"
 allowed-tools: Read Grep Glob Bash(make ios-prod-release*) Bash(make ios-prod-release-dry*) Bash(node scripts/release/dispatch-ios-appstore.mjs*) Bash(gh *) Bash(git fetch*) Bash(git status*) Bash(git rev-parse*) Bash(git log*) Bash(git branch*)
-paths:
-  - .codex/skills/release-ios-appstore/**
-  - .codex/skills/repo-operations/references/admin-release-sop.md
-  - .github/workflows/release-ios-appstore.yml
-  - scripts/release/dispatch-ios-appstore.mjs
-  - config/ci-governance.json
-  - docs/guides/mobile/release-ios-appstore.md
 ---
 
 # Release iOS to App Store — compatibility bridge
