@@ -994,7 +994,7 @@ export function OneKycWorkspace({
             [selected.workflow_id]: attemptKey,
           }));
           setError(
-            "One could not prepare this draft yet. Sync this request once after access finishes refreshing.",
+            "Draft not ready. Sync once access refreshes.",
           );
           return;
         }
@@ -1465,7 +1465,7 @@ export function OneKycWorkspace({
       });
       if (lookup.missing_request_ids.length > 0) {
         throw new Error(
-          "One could not find the linked access request. Sync this request once so access can refresh.",
+          "No linked access request. Sync to refresh access.",
         );
       }
       return lookup.items.map(pendingLookupItemToPendingConsent);
@@ -1675,7 +1675,7 @@ export function OneKycWorkspace({
       }
       const parsed = parseAttrScope(candidate.scope);
       if (!parsed) {
-        setError("This information section could not be previewed.");
+        setError("Couldn't preview this section.");
         return;
       }
       const title = dataLabelForCandidate(candidate);
@@ -1880,7 +1880,7 @@ export function OneKycWorkspace({
               <SettingsRow
                 icon={AlertTriangle}
                 title="Vault missing"
-                description="We couldn't save settings to your vault because it isn't set up yet. Please complete the setup in Onboarding or Settings to use this feature."
+                description="Set up your vault in Onboarding or Settings."
               />
             </SettingsGroup>
           ) : (
@@ -1896,7 +1896,7 @@ export function OneKycWorkspace({
                 <SettingsRow
                   icon={Inbox}
                   title="Checking requests"
-                  description="Looking for requests matched to your verified addresses."
+                  description="Matching your verified addresses."
                   trailing={
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />
                   }
@@ -2051,7 +2051,7 @@ export function OneKycWorkspace({
                   <SettingsRow
                     icon={AlertTriangle}
                     title="Sync required"
-                    description="Unlock completed. Sync this request so One can prepare access safely from your device."
+                    description="Unlocked. Sync to prepare access on this device."
                   />
                 </SettingsGroup>
               ) : null}
@@ -2538,7 +2538,7 @@ export function OneKycWorkspace({
               <SettingsRow
                 icon={RefreshCw}
                 title="Checking your vault"
-                description="Loading the saved values for this information section."
+                description="Loading your saved values."
                 trailing={<Loader2 className="size-4 animate-spin text-muted-foreground" />}
                 stackTrailingOnMobile
               />
@@ -2787,10 +2787,10 @@ function errorMessage(value: unknown): string {
 function oneKycErrorMessage(value: unknown, fallback: string): string {
   const code = apiErrorCode(value);
   if (code === "ONE_KYC_EXPORT_SCOPE_MISMATCH") {
-    return "One is refreshing the approved information for this request. Sync again in a moment.";
+    return "Approved details are refreshing. Sync again in a moment.";
   }
   if (code === "ONE_KYC_EXPORT_NOT_CURRENT" || code === "ONE_KYC_EXPORT_UNAVAILABLE") {
-    return "The approved information is still being prepared. Sync this request again in a moment.";
+    return "Approved details aren't ready yet. Sync again in a moment.";
   }
   return value instanceof Error && value.message ? value.message : fallback;
 }

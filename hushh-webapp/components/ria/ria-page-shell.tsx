@@ -145,8 +145,7 @@ export function RiaCompatibilityState({
       />
       <RiaSurface tone="warning" className="border-dashed">
         <p className="text-sm leading-6 text-muted-foreground">
-          This surface is running in degraded compatibility mode until the full IAM contract is
-          available in the active environment.
+          Some features are unavailable here.
         </p>
       </RiaSurface>
     </section>

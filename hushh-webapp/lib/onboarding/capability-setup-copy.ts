@@ -78,14 +78,14 @@ const SETUP_COPY_BY_ID: Record<
   finance: {
     setupTitle: "Set up your finances",
     setupBlurb:
-      "Tell One how you like to invest so it can read your portfolio and surface analysis that fits you.",
+      "Get analysis that fits how you invest.",
     actionLabel: "Set up Finance",
     resumeActionLabel: "Finish Finance",
     introPremise: "A clearer way to understand your money.",
     introPromise:
       "One only uses the accounts and preferences you choose to share.",
     setupBullets: [
-      "Share how you like to invest in a few quick taps.",
+      "Share how you invest in a few taps.",
       "One reads your portfolio and tailors the analysis to you.",
       "Hand off to a real advisor whenever you want.",
     ],
@@ -131,28 +131,28 @@ const SETUP_COPY_BY_ID: Record<
       "You decide which details to save and when One may use them to help you.",
     setupBullets: [
       "Turn drafting on or off any time.",
-      "Every draft stays yours to review before it sends.",
+      "Nothing sends until you approve it.",
     ],
   },
   location: {
     setupTitle: "Set up location",
     setupBlurb:
-      "Set up location so you can share it with the trusted people you choose, whenever you want.",
+      "Share your location with the trusted people you choose.",
     actionLabel: "Choose location",
     resumeActionLabel: "Finish location",
     introPremise: "Be easier to reach when it matters.",
     introPromise:
       "Your location stays private until you choose the people and moment to share it.",
     setupBullets: [
-      "Choose the trusted people who can receive a location share.",
-      "Start and stop sharing whenever you want.",
+      "Choose who can receive your location.",
+      "Start and stop sharing any time.",
       "Your location stays private unless you choose to share it.",
     ],
   },
   ria: {
     setupTitle: "Set up RIA",
     setupBlurb:
-      "Create and verify your advisor profile so One can open the right professional workspace for you.",
+      "Create and verify your advisor profile to open your workspace.",
     actionLabel: "Verify RIA",
     resumeActionLabel: "Finish RIA",
     introPremise: "A professional workspace shaped around your practice.",
@@ -184,7 +184,7 @@ const SETUP_COPY_BY_ID: Record<
     resumeActionLabel: "Review access",
     exploreTitle: "Here's your access center",
     exploreBlurb:
-      "Nothing to set up. This is where you see and control who can use your personal information.",
+      "See and control who can use your personal information.",
     exploreBullets: [
       "Every request to use your personal information shows up here.",
       "Approve what you trust, decline the rest.",

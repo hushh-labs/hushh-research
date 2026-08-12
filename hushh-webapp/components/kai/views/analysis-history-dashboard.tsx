@@ -648,8 +648,7 @@ function EmptyState() {
             No analyses yet
           </h3>
         <p className="max-w-md text-[15px] leading-6 text-muted-foreground">
-          Search for a stock ticker below and let Agent Kai&apos;s multi-agent
-          debate engine give you a data-driven recommendation.
+          Search a ticker to get a recommendation.
         </p>
       </div>
     </div>
@@ -693,7 +692,7 @@ function DebateInputsCard({
           </Badge>
         </div>
         <SurfaceCardDescription>
-          Start a debate directly from history using your current vault portfolio context.
+          Debate a holding from your portfolio.
         </SurfaceCardDescription>
       </SurfaceCardHeader>
       <SurfaceCardContent className="space-y-4">
@@ -703,7 +702,7 @@ function DebateInputsCard({
           </SurfaceInset>
         ) : !hasPortfolio ? (
           <SurfaceInset className="border-dashed p-3 text-sm text-muted-foreground">
-            No imported statement found for this user yet. Import/connect a statement to unlock portfolio-based debate inputs.
+            Import or connect a statement to use your portfolio here.
           </SurfaceInset>
         ) : (
           <>
@@ -765,7 +764,7 @@ function DebateInputsCard({
             </div>
           ) : (
             <p className="mt-2 text-xs text-muted-foreground">
-              No eligible symbols yet. Import a statement first.
+              No eligible symbols yet.
             </p>
           )}
         </SurfaceInset>

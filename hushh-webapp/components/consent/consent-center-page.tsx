@@ -952,11 +952,11 @@ function ConsentEntryDetail({
       <SettingsGroup
         embedded
         title="Select a request"
-        description="Choose an item from the list to review its details and available actions."
+        description="Details and actions appear here."
       >
         <SettingsRow
           title="Nothing selected yet"
-          description="Pending, active, and previous items open here."
+          description="Pick one from the list."
         />
       </SettingsGroup>
     );
@@ -2850,8 +2850,8 @@ export function ConsentCenterPage() {
               {showCompactRetryState ? (
                 <ApiRetryState
                   variant="compact"
-                  title="Showing saved consent information"
-                  description="The latest refresh failed. You can keep reviewing cached data or refresh from the page header."
+                  title="Showing saved data"
+                  description="Refresh failed. Use Refresh at the top."
                   onRetry={retryConsentCenter}
                   showRetryAction={false}
                 />
@@ -2862,8 +2862,8 @@ export function ConsentCenterPage() {
                   title="Consent service is unavailable"
                   description={
                     consentLoadError
-                      ? `The consent service did not return the latest access state. ${consentLoadError}`
-                      : "The consent service did not return the latest access state. Refresh from the page header when the backend is available."
+                      ? `Use Refresh at the top. ${consentLoadError}`
+                      : "Use Refresh at the top once it's back."
                   }
                   onRetry={retryConsentCenter}
                   showRetryAction={false}
@@ -2975,7 +2975,7 @@ export function ConsentCenterPage() {
                   : `${formatStatus(selectedEntry.status)} request`
             : selectedId
               ? "Resolving the selected consent request."
-              : "Choose a consent entry from the list to review details and next actions."
+              : "Pick one to see details."
         }
         mobilePresentation="sheet"
         showCloseButton={false}
@@ -3016,7 +3016,7 @@ export function ConsentCenterPage() {
             ) : selectedRequestMissing ? (
               <SettingsRow
                 title="Request not found"
-                description="This request may already be approved, denied, expired, or belong to a different consent lane. Use the tabs to check Active Access or History."
+                description="May already be handled or expired. Check Active Access or History."
                 trailing={
                   <Button
                     type="button"

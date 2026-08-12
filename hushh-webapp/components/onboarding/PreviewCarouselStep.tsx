@@ -43,21 +43,21 @@ export function PreviewCarouselStep({
         title: "A memory",
         accent: "built for you",
         subtitle:
-          "One learns from the apps you choose to connect, and grows with the tools you use.",
+          "One learns from the apps you connect.",
         preview: <WorkflowsPreviewCompact />,
       },
       {
         title: "Your world,",
         accent: "kept private",
         subtitle:
-          "Everything lives in an encrypted vault. Only you hold the key, not even we can read it.",
+          "Encrypted in your vault. Only you hold the key.",
         preview: <VaultPreviewCompact />,
       },
       {
         title: "It acts only",
         accent: "with your yes",
         subtitle:
-          "Every move is scoped, logged, and yours to revoke. Nothing happens without your consent.",
+          "Every move is scoped, logged, and yours to revoke.",
         preview: <ConsentPreviewCompact />,
       },
     ],

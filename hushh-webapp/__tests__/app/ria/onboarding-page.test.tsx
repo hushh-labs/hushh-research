@@ -784,7 +784,7 @@ describe("RiaOnboardingPage", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/too many verification/i)).toBeTruthy();
+      expect(screen.getByText(/too many attempts/i)).toBeTruthy();
     });
   });
 

@@ -18,7 +18,7 @@ export function WatchlistStrip({ items }: WatchlistStripProps) {
     return (
       <Card variant="muted" effect="fill" preset="compact">
         <CardContent className="p-4 text-sm text-muted-foreground">
-          No watchlist/holdings data available yet.
+          Nothing on your watchlist yet.
         </CardContent>
       </Card>
     );

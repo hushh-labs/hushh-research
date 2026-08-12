@@ -1094,7 +1094,7 @@ function isSafeUserFacingMessage(message: string): boolean {
 
 function oneLocationErrorMessage(error: unknown, fallback: string): string {
   if (isTransientOneApiError(error)) {
-    return "One is still catching up. Please refresh once, then check this page before retrying.";
+    return "One is still catching up. Refresh, then check before retrying.";
   }
   const raw = error instanceof Error ? error.message : "";
   return isSafeUserFacingMessage(raw) ? raw : fallback;
@@ -1731,7 +1731,7 @@ function readinessCopy(
     return {
       title: "Turn on phone Location",
       description:
-        "Your phone Location switch is off. Turn it on before sharing with your trusted circle.",
+        "Phone Location is off. Turn it on to share.",
       tone: "blocked",
       actionLabel: "Open Location Settings",
     };
@@ -1771,7 +1771,7 @@ function readinessCopy(
     return {
       title: "Location unavailable",
       description:
-        "This device cannot provide a fresh location right now. Check Location settings and try again.",
+        "No fresh location right now. Check Location settings.",
       tone: "blocked",
       actionLabel: "Open Location Settings",
     };
@@ -7816,7 +7816,7 @@ export function OneLocationAgentPageContent({
       try {
         idToken = await auth.user.getIdToken();
       } catch {
-        toast.error("Your session could not be verified. Please try again.");
+        toast.error("Couldn't verify your session. Try again.");
         return { sentUserIds: [], failedUserIds: [...new Set(userIds)] };
       }
       const sentUserIds: string[] = [];
@@ -8486,7 +8486,7 @@ export function OneLocationAgentPageContent({
       return;
     }
     toast.info(
-      "Push notifications could not be enabled. Updates will still appear in One.",
+      "Couldn't enable push. Updates still appear in One.",
     );
   }, [isRetryingPushRegistration, notificationDeliveryMode]);
 
@@ -9281,7 +9281,7 @@ export function OneLocationAgentPageContent({
                         description={
                           recipients.length
                             ? "Try another name, role, or recommendation signal."
-                            : "Approval, professional, ready, and setup signals will appear as your One Network grows."
+                            : "Signals appear as your One Network grows."
                         }
                       />
                     )}
@@ -10072,7 +10072,7 @@ export function OneLocationAgentPageContent({
                       description={
                         unwatchedActiveReceivedGrantCount > 0
                           ? "Refresh to start watching a hidden share again, or ask them to re-share."
-                          : "When someone shares their live location with you, it appears here automatically - no need to open a notification."
+                          : "Shares sent to you appear here automatically."
                       }
                     />
                   )}

@@ -1829,8 +1829,8 @@ export function KaiFlow({
         !file.name.endsWith(".csv") &&
         !file.name.endsWith(".pdf")
       ) {
-        setError("Invalid file type. Please upload a PDF or CSV file.");
-        toast.error("Invalid file type. Please upload a PDF or CSV file.");
+        setError("Upload a PDF or CSV.");
+        toast.error("Upload a PDF or CSV.");
         return;
       }
 
@@ -2953,7 +2953,7 @@ export function KaiFlow({
         setState("import_complete");
         if (parsedPortfolioData.parse_fallback) {
           toast.warning(
-            "Portfolio loaded with partial coverage. Please review before saving.",
+            "Partial import. Review before saving.",
           );
         } else {
           toast.success("Portfolio is ready for review.");
@@ -2964,7 +2964,7 @@ export function KaiFlow({
           userRequestedImportCancelRef.current = false;
           if (streamStallAbortTriggered) {
             const stalledMessage =
-              "Import stalled with no backend updates. Please retry this statement.";
+              "Import stalled. Retry this statement.";
             trackImportTerminalTelemetry("error");
             setError(stalledMessage);
             toast.error(stalledMessage);
@@ -3040,10 +3040,10 @@ export function KaiFlow({
             rawErrorMessage,
           );
         const safeError = isTransientNetworkLoss
-          ? "Connection was interrupted while importing. Reopen import to continue from where it stopped."
+          ? "Connection dropped. Reopen import to continue."
           : err instanceof Error
             ? sanitizeInvestorCopy(err.message, err.message)
-            : "We could not import your portfolio. Please try again.";
+            : "Import failed. Try again.";
         trackImportTerminalTelemetry("error");
         setError(safeError);
         toast.error(safeError);
@@ -3220,7 +3220,7 @@ export function KaiFlow({
 
   const handleReviewParsedPortfolio = useCallback(() => {
     if (!flowData.parsedPortfolio) {
-      toast.error("Parsed portfolio not available. Please import again.");
+      toast.error("Nothing to review. Import again.");
       setState("import_required");
       return;
     }
@@ -3757,7 +3757,7 @@ export function KaiFlow({
         <KaiWorkspaceHeader
           workspace="portfolio"
           title="Portfolio"
-          description="Your holdings, sources, and investing context in one place."
+          description="Your holdings and sources."
         />
         <AppPageContentRegion className="flex min-h-[400px] items-center justify-center">
           <HushhLoader

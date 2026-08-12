@@ -24,7 +24,7 @@ export function ThemeFocusList({ themes = [] }: { themes?: ThemeFocusItem[] }) {
     return (
       <SurfaceCard>
         <SurfaceCardContent className="px-4 py-4 text-sm text-muted-foreground">
-          No active market themes are available right now.
+          No themes right now.
         </SurfaceCardContent>
       </SurfaceCard>
     );

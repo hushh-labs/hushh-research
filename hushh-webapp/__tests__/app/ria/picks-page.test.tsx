@@ -480,7 +480,7 @@ describe("RiaPicksPage", () => {
       screen.getByRole("link", { name: /download template/i }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /upload and replace top picks/i }),
+      screen.getByRole("button", { name: /replace top picks/i }),
     ).toBeTruthy();
   });
 

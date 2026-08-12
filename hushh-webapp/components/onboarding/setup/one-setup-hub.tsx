@@ -371,8 +371,8 @@ export function OneSetupHub() {
   const summary = hubStateLoading
     ? "Checking what's set up…"
     : allReady
-      ? "Everything's set up. You're good to go."
-      : `${done} of ${total} ready, ${remaining} left to set up.`;
+      ? "All ${total} ready."
+      : `${done} of ${total} ready.`;
   const showVaultInvitation =
     vaultInvitationOpen && Boolean(user) && !isVaultUnlocked;
 

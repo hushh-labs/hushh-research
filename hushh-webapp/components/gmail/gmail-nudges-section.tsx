@@ -194,7 +194,7 @@ export default function GmailNudgesSection({
       <NudgeGroup
         eyebrow="Needs a reply"
         blurb="Inbox threads waiting on your response."
-        emptyText="You’re all caught up — nothing needs a reply right now. ✅"
+        emptyText="All caught up ✅"
         nudges={needsReply}
         loading={loading}
         loaded={loaded}
@@ -204,7 +204,7 @@ export default function GmailNudgesSection({
       <NudgeGroup
         eyebrow="Upcoming meeting"
         blurb="Calendar invites coming up."
-        emptyText="No upcoming meetings from your inbox."
+        emptyText="No upcoming meetings."
         nudges={meetings}
         loading={loading}
         loaded={loaded}

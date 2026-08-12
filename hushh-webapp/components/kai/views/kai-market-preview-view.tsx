@@ -649,7 +649,7 @@ function OneMarketMoverMetric({
           {label}
         </span>
         <span className="mt-1 block text-[14px] font-medium text-[color:var(--one-fg2)]">
-          No cached quote
+          No quote yet
         </span>
       </div>
     );
@@ -1037,7 +1037,7 @@ function buildIndexDetailPanel(
   return {
     eyebrow: "Overview",
     title: label,
-    summary: `${label} helps frame broad market conditions before you move into deeper analysis.`,
+    summary: `${label} frames broad market conditions.`,
     value,
     delta,
     statusLabel: degraded ? "Delayed snapshot" : "Live benchmark read",
@@ -1056,7 +1056,7 @@ function buildIndexDetailPanel(
       {
         title: "Why it matters",
         lines: [
-          "Use this benchmark to understand broad market conditions before reviewing advisor ideas or individual investments.",
+          "Check the market before individual stocks.",
         ],
       },
     ],
@@ -1168,7 +1168,7 @@ function toBreadthMetric(
       eyebrow: "Overview",
       title: "Advancers vs decliners",
       summary:
-        "Breadth shows whether participation is broad or concentrated across the names Kai is tracking right now.",
+        "Whether today&apos;s move is broad or concentrated.",
       value,
       delta:
         trackedCount > 0
@@ -2276,7 +2276,7 @@ export function KaiMarketPreviewView() {
                 <div className="flex items-center gap-2 text-[color:var(--one-down)]">
                   <AlertTriangle className="h-4 w-4" />
                   <p className="text-[14px] font-semibold">
-                    Failed to load market home
+                    Couldn&apos;t load market data
                   </p>
                 </div>
                 <p className="text-[12px] leading-relaxed text-[color:var(--one-fg2)]">
@@ -2365,7 +2365,7 @@ export function KaiMarketPreviewView() {
                 />
                 <div className="grid grid-cols-2 gap-3">
                   <OneMarketMoverMetric
-                    label="Top mover"
+                    label="Top gainer"
                     row={moverGroups.gain[0]}
                     tone="up"
                   />

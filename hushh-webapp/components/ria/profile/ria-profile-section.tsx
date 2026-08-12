@@ -1083,7 +1083,7 @@ export function RiaProfileSection({
           icon={ClipboardCheck}
           iconTone="blue"
           title="Update license data"
-          description="Refresh official regulator fields (CRD, regulator). Your bio, services, fees, and contact details stay unchanged."
+          description="Refreshes CRD and regulator only."
           onClick={openLicenseRefresh}
           chevron
           testId="ria-profile-update-license"
@@ -1091,7 +1091,7 @@ export function RiaProfileSection({
         <SettingsRow
           icon={RotateCcw}
           title="Re-initiate onboarding"
-          description="Run the 5-step setup wizard again. Your profile goes to pending until re-verified; clients stay connected."
+          description="Profile goes to pending until re-verified; clients stay connected."
           onClick={handleReinitiate}
           chevron
           testId="ria-profile-reinitiate"
