@@ -73,8 +73,6 @@ type BusyState =
 
 type ConnectedSystemsPanelProps = {
   cacheUserId?: string | null;
-  /** Unlock-bound key used only to encrypt the owner's P-256 signing key in PKM. */
-  vaultKey?: string | null;
   vaultOwnerToken?: string | null;
   onRequestUnlock?: () => void;
   mode?: "list" | "detail";
@@ -475,7 +473,6 @@ function changedFieldsFromValues(
 
 export function ConnectedSystemsPanel({
   cacheUserId,
-  vaultKey,
   vaultOwnerToken,
   onRequestUnlock,
   mode = "detail",
