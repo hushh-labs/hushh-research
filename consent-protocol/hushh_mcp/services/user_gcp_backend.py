@@ -76,6 +76,19 @@ _MANAGED_ONLY_ENV = frozenset(
         "POD_STORAGE_GCS_PREFIX",
         "POD_STORAGE_BACKEND",
         "POD_AGENT_MEMORY_ENABLED",
+        # The Vertex address. The managed renderer resolves these as
+        # `HUSSH_POD_VERTEX_PROJECT or self._project` (gcp_backend.py:372), so the
+        # HUB's env wins -- and a user-owned pod would then run as the USER's service
+        # account while pointing GOOGLE_CLOUD_PROJECT at HUSHH's project. That is a
+        # cross-tenant address, and it is exactly backwards for the tier whose entire
+        # purpose is that the person's compute is their own.
+        #
+        # Latent rather than live today only because HUSSH_POD_VERTEX_PROJECT is unset
+        # on the dev hub (verified 2026-08-12) -- so the fallback happens to be right.
+        # The moment the managed tier sets it, every BYOC pod silently re-points. These
+        # are stripped here and re-added below against the USER's project.
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_LOCATION",
     }
 )
 
@@ -230,6 +243,14 @@ class UserGcpBackend:
                 {"name": "POD_STORAGE_GCS_BUCKET", "value": f"one-pod-{slug}-blobs"},
                 {"name": "POD_STORAGE_GCS_PREFIX", "value": f"pods/{spec.hushh_id}"},
                 {"name": "POD_AGENT_MEMORY_ENABLED", "value": "true"},
+                # Vertex resolves against the USER's project, always. This pod runs as
+                # the user's own service account in the user's own project, so its
+                # native ADC is theirs -- which is precisely why a BYO GCP person does
+                # not need to hand hushh a separate model key. Re-added here rather
+                # than inherited so the hub's Vertex address can never reach a pod it
+                # does not own.
+                {"name": "GOOGLE_CLOUD_PROJECT", "value": project},
+                {"name": "GOOGLE_CLOUD_LOCATION", "value": region},
             ]
         )
         # Two addresses in place of two secrets. The pod mints and wraps its own key on
