@@ -68,6 +68,7 @@ vi.mock("sonner", () => ({
 
 import ConnectPageClient from "@/app/connect/page-client";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
+import { parseVoiceDisambiguation } from "@/lib/voice/voice-disambiguation";
 
 function person(userId: string, displayName: string) {
   return {
@@ -254,6 +255,80 @@ describe("Connect — People", () => {
 
     expect(result).toMatchObject({ status: "blocked" });
     expect(mocks.sendRequest).not.toHaveBeenCalled();
+  });
+
+  it("offers the duplicates to choose from, captioned the way the list captions them", async () => {
+    // The directory usually returns masked variants rather than a raw address,
+    // which is why the card first shipped saying "No other details" about rows
+    // the list right behind it was captioning correctly. That caption is the
+    // ONLY thing telling two identical names apart, so losing it turns the
+    // picker back into the dead end it exists to remove.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [
+        {
+          userId: "u9",
+          displayName: "Ankit Kumar Singh",
+          maskedEmail: "a***t@hushh.ai",
+          relationship: "none" as const,
+        },
+        {
+          userId: "u10",
+          displayName: "Ankit Kumar Singh",
+          maskedEmail: "a***3@gmail.com",
+          relationship: "pending_outgoing" as const,
+        },
+      ],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
+    const result = await sendRequest!({ person: "Ankit Kumar Singh" });
+
+    expect(result).toMatchObject({ status: "blocked" });
+    const parsed = parseVoiceDisambiguation(result.data);
+    expect(parsed?.actionId).toBe("connect.send_request");
+    expect(parsed?.resolveSlot).toBe("userId");
+    expect(parsed?.candidates.map((c) => c.detail)).toEqual([
+      "a***t@hushh.ai",
+      "a***3@gmail.com",
+    ]);
+    // Each duplicate keeps its own button. One is connectable and the other
+    // already has a request out, so a single shared label would offer an
+    // action guaranteed to be refused.
+    expect(parsed?.candidates[0]?.actionLabel).toBe("Connect");
+    expect(parsed?.candidates[0]?.disabledReason).toBeNull();
+    expect(parsed?.candidates[1]?.disabledReason).toBe("Waiting on them");
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+  });
+
+  it("sends to the person picked from the card, without re-running the matcher", async () => {
+    // The ambiguity was settled by a human. Re-deriving it from the same words
+    // would fail identically and bounce the card straight back.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [
+        { userId: "u9", displayName: "Ankit Kumar Singh", relationship: "none" as const },
+        { userId: "u10", displayName: "Ankit Kumar Singh", relationship: "none" as const },
+      ],
+      hasMore: false,
+      page: 1,
+    });
+    mocks.sendRequest.mockResolvedValue({ id: "request-10" });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
+    let result: Awaited<ReturnType<NonNullable<typeof sendRequest>>> | undefined;
+    await act(async () => {
+      result = await sendRequest!({ person: "Ankit Kumar Singh", userId: "u10" });
+    });
+
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect(mocks.sendRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ addresseeUserId: "u10" }),
+    );
   });
 
   it("finds someone whose stored name is not how it was spoken", async () => {

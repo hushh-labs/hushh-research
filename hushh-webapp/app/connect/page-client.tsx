@@ -856,9 +856,14 @@ export default function ConnectPageClient() {
               candidates: exactMatches.map((c) => ({
                 id: c.userId,
                 name: c.displayName || "Someone",
-                // Whatever the directory can show; contact sync will make this
-                // a phone number for some of these people.
-                detail: c.email || null,
+                // The same description the Connect list renders under each
+                // name. Reading `email` alone showed "No other details" on
+                // rows the list behind the card was captioning correctly:
+                // the directory usually returns the masked variants, not the
+                // raw address. This helper already falls through
+                // email -> maskedEmail -> maskedPhone, so contact sync's phone
+                // numbers land here without another change.
+                detail: getDirectoryPersonDescription(c) ?? null,
                 ...connectCandidateAffordance(c.relationship),
               })),
             },
