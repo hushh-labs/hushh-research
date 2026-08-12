@@ -195,7 +195,7 @@ export function ProfileStackNavigator({
                 className="flex-1 overflow-y-auto overflow-x-hidden"
               >
                 <div
-                  className="mx-auto flex w-full max-w-[720px] flex-col px-[var(--page-inline-gutter-standard)] pb-[calc(env(safe-area-inset-bottom)+6.5rem)] pt-0 sm:pb-12"
+                  className="mx-auto flex w-full max-w-[720px] flex-col px-[var(--page-inline-gutter-standard)] pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-0 sm:pb-8"
                   data-profile-stack-content="true"
                 >
                   <SettingsPresentationProvider

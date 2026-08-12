@@ -1273,10 +1273,10 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   [data-slot="settings-row-description"],
 .profile-account-content [data-slot="settings-row-description"] {
   color: var(--ios-account-secondary-label) !important;
-  font-size: var(--ios-account-description-size) !important;
+  font-size: var(--type-row-description-size) !important;
   font-weight: var(--ios-account-regular-weight) !important;
   letter-spacing: 0 !important;
-  line-height: var(--ios-account-description-line) !important;
+  line-height: var(--type-row-description-line) !important;
 }
 
 [data-profile-stack-screen="account"]
@@ -1413,7 +1413,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   display: flex;
   flex-direction: column;
   min-height: calc(100dvh - var(--top-shell-reserved-height, 0px));
-  padding-bottom: calc(env(safe-area-inset-bottom) + 5.5rem);
+  padding-bottom: calc(env(safe-area-inset-bottom) + 2rem);
 }
 
 .profile-home-screen .app-page-header-region {
@@ -1428,8 +1428,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-hero {
-  gap: 18px !important;
-  padding-top: clamp(24px, 5vh, 44px);
+  gap: 12px !important;
+  padding-top: 16px;
 }
 
 .profile-home-screen [data-profile-avatar-frame="true"] {
@@ -1518,13 +1518,17 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-content {
   display: flex;
   flex-direction: column;
-  gap: 28px;
-  margin-top: 34px;
+  gap: 20px;
+  margin-top: 20px;
   width: 100%;
 }
 
 .profile-home-content [data-testid="settings-group"] {
   margin-inline: 0;
+}
+
+.profile-home-content [data-testid="settings-group"] > div:first-child {
+  margin-top: 0;
 }
 
 .profile-home-content [data-slot="settings-group-heading"] {
@@ -1638,11 +1642,11 @@ body:has(.profile-home-screen) .foundation-public-ambient {
 
 @media (min-width: 768px) {
   .profile-home-screen {
-    padding-bottom: calc(env(safe-area-inset-bottom) + 5rem);
+    padding-bottom: calc(env(safe-area-inset-bottom) + 2.5rem);
   }
 
   .profile-home-hero {
-    padding-top: clamp(36px, 7vh, 64px);
+    padding-top: 24px;
   }
 
   .profile-home-screen [data-profile-avatar-frame="true"] {
@@ -1655,7 +1659,7 @@ body:has(.profile-home-screen) .foundation-public-ambient {
   }
 
   .profile-home-content {
-    margin-top: 42px;
+    margin-top: 24px;
   }
 }
 
@@ -3701,8 +3705,8 @@ html.native-ios [data-testid="one-location-onboarding"] {
     .profile-account-content
     [data-slot="settings-row-description"] {
     font-family: var(--font-app-body);
-    font-size: var(--ios-account-row-value-size) !important;
-    line-height: var(--ios-account-row-value-line) !important;
+    font-size: var(--type-row-description-size) !important;
+    line-height: var(--type-row-description-line) !important;
     font-weight: var(--ios-account-regular-weight) !important;
     letter-spacing: 0 !important;
   }

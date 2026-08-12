@@ -1169,11 +1169,10 @@ export default function ConnectPageClient() {
                     key={connection.connectionId}
                     icon={Users}
                     iconTone="blue"
-                    stackTrailingOnMobile
                     title={connection.displayName || connection.userId}
                     density="compact"
                     trailing={
-                      <span className="flex shrink-0 items-center gap-1">
+                      <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
                         <Button
                           type="button"
                           variant="none"
