@@ -3,9 +3,6 @@ name: run-ios-sim
 description: Build the hushh One webapp, sync it into the native iOS shell, and launch it on an iPhone simulator against the UAT backend. Use when the user asks to run/launch/build the app on the simulator, take a screenshot on device, or verify a change in the real native app. Wraps the mobile build gotchas (UAT backend override, Node 22, 8 GB heap, /tmp DerivedData) into one command.
 argument-hint: "[optional: simulator UDID to override the default iPhone 16]"
 allowed-tools: Bash, Read
-paths:
-  - .claude/skills/run-ios-sim/**
-  - hushh-webapp/**
 ---
 
 # Run hushh One on the iOS simulator
