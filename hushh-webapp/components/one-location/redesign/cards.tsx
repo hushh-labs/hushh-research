@@ -71,7 +71,12 @@ export function TrustedPersonCard({
       className={cn(
         SUBCARD_SURFACE,
         "flex items-center gap-3 p-3.5",
-        selected && "border-[color:var(--app-accent)]/50 ring-1 ring-[color:var(--app-accent-ring)]",
+        // `ring-inset` draws the selection outline INSIDE the card bounds so a
+        // parent scroll/`overflow-hidden` container can never clip its edges or
+        // corners (the reported "incomplete blue outline"). `ring-2` gives a
+        // clean, complete 360° stroke; the border tints the same edge.
+        selected &&
+          "border-[color:var(--app-accent)] ring-2 ring-inset ring-[color:var(--app-accent)]",
       )}
     >
       <Avatar initials={initialsFrom(name)} />

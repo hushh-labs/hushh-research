@@ -284,6 +284,63 @@ def test_sms_emergency_uses_distinct_cross_platform_alert_profile() -> None:
     assert web.webpush.notification.vibrate == [240, 120, 240, 120, 520]
 
 
+def test_relative_web_link_resolves_against_https_frontend_origin(monkeypatch):
+    """A relative deep link must become an absolute HTTPS fcm_options link.
+
+    FCM rejects a non-HTTPS WebpushFCMOptions.link and fails the whole send,
+    so every caller that passes an app-relative path (circle invites,
+    connection requests) lost its notification entirely.
+    """
+
+    import hushh_mcp.services.consent_request_links as links
+
+    delivery_target = "web-device-id"
+    monkeypatch.setattr(links, "frontend_origin", lambda: "https://uat.one.hushh.ai")
+    message = build_push_message(
+        _MessagingStub,
+        token=delivery_target,
+        platform="web",
+        data={"type": "location_circle_member_invite"},
+        title="Circle invitation",
+        body="You have a new Circle invitation.",
+        request_url="/one/location?tab=people&circleInviteId=invite-1",
+        notification_tag="location-circle-member-invite:invite-1",
+        show_alert=True,
+    )
+
+    assert message.webpush.fcm_options.link == (
+        "https://uat.one.hushh.ai/one/location?tab=people&circleInviteId=invite-1"
+    )
+    # The service worker's click target is carried independently of fcm_options.
+    assert message.webpush.notification.data == {
+        "url": "/one/location?tab=people&circleInviteId=invite-1"
+    }
+
+
+def test_relative_web_link_drops_fcm_options_when_origin_is_not_https(monkeypatch):
+    """Local http dev must still deliver the push, just without a click link."""
+
+    import hushh_mcp.services.consent_request_links as links
+
+    delivery_target = "web-device-id"
+    monkeypatch.setattr(links, "frontend_origin", lambda: "http://localhost:3000")
+    message = build_push_message(
+        _MessagingStub,
+        token=delivery_target,
+        platform="web",
+        data={"type": "location_circle_member_invite"},
+        title="Circle invitation",
+        body="You have a new Circle invitation.",
+        request_url="/one/location?tab=people&circleInviteId=invite-1",
+        notification_tag="location-circle-member-invite:invite-1",
+        show_alert=True,
+    )
+
+    assert message.webpush is not None
+    assert message.webpush.fcm_options is None
+    assert message.webpush.notification.body == "You have a new Circle invitation."
+
+
 def test_build_push_message_without_alert_is_data_only():
     delivery_target = "web-device-id"
     message = build_push_message(

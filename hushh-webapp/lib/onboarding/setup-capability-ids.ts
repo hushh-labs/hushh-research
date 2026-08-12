@@ -7,6 +7,7 @@
  */
 export const ONE_SETUP_CAPABILITY_IDS = [
   "gmail",
+  "calendar",
   "location",
   "email",
   "finance",

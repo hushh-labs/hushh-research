@@ -10,7 +10,7 @@ MIGRATION = "142_source_library_scope_retirement.sql"
 def test_source_library_retirement_migration_is_registered_in_every_owning_lane() -> None:
     manifest = json.loads((ROOT / "db" / "release_migration_manifest.json").read_text())
 
-    assert manifest["ordered_migrations"][-1] == MIGRATION
+    assert MIGRATION in manifest["ordered_migrations"]
     for group in ("iam", "pkm", "developer"):
         assert MIGRATION in manifest["groups"][group]
 

@@ -95,6 +95,14 @@ export type CrmZkPartnerResponseEnvelope = {
 type EphemeralKey = { privateKey: CryptoKey; publicKey: string; expiresAtMs: number };
 const ephemeralKeys = new Map<string, EphemeralKey>();
 
+export function discardCrmZkEphemeralKey(contextId: string): boolean {
+  return ephemeralKeys.delete(contextId);
+}
+
+export function clearCrmZkEphemeralKeys(): void {
+  ephemeralKeys.clear();
+}
+
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }

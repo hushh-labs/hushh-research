@@ -1,4 +1,8 @@
 import { ApiService } from "@/lib/services/api-service";
+import type {
+  CrmZkUatConfiguration,
+  CrmZkUatEncryptedFields,
+} from "@/lib/connected-systems/crm-zk-uat-v1";
 
 export type ConnectedSystemStatus = "connected" | "needs_configuration" | string;
 
@@ -159,7 +163,7 @@ export type ConnectedSystemIntent = {
   errorMessage?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
-  deliveryMode?: "legacy" | "crm-zk.v1" | string;
+  deliveryMode?: "legacy" | "crm-zk.v1" | "crm-zk-uat.v1" | string;
   envelopeDigest?: string | null;
   encryptedResponse?: Record<string, unknown>;
 };
@@ -309,6 +313,83 @@ export class ConnectedSystemsService {
       { method: "GET", headers: authHeaders(input.vaultOwnerToken) }
     );
     return readJsonOrThrow<CrmZkConfiguration>(response);
+  }
+
+  static async getCrmZkUatConfiguration(input: {
+    vaultOwnerToken: string;
+    systemId?: string;
+  }): Promise<CrmZkUatConfiguration> {
+    const response = await ApiService.apiFetch(
+      `/api/connected-systems/${systemPath(input.systemId)}/crm-zk-uat/config`,
+      { method: "GET", headers: authHeaders(input.vaultOwnerToken) }
+    );
+    return readJsonOrThrow<CrmZkUatConfiguration>(response);
+  }
+
+  static async searchCrmZkUatRecord(input: {
+    vaultOwnerToken: string;
+    systemId?: string;
+    objectType?: string;
+    returnFields: string[];
+    encryptedFields: CrmZkUatEncryptedFields;
+  }): Promise<{
+    profile: "crm-zk-uat.v1";
+    systemId: string;
+    objectType: string;
+    status: string;
+    totalSize: number;
+    recordId?: string | null;
+    bindingStatus: string;
+    binding?: ConnectedSystemRecordBinding | null;
+    encryptedFields: CrmZkUatEncryptedFields;
+  }> {
+    const response = await ApiService.apiFetch(
+      `/api/connected-systems/${systemPath(input.systemId)}/records/search-zk-uat`,
+      {
+        method: "POST",
+        headers: authHeaders(input.vaultOwnerToken),
+        body: JSON.stringify({
+          objectType: input.objectType,
+          returnFields: input.returnFields,
+          encryptedFields: input.encryptedFields,
+        }),
+      }
+    );
+    return readJsonOrThrow(response);
+  }
+
+  static async createCrmZkUatUpdateIntent(input: {
+    vaultOwnerToken: string;
+    systemId?: string;
+    objectType?: string;
+    fieldNames: string[];
+    encryptedFields: CrmZkUatEncryptedFields;
+  }): Promise<ConnectedSystemIntent> {
+    const response = await ApiService.apiFetch(
+      `/api/connected-systems/${systemPath(input.systemId)}/records/update-intents-zk-uat`,
+      {
+        method: "POST",
+        headers: authHeaders(input.vaultOwnerToken),
+        body: JSON.stringify({
+          objectType: input.objectType,
+          fieldNames: input.fieldNames,
+          encryptedFields: input.encryptedFields,
+        }),
+      }
+    );
+    return readJsonOrThrow<ConnectedSystemIntent>(response);
+  }
+
+  static async approveCrmZkUatIntent(input: {
+    vaultOwnerToken: string;
+    systemId?: string;
+    intentId: string;
+  }): Promise<ConnectedSystemIntent> {
+    const response = await ApiService.apiFetch(
+      `/api/connected-systems/${systemPath(input.systemId)}/intents/${encodeURIComponent(input.intentId)}/approve-zk-uat`,
+      { method: "POST", headers: authHeaders(input.vaultOwnerToken) }
+    );
+    return readJsonOrThrow<ConnectedSystemIntent>(response);
   }
 
   static async registerCrmZkOwnerSigningKey(input: {

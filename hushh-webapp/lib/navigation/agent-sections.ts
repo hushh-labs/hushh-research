@@ -51,6 +51,11 @@ const AGENT_SECTION_OVERRIDES: Record<
     screenId: "gmail",
     voiceRouteActionId: "route.profile_receipts",
   },
+  calendar: {
+    routeFamily: "one",
+    bottomNavScope: "one",
+    screenId: "calendar",
+  },
   email: {
     routeFamily: "one",
     bottomNavScope: "one",
@@ -128,6 +133,11 @@ const AGENT_SECTION_ROUTE_ALIASES: Readonly<Record<string, readonly string[]>> =
       ROUTES.ONE_SETUP_FINANCE,
       ROUTES.ONE_SETUP_FINANCE_IMPORT,
       ROUTES.KAI_PLAID_OAUTH_RETURN,
+    ],
+    gmail: [ROUTES.ONE_SETUP_GMAIL, ROUTES.PROFILE_GMAIL_OAUTH_RETURN],
+    calendar: [
+      ROUTES.ONE_SETUP_CALENDAR,
+      ROUTES.PROFILE_GOOGLE_OAUTH_RETURN,
     ],
     // `/ria` remains a compatibility redirect. Keep it selected as RIA during
     // the redirect rather than briefly falling back to the One root.

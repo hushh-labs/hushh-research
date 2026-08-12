@@ -68,4 +68,18 @@ describe("agent sections", () => {
       "finance",
     );
   });
+
+  it("keeps Gmail and Calendar visible as One agents through setup and callback routes", () => {
+    expect(getAgentSection("gmail")?.href).toBe(ROUTES.GMAIL);
+    expect(getAgentSection("calendar")?.href).toBe(ROUTES.CALENDAR);
+    expect(resolveAgentSectionForPath(ROUTES.ONE_SETUP_GMAIL)?.id).toBe(
+      "gmail",
+    );
+    expect(resolveAgentSectionForPath(ROUTES.ONE_SETUP_CALENDAR)?.id).toBe(
+      "calendar",
+    );
+    expect(
+      resolveAgentSectionForPath(ROUTES.PROFILE_GOOGLE_OAUTH_RETURN)?.id,
+    ).toBe("calendar");
+  });
 });

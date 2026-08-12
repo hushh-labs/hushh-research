@@ -207,6 +207,10 @@ describe("CapabilityCinematicIntroGate", () => {
       ],
       ["app/one/setup/gmail/gmail-onboarding-setup-client.tsx", "gmail"],
       [
+        "app/one/setup/calendar/calendar-onboarding-setup-client.tsx",
+        "calendar",
+      ],
+      [
         "components/connections/gemini-runtime-configuration-page.tsx",
         "connections",
       ],
@@ -217,8 +221,10 @@ describe("CapabilityCinematicIntroGate", () => {
         path.resolve(process.cwd(), relativePath),
         "utf8",
       );
-      expect(source).toContain(
-        `<CapabilityCinematicIntroGate capabilityId="${capabilityId}"`,
+      expect(source).toMatch(
+        new RegExp(
+          `<CapabilityCinematicIntroGate\\s+capabilityId="${capabilityId}"`,
+        ),
       );
     }
 

@@ -195,9 +195,7 @@ def _directive_flags(entry: dict[str, Any] | None) -> dict[str, bool]:
             "needsConfirmation": True,
             "trustedActivationRequired": True,
         }
-    trusted_activation = (
-        str(entry.get("activation_policy") or "") == "trusted_activation_required"
-    )
+    trusted_activation = str(entry.get("activation_policy") or "") == "trusted_activation_required"
     # Voice does not ask. `confirm_required` no longer raises a card, because
     # being asked "are you sure?" after saying a thing out loud is the thing
     # people find most tiring about talking to this app -- and a spoken yes to

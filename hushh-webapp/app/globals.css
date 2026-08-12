@@ -1879,6 +1879,18 @@ html.kb-open .ambient-chrome-mask--bottom {
   padding-bottom: var(--app-bottom-content-clearance);
 }
 
+/* Sparse screens (empty states, short lists) let their height fit content
+   instead of an ancestor stretching them to the full viewport, which produced
+   a large dead scroll region above the floating "Talk to One" bar. The bottom
+   clearance padding above still keeps the last row above that bar; this only
+   removes the forced fill. `!important` overrides any inherited min-height set
+   by an ancestor layout wrapper on these pages. */
+.app-page-shell--fit-content {
+  min-height: 0 !important;
+  flex: 0 0 auto;
+}
+
+
 .app-page-shell--reading {
   max-width: 54rem;
 }
