@@ -2532,15 +2532,13 @@ function AskFlow({
         description="They approve, decline, or ignore."
       />
 
-      {/* Single source of truth for whether the request can be sent: at least
-          one recipient AND a duration AND a reason must be chosen. Previously
-          the button only checked the recipient count, so it could look/act
-          submittable before every required selection existed. */}
+      {/* Send is enabled once at least one recipient is chosen. Duration and
+          reason default to sensible values, so gating Send on them too (added
+          in #5108) blocked submitting even when the request was already valid;
+          that extra gating is intentionally removed here. The "Request Sent"
+          success latch below is preserved. */}
       {(() => {
-        const isFormValid =
-          vm.selectedRequestOwnerIds.length > 0 &&
-          Boolean(vm.durationHours) &&
-          Boolean(reason);
+        const isFormValid = vm.selectedRequestOwnerIds.length > 0;
         const sending = vm.busy === "request";
         return (
           <Button
