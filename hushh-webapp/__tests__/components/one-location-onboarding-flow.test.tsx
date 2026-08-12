@@ -661,6 +661,127 @@ describe("OneLocationOnboardingFlow", () => {
     );
   });
 
+  describe("joining someone else's circle", () => {
+    const preview = {
+      name: "Meena Family",
+      ownerDisplayName: "Meena",
+      memberCount: 4,
+      alreadyMember: false,
+    };
+
+    function openJoin(
+      overrides: Partial<
+        React.ComponentProps<typeof OneLocationOnboardingFlow>
+      > = {},
+    ) {
+      const props = renderFlow({
+        onPreviewCircleCode: vi.fn().mockResolvedValue(preview),
+        onAcceptCircleCode: vi.fn().mockResolvedValue(undefined),
+        ...overrides,
+      });
+      openInviteScreen();
+      return props;
+    }
+
+    it("shows who is behind a code before asking anyone to join", async () => {
+      const props = openJoin();
+
+      fireEvent.click(
+        screen.getByText("Someone sent you a code?"),
+      );
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "abcd-efgh-jklm" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+
+      await waitFor(() =>
+        expect(props.onPreviewCircleCode).toHaveBeenCalledWith("abcd-efgh-jklm"),
+      );
+
+      // Name, owner and size: deciding to share your location with a group is
+      // not a decision to make against an opaque string.
+      const card = await screen.findByTestId("onboarding-join-circle-preview");
+      expect(card.textContent).toContain("Meena Family");
+      expect(card.textContent).toContain("Meena");
+      expect(card.textContent).toContain("4 people");
+      expect(props.onAcceptCircleCode).not.toHaveBeenCalled();
+    });
+
+    it("accepts the circle and says when it will take effect", async () => {
+      const props = openJoin();
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "ABCDEFGHJKLM" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: /Join Meena Family/ }),
+      );
+
+      await waitFor(() =>
+        expect(props.onAcceptCircleCode).toHaveBeenCalledWith("ABCDEFGHJKLM"),
+      );
+      // Honest about the delay rather than claiming a join that has not
+      // happened: the redeem waits for the vault the wizard has yet to create.
+      expect(
+        await screen.findByText(/join Meena Family as soon as One finishes/i),
+      ).toBeTruthy();
+    });
+
+    it("does not offer to join a circle the person is already in", async () => {
+      const props = openJoin({
+        onPreviewCircleCode: vi
+          .fn()
+          .mockResolvedValue({ ...preview, alreadyMember: true }),
+      });
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "ABCDEFGHJKLM" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+
+      expect(
+        await screen.findByText("You're already in this circle."),
+      ).toBeTruthy();
+      expect(
+        screen.queryByRole("button", { name: /Join Meena Family/ }),
+      ).toBeNull();
+      expect(props.onAcceptCircleCode).not.toHaveBeenCalled();
+    });
+
+    it("surfaces a bad code without blocking the way out", async () => {
+      const props = openJoin({
+        onPreviewCircleCode: vi
+          .fn()
+          .mockRejectedValue(new Error("That code has expired.")),
+      });
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "NOPENOPENOPE" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+
+      expect(await screen.findByText("That code has expired.")).toBeTruthy();
+      expect(
+        screen.queryByTestId("onboarding-join-circle-preview"),
+      ).toBeNull();
+
+      // A wrong code is not a dead end.
+      fireEvent.click(finishButton());
+      expect(props.onComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it("is hidden when the parent cannot resolve codes", () => {
+      renderFlow();
+      openInviteScreen();
+
+      expect(screen.queryByTestId("onboarding-join-circle")).toBeNull();
+    });
+  });
+
   describe("contacts screen", () => {
     const matches = [
       { userId: "user_b", displayName: "Trusted B" },

@@ -491,3 +491,49 @@ def test_bootstrap_ignores_circles_the_caller_only_joined() -> None:
         "name": "Meena's Circle",
         "kind": "family",
     }
+
+
+def test_circle_code_preview_shows_the_circle_before_joining(monkeypatch) -> None:
+    client, service = _bootstrap_client(monkeypatch)
+
+    response = client.post(
+        "/api/one/location/circle-codes/preview",
+        json={"code": "2345-6789-ABCD"},
+    )
+
+    assert response.status_code == 200
+    circle = response.json()["circle"]
+    # Name, owner and member count are the whole point: someone deciding whether
+    # to share their location needs to see who is asking.
+    assert circle["name"] == "Meena Family"
+    assert circle["ownerDisplayName"] == "Owner"
+    assert circle["memberCount"] == 1
+    assert circle["alreadyMember"] is False
+    assert response.headers["cache-control"] == "private, no-store"
+    assert service.calls == [
+        ("resolve", {"user_id": "owner-user", "code": "2345-6789-ABCD"}),
+    ]
+
+
+def test_circle_code_preview_rejects_an_unauthenticated_caller(monkeypatch) -> None:
+    client, service = _bootstrap_client(monkeypatch, authenticated=False)
+
+    response = client.post(
+        "/api/one/location/circle-codes/preview",
+        json={"code": "2345-6789-ABCD"},
+    )
+
+    assert response.status_code == 401
+    assert service.calls == []
+
+
+def test_circle_code_preview_rejects_a_malformed_code(monkeypatch) -> None:
+    client, _service = _bootstrap_client(monkeypatch)
+
+    assert (
+        client.post(
+            "/api/one/location/circle-codes/preview",
+            json={"code": "short"},
+        ).status_code
+        == 422
+    )

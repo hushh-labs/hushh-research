@@ -261,6 +261,28 @@ export class OneLocationService {
     return response.invite;
   }
 
+  /**
+   * Show what a circle code points at, before joining it.
+   *
+   * Firebase-authenticated like the bootstrap call, because someone who was
+   * handed a code meets it mid-setup, before any vault exists -- which is
+   * precisely the person the vault-gated resolve route would turn away.
+   */
+  static async previewOnboardingCircleCode(params: {
+    idToken: string;
+    code: string;
+  }): Promise<OneLocationCircleInvitePreview> {
+    const response = await apiJson<{ circle: OneLocationCircleInvitePreview }>(
+      "/api/one/location/circle-codes/preview",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.idToken),
+        body: JSON.stringify({ code: params.code }),
+      },
+    );
+    return response.circle;
+  }
+
   static async updateNamedCircle(params: {
     vaultOwnerToken: string;
     circleId: string;

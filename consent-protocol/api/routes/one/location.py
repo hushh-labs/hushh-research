@@ -641,6 +641,39 @@ def create_named_location_circle_code(
         raise _handle_error(exc) from exc
 
 
+@router.post("/location/circle-codes/preview")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_JOIN)
+def preview_named_location_circle_code(
+    request: Request,
+    payload: NamedCircleCodeRequest,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Show who is behind a code before anyone commits to joining them.
+
+    Firebase auth rather than a vault owner token for the same reason bootstrap
+    is: someone handed a code arrives mid-setup, before a vault exists, and the
+    vault-gated resolve route would reject exactly the person the code was meant
+    for. Read-only, and it reveals nothing a valid code did not already grant --
+    an invalid code is rejected by the same path as before.
+
+    Deliberately separate from the vault-gated resolve rather than loosening it,
+    so the existing route keeps its guarantees untouched.
+    """
+
+    del request
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "circle": _circle_service().resolve_invite_code(
+                user_id=firebase_uid,
+                code=payload.code,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.post("/location/circles/bootstrap")
 @limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
 def bootstrap_named_location_circle(

@@ -65,6 +65,21 @@ export type OnboardingContactMatch = {
   displayName: string;
 };
 
+/**
+ * What a circle code points at, shown before anyone joins it.
+ *
+ * Seeing the circle's name, its owner and how many people are already in it is
+ * the difference between accepting an invitation and accepting a string. It is
+ * also the moment where someone decides whether to share their location with
+ * these people, which is not a decision to make blind.
+ */
+export type OnboardingCirclePreview = {
+  name: string;
+  ownerDisplayName: string;
+  memberCount: number;
+  alreadyMember: boolean;
+};
+
 export type OnboardingContactSyncResult =
   | { status: "matched"; matches: OnboardingContactMatch[] }
   | { status: "none"; partial: boolean }
@@ -114,6 +129,13 @@ type OneLocationOnboardingFlowProps = {
   onAddOnboardingContact?: (userId: string) => Promise<void>;
   /** Open the OS settings page so a declined permission can be changed. */
   onOpenContactSettings?: () => void;
+  /** Look up a circle code so it can be previewed before joining. */
+  onPreviewCircleCode?: (code: string) => Promise<OnboardingCirclePreview>;
+  /**
+   * Accept a previewed circle. Joining needs a vault, which does not exist
+   * during setup, so the parent parks the code and redeems it once one does.
+   */
+  onAcceptCircleCode?: (code: string) => Promise<void>;
   /**
    * Find-or-create the person's first Circle and return its active,
    * member-visible invite code. Called when the Invite screen opens so a
@@ -1521,6 +1543,15 @@ function ReadyScreen({
   completeLabel,
   completing,
   settlementRetryCount,
+  joinCode,
+  joinPreview,
+  joinBusy,
+  joinError,
+  joinAccepted,
+  joinEnabled,
+  onJoinCodeChange,
+  onPreviewJoinCode,
+  onAcceptJoinCode,
 }: {
   currentUserName: string;
   mapPoint: { lat: number; lng: number } | null;
@@ -1538,6 +1569,15 @@ function ReadyScreen({
   completeLabel: string;
   completing: boolean;
   settlementRetryCount: number;
+  joinCode: string;
+  joinPreview: OnboardingCirclePreview | null;
+  joinBusy: boolean;
+  joinError: string | null;
+  joinAccepted: boolean;
+  joinEnabled: boolean;
+  onJoinCodeChange: (value: string) => void;
+  onPreviewJoinCode: () => void;
+  onAcceptJoinCode: () => void;
 }) {
   const firstName = safeName(currentUserName, "You").split(/\s+/)[0];
   const formattedCode = invite ? formatCircleCode(invite.code) : "";
@@ -1666,6 +1706,95 @@ function ReadyScreen({
             </p>
           )}
         </div>
+
+        {joinEnabled ? (
+          <div className="mt-4" data-testid="onboarding-join-circle">
+            {joinAccepted ? (
+              <p
+                className="flex items-center gap-2 rounded-[18px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-4 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:text-[#dce6f5]"
+                role="status"
+              >
+                <Check
+                  className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
+                  strokeWidth={2.5}
+                />
+                You&apos;ll join {joinPreview?.name ?? "their circle"} as soon as
+                One finishes setting up.
+              </p>
+            ) : joinPreview ? (
+              <div
+                className="rounded-[18px] border border-[#e4e6e9] bg-[#f8f9fb] p-4 dark:border-white/[0.08] dark:bg-[#1c212a]"
+                data-testid="onboarding-join-circle-preview"
+              >
+                {/* Name, owner and size before accepting. Deciding whether to
+                    share your location with a group is not a decision anyone
+                    should make against an opaque string. */}
+                <p className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[#f5f7fb]">
+                  {joinPreview.name}
+                </p>
+                <p className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[#aeb8c7]">
+                  {joinPreview.ownerDisplayName} &middot;{" "}
+                  {joinPreview.memberCount}{" "}
+                  {joinPreview.memberCount === 1 ? "person" : "people"}
+                </p>
+                {joinPreview.alreadyMember ? (
+                  <p className="mt-3 text-[13px] leading-[18px] text-[#73777f] dark:text-[#aeb8c7]">
+                    You&apos;re already in this circle.
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onAcceptJoinCode}
+                    disabled={joinBusy || leaving}
+                    className="press-scale mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                  >
+                    {joinBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : null}
+                    Join {joinPreview.name}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <details className="group" data-testid="onboarding-join-circle-toggle">
+                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]">
+                  Someone sent you a code?
+                </summary>
+                <div className="mt-3 flex gap-2">
+                  <input
+                    value={joinCode}
+                    onChange={(event) => onJoinCodeChange(event.target.value)}
+                    placeholder="Enter their code"
+                    aria-label="Circle code"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-white/15 dark:bg-white/[0.06] dark:text-[#f5f7fb]"
+                  />
+                  <button
+                    type="button"
+                    onClick={onPreviewJoinCode}
+                    disabled={joinBusy || !joinCode.trim() || leaving}
+                    className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-5 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                  >
+                    {joinBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : null}
+                    Look up
+                  </button>
+                </div>
+              </details>
+            )}
+            {joinError ? (
+              <p
+                className="mt-2 text-center text-[13px] leading-[18px] text-[#c8372d]"
+                role="status"
+              >
+                {joinError}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <footer className="relative z-10 shrink-0 bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 dark:bg-[#14171d]">
@@ -1734,6 +1863,8 @@ export function OneLocationOnboardingFlow({
   onSyncOnboardingContacts,
   onAddOnboardingContact,
   onOpenContactSettings,
+  onPreviewCircleCode,
+  onAcceptCircleCode,
   onPrepareOnboardingCircleInvite,
   onCopyOnboardingCircleCode,
   onShareOnboardingCircleCode,
@@ -1773,6 +1904,16 @@ export function OneLocationOnboardingFlow({
   );
   const [addedContactIds, setAddedContactIds] = useState<string[]>([]);
   const [addingContactIds, setAddingContactIds] = useState<string[]>([]);
+
+  // "Someone sent me a code" is the other half of this product, and it had no
+  // route through onboarding at all: a person handed a code finished setup
+  // alone and then had to go hunting for Join a circle on the hub.
+  const [joinCode, setJoinCode] = useState("");
+  const [joinPreview, setJoinPreview] =
+    useState<OnboardingCirclePreview | null>(null);
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinAccepted, setJoinAccepted] = useState(false);
 
   const [leaving, setLeaving] = useState(false);
   const [completionBusy, setCompletionBusy] = useState(false);
@@ -1992,6 +2133,44 @@ export function OneLocationOnboardingFlow({
     [onAddOnboardingContact],
   );
 
+  const handlePreviewJoinCode = useCallback(async () => {
+    if (!onPreviewCircleCode) return;
+    const trimmed = joinCode.trim();
+    if (!trimmed) return;
+    setJoinBusy(true);
+    setJoinError(null);
+    try {
+      setJoinPreview(await onPreviewCircleCode(trimmed));
+    } catch (error) {
+      setJoinPreview(null);
+      setJoinError(
+        error instanceof Error && error.message
+          ? error.message
+          : "That code did not match a circle. Check it and try again.",
+      );
+    } finally {
+      setJoinBusy(false);
+    }
+  }, [joinCode, onPreviewCircleCode]);
+
+  const handleAcceptJoinCode = useCallback(async () => {
+    if (!onAcceptCircleCode || !joinPreview) return;
+    setJoinBusy(true);
+    setJoinError(null);
+    try {
+      await onAcceptCircleCode(joinCode.trim());
+      setJoinAccepted(true);
+    } catch (error) {
+      setJoinError(
+        error instanceof Error && error.message
+          ? error.message
+          : "We couldn't join that circle. You can try again from Circles.",
+      );
+    } finally {
+      setJoinBusy(false);
+    }
+  }, [joinCode, joinPreview, onAcceptCircleCode]);
+
   // Report how onboarding ended, once per exit. Removing the contact picker is
   // a bet on drop-off; without this there is no way to tell whether it paid off
   // or simply moved where people leave. The circle code is deliberately never
@@ -2173,6 +2352,19 @@ export function OneLocationOnboardingFlow({
             completeLabel={completeLabel}
             completing={completionBusy}
             settlementRetryCount={settlementRetryCount}
+            joinCode={joinCode}
+            joinPreview={joinPreview}
+            joinBusy={joinBusy}
+            joinError={joinError}
+            joinAccepted={joinAccepted}
+            joinEnabled={Boolean(onPreviewCircleCode && onAcceptCircleCode)}
+            onJoinCodeChange={(value) => {
+              setJoinCode(value);
+              setJoinPreview(null);
+              setJoinError(null);
+            }}
+            onPreviewJoinCode={() => void handlePreviewJoinCode()}
+            onAcceptJoinCode={() => void handleAcceptJoinCode()}
           />
         ) : null}
       </section>

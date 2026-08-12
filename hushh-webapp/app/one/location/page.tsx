@@ -261,6 +261,11 @@ import {
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { ConnectionsService } from "@/lib/services/connections-service";
 import {
+  clearPendingCircleJoin,
+  readPendingCircleJoin,
+  rememberPendingCircleJoin,
+} from "@/lib/one-location/pending-circle-join";
+import {
   CONSENT_STATE_CHANGED_EVENT,
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
@@ -5359,6 +5364,70 @@ export function OneLocationAgentPageContent({
   // by the onboarding flow when the Invite screen opens. Provisioning is quiet
   // (no create/rotate toasts) since it runs implicitly during setup. The code is
   // re-readable by active members and is never persisted in client storage/URLs.
+  const handlePreviewCircleCode = useCallback(
+    async (code: string) => {
+      const idToken = await auth.user?.getIdToken();
+      if (!idToken) throw new Error("Sign in to look up a circle code.");
+      const preview = await OneLocationService.previewOnboardingCircleCode({
+        idToken,
+        code,
+      });
+      return {
+        name: preview.name,
+        ownerDisplayName: preview.ownerDisplayName,
+        memberCount: preview.memberCount,
+        alreadyMember: preview.alreadyMember,
+      };
+    },
+    [auth.user],
+  );
+
+  const handleAcceptCircleCode = useCallback(
+    async (code: string) => {
+      // Redeem now if a vault already exists; otherwise park it. Joining is
+      // vault-gated and the vault arrives only when the setup wizard finishes,
+      // so the accept and the redeem genuinely cannot be the same moment for a
+      // first-run joiner.
+      if (vaultOwnerToken) {
+        await OneLocationService.joinNamedCircle({ vaultOwnerToken, code });
+        scheduleNamedCircleStateRefresh();
+        return;
+      }
+      if (!auth.userId || !rememberPendingCircleJoin(auth.userId, code)) {
+        throw new Error(
+          "We couldn't hold on to that code here. You can join from Circles once setup finishes.",
+        );
+      }
+    },
+    [auth.userId, scheduleNamedCircleStateRefresh, vaultOwnerToken],
+  );
+
+  // Redeem a parked code the moment a vault token exists. Runs once per code:
+  // it is cleared before the request so a rejection cannot loop, and a spent or
+  // expired code simply fails closed with the circle unjoined.
+  useEffect(() => {
+    if (!vaultOwnerToken || !auth.userId) return;
+    const pending = readPendingCircleJoin(auth.userId);
+    if (!pending) return;
+    clearPendingCircleJoin(auth.userId);
+    let cancelled = false;
+    void OneLocationService.joinNamedCircle({ vaultOwnerToken, code: pending })
+      .then((result) => {
+        if (cancelled) return;
+        scheduleNamedCircleStateRefresh();
+        toast.success(`You joined ${result?.circle?.name ?? "the circle"}.`);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        toast.error(
+          "That circle code could not be used. Ask for a fresh one from Circles.",
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.userId, scheduleNamedCircleStateRefresh, vaultOwnerToken]);
+
   const handlePrepareOnboardingCircleInvite =
     useCallback(async (): Promise<OnboardingCircleInvite> => {
       const ownerName = String(
@@ -8514,6 +8583,8 @@ export function OneLocationAgentPageContent({
               : null
           }
           contactsStepAvailable={contactsStepAvailable}
+          onPreviewCircleCode={handlePreviewCircleCode}
+          onAcceptCircleCode={handleAcceptCircleCode}
           onSyncOnboardingContacts={handleSyncOnboardingContacts}
           onAddOnboardingContact={handleAddOnboardingContact}
           onOpenContactSettings={() => void openContactPermissionSettings()}
