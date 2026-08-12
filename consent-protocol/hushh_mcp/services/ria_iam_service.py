@@ -9319,6 +9319,161 @@ class RIAIAMService:
         finally:
             await conn.close()
 
+    async def record_nws_nearby_action(
+        self,
+        user_id: str,
+        *,
+        person_id: str,
+        action: str,
+        snapshot: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Shortlist or dismiss one NWS Nearby public record.
+
+        Deliberately a sibling of ``record_marketplace_investor_action`` rather
+        than a branch inside it. That method resolves its target by reading a
+        local table, and an NWS person has no local row to read — the record is
+        supplied by the caller because it came from an external public-record
+        service. Sharing the table is the point; sharing the target resolution
+        would mean teaching it to accept an unverifiable target.
+
+        ``connect_request`` is refused for the same reason it is refused for
+        public SEC profiles: there is nobody on the other end to receive it.
+        """
+        normalized_action = str(action or "").strip().lower()
+        if normalized_action not in _MARKETPLACE_INVESTOR_ACTION_STATUS:
+            raise RIAIAMPolicyError("Unsupported nearby action", status_code=400)
+        if normalized_action == "connect_request":
+            raise RIAIAMPolicyError(
+                "Public records can be shortlisted, not connected directly",
+                status_code=400,
+            )
+
+        normalized_person = str(person_id or "").strip()
+        if not normalized_person or len(normalized_person) > 128:
+            raise RIAIAMPolicyError("person_id is required", status_code=400)
+
+        # Namespaced so an NWS key can never collide with a public_sec or
+        # hushh_user key in the table's unique (actor_user_id, target_key) index.
+        target_key = f"nws:{normalized_person}"
+        safe_snapshot = snapshot if isinstance(snapshot, dict) else {}
+        status = _MARKETPLACE_INVESTOR_ACTION_STATUS[normalized_action]
+
+        conn = await self._conn()
+        try:
+            async with conn.transaction():
+                await self._ensure_iam_schema_ready(conn)
+                await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=True)
+                ria = await self._get_ria_profile_by_user(conn, user_id)
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO marketplace_investor_actions (
+                      actor_user_id,
+                      ria_profile_id,
+                      source_type,
+                      target_key,
+                      target_user_id,
+                      public_profile_id,
+                      action,
+                      status,
+                      target_snapshot,
+                      metadata,
+                      created_at,
+                      updated_at
+                    )
+                    VALUES ($1, $2, 'nws_nearby', $3, NULL, NULL, $4, $5, $6::jsonb,
+                            '{}'::jsonb, NOW(), NOW())
+                    ON CONFLICT (actor_user_id, target_key)
+                    DO UPDATE SET
+                      ria_profile_id = EXCLUDED.ria_profile_id,
+                      action = EXCLUDED.action,
+                      status = EXCLUDED.status,
+                      target_snapshot = EXCLUDED.target_snapshot,
+                      updated_at = NOW()
+                    RETURNING
+                      id,
+                      actor_user_id,
+                      ria_profile_id,
+                      source_type,
+                      target_key,
+                      target_user_id,
+                      public_profile_id,
+                      action,
+                      status,
+                      target_snapshot,
+                      metadata,
+                      created_at,
+                      updated_at
+                    """,
+                    user_id,
+                    ria["id"],
+                    target_key,
+                    normalized_action,
+                    status,
+                    json.dumps(safe_snapshot),
+                )
+                return self._marketplace_investor_action_row(row)
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        except asyncpg.exceptions.CheckViolationError as exc:
+            # Reached when migration 148 has not run on this database yet. The
+            # widened source_type/target CHECKs are what admit this row at all,
+            # so a violation here is a schema-readiness fact, not bad input.
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
+    async def list_nws_nearby_shortlist(
+        self,
+        user_id: str,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return this advisor's shortlisted NWS records, newest first."""
+        conn = await self._conn()
+        try:
+            await self._ensure_iam_schema_ready(conn)
+            # READ path: never provision the 'ria' persona here — doing so
+            # outside a transaction would durably resurrect a deleted advisor's
+            # persona. Same reasoning as list_marketplace_investor_actions.
+            await self._ensure_actor_profile_row(conn, user_id, include_ria_persona=False)
+            rows = await conn.fetch(
+                """
+                SELECT
+                  id,
+                  actor_user_id,
+                  ria_profile_id,
+                  source_type,
+                  target_key,
+                  target_user_id,
+                  public_profile_id,
+                  action,
+                  status,
+                  target_snapshot,
+                  metadata,
+                  created_at,
+                  updated_at
+                FROM marketplace_investor_actions
+                WHERE actor_user_id = $1
+                  AND source_type = 'nws_nearby'
+                  AND status = 'shortlisted'
+                ORDER BY updated_at DESC
+                LIMIT $2
+                """,
+                user_id,
+                max(1, min(limit, 200)),
+            )
+            return [self._marketplace_investor_action_row(row) for row in rows]
+        except (
+            asyncpg.exceptions.UndefinedColumnError,
+            asyncpg.exceptions.UndefinedTableError,
+        ) as exc:
+            raise IAMSchemaNotReadyError() from exc
+        finally:
+            await conn.close()
+
     async def _marketplace_handled_investor_target_keys(
         self,
         conn: asyncpg.Connection,

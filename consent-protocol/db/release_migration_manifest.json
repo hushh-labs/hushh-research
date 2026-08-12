@@ -125,7 +125,8 @@
     "144_google_integrations_calendar_foundation.sql",
     "145_crm_encrypted_fields_v1.sql",
     "146_crm_operation_object_binding.sql",
-    "147_retire_crm_zk_runtime_profiles.sql"
+    "147_retire_crm_zk_runtime_profiles.sql",
+    "148_nws_nearby_marketplace_actions.sql"
   ],
   "groups": {
     "iam": [
@@ -205,7 +206,8 @@
       "144_google_integrations_calendar_foundation.sql",
       "145_crm_encrypted_fields_v1.sql",
       "146_crm_operation_object_binding.sql",
-      "147_retire_crm_zk_runtime_profiles.sql"
+      "147_retire_crm_zk_runtime_profiles.sql",
+      "148_nws_nearby_marketplace_actions.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

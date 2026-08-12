@@ -2,7 +2,7 @@
 
 import { ChevronRight, Loader2, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import {
   AppPageContentRegion,
@@ -16,7 +16,8 @@ import {
   getKaiTestUserId,
   isKaiTestProfileUser,
 } from "@/components/ria/ria-client-test-profile";
-import { SettingsGroup } from "@/components/profile/settings-ui";
+import { NearbyAroundYou } from "@/components/ria/nearby/nearby-around-you";
+import { SettingsGroup, SettingsSegmentedTabs } from "@/components/profile/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
@@ -38,6 +39,8 @@ import { RiaCompatibilityState, RiaVerificationGate } from "@/components/ria/ria
 type ClientListItem = RiaClientAccess & {
   isTestProfile?: boolean;
 };
+
+type ClientsView = "connected" | "nearby";
 
 function statusBadgeClass(status?: string | null) {
   switch (status) {
@@ -62,6 +65,9 @@ export default function RiaClientsPage() {
   const { riaCapability, loading: personaLoading } = usePersonaState();
   const allowTestProfiles = canShowKaiTestProfile();
   const kaiTestUserId = getKaiTestUserId();
+  // Session-only: an advisor lands on their roster, and prospecting is a
+  // deliberate second step rather than the default view.
+  const [view, setView] = useState<ClientsView>("connected");
 
   const clientsResource = useStaleResource<RiaClientListResponse>({
     cacheKey: user?.uid ? `ria_clients_connected_${user.uid}` : "ria_clients_guest",
@@ -205,6 +211,24 @@ export default function RiaClientsPage() {
       <AppPageContentRegion>
         <RiaVerificationGate>
         <div className="flex flex-col gap-8">
+          {/* Connected is the roster of investors who already granted access.
+              Around you is prospecting against public records — a different
+              kind of person entirely, which is why they are separate views on
+              one screen rather than one merged list. */}
+          <div data-voice-control-id="ria_clients_view_switch">
+            <SettingsSegmentedTabs
+              value={view}
+              onValueChange={(next) => setView(next as ClientsView)}
+              options={[
+                { value: "connected", label: "Connected" },
+                { value: "nearby", label: "Around you" },
+              ]}
+            />
+          </div>
+
+          {view === "nearby" ? (
+            <NearbyAroundYou />
+          ) : (
           <SettingsGroup
             embedded
             title={RIA_COPY.clients.section.title}
@@ -278,6 +302,7 @@ export default function RiaClientsPage() {
               ))
             )}
           </SettingsGroup>
+          )}
         </div>
         </RiaVerificationGate>
       </AppPageContentRegion>

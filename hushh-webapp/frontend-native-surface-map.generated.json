@@ -7873,7 +7873,9 @@
       },
       "voice_action_contract_file": "app/ria/clients/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "ria.clients.nearby_shortlist_record",
         "ria.clients.open_client_workspace",
+        "ria.clients.switch_to_nearby",
         "route.ria_clients"
       ],
       "api_dependencies": [],
@@ -8512,5 +8514,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "5613f8af6b53687283e6d65ed60bf0635824188e7e93ebbb35070c1f71027f9e"
+  "content_sha256": "423f38bf7614b2ccbd379d97fa6e72ca709cec49612d56c546175e522f3d52c6"
 }
