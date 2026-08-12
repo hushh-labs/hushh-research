@@ -2514,7 +2514,14 @@ function AskFlow({
       </SectionCard>
 
       <SectionCard title="Reason">
-        <ReasonChips value={reason} onChange={setReason} label="" />
+        {/* Dropdown (not chips) to match the Duration field's select
+            presentation on this same screen. */}
+        <ReasonChips
+          value={reason}
+          onChange={setReason}
+          label=""
+          presentation="select"
+        />
       </SectionCard>
 
       <SectionCard title="Message">
