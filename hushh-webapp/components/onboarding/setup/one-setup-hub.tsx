@@ -389,7 +389,13 @@ export function OneSetupHub() {
       }}
     >
       <AppPageHeaderRegion>
-        <div className="relative">
+        {/* Header title + mobile master action share one flex row. The action
+            was absolutely positioned over the header before, so the large
+            display title ran underneath it and the two overlapped. A flex row
+            with a min-w-0 title column and a shrink-0 button keeps real
+            horizontal separation; the title shrinks within its column. */}
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
           <PageHeader
             title={
               showVaultInvitation
@@ -406,6 +412,7 @@ export function OneSetupHub() {
             accent="neutral"
             className={styles.setupHeader}
           />
+          </div>
           {/* Mobile surfaces the master Skip/Finish action top-right in the
               header so it is always reachable and never hides behind the fixed
               "Talk to One" agent bar. Desktop keeps the in-flow footer below. */}
@@ -420,7 +427,7 @@ export function OneSetupHub() {
                   : undefined
               }
               data-testid="one-setup-master-ack-mobile"
-              className="absolute right-0 top-1 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:opacity-40 sm:hidden"
+              className="mt-1 shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:opacity-40 sm:hidden"
             >
               {masterActionLabel}
             </button>
