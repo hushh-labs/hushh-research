@@ -186,8 +186,12 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
       );
       toast.success(`Vault unlock updated to ${readableMethod(result.method)}.`);
       setOpen(false);
-    } catch (error) {
-      console.error("[VaultMethodPrompt] Failed to switch method:", error);
+    } catch (error: any) {
+      if (error?.name === "NotAllowedError") {
+        console.debug("[VaultMethodPrompt] Method switch cancelled by user.");
+      } else {
+        console.error("[VaultMethodPrompt] Failed to switch method:", error);
+      }
       toast.error(
         error instanceof Error
           ? error.message

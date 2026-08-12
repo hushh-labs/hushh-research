@@ -668,7 +668,11 @@ export function VaultFlow({
         );
         return;
       }
-      console.error("Generated vault unlock failed:", err);
+      if (err?.name === "NotAllowedError") {
+        console.debug("Generated vault unlock cancelled by user (NotAllowedError).");
+      } else {
+        console.error("Generated vault unlock failed:", err);
+      }
       const message = toInvestorVaultUnlockError(err);
       setError(message);
       toast.error(message);
