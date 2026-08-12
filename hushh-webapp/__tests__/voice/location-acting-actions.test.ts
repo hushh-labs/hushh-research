@@ -149,27 +149,32 @@ describe("how these actions can be reached", () => {
 });
 
 /**
- * The voice confirm card warns people using the action's OWN words -- it reads
- * `meaning` straight from the generated contract rather than restating it, so
- * the warning cannot drift away from what the action does.
+ * A confirm card is read mid-sentence, with a thumb over a red button.
  *
- * That makes `meaning` load-bearing for these actions specifically. If one were
- * emptied, the card would still render and still remove the person, just with
- * the sentence explaining the consequence silently gone. Nothing else in the
- * build notices, because an empty string is a valid contract value.
+ * The consequence line started as the contract's `meaning`, which is written to
+ * help the model route and arrives as several sentences -- for
+ * `remove_connection`: what ends, what stops working, and two things that do
+ * NOT happen. Accurate, and far too much to weigh in the moment. Model-facing
+ * text and person-facing text are not the same artefact, and this pins that
+ * they cannot be silently merged again.
  */
-describe("destructive voice actions can explain themselves", () => {
+describe("destructive voice actions stay readable", () => {
   const CONFIRMED_BY_CARD = [
     "connect.remove_connection",
     "location.remove_emergency_contact",
     "location.remove_from_circle",
   ] as const;
 
-  it.each(CONFIRMED_BY_CARD)("%s carries the words its card shows", (actionId) => {
+  it.each(CONFIRMED_BY_CARD)("%s is wired and destructive", (actionId) => {
     const action = getKaiActionById(actionId);
     expect(action, `${actionId} is not in the gateway`).not.toBeNull();
     expect(action?.execution_target.status).toBe("wired");
-    // Long enough to be a sentence about consequences rather than a label.
-    expect((action?.meaning || "").length).toBeGreaterThan(40);
+  });
+
+  it.each(CONFIRMED_BY_CARD)("%s has a `meaning` too long to be card copy", (actionId) => {
+    // Not a complaint about `meaning` -- it is doing its job. This documents
+    // WHY the card cannot reuse it, so the next person to reach for it sees
+    // the number rather than rediscovering the problem on screen.
+    expect((getKaiActionById(actionId)?.meaning || "").length).toBeGreaterThan(60);
   });
 });

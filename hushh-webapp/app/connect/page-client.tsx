@@ -52,7 +52,6 @@ import {
   VOICE_CONFIRM_DATA_KEY,
   VOICE_DISAMBIGUATION_DATA_KEY,
 } from "@/lib/voice/voice-action-card";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { getDirectoryPersonDescription } from "./directory-person-label";
 
 type ConnectTab = "people" | "nearby";
@@ -1070,15 +1069,20 @@ export default function ConnectPageClient() {
             [VOICE_CONFIRM_DATA_KEY]: {
               actionId: "connect.remove_connection",
               slots: { person: spokenName, connectionId: connection.connectionId },
-              prompt: `Remove your connection with ${displayName}?`,
+              prompt: `Remove ${displayName}?`,
               subject: {
                 name: displayName,
                 detail: getDirectoryPersonDescription(connection) ?? null,
               },
-              // The action's own words from the generated contract, so what
-              // the person is warned about cannot drift from what happens.
-              consequence:
-                getKaiActionById("connect.remove_connection")?.meaning ?? null,
+              // One line, and only the part that changes for the person.
+              //
+              // This read the contract's `meaning`, which is written to help
+              // the model route and arrives as three sentences: what ends, what
+              // stops working, and two things that do NOT happen. Accurate, and
+              // far too much to weigh mid-sentence. The card needs what will
+              // happen and to whom; the heading already names the person, so
+              // this says the one consequence they would not have guessed.
+              consequence: "They lose access to your location.",
               confirmLabel: "Remove",
             },
           },

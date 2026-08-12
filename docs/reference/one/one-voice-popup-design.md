@@ -126,13 +126,23 @@ Semantic colour comes from the `--destructive` token, never a literal hex.
 
 ## Copy
 
-- **Prompt** names the subject: *"Remove your connection with Rashid?"* — never
-  *"Are you sure?"*, which asks nothing the person can act on.
-- **Consequence** is the action's own `meaning` from the generated contract,
-  read at render time rather than restated. Restating it means the warning and
-  the behaviour drift apart the first time the action changes. This makes
-  `meaning` load-bearing for any action with a `confirm` card, which is guarded
-  by a test.
+Less text. Less noise. More focus. A card is read mid-sentence, by someone
+who has already said what they want — not studied.
+
+- **Prompt** names the subject and nothing else: *"Remove Rashid?"* Never *"Are
+  you sure?"*, which asks nothing actionable, and never *"Remove your
+  connection with Rashid?"*, which spends six words on what one word says.
+- **Consequence is one short line**, and only the part the person would not
+  have guessed. *"They lose access to your location."*
+- **Do not use the contract's `meaning` as card copy.** It is written to help
+  the model route, and arrives as several sentences — for `remove_connection`,
+  what ends, what stops working, and two things that do *not* happen. Accurate,
+  and far too much to weigh with a thumb hovering over a red button. It was
+  used here first for exactly the right reason (a warning that cannot drift
+  from behaviour) and was still wrong, because model-facing text and
+  person-facing text are not the same artefact.
+- **Never restate the heading in the body.** The heading names the person; the
+  body says what changes.
 - **Button labels are verbs**: `Remove`, `Connect` — never `OK` or `Yes`.
 - **Per-candidate labels** in a `choice` card come from the same source the
   underlying list uses (`relationshipCta` for Connect). Two rows sharing a name

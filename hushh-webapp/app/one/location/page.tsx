@@ -78,7 +78,6 @@ import {
 } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
-import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7391,8 +7390,9 @@ export function OneLocationAgentPageContent({
               name: label,
               detail: recipientRecommendationLine(match) || null,
             },
-            consequence:
-              getKaiActionById("location.remove_emergency_contact")?.meaning ?? null,
+            // One line, and only what changes. The contract's `meaning` is
+            // written for the model and arrives as several sentences.
+            consequence: "They won't be alerted in an SOS.",
             confirmLabel: "Remove",
           },
         },
@@ -7727,8 +7727,8 @@ export function OneLocationAgentPageContent({
               },
               prompt: `Remove ${member.displayName} from ${circle.name}?`,
               subject: { name: member.displayName, detail: circle.name },
-              consequence:
-                getKaiActionById("location.remove_from_circle")?.meaning ?? null,
+              // One line, and only what changes.
+              consequence: `They lose what ${circle.name} shares.`,
               confirmLabel: "Remove",
             },
           },

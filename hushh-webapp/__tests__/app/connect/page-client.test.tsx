@@ -525,14 +525,17 @@ describe("Connect — removing a connection", () => {
     const confirm = parseVoiceConfirm(result.data);
     expect(confirm?.actionId).toBe("connect.remove_connection");
     expect(confirm?.confirmLabel).toBe("Remove");
-    expect(confirm?.prompt).toBe("Remove your connection with Rashid?");
+    expect(confirm?.prompt).toBe("Remove Rashid?");
     expect(confirm?.subject).toMatchObject({
       name: "Rashid",
       detail: "r***d@gmail.com",
     });
-    // Warning text comes from the action's own contract `meaning`, so it
-    // cannot drift away from what the action actually does.
-    expect(confirm?.consequence).toContain("share");
+    // One short line, and only the part the person would not have guessed.
+    // This used the contract's `meaning`, which is written for the model and
+    // arrives as three sentences -- too much to weigh with a thumb over a red
+    // button.
+    expect(confirm?.consequence).toBe("They lose access to your location.");
+    expect((confirm?.consequence || "").length).toBeLessThan(60);
   });
 
   it("removes only when the card confirms it", async () => {
