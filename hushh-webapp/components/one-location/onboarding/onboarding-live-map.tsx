@@ -1,26 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTheme } from "next-themes";
 
 import { useGoogleMaps } from "@/lib/one-location/use-google-maps";
 import { cn } from "@/lib/utils";
-
-const DARK_MAP_STYLES: google.maps.MapTypeStyle[] = [
-  { elementType: "geometry", stylers: [{ color: "#1c212a" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#8d99a8" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#14171d" }] },
-  {
-    featureType: "water",
-    elementType: "geometry",
-    stylers: [{ color: "#0f1620" }],
-  },
-  {
-    featureType: "road",
-    elementType: "geometry",
-    stylers: [{ color: "#2a313d" }],
-  },
-  { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
-];
 
 /**
  * The map behind the last onboarding screen.
@@ -42,6 +26,8 @@ export function OnboardingLiveMap({
   point: { lat: number; lng: number } | null;
   className?: string;
 }) {
+  const { resolvedTheme } = useTheme();
+  const colorScheme = resolvedTheme === "dark" ? "DARK" : "LIGHT";
   const { status } = useGoogleMaps({ enabled: Boolean(point) });
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [rendered, setRendered] = useState(false);
@@ -51,18 +37,23 @@ export function OnboardingLiveMap({
     const host = hostRef.current;
     if (!host) return;
 
-    const prefersDark =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-color-scheme: dark)").matches;
-
+    // Matched to the map used when capturing home/work, so the same place does
+    // not look like two different products one screen apart: same zoom, same
+    // colorScheme property (not the legacy `styles`, which that surface uses
+    // only on its native path), same chrome-free presentation. It reads the
+    // app theme rather than the OS, for the same reason -- an app forced to
+    // light on a dark phone should not show a dark map here and a light one
+    // there.
     const map = new google.maps.Map(host, {
       center: point,
-      zoom: 16,
+      zoom: 17,
       disableDefaultUI: true,
+      clickableIcons: false,
+      colorScheme,
+      // The one deliberate difference: this map is a backdrop, not a picker,
+      // so it never takes a gesture.
       gestureHandling: "none",
       keyboardShortcuts: false,
-      clickableIcons: false,
-      styles: prefersDark ? DARK_MAP_STYLES : undefined,
     });
     setRendered(true);
 
@@ -72,7 +63,7 @@ export function OnboardingLiveMap({
       google.maps.event.clearInstanceListeners(map);
       setRendered(false);
     };
-  }, [point, status]);
+  }, [colorScheme, point, status]);
 
   const live = rendered && status === "ready";
 
