@@ -485,7 +485,13 @@ export function VaultFlow({
       setStep("recovery"); // Show recovery key dialog
     } catch (err: any) {
       console.error("Create vault error:", err);
-      toast.error(err.message || "We could not create your Vault. Please try again.");
+      if (err?.code === "VAULT_ALREADY_EXISTS") {
+        toast.error("Your vault already exists. Please unlock it.");
+        VaultService.setVaultCheckCache(user.uid, true);
+        setStep("unlock");
+      } else {
+        toast.error(err.message || "We could not create your Vault. Please try again.");
+      }
     } finally {
       createPassphraseAttemptRef.current = false;
       setIsUnlocking(false);
