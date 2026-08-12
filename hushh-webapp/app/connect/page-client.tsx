@@ -42,11 +42,17 @@ import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import {
   ConnectionsService,
   type ConnectionInformationScopeCatalog,
+  type ConnectionRelationship,
   type ConnectionScopeCatalog,
   type ConnectionSummaryEntry,
   type DirectoryPerson,
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
+import {
+  VOICE_CONFIRM_DATA_KEY,
+  VOICE_DISAMBIGUATION_DATA_KEY,
+} from "@/lib/voice/voice-action-card";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { getDirectoryPersonDescription } from "./directory-person-label";
 
 type ConnectTab = "people" | "nearby";
@@ -106,6 +112,43 @@ const DIRECTORY_RESOLVE_MAX_PAGES = 5;
  * refuse an ambiguous one rather than picking. Nothing here decides; it
  * reports how many the words could mean.
  */
+/**
+ * The button one duplicate gets in the disambiguation card.
+ *
+ * Two rows sharing a display name are routinely in different relationship
+ * states -- the screenshot that prompted this had one "Connect" and one
+ * "Cancel request" -- so a single fixed label would offer at least one of them
+ * an action guaranteed to be refused the moment it ran.
+ *
+ * Labels come from `relationshipCta`, the same source the Connect list uses, so
+ * the card and the list behind it can never disagree about what a person's
+ * state is called.
+ *
+ * Only a genuine `connect` is tappable here. `respond` is deliberately not:
+ * answering someone else's invitation is a different action on a different
+ * screen, and `connect.send_request` refuses it anyway -- offering it would
+ * spend the person's tap to earn a refusal.
+ */
+function connectCandidateAffordance(relationship: ConnectionRelationship): {
+  actionLabel: string;
+  disabledReason: string | null;
+} {
+  const cta = relationshipCta(relationship);
+  if (cta.action === "connect") {
+    return { actionLabel: cta.label, disabledReason: null };
+  }
+  if (relationship === "connected") {
+    return { actionLabel: cta.label, disabledReason: "Already connected" };
+  }
+  if (relationship === "pending_outgoing") {
+    return { actionLabel: cta.label, disabledReason: "Waiting on them" };
+  }
+  if (relationship === "pending_incoming") {
+    return { actionLabel: cta.label, disabledReason: "They asked you first" };
+  }
+  return { actionLabel: cta.label, disabledReason: "Not available" };
+}
+
 function matchByName<T>(
   rows: readonly T[],
   spoken: string,
@@ -726,10 +769,16 @@ export default function ConnectPageClient() {
   });
   useLocalOnboardingActionHandler("connect.send_request", async (slots) => {
     const spokenName = typeof slots.person === "string" ? slots.person.trim() : "";
+    // Set only by the disambiguation card, which resolves a name the person
+    // already saw into the one account they pointed at. It skips the matcher
+    // entirely rather than re-running it: the ambiguity has been settled by a
+    // human, and re-deriving it from the same words would just fail the same
+    // way and bounce the card straight back.
+    const chosenUserId = typeof slots.userId === "string" ? slots.userId.trim() : "";
     if (!user) {
       return { status: "blocked", summary: "Sign in before sending a connection request." };
     }
-    if (!spokenName) {
+    if (!spokenName && !chosenUserId) {
       return { status: "blocked", summary: "Say the person's full name before sending a request." };
     }
 
@@ -780,21 +829,49 @@ export default function ConnectPageClient() {
       // Chen. Requiring full-name equality made the person say a name the way
       // the directory happens to store it, which is not something they can
       // know.
-      const exactMatches = matchByName(candidates, spokenName, (c) => c.displayName);
+      // A resolved id wins outright: the person has already pointed at a row.
+      const exactMatches = chosenUserId
+        ? candidates.filter((c) => c.userId === chosenUserId)
+        : matchByName(candidates, spokenName, (c) => c.displayName);
       if (exactMatches.length === 0) {
         return {
           status: "blocked",
-          summary: `I could not find anyone called ${spokenName} in Connect.`,
+          summary: chosenUserId
+            ? "That person is no longer in the directory."
+            : `I could not find anyone called ${spokenName} in Connect.`,
         };
       }
       if (exactMatches.length > 1) {
-        // Name them. "Be more specific" is not actionable when the person
-        // cannot see which people the words could have meant.
+        // Show them instead of asking. Naming the candidates aloud was already
+        // better than "be more specific", but it cannot resolve the ordinary
+        // case where two accounts share a display name -- there is no utterance
+        // that separates them, so the person is asked for something they cannot
+        // give. What tells them apart is the handle under the name, so it has
+        // to be seen.
         return {
           status: "blocked",
-          summary: `More than one person matches that name: ${exactMatches
-            .map((c) => c.displayName ?? "someone")
-            .join(", ")}. Say which one.`,
+          summary: `${exactMatches.length} people are called ${spokenName}. Pick the right one.`,
+          data: {
+            [VOICE_DISAMBIGUATION_DATA_KEY]: {
+              actionId: "connect.send_request",
+              resolveSlot: "userId",
+              slots: { person: spokenName },
+              prompt: `${exactMatches.length} people are called ${spokenName}.`,
+              candidates: exactMatches.map((c) => ({
+                id: c.userId,
+                name: c.displayName || "Someone",
+                // The same description the Connect list renders under each
+                // name. Reading `email` alone showed "No other details" on
+                // rows the list behind the card was captioning correctly:
+                // the directory usually returns the masked variants, not the
+                // raw address. This helper already falls through
+                // email -> maskedEmail -> maskedPhone, so contact sync's phone
+                // numbers land here without another change.
+                detail: getDirectoryPersonDescription(c) ?? null,
+                ...connectCandidateAffordance(c.relationship),
+              })),
+            },
+          },
         };
       }
       const person = exactMatches[0];
@@ -918,31 +995,81 @@ export default function ConnectPageClient() {
 
   useLocalOnboardingActionHandler("connect.remove_connection", async (slots) => {
     const spokenName = typeof slots.person === "string" ? slots.person.trim() : "";
+    // Set by the card's destructive button and by nothing else. Voice never
+    // carries it, so a spoken sentence can raise this question but can never
+    // answer its own question.
+    const confirmed = slots.confirmed === true;
+    const chosenConnectionId =
+      typeof slots.connectionId === "string" ? slots.connectionId.trim() : "";
     if (!user) {
       return { status: "blocked", summary: "Sign in before removing a connection." };
     }
-    if (!spokenName) {
+    if (!spokenName && !chosenConnectionId) {
       return { status: "blocked", summary: "Say who you want to remove." };
     }
     try {
       const idToken = await user.getIdToken();
       const existing = await ConnectionsService.listConnections({ idToken });
-      const matches = matchByName(existing, spokenName, (entry) => entry.displayName);
+      const matches = chosenConnectionId
+        ? existing.filter((entry) => entry.connectionId === chosenConnectionId)
+        : matchByName(existing, spokenName, (entry) => entry.displayName);
       if (matches.length === 0) {
         return {
           status: "blocked",
-          summary: `${spokenName} is not one of your connections.`,
+          summary: chosenConnectionId
+            ? "That connection is no longer there."
+            : `${spokenName} is not one of your connections.`,
         };
       }
       if (matches.length > 1) {
+        // Same picker as sending a request. Removing the wrong person because
+        // two share a name is the worst version of this bug, not a milder one.
         return {
           status: "blocked",
-          summary: `More than one connection matches that name: ${matches
-            .map((entry) => entry.displayName ?? "someone")
-            .join(", ")}. Say which one.`,
+          summary: `${matches.length} connections are called ${spokenName}. Pick the right one.`,
+          data: {
+            [VOICE_DISAMBIGUATION_DATA_KEY]: {
+              actionId: "connect.remove_connection",
+              resolveSlot: "connectionId",
+              slots: { person: spokenName },
+              prompt: `${matches.length} connections are called ${spokenName}.`,
+              candidates: matches.map((entry) => ({
+                id: entry.connectionId,
+                name: entry.displayName || "Someone",
+                detail: getDirectoryPersonDescription(entry) ?? null,
+                actionLabel: "Remove",
+              })),
+            },
+          },
         };
       }
       const connection = matches[0]!;
+      if (!confirmed) {
+        // Ask before, not after. A name misheard once is a connection gone
+        // with no undo, and this is the one action here where being wrong
+        // cannot be walked back.
+        const displayName = connection.displayName || "this person";
+        return {
+          status: "blocked",
+          summary: `Removing ${displayName} needs a confirmation.`,
+          data: {
+            [VOICE_CONFIRM_DATA_KEY]: {
+              actionId: "connect.remove_connection",
+              slots: { person: spokenName, connectionId: connection.connectionId },
+              prompt: `Remove your connection with ${displayName}?`,
+              subject: {
+                name: displayName,
+                detail: getDirectoryPersonDescription(connection) ?? null,
+              },
+              // The action's own words from the generated contract, so what
+              // the person is warned about cannot drift from what happens.
+              consequence:
+                getKaiActionById("connect.remove_connection")?.meaning ?? null,
+              confirmLabel: "Remove",
+            },
+          },
+        };
+      }
       await ConnectionsService.removeConnection({
         idToken,
         connectionId: connection.connectionId,

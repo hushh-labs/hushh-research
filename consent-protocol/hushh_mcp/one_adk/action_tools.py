@@ -1206,6 +1206,75 @@ def _relevance_score(entry: dict[str, Any], tokens: list[str]) -> int:
     return score
 
 
+# Specialist agent -> the authored surfaces that already DO its domain's work.
+#
+# A specialist is for open-ended questions. When someone names a concrete thing
+# that has an authored journey, the journey is the answer and the specialist is
+# a detour that ends in a consent boundary.
+_SPECIALIST_ACTION_SURFACES: dict[str, tuple[str, ...]] = {
+    "agent_connections": ("one_connect",),
+}
+
+# Minimum relevance before a specialist request is redirected to a journey.
+#
+# Measured against the live gateway rather than picked. Within the connections
+# surface, concrete requests score 77-182 ("connect me with ankit" 77, "send a
+# connection request to ankit" 182, "remove my connection with rashid" 149)
+# while open-ended ones top out at 32 ("explain trusted connections", "who do i
+# trust" 15, "what are my consents" 5). 50 sits in that gap with roughly 1.5x
+# margin on both sides, so a genuine question still reaches the specialist and
+# a named action never has to.
+_SPECIALIST_REDIRECT_MIN_SCORE = 50
+
+
+def journey_for_specialist_request(agent_id: str, request: str) -> dict[str, Any] | None:
+    """The authored journey that already does what a specialist was just asked to do.
+
+    One was told "you never execute sensitive actions directly: specialists
+    validate consent", which predates journeys existing. Following it, One sent
+    "connect me with Ankit" to the connections specialist, the specialist hit a
+    consent boundary, and One relayed that honestly -- so a request the app can
+    fully satisfy came back as a permissions refusal.
+
+    Instructions alone did not hold; this is the mechanical half. Candidates are
+    limited to the specialist's OWN surfaces, which matters: scored across the
+    whole gateway, "connect me with ankit" ties three actions at 77 and
+    `setup.connect_gmail` wins on alphabetical tiebreak. Scoped to connections,
+    the same phrase picks `connect.send_request` outright.
+    """
+    surfaces = _SPECIALIST_ACTION_SURFACES.get(str(agent_id or "").strip())
+    if not surfaces:
+        return None
+    tokens = _query_tokens(request)
+    if not tokens:
+        return None
+
+    best: tuple[int, dict[str, Any]] | None = None
+    for entry in list_action_gateway_actions():
+        if str(entry.get("surface_id") or "") not in surfaces:
+            continue
+        if (entry.get("execution_target") or {}).get("status") != "wired":
+            continue
+        if not _is_journey_startable(entry):
+            continue
+        score = _relevance_score(entry, tokens)
+        if score < _SPECIALIST_REDIRECT_MIN_SCORE:
+            continue
+        if best is None or score > best[0]:
+            best = (score, entry)
+
+    if best is None:
+        return None
+    score, entry = best
+    goal = entry.get("goal") or {}
+    return {
+        "action_id": str(entry.get("action_id") or ""),
+        "goal_id": str(goal.get("goal_id") or ""),
+        "label": str(entry.get("label") or ""),
+        "score": score,
+    }
+
+
 def _reachability(
     entry: dict[str, Any],
     action_id: str,
