@@ -44,7 +44,7 @@ def _safe_env_name(value: Any, label: str) -> str:
 class ValidatedCrmRegistryDescriptor:
     raw: dict[str, Any]
     fingerprint: str
-    credential_env_names: tuple[str, str]
+    credential_env_names: tuple[str | None, str | None]
 
     @property
     def crm_id(self) -> str:
@@ -57,6 +57,11 @@ class ValidatedCrmRegistryDescriptor:
     @property
     def capabilities(self) -> tuple[str, ...]:
         return tuple(self.raw.get("capabilities") or ())
+
+    @property
+    def encrypted_fields(self) -> dict[str, Any] | None:
+        value = self.raw.get("encryptedFields")
+        return dict(value) if isinstance(value, dict) else None
 
 
 def load_and_validate_descriptor(
@@ -85,12 +90,16 @@ def load_and_validate_descriptor(
             "authHeaderStyle must be bearer or client_id_secret_headers."
         )
 
+    auth_header_style = _text(raw.get("authHeaderStyle") or "bearer").lower()
     credentials = raw.get("credentials")
-    if not isinstance(credentials, dict):
-        raise CrmRegistryDescriptorError("credentials is required.")
-    client_id_env = _safe_env_name(credentials.get("clientIdEnv"), "clientIdEnv")
-    client_secret_env = _safe_env_name(credentials.get("clientSecretEnv"), "clientSecretEnv")
-    if require_credentials:
+    client_id_env: str | None = None
+    client_secret_env: str | None = None
+    if auth_header_style != "bearer":
+        if not isinstance(credentials, dict):
+            raise CrmRegistryDescriptorError("credentials is required for header-auth connectors.")
+        client_id_env = _safe_env_name(credentials.get("clientIdEnv"), "clientIdEnv")
+        client_secret_env = _safe_env_name(credentials.get("clientSecretEnv"), "clientSecretEnv")
+    if require_credentials and client_id_env and client_secret_env:
         missing = [
             name for name in (client_id_env, client_secret_env) if not _text(os.getenv(name))
         ]
@@ -127,15 +136,65 @@ def load_and_validate_descriptor(
                 f"{operation}.responseContract is not a supported fixed-path contract."
             )
 
+    operation_object_types = {
+        operation: _text(config.get("objectType")) or _text(raw.get("primaryObject"))
+        for operation, config in operations.items()
+    }
+
+    encrypted_fields = raw.get("encryptedFields")
+    if encrypted_fields is not None:
+        if not isinstance(encrypted_fields, dict) or encrypted_fields.get("enabled") is not True:
+            raise CrmRegistryDescriptorError(
+                "encryptedFields.enabled must be true when configured."
+            )
+        if raw.get("environment") != "sandbox":
+            raise CrmRegistryDescriptorError("encryptedFields activation is sandbox-only.")
+        if not {"read", "update"}.issubset(capability_set):
+            raise CrmRegistryDescriptorError(
+                "encryptedFields requires read and update capabilities."
+            )
+        recipient_key = encrypted_fields.get("recipientKey")
+        if not isinstance(recipient_key, dict) or not all(
+            _text(recipient_key.get(key)) for key in ("keyId", "publicKey", "publicKeyFingerprint")
+        ):
+            raise CrmRegistryDescriptorError(
+                "encryptedFields.recipientKey requires keyId, publicKey, and publicKeyFingerprint."
+            )
+        tools = encrypted_fields.get("tools")
+        if not isinstance(tools, dict) or not all(
+            _text(tools.get(key)) for key in ("read", "update")
+        ):
+            raise CrmRegistryDescriptorError(
+                "encryptedFields.tools requires read and update tool names."
+            )
+
     if capability_set.intersection({"create", "update", "delete"}):
         if not {"read", "create", "update", "delete"}.issubset(capability_set):
             raise CrmRegistryDescriptorError(
                 "Write activation requires read/create/update/delete so the isolated fixture can be verified and cleaned up."
             )
-        lifecycle = (raw.get("probe") or {}).get("lifecycle")
-        if not isinstance(lifecycle, dict) or not all(
-            isinstance(lifecycle.get(operation), dict)
-            for operation in ("create", "read", "update", "delete")
+        probe = raw.get("probe") or {}
+        lifecycle = probe.get("lifecycle")
+        cross_object = (
+            len(
+                {
+                    operation_object_types[operation]
+                    for operation in ("create", "read", "update", "delete")
+                }
+            )
+            > 1
+        )
+        if cross_object and probe.get("mode") != "cross-object-bound-lifecycle.v1":
+            raise CrmRegistryDescriptorError(
+                "Cross-object CRM operations require probe.mode=cross-object-bound-lifecycle.v1; "
+                "a Person Account create id must never be reused for a Contact lifecycle."
+            )
+        if not cross_object and (
+            not isinstance(lifecycle, dict)
+            or not all(
+                isinstance(lifecycle.get(operation), dict)
+                for operation in ("create", "read", "update", "delete")
+            )
         ):
             raise CrmRegistryDescriptorError(
                 "CRUD activation requires synthetic probe.lifecycle create/read/update/delete arguments."
@@ -157,6 +216,9 @@ def redacted_summary(descriptor: ValidatedCrmRegistryDescriptor) -> dict[str, An
         "crmId": descriptor.crm_id,
         "configurationFingerprint": descriptor.fingerprint,
         "capabilities": list(descriptor.capabilities),
-        "credentialSources": list(descriptor.credential_env_names),
-        "credentialsPresent": all(os.getenv(name) for name in descriptor.credential_env_names),
+        "credentialSources": [name for name in descriptor.credential_env_names if name],
+        "credentialsPresent": all(
+            os.getenv(name) for name in descriptor.credential_env_names if name
+        ),
+        "encryptedFields": bool(descriptor.encrypted_fields),
     }

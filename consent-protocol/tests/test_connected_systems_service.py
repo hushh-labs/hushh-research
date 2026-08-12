@@ -2007,7 +2007,7 @@ def test_adapter_passes_gateway_headers_and_connector_reference(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_mulesoft_connector_reference_strips_backend_target_before_tool_call():
+async def test_encrypted_fields_connector_strips_backend_target_before_tool_call():
     adapter = GenericCrmAdapter()
     definition = ConnectedSystemDefinition(
         system_id="crm-mulesoft",
@@ -2022,7 +2022,7 @@ async def test_mulesoft_connector_reference_strips_backend_target_before_tool_ca
         registry_source="test",
         tool_catalog=({"name": "object-schema", "operation": "schema"},),
         capabilities=frozenset({"schema"}),
-        mulesoft_connector_ref="mulesoft:crm-sandbox-contact",
+        crm_encrypted_fields_v1_enabled=True,
     )
     service = ConnectedSystemsService(
         adapter=adapter,

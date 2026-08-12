@@ -17,6 +17,12 @@ class _Calendar:
     async def freebusy(self, **kwargs: object) -> dict[str, object]:
         return {"calendars": {"primary": {"busy": []}}}
 
+    async def find_openings(self, **kwargs: object) -> dict[str, object]:
+        return {
+            "duration_minutes": kwargs["duration_minutes"],
+            "openings": [{"start_at": "2026-08-11T10:00:00Z", "end_at": "2026-08-11T10:30:00Z"}],
+        }
+
     async def propose(self, **kwargs: object) -> dict[str, object]:
         self.proposal_payload = kwargs["payload"]  # type: ignore[assignment]
         return {
@@ -83,6 +89,64 @@ def test_calendar_write_only_creates_a_confirmation_directive(monkeypatch) -> No
     assert directive["payload"]["type"] == "calendar.execute_proposal"
     assert calendar.proposal_payload is not None
     assert str(calendar.proposal_payload["start_at"]).endswith("+05:30")
+
+
+def test_calendar_free_slots_uses_authenticated_owner_state(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: _Calendar())
+
+    result = asyncio.run(
+        tools.calendar_free_slots(
+            _context(),
+            start_at="2026-08-11T09:00:00+05:30",
+            end_at="2026-08-11T17:00:00+05:30",
+            duration_minutes=30,
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert result["openings"][0]["start_at"] == "2026-08-11T10:00:00Z"
+
+
+def test_calendar_conflict_requires_an_explicit_schedule_anyway_choice(monkeypatch) -> None:  # noqa: ANN001
+    context = _context()
+    calendar = _Calendar()
+
+    async def propose(**kwargs: object) -> dict[str, object]:
+        return {
+            "proposal_id": "gcal_example",
+            "expires_at": "2026-08-11T12:00:00Z",
+            "plan": {
+                "title": "Client call",
+                "start_at": "2026-08-11T10:00:00+05:30",
+                "end_at": "2026-08-11T10:30:00+05:30",
+                "time_zone": "Asia/Kolkata",
+                "attendees": [],
+                "send_updates": True,
+                "conflicts": [
+                    {
+                        "title": "Design review",
+                        "start": {"dateTime": "2026-08-11T10:00:00+05:30"},
+                    }
+                ],
+            },
+        }
+
+    calendar.propose = propose  # type: ignore[method-assign]
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+
+    result = asyncio.run(
+        tools.propose_calendar_event(
+            context,
+            title="Client call",
+            start_at="2026-08-11T10:00:00+05:30",
+            end_at="2026-08-11T10:30:00+05:30",
+        )
+    )
+
+    directive = context.state["hussh:pending_directive:calendar"]
+    assert result["conflicts"][0]["title"] == "Design review"
+    assert "Design review" in directive["payload"]["summary"]
+    assert directive["payload"]["confirmLabel"] == "Schedule anyway"
 
 
 class _ReadOnlyCalendar:

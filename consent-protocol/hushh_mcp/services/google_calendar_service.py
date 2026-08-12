@@ -2,7 +2,8 @@
 
 Calendar contents are fetched from Google when needed. Only short-lived action
 plans are stored locally; the service does not turn events into PKM or a
-long-lived cache.
+long-lived cache. Scheduling proposals include the live overlapping events so
+the owner can make an informed, explicit choice before anything changes.
 """
 
 from __future__ import annotations
@@ -179,6 +180,153 @@ class GoogleCalendarService:
             "time_zone": response.get("timeZone"),
         }
 
+    async def find_openings(
+        self,
+        *,
+        user_id: str,
+        start_at: str,
+        end_at: str,
+        duration_minutes: int,
+        limit: int = 3,
+        calendar_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Return the earliest free slots of a requested duration.
+
+        This deliberately does not invent working hours or preferences. The
+        caller supplies the window it is willing to use; the service derives
+        deterministic candidate slots from the owner's live free/busy data.
+        """
+        try:
+            duration = int(duration_minutes)
+        except (TypeError, ValueError) as exc:
+            raise GoogleConnectionError(
+                "Calendar duration must be a whole number of minutes", status_code=422
+            ) from exc
+        if not 5 <= duration <= 720:
+            raise GoogleConnectionError(
+                "Calendar duration must be between 5 minutes and 12 hours", status_code=422
+            )
+        try:
+            max_slots = int(limit)
+        except (TypeError, ValueError) as exc:
+            raise GoogleConnectionError(
+                "Calendar opening limit must be a whole number", status_code=422
+            ) from exc
+        if not 1 <= max_slots <= 20:
+            raise GoogleConnectionError(
+                "Choose between one and twenty Calendar openings", status_code=422
+            )
+
+        availability = await self.freebusy(
+            user_id=user_id,
+            start_at=start_at,
+            end_at=end_at,
+            calendar_ids=calendar_ids,
+        )
+        range_start = datetime.fromisoformat(availability["time_min"].replace("Z", "+00:00"))
+        range_end = datetime.fromisoformat(availability["time_max"].replace("Z", "+00:00"))
+        busy = self._merged_busy_intervals(
+            calendars=availability.get("calendars"),
+            range_start=range_start,
+            range_end=range_end,
+        )
+        minimum = timedelta(minutes=duration)
+        openings: list[dict[str, str]] = []
+        cursor = range_start
+        for busy_start, busy_end in [*busy, (range_end, range_end)]:
+            if busy_start - cursor >= minimum:
+                opening_end = cursor + minimum
+                openings.append(
+                    {
+                        "start_at": self._utc_iso(cursor),
+                        "end_at": self._utc_iso(opening_end),
+                        "available_until": self._utc_iso(busy_start),
+                    }
+                )
+                if len(openings) == max_slots:
+                    break
+            if busy_end > cursor:
+                cursor = busy_end
+
+        return {
+            "time_min": availability["time_min"],
+            "time_max": availability["time_max"],
+            "time_zone": availability.get("time_zone"),
+            "duration_minutes": duration,
+            "openings": openings,
+        }
+
+    @classmethod
+    def _merged_busy_intervals(
+        cls,
+        *,
+        calendars: object,
+        range_start: datetime,
+        range_end: datetime,
+    ) -> list[tuple[datetime, datetime]]:
+        intervals: list[tuple[datetime, datetime]] = []
+        if not isinstance(calendars, dict):
+            return intervals
+        for calendar in calendars.values():
+            if not isinstance(calendar, dict):
+                continue
+            for item in calendar.get("busy", []):
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    start = datetime.fromisoformat(
+                        cls._iso(str(item["start"])).replace("Z", "+00:00")
+                    )
+                    end = datetime.fromisoformat(cls._iso(str(item["end"])).replace("Z", "+00:00"))
+                except (KeyError, TypeError, ValueError, GoogleConnectionError):
+                    continue
+                start, end = max(start, range_start), min(end, range_end)
+                if start < end:
+                    intervals.append((start, end))
+        intervals.sort(key=lambda interval: interval[0])
+        merged: list[tuple[datetime, datetime]] = []
+        for start, end in intervals:
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        return merged
+
+    @staticmethod
+    def _utc_iso(value: datetime) -> str:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+    async def _find_conflicts(
+        self,
+        *,
+        user_id: str,
+        start_at: str,
+        end_at: str,
+        exclude_event_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Read the exact overlapping events used to warn the owner."""
+        response = await self._request(
+            user_id=user_id,
+            method="GET",
+            path="/calendars/primary/events",
+            access="manage",
+            params={
+                "timeMin": start_at,
+                "timeMax": end_at,
+                "singleEvents": "true",
+                "orderBy": "startTime",
+                "maxResults": 2500,
+            },
+        )
+        return [
+            self._event_summary(event)
+            for event in response.get("items", [])
+            if isinstance(event, dict)
+            and event.get("status") != "cancelled"
+            and event.get("transparency") != "transparent"
+            and str(event.get("id") or "") != str(exclude_event_id or "")
+        ]
+
     async def propose(
         self,
         *,
@@ -205,6 +353,13 @@ class GoogleCalendarService:
             )
             expected_etag = str(event.get("etag") or "") or None
             plan["current_event"] = self._event_summary(event)
+        if action in {"create", "reschedule"}:
+            plan["conflicts"] = await self._find_conflicts(
+                user_id=user_id,
+                start_at=plan["start_at"],
+                end_at=plan["end_at"],
+                exclude_event_id=plan.get("event_id"),
+            )
         proposal_id = f"gcal_{secrets.token_urlsafe(24)}"
         self.db.execute_raw(
             """INSERT INTO google_calendar_action_proposals
@@ -285,6 +440,14 @@ class GoogleCalendarService:
         try:
             action = proposal["action"]
             if action == "create":
+                self._reject_new_conflicts(
+                    planned=plan.get("conflicts"),
+                    current=await self._find_conflicts(
+                        user_id=user_id,
+                        start_at=plan["start_at"],
+                        end_at=plan["end_at"],
+                    ),
+                )
                 response = await self._request(
                     user_id=user_id,
                     method="POST",
@@ -306,6 +469,16 @@ class GoogleCalendarService:
                 ):
                     raise GoogleConnectionError(
                         "Calendar event changed; review it again before confirming", status_code=409
+                    )
+                if action == "reschedule":
+                    self._reject_new_conflicts(
+                        planned=plan.get("conflicts"),
+                        current=await self._find_conflicts(
+                            user_id=user_id,
+                            start_at=plan["start_at"],
+                            end_at=plan["end_at"],
+                            exclude_event_id=plan["event_id"],
+                        ),
                     )
                 headers = {"If-Match": str(current.get("etag") or "")}
                 if action == "reschedule":
@@ -342,6 +515,29 @@ class GoogleCalendarService:
                 {"proposal_id": proposal_id},
             )
             raise
+
+    @staticmethod
+    def _reject_new_conflicts(*, planned: object, current: list[dict[str, Any]]) -> None:
+        reviewed = planned if isinstance(planned, list) else []
+        if GoogleCalendarService._conflict_fingerprints(reviewed) != (
+            GoogleCalendarService._conflict_fingerprints(current)
+        ):
+            raise GoogleConnectionError(
+                "Calendar availability changed; review the proposed time again before confirming",
+                status_code=409,
+            )
+
+    @staticmethod
+    def _conflict_fingerprints(conflicts: list[dict[str, Any]]) -> set[tuple[str, str, str, str]]:
+        return {
+            (
+                str(event.get("id") or ""),
+                str(event.get("etag") or ""),
+                json.dumps(event.get("start") or {}, sort_keys=True),
+                json.dumps(event.get("end") or {}, sort_keys=True),
+            )
+            for event in conflicts
+        }
 
     @staticmethod
     def _event_payload(plan: dict[str, Any]) -> dict[str, Any]:

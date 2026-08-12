@@ -122,7 +122,10 @@
     "141_crm_zk_v1.sql",
     "142_source_library_scope_retirement.sql",
     "143_crm_zk_uat_v1.sql",
-    "144_google_integrations_calendar_foundation.sql"
+    "144_google_integrations_calendar_foundation.sql",
+    "145_crm_encrypted_fields_v1.sql",
+    "146_crm_operation_object_binding.sql",
+    "147_retire_crm_zk_runtime_profiles.sql"
   ],
   "groups": {
     "iam": [
@@ -199,7 +202,10 @@
       "141_crm_zk_v1.sql",
       "142_source_library_scope_retirement.sql",
       "143_crm_zk_uat_v1.sql",
-      "144_google_integrations_calendar_foundation.sql"
+      "144_google_integrations_calendar_foundation.sql",
+      "145_crm_encrypted_fields_v1.sql",
+      "146_crm_operation_object_binding.sql",
+      "147_retire_crm_zk_runtime_profiles.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

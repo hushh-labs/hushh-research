@@ -218,7 +218,7 @@ export function TopShellTabs({
               width: tabWidth,
             }}
           >
-            <span 
+            <span
               className="h-[3px] rounded-full bg-[var(--app-accent)] transition-[width] duration-150"
               style={{
                 width: activeTextWidth ? `${Math.max(28, activeTextWidth)}px` : 'max(28px, calc(100% - 2rem))'

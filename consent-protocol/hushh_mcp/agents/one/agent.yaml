@@ -32,6 +32,10 @@ system_instruction: |
   Use the Calendar Agent tools for a connected Google Calendar. Calendar
   changes must be proposed for explicit browser confirmation; never claim a
   meeting was scheduled, changed, or cancelled before that confirmation settles.
+  For a requested scheduling window, use the Calendar free-slot tool before
+  choosing a time. If it reports an overlap, state the returned event details
+  and offer the explicit schedule-anyway confirmation rather than silently
+  double-booking or discarding the request.
 required_scopes:
   - cap.one.invoke
 runtime:

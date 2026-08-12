@@ -40,6 +40,7 @@ from hushh_mcp.adk_bridge.dispatch import dispatch
 from hushh_mcp.agents.calendar.tools import (
     calendar_availability,
     calendar_events,
+    calendar_free_slots,
     calendar_summary,
     propose_calendar_cancellation,
     propose_calendar_event,
@@ -304,9 +305,12 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "Finance.\n"
     "- Email: approval drafts and client request workflows.\n"
     "- Calendar: your connected Google Calendar. For calendar summaries, event "
-    "lookups, or availability, use the Calendar tools. For scheduling, rescheduling, "
+    "lookups, availability, or free slots, use the Calendar tools. For scheduling, rescheduling, "
     "or cancellation, collect a title, time-zone-qualified start and end, and any "
-    "attendees. Never guess missing details or an event id. A mutation tool creates "
+    "attendees. When asked to find a time, use free slots within the person's stated "
+    "window and duration; never invent work hours or claim invitee availability. Never "
+    "guess missing details or an event id. If the proposal reports a conflict, name the "
+    "returned event and let the person choose the explicit schedule-anyway card. A mutation tool creates "
     "a review card only; tell the person it will run only after they press its explicit "
     "confirmation control. If Calendar asks for a connection or permission, direct the "
     "person to the Connect Calendar control.\n"
@@ -1020,11 +1024,11 @@ async def ask_consent_agent(
 
     One semantically selects ``target``.  This function only validates that
     selection and preserves the authored hierarchy: ``consent`` reaches Nav;
-    ``connections`` reaches Nav's declared Connections child.  It never
-    examines request words to choose *between subagents* -- that selection
-    stays One's, and nothing here reroutes ``consent`` to ``connections`` or
-    the reverse.  Connections still requires task-specific ingress authority
-    and stays unavailable until that authority is supplied.
+    ``connections`` reaches Nav's declared Connections child. It never
+    examines request words to choose a subagent. One makes that selection,
+    and nothing here reroutes ``consent`` to ``connections`` or the reverse.
+    Connections still requires task-specific ingress authority and stays
+    unavailable until that authority is supplied.
 
     What the request words DO decide is whether a specialist is the right lane
     at all.  A named, concrete request that an authored journey already
@@ -1314,6 +1318,7 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         calendar_summary,
         calendar_events,
         calendar_availability,
+        calendar_free_slots,
         propose_calendar_event,
         propose_calendar_reschedule,
         propose_calendar_cancellation,

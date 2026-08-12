@@ -75,7 +75,6 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   const icon = DOMAIN_ICON[item.source_domain] || Newspaper;
   const domainLabel = DOMAIN_LABEL[item.source_domain] || "Activity";
   const scope = metadataString(item.metadata, "scope_description") || metadataString(item.metadata, "scope");
-  const counterparty = metadataString(item.metadata, "counterpart_label");
   // Best-available name for the other party (label → display → first → phone →
   // "Someone" last). Used to turn vague, subjectless lines like "A live
   // location share was revoked" into explicit subject-action-object sentences.
@@ -221,34 +220,45 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         description: "A connected-system action failed.",
         href: ROUTES.CONNECTED_SYSTEMS,
       };
-    case "connection_accepted":
+    case "connection_accepted": {
+      // Prefer any resolvable name (label → display → first → phone) so a row
+      // with partial metadata still names the person instead of the generic
+      // fallback. `hasWho` guards the "Someone" sentinel from resolveCounterpartName.
+      const hasWho = who !== "Someone";
       return {
         icon: UserRound,
         domainLabel,
         label: "Connection accepted",
-        description: counterparty ? `You and ${counterparty} are connected.` : "A connection was accepted.",
+        description: hasWho
+          ? `You and ${who} are connected.`
+          : "A connection was accepted.",
         href: ROUTES.CONNECT,
       };
-    case "connection_rejected":
+    }
+    case "connection_rejected": {
+      const hasWho = who !== "Someone";
       return {
         icon: UserRound,
         domainLabel,
         label: "Connection rejected",
-        description: counterparty
-          ? `${counterparty} declined your connection request.`
+        description: hasWho
+          ? `${who} declined your connection request.`
           : "A connection request was rejected.",
         href: ROUTES.CONNECT,
       };
-    case "connection_revoked":
+    }
+    case "connection_revoked": {
+      const hasWho = who !== "Someone";
       return {
         icon: UserRound,
         domainLabel,
         label: "Connection removed",
-        description: counterparty
-          ? `Your connection with ${counterparty} was removed.`
+        description: hasWho
+          ? `Your connection with ${who} was removed.`
           : "A connection was removed.",
         href: ROUTES.CONNECT,
       };
+    }
     default:
       return {
         icon,

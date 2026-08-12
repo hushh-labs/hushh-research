@@ -26,7 +26,8 @@
         "google_connection_required",
         "google_permission_required",
         "proposal_expired",
-        "event_changed"
+        "event_changed",
+        "availability_changed"
       ],
       "icon": null,
       "id": "agent_calendar",
@@ -94,7 +95,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "130204dc7b3e88d36b8215ffa4626de0e5171f553eba2095ede348f473688a02",
+      "system_instruction_sha256": "8f664d2cde215f8aca055b45877de651add62a467dded371611725de78bddc11",
       "telemetry_namespace": "agent.calendar",
       "tools": [
         {
@@ -113,6 +114,12 @@
           "description": "Return busy intervals in an exact time interval.",
           "name": "calendar_availability",
           "py_func": "hushh_mcp.agents.calendar.tools.calendar_availability",
+          "required_scope": "cap.one.invoke"
+        },
+        {
+          "description": "Find the earliest fitting open slots in an exact owner-calendar window.",
+          "name": "calendar_free_slots",
+          "py_func": "hushh_mcp.agents.calendar.tools.calendar_free_slots",
           "required_scope": "cap.one.invoke"
         },
         {
@@ -1848,7 +1855,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "15f0268d1bab85156981c9bd4dbc3d480c7467841f8bd29db96e2d614b13b851",
+      "system_instruction_sha256": "de7568182f00cbda27a88a59ca334065a80fca1af981e2fd884af6c0d62e27b4",
       "telemetry_namespace": "agent.one",
       "tools": [],
       "ui_type": "chat",

@@ -25,7 +25,7 @@ class FakeConnectedSystemsService:
         self.search_payload = None
         self.disconnected_payload = None
         self.schema_calls = 0
-        self.crm_zk_uat_payload = None
+        self.encrypted_fields_payload = None
 
     def list_systems(self):
         return [
@@ -143,20 +143,20 @@ class FakeConnectedSystemsService:
             "fieldNames": ["MailingCity"],
         }
 
-    def crm_zk_uat_configuration(self, **kwargs):
-        self.crm_zk_uat_payload = kwargs
+    def crm_encrypted_fields_configuration(self, **kwargs):
+        self.encrypted_fields_payload = kwargs
         return {
-            "profile": "crm-zk-uat.v1",
+            "profile": "crm-encrypted-fields.v1",
             "configurationRevision": 1,
             "recipientKey": {"keyId": "uat-key", "publicKey": "public"},
             "keyDerivation": "SHA-256(X25519 shared secret)",
             "aad": False,
         }
 
-    async def search_record_crm_zk_uat(self, **kwargs):
-        self.crm_zk_uat_payload = kwargs
+    async def read_bound_record_encrypted_fields(self, **kwargs):
+        self.encrypted_fields_payload = kwargs
         return {
-            "profile": "crm-zk-uat.v1",
+            "profile": "crm-encrypted-fields.v1",
             "systemId": kwargs["system_id"],
             "objectType": kwargs["object_type"],
             "status": "succeeded",
@@ -166,18 +166,18 @@ class FakeConnectedSystemsService:
             "encryptedFields": kwargs["encrypted_fields"],
         }
 
-    async def create_crm_zk_uat_update_intent(self, **kwargs):
-        self.crm_zk_uat_payload = kwargs
+    async def create_encrypted_fields_update_intent(self, **kwargs):
+        self.encrypted_fields_payload = kwargs
         return {
-            "intentId": "csi_zk_uat",
+            "intentId": "csi_encrypted",
             "systemId": kwargs["system_id"],
             "action": "update",
             "status": "pending",
             "fieldNames": kwargs["field_names"],
         }
 
-    async def approve_crm_zk_uat_intent(self, **kwargs):
-        self.crm_zk_uat_payload = kwargs
+    async def approve_encrypted_fields_intent(self, **kwargs):
+        self.encrypted_fields_payload = kwargs
         return {
             "intentId": kwargs["intent_id"],
             "systemId": kwargs["system_id"],
@@ -457,7 +457,9 @@ def test_search_route_uses_verified_owner_identity(monkeypatch):
     response = client.post(
         "/api/connected-systems/salesforce-fsc-customer0/records/search",
         headers={"Authorization": "Bearer HCT:test"},
-        json={"objectType": "Contact", "returnFields": ["LeadSource", "MailingCity"]},
+        # The browser may carry a legacy objectType field, but the registry-owned
+        # read operation remains the sole authority for record discovery.
+        json={"objectType": "Account", "returnFields": ["LeadSource", "MailingCity"]},
     )
 
     assert response.status_code == 200
@@ -471,14 +473,14 @@ def test_search_route_uses_verified_owner_identity(monkeypatch):
     }
 
 
-def test_crm_zk_uat_search_route_accepts_only_opaque_values(monkeypatch):
+def test_encrypted_fields_read_route_accepts_only_opaque_values(monkeypatch):
     service = FakeConnectedSystemsService()
     monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
     client = TestClient(_build_app())
-    encrypted_fields = {"profile": "crm-zk-uat.v1", "ciphertext": "opaque"}
+    encrypted_fields = {"profile": "crm-encrypted-fields.v1", "ciphertext": "opaque"}
 
     response = client.post(
-        "/api/connected-systems/salesforce-fsc-customer0/records/search-zk-uat",
+        "/api/connected-systems/salesforce-fsc-customer0/records/read-encrypted",
         headers={"Authorization": "Bearer HCT:test"},
         json={
             "objectType": "Contact",
@@ -488,17 +490,16 @@ def test_crm_zk_uat_search_route_accepts_only_opaque_values(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert service.crm_zk_uat_payload == {
+    assert service.encrypted_fields_payload == {
         "user_id": "user_123",
         "system_id": "salesforce-fsc-customer0",
         "object_type": "Contact",
         "return_fields": ["FirstName", "LastName"],
-        "search_field_names": ["Email", "Phone"],
         "encrypted_fields": encrypted_fields,
     }
 
     rejected = client.post(
-        "/api/connected-systems/salesforce-fsc-customer0/records/search-zk-uat",
+        "/api/connected-systems/salesforce-fsc-customer0/records/read-encrypted",
         headers={"Authorization": "Bearer HCT:test"},
         json={
             "objectType": "Contact",
@@ -510,14 +511,14 @@ def test_crm_zk_uat_search_route_accepts_only_opaque_values(monkeypatch):
     assert rejected.status_code == 422
 
 
-def test_crm_zk_uat_update_and_approval_routes_keep_values_opaque(monkeypatch):
+def test_encrypted_fields_update_and_approval_routes_keep_values_opaque(monkeypatch):
     service = FakeConnectedSystemsService()
     monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
     client = TestClient(_build_app())
-    encrypted_fields = {"profile": "crm-zk-uat.v1", "ciphertext": "opaque"}
+    encrypted_fields = {"profile": "crm-encrypted-fields.v1", "ciphertext": "opaque"}
 
     prepared = client.post(
-        "/api/connected-systems/salesforce-fsc-customer0/records/update-intents-zk-uat",
+        "/api/connected-systems/salesforce-fsc-customer0/records/update-intents-encrypted",
         headers={"Authorization": "Bearer HCT:test"},
         json={
             "objectType": "Contact",
@@ -526,8 +527,8 @@ def test_crm_zk_uat_update_and_approval_routes_keep_values_opaque(monkeypatch):
         },
     )
     assert prepared.status_code == 200
-    assert service.crm_zk_uat_payload["encrypted_fields"] == encrypted_fields
-    assert service.crm_zk_uat_payload["locked_field_names"] == {
+    assert service.encrypted_fields_payload["encrypted_fields"] == encrypted_fields
+    assert service.encrypted_fields_payload["locked_field_names"] == {
         "Email",
         "Phone",
         "FirstName",
@@ -535,7 +536,7 @@ def test_crm_zk_uat_update_and_approval_routes_keep_values_opaque(monkeypatch):
     }
 
     approved = client.post(
-        "/api/connected-systems/salesforce-fsc-customer0/intents/csi_zk_uat/approve-zk-uat",
+        "/api/connected-systems/salesforce-fsc-customer0/intents/csi_encrypted/approve-encrypted",
         headers={"Authorization": "Bearer HCT:test"},
     )
     assert approved.status_code == 200

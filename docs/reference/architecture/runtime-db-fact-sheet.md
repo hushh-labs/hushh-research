@@ -93,7 +93,7 @@ that file for the full record; this table is the index.
 | `connected_system_workflows` *(customer0)* | `workflow_state` | `iam-consent-governance` | 2 tables |
 | `crm_schema_mapping_cache` *(customer0)* | `provider_cache` | `backend-agents-operons` | 2 tables |
 | `domain_reference_registry` *(transitional)* | `reference` | `vault-pkm-governance` | 1 table |
-| `enterprise_crm_registry` *(customer0)* | `reference` | `iam-consent-governance` | 2 tables |
+| `enterprise_crm_registry` *(customer0)* | `reference` | `iam-consent-governance` | 3 tables |
 | `enterprise_crm_registry_audit` *(customer0)* | `audit_regulated` | `iam-consent-governance` | 1 table |
 | `legacy_memory_cutover` *(legacy_migration)* | `personal_encrypted` | `vault-pkm-governance` | 10 tables |
 
