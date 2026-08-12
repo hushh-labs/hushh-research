@@ -91,7 +91,7 @@ describe("SettingsRow", () => {
     );
 
     const rowShell = container.querySelector('[data-testid="settings-row"]');
-    expect(rowShell?.className).toContain("[--settings-row-py:0.5rem]");
+    expect(rowShell?.className).toContain("[--settings-row-py:10px]");
     expect(screen.queryByTestId("settings-row-description")).toBeNull();
   });
 
@@ -101,8 +101,8 @@ describe("SettingsRow", () => {
     );
 
     const title = container.querySelector('[data-slot="settings-row-title"]');
-    expect(title?.className).toContain("text-[15px]");
-    expect(title?.className).toContain("font-normal");
+    expect(title?.className).toContain("ui-text-row-label");
+    expect(title?.getAttribute("data-ui-role")).toBe("body");
     expect(title?.className).not.toContain("font-semibold");
   });
 
@@ -113,8 +113,43 @@ describe("SettingsRow", () => {
     );
 
     expect(globalsCss).toContain('[data-slot="settings-row-title"] {');
-    expect(globalsCss).toContain("font-size: 0.9375rem !important;");
-    expect(globalsCss).toContain("font-weight: 400 !important;");
+    expect(globalsCss).toContain(
+      "font-size: var(--type-row-label-size) !important;",
+    );
+    expect(globalsCss).toContain(
+      "font-weight: var(--type-row-label-weight) !important;",
+    );
+  });
+
+  it("keeps row descriptions visually subordinate to page subtitles and body text", () => {
+    const globalsCss = readFileSync(
+      join(process.cwd(), "app/globals.css"),
+      "utf8",
+    );
+
+    expect(globalsCss).toContain("--type-page-subtitle-size: 15px;");
+    expect(globalsCss).toContain("--type-page-subtitle-line: 20px;");
+    expect(globalsCss).toContain("--type-row-label-size: 17px;");
+    expect(globalsCss).toContain("--type-row-label-line: 22px;");
+    expect(globalsCss).toContain("--type-row-description-size: 13px;");
+    expect(globalsCss).toContain("--type-row-description-line: 18px;");
+    expect(globalsCss).toMatch(
+      /:is\(\.ui-text-row-description\)\s*\{\s*color:\s*var\(--app-tertiary-label\)\s*!important;/,
+    );
+  });
+
+  it("uses Inter as the product UI font family", () => {
+    const globalsCss = readFileSync(
+      join(process.cwd(), "app/globals.css"),
+      "utf8",
+    );
+
+    expect(globalsCss).toContain(
+      '--font-family-product: "InterVariable", "Inter", system-ui, sans-serif;',
+    );
+    expect(globalsCss).not.toContain(
+      '--font-family-product:\n    -apple-system, BlinkMacSystemFont, "InterVariable"',
+    );
   });
 
   it("publishes semantic icon tone while destructive actions retain red", () => {
@@ -158,7 +193,7 @@ describe("SettingsRow", () => {
     const group = container.querySelector('[data-slot="settings-group-shell"]');
     const icon = container.querySelector('[data-slot="settings-row-icon"]');
 
-    expect(group?.className).toContain("--app-card-radius-compact");
+    expect(group?.className).toContain("--app-card-radius-standard");
     expect(group?.className).toContain(
       "shadow-[var(--app-card-shadow-standard)]",
     );
@@ -187,7 +222,7 @@ describe("SettingsRow", () => {
 
     expect(
       container.querySelector('[data-testid="settings-row"]')?.className,
-    ).toContain("after:left-[3.75rem]");
+    ).toContain("after:left-[62px]");
   });
 
   it("inherits route-family separator and density defaults", () => {
@@ -206,7 +241,7 @@ describe("SettingsRow", () => {
     const rows = container.querySelectorAll('[data-testid="settings-row"]');
 
     expect(group?.getAttribute("data-inset-separators")).toBe("true");
-    expect(rows[0]?.className).toContain("[--settings-row-py:0.5rem]");
+    expect(rows[0]?.className).toContain("[--settings-row-py:10px]");
     expect(
       rows[0]?.querySelector('[data-slot="settings-row-icon"]')?.className,
     ).not.toContain("sm:h-10");

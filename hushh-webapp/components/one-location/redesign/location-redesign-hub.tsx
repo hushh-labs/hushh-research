@@ -548,32 +548,30 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
       className="ml-auto flex max-w-full shrink-0 items-center justify-end"
       data-testid="one-location-header-actions"
     >
-      <div className="flex min-h-[31px] shrink-0 items-center gap-2 rounded-full bg-[color:var(--app-neutral-fill)] pl-3 pr-0">
-        <span
-          className="ui-text-helper-text hidden whitespace-nowrap text-[color:var(--app-label)] sm:inline"
-          aria-hidden="true"
-        >
-          {statusLabel}
-        </span>
-        <Switch
-          size="ios"
-          checked={locationOn}
-          onCheckedChange={handleLocationChange}
-          // Deliberately never disabled. What it controls is local state that
-          // flips on tap, so a disabled window could only ever swallow the
-          // person's NEXT tap — during the very seconds the device spends
-          // finding them, which is when they are most likely to change their
-          // mind. The status text carries the waiting instead.
-          aria-label={locationOn ? "Turn location off" : "Turn location on"}
-          // The same pair of contract actions the Settings toggle carries.
-          // Both are the same control in two places, so voice can offer
-          // pause/resume from the Now tab without opening Settings first.
-          data-voice-control-id="one-location-updates-toggle"
-          // No colour override: the shared Switch already carries the iOS
-          // system green, so this toggle reads the same as every other one.
-          className={cn(acquiring && "animate-pulse")}
-        />
-      </div>
+      <span
+        className="ui-text-helper-text hidden whitespace-nowrap pr-2 text-[color:var(--app-secondary-label)] sm:inline"
+        aria-hidden="true"
+      >
+        {statusLabel}
+      </span>
+      <Switch
+        size="ios"
+        checked={locationOn}
+        onCheckedChange={handleLocationChange}
+        // Deliberately never disabled. What it controls is local state that
+        // flips on tap, so a disabled window could only ever swallow the
+        // person's NEXT tap — during the very seconds the device spends
+        // finding them, which is when they are most likely to change their
+        // mind. The status text carries the waiting instead.
+        aria-label={locationOn ? "Turn location off" : "Turn location on"}
+        // The same pair of contract actions the Settings toggle carries.
+        // Both are the same control in two places, so voice can offer
+        // pause/resume from the Now tab without opening Settings first.
+        data-voice-control-id="one-location-updates-toggle"
+        // No colour override: the shared Switch already carries the iOS
+        // system green, so this toggle reads the same as every other one.
+        className={cn(acquiring && "animate-pulse")}
+      />
     </div>
   );
 }
@@ -1105,7 +1103,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               focusedInviteId={focusedCircleMemberInviteId}
               onDismissFocusedInvite={dismissFocusedCircleMemberInvite}
               onStartShare={openShareFlow}
-              onAsk={() => openFlow("ask")}
             />
           </LocationHubPanel>
 
@@ -1604,14 +1601,6 @@ function LocationSettingsFlow({
 /* PEOPLE HUB                                                           */
 /* =================================================================== */
 
-const PERSON_TINTS = [
-  "#8b5cf6",
-  "#3b82f6",
-  "#f59e0b",
-  "#14b8a6",
-  "#ec4899",
-] as const;
-
 function personInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   const first = parts[0];
@@ -1626,7 +1615,6 @@ function PersonRow({
   name,
   subtitle,
   active,
-  tintIndex,
   first,
   action,
 }: {
@@ -1634,11 +1622,9 @@ function PersonRow({
   subtitle: string;
   /** True when there's a live connection (you're sharing or they're sharing). */
   active: boolean;
-  tintIndex: number;
   first: boolean;
   action: ReactNode;
 }) {
-  const tint = PERSON_TINTS[tintIndex % PERSON_TINTS.length] ?? PERSON_TINTS[0];
   return (
     <div
       className={cn(
@@ -1648,8 +1634,7 @@ function PersonRow({
     >
       <div className="relative shrink-0">
         <span
-          className="flex h-10 w-10 items-center justify-center rounded-full text-[14px] font-semibold text-white"
-          style={{ backgroundColor: tint }}
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-[color:var(--app-accent-surface)] text-[14px] font-semibold text-[color:var(--app-accent-deep)]"
         >
           {personInitials(name)}
         </span>
@@ -1680,7 +1665,6 @@ function PeopleHub({
   focusedInviteId,
   onDismissFocusedInvite,
   onStartShare,
-  onAsk,
 }: {
   vm: LocationHubViewModel;
   onAddConnections: () => void;
@@ -1691,7 +1675,6 @@ function PeopleHub({
   focusedInviteId: string | null;
   onDismissFocusedInvite: () => void;
   onStartShare: (initialRecipientId?: string) => void;
-  onAsk: () => void;
 }) {
   const hasSearch = vm.recipientSearch.trim().length > 0;
   const filtered = vm.visibleRecipients;
@@ -1863,7 +1846,6 @@ function PeopleHub({
                 name={vm.recipientLabel(r)}
                 subtitle={vm.recipientSubtitle(r)}
                 active={sharing || receiving}
-                tintIndex={i}
                 first={i === 0}
                 action={
                   sharing && grant ? (
@@ -1894,21 +1876,6 @@ function PeopleHub({
           description="Try a different name."
         />
       )}
-
-      {/* Ask someone to share — request another person's live location. */}
-      <SettingsGroup separatorInset>
-        <SettingsRow
-          icon={Navigation}
-          iconTone="accent"
-          title="Ask someone to share"
-          description="Send a request — they approve first."
-          density="compact"
-          chevron
-          onClick={onAsk}
-          voiceControlId="one-location-action-ask"
-          voiceActionId="location.open_ask"
-        />
-      </SettingsGroup>
 
       {vm.requestedByMe.length ? (
         <SettingsGroup title="Requests sent" separatorInset>
