@@ -68,10 +68,16 @@ function renderFlow(
   };
 }
 
-/** welcome -> features -> invite, which is now the final screen. */
-function openInviteScreen() {
+/** welcome -> features -> contacts. */
+function openContactsScreen() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-  fireEvent.click(screen.getByRole("button", { name: "Share my code" }));
+  fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+}
+
+/** ...and on to the invite screen, declining the contacts step. */
+function openInviteScreen() {
+  openContactsScreen();
+  fireEvent.click(screen.getByRole("button", { name: "Not now" }));
 }
 
 /** The terminal CTA, whose label the parent supplies per mode. */
@@ -331,7 +337,7 @@ describe("OneLocationOnboardingFlow", () => {
     }
     expect(shareCard.querySelector('img[src*="/orbit-person-"]')).toBeNull();
 
-    expect(screen.getByRole("button", { name: "Share my code" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Find my people" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
     expect(screen.queryByText("Connected Person")).toBeNull();
@@ -346,7 +352,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onLocationReady).not.toHaveBeenCalled();
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Share my code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
@@ -369,11 +375,11 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onRequestNotifications).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Share my code" }),
+        screen.getByRole("button", { name: "Find my people" }),
       ).toBeEnabled(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Share my code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onLocationReady).toHaveBeenCalledTimes(1);
   });
@@ -406,7 +412,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Share my code" }),
+        screen.getByRole("button", { name: "Find my people" }),
       ).toBeEnabled(),
     );
   });
@@ -434,7 +440,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     await waitFor(() => expect(onLocationReady).toHaveBeenCalledTimes(1));
     expect(
-      screen.getByRole("button", { name: "Share my code" }),
+      screen.getByRole("button", { name: "Find my people" }),
     ).toBeDisabled();
     expect(screen.queryByTestId("one-location-onboarding-people")).toBeNull();
 
@@ -444,7 +450,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Share my code" }),
+        screen.getByRole("button", { name: "Find my people" }),
       ).toBeEnabled(),
     );
   });
@@ -453,8 +459,8 @@ describe("OneLocationOnboardingFlow", () => {
     const props = renderFlow({ requireLocationToComplete: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    expect(screen.getByRole("button", { name: "Share my code" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Share my code" }));
+    expect(screen.getByRole("button", { name: "Find my people" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
 
     expect(props.onRequestLocation).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
@@ -536,7 +542,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Share my code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
 
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
@@ -552,6 +558,9 @@ describe("OneLocationOnboardingFlow", () => {
 
     openInviteScreen();
     expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.getByTestId("one-location-onboarding-contacts")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
@@ -618,7 +627,7 @@ describe("OneLocationOnboardingFlow", () => {
     openInviteScreen();
 
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    expect(screen.getByTestId("one-location-onboarding-contacts")).toBeTruthy();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4000);
@@ -637,11 +646,163 @@ describe("OneLocationOnboardingFlow", () => {
       "dark:bg-[#0c1017]",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Share my code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    const contactsScreen = screen.getByTestId(
+      "one-location-onboarding-contacts",
+    );
+    expect(contactsScreen.firstElementChild?.className).toContain(
+      "dark:bg-[#14171d]",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     const inviteScreen = screen.getByTestId("one-location-onboarding-invite");
     expect(inviteScreen.firstElementChild?.className).toContain(
       "dark:bg-[#14171d]",
     );
+  });
+
+  describe("contacts screen", () => {
+    const matches = [
+      { userId: "user_b", displayName: "Trusted B" },
+      { userId: "user_c", displayName: "Advisor C" },
+    ];
+
+    it("does not touch the address book until the person asks", () => {
+      const onSyncOnboardingContacts = vi
+        .fn()
+        .mockResolvedValue({ status: "matched", matches });
+      renderFlow({ onSyncOnboardingContacts });
+      openContactsScreen();
+
+      // The OS contacts prompt is the single most declinable moment in the
+      // flow. Firing it on mount is what makes people say no; it fires on tap.
+      expect(onSyncOnboardingContacts).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Check my contacts" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Not now" })).toBeTruthy();
+    });
+
+    it("shows matched contacts and adds one on request", async () => {
+      const onSyncOnboardingContacts = vi
+        .fn()
+        .mockResolvedValue({ status: "matched", matches });
+      const onAddOnboardingContact = vi.fn().mockResolvedValue(undefined);
+      renderFlow({ onSyncOnboardingContacts, onAddOnboardingContact });
+      openContactsScreen();
+
+      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+      expect(await screen.findByText("Trusted B")).toBeTruthy();
+      expect(screen.getByText("Advisor C")).toBeTruthy();
+
+      const addButtons = screen.getAllByRole("button", { name: "Add" });
+      fireEvent.click(addButtons[0]!);
+
+      await waitFor(() =>
+        expect(onAddOnboardingContact).toHaveBeenCalledWith("user_b"),
+      );
+      expect(await screen.findByRole("button", { name: /Requested/ })).toBeTruthy();
+      // Adding someone is not leaving the flow.
+      expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
+    });
+
+    it("keeps a failed add retryable instead of marking it done", async () => {
+      const onSyncOnboardingContacts = vi
+        .fn()
+        .mockResolvedValue({ status: "matched", matches });
+      const onAddOnboardingContact = vi
+        .fn()
+        .mockRejectedValue(new Error("network"));
+      renderFlow({ onSyncOnboardingContacts, onAddOnboardingContact });
+      openContactsScreen();
+      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+      const addButtons = await screen.findAllByRole("button", { name: "Add" });
+      fireEvent.click(addButtons[0]!);
+
+      await waitFor(() => expect(onAddOnboardingContact).toHaveBeenCalled());
+      // The row must not claim success, and must not stay stuck on "Adding".
+      await waitFor(() =>
+        expect(screen.getAllByRole("button", { name: "Add" }).length).toBe(2),
+      );
+    });
+
+    it("says so plainly when nobody matched, and still moves on", async () => {
+      const onSyncOnboardingContacts = vi
+        .fn()
+        .mockResolvedValue({ status: "none", partial: false });
+      renderFlow({ onSyncOnboardingContacts });
+      openContactsScreen();
+      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+      expect(
+        await screen.findByText(/None of your contacts are on One yet/i),
+      ).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
+    });
+
+    it("does not claim nobody matched when only part of the book was read", async () => {
+      const onSyncOnboardingContacts = vi
+        .fn()
+        .mockResolvedValue({ status: "none", partial: true });
+      renderFlow({ onSyncOnboardingContacts });
+      openContactsScreen();
+      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+      // iOS limited access and the web picker return a hand-picked subset, so
+      // an empty result is inconclusive and must not be reported as a whole
+      // address book that came back empty.
+      expect(
+        await screen.findByText(/contacts you shared are on One yet/i),
+      ).toBeTruthy();
+      expect(screen.queryByText(/None of your contacts/i)).toBeNull();
+    });
+
+    it("offers Settings when permission was declined, and never traps", async () => {
+      const onSyncOnboardingContacts = vi.fn().mockResolvedValue({
+        status: "failed",
+        message: "One does not have access to your contacts yet.",
+        canOpenSettings: true,
+      });
+      const onOpenContactSettings = vi.fn();
+      renderFlow({ onSyncOnboardingContacts, onOpenContactSettings });
+      openContactsScreen();
+      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+      expect(
+        await screen.findByText(/does not have access to your contacts/i),
+      ).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Open Settings" }));
+      expect(onOpenContactSettings).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
+    });
+
+    it("recovers when the sync itself throws", async () => {
+      const onSyncOnboardingContacts = vi
+        .fn()
+        .mockRejectedValue(new Error("plugin exploded"));
+      renderFlow({ onSyncOnboardingContacts });
+      openContactsScreen();
+      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+      expect(await screen.findByText("plugin exploded")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
+    });
+
+    it("lets Skip leave from the contacts screen without syncing", () => {
+      const onSyncOnboardingContacts = vi.fn();
+      const props = renderFlow({ onSyncOnboardingContacts });
+      openContactsScreen();
+
+      fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+
+      expect(props.onSkip).toHaveBeenCalledTimes(1);
+      expect(onSyncOnboardingContacts).not.toHaveBeenCalled();
+      expect(props.onComplete).not.toHaveBeenCalled();
+    });
   });
 
   describe("circle invite screen (final screen)", () => {

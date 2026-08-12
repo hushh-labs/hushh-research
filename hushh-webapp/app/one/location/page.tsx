@@ -54,6 +54,7 @@ import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-
 import {
   OneLocationOnboardingFlow as OneLocationOnboardingExperience,
   type OnboardingCircleInvite,
+  type OnboardingContactSyncResult,
 } from "@/components/one-location/onboarding/one-location-onboarding-flow";
 
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
@@ -257,6 +258,7 @@ import {
   saveDriveSession,
 } from "@/lib/one-location/drive-session-store";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
+import { ConnectionsService } from "@/lib/services/connections-service";
 import {
   CONSENT_STATE_CHANGED_EVENT,
   dispatchConsentStateChanged,
@@ -4503,6 +4505,79 @@ export function OneLocationAgentPageContent({
   // Contact Picker) without the callback having to reference itself.
   const handleSyncContactSignalRef = useRef<(() => Promise<void>) | null>(null);
 
+  // Onboarding's own contacts step. It reuses the same matcher as the hub, but
+  // returns a typed result instead of driving hub state: onboarding needs to
+  // render the matches inline, and the contact-permission prompt is fired by a
+  // deliberate tap on that screen rather than by opening the app.
+  const handleSyncOnboardingContacts =
+    useCallback(async (): Promise<OnboardingContactSyncResult> => {
+      const idToken = await auth.user?.getIdToken();
+      if (!idToken) {
+        return {
+          status: "failed",
+          message: "Sign in to check your contacts.",
+          canOpenSettings: false,
+        };
+      }
+      try {
+        const result = await syncOneLocationContactSignals({
+          idToken,
+          accountPhoneNumber: auth.user?.phoneNumber,
+        });
+        const matches = result.matches
+          .map((match) => ({
+            userId: match.user_id,
+            displayName: match.display_name,
+          }))
+          .filter((match) => match.userId && match.userId !== auth.userId);
+        trackEvent("one_location_contact_signal_synced", {
+          route_id: "one_location",
+          result: "success",
+          source_platform: result.sourcePlatform,
+          contact_count_bucket: contactCountBucket(result.totalContacts),
+          matched_count: matches.length,
+          invite_candidate_count: result.inviteCandidateCount,
+          contact_region: result.region ?? "unknown",
+          partial_access: result.limited,
+          truncated: result.truncated,
+        });
+        if (matches.length > 0) return { status: "matched", matches };
+        // A partial read is not proof that nobody matched -- the web picker and
+        // iOS limited access only ever return a hand-picked subset.
+        return { status: "none", partial: result.limited };
+      } catch (error) {
+        const failure =
+          error instanceof OneLocationContactSyncError ? error.failure : "error";
+        const canOpenSettings =
+          failure === "denied" || failure === "restricted";
+        return {
+          status: "failed",
+          message:
+            failure === "denied"
+              ? "One does not have access to your contacts yet."
+              : failure === "restricted"
+                ? "Contact access is restricted on this device."
+                : failure === "unavailable"
+                  ? "Reading contacts is not available here. You can add people later from the People tab."
+                  : "We couldn't check your contacts. You can try again later.",
+          canOpenSettings,
+        };
+      }
+    }, [auth.user, auth.userId]);
+
+  const handleAddOnboardingContact = useCallback(
+    async (addresseeUserId: string) => {
+      const idToken = await auth.user?.getIdToken();
+      if (!idToken) throw new Error("Sign in to add people.");
+      await ConnectionsService.sendRequest({
+        idToken,
+        addresseeUserId,
+        message: "I would like to add you to my private Location circle.",
+      });
+    },
+    [auth.user],
+  );
+
   const handleSyncContactSignal = useCallback(async () => {
     if (!auth.user?.getIdToken) {
       const message = "Sign in before syncing contacts.";
@@ -8401,6 +8476,9 @@ export function OneLocationAgentPageContent({
           // back to the pre-vault bootstrap call, so the screen is always
           // reachable and a failure degrades to its own retry rather than to a
           // missing screen.
+          onSyncOnboardingContacts={handleSyncOnboardingContacts}
+          onAddOnboardingContact={handleAddOnboardingContact}
+          onOpenContactSettings={() => void openContactPermissionSettings()}
           onPrepareOnboardingCircleInvite={handlePrepareOnboardingCircleInvite}
           onCopyOnboardingCircleCode={handleCopyNamedCircleCode}
           onShareOnboardingCircleCode={handleShareOnboardingCircleInvite}

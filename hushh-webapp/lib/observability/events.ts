@@ -558,6 +558,10 @@ export interface EventPayloadMap {
     code_copied: boolean;
     /** How many screens were seen before leaving. */
     screens_seen: number;
+    /** Contacts found to already be on One, 0 when the step was declined. */
+    contacts_matched: number;
+    /** How many of those matches were actually added. */
+    contacts_added: number;
   };
   one_location_contact_signal_synced: {
     route_id: RouteId;

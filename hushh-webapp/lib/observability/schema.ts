@@ -203,6 +203,8 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "code_shared",
     "code_copied",
     "screens_seen",
+    "contacts_matched",
+    "contacts_added",
   ],
   one_location_contact_signal_synced: [
     ...BASE_ALLOWED_KEYS,

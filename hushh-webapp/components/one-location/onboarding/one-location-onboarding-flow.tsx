@@ -15,6 +15,7 @@ import {
   Loader2,
   MapPin,
   Share2,
+  UserPlus,
   Users,
 } from "lucide-react";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
@@ -25,7 +26,7 @@ import { trackEvent } from "@/lib/observability/client";
 import { resolveRouteId } from "@/lib/observability/route-map";
 import { cn } from "@/lib/utils";
 
-type OnboardingScreen = "welcome" | "features" | "invite";
+type OnboardingScreen = "welcome" | "features" | "contacts" | "invite";
 
 const LOCATION_SCREEN_TEST_IDS = Object.fromEntries(
   locationOnboardingContract.screens.map(({ key, testId }) => [key, testId]),
@@ -52,6 +53,23 @@ export type OnboardingCircleInvite = {
   code: string;
 };
 
+/**
+ * Someone from the person's own address book who already has One.
+ *
+ * Deliberately not the same thing as the directory list this flow used to show:
+ * that was every Hushh user, so it asked a new person to share their location
+ * with strangers. These are people whose number is already in their phone.
+ */
+export type OnboardingContactMatch = {
+  userId: string;
+  displayName: string;
+};
+
+export type OnboardingContactSyncResult =
+  | { status: "matched"; matches: OnboardingContactMatch[] }
+  | { status: "none"; partial: boolean }
+  | { status: "failed"; message: string; canOpenSettings: boolean };
+
 type OneLocationOnboardingFlowProps = {
   startAt: OneLocationOnboardingStart;
   currentUserName: string;
@@ -73,6 +91,15 @@ type OneLocationOnboardingFlowProps = {
    * person guessing where the button goes.
    */
   completeLabel?: string;
+  /**
+   * Read the address book and return whichever contacts already have One.
+   * Called only after the person taps on the contacts screen, never on mount.
+   */
+  onSyncOnboardingContacts?: () => Promise<OnboardingContactSyncResult>;
+  /** Send a connection request to one matched contact. */
+  onAddOnboardingContact?: (userId: string) => Promise<void>;
+  /** Open the OS settings page so a declined permission can be changed. */
+  onOpenContactSettings?: () => void;
   /**
    * Find-or-create the person's first Circle and return its active,
    * member-visible invite code. Called when the Invite screen opens so a
@@ -857,11 +884,10 @@ function FeaturesScreen({
           disabled={permissionBusy}
           className="h-[58px] min-h-[58px]"
         >
-          {/* "Share my code", not "Add my people": the next screen is the
-              circle code, and a deliberately distinct string keeps the reviewer
-              flow's exact button match from colliding with a generic
-              "Continue" elsewhere on screen. */}
-          {locationPreparationRetry ? "Try again" : "Share my code"}
+          {/* Names the next screen, which is finding people you already know.
+              A deliberately distinct string also keeps the reviewer flow's
+              exact button match from colliding with a generic "Continue". */}
+          {locationPreparationRetry ? "Try again" : "Find my people"}
         </PrimaryButton>
       </div>
       <style>{`
@@ -1281,6 +1307,183 @@ function formatCircleCode(code: string): string {
  * can set up their One account and later join the Location Circle with it. The
  * code is member-visible only and is never placed in a URL.
  */
+/**
+ * Find the people you already know who are already on One.
+ *
+ * Primed, not sprung: the OS contacts prompt fires only after the person taps
+ * the button on this screen, which is what lifts opt-in and is how Snapchat
+ * ties the prompt to "find friends" rather than to app launch. Every state has
+ * a way forward, so nobody is stuck behind a permission they declined.
+ */
+function ContactsScreen({
+  state,
+  matches,
+  addedUserIds,
+  addingUserIds,
+  onSync,
+  onAdd,
+  onOpenSettings,
+  onBack,
+  onSkip,
+  onContinue,
+  leaving,
+}: {
+  state:
+    | { kind: "idle" }
+    | { kind: "busy" }
+    | { kind: "none"; partial: boolean }
+    | { kind: "matched" }
+    | { kind: "failed"; message: string; canOpenSettings: boolean };
+  matches: OnboardingContactMatch[];
+  addedUserIds: string[];
+  addingUserIds: string[];
+  onSync: () => void;
+  onAdd: (userId: string) => void;
+  onOpenSettings: () => void;
+  onBack: () => void;
+  onSkip: () => void;
+  onContinue: () => void;
+  leaving: boolean;
+}) {
+  const primed = state.kind === "idle" || state.kind === "busy";
+
+  return (
+    <div
+      className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]"
+      data-testid="one-location-onboarding-contacts-surface"
+    >
+      <header className="flex h-16 shrink-0 items-center justify-between px-5 pt-2">
+        <button
+          type="button"
+          onClick={onBack}
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
+          aria-label="Go back"
+        >
+          <ArrowLeft className="h-6 w-6" />
+        </button>
+        <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
+        <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+          <UserPlus className="h-7 w-7" strokeWidth={2} />
+        </span>
+        <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[#f5f7fb]">
+          Find your people
+        </h1>
+        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
+          {primed
+            ? "See which of your contacts are already on One, so you can connect without typing a single number."
+            : state.kind === "matched"
+              ? "These contacts are already on One. Add anyone you want to stay connected with."
+              : "You can always find people later from the People tab."}
+        </p>
+
+        {primed ? (
+          <>
+            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 dark:border-white/[0.08] dark:bg-[#1c212a]">
+              {state.kind === "busy" ? (
+                <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86]">
+                  <Loader2 className="h-5 w-5 animate-spin" /> Checking your
+                  contacts
+                </div>
+              ) : (
+                <div className="flex min-h-32 flex-col justify-center gap-3">
+                  {/* Say what happens to the address book before asking for it.
+                      A vague ask on a location product is what makes people
+                      decline, and the decline is permanent on iOS. */}
+                  <p className="text-[14px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
+                    Your contacts are checked using a one-way hash. One never
+                    stores your contact list, and nobody is contacted for you.
+                  </p>
+                  <PrimaryButton onClick={onSync} disabled={leaving}>
+                    Check my contacts
+                  </PrimaryButton>
+                </div>
+              )}
+            </div>
+          </>
+        ) : null}
+
+        {state.kind === "matched" ? (
+          <ul className="mt-6 space-y-2" data-testid="onboarding-contact-matches">
+            {matches.map((match) => {
+              const added = addedUserIds.includes(match.userId);
+              const adding = addingUserIds.includes(match.userId);
+              return (
+                <li
+                  key={match.userId}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-white/[0.08] dark:bg-[#1c212a]"
+                >
+                  <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[#151b26] dark:text-[#f5f7fb]">
+                    {match.displayName}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onAdd(match.userId)}
+                    disabled={added || adding || leaving}
+                    className="press-scale inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                  >
+                    {adding ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : added ? (
+                      <Check className="h-4 w-4" strokeWidth={2.5} />
+                    ) : null}
+                    {added ? "Requested" : adding ? "Adding" : "Add"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+
+        {state.kind === "none" ? (
+          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-white/[0.08] dark:bg-[#1c212a]">
+            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
+              {state.partial
+                ? "None of the contacts you shared are on One yet."
+                : "None of your contacts are on One yet."}
+            </p>
+            <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
+              Your circle code is on the next screen — send it to whoever you
+              want here.
+            </p>
+          </div>
+        ) : null}
+
+        {state.kind === "failed" ? (
+          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-white/[0.08] dark:bg-[#1c212a]">
+            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
+              {state.message}
+            </p>
+            {state.canOpenSettings ? (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+              >
+                Open Settings
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3">
+        {/* Always present, whatever happened above. Declining contacts, finding
+            nobody, or a plugin failure must never be a dead end. */}
+        <PrimaryButton
+          onClick={onContinue}
+          disabled={leaving}
+          inverse={primed && state.kind === "idle"}
+        >
+          {state.kind === "idle" ? "Not now" : "Continue"}
+        </PrimaryButton>
+      </footer>
+    </div>
+  );
+}
+
 function InviteScreen({
   currentUserName,
   invite,
@@ -1468,6 +1671,9 @@ export function OneLocationOnboardingFlow({
   onSkip = onComplete,
   requireLocationToComplete = false,
   completeLabel = "Open One Location",
+  onSyncOnboardingContacts,
+  onAddOnboardingContact,
+  onOpenContactSettings,
   onPrepareOnboardingCircleInvite,
   onCopyOnboardingCircleCode,
   onShareOnboardingCircleCode,
@@ -1493,6 +1699,21 @@ export function OneLocationOnboardingFlow({
   const circleInviteCopiedTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
+  // Contacts screen. Nothing runs until the person asks for it, so "idle" is
+  // the resting state rather than a loading one.
+  const [contactState, setContactState] = useState<
+    | { kind: "idle" }
+    | { kind: "busy" }
+    | { kind: "none"; partial: boolean }
+    | { kind: "matched" }
+    | { kind: "failed"; message: string; canOpenSettings: boolean }
+  >({ kind: "idle" });
+  const [contactMatches, setContactMatches] = useState<OnboardingContactMatch[]>(
+    [],
+  );
+  const [addedContactIds, setAddedContactIds] = useState<string[]>([]);
+  const [addingContactIds, setAddingContactIds] = useState<string[]>([]);
+
   const [leaving, setLeaving] = useState(false);
   const [completionBusy, setCompletionBusy] = useState(false);
   const [settlementRetryCount, setSettlementRetryCount] = useState(0);
@@ -1647,6 +1868,70 @@ export function OneLocationOnboardingFlow({
     });
   }, [circleInvite, onShareOnboardingCircleCode]);
 
+  const handleSyncContacts = useCallback(async () => {
+    if (!onSyncOnboardingContacts) return;
+    setContactState({ kind: "busy" });
+    try {
+      const result = await onSyncOnboardingContacts();
+      if (result.status === "matched" && result.matches.length > 0) {
+        setContactMatches(result.matches);
+        setContactState({ kind: "matched" });
+        return;
+      }
+      // A declined permission resolves rather than throws, and must not be
+      // reported as "nobody matched" -- that would hide the one thing that
+      // could fix it, and on iOS the decline is otherwise permanent.
+      if (result.status === "failed") {
+        setContactState({
+          kind: "failed",
+          message: result.message,
+          canOpenSettings:
+            result.canOpenSettings && Boolean(onOpenContactSettings),
+        });
+        return;
+      }
+      // "matched" with an empty list lands here too, which is the same outcome
+      // as "none" from the person's point of view.
+      setContactState({
+        kind: "none",
+        partial: result.status === "none" ? result.partial : false,
+      });
+    } catch (error) {
+      setContactState({
+        kind: "failed",
+        message:
+          error instanceof Error && error.message
+            ? error.message
+            : "We couldn't check your contacts. You can try again later.",
+        canOpenSettings: Boolean(onOpenContactSettings),
+      });
+    }
+  }, [onOpenContactSettings, onSyncOnboardingContacts]);
+
+  const handleAddContact = useCallback(
+    (userId: string) => {
+      if (!onAddOnboardingContact) return;
+      setAddingContactIds((current) =>
+        current.includes(userId) ? current : [...current, userId],
+      );
+      void Promise.resolve(onAddOnboardingContact(userId))
+        .then(() => {
+          setAddedContactIds((current) =>
+            current.includes(userId) ? current : [...current, userId],
+          );
+        })
+        .catch(() => {
+          /* the parent owns the failure toast; the row simply stays addable */
+        })
+        .finally(() => {
+          setAddingContactIds((current) =>
+            current.filter((id) => id !== userId),
+          );
+        });
+    },
+    [onAddOnboardingContact],
+  );
+
   // Report how onboarding ended, once per exit. Removing the contact picker is
   // a bet on drop-off; without this there is no way to tell whether it paid off
   // or simply moved where people leave. The circle code is deliberately never
@@ -1662,9 +1947,11 @@ export function OneLocationOnboardingFlow({
         code_shared: codeSharedRef.current,
         code_copied: codeCopiedRef.current,
         screens_seen: screensSeenRef.current.size,
+        contacts_matched: contactMatches.length,
+        contacts_added: addedContactIds.length,
       });
     },
-    [],
+    [addedContactIds.length, contactMatches.length],
   );
 
   // Completion is a press, not a timer. The settlement guard and retry counter
@@ -1740,7 +2027,7 @@ export function OneLocationOnboardingFlow({
       void prepareSavedLocation();
       return;
     }
-    setScreen("invite");
+    setScreen("contacts");
   };
 
 
@@ -1791,6 +2078,21 @@ export function OneLocationOnboardingFlow({
             onContinue={continueFromFeatures}
           />
         ) : null}
+        {screen === "contacts" ? (
+          <ContactsScreen
+            state={contactState}
+            matches={contactMatches}
+            addedUserIds={addedContactIds}
+            addingUserIds={addingContactIds}
+            onSync={() => void handleSyncContacts()}
+            onAdd={handleAddContact}
+            onOpenSettings={() => onOpenContactSettings?.()}
+            onBack={() => setScreen("features")}
+            onSkip={() => void runSkip()}
+            onContinue={() => setScreen("invite")}
+            leaving={leaving}
+          />
+        ) : null}
         {screen === "invite" ? (
           <InviteScreen
             currentUserName={currentUserName}
@@ -1801,7 +2103,7 @@ export function OneLocationOnboardingFlow({
             onRetry={() => void prepareCircleInvite()}
             onCopy={handleCopyCircleInvite}
             onShare={handleShareCircleInvite}
-            onBack={() => setScreen("features")}
+            onBack={() => setScreen("contacts")}
             onSkip={() => void runSkip()}
             onContinue={finishFromInvite}
             leaving={leaving}

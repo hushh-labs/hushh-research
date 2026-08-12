@@ -587,7 +587,7 @@ async function reachLocationOnboardingFinalStep() {
   await waitFor(() => {
     const savePrompt = screen.queryByTestId("save-location-modal");
     const continueButton = screen.queryByRole("button", {
-      name: /Share my code|Allow location/,
+      name: /Find my people|Allow location/,
     });
     expect(savePrompt || continueButton).toBeTruthy();
   });
@@ -598,10 +598,13 @@ async function reachLocationOnboardingFinalStep() {
     );
   }
   const continueButton = await screen.findByRole("button", {
-    name: /Share my code|Allow location/,
+    name: /Find my people|Allow location/,
   });
   await waitFor(() => expect(continueButton).toBeEnabled());
   fireEvent.click(continueButton);
+  // Contacts step: decline it, so these tests never depend on a contacts
+  // permission. The engaged path is covered in the flow component's own tests.
+  fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
   await expectLocationInviteStep();
   expect(screen.getByRole("button", { name: "Go back" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "Skip" })).toBeEnabled();
@@ -1755,7 +1758,7 @@ describe("OneLocationAgentPage", () => {
     await openLocationPermissionsStep();
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
-    expect(screen.getByRole("button", { name: "Share my code" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Find my people" })).toBeEnabled();
     expect(onSetupComplete).not.toHaveBeenCalled();
   });
 
@@ -2060,7 +2063,8 @@ describe("OneLocationAgentPage", () => {
     );
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
-    fireEvent.click(screen.getByRole("button", { name: "Share my code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
@@ -2155,7 +2159,8 @@ describe("OneLocationAgentPage", () => {
       ),
     ).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Share my code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
     await expectLocationInviteStep();
   });
 
@@ -2279,7 +2284,8 @@ describe("OneLocationAgentPage", () => {
     expect(mockRequestLocationPermission).not.toHaveBeenCalled();
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
-    fireEvent.click(screen.getByRole("button", { name: "Share my code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
