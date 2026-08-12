@@ -255,6 +255,10 @@ function resolveAgentBarHint(pathname: string | null): string {
 }
 
 export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const agentBarShellRef = useRef<HTMLDivElement | null>(null);
   const pathname = usePathname();
   const router = useRouter();
@@ -1640,6 +1644,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   }, [onboardingGreeterMode]);
 
   const unmountBar =
+    !mounted ||
     !agentPopover ||
     authLoading ||
     // Focused onboarding routes retain voice but use the voice-only rendering
