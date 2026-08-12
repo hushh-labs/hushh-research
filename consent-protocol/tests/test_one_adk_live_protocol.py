@@ -871,3 +871,50 @@ def test_the_specialist_fingerprint_ignores_the_random_payload_id():
     assert first != specialist_directive_fingerprint(
         "agent_location", "action", "publish_share"
     )
+
+
+def test_one_settlement_produces_one_turn_even_when_it_arms_a_continuation():
+    """A second `send_content` is a second answer, not a second instruction.
+
+    Each `send_content` closes a user turn on the Live API and elicits a full
+    model response. A settlement that armed a journey continuation used to send
+    two frames -- the outcome, then the continuation note -- so One answered
+    twice for one event. That is a second, independent source of the repetition
+    QA reported, separate from the specialist-card duplication.
+
+    The two continuation kinds cannot both be live: `continuation_ready_now`
+    requires a `one.goal_run.v1` navigation step (step_cursor 0) and
+    `journey_continuation_note` requires a `one.settled_action_journey.v1` run.
+    This pins that exclusivity, because folding them into one frame is only
+    safe while it holds.
+    """
+    from api.routes.one.adk_live import (
+        _is_navigation_step_settlement,
+        _navigation_continuation_screen,
+    )
+
+    navigation_run = {
+        "schema_version": "one.goal_run.v1",
+        "step_cursor": 0,
+        "expected_screen": "connect",
+    }
+    settled_run = {
+        "schema_version": "one.settled_action_journey.v1",
+        "deferred_action_id": "connect.send_request",
+    }
+
+    # A navigation step arms the navigation continuation...
+    assert _is_navigation_step_settlement(navigation_run) is True
+    assert (
+        _navigation_continuation_screen("goal.x", navigation_run, "succeeded") == "connect"
+    )
+    # ...and a settled-action journey never does, so the settled-journey note
+    # and the navigation note can never both be produced for one settlement.
+    assert _is_navigation_step_settlement(settled_run) is False
+    assert _navigation_continuation_screen("goal.x", settled_run, "succeeded") is None
+
+    # Past the navigation step, what settles is the journey's own action, whose
+    # result One is waiting on -- never another cue to act.
+    assert _navigation_continuation_screen("goal.x", {**navigation_run, "step_cursor": 1}, "succeeded") is None
+    # A failed navigation arms nothing either.
+    assert _navigation_continuation_screen("goal.x", navigation_run, "failed") is None

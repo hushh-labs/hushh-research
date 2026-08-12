@@ -1251,12 +1251,32 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                         actions=EventActions(state_delta=settlement_state_delta),
                     ),
                 )
+                # ONE frame for one settlement, continuation included.
+                #
+                # Each `send_content` closes a user turn on the Live API and
+                # elicits a full response, so a settlement that armed a
+                # continuation used to make One answer twice for a single
+                # event: once about the outcome, once about the continuation.
+                # That is a second, independent source of the repetition QA
+                # reported, on the journey path rather than the specialist one.
+                #
+                # The two continuation kinds are mutually exclusive by
+                # construction -- `continuation_ready_now` requires a
+                # `one.goal_run.v1` navigation step, `journey_continuation_note`
+                # requires a `one.settled_action_journey.v1` run -- so folding
+                # them into one variable cannot drop either. The settled-journey
+                # path already rode inside this frame and worked; this puts the
+                # navigation path on the same proven mechanism instead of a
+                # second turn.
+                continuation_note = journey_continuation_note or (
+                    _GOAL_CONTINUATION_NOTE if continuation_ready_now else ""
+                )
                 # This is an app execution report, never user speech. The
                 # wording forces a grounded follow-up rather than a fabricated
                 # success claim and provides the next link in a chained turn.
                 settlement_follow_up = (
                     " A settled journey continuation follows this report; obey it before responding."
-                    if journey_continuation_note
+                    if continuation_note
                     else ""
                 )
                 queue.send_content(
@@ -1272,23 +1292,12 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                                     "Acknowledge only this reported outcome. If it "
                                     "was blocked or failed, explain the next safe "
                                     f"step; do not claim the action succeeded.{settlement_follow_up}"
-                                    + (
-                                        f"\n{journey_continuation_note}"
-                                        if journey_continuation_note
-                                        else ""
-                                    )
+                                    + (f"\n{continuation_note}" if continuation_note else "")
                                 )
                             )
                         ],
                     )
                 )
-                if continuation_ready_now:
-                    queue.send_content(
-                        genai_types.Content(
-                            role="user",
-                            parts=[genai_types.Part(text=_GOAL_CONTINUATION_NOTE)],
-                        )
-                    )
                 continue
             if message.get("type") == "app_speech" or "appSpeech" in message:
                 text = message.get("text")
