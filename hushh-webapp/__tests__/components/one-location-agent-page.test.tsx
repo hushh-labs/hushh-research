@@ -610,6 +610,33 @@ async function reachLocationOnboardingFinalStep() {
   expect(screen.getByRole("button", { name: "Skip" })).toBeEnabled();
 }
 
+/**
+ * Walk welcome -> features and press the CTA, clearing the save-place modal,
+ * without asserting where it lands. Used by tests that care about whether the
+ * contacts step appears at all.
+ */
+async function leaveLocationFeatureStep() {
+  await openLocationFeatureStep();
+  await waitFor(() => {
+    const savePrompt = screen.queryByTestId("save-location-modal");
+    const continueButton = screen.queryByRole("button", {
+      name: /Find my people|Allow location/,
+    });
+    expect(savePrompt || continueButton).toBeTruthy();
+  });
+  const savePrompt = screen.queryByTestId("save-location-modal");
+  if (savePrompt) {
+    fireEvent.click(
+      within(savePrompt).getByRole("button", { name: "Skip for now" }),
+    );
+  }
+  const continueButton = await screen.findByRole("button", {
+    name: /Find my people|Allow location/,
+  });
+  await waitFor(() => expect(continueButton).toBeEnabled());
+  fireEvent.click(continueButton);
+}
+
 /** Reach the last screen and press the CTA that settles onboarding. */
 async function finishLocationOnboarding() {
   await reachLocationOnboardingFinalStep();
@@ -3309,5 +3336,40 @@ describe("OneLocationAgentPage", () => {
       expect(mockRegisterKey).not.toHaveBeenCalled();
       expect(mockGetState).not.toHaveBeenCalled();
     });
+  });
+
+  it("keeps the contacts step on a mobile browser that exposes the Contact Picker", async () => {
+    // Chrome on Android has no native plugin but does expose the Contact
+    // Picker, so the step must survive there. Skipping is only for surfaces
+    // with no address book at all -- desktop browsers and Safari.
+    Object.defineProperty(navigator, "contacts", {
+      value: { select: vi.fn() },
+      configurable: true,
+    });
+    try {
+      render(<OneLocationAgentPage />);
+      await leaveLocationFeatureStep();
+
+      expect(
+        await screen.findByTestId("one-location-onboarding-contacts"),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Check my contacts" }),
+      ).toBeTruthy();
+    } finally {
+      Reflect.deleteProperty(navigator, "contacts");
+    }
+  });
+
+  it("skips the contacts step in a browser with no Contact Picker", async () => {
+    // jsdom is that browser, and so is every desktop Chrome and Safari. The
+    // step used to render here as an apology over an empty panel.
+    render(<OneLocationAgentPage />);
+    await leaveLocationFeatureStep();
+
+    await expectLocationInviteStep();
+    expect(
+      screen.queryByTestId("one-location-onboarding-contacts"),
+    ).toBeNull();
   });
 });
