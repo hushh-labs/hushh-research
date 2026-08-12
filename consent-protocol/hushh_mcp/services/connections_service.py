@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import uuid
 from contextlib import contextmanager
 from typing import Any, Callable
 
@@ -1598,23 +1599,38 @@ class ConnectionsService:
         request_id = (request_id or "").strip()
         with self._transaction():
             req = None
+            # `request_id` is normally a connection_requests.id (UUID). Some
+            # callers fall back to passing the counterpart's user id (not a
+            # UUID) when the real request id hasn't loaded client-side yet;
+            # querying the UUID column with that value would raise a raw DB
+            # type error rather than ConnectionsError, so route straight to
+            # the counterpart-lookup fallback instead of hitting the DB with
+            # a value that can't be a valid id.
             try:
-                req = self._load_request(request_id, for_update=True)
-            except ConnectionsError as err:
-                if err.code == "CONNECTION_REQUEST_NOT_FOUND":
-                    # Fallback lookup: find pending request sent by user_id to counterpart request_id
-                    req = self._execute_one(
-                        """
-                        SELECT id, requester_user_id, addressee_user_id, status
-                        FROM connection_requests
-                        WHERE status = 'pending'
-                          AND requester_user_id = :requester
-                          AND addressee_user_id = :addressee
-                        LIMIT 1
-                        FOR UPDATE
-                        """,
-                        {"requester": user_id, "addressee": request_id},
-                    )
+                uuid.UUID(request_id)
+                is_request_id = True
+            except ValueError:
+                is_request_id = False
+            if is_request_id:
+                try:
+                    req = self._load_request(request_id, for_update=True)
+                except ConnectionsError as err:
+                    if err.code != "CONNECTION_REQUEST_NOT_FOUND":
+                        raise
+            if not req:
+                # Fallback lookup: find pending request sent by user_id to counterpart request_id
+                req = self._execute_one(
+                    """
+                    SELECT id, requester_user_id, addressee_user_id, status
+                    FROM connection_requests
+                    WHERE status = 'pending'
+                      AND requester_user_id = :requester
+                      AND addressee_user_id = :addressee
+                    LIMIT 1
+                    FOR UPDATE
+                    """,
+                    {"requester": user_id, "addressee": request_id},
+                )
             if not req:
                 raise ConnectionsError(
                     "CONNECTION_REQUEST_NOT_FOUND", "Request not found.", status_code=404

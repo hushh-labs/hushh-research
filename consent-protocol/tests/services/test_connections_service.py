@@ -470,6 +470,45 @@ def test_cancel_rejected_when_not_requester():
     assert exc.value.status_code == 403
 
 
+def test_cancel_falls_back_to_counterpart_lookup_for_non_uuid_request_id():
+    """Callers sometimes pass the counterpart's user id instead of the
+    request id (e.g. before the outgoing-request cache has loaded). Since
+    connection_requests.id is a UUID column, looking that value up directly
+    would raise a raw DB type error instead of the handled
+    CONNECTION_REQUEST_NOT_FOUND case, so a non-UUID id must go straight to
+    the counterpart-lookup fallback without touching the primary query.
+    """
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "11111111-1111-1111-1111-111111111111",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "counterpart-firebase-uid",
+                    "status": "pending",
+                }
+            ],
+            [{"id": "11111111-1111-1111-1111-111111111111"}],
+            [],
+        ]
+    )
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.cancel_request("user-a", "counterpart-firebase-uid")
+
+    assert out == {
+        "status": "cancelled",
+        "requestId": "11111111-1111-1111-1111-111111111111",
+    }
+    assert not any("SELECT" in sql and "WHERE id = :id" in sql for sql, _ in db.calls)
+    first_sql, first_params = db.calls[0]
+    assert "addressee_user_id = :addressee" in first_sql
+    assert first_params == {
+        "requester": "user-a",
+        "addressee": "counterpart-firebase-uid",
+    }
+
+
 def test_cancel_marks_request_and_pending_scope_proposals_declined():
     svc = _svc()
     db = _RecordingDB(
