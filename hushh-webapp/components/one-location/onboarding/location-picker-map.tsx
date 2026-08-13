@@ -419,6 +419,33 @@ export function LocationPickerMap({
     setResolving(false);
   }, [status]);
 
+  // When the parent updates initial coordinates (e.g., GPS location arrives after mount),
+  // pan the map to reflect the new location unless the user has already interacted with it.
+  useEffect(() => {
+    if (hasInteractedRef.current || dragging || locating) return;
+    const { lat, lng } = centerRef.current;
+    if (lat === initialLatitude && lng === initialLongitude) return;
+
+    centerRef.current = { lat: initialLatitude, lng: initialLongitude };
+    
+    if (native) {
+      const map = nativeMapRef.current;
+      if (map) {
+        void map.setCamera({
+          coordinate: { lat: initialLatitude, lng: initialLongitude },
+          zoom: 17,
+          animate: true,
+        });
+      }
+    } else {
+      const map = mapRef.current;
+      if (map) {
+        map.panTo({ lat: initialLatitude, lng: initialLongitude });
+        map.setZoom(17);
+      }
+    }
+  }, [initialLatitude, initialLongitude, dragging, locating, native]);
+
   // Timeout fallback: if the map hasn't reached "ready" within 5s, stop showing
   // the infinite "Loading map…" and switch to the captured-point flow so the
   // owner can still Confirm. Clears itself the moment the map becomes ready.

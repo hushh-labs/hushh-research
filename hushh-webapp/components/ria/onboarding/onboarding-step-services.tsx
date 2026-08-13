@@ -229,7 +229,7 @@ export function OnboardingStepServices({
                   id={`ria-service-${label.toLowerCase().replaceAll(" ", "-")}`}
                   checked={selected}
                   onCheckedChange={() => toggleService(label)}
-                  className="h-[26px] w-[26px] rounded-[7px] border-2 border-[color:var(--ria-select-border)] bg-transparent shadow-none data-[state=checked]:border-[color:var(--ria-select-fill)] data-[state=checked]:bg-[color:var(--ria-select-fill)]"
+                  className="h-[26px] w-[26px] rounded-[7px] border-2 border-[color:var(--ria-select-border)] bg-transparent shadow-none data-[state=checked]:border-[color:var(--ria-select-fill)] data-[state=checked]:bg-[color:var(--ria-select-fill)] data-[state=checked]:text-white"
                 />
               </label>
             );
@@ -260,8 +260,8 @@ export function OnboardingStepServices({
                 style={
                   selected
                     ? {
-                        background: "rgba(242,223,192,0.5)",
-                        borderColor: "rgba(201,139,46,0.5)",
+                        background: "var(--card)",
+                        borderColor: "var(--ria-fee-active)",
                         borderWidth: "1.5px",
                         color: "var(--ria-fee-active)",
                         fontWeight: 600,

@@ -804,6 +804,18 @@ export function SaveLocationModal({
                     type="search"
                     value={placeQuery}
                     onChange={(event) => setPlaceQuery(event.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && placeQuery.trim()) {
+                        e.preventDefault();
+                        if (placeSuggestions.length > 0) {
+                          void handleSelectPlace(placeSuggestions[0].placeId);
+                        } else {
+                          setPickedAddress(placeQuery.trim());
+                          setEditingPlace(false);
+                          setPlaceQuery("");
+                        }
+                      }
+                    }}
                     disabled={interactionBusy}
                     autoComplete="off"
                     placeholder="Search address or place"
@@ -816,6 +828,21 @@ export function SaveLocationModal({
                     />
                   ) : null}
                 </div>
+
+                {placeQuery.trim() && placeSuggestions.length === 0 && !placeSearching ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPickedAddress(placeQuery.trim());
+                      setEditingPlace(false);
+                      setPlaceQuery("");
+                    }}
+                    className="flex min-h-11 w-full items-start gap-2 rounded-[10px] px-3 py-2.5 text-left text-[15px] leading-5 text-foreground hover:bg-foreground/[0.04]"
+                  >
+                    <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--app-accent)]" aria-hidden />
+                    <span>Use &quot;{placeQuery.trim()}&quot;</span>
+                  </button>
+                ) : null}
 
                 {placeSuggestions.length > 0 ? (
                   <div
