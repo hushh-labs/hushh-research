@@ -43,6 +43,7 @@ import {
   UsersRound,
 } from "lucide-react";
 
+import { requestRecipientStatus } from "@/lib/one-location/request-recipient-status";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -2470,6 +2471,17 @@ function AskFlow({
   // the specific request they just made, rather than popping straight back to
   // the hub. `justSent` latches the success state and blocks duplicate submits.
   const [justSent, setJustSent] = useState(false);
+  // "Asked 6m ago" is only true at the moment it renders. Without a clock the
+  // list freezes at whatever it said when the screen opened, which is how a
+  // request sent half an hour ago still reads as just now.
+  //
+  // Coarse on purpose: these labels move in minutes, so a 30s tick keeps them
+  // honest without re-rendering a list of people every second.
+  const [statusNowMs, setStatusNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setStatusNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
   return (
     <div className="space-y-5">
       <TaskFlowHeader
@@ -2500,18 +2512,40 @@ function AskFlow({
           <div className={cn("mt-3", PEOPLE_LIST_SCROLL_CLASS)}>
             {filtered.map((r) => {
               const selected = vm.selectedRequestOwnerIds.includes(r.userId);
+              // Every row used to read "Ready for private sharing" with Select
+              // as the only affordance, whoever the person was and whatever had
+              // already happened with them -- so there was no active status to
+              // read, and somebody who had just asked came back to a row
+              // offering to ask again.
+              const status = requestRecipientStatus({
+                recipientUserId: r.userId,
+                requestedByMe: vm.requestedByMe,
+                receivedGrants: vm.receivedGrants,
+                nowMs: statusNowMs,
+              });
               return (
                 <TrustedPersonCard
                   key={r.userId}
                   name={vm.recipientLabel(r)}
-                  subtitle="Ready for private sharing"
-                  tone="ready"
-                  actionLabel={selected ? "Selected" : "Select"}
+                  subtitle={status.subtitle}
+                  tone={status.tone}
+                  statusLabel={status.statusLabel}
+                  actionLabel={
+                    status.selectable
+                      ? selected
+                        ? "Selected"
+                        : "Select"
+                      : undefined
+                  }
                   actionAriaLabel={`${
                     selected ? "Deselect" : "Select"
                   } ${vm.recipientLabel(r)} for location request`}
-                  onAction={() => vm.toggleRequestOwner(r.userId, "ask_flow")}
-                  selected={selected}
+                  onAction={
+                    status.selectable
+                      ? () => vm.toggleRequestOwner(r.userId, "ask_flow")
+                      : undefined
+                  }
+                  selected={selected && status.selectable}
                 />
               );
             })}
