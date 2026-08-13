@@ -183,6 +183,28 @@ describe("Connect — People", () => {
     expect(await screen.findByText("Page 1")).toBeTruthy();
   });
 
+  it("matches the first name, not the surname, when filtering search results", async () => {
+    // The directory API matches a substring anywhere in the name, so a
+    // search for "R" server-side returns both people below -- one whose
+    // surname happens to start with R, one whose first name does. The
+    // client-side filter must keep only the first-name match.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u1", "Abdul Rashid"), person("u2", "Rashid Ahmed")],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "R" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+
+    expect(await screen.findByText("Rashid Ahmed")).toBeTruthy();
+    expect(screen.queryByText("Abdul Rashid")).toBeNull();
+  });
+
   it("runs a spoken name through the governed Connect search handler", async () => {
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
