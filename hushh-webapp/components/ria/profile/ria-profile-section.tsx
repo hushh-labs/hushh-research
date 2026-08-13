@@ -962,7 +962,15 @@ export function RiaProfileSection({
         description:
           error instanceof Error ? error.message : "Please try again.",
       });
-    } finally {
+      // Reset ONLY on failure, where the user stays on this screen and must be
+      // able to retry. On success `deleting` deliberately stays true until the
+      // navigation above unmounts this component: it is the single guard that
+      // suppresses both the "no profile → onboarding" redirect effect and the
+      // `pendingOnboardingRedirect` skeleton. Clearing it in a `finally` fired
+      // before the async router.replace landed, which let the redirect effect
+      // hijack the trip to One home and stranded the screen on a permanent
+      // "Loading profile..." (redirectSettled can never flip on that second
+      // pass, because the effect returns early on its one-attempt ref).
       setDeleting(false);
     }
   }, [deleting, refresh, router, switchPersona, user]);

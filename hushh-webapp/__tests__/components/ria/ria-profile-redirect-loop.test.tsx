@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -115,8 +115,22 @@ vi.mock("@/components/ui/alert-dialog", () => ({
   AlertDialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   AlertDialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   AlertDialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  AlertDialogCancel: ({ children }: { children: React.ReactNode }) => <button>{children}</button>,
-  AlertDialogAction: ({ children }: { children: React.ReactNode }) => <button>{children}</button>,
+  // Pass props through (notably onClick/disabled) — the delete confirmation is
+  // only reachable in a test if the action button actually wires its handler.
+  AlertDialogCancel: ({
+    children,
+    ...props
+  }: { children: React.ReactNode } & Record<string, unknown>) => (
+    <button {...props}>{children}</button>
+  ),
+  AlertDialogAction: ({
+    children,
+    variant: _variant,
+    ...props
+  }: {
+    children: React.ReactNode;
+    variant?: string;
+  } & Record<string, unknown>) => <button {...props}>{children}</button>,
 }));
 
 vi.mock("@/components/ui/input", () => ({
@@ -228,5 +242,63 @@ describe("RiaProfileSection redirect loop breaker", () => {
   it("never redirects when the profile exists", () => {
     renderSection({ exists: true, verification_status: "submitted" });
     expect(mocks.routerReplace).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Regression: deleting the RIA profile froze the page on "Loading profile..."
+   * and never returned to One home (reported on web, 2026-08-13).
+   *
+   * `deleting` is the single guard suppressing BOTH the "no profile →
+   * onboarding" redirect effect and the `pendingOnboardingRedirect` skeleton.
+   * Clearing it in a `finally` fired before the async router.replace("/one")
+   * had landed, so the still-mounted component saw the post-delete state
+   * (capability "setup", exists:false), re-fired the redirect over the trip to
+   * One home, and rendered the spinner — permanently, because the effect's
+   * one-attempt ref makes it return before arming the redirectSettled timer.
+   */
+  it("goes to One home after delete without redirecting to onboarding or freezing", async () => {
+    mocks.riaService.deleteProfile.mockResolvedValue(undefined);
+    mocks.switchPersona.mockResolvedValue(undefined);
+
+    const { rerender } = renderSection({
+      exists: true,
+      verification_status: "verified",
+      advisory_status: "active",
+    });
+
+    fireEvent.click(screen.getByTestId("ria-profile-delete"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("Delete profile"));
+    });
+
+    await waitFor(() =>
+      expect(mocks.riaService.deleteProfile).toHaveBeenCalledTimes(1),
+    );
+
+    // The delete has landed server-side: persona drops to the investor and the
+    // profile row is gone. The component is still mounted because the App
+    // Router navigation has not completed yet — exactly the window the bug
+    // lived in.
+    mocks.usePersonaState.mockReturnValue({
+      riaCapability: "setup",
+      loading: false,
+      refreshing: false,
+      refresh: mocks.refresh,
+      switchPersona: mocks.switchPersona,
+    });
+    rerender(
+      <RiaProfileSection
+        status={{ exists: false } as never}
+        loading={false}
+        onRefresh={vi.fn()}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(mocks.routerReplace).toHaveBeenCalledWith("/one");
+    expect(mocks.routerReplace).not.toHaveBeenCalledWith("/ria/onboarding");
+    expect(screen.queryByText("Loading profile...")).toBeNull();
   });
 });
