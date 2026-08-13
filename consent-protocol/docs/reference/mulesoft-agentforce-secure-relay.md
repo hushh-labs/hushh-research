@@ -61,10 +61,13 @@ before update. The browser never supplies a CRM ID.
 
 ## Exact MCP payloads
 
-MuleSoft receives a registered tool call with no CRM URL, OAuth credentials,
-client secret, token URL, arbitrary target, browser-selected record ID, or
-request-supplied recipient public key. The browser's one-time ephemeral public
-key is part of `encryptedFields` by design.
+The external CRM MCP uses MuleSoft's dynamic-registry contract. Hussh adds a
+server-owned CRM connection bundle to each tool call: target, CRM base URL,
+CRM MCP path, OAuth client ID/secret, and token URL. These values come only from
+the encrypted enterprise registry and never from a browser request. The
+external gateway has its own Secret Manager credential profile, separate from
+the shared Omni Gateway credentials. A browser still cannot select a CRM URL,
+credential, target, recipient key, or record ID.
 
 The registry maps the encrypted profile to deployed MuleSoft tools. For the
 current external CRM endpoint, use the existing `read-crm-record` and
@@ -76,17 +79,16 @@ Read tool `read-crm-record`:
 
 ```json
 {
-  "profile": "crm-encrypted-fields.v1",
-  "operation": "read",
+  "target": "Hussh",
+  "crmBaseUrl": "<server-registry-value>",
+  "crmMcpEndpoint": "<server-registry-value>",
+  "clientId": "<server-registry-secret>",
+  "clientSecret": "<server-registry-secret>",
+  "crmTokenUrl": "<server-registry-value>",
   "objectType": "Contact",
   "id": "<server-bound-record-id>",
   "returnFields": ["FirstName", "LastName", "Email", "Phone"],
   "encryptedFields": {
-    "profile": "crm-encrypted-fields.v1",
-    "direction": "read_request",
-    "recipient_key_id": "mulesoft-sandbox-key-1",
-    "client_operation_id": "cef_<random>",
-    "expires_at_ms": 0,
     "client_public_key": "<base64-x25519-public-key>",
     "wrapped_payload_key": "<base64>",
     "wrapped_key_iv": "<base64-12-byte-iv>",
@@ -98,19 +100,23 @@ Read tool `read-crm-record`:
 }
 ```
 
-The browser-facing Hussh API uses camelCase. The registered MuleSoft tool
-payload uses the snake_case envelope shown above, matching the existing MCP
-field convention. Update tool `update-crm-record` adds `intentId`,
-`approvalId`, `clientOperationId`, and allowed `fieldNames`; it carries the same
-`encryptedFields` shape with `direction: "update_request"`. MuleSoft returns
-only `{ "status": "accepted", "accepted": true, "operationId": "<opaque-id>" }`.
+The browser-facing Hussh API uses camelCase and carries profile, direction, key
+ID, client operation ID, and expiry as Hussh control metadata. MuleSoft's
+strict tool schema accepts only the seven snake_case cryptographic fields shown
+above. For update, `update-crm-record` receives `objectType`, the server-bound
+`id`, and `encryptedFields`; Hussh retains intent, approval, idempotency, and
+allowed-field metadata internally. MuleSoft returns only
+`{ "status": "accepted", "accepted": true, "operationId": "<opaque-id>" }`.
 
 ## Credential and key custody
 
 - Hussh authenticates to the registered Omni Gateway endpoint with runtime
-  gateway credentials. These are never MCP tool arguments.
-- MuleSoft owns CRM OAuth/connection credentials in its secret store and
-  resolves the CRM connection from the deployed connector configuration.
+  gateway credentials. The external CRM endpoint uses isolated
+  `OMNIGATEWAY_EXT_CRM_*` secrets; these are never MCP tool arguments.
+- For the current external CRM endpoint, Hussh decrypts the registered CRM
+  OAuth/connection bundle only in backend memory and supplies it directly to
+  MuleSoft's tool contract. It is never exposed to the browser, logs, audit
+  rows, or API responses.
 - Hussh stores only MuleSoft’s registered X25519 public key, key ID, and
   fingerprint. MuleSoft’s private key never leaves its KMS/HSM or approved
   crypto runtime.

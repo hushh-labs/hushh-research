@@ -38,6 +38,8 @@ CONNECTOR_KDF_ITERATIONS_ENV = "CONNECTOR_KDF_ITERATIONS"
 _CONNECTOR_KDF_ITERATIONS_DEFAULT = 65536
 OMNIGATEWAY_CLIENT_ID_ENV = "OMNIGATEWAY_CLIENT_ID"
 OMNIGATEWAY_CLIENT_SECRET_ENV = "OMNIGATEWAY_CLIENT_SECRET"  # noqa: S105
+OMNIGATEWAY_EXT_CRM_CLIENT_ID_ENV = "OMNIGATEWAY_EXT_CRM_CLIENT_ID"
+OMNIGATEWAY_EXT_CRM_CLIENT_SECRET_ENV = "OMNIGATEWAY_EXT_CRM_CLIENT_SECRET"  # noqa: S105
 APP_FRONTEND_ORIGIN_ENV = "APP_FRONTEND_ORIGIN"
 FIREBASE_ADMIN_CREDENTIALS_JSON_ENV = "FIREBASE_ADMIN_CREDENTIALS_JSON"
 FIREBASE_SERVICE_ACCOUNT_JSON_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON"
@@ -347,15 +349,25 @@ def get_connector_kdf_iterations() -> int:
         return _CONNECTOR_KDF_ITERATIONS_DEFAULT
 
 
-def get_omnigateway_transport_headers() -> tuple[tuple[str, str], ...]:
+def get_omnigateway_transport_headers(
+    credential_profile: str = "shared",
+) -> tuple[tuple[str, str], ...]:
     """Client-ID-Enforcement headers for the MuleSoft OmniGateway transport.
 
     These authenticate Hushh to the gateway. They are separate from the
     encrypted CRM credentials stored in enterprise_crm_registry and forwarded to
     MuleSoft for CRM-side auth.
     """
-    client_id = _clean_env(OMNIGATEWAY_CLIENT_ID_ENV)
-    client_secret = _clean_env(OMNIGATEWAY_CLIENT_SECRET_ENV)
+    if credential_profile == "external_crm":
+        client_id_env = OMNIGATEWAY_EXT_CRM_CLIENT_ID_ENV
+        client_secret_env = OMNIGATEWAY_EXT_CRM_CLIENT_SECRET_ENV
+    elif credential_profile == "shared":
+        client_id_env = OMNIGATEWAY_CLIENT_ID_ENV
+        client_secret_env = OMNIGATEWAY_CLIENT_SECRET_ENV
+    else:
+        return ()
+    client_id = _clean_env(client_id_env)
+    client_secret = _clean_env(client_secret_env)
     headers: list[tuple[str, str]] = []
     if client_id:
         headers.append(("client_id", client_id))

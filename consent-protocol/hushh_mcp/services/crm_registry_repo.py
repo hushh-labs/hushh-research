@@ -1,9 +1,9 @@
 """DB-backed enterprise CRM registry repository.
 
 Loads active `enterprise_crm_registry` rows into `ConnectedSystemDefinition`
-objects. List views avoid credential decryption. Every MuleSoft path receives
-only a server-owned connector reference; MuleSoft resolves its CRM credentials
-and URLs from its own secret/configuration store.
+objects. List views avoid credential decryption. MuleSoft managed-connector rows
+resolve their own CRM connection; the explicit external dynamic-registry
+profile receives only a server-owned encrypted-at-rest connection bundle.
 
 No plaintext credentials are ever logged. Decryption failures surface as
 `ConnectedSystemConfigurationError` (fail-closed) rather than crashing the
@@ -79,6 +79,32 @@ def _resolve_endpoint(row: dict[str, Any]) -> str:
 
 def _is_mulesoft_managed_auth(row: dict[str, Any]) -> bool:
     return str(row.get("auth_header_style") or "").strip().lower() == "bearer"
+
+
+def _gateway_credential_profile(row: dict[str, Any]) -> str:
+    return str(row.get("gateway_credential_profile") or "shared").strip().lower()
+
+
+def _uses_dynamic_registry(row: dict[str, Any]) -> bool:
+    return str(row.get("crm_connection_mode") or "managed").strip().lower() == "dynamic_registry"
+
+
+def _dynamic_registry_tool_arguments(row: dict[str, Any]) -> dict[str, Any]:
+    client_id, client_secret = _decrypt_credentials(row)
+    values = {
+        "target": str(row.get("crm_enterprise_name") or "").strip(),
+        "crmBaseUrl": str(row.get("crm_connection_base_url") or "").strip(),
+        "crmMcpEndpoint": str(row.get("crm_connection_mcp_endpoint") or "").strip(),
+        "clientId": client_id,
+        "clientSecret": client_secret,
+        "crmTokenUrl": str(row.get("crm_connection_token_url") or "").strip(),
+    }
+    if not all(values.values()):
+        raise ConnectedSystemConfigurationError(
+            "CRM dynamic-registry configuration is incomplete.",
+            code="CONNECTED_SYSTEM_REGISTRY_INCOMPLETE",
+        )
+    return values
 
 
 def _load_active_row(crm_id: str, database: Any) -> dict[str, Any] | None:
@@ -193,6 +219,7 @@ def _definition_from_row(
     tool_catalog: tuple[dict[str, Any], ...],
     transport_headers: tuple[tuple[str, str], ...] = (),
     transport_tool_arguments: dict[str, Any] | None = None,
+    transport_replacement_tool_arguments: dict[str, Any] | None = None,
     crm_encrypted_fields_recipient_key: dict[str, Any] | None = None,
 ) -> ConnectedSystemDefinition:
     return ConnectedSystemDefinition(
@@ -211,6 +238,7 @@ def _definition_from_row(
         tool_catalog=tool_catalog,
         transport_headers=transport_headers,
         transport_tool_arguments=transport_tool_arguments,
+        transport_replacement_tool_arguments=transport_replacement_tool_arguments,
         delete_transport_endpoint=(
             str(row.get("crm_delete_endpoint")).strip() if row.get("crm_delete_endpoint") else None
         ),
@@ -244,7 +272,11 @@ def _definition_from_row_without_decrypt(
         row=row,
         endpoint=endpoint,
         tool_catalog=tool_catalog,
-        transport_headers=get_omnigateway_transport_headers() if mulesoft_managed_auth else (),
+        transport_headers=(
+            get_omnigateway_transport_headers(_gateway_credential_profile(row))
+            if mulesoft_managed_auth
+            else ()
+        ),
         crm_encrypted_fields_recipient_key=(
             _active_crm_encrypted_fields_key(row_crm_id, database)
             if bool(row.get("crm_encrypted_fields_v1_enabled"))
@@ -396,8 +428,9 @@ def load_active_definition(
     """Return the active CRM definition for `crm_id`, or None if not found/inactive.
 
     Header-auth rows decrypt credentials into transport headers. MuleSoft
-    bearer rows use the registered gateway endpoint and gateway credentials;
-    CRM connection credentials remain in MuleSoft's managed configuration.
+    bearer rows use a registered gateway credential profile. Managed rows keep
+    CRM credentials in MuleSoft; dynamic-registry rows decrypt the server-owned
+    CRM connection bundle into private tool arguments.
     """
     database = db if db is not None else get_db()
 
@@ -414,7 +447,9 @@ def load_active_definition(
     transport_headers: tuple[tuple[str, str], ...]
     transport_tool_arguments: dict[str, Any] | None = None
     if mulesoft_managed_auth:
-        transport_headers = get_omnigateway_transport_headers()
+        transport_headers = get_omnigateway_transport_headers(_gateway_credential_profile(row))
+        if _uses_dynamic_registry(row):
+            transport_tool_arguments = _dynamic_registry_tool_arguments(row)
     else:
         # Decrypt credentials only for legacy header-auth rows.
         client_id, client_secret = _decrypt_credentials(row)
@@ -446,6 +481,9 @@ def load_active_definition(
         tool_catalog=tool_catalog,
         transport_headers=transport_headers,
         transport_tool_arguments=transport_tool_arguments,
+        transport_replacement_tool_arguments=(
+            transport_tool_arguments if _uses_dynamic_registry(row) else None
+        ),
         crm_encrypted_fields_recipient_key=(
             _active_crm_encrypted_fields_key(row_crm_id, database)
             if bool(row.get("crm_encrypted_fields_v1_enabled"))

@@ -71,3 +71,20 @@ def test_nearby_presence_admission_is_hydrated_from_canonical_runtime_config(mon
 
     assert os.environ["ONE_LOCATION_NEARBY_PRESENCE_MODE"] == "production"
     assert os.environ["ONE_LOCATION_NEARBY_PRESENCE_COHORT"] == "owner-a,owner-b"
+
+
+def test_external_crm_gateway_credentials_are_isolated_from_shared_gateway(monkeypatch):
+    monkeypatch.setenv("OMNIGATEWAY_CLIENT_ID", "shared-id")
+    monkeypatch.setenv("OMNIGATEWAY_CLIENT_SECRET", "shared-secret")
+    monkeypatch.setenv("OMNIGATEWAY_EXT_CRM_CLIENT_ID", "external-id")
+    monkeypatch.setenv("OMNIGATEWAY_EXT_CRM_CLIENT_SECRET", "external-secret")
+
+    assert runtime_settings.get_omnigateway_transport_headers("shared") == (
+        ("client_id", "shared-id"),
+        ("client_secret", "shared-secret"),
+    )
+    assert runtime_settings.get_omnigateway_transport_headers("external_crm") == (
+        ("client_id", "external-id"),
+        ("client_secret", "external-secret"),
+    )
+    assert runtime_settings.get_omnigateway_transport_headers("unknown") == ()

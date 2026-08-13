@@ -15,6 +15,7 @@ from hushh_mcp.services.connected_systems_service import (
     ConnectedSystemDefinition,
     ConnectedSystemsError,
     ConnectedSystemsService,
+    ExternalCrmStreamableMcpAdapter,
     InMemoryConnectedSystemIntentStore,
     _normalize_crm_encrypted_fields_ack,
 )
@@ -150,13 +151,11 @@ async def test_encrypted_fields_partner_call_replaces_registry_arguments_and_sen
         return {"isError": False, "payload": {"status": "accepted", "accepted": True}}
 
     monkeypatch.setattr(service, "_call_operation", fake_call_operation)
+    wire_envelope = CrmEncryptedFields.model_validate(_envelope()).mulesoft_payload()
     payload = {
-        "profile": CRM_ENCRYPTED_FIELDS_V1_PROFILE,
-        "operation": "update",
         "objectType": "Contact",
         "id": "backend-bound",
-        "fieldNames": ["Title"],
-        "encryptedFields": _envelope(),
+        "encryptedFields": wire_envelope,
     }
     await service._call_crm_encrypted_fields_partner(
         system=system, operation="update", payload=payload
@@ -190,6 +189,47 @@ def test_encrypted_fields_profile_migration_is_release_managed_and_default_off()
     assert "crm-encrypted-fields.v1" in migration
     assert "enterprise_crm_registry_legacy_crm_zk_profiles_retired" in retirement
     assert "non-terminal legacy encrypted intents" in retirement
+
+
+def test_encrypted_call_keeps_only_registered_replacement_connection_arguments() -> None:
+    adapter = ExternalCrmStreamableMcpAdapter(
+        tool_arguments={"legacyArgument": "discarded"},
+        replacement_tool_arguments={
+            "crmBaseUrl": "https://crm.example.invalid",
+            "clientSecret": "server-only",
+        },
+    )
+
+    arguments = adapter._tool_arguments_for_call(
+        {"encryptedFields": {"ciphertext": "opaque"}},
+        replace_tool_arguments=True,
+    )
+
+    assert arguments == {
+        "crmBaseUrl": "https://crm.example.invalid",
+        "clientSecret": "server-only",
+        "encryptedFields": {"ciphertext": "opaque"},
+    }
+    assert "legacyArgument" not in arguments
+
+
+def test_mulesoft_response_is_bound_to_hussh_request_metadata() -> None:
+    request = CrmEncryptedFields.model_validate(_envelope(direction="read_request"))
+    response_wire = {
+        **request.mulesoft_payload(),
+        "ciphertext": _b64(8, 9),
+    }
+
+    response = request.with_mulesoft_response(response_wire)
+
+    assert response.direction == "read_response"
+    assert response.recipient_key_id == request.recipient_key_id
+    assert response.client_operation_id == request.client_operation_id
+    assert response.expires_at_ms == request.expires_at_ms
+    assert response.ciphertext == _b64(8, 9)
+
+    with pytest.raises(CrmEncryptedFieldsValidationError):
+        request.with_mulesoft_response({**response_wire, "unexpected": "value"})
 
 
 def test_encrypted_fields_profile_fails_closed_in_production(
@@ -417,14 +457,20 @@ async def test_encrypted_fields_update_is_ciphertext_only_and_approval_is_idempo
     )
     assert first["status"] == second["status"] == "succeeded"
     assert len(partner_calls) == 2
-    assert (
-        partner_calls[0]["payload"]["clientOperationId"]
-        == partner_calls[1]["payload"]["clientOperationId"]
-    )
+    assert partner_calls[0]["payload"] == partner_calls[1]["payload"]
     assert partner_calls[1]["payload"]["id"] == "backend-bound-record"
-    assert partner_calls[1]["payload"]["fieldNames"] == ["Title"]
+    assert set(partner_calls[1]["payload"]) == {"objectType", "id", "encryptedFields"}
     assert partner_calls[1]["payload"]["encryptedFields"]["client_public_key"] == _b64(32, 2)
     assert "clientPublicKey" not in partner_calls[1]["payload"]["encryptedFields"]
+    assert set(partner_calls[1]["payload"]["encryptedFields"]) == {
+        "client_public_key",
+        "wrapped_payload_key",
+        "wrapped_key_iv",
+        "wrapped_key_tag",
+        "payload_iv",
+        "payload_tag",
+        "ciphertext",
+    }
 
 
 @pytest.mark.parametrize(

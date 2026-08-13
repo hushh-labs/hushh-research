@@ -302,6 +302,47 @@ def test_bearer_row_needs_no_connector_ref(monkeypatch):
     assert definition.transport_tool_arguments is None
 
 
+def test_external_dynamic_registry_uses_isolated_gateway_and_server_only_crm_arguments(
+    monkeypatch,
+):
+    row = _pbkdf2_row()
+    row.update(
+        {
+            "auth_header_style": "Bearer",
+            "gateway_credential_profile": "external_crm",
+            "crm_connection_mode": "dynamic_registry",
+            "crm_connection_base_url": "https://api.salesforce.example/platform",
+            "crm_connection_mcp_endpoint": "/mcp/v1/sandbox/platform/sobject-all",
+            "crm_connection_token_url": "https://salesforce.example/oauth2/token",
+        }
+    )
+    monkeypatch.setattr(crm_registry_repo, "get_connector_secrets_key", lambda: CONNECTOR_PASSWORD)
+    monkeypatch.setenv("OMNIGATEWAY_CLIENT_ID", "shared-gateway-client")
+    monkeypatch.setenv("OMNIGATEWAY_CLIENT_SECRET", "shared-gateway-secret")
+    monkeypatch.setenv("OMNIGATEWAY_EXT_CRM_CLIENT_ID", "external-gateway-client")
+    monkeypatch.setenv("OMNIGATEWAY_EXT_CRM_CLIENT_SECRET", "external-gateway-secret")
+
+    definition = crm_registry_repo.load_active_definition(
+        "salesforce-fsc-customer0", db=_FakeDb([row], _operation_rows())
+    )
+
+    assert definition is not None
+    assert definition.transport_headers == (
+        ("client_id", "external-gateway-client"),
+        ("client_secret", "external-gateway-secret"),
+    )
+    expected = {
+        "target": "Macy's",
+        "crmBaseUrl": row["crm_connection_base_url"],
+        "crmMcpEndpoint": row["crm_connection_mcp_endpoint"],
+        "clientId": CLIENT_ID,
+        "clientSecret": CLIENT_SECRET,
+        "crmTokenUrl": row["crm_connection_token_url"],
+    }
+    assert definition.transport_tool_arguments == expected
+    assert definition.transport_replacement_tool_arguments == expected
+
+
 def test_encrypted_fields_bearer_row_uses_pinned_key(monkeypatch):
     row = _pbkdf2_row()
     row["auth_header_style"] = "Bearer"

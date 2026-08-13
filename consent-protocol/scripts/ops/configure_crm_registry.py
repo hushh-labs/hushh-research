@@ -102,9 +102,25 @@ def _definition(descriptor: ValidatedCrmRegistryDescriptor) -> ConnectedSystemDe
         for operation, config in descriptor.operations.items()
     )
     auth_style = str(raw.get("authHeaderStyle") or "bearer").lower()
+    connection_mode = str(raw.get("connectionMode") or "managed").lower()
+    gateway_profile = str(raw.get("gatewayCredentialProfile") or "shared").lower()
+    replacement_tool_arguments = None
     if auth_style == "bearer":
-        headers = get_omnigateway_transport_headers()
-        tool_arguments = None
+        headers = get_omnigateway_transport_headers(gateway_profile)
+        if connection_mode == "dynamic_registry":
+            client_id, client_secret = _credentials(descriptor)
+            crm_connection = raw["crmConnection"]
+            tool_arguments = {
+                "target": raw["displayName"],
+                "crmBaseUrl": crm_connection["baseUrl"],
+                "crmMcpEndpoint": crm_connection["mcpEndpoint"],
+                "clientId": client_id,
+                "clientSecret": client_secret,
+                "crmTokenUrl": crm_connection["tokenUrl"],
+            }
+            replacement_tool_arguments = dict(tool_arguments)
+        else:
+            tool_arguments = None
     else:
         client_id, client_secret = _credentials(descriptor)
         headers = (("client_id", client_id), ("client_secret", client_secret))
@@ -124,6 +140,7 @@ def _definition(descriptor: ValidatedCrmRegistryDescriptor) -> ConnectedSystemDe
         tool_catalog=operations,
         transport_headers=headers,
         transport_tool_arguments=tool_arguments,
+        transport_replacement_tool_arguments=replacement_tool_arguments,
         capabilities=frozenset(descriptor.capabilities),
         timeout_seconds=max(1, int(raw.get("timeoutSeconds") or 30)),
         retry_count=max(0, int(raw.get("retryCount") or 0)),
@@ -325,9 +342,13 @@ def _apply(
 ) -> None:
     raw = descriptor.raw
     auth_style = str(raw.get("authHeaderStyle") or "bearer").lower()
+    connection_mode = str(raw.get("connectionMode") or "managed").lower()
+    gateway_profile = str(raw.get("gatewayCredentialProfile") or "shared").lower()
+    has_registry_credentials = auth_style != "bearer" or connection_mode == "dynamic_registry"
     cid_blob, secret_blob = (
-        (None, None) if auth_style == "bearer" else _encrypted_credentials(descriptor)
+        _encrypted_credentials(descriptor) if has_registry_credentials else (None, None)
     )
+    crm_connection = raw.get("crmConnection") or {}
     operations = descriptor.operations
     safe_probe_result = {
         key: value for key, value in probe_result.items() if not key.startswith("_")
@@ -355,13 +376,17 @@ def _apply(
                   encryption_algorithm, key_id, auth_header_style, supports_create,
                   supports_read, supports_update, supports_delete, user_object_name,
                   timeout_seconds, retry_count, is_active, business_owner, technical_owner,
-                  configuration_revision, crm_encrypted_fields_v1_enabled, validated_at, updated_at
+                  configuration_revision, crm_encrypted_fields_v1_enabled, validated_at, updated_at,
+                  gateway_credential_profile, crm_connection_mode,
+                  crm_connection_base_url, crm_connection_mcp_endpoint, crm_connection_token_url
                 ) VALUES (
                   :crm_id, :name, :crm_type, :environment, :base_url, :token_url,
                   :mcp_endpoint, :cid_blob, :secret_blob, :algorithm, :key_id,
                   :auth_style, :supports_create, :supports_read, :supports_update,
                   :supports_delete, :object_type, :timeout_seconds, :retry_count,
-                  FALSE, :business_owner, :technical_owner, :revision, :encrypted_fields_enabled, NOW(), NOW()
+                  FALSE, :business_owner, :technical_owner, :revision, :encrypted_fields_enabled, NOW(), NOW(),
+                  :gateway_profile, :connection_mode, :crm_connection_base_url,
+                  :crm_connection_mcp_endpoint, :crm_connection_token_url
                 )
                 ON CONFLICT (crm_id) DO UPDATE SET
                   crm_enterprise_name=EXCLUDED.crm_enterprise_name,
@@ -381,6 +406,11 @@ def _apply(
                   business_owner=EXCLUDED.business_owner, technical_owner=EXCLUDED.technical_owner,
                   configuration_revision=EXCLUDED.configuration_revision,
                   crm_encrypted_fields_v1_enabled=EXCLUDED.crm_encrypted_fields_v1_enabled,
+                  gateway_credential_profile=EXCLUDED.gateway_credential_profile,
+                  crm_connection_mode=EXCLUDED.crm_connection_mode,
+                  crm_connection_base_url=EXCLUDED.crm_connection_base_url,
+                  crm_connection_mcp_endpoint=EXCLUDED.crm_connection_mcp_endpoint,
+                  crm_connection_token_url=EXCLUDED.crm_connection_token_url,
                   validated_at=NOW(), is_active=FALSE, updated_at=NOW()
                 """
             ),
@@ -394,10 +424,12 @@ def _apply(
                 "mcp_endpoint": raw["mcpEndpoint"],
                 "cid_blob": cid_blob,
                 "secret_blob": secret_blob,
-                "algorithm": "managed_gateway" if auth_style == "bearer" else PBKDF2_CBC_ALGORITHM,
-                "key_id": "omnigateway_transport"
-                if auth_style == "bearer"
-                else "connector_secrets_key_v1",
+                "algorithm": PBKDF2_CBC_ALGORITHM
+                if has_registry_credentials
+                else "managed_gateway",
+                "key_id": "connector_secrets_key_v1"
+                if has_registry_credentials
+                else "omnigateway_transport",
                 "auth_style": auth_style,
                 "supports_create": "create" in capability_set,
                 "supports_read": "read" in capability_set,
@@ -410,6 +442,11 @@ def _apply(
                 "technical_owner": raw.get("technicalOwner"),
                 "revision": revision,
                 "encrypted_fields_enabled": bool(descriptor.encrypted_fields),
+                "gateway_profile": gateway_profile,
+                "connection_mode": connection_mode,
+                "crm_connection_base_url": crm_connection.get("baseUrl"),
+                "crm_connection_mcp_endpoint": crm_connection.get("mcpEndpoint"),
+                "crm_connection_token_url": crm_connection.get("tokenUrl"),
             },
         )
         connection.execute(

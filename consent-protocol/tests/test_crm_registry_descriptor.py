@@ -146,6 +146,46 @@ def test_descriptor_requires_explicit_cross_object_probe_mode(tmp_path, monkeypa
     assert load_and_validate_descriptor(path).crm_id == "crm_alpha"
 
 
+def test_dynamic_registry_requires_external_gateway_and_crm_connection(tmp_path, monkeypatch):
+    monkeypatch.setenv("CRM_ALPHA_CLIENT_ID", "id")
+    monkeypatch.setenv("CRM_ALPHA_CLIENT_SECRET", "secret")
+    raw = _descriptor()
+    raw["authHeaderStyle"] = "bearer"
+    raw["connectionMode"] = "dynamic_registry"
+    raw["gatewayCredentialProfile"] = "external_crm"
+    raw["crmConnection"] = {
+        "baseUrl": "https://api.salesforce.example/platform",
+        "mcpEndpoint": "/mcp/v1/sandbox/platform/sobject-all",
+        "tokenUrl": "https://salesforce.example/services/oauth2/token",
+    }
+    path = tmp_path / "crm.json"
+    path.write_text(json.dumps(raw))
+
+    descriptor = load_and_validate_descriptor(path)
+    summary = redacted_summary(descriptor)
+
+    assert descriptor.credential_env_names == (
+        "CRM_ALPHA_CLIENT_ID",
+        "CRM_ALPHA_CLIENT_SECRET",
+    )
+    assert summary["gatewayCredentialProfile"] == "external_crm"
+    assert summary["connectionMode"] == "dynamic_registry"
+
+
+def test_dynamic_registry_rejects_missing_crm_connection(tmp_path, monkeypatch):
+    monkeypatch.setenv("CRM_ALPHA_CLIENT_ID", "id")
+    monkeypatch.setenv("CRM_ALPHA_CLIENT_SECRET", "secret")
+    raw = _descriptor()
+    raw["authHeaderStyle"] = "bearer"
+    raw["connectionMode"] = "dynamic_registry"
+    raw["gatewayCredentialProfile"] = "external_crm"
+    path = tmp_path / "crm.json"
+    path.write_text(json.dumps(raw))
+
+    with pytest.raises(CrmRegistryDescriptorError, match="crmConnection is required"):
+        load_and_validate_descriptor(path)
+
+
 def test_encrypted_fields_can_reuse_standard_read_and_update_tool_names(tmp_path, monkeypatch):
     monkeypatch.setenv("CRM_ALPHA_CLIENT_ID", "id")
     monkeypatch.setenv("CRM_ALPHA_CLIENT_SECRET", "secret")
