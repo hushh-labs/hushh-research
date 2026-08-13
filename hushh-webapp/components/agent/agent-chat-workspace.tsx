@@ -57,6 +57,7 @@ import {
   type AgentVisibleStreamEvent,
   type AgentVisibleStreamStatus,
 } from "@/components/agent/agent-turn-stream-panel";
+import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { describeSelection } from "@/lib/agent/describe-selection";
 import {
   getWelcomePromptSetIndex,
@@ -111,7 +112,7 @@ import {
   deleteAgentChatConversation,
   renameAgentChatConversation,
   settleAgentChatAction,
-  streamAgentChat,
+  runAgentChatTurn,
   streamAgentIntro,
   type AgentChatConversation,
   type AgentChatMessage as StoredAgentChatMessage,
@@ -1155,6 +1156,13 @@ export function AgentChatWorkspace({
   const sharedRuntime = useAgentRuntimeStateOptional();
   const [input, setInput] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
+
+  // The person's own pod, when they have one. Follows the same status endpoint the
+  // presence chip does, so this adds no new polling -- the hook already exists and is
+  // already mounted elsewhere; Agent Chat simply had no way to know a pod was there,
+  // which is why every turn went to the shared hub even for someone whose pod was live.
+  const { hushhId: podHushhId, state: podState } = useAgentDeploymentFollow();
+  const podAddress = { hushhId: podHushhId, state: podState as string | null };
   const [conversations, setConversations] = useState<AgentChatConversation[]>([]);
   const [messages, setMessages] = useState<AgentMessage[]>(() => [createGreetingMessage()]);
   const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(null);
@@ -2933,7 +2941,12 @@ export function AgentChatWorkspace({
         vaultKey,
         vaultOwnerToken: token,
       });
-      const streamResult = await streamAgentChat({
+      const streamResult = await runAgentChatTurn({
+        // Which cell answers is decided by runAgentChatTurn, not here: the two
+        // cells return different SHAPES (the hub streams, a pod replies once) and
+        // that difference belongs in one place rather than at each call site.
+        podHushhId: podAddress.hushhId,
+        podState: podAddress.state,
         userId,
         message: text,
         conversationId,
@@ -3176,7 +3189,12 @@ export function AgentChatWorkspace({
         vaultKey,
         vaultOwnerToken: token,
       });
-      const streamResult = await streamAgentChat({
+      const streamResult = await runAgentChatTurn({
+        // Which cell answers is decided by runAgentChatTurn, not here: the two
+        // cells return different SHAPES (the hub streams, a pod replies once) and
+        // that difference belongs in one place rather than at each call site.
+        podHushhId: podAddress.hushhId,
+        podState: podAddress.state,
         userId,
         message: "",
         conversationId,

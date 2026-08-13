@@ -539,3 +539,109 @@ export async function deleteAgentChatConversation(input: {
   }
   return (await response.json()) as { conversation_id: string; deleted: boolean };
 }
+
+/**
+ * Where a turn is answered: the shared hub, or the person's own pod.
+ *
+ * Returned alongside the answer so the UI can SAY which cell replied. The north star
+ * requires the person to be able to tell whose compute served them; a silent switch
+ * would make "your own private agent" an unverifiable claim.
+ */
+export type TurnCell = "hub" | "pod";
+
+export type AgentTurnResult = {
+  conversationId: string | null;
+  model: string | null;
+  text: string;
+  cell: TurnCell;
+  /** Present only for a pod turn: DERIVED by the pod, never asserted by the client. */
+  grounded?: boolean;
+};
+
+/**
+ * Run one Agent Chat turn on whichever cell belongs to this person.
+ *
+ * WHY THIS EXISTS RATHER THAN A BRANCH IN THE COMPONENT
+ * `ApiService.runPodTurn` was complete and had ZERO callers, so every turn went to the
+ * shared hub even for someone whose pod was live -- the north star's central claim
+ * ("their complete agent ecosystem runs in their pod") was unreachable from the product.
+ *
+ * The two cells do not answer the same SHAPE. The hub streams SSE; the pod returns one
+ * complete response. Branching inside the chat component would have put that difference
+ * in a 4,600-line file at two separate call sites. It lives here instead, so the
+ * component asks one question -- "run this turn" -- and the shape difference is owned in
+ * one place.
+ *
+ * HONEST STREAMING, NOT FAKE STREAMING
+ * A pod turn is delivered as ONE `onToken` call with the whole answer. It would have
+ * been easy to slice the text and emit it character by character so the UI looked
+ * identical, and that would be a lie about where the latency went: the person would see
+ * a typing animation for text that had already fully arrived. The rail shows real
+ * progress or it shows none.
+ */
+export async function runAgentChatTurn(input: {
+  userId: string;
+  message: string;
+  conversationId?: string | null;
+  vaultOwnerToken: string;
+  pkmContext?: string;
+  screenContext?: Record<string, unknown> | null;
+  runtimeCredential?: string | null;
+  runtimeCredentialMode?: string | null;
+  runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
+  runtimeVertexProject?: string | null;
+  runtimeVertexLocation?: string | null;
+  delegateAgentId?: string | null;
+  delegateResult?: Record<string, unknown>;
+  signal?: AbortSignal;
+  handlers?: AgentChatStreamHandlers;
+  /** The person's pod address, when they have one. Absent means "no pod": use the hub. */
+  podHushhId?: string | null;
+  /** Their pod's lifecycle state. Only `active` is answerable. */
+  podState?: string | null;
+}): Promise<AgentTurnResult> {
+  const podIsAnswerable = Boolean(input.podHushhId) && input.podState === "active";
+  if (!podIsAnswerable) {
+    const streamed = await streamAgentChat(input);
+    return { ...streamed, cell: "hub" };
+  }
+
+  const handlers = input.handlers ?? {};
+  const conversationId = input.conversationId || "";
+  try {
+    const turn = await ApiService.runPodTurn({
+      hushhId: String(input.podHushhId),
+      message: input.message,
+      conversationId: input.conversationId || undefined,
+      timezone: resolveBrowserTimeZone(),
+      runtimeCredential: input.runtimeCredential,
+      runtimeCredentialTransport: input.runtimeCredentialTransport || undefined,
+      vertexProject: input.runtimeVertexProject,
+      vertexLocation: input.runtimeVertexLocation,
+      // The owner's own consented projection, decrypted on their device. This is what
+      // makes a pod turn grounded WITHOUT the pod holding PKM or reaching a database.
+      pkmContext: input.pkmContext,
+      signal: input.signal,
+    });
+
+    handlers.onStart?.({ conversationId, model: turn.model });
+    if (turn.text) handlers.onToken?.(turn.text);
+    handlers.onComplete?.({ conversationId, model: turn.model });
+    return {
+      conversationId: input.conversationId ?? null,
+      model: turn.model,
+      text: turn.text,
+      cell: "pod",
+      grounded: turn.grounded,
+    };
+  } catch (error) {
+    // The three typed failures `runPodTurn` raises are about THIS person's pod, and
+    // each has a different remedy. Falling back to the hub would answer them anyway and
+    // hide the fault -- the person would believe their pod served a turn it never saw,
+    // which is the "200 on an empty page" failure this codebase argues against
+    // everywhere else. Surface it and let the caller decide.
+    const message = error instanceof Error ? error.message : "AGENT_UNREACHABLE";
+    handlers.onError?.(message);
+    throw error;
+  }
+}
