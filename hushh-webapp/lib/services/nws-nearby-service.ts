@@ -142,8 +142,42 @@ export type NearbyRecord = {
   revalidationRequired: boolean;
   /** Null on a service revision that predates the reviewed release. */
   evidence: NearbyEvidence | null;
+  associationContext: NearbyAssociationContext | null;
   sources: NearbySource[];
   modelVersion: string | null;
+};
+
+/** Which reviewed release answered, so an advisor can cite what they saw. */
+export type NearbyRelease = {
+  releaseId: string;
+  sourceRetrievedAt: string | null;
+  sourcePolicyVersion: string | null;
+};
+
+/** How much of the market has been reviewed. 60 records is not a census. */
+export type NearbyReviewScope = {
+  organizationAnchorCount: number | null;
+  marketCensusComplete: boolean;
+};
+
+/**
+ * The service's own statement that none of this is about money.
+ *
+ * This surface renders a component literally named "capital access" to
+ * advisers whose job is judging whether someone can invest. That is the one
+ * reading the product must not invite, so the sentence that prevents it is
+ * carried and shown next to the number.
+ */
+export type NearbyFinancialContext = {
+  status: string;
+  capitalAccessNote: string | null;
+  notUsedForRanking: string[];
+};
+
+/** What "in this market" means for one person — never where they live. */
+export type NearbyAssociationContext = {
+  category: string;
+  definition: string | null;
 };
 
 export type NearbyDiscoverResult = {
@@ -161,6 +195,9 @@ export type NearbyDiscoverResult = {
     searchPerformed: boolean;
     effectiveRadiusKm: number | null;
   };
+  release: NearbyRelease | null;
+  reviewScope: NearbyReviewScope | null;
+  financialContext: NearbyFinancialContext | null;
   scoreDefinition: string | null;
   results: NearbyRecord[];
 };
@@ -355,6 +392,20 @@ export function availableTags(records: NearbyRecord[]): string[] {
     for (const tag of record.tags) seen.add(tag);
   }
   return [...seen].sort();
+}
+
+/** Plain wording for how a person is associated with the queried market. */
+export const ASSOCIATION_CATEGORY_LABELS: Record<string, string> = {
+  BASED_HERE: "Based here",
+  WORKS_HERE: "Works here",
+  SERVES_HERE: "Serves here",
+};
+
+export function associationCategoryLabel(key: string): string {
+  return (
+    ASSOCIATION_CATEGORY_LABELS[key] ??
+    key.charAt(0) + key.slice(1).toLowerCase().replace(/_/g, " ")
+  );
 }
 
 /** Plain names for what a citation proves. */
