@@ -93,7 +93,28 @@ type RenderMarker = {
   kind: "person" | "self" | "place";
   grantId?: string;
   tint?: { r: number; g: number; b: number; a: number };
+  /**
+   * When this position was taken, not when it was fetched. A person whose
+   * phone locked keeps their last known pin instead of disappearing, and this
+   * is what lets the map say so rather than quietly implying they are still
+   * moving.
+   */
+  capturedAt?: string | null;
 };
+
+/** Grey. A pin whose owner has gone quiet stops claiming to be live. */
+const STALE_TINT = { r: 142, g: 142, b: 147, a: 255 } as const;
+
+function isStaleAt(
+  capturedAt: string | null | undefined,
+  freshnessSeconds: number,
+  nowMs: number,
+): boolean {
+  if (!capturedAt) return false;
+  const captured = Date.parse(capturedAt);
+  if (!Number.isFinite(captured)) return false;
+  return nowMs - captured > freshnessSeconds * 1_000;
+}
 
 function displayLabel(marker: OneLocationMapMarker): string {
   return marker.grant.ownerDisplayName?.trim() || "A trusted person";
@@ -325,6 +346,18 @@ export function LocationImmersiveMap({
     presenceMode: "ghost",
   });
   const [markers, setMarkers] = useState<RenderMarker[]>([]);
+  // The server's own definition of live, rather than a second copy of 90 in
+  // the client that could drift away from it.
+  const [freshnessSeconds, setFreshnessSeconds] = useState(90);
+  // Staleness is a function of time passing, not of new data arriving -- a pin
+  // has to go grey while nothing at all is happening. The marker refresh alone
+  // would never notice, because a phone that stopped publishing sends nothing
+  // to notice.
+  const [staleClockMs, setStaleClockMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setStaleClockMs(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [selfMarker, setSelfMarker] = useState<RenderMarker | null>(null);
   // Count of the account's own ACTIVE outgoing shares (people it is sharing
   // its location WITH). Sourced from the full getState (map-state only carries
@@ -680,6 +713,7 @@ export function LocationImmersiveMap({
               label: displayLabel(marker),
               kind: "person",
               grantId: marker.grant.id,
+              capturedAt: marker.envelope.capturedAt ?? null,
             } satisfies RenderMarker;
           } catch {
             // A device without the recipient private key must not show a stale or
@@ -693,6 +727,9 @@ export function LocationImmersiveMap({
         (item): item is RenderMarker => item !== null,
       );
       setPreferences(state.preferences);
+      if (Number.isFinite(state.freshnessSeconds) && state.freshnessSeconds > 0) {
+        setFreshnessSeconds(state.freshnessSeconds);
+      }
       const nextSignature = markerSignature(nextMarkers);
       if (nextSignature !== markerSignatureRef.current) {
         markerSignatureRef.current = nextSignature;
@@ -1287,7 +1324,13 @@ export function LocationImmersiveMap({
                       : "Sharing privately now",
               }
             : {}),
-          tintColor: marker.tint,
+          // Grey once the position is older than live. tintColor is the only
+          // per-pin styling this bridge exposes -- `title` cannot carry it,
+          // because the web renderer paints titles across the map as a glyph
+          // (see above) -- so the colour is where staleness has to be said.
+          tintColor: isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs)
+            ? STALE_TINT
+            : marker.tint,
           zIndex:
             marker.kind === "self" ? 10 : marker.kind === "place" ? 9 : 1,
         };
@@ -1325,7 +1368,18 @@ export function LocationImmersiveMap({
     return () => {
       cancelled = true;
     };
-  }, [entryLocationSettled, mapReady, visibleMarkers]);
+    // staleClockMs and freshnessSeconds are dependencies because a pin has to
+    // change colour while nothing else changes at all. Without them the tint
+    // is decided once, when the marker is drawn, and a person who went quiet
+    // keeps a live-coloured pin until some unrelated refresh happens to redraw
+    // it.
+  }, [
+    entryLocationSettled,
+    mapReady,
+    visibleMarkers,
+    freshnessSeconds,
+    staleClockMs,
+  ]);
 
   const acceptRenderer = useCallback(async () => {
     if (!vaultOwnerToken) return;
