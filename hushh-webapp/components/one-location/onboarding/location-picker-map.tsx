@@ -14,6 +14,12 @@ import {
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
 import { getPlatform, isNative } from "@/lib/capacitor/platform";
+import {
+  claimNativeMap,
+  isNativeMapSuperseded,
+  waitForLaidOutBox,
+  withNativeMapLock,
+} from "@/lib/one-location/native-map-lifecycle";
 import { cn } from "@/lib/utils";
 
 export type PickedLocation = {
@@ -341,28 +347,40 @@ export function LocationPickerMap({
     }
 
     let cancelled = false;
+    // Claimed before any await. This effect re-runs on colorScheme, which
+    // resolves from `undefined` after next-themes hydrates -- so an ordinary
+    // cold open tears this mount down while its create is still in flight.
+    const claim = claimNativeMap(PICKER_NATIVE_MAP_ID);
+    const superseded = () =>
+      cancelled || isNativeMapSuperseded(PICKER_NATIVE_MAP_ID, claim);
     let createdMap: GoogleMap | null = null;
     const start = centerRef.current;
     document.documentElement.classList.add("one-location-map-native");
     document.body.classList.add("one-location-map-native");
 
-    void GoogleMap.create({
-      id: PICKER_NATIVE_MAP_ID,
-      element,
-      apiKey,
-      forceCreate: true,
-      config: {
-        center: { lat: start.lat, lng: start.lng },
-        zoom: 17,
-        disableDefaultUI: true,
-        styles: colorScheme === "DARK" ? DARK_MAP_STYLES : undefined,
-      },
-    })
-      .then(async (map) => {
-        if (cancelled) {
-          void map.destroy();
-          return;
-        }
+    void withNativeMapLock(PICKER_NATIVE_MAP_ID, async () => {
+      if (superseded()) return;
+      await waitForLaidOutBox(element);
+      if (superseded()) return;
+      const map = await GoogleMap.create({
+        id: PICKER_NATIVE_MAP_ID,
+        element,
+        apiKey,
+        forceCreate: true,
+        config: {
+          center: { lat: start.lat, lng: start.lng },
+          zoom: 17,
+          disableDefaultUI: true,
+          styles: colorScheme === "DARK" ? DARK_MAP_STYLES : undefined,
+        },
+      });
+      if (superseded()) {
+        // Inside the lock, so this destroys the map this call created and
+        // never one a later mount registered under the same id.
+        await map.destroy().catch(() => undefined);
+        return;
+      }
+      {
         createdMap = map;
         nativeMapRef.current = map;
         // Dragging the native map starts a camera move: invalidate the address
@@ -388,14 +406,20 @@ export function LocationPickerMap({
           scheduleResolve(data.latitude, data.longitude);
         });
         setNativeStatus("ready");
-      })
-      .catch(() => {
-        if (!cancelled) setNativeStatus("error");
-      });
+      }
+    }).catch(() => {
+      if (!cancelled) setNativeStatus("error");
+    });
 
     return () => {
       cancelled = true;
-      void createdMap?.destroy();
+      const stale = createdMap;
+      createdMap = null;
+      if (stale) {
+        void withNativeMapLock(PICKER_NATIVE_MAP_ID, () =>
+          stale.destroy(),
+        ).catch(() => undefined);
+      }
       nativeMapRef.current = null;
       document.documentElement.classList.remove("one-location-map-native");
       document.body.classList.remove("one-location-map-native");
