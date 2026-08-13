@@ -300,6 +300,16 @@ const DURATION_OPTIONS = [
   { value: "24", label: "24 hours" },
 ];
 
+/**
+ * How many recipients a single share fans out to concurrently.
+ *
+ * Sharing is per-recipient independent, so this is pure wall-clock win — but
+ * each grant costs TWO pooled database connections server-side (the writer
+ * guard holds one while the row insert opens another). Four keeps a large
+ * Circle share close to one round trip without threatening a small pool.
+ */
+const ONE_LOCATION_SHARE_CONCURRENCY = 4;
+
 const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
 // Recipients poll faster than the owner's publish heartbeat so the shared dot
 // stays fresh; the LiveMap marker interpolates between these reads.
@@ -2502,6 +2512,23 @@ export function OneLocationAgentPageContent({
       ),
     [auth.userId, state?.requests],
   );
+  // Warm the shared position while the user is still reading the request.
+  //
+  // Approving publishes an encrypted point, so it needs a fix — and nothing on
+  // the review path seeds one. That meant the FIRST approve on an idle queue
+  // always paid a full device acquisition inside its own spinner, which is the
+  // "approve takes seconds" report. Taking the read now moves it off the
+  // critical path; by the time the button is pressed the 20s reuse window in
+  // captureCurrentPosition answers instantly.
+  //
+  // Gated on an ALREADY-granted permission on purpose. A capture that could
+  // raise the system prompt outside a user gesture would spend the single
+  // prompt iOS grants at a moment the user cannot connect to anything they did.
+  useEffect(() => {
+    if (permission?.state !== "granted") return;
+    if (!pendingOwnerRequests.length) return;
+    void OneLocationService.captureCurrentPosition().catch(() => null);
+  }, [pendingOwnerRequests.length, permission?.state]);
   const requestedByMe = useMemo(
     () =>
       (state?.requests ?? []).filter(
@@ -2813,6 +2840,22 @@ export function OneLocationAgentPageContent({
     );
   }, [pendingCircleInviteToken, router, vaultOwnerToken]);
 
+  /**
+   * Reload the whole Location workspace from the backend.
+   *
+   * A mutating CTA must NOT hold its spinner open across this. By the time a
+   * handler reaches it the work is done and already confirmed by a toast — the
+   * public link is in the clipboard, the request is approved, the share is
+   * revoked. Awaiting a full state reload after that just keeps the button
+   * disabled for one more round trip the user is not waiting on, which is most
+   * of what "every click takes seconds" was. It was also actively misleading:
+   * a reload that failed after a successful revoke surfaced as "Could not
+   * revoke access", blaming the operation that had in fact succeeded.
+   *
+   * Call it as `void refresh().catch(() => null)` from a CTA. It coalesces
+   * in-flight callers itself (refreshInFlightRef below), so firing it without
+   * awaiting cannot stampede.
+   */
   const refresh = useCallback(
     async (options?: { background?: boolean }) => {
       if (!auth.userId) {
@@ -3551,28 +3594,52 @@ export function OneLocationAgentPageContent({
         };
       }
       const point = readiness.point;
-      for (const recipient of shareReadySelectedRecipients) {
-        try {
-          const grant = await OneLocationService.createGrant({
-            vaultOwnerToken,
-            recipientUserId: recipient.userId,
-            recipientKeyId: recipient.keyId,
-            durationHours: Number(effectiveDurationHours),
-            reason: shareMessage.trim() || undefined,
-            shareKind: "share",
-            sourceCircleId:
-              namedCircleShareContext &&
-              namedCircleShareContext.recipientUserIds.includes(recipient.userId)
-                ? namedCircleShareContext.circleId
-                : undefined,
-          });
-          await publishEnvelopeWithRetry(grant, recipient, "manual", point);
-          successCount += 1;
-        } catch (error) {
-          recipientFailureCount += 1;
-          lastRecipientError = error;
+      // Share with everyone at once rather than one after another. Sharing with
+      // N people used to cost 2N round trips end to end, so picking five people
+      // was five times slower than picking one for no reason the user could see
+      // — each recipient's grant is an independent row and nothing downstream
+      // depends on the previous one finishing.
+      //
+      // Bounded rather than a bare Promise.all: server-side each grant holds a
+      // writer-guard connection WHILE its row insert opens a second one, so an
+      // unbounded fan-out over a large Circle can exhaust a small connection
+      // pool. Four at a time keeps the wall clock near a single round trip and
+      // stays well inside the pool.
+      const pending = [...shareReadySelectedRecipients];
+      const shareOne = async () => {
+        for (;;) {
+          const recipient = pending.shift();
+          if (!recipient) return;
+          try {
+            const grant = await OneLocationService.createGrant({
+              vaultOwnerToken,
+              recipientUserId: recipient.userId,
+              recipientKeyId: recipient.keyId,
+              durationHours: Number(effectiveDurationHours),
+              reason: shareMessage.trim() || undefined,
+              shareKind: "share",
+              sourceCircleId:
+                namedCircleShareContext &&
+                namedCircleShareContext.recipientUserIds.includes(
+                  recipient.userId,
+                )
+                  ? namedCircleShareContext.circleId
+                  : undefined,
+            });
+            await publishEnvelopeWithRetry(grant, recipient, "manual", point);
+            successCount += 1;
+          } catch (error) {
+            recipientFailureCount += 1;
+            lastRecipientError = error;
+          }
         }
-      }
+      };
+      await Promise.all(
+        Array.from(
+          { length: Math.min(ONE_LOCATION_SHARE_CONCURRENCY, pending.length) },
+          shareOne,
+        ),
+      );
       if (!successCount && lastRecipientError) {
         throw lastRecipientError;
       }
@@ -3603,7 +3670,7 @@ export function OneLocationAgentPageContent({
       // Signal the redesign hub to close the 2-step share flow and return to
       // the main One Location screen now that sharing finished.
       setShareCompletedTick((value) => value + 1);
-      await refresh();
+      void refresh().catch(() => null);
       return { status: "succeeded", summary };
     } catch (error) {
       const failureCount =
@@ -3924,7 +3991,7 @@ export function OneLocationAgentPageContent({
               : `SMS sent to ${readyRecipients.length} contact(s).`,
           );
         }
-        await refresh();
+        void refresh().catch(() => null);
       } catch (error) {
         // Recover from memory — SosPanicError carries any partial incident
         // in-process, so the SOS banner stays up even if localStorage failed.
@@ -3964,7 +4031,7 @@ export function OneLocationAgentPageContent({
             smsContactUserIds,
           )
         ) {
-          await refresh();
+          void refresh().catch(() => null);
         }
         toast.success("SMS contact added.");
         return true;
@@ -4078,7 +4145,7 @@ export function OneLocationAgentPageContent({
             smsContactUserIds,
           )
         ) {
-          await refresh();
+          void refresh().catch(() => null);
         }
         toast.success("SMS contact removed.");
         return true;
@@ -4119,7 +4186,7 @@ export function OneLocationAgentPageContent({
           readiness.point,
         );
         toast.success("Encrypted location update published.");
-        await refresh();
+        void refresh().catch(() => null);
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Could not publish update.",
@@ -4763,7 +4830,7 @@ export function OneLocationAgentPageContent({
       try {
         await OneLocationService.revokeGrant({ vaultOwnerToken, grantId });
         toast.success("Location access revoked.");
-        await refresh();
+        void refresh().catch(() => null);
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Could not revoke access.",
@@ -4802,7 +4869,7 @@ export function OneLocationAgentPageContent({
     setSosIncident(null);
     toast.success("SMS ended. Live location sharing stopped.");
     try {
-      await refresh();
+      void refresh().catch(() => null);
     } catch {
       /* refresh failure is non-fatal; sharing has already been stopped */
     }
@@ -5095,7 +5162,7 @@ export function OneLocationAgentPageContent({
               selectedRequestOwners.length,
             )}. We'll notify you here when they respond.`,
       );
-      await refresh();
+      void refresh().catch(() => null);
     } catch (error) {
       const failureCount = selectedRequestOwners.length - successCount || 1;
       trackEvent("one_location_request_sent", {
@@ -5156,7 +5223,7 @@ export function OneLocationAgentPageContent({
           ? "Public location link created and copied."
           : "Public location link created.",
       );
-      await refresh();
+      void refresh().catch(() => null);
     } catch (error) {
       trackEvent("one_location_public_link_created", {
         route_id: "one_location",
@@ -5240,7 +5307,7 @@ export function OneLocationAgentPageContent({
           copied_to_clipboard: false,
           active_invite_count: activePublicInvites.length + 1,
         });
-        await refresh();
+        void refresh().catch(() => null);
       }
 
       const delivery = await shareOneLocationLink({
@@ -5298,7 +5365,7 @@ export function OneLocationAgentPageContent({
           ? "Invite to One link created and copied."
           : "Invite to One link created.",
       );
-      await refresh();
+      void refresh().catch(() => null);
     } catch (error) {
       trackEvent("one_location_circle_invite_created", {
         route_id: "one_location",
@@ -5358,7 +5425,7 @@ export function OneLocationAgentPageContent({
         });
         setCircleInviteUrl("");
         toast.success("Invite to One link revoked.");
-        await refresh();
+        void refresh().catch(() => null);
       } catch (error) {
         toast.error(
           oneLocationErrorMessage(
@@ -6147,7 +6214,7 @@ export function OneLocationAgentPageContent({
         });
         setPublicInviteUrl("");
         toast.success("Public location link revoked.");
-        await refresh();
+        void refresh().catch(() => null);
       } catch (error) {
         toast.error(
           oneLocationErrorMessage(
@@ -6183,7 +6250,7 @@ export function OneLocationAgentPageContent({
         });
         await publishEnvelopeWithRetry(response.grant, requester, "manual");
         toast.success("Request approved and encrypted update published.");
-        await refresh();
+        void refresh().catch(() => null);
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Could not approve request.",
@@ -6208,7 +6275,7 @@ export function OneLocationAgentPageContent({
       try {
         await OneLocationService.denyRequest({ vaultOwnerToken, requestId });
         toast.success("Request denied.");
-        await refresh();
+        void refresh().catch(() => null);
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Could not deny request.",
@@ -6233,7 +6300,7 @@ export function OneLocationAgentPageContent({
           referredUserId: target,
         });
         toast.success("Referral sent as an owner approval request.");
-        await refresh();
+        void refresh().catch(() => null);
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Could not refer recipient.",
@@ -6573,7 +6640,7 @@ export function OneLocationAgentPageContent({
             "Could not share with the selected people. Please retry.",
           );
         }
-        await refresh().catch((refreshError) => {
+        void refresh().catch((refreshError) => {
           console.warn(
             "[OneLocationAgent] Private check-in state refresh failed.",
             refreshError,
@@ -6727,7 +6794,7 @@ export function OneLocationAgentPageContent({
           `Sharing your drive with ${peopleCountLabel(selected.length)}.`,
         );
         setShareCompletedTick((value) => value + 1);
-        await refresh();
+        void refresh().catch(() => null);
       } catch (error) {
         toast.error(
           error instanceof Error
@@ -6865,7 +6932,7 @@ export function OneLocationAgentPageContent({
           `Pickup requested from ${peopleCountLabel(selected.length)}. They can see you live.`,
         );
         setShareCompletedTick((value) => value + 1);
-        await refresh();
+        void refresh().catch(() => null);
       } catch (error) {
         const failureCount = selected.length - successCount || 1;
         trackEvent("one_location_share_confirmed", {
@@ -7013,7 +7080,7 @@ export function OneLocationAgentPageContent({
           `Safe Arrival started. ${peopleCountLabel(selected.length)} can watch you reach ${destination.label}.`,
         );
         setShareCompletedTick((value) => value + 1);
-        await refresh();
+        void refresh().catch(() => null);
       } catch (error) {
         toast.error(
           error instanceof Error
@@ -7256,7 +7323,10 @@ export function OneLocationAgentPageContent({
   // `?view=` / `?action=` params the hub already owns — so One can reach them
   // from anywhere, instead of only while standing on this page.
   useLocalOnboardingActionHandler("location.refresh", () => {
-    void refresh();
+    // refresh() reports its own failure through loadError, so the rejection is
+    // redundant here — but leaving it unhandled surfaces as an unhandled
+    // promise rejection in the console.
+    void refresh().catch(() => null);
     return { status: "succeeded", summary: "Location refreshed." };
   });
   const showInitialSkeleton =
@@ -9303,7 +9373,7 @@ export function OneLocationAgentPageContent({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void refresh()}
+              onClick={() => void refresh().catch(() => null)}
               disabled={busy === "load"}
               className="h-9 rounded-full px-3"
               data-voice-control-id="one-location-refresh"
