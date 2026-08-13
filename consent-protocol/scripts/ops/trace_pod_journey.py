@@ -111,12 +111,31 @@ class Trace:
     def blocked(self) -> bool:
         return self.stopped_at is not None
 
+    @property
+    def unread(self) -> list[str]:
+        """Stages that were skipped rather than answered.
+
+        `stopped_at` only knows about FAIL, so without this a trace where every single
+        stage was SKIPPED -- no DB credential, an off-plane backend -- printed "the
+        journey is complete: this person has a private agent that serves." That is the
+        exact failure this tool exists to remove, committed by the tool itself: a green
+        summary for a journey nobody looked at.
+        """
+        return [stage for stage, verdict, _, _ in self.rows if verdict == SKIP]
+
     def render(self) -> None:
         width = max(len(s) for s, _, _, _ in self.rows)
         for stage, verdict, evidence, _ in self.rows:
             print(f"  {verdict:4s}  {stage:{width}s}  {evidence}")
         print()
         if self.stopped_at is None:
+            if self.unread:
+                print(f"UNPROVEN: {len(self.unread)} of {len(self.rows)} stages were not read.")
+                print("Nothing failed, and nothing was confirmed either. Unskipped stages:")
+                for stage, verdict, _, _ in self.rows:
+                    if verdict != SKIP:
+                        print(f"  {verdict}  {stage}")
+                return
             print("The journey is complete: this person has a private agent that serves.")
             return
         print(f"FIRST FAILURE: {self.stopped_at}")
@@ -234,6 +253,56 @@ def _trace_registry(trace: Trace, hushh_id: Optional[str]) -> Optional[dict]:
     else:
         trace.record(_REGISTRY_STAGES[3], SKIP, f"status={status}, activation not reached")
     return row
+
+
+# -- which plane the pod actually lives on --------------------------------------------
+#
+# Stages 3-5 and 8 read Cloud Run. That is true for exactly one of the three backends
+# by default, and the honest answers for the other two are DIFFERENT answers, not
+# failures:
+#
+#   gcp        hushh's own project. The operator credential can read it. Full trace.
+#   user_gcp   the person's OWN project. hushh holds no standing credential there by
+#              design -- that absence IS the BYOC promise -- so this cannot be read
+#              from here and must say so rather than reporting a missing service.
+#   anypoint   a Mule application on CloudHub 2.0. Not a Cloud Run service at all, so
+#              "not found in Cloud Run" would be true and completely misleading.
+#
+# Reporting either of the last two as FAIL would send an operator hunting for a
+# service that was never supposed to exist.
+
+_PLANE_NOTE = {
+    "user_gcp": (
+        "this pod runs in the person's OWN GCP project. hushh holds no standing "
+        "credential there -- that absence is the BYOC promise, not an outage. Re-run "
+        "with --project <their-project> using a consent-gated impersonated token, or "
+        "read it from inside their project."
+    ),
+    "anypoint": (
+        "this pod is a Mule application on CloudHub 2.0, not a Cloud Run service. "
+        "Check it in Anypoint Runtime Manager; the equivalent of stages 3-5 is the "
+        "application's deployment status and its private-endpoint binding."
+    ),
+}
+
+_CLOUD_RUN_STAGES = (
+    "3 cloud run service exists",
+    "4 service genuinely serves",
+    "5 hub may invoke the pod",
+)
+
+
+def _resolve_backend(row: Optional[dict], override: Optional[str]) -> str:
+    """The row is the authority; --backend is for when the row cannot be read."""
+    if override:
+        return override
+    return str((row or {}).get("backend") or "").strip() or "gcp"
+
+
+def _skip_off_plane(trace: Trace, backend: str) -> None:
+    note = _PLANE_NOTE[backend]
+    for stage in _CLOUD_RUN_STAGES:
+        trace.record(stage, SKIP, f"backend={backend}: not on the Cloud Run plane", note)
 
 
 def _service_name_for(hushh_id: str) -> str:
@@ -400,35 +469,58 @@ def main() -> int:
     ap.add_argument("--service", help="Cloud Run service name, if the HusshID is unknown.")
     ap.add_argument("--project", default="hushh-pda-dev")
     ap.add_argument("--region", default="us-central1")
+    ap.add_argument(
+        "--backend",
+        choices=("gcp", "user_gcp", "anypoint"),
+        help=(
+            "Override the host plane. Normally read from the registry row, which is "
+            "the authority; pass this only when the row cannot be read."
+        ),
+    )
     args = ap.parse_args()
 
     if not args.hushh_id and not args.service:
         ap.error("one of --hushh-id or --service is required")
 
     service = args.service or _service_name_for(args.hushh_id)
-    print(f"hushh id : {args.hushh_id or '<derived from service>'}")
-    print(f"service  : {service}  ({args.project}/{args.region})")
-    print()
 
     trace = Trace()
     # The registry stages are recorded first because that is the order the journey
     # runs, but they are all one row read -- so they are gathered in one pass and the
     # GCP stages are spliced in afterwards at their real positions.
     registry_rows_start = len(trace.rows)
-    _trace_registry(trace, args.hushh_id)
+    row = _trace_registry(trace, args.hushh_id)
     registry_rows = trace.rows[registry_rows_start:]
     trace.rows = trace.rows[:registry_rows_start]
 
-    # 1-2 (row, host requested), then 3-5 (GCP), then 6-7 (handshake, activation), then 8.
+    backend = _resolve_backend(row, args.backend)
+    print(f"hushh id : {args.hushh_id or '<derived from service>'}")
+    print(f"backend  : {backend}")
+    print(f"service  : {service}  ({args.project}/{args.region})")
+    print()
+
+    # 1-2 (row, host requested), then 3-5 (host plane), then 6-7 (handshake,
+    # activation), then 8.
     trace.rows.extend(registry_rows[:2])
-    url = _trace_gcp(trace, project=args.project, region=args.region, service=service)
+    if backend in _PLANE_NOTE:
+        _skip_off_plane(trace, backend)
+        url = None
+    else:
+        url = _trace_gcp(trace, project=args.project, region=args.region, service=service)
     trace.rows.extend(registry_rows[2:])
-    _trace_pod_runtime(trace, url=url)
+    if backend in _PLANE_NOTE:
+        trace.record("8 pod answers /health", SKIP, _PLANE_NOTE[backend])
+    else:
+        _trace_pod_runtime(trace, url=url)
 
     print("-" * 78)
     trace.render()
     print("-" * 78)
-    return 1 if trace.blocked else 0
+    # Three outcomes, three codes. Collapsing "unproven" into 0 would let a caller
+    # gate on this tool and get a pass for a trace that read nothing.
+    if trace.blocked:
+        return 1
+    return 2 if trace.unread else 0
 
 
 if __name__ == "__main__":

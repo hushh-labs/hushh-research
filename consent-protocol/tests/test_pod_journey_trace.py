@@ -132,3 +132,64 @@ def test_first_failure_is_first_in_journey_order_not_in_record_order():
 def test_the_service_name_matches_what_the_backend_actually_creates(hushh_id, expected):
     """The trace addresses GCP by name; a divergent derivation would 404 on a live pod."""
     assert trace_mod._service_name_for(hushh_id) == expected
+
+
+# -- backend planes --------------------------------------------------------------------
+
+
+def test_an_off_plane_backend_is_skipped_not_failed():
+    """A Mule app is not a missing Cloud Run service.
+
+    Reporting `not found in Cloud Run` for an Anypoint pod would be literally true and
+    would send an operator hunting for a service that was never supposed to exist.
+    """
+    trace = trace_mod.Trace()
+    trace_mod._skip_off_plane(trace, "anypoint")
+    verdicts = {stage: verdict for stage, verdict, _, _ in trace.rows}
+    assert set(verdicts.values()) == {trace_mod.SKIP}
+    assert trace.stopped_at is None
+    assert any("Runtime Manager" in next_step for _, _, _, next_step in trace.rows)
+
+
+def test_byoc_says_hushh_cannot_look_rather_than_that_nothing_is_there():
+    """The absence of a hushh credential in the person's project IS the BYOC promise."""
+    trace = trace_mod.Trace()
+    trace_mod._skip_off_plane(trace, "user_gcp")
+    note = trace.rows[0][3]
+    assert "no standing credential" in note
+    assert "outage" in note
+
+
+def test_the_row_is_the_authority_for_which_plane_to_read():
+    assert trace_mod._resolve_backend({"backend": "anypoint"}, None) == "anypoint"
+    # The override exists for the case the row could not be read at all.
+    assert trace_mod._resolve_backend(None, "user_gcp") == "user_gcp"
+    assert trace_mod._resolve_backend({"backend": "anypoint"}, "gcp") == "gcp"
+    assert trace_mod._resolve_backend(None, None) == "gcp"
+
+
+def test_a_trace_that_read_nothing_never_reports_a_complete_journey():
+    """The tool committing the exact failure it exists to detect.
+
+    `stopped_at` only knows about FAIL, so an all-SKIP trace -- no DB credential, or an
+    off-plane backend -- used to print "the journey is complete: this person has a
+    private agent that serves." Observed 2026-08-13 running --backend anypoint with no
+    database in the environment.
+    """
+    trace = trace_mod.Trace()
+    for stage in trace_mod._REGISTRY_STAGES:
+        trace.record(stage, trace_mod.SKIP, "registry unreachable")
+    trace_mod._skip_off_plane(trace, "anypoint")
+
+    assert trace.stopped_at is None, "nothing failed, which is the whole trap"
+    assert trace.unread, "every stage was skipped and `unread` did not notice"
+    assert len(trace.unread) == len(trace.rows)
+
+
+def test_a_fully_read_journey_still_reports_complete():
+    """The honesty fix must not make a genuinely good journey look unproven."""
+    trace = trace_mod.Trace()
+    for stage in trace_mod._REGISTRY_STAGES:
+        trace.record(stage, trace_mod.PASS, "ok")
+    assert trace.unread == []
+    assert trace.stopped_at is None

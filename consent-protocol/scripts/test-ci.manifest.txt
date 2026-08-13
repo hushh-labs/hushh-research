@@ -50,6 +50,7 @@ tests/test_health_ready.py
 tests/test_health_ready_pod_fleet.py
 tests/test_hushh_managed_is_simulation_only.py
 tests/test_journey_is_traceable.py
+tests/test_journey_parity.py
 tests/test_kai_analyze_durable_run_store_deploy_parity.py
 tests/test_kai_analyze_run_store.py
 tests/test_kai_auth_matrix.py

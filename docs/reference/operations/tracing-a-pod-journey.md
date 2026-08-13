@@ -52,9 +52,38 @@ uv run python scripts/ops/trace_pod_journey.py --hushh-id ha1_XXXX
 ```
 
 It walks all eight stages, prints PASS/FAIL/SKIP with the evidence it read, and names
-the **first** failure in journey order plus the next thing to look at. Exit code is `1`
-when the journey is blocked. It is strictly read-only — it never writes to the registry,
-Cloud Run, or the pod.
+the **first** failure in journey order plus the next thing to look at. It is strictly
+read-only — it never writes to the registry, Cloud Run, or the pod.
+
+**Three exit codes, because there are three outcomes:**
+
+| Code | Meaning |
+|---|---|
+| `0` | every stage was read and none failed — the person has an agent that serves |
+| `1` | a stage failed; `FIRST FAILURE` names it |
+| `2` | **unproven** — nothing failed and nothing was confirmed, because stages were skipped |
+
+Code `2` exists because the tool once printed *"the journey is complete: this person has
+a private agent that serves"* for a trace in which all eight stages were skipped. That
+is the same defect the tool exists to detect, committed by the tool. A caller that gates
+on this must treat `2` as "look again with credentials", never as a pass.
+
+## Which plane the pod lives on
+
+Stages 3–5 and 8 read Cloud Run. That is right for exactly one backend, and the honest
+answers for the other two are *different answers*, not failures. The backend is read
+from the registry row; `--backend {gcp,user_gcp,anypoint}` overrides it when the row
+cannot be read.
+
+| Backend | What stages 3–5 and 8 do |
+|---|---|
+| `gcp` | full trace against hushh's own project |
+| `user_gcp` | **SKIP** — the pod is in the person's own project and hushh holds no standing credential there. That absence *is* the BYOC promise, not an outage. Re-run with a consent-gated impersonated token, or from inside their project. |
+| `anypoint` | **SKIP** — the pod is a Mule application on CloudHub 2.0, not a Cloud Run service. The equivalent of stages 3–5 is the application's deployment status and private-endpoint binding in Anypoint Runtime Manager. |
+
+Reporting either of the last two as FAIL would be literally true and completely
+misleading — it would send an operator hunting for a service that was never supposed to
+exist.
 
 With DB credentials in the environment it reads the registry row directly. Without them
 it says so and prints the SQL, rather than reporting "no row" for a query that never ran
