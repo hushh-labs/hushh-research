@@ -329,13 +329,26 @@ steps:
     id: "deploy-backend"
 
   # Candidate-image GenAI probe under the exact runtime identity. This runs
-  # before the calling workflow can promote a no-traffic revision.
+  # before the calling workflow can promote a no-traffic revision when the
+  # change-aware verification plan selects it. Direct backend builds retain the
+  # conservative default of running this probe.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
     args:
       - "-c"
       - |
         set -euo pipefail
+        case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in
+          true) ;;
+          false)
+            echo "Skipping managed Vertex candidate probe: not selected by the verification plan."
+            exit 0
+            ;;
+          *)
+            echo "_VERIFY_MANAGED_VERTEX_RUNTIME must be true or false." >&2
+            exit 1
+            ;;
+        esac
         genai_project_id="${_GENAI_PROJECT_ID}"
         if [[ -z "${genai_project_id}" ]]; then
           genai_project_id="$PROJECT_ID"
@@ -458,6 +471,9 @@ substitutions:
   _CLOUD_RUN_MIN_INSTANCES: "1"
   _CLOUD_RUN_MAX_INSTANCES: "5"
   _RUNTIME_ENVIRONMENT: ""
+  # Direct backend builds remain conservative. The UAT workflow explicitly
+  # overrides this from its authoritative changed-SHA verification plan.
+  _VERIFY_MANAGED_VERTEX_RUNTIME: "true"
   _IMAGE_TAG: v2.1.0
   _DEPLOY_ENV: manual
   _DEPLOY_SOURCE: manual
