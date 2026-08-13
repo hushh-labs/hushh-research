@@ -68,7 +68,11 @@ import {
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { motionDurations, motionEasings } from "@/lib/morphy-ux/motion";
 import { useVault } from "@/lib/vault/vault-context";
-import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
+import {
+  GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+  readCachedRendererConsentAccepted,
+  writeCachedRendererConsentAccepted,
+} from "@/lib/one-location/map-renderer-consent";
 
 const MAP_ID = "one-location-private-map";
 const NEARBY_CHECK_IN_RADIUS_METERS = 500;
@@ -315,7 +319,12 @@ export function LocationImmersiveMap({
     vaultOwnerToken,
   });
   const [demoMode, setDemoMode] = useState(initialDemoMode);
-  const [acceptedRenderer, setAcceptedRenderer] = useState(false);
+  // Seeded from the local cache so a returning owner's map starts
+  // initializing immediately instead of waiting on the consent re-check
+  // below. That fetch still runs and remains authoritative.
+  const [acceptedRenderer, setAcceptedRenderer] = useState(() =>
+    readCachedRendererConsentAccepted(auth.userId),
+  );
   const [preferences, setPreferences] = useState<OneLocationMapPreferences>({
     presenceMode: "ghost",
   });
@@ -758,15 +767,22 @@ export function LocationImmersiveMap({
       setPreferences({ presenceMode: "ghost" });
       return;
     }
+    // Re-apply the cache on every userId change (covers the case where the
+    // very first render ran before auth.userId was available, so the lazy
+    // useState initializer above saw nothing to read yet).
+    if (readCachedRendererConsentAccepted(auth.userId)) {
+      setAcceptedRenderer(true);
+    }
     let cancelled = false;
     void OneLocationService.getMapState(vaultOwnerToken)
       .then((state) => {
         if (cancelled) return;
         setPreferences(state.preferences);
-        setAcceptedRenderer(
+        const accepted =
           state.preferences.rendererConsentVersion ===
-            GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
-        );
+          GOOGLE_MAPS_RENDERER_CONSENT_VERSION;
+        setAcceptedRenderer(accepted);
+        writeCachedRendererConsentAccepted(auth.userId, accepted);
       })
       .catch(() => {
         // The disclosure remains available; do not misrepresent a transient
@@ -827,7 +843,14 @@ export function LocationImmersiveMap({
   }, [demoMode, refresh, refreshShareCount, rendererReady, vaultOwnerToken]);
 
   useEffect(() => {
-    if (!rendererReady || !mapElement.current) return;
+    // The renderer itself may initialize before consent -- what stays gated
+    // behind rendererReady is any real coordinate. Below, a neutral world
+    // view with zero markers is used until consent is given (same principle
+    // demo mode already relies on: engaging the SDK is not the sensitive
+    // part, showing this owner's own private data on it is). Real position
+    // and recipient markers are set later, entirely by the separate
+    // rendererReady-gated effects below, once this same map instance exists.
+    if (!mapElement.current) return;
     const apiKey = mapApiKey();
     if (!apiKey) {
       setUnavailableReason("maps-key");
@@ -839,9 +862,12 @@ export function LocationImmersiveMap({
       document.documentElement.classList.add("one-location-map-native");
       document.body.classList.add("one-location-map-native");
     }
-    const cachedPoint = readLocationWorkspaceMemory(
-      auth.userId,
-    ).myLocationPoint;
+    // Only ever reads this device's OWN last-known point, and only once
+    // consent already exists (a returning session via the cache above) --
+    // never before the person has agreed to use this renderer at all.
+    const cachedPoint = rendererReady
+      ? readLocationWorkspaceMemory(auth.userId).myLocationPoint
+      : null;
     void GoogleMap.create({
       id: MAP_ID,
       element: mapElement.current,
@@ -909,7 +935,13 @@ export function LocationImmersiveMap({
       markerByMapIdRef.current.clear();
       void staleMap?.destroy();
     };
-  }, [auth.userId, rendererReady]);
+    // rendererReady is read once, at creation time, only to decide the
+    // starting center -- intentionally not a dependency. Consent flips this
+    // value later without tearing the map instance down and rebuilding it;
+    // the entry-location effect below re-centers the existing instance once
+    // consent and a real position both land.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.userId]);
 
   useEffect(() => {
     if (
@@ -1337,10 +1369,11 @@ export function LocationImmersiveMap({
       });
       setPreferences(next);
       setAcceptedRenderer(true);
+      writeCachedRendererConsentAccepted(auth.userId, true);
     } catch {
       toast.error("Your Map could not be prepared.");
     }
-  }, [vaultOwnerToken]);
+  }, [auth.userId, vaultOwnerToken]);
 
   const setPresence = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -1811,6 +1844,34 @@ export function LocationImmersiveMap({
           <span className="pl-[1.125rem] font-normal text-muted-foreground">
             500 m {nearbyPlaceFocus?.active ? "match" : "search"} area
           </span>
+        </div>
+      ) : null}
+      {status !== "unavailable" && !mapReady ? (
+        // The map now starts initializing as soon as this screen opens --
+        // before consent it's a neutral world view with zero markers, no
+        // different in privacy terms from Preview-with-fictional-people,
+        // which already loads this same renderer with no consent gate at
+        // all. What consent actually governs is this owner's own coordinate
+        // and private recipient markers, applied later by the entry-location
+        // and marker effects below, never by this one. Until GoogleMap.create()
+        // resolves (a real async wait either way) this covers the native
+        // view, which is composited under the WebView and stays fully
+        // transparent until then -- without this the whole surface reads as
+        // a blank flash of the app's native background.
+        <div
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-[#eef2f7] px-6 text-center dark:bg-[#10151d]"
+          data-testid="one-location-map-loading"
+        >
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 opacity-[0.5] [background-image:linear-gradient(to_right,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px)] [background-size:32px_32px]"
+          />
+          <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-background text-[color:var(--app-accent,#087ff5)] shadow-lg">
+            <Loader2 className="h-7 w-7 animate-spin" strokeWidth={2} aria-hidden />
+          </span>
+          <p className="relative text-sm font-medium text-muted-foreground">
+            Loading your map…
+          </p>
         </div>
       ) : null}
       {!rendererReady ? (

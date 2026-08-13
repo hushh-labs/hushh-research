@@ -50,13 +50,22 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("streamAbortControllerRef.current?.abort();\n    streamAbortControllerRef.current = streamAbortController");
   });
 
-  it("bounds the responsive composer and only reveals the larger editor control for long input", () => {
+  it("keeps compact composer text inside its pill-safe inset and opens a separate long-form editor", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 
     expect(workspace).toContain("agent-chat-composer-expand");
+    expect(workspace).toContain("agent-chat-composer-expanded");
+    expect(workspace).toContain("agent-chat-composer-expanded-textarea");
     expect(workspace).toContain("overflow-y-auto");
-    expect(workspace).toContain("max-h-[min(40dvh,18rem)]");
-    expect(workspace).toContain("max-h-28 sm:max-h-36");
+    expect(workspace).toContain("px-7 py-3 pr-14");
+    expect(workspace).toContain("sm:px-8 sm:pr-14");
+    expect(workspace).toContain("rounded-[var(--app-radius-pill)]");
+    expect(workspace).toContain("max-h-28");
+    expect(workspace).toContain("sm:max-h-36");
+    expect(workspace).toContain("h-[min(38dvh,18rem)]");
+    expect(workspace).toContain("sm:h-[min(48dvh,30rem)]");
     expect(workspace).toContain("composerLong ?");
+    expect(workspace).not.toContain("Expanded message</span>");
+    expect(workspace).not.toContain("Writing in expanded composer");
   });
 });

@@ -1356,15 +1356,8 @@ function initialsForLabel(label: string): string {
   return (words[0]?.slice(0, 2) || "?").toUpperCase();
 }
 
-function avatarColor(index: number): string {
-  const colors = [
-    "bg-[color:var(--app-accent)]",
-    "bg-[#34c759]",
-    "bg-[#5856d6]",
-    "bg-[#ff9500]",
-    "bg-[#ff3b30]",
-  ];
-  return colors[index % colors.length] || "bg-[color:var(--app-accent)]";
+function avatarColor(_index: number): string {
+  return "bg-[color:var(--app-accent-surface)]";
 }
 
 function AvatarBubble({
@@ -1387,7 +1380,7 @@ function AvatarBubble({
         size === "lg" && "h-11 w-11 text-[17px]",
         muted
           ? "bg-[#e5e5ea] text-[#8e8e93] dark:bg-white/10 dark:text-white/55"
-          : `${avatarColor(index)} text-white`,
+          : `${avatarColor(index)} text-[color:var(--app-accent-deep)]`,
       )}
       aria-hidden="true"
     >

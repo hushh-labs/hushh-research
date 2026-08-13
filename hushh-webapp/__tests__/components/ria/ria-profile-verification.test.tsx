@@ -25,6 +25,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("lucide-react", () => ({
+  AlertTriangle: () => <span />,
   ArrowRight: () => <span />,
   CheckCircle2: () => <span />,
   ClipboardCheck: () => <span />,
