@@ -67,6 +67,17 @@ function record(over: Partial<Record<string, unknown>> = {}) {
       distanceBand: "within 2 km",
       note: "n",
     },
+    scoreBreakdown: {
+      components: [
+        { key: "graph_authority", label: "Graph authority", value: 0.91, weight: 0.3, contribution: 0.273 },
+        { key: "freshness", label: "Freshness", value: 0.92, weight: 0.05, contribution: 0.046 },
+      ],
+      evidenceCount: 12,
+      coverageMultiplier: 1,
+      integrityPenalty: 0.034,
+      localRelevance: 0.772,
+      method: "Each component is scored 0-1, multiplied by its weight and summed.",
+    },
     reasons: ["High-authority roles"],
     warnings: [],
     tags: ["semiconductors"],
@@ -95,7 +106,7 @@ const COVERED = {
     verifiedAt: "2026-08-12",
   },
   summary: {
-    returnedCount: 3,
+    returnedCount: 7,
     candidateCount: 11,
     searchPerformed: true,
     effectiveRadiusKm: 20,
@@ -105,6 +116,10 @@ const COVERED = {
     record({ personId: "b1", lane: "BUILDER", displayName: "Builder One" }),
     record({ personId: "b2", lane: "BUILDER", displayName: "Builder Two" }),
     record({ personId: "c1", lane: "CONNECTOR", displayName: "Connector One" }),
+    record({ personId: "b3", lane: "BUILDER", displayName: "Builder Three" }),
+    record({ personId: "b4", lane: "BUILDER", displayName: "Builder Four" }),
+    record({ personId: "b5", lane: "BUILDER", displayName: "Builder Five" }),
+    record({ personId: "b6", lane: "BUILDER", displayName: "Builder Six" }),
   ],
 };
 
@@ -164,10 +179,11 @@ describe("Around you", () => {
     await waitFor(() => expect(screen.queryByText("Builder One")).not.toBeInTheDocument());
     expect(screen.getByText("Connector One")).toBeInTheDocument();
 
-    // ...and Builders is still offered, with its true unfiltered count.
+    // ...and Builders is still offered, with its true unfiltered count — six,
+    // not the zero a count taken from the filtered response would have shown.
     const builders = screen.getByRole("button", { name: /builders/i });
     expect(builders).not.toBeDisabled();
-    expect(within(builders).getByText("2")).toBeInTheDocument();
+    expect(within(builders).getByText("6")).toBeInTheDocument();
 
     fireEvent.click(builders);
     await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
@@ -208,5 +224,53 @@ describe("Around you", () => {
     // The empty state is where the form is genuinely useful.
     expect(screen.getAllByRole("button", { name: /enter a place/i }).length).toBeGreaterThan(0);
     expect(screen.queryByText(/kirkland/i)).not.toBeInTheDocument();
+  });
+});
+
+
+describe("what the list actually shows", () => {
+  it("shows a ranked few rather than everything the service returned", async () => {
+    render(<NearbyAroundYou />);
+    await openAPlace();
+    await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
+
+    // Seven came back. Five are on screen — the top five by rank — and the
+    // count says so rather than implying the list is complete.
+    expect(screen.getByText("Builder Four")).toBeInTheDocument();
+    expect(screen.queryByText("Builder Five")).not.toBeInTheDocument();
+    expect(screen.getByText(/top 5 of 7/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /show 2 more/i }));
+    expect(screen.getByText("Builder Five")).toBeInTheDocument();
+    expect(screen.getByText("Builder Six")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /show .* more/i })).not.toBeInTheDocument();
+  });
+
+  it("collapses again when the filter changes underneath", async () => {
+    render(<NearbyAroundYou />);
+    await openAPlace();
+    await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /show 2 more/i }));
+    expect(screen.getByText("Builder Six")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /connectors/i }));
+    await waitFor(() => expect(screen.getByText("Connector One")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /^all$/i }));
+
+    // Back to the top of a fresh list, not halfway down an expanded one.
+    await waitFor(() => expect(screen.queryByText("Builder Six")).not.toBeInTheDocument());
+  });
+
+  it("does not offer Show more when everything already fits", async () => {
+    render(<NearbyAroundYou />);
+    await openAPlace();
+    await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /connectors/i }));
+    await waitFor(() => expect(screen.getByText("Connector One")).toBeInTheDocument());
+
+    expect(screen.queryByRole("button", { name: /show .* more/i })).not.toBeInTheDocument();
+    expect(screen.getByText("1 public record")).toBeInTheDocument();
   });
 });

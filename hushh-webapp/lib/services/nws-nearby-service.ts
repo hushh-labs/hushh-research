@@ -57,6 +57,37 @@ export type NearbyCoverage = {
   complete: boolean;
 };
 
+/**
+ * How the score was reached, published by the scoring service itself.
+ *
+ * Weights come from upstream rather than being restated here. An explanation
+ * that carries its own copy of the weighting goes stale the first time the
+ * model is re-weighted, and nothing fails to say so.
+ */
+export type ScoreComponent = {
+  key: string;
+  label: string | null;
+  /** 0–1. */
+  value: number | null;
+  /** Share of the score this component can contribute. */
+  weight: number | null;
+  /** weight × value. */
+  contribution: number | null;
+};
+
+export type ScoreBreakdown = {
+  components: ScoreComponent[];
+  /** How many pieces of evidence back the profile. Thin evidence is held back. */
+  evidenceCount: number | null;
+  /** Scales the weighted sum up toward 1.0 as evidence accumulates. */
+  coverageMultiplier: number | null;
+  /** Discount for promotional, self-published, or single-source evidence. */
+  integrityPenalty: number | null;
+  /** Association strength to the queried place; the 10% term in the nearby rank. */
+  localRelevance: number | null;
+  method: string | null;
+};
+
 export type NearbyRecord = {
   rank: number | null;
   personId: string;
@@ -78,6 +109,8 @@ export type NearbyRecord = {
     distanceBand: string | null;
     note: string | null;
   };
+  /** Null when the scoring service did not publish its working for this record. */
+  scoreBreakdown: ScoreBreakdown | null;
   reasons: string[];
   warnings: string[];
   tags: string[];

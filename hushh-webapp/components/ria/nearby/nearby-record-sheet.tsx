@@ -11,6 +11,7 @@
 import { ExternalLink, Star } from "lucide-react";
 
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
+import { NearbyScoreExplainer } from "@/components/ria/nearby/nearby-score-explainer";
 import { Button } from "@/lib/morphy-ux/button";
 import { AvatarBubble, StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
 import { EYEBROW, MUTED_TEXT, SUBCARD_SURFACE } from "@/lib/morphy-ux/tokens/surfaces";
@@ -96,7 +97,14 @@ export function NearbyRecordSheet({
           <StatusPill tone="pending">Needs revalidation</StatusPill>
         ) : null}
 
-        {record.reasons.length > 0 ? (
+        {record.scoreBreakdown ? (
+          <div className="flex flex-col gap-2">
+            <span className={EYEBROW}>How this score is built</span>
+            <NearbyScoreExplainer breakdown={record.scoreBreakdown} />
+          </div>
+        ) : record.reasons.length > 0 ? (
+          // Older service revisions publish prose but no arithmetic. Show the
+          // prose rather than nothing, and never both — they say the same thing.
           <div className="flex flex-col gap-1.5">
             <span className={EYEBROW}>Why this ranked</span>
             <ul className="flex flex-col gap-1">
