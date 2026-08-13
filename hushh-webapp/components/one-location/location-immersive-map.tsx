@@ -1438,8 +1438,12 @@ export function LocationImmersiveMap({
       setPreferences(next);
       toast.success(
         nextMode === "ghost"
-          ? "Ghost Mode is on."
-          : "Map visibility is ready. Tap Locate me to appear.",
+          ? "Ghost Mode is on. Nobody sees you on their map."
+          // "Tap Locate me to appear" was true while the locate button was the
+          // only thing that ever published a map-visible position. Sharing does
+          // it now, so telling somebody to go and tap something else would send
+          // them looking for a step that no longer exists.
+          : "You will appear on the map of anyone you share with.",
       );
     } catch {
       toast.error("Map visibility could not be updated.");
