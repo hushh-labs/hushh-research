@@ -311,15 +311,29 @@ four points, because three of them are not what the shorthand implies.
    call). Turn `PERSONAL_AGENT_RECONCILE_ENABLED` off in the same pass: the master flag
    already stops the sweep today, but the reconcile switch is the one that keeps the reap
    half — the part that deletes compute — off if someone turns the master flag back on.
-4. **The variable is not in any deploy config today.** A repo-wide search finds
-   `PERSONAL_AGENT_ENABLED` in code, tests, and docs — and in no file under
-   `.github/workflows/` or `deploy/`. It is unset in dev, so the surface is already off by
-   default. Turning it **on** means adding it in two places: a `_PERSONAL_AGENT_ENABLED`
-   substitution in `.github/workflows/deploy-dev.yml` and a matching `--set-env-vars` entry
-   in `deploy/backend.cloudbuild.yaml`. Rollback is removing or zeroing it in the same two
-   places and redeploying. Ordering matters: `deploy-dev.yml` drops any substitution the
-   deployed SHA's cloudbuild does not declare, so the `deploy/backend.cloudbuild.yaml`
-   change has to be present on the ref you deploy.
+4. **The variable ships from `scripts/deploy/backend-deploy.sh`, not from the workflow.**
+   Searching `.github/workflows/` and `deploy/` for `PERSONAL_AGENT_ENABLED` finds nothing,
+   and that absence used to read here as "not wired anywhere" — it is not. The whole
+   personal-agent block is emitted by `scripts/deploy/backend-deploy.sh` (the
+   `append_optional_env` calls), guarded by `if [[ "${_DEPLOY_ENV}" == "dev" ]]`, with
+   `_DEPLOY_ENV` passed through `deploy/backend.cloudbuild.yaml`. `append_optional_env`
+   skips empty values, which is how every one of these stays off outside dev *by
+   construction* rather than by remembering to unset it. The contract is proved by
+   execution in `consent-protocol/tests/test_personal_agent_deploy_lane.py`.
+
+   So changing one of these flags is an edit to **`scripts/deploy/backend-deploy.sh`** —
+   which is deliberately **not** a `protected_pipeline_path`, so it rides the feature
+   branch and reaches dev without a maintainer PR to `main`. Do **not** add a
+   `_PERSONAL_AGENT_ENABLED` substitution to `deploy-dev.yml`: it would need the Admin SOP,
+   would be silently dropped by the workflow's substitution skew guard unless a matching
+   key is added to `deploy/backend.cloudbuild.yaml` on the deployed SHA, and would
+   duplicate a mechanism that already works.
+
+   *This item previously prescribed exactly that two-file workflow edit.* It was written
+   before the deploy-script block existed and was never revised, so following it would have
+   built a parallel path to a live mechanism. Recorded rather than quietly deleted, because
+   the failure mode — a runbook that stays plausible after the system moves — is the one
+   `AGENTS.md` §*Anti-drift rule* exists to catch.
 
 The redeploy is required only because a Cloud Run environment change is a new revision.
 Inside a running process the flag is a live `os.getenv` read per call — `personal_agent_enabled`
