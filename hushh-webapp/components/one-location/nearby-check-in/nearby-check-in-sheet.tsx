@@ -429,6 +429,7 @@ export function NearbyCheckInSheet({
   );
   const [placesError, setPlacesError] = useState<string | null>(null);
   const [accuracyNotice, setAccuracyNotice] = useState<string | null>(null);
+  const [visiblePlacesCount, setVisiblePlacesCount] = useState(3);
 
   const typedSearchActive = search.trim().length >= 2;
 
@@ -770,6 +771,7 @@ export function NearbyCheckInSheet({
       setSearchResults([]);
       setSearching(false);
       setPlacesError(null);
+      setVisiblePlacesCount(5);
       searchGenerationRef.current += 1;
     },
     [],
@@ -798,6 +800,7 @@ export function NearbyCheckInSheet({
     setConsentAccepted(false);
     setAllowConnectionRequests(false);
     setDurationMinutes(60);
+    setVisiblePlacesCount(3);
     setBusy(null);
     setLocationError(null);
     setLocationRecovery(null);
@@ -831,6 +834,7 @@ export function NearbyCheckInSheet({
     setConsentAccepted(false);
     setAllowConnectionRequests(false);
     setDurationMinutes(60);
+    setVisiblePlacesCount(3);
     setLocationError(null);
     setLocationRecovery(null);
     setPresenceLoadError(null);
@@ -838,8 +842,7 @@ export function NearbyCheckInSheet({
     void loadPresence(!open, expectedOwnerEpoch).then((next) => {
       if (
         !open ||
-        next === null ||
-        next.presence ||
+        next?.presence ||
         ownerEpochRef.current !== expectedOwnerEpoch
       ) {
         return;
@@ -1740,11 +1743,14 @@ export function NearbyCheckInSheet({
                     </div>
 
                     <div
-                      className="mt-3 space-y-2"
+                      className={cn(
+                        "mt-3 space-y-2",
+                        visiblePlacesCount > 3 && "max-h-[35vh] overflow-y-auto pr-2"
+                      )}
                       role="radiogroup"
                       aria-label="Nearby places"
                     >
-                      {places.map((place) => {
+                      {places.slice(0, visiblePlacesCount).map((place) => {
                         const selected = place.placeId === selectedPlaceId;
                         const name = place.name?.trim() || place.text;
                         const metadata = Array.from(
@@ -1788,6 +1794,19 @@ export function NearbyCheckInSheet({
                           </button>
                         );
                       })}
+                      {places.length > visiblePlacesCount ? (
+                        <div className="pt-1 pb-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="w-full text-muted-foreground"
+                            onClick={() => setVisiblePlacesCount((c) => c + 3)}
+                          >
+                            Load more places
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
                     {/*
                       The owner's point and their venue are two different places
