@@ -662,11 +662,18 @@ export function LocationImmersiveMap({
   }, [auth.userId, demoMode, nearbyCheckInAvailable, vaultOwnerToken]);
 
   const captureCurrentLocation = useCallback(
-    (options?: { maxAgeMs?: number }): Promise<PlainLocationPoint> => {
+    (options?: {
+      maxAgeMs?: number;
+      fresh?: boolean;
+    }): Promise<PlainLocationPoint> => {
       // A caller demanding a genuinely fresh fix must not be handed the
       // in-flight one this ref is holding — that is how the check-in anchor
       // silently became "wherever we already were".
-      if (locationCaptureRef.current && options?.maxAgeMs !== 0) {
+      if (
+        locationCaptureRef.current &&
+        options?.maxAgeMs !== 0 &&
+        !options?.fresh
+      ) {
         return locationCaptureRef.current;
       }
       const request = OneLocationService.captureCurrentPosition(options);
@@ -690,7 +697,7 @@ export function LocationImmersiveMap({
   // dropped a caller's `maxAgeMs: 0` — TypeScript accepts the narrower arity, so
   // it compiled clean while the check-in anchor quietly used a cached fix.
   const captureAndRememberCurrentLocation = useCallback(
-    async (options?: { maxAgeMs?: number }) => {
+    async (options?: { maxAgeMs?: number; fresh?: boolean }) => {
       const point = await captureCurrentLocation(options);
       if (auth.userId) {
         const workspace = readLocationWorkspaceMemory(auth.userId);

@@ -37,10 +37,10 @@ describe("One Location capture-options boundary", () => {
 
     // Declared with the parameter — a zero-arity declaration is the bug.
     expect(source).toContain(
-      "const captureCurrentLocation = useCallback(\n    (options?: { maxAgeMs?: number }): Promise<PlainLocationPoint> => {",
+      "const captureCurrentLocation = useCallback(\n    (options?: {\n      maxAgeMs?: number;\n      fresh?: boolean;\n    }): Promise<PlainLocationPoint> => {",
     );
     expect(source).toContain(
-      "async (options?: { maxAgeMs?: number }) => {\n      const point = await captureCurrentLocation(options);",
+      "async (options?: { maxAgeMs?: number; fresh?: boolean }) => {\n      const point = await captureCurrentLocation(options);",
     );
 
     // And actually forwarded to the service, not dropped.
@@ -58,15 +58,15 @@ describe("One Location capture-options boundary", () => {
     // Deduplication is right for cached-eligible callers and wrong for a
     // check-in anchor that must describe where the user is standing now.
     expect(source).toContain(
-      "if (locationCaptureRef.current && options?.maxAgeMs !== 0)",
+      "options?.maxAgeMs !== 0 &&\n        !options?.fresh",
     );
   });
 
-  it("the check-in confirmation still asks for a fresh anchor", () => {
+  it("the check-in confirmation anchors on a current fix, not a stale one", () => {
     const source = read(
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
     );
-    expect(source).toContain("captureCurrentPosition({ maxAgeMs: 0 })");
+    expect(source).toContain("captureCurrentPosition({ fresh: true })");
   });
 
   it("the check-in sheet's prop type accepts options at all", () => {
@@ -74,7 +74,7 @@ describe("One Location capture-options boundary", () => {
       "components/one-location/nearby-check-in/nearby-check-in-sheet.tsx",
     );
     expect(source).toContain(
-      "captureCurrentPosition: (options?: {\n    maxAgeMs?: number;\n  }) => Promise<PlainLocationPoint>;",
+      "captureCurrentPosition: (options?: {\n    maxAgeMs?: number;\n    fresh?: boolean;\n  }) => Promise<PlainLocationPoint>;",
     );
   });
 });

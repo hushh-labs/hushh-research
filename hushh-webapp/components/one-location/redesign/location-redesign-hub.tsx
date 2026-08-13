@@ -2231,11 +2231,10 @@ function ShareFlow({
     const peopleNoun = selectedReady.length === 1 ? "person" : "people";
     return (
       <div className="space-y-5">
-        <TaskFlowHeader
-          eyebrow="Step 2 of 2 · Confirm"
-          title="Ready to share?"
-          description="Check who can see you and when access ends, then start."
-        />
+        {/* No description: the summary card directly below states who can see
+            you, for how long and when it ends. Repeating that in prose above it
+            is the design explaining itself. */}
+        <TaskFlowHeader eyebrow="Step 2 of 2 · Confirm" title="Ready to share?" />
 
         <SectionCard
           title="Can see you"
@@ -2904,14 +2903,14 @@ function TemporaryLinkFlow({
 
   return (
     <div className="space-y-5">
-      <TaskFlowHeader
-        eyebrow="Share with anyone outside Circle"
-        title="Share outside your Circle"
-        description="Use only when the person is not in your trusted Circle."
-      />
+      {/* The eyebrow, title and description all used to say "outside your
+          Circle", then the warning said "until it expires" and the trust note
+          said it a third time. The consent point is load-bearing here, so it is
+          stated ONCE, in the warning, where it carries the most weight. */}
+      <TaskFlowHeader title="Share outside your Circle" />
       <WarningCard
-        title="Important"
-        description="Anyone with this link can view your location until it expires."
+        title="Anyone with this link can see you"
+        description="Access ends when the link expires."
       />
       <SectionCard title="Duration">
         <DurationSelector
@@ -2927,17 +2926,15 @@ function TemporaryLinkFlow({
         />
       </SectionCard>
       {/* The temporary link shares the same precise point as everything else,
-          so it offers no precision card either. */}
-      <TrustNoteCard
-        title="Expires automatically"
-        description="Public location links are safer when they expire quickly."
-      />
+          so it offers no precision card either. The "expires automatically"
+          note that sat here was the third statement of the same fact — the
+          warning above and the duration control already carry it. */}
       <Button
         onClick={vm.onCreatePublicInvite}
         isLoading={vm.busy === "publicInvite"}
         className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
       >
-        Review public location link
+        Create link
       </Button>
     </div>
   );
