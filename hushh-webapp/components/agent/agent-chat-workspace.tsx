@@ -1660,7 +1660,7 @@ export function AgentChatWorkspace({
     skipInitialHistoryLoadRef.current = false;
     latestVisibleTurnIdRef.current = null;
     inlineConsentRequestIdsRef.current.clear();
-  }, [abortAgentTurnWork, user?.uid, isVaultUnlocked]);
+  }, [abortAgentTurnWork, isVaultUnlocked, updateConversationId, user?.uid]);
 
   const handleCreateNewChat = useCallback(() => {
     abortAgentTurnWork();
@@ -1682,7 +1682,7 @@ export function AgentChatWorkspace({
     setEditingQueuedPromptId(null);
     setEditingQueuedPromptText("");
     setWelcomePromptSetIndex((current) => getWelcomePromptSetIndex(current));
-  }, [abortAgentTurnWork]);
+  }, [abortAgentTurnWork, updateConversationId]);
 
   const updateMessage = (
     messageId: string,
@@ -1949,7 +1949,7 @@ export function AgentChatWorkspace({
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [hasChatAccess, user?.uid, vaultOwnerToken]);
+  }, [hasChatAccess, updateConversationId, user?.uid, vaultOwnerToken]);
 
   const restoreConversationMessages = useCallback(
     async (nextConversationId: string, token: string) => {
@@ -1970,7 +1970,7 @@ export function AgentChatWorkspace({
       setPendingSpecialistDirective(null);
       setSpecialistBusy(false);
     },
-    [user?.uid]
+    [updateConversationId, user?.uid]
   );
 
   const loadConversationList = useCallback(async (force = false) => {
@@ -3707,7 +3707,7 @@ export function AgentChatWorkspace({
     if (!prompt) return;
     setQueuedHandoffPrompt(null);
     enqueuePrompt(prompt);
-  }, [queuedHandoffPrompt]);
+  }, [enqueuePrompt, queuedHandoffPrompt]);
 
   useEffect(() => {
     if (!isPopover || !isSurfaceClosing) return;
