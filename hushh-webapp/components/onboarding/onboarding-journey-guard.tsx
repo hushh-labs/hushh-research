@@ -324,13 +324,19 @@ export function OnboardingJourneyGuard({
     userId,
   ]);
 
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const passThrough = exempt || (!authLoading && !userId);
+  const isServerMatch = !mounted && !passThrough;
+
   const loaderActive =
-    !passThrough &&
-    (shouldEjectSetupSurface ||
-      (checking && !cachedAdmissionAllowsCurrentRoute) ||
-      authLoading ||
-      redirecting);
+    isServerMatch ||
+    (!passThrough &&
+      (shouldEjectSetupSurface ||
+        (checking && !cachedAdmissionAllowsCurrentRoute) ||
+        authLoading ||
+        redirecting));
   // Suppress the persistent shell (top tabs/back + bottom nav) while the setup
   // admission check paints its loader, so the loader never leaks the page frame.
   useSessionChromeSuppression(loaderActive);

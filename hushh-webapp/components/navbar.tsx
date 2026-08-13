@@ -304,8 +304,15 @@ export const Navbar = ({
     };
 
     // When the bottom nav is genuinely gone for this context (unauthenticated,
-    // onboarding chrome, or no nav options), collapse the reserved height to 0.
-    if (!isAuthenticated || useOnboardingChrome || navOptions.length === 0) {
+    // onboarding chrome, no nav options, or explicitly hidden by the shell), 
+    // collapse the reserved height to 0.
+    if (
+      !isAuthenticated ||
+      useOnboardingChrome ||
+      navOptions.length === 0 ||
+      shellNavigationHidden ||
+      hideNavbar
+    ) {
       setBottomChromeVars("0px", "58px");
       return;
     }
@@ -385,6 +392,13 @@ export const Navbar = ({
     );
   }, [bottomNavScope, interactionIntents, navOptions]);
   const activeNav = (optimisticNav ?? routeActiveNav) as AppBottomNavKey;
+
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => setMounted(true), []);
+
+  if (!mounted) {
+    return null;
+  }
 
   if (shellNavigationHidden || hideNavbar) {
     return null;

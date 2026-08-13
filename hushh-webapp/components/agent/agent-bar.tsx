@@ -1653,7 +1653,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
 
   const appAccent = useAccent();
 
-  if (unmountBar) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted || unmountBar) {
     return null;
   }
 
