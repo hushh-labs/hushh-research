@@ -2442,6 +2442,58 @@ export function OneLocationAgentPageContent({
       ),
     [contactSignalRecipients, selectedRequestOwnerIds],
   );
+  // Whether this person appears as a pin on the maps of people they already
+  // share with.
+  //
+  // The preference itself is not new -- it is `presence_mode`, and it defaults
+  // to 'ghost'. What was new is being able to find it: it lived only behind a
+  // Ghost toggle on the immersive map screen, so somebody who shared their
+  // location and then wondered why they never appeared on the other person's
+  // map had no way to discover the switch that decided it. Null while loading,
+  // so the control can be shown disabled rather than lying about its state.
+  const [mapPresenceEnabled, setMapPresenceEnabled] = useState<boolean | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!vaultOwnerToken) return;
+    let cancelled = false;
+    void OneLocationService.getMapPreferences(vaultOwnerToken)
+      .then((preferences) => {
+        if (cancelled) return;
+        setMapPresenceEnabled(preferences.presenceMode === "foreground_private");
+      })
+      .catch(() => {
+        // Unknown is not the same as off, but the control has to say something
+        // -- and offering it as "off" is the honest failure: it cannot make a
+        // person more visible than they already are.
+        if (!cancelled) setMapPresenceEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [vaultOwnerToken]);
+  const handleMapPresenceChange = useCallback(
+    (next: boolean) => {
+      if (!vaultOwnerToken) return;
+      // Optimistic, then corrected by the server's answer. A privacy switch
+      // that lags behind the finger reads as broken, and people toggle it
+      // again -- which is how somebody ends up visible when they meant not to.
+      setMapPresenceEnabled(next);
+      void OneLocationService.updateMapPreferences({
+        vaultOwnerToken,
+        presenceMode: next ? "foreground_private" : "ghost",
+      })
+        .then((preferences) => {
+          setMapPresenceEnabled(preferences.presenceMode === "foreground_private");
+        })
+        .catch(() => {
+          setMapPresenceEnabled(!next);
+          toast.error("Could not change map visibility.");
+        });
+    },
+    [vaultOwnerToken],
+  );
+
   const pendingOwnerRequests = useMemo(
     () =>
       (state?.requests ?? []).filter(
@@ -3278,6 +3330,21 @@ export function OneLocationAgentPageContent({
         recipientPublicKeyJwk: recipient.publicKeyJwk,
         recipientKeyId: recipient.keyId,
       });
+      // Eligible for the recipient's map.
+      //
+      // Until now `foreground_map_visible` was written in exactly one place --
+      // the locate button on the map screen -- so a pin only ever appeared
+      // while the SHARER happened to be standing on that screen. Sharing your
+      // location through the normal flow put you in their "Shared with me"
+      // card and nowhere else, which is why the map read "0 live locations"
+      // next to a card saying someone was live 23 seconds ago.
+      //
+      // The widening is bounded by what the envelope already is: it is
+      // encrypted to one recipient's key and exists only because the sharer
+      // created a grant for that person, for a duration they chose. Appearing
+      // as a pin on that person's map is the thing they agreed to. It does not
+      // make anyone visible to anyone else, and Ghost Mode still overrides it.
+      envelope.publicationContext = "foreground_map_visible";
       // Returned so Save My Soul can tell the sender which contacts the alert
       // actually reached. null for every other share kind, which does not
       // notify from this route.
@@ -8946,6 +9013,8 @@ export function OneLocationAgentPageContent({
         observedDenial: locationDenialObserved,
       }) === "blocked",
     autoShareEnabled: locationControl.autoShareEnabled,
+    mapPresenceEnabled,
+    onMapPresenceChange: handleMapPresenceChange,
     locationPaused: locationControl.paused,
     locationAccuracyLimited,
     // The switch is already on and the device has not found us yet. This is the

@@ -4806,6 +4806,19 @@ class OneLocationAgentService:
         coordinates. The browser/native renderer decrypts returned ciphertext
         only in its foreground memory.
         """
+        # Retention, not freshness. The 90-second cut used to remove people from
+        # the response entirely, so a sharer who locked their phone vanished
+        # from the map with nothing said -- indistinguishable from having
+        # stopped sharing. They are returned now with `capturedAt`, and the
+        # renderer ages them: past the freshness window the pin goes grey and
+        # carries a disconnected badge, which is a fact about their signal
+        # rather than a claim about their intent.
+        retention_seconds = _bounded_int_env(
+            "ONE_LOCATION_MAP_RETENTION_SECONDS", 3600, 300, 86_400
+        )
+        # Still published to the client, and still means the same thing: how
+        # recent a position has to be to count as live. It just no longer
+        # decides who exists.
         freshness_seconds = _bounded_int_env("ONE_LOCATION_MAP_FRESHNESS_SECONDS", 90, 30, 300)
         rows = self._execute_many(
             """
@@ -4826,6 +4839,16 @@ class OneLocationAgentService:
               envelope.created_at AS map_envelope_created_at,
               envelope.metadata AS map_envelope_metadata
             FROM one_location_share_grants g
+            -- Opt-in, and it stays opt-in.
+            --
+            -- `presence_mode` defaults to 'ghost', so appearing on somebody
+            -- else's map is something the sharer has to choose. Widening this
+            -- to "anyone who has not explicitly opted out" was considered and
+            -- rejected: it would have made every existing sharer visible
+            -- without asking them, which is not a default anyone gets to
+            -- change on their behalf. The answer was to make the choice
+            -- findable instead -- it now lives in Location settings rather
+            -- than only behind a Ghost toggle on the map screen.
             JOIN one_location_map_preferences preference
               ON preference.user_id = g.owner_user_id
              AND preference.presence_mode = 'foreground_private'
@@ -4836,7 +4859,7 @@ class OneLocationAgentService:
               WHERE candidate.grant_id = g.id
                 AND candidate.recipient_user_id = :user_id
                 AND candidate.publication_context = 'foreground_map_visible'
-                AND candidate.captured_at >= NOW() - make_interval(secs => :freshness_seconds)
+                AND candidate.captured_at >= NOW() - make_interval(secs => :retention_seconds)
               ORDER BY candidate.captured_at DESC, candidate.created_at DESC
               LIMIT 1
             ) envelope ON TRUE
@@ -4846,7 +4869,7 @@ class OneLocationAgentService:
             ORDER BY envelope.captured_at DESC
             LIMIT 100
             """,
-            {"user_id": user_id, "freshness_seconds": freshness_seconds},
+            {"user_id": user_id, "retention_seconds": retention_seconds},
         )
         markers: list[dict[str, Any]] = []
         for row in rows:

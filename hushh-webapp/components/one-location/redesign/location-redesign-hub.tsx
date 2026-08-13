@@ -195,6 +195,14 @@ export type LocationHubViewModel = {
    */
   locationBlocked: boolean;
   autoShareEnabled: boolean;
+  /**
+   * Whether this person appears as a pin on the maps of people they already
+   * share with. Opt-in, and separate from sharing itself: sharing sends a
+   * position to one person, this decides whether it becomes a pin they can
+   * watch move. Null while the preference is still loading.
+   */
+  mapPresenceEnabled: boolean | null;
+  onMapPresenceChange: (next: boolean) => void;
   locationPaused: boolean;
   locationAccuracyLimited: boolean;
   /**
@@ -1581,6 +1589,19 @@ function LocationSettingsFlow({
               checked={vm.autoShareEnabled}
               onChange={vm.onAutoShareChange}
               label="Auto-share my location"
+            />
+          }
+          density="compact"
+        />
+        <SettingsRow
+          title="Show me on their map"
+          description="On — people you already share with can see you move on their map. Off — they still get your location, but only as a card. This never adds anyone new."
+          trailing={
+            <LocationToggle
+              checked={vm.mapPresenceEnabled === true}
+              onChange={vm.onMapPresenceChange}
+              disabled={vm.mapPresenceEnabled === null}
+              label="Show me on their map"
             />
           }
           density="compact"
