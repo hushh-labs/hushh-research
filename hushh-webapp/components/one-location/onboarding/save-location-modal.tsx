@@ -808,7 +808,7 @@ export function SaveLocationModal({
                       if (e.key === "Enter" && placeQuery.trim()) {
                         e.preventDefault();
                         if (placeSuggestions.length > 0) {
-                          void handleSelectPlace(placeSuggestions[0].placeId);
+                          void handleSelectPlace(placeSuggestions[0]!.placeId);
                         } else {
                           setPickedAddress(placeQuery.trim());
                           setEditingPlace(false);
