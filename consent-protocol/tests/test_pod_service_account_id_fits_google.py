@@ -110,3 +110,28 @@ def test_the_rendered_pod_and_the_bootstrap_plan_name_the_same_account():
     )
     # And the applier splits this on '@' to get the accountId it POSTs.
     assert len(planned.split("@")[0]) <= 30
+
+
+# -- the invoker-shape trap ------------------------------------------------------------
+
+
+def test_the_invoker_sa_accepts_either_shape_operators_will_paste():
+    """Two variables, one principal, two shapes -- and no natural warning.
+
+    The managed tier's HUSSH_POD_INVOKER_MEMBER is already IAM-member form; BYOC's
+    HUSSH_CONSENT_PLANE_SA is a bare email that the code prefixes itself. So the
+    obvious operator move -- copy the value already sitting in the other variable --
+    used to build `serviceAccount:serviceAccount:...` and 400 at every setIamPolicy,
+    during the key handshake, after the pod was already built.
+    """
+    bare = "consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com"
+    prefixed = f"serviceAccount:{bare}"
+
+    from_bare = UserGcpBackend(user_project="p", image="i", hushh_invoker_sa=bare)
+    from_prefixed = UserGcpBackend(user_project="p", image="i", hushh_invoker_sa=prefixed)
+
+    assert from_bare._hushh_invoker_sa == bare
+    assert from_prefixed._hushh_invoker_sa == bare, (
+        "a pasted IAM-member value kept its prefix, so the binding would be sent as "
+        "serviceAccount:serviceAccount:... and refused"
+    )

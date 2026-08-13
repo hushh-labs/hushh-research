@@ -73,6 +73,25 @@ _SA_PREFIX = "one-pod-"
 _SA_DIGEST_CHARS = 8
 
 
+def _bare_service_account(value: Optional[str]) -> str:
+    """Strip a `serviceAccount:` prefix if the operator supplied one.
+
+    Two variables name the same principal in two different shapes, which is a trap
+    with no natural warning. The managed tier reads `HUSSH_POD_INVOKER_MEMBER`, whose
+    value is already IAM-member form (`scripts/deploy/backend-deploy.sh` emits
+    `serviceAccount:consent-protocol-runtime@...`). BYOC reads `HUSSH_CONSENT_PLANE_SA`
+    and prepends the prefix itself at bind time.
+
+    So the obvious operator action -- copy the value that is already sitting in the
+    other variable -- produces `serviceAccount:serviceAccount:...`, which IAM rejects
+    with a 400 on every `setIamPolicy`, at the key handshake, after the pod is already
+    built. Normalising here costs one line and removes the whole class; refusing the
+    prefixed form instead would be correct and would still waste somebody's afternoon.
+    """
+    text = str(value or "").strip()
+    return text[len("serviceAccount:") :].strip() if text.startswith("serviceAccount:") else text
+
+
 def pod_service_account_id(hushh_id: str) -> str:
     """The pod's runtime identity, guaranteed to fit Google's 6-30 character limit.
 
@@ -241,7 +260,7 @@ class UserGcpBackend:
             wif_provider if wif_provider is not None else _env("HUSSH_USER_GCP_WIF_PROVIDER")
         )
         # The Hushh consent-plane identity that the user grants run.invoker to.
-        self._hushh_invoker_sa = (
+        self._hushh_invoker_sa = _bare_service_account(
             hushh_invoker_sa if hushh_invoker_sa is not None else _env("HUSSH_CONSENT_PLANE_SA")
         )
         self._live = bool(live) if live is not None else _flag("HUSSH_USER_GCP_LIVE")
