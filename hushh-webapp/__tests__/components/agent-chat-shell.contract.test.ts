@@ -39,4 +39,24 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("setWelcomePromptSetIndex((current)");
     expect(workspace).toContain("prompts={welcomePrompts}");
   });
+
+  it("keeps prompt and calendar work serialized while preserving an editable pending queue", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).toContain("drainOperationQueue");
+    expect(workspace).toContain("agent-chat-prompt-queue");
+    expect(workspace).toContain("enqueueCalendarDirective");
+    expect(workspace).toContain('text: "Scheduling…"');
+    expect(workspace).not.toContain("streamAbortControllerRef.current?.abort();\n    streamAbortControllerRef.current = streamAbortController");
+  });
+
+  it("bounds the responsive composer and only reveals the larger editor control for long input", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).toContain("agent-chat-composer-expand");
+    expect(workspace).toContain("overflow-y-auto");
+    expect(workspace).toContain("max-h-[min(40dvh,18rem)]");
+    expect(workspace).toContain("max-h-28 sm:max-h-36");
+    expect(workspace).toContain("composerLong ?");
+  });
 });
