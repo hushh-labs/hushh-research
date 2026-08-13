@@ -76,7 +76,7 @@ export default function ConnectedSystemsPage() {
           open={showUnlock}
           onOpenChange={setShowUnlock}
           title="Set up your private vault"
-          description="Set up or open your private vault to inspect CRM records and approve Connected Systems actions."
+          description="Open your vault to review CRM."
           onSuccess={() => setShowUnlock(false)}
         />
       ) : null}

@@ -64,7 +64,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
         <AppPageHeaderRegion>
           <PageHeader
             title="CRM"
-            description="Find your existing CRM record or approve creating one from your verified identity."
+            description="Find or create your CRM record."
             accent="neutral"
           />
         </AppPageHeaderRegion>
@@ -94,7 +94,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
             open={showUnlock}
             onOpenChange={setShowUnlock}
             title="Set up your private vault"
-            description="Set up or open your private vault to inspect CRM records and approve CRM actions."
+            description="Open your vault to review CRM."
             allowVaultCreation={false}
             onSuccess={() => setShowUnlock(false)}
           />

@@ -451,12 +451,12 @@ const LOCATION_VOICE_CONTROLS = [
   { id: "one-location-action-settings", label: "Settings", purpose: "Open privacy controls.", actionId: "location.open_settings", role: "button" },
   { id: "one-location-action-check-in", label: "Check-In", purpose: "Send a one-off check in.", actionId: "location.open_check_in", role: "button" },
   { id: "one-location-action-sos", label: "SMS", purpose: "Open emergency SOS.", actionId: "location.open_sos", role: "button" },
-  { id: "one-location-action-ask", label: "Ask someone to share", purpose: "Request another person's location.", actionId: "location.open_ask", role: "button" },
-  { id: "one-location-action-invite", label: "Invite trusted person", purpose: "Invite someone not on Hushh yet.", actionId: "location.open_invite", role: "button" },
+  { id: "one-location-action-ask", label: "Request location", purpose: "Ask for location access.", actionId: "location.open_ask", role: "button" },
+  { id: "one-location-action-invite", label: "Invite", purpose: "Invite someone to One.", actionId: "location.open_invite", role: "button" },
   { id: "one-location-action-create-circle", label: "Create", purpose: "Create a circle.", actionId: "location.open_create_circle", role: "button" },
   { id: "one-location-action-join-circle", label: "Join with code", purpose: "Join a circle by code.", actionId: "location.open_join_circle", role: "button" },
-  { id: "one-location-action-temp-link", label: "Create a new link", purpose: "Create a temporary link.", actionId: "location.open_temporary_link", role: "button" },
-  { id: "one-location-add-connections", label: "Add Connections", purpose: "Open Connect to find people.", actionId: "location.add_connections", role: "button" },
+  { id: "one-location-action-temp-link", label: "Create link", purpose: "Create a temporary link.", actionId: "location.open_temporary_link", role: "button" },
+  { id: "one-location-add-connections", label: "Add people", purpose: "Open Connect.", actionId: "location.add_connections", role: "button" },
   { id: "one-location-refresh", label: "Refresh", purpose: "Reload location state.", actionId: "location.refresh", role: "button" },
   // One control, two contract actions: the direction is whichever one the
   // switch is not already in. It is rendered in the header and again in
@@ -9365,7 +9365,7 @@ export function OneLocationAgentPageContent({
         <PageHeader
           eyebrow="Private location sharing"
           title="Your circle, safely connected."
-          description="Let the people you trust see where you are only when you choose, only for as long as you choose."
+          description="Share only when you choose."
           icon={MapPin}
           accent="success"
           actionsInlineMobile
@@ -10578,7 +10578,7 @@ export function OneLocationAgentPageContent({
                       <EmptyOneState
                         icon={ExternalLink}
                         title="No public responses"
-                        description="Responses from your public location link show up here after visitors open it."
+                        description="Responses appear here."
                       />
                     )}
                   </div>

@@ -317,9 +317,7 @@ describe("named Circle flows", () => {
     expect(
       screen.getByTestId("one-location-circle-invite-invite-1"),
     ).toHaveAttribute("data-focused", "true");
-    expect(
-      screen.getByText(/current and future Circle members/i),
-    ).toBeTruthy();
+    expect(screen.getByText(/Join first\. Sharing stays private\./i)).toBeTruthy();
     const joinButton = screen.getByRole("button", { name: "Join" });
     fireEvent.click(joinButton);
     fireEvent.click(joinButton);

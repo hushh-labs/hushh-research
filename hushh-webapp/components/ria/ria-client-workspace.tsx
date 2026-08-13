@@ -531,7 +531,7 @@ export function RiaClientWorkspace({
       {iamUnavailable ? (
         <RiaCompatibilityState
           title="Client workspace is unavailable in this environment"
-          description="The route is wired correctly, but this environment still needs the full IAM schema before advisor workspaces can read investor information."
+          description="IAM setup is required here."
         />
       ) : null}
 

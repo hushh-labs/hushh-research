@@ -341,7 +341,7 @@ export function SosPanel({
       data-ambient-chrome-ignore
       data-testid="sms-safety-screen"
     >
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(44px,env(safe-area-inset-top))]">
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(44px,env(safe-area-inset-top))] lg:max-w-[520px]">
         <button
           type="button"
           onClick={onClose}

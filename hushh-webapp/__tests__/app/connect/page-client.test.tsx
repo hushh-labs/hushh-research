@@ -110,7 +110,7 @@ describe("Connect — People", () => {
 
     expect(
       await screen.findByText(
-        "A few people on Hussh. Search by name to find someone specific.",
+        "Search by name.",
       ),
     ).toBeTruthy();
     expect(screen.getByText("Person 0")).toBeTruthy();
@@ -124,7 +124,7 @@ describe("Connect — People", () => {
 
     expect(
       await screen.findByText(
-        "A few people on Hussh. Search by name to find someone specific.",
+        "Search by name.",
       ),
     ).toBeTruthy();
     expect(screen.getByText("Page 1")).toBeTruthy();
@@ -176,7 +176,7 @@ describe("Connect — People", () => {
     await waitFor(() =>
       expect(
         screen.queryByText(
-          "A few people on Hussh. Search by name to find someone specific.",
+          "Search by name.",
         ),
       ).toBeNull(),
     );
@@ -451,7 +451,7 @@ describe("Connect — People", () => {
       fireEvent.click(screen.getByLabelText(`Select Bulk person ${index}`));
     }
 
-    expect(screen.getByText("Connect to Selected (20/20)")).toBeTruthy();
+    expect(screen.getByText("Connect selected (20/20)")).toBeTruthy();
     expect(
       (screen.getByLabelText("Select Bulk person 20") as HTMLButtonElement)
         .disabled,
@@ -464,7 +464,7 @@ describe("Connect — People", () => {
     ).toBe(false);
     fireEvent.click(screen.getByLabelText("Select Bulk person 0"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect to Selected (20/20)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect selected (20/20)" }));
 
     await waitFor(() => expect(mocks.sendRequest).toHaveBeenCalledTimes(20));
 
@@ -482,7 +482,7 @@ describe("Connect — People", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Select people" }));
     fireEvent.click(screen.getByLabelText("Select Person 0"));
-    expect(screen.getByText("Connect to Selected (1/20)")).toBeTruthy();
+    expect(screen.getByText("Connect selected (1/20)")).toBeTruthy();
 
     mocks.searchDirectory.mockResolvedValue({
       items: [person("u9", "Person 9")],
@@ -495,7 +495,7 @@ describe("Connect — People", () => {
 
     expect(await screen.findByText("Person 9")).toBeTruthy();
     await waitFor(() =>
-      expect(screen.queryByText("Connect to Selected (1/20)")).toBeNull(),
+      expect(screen.queryByText("Connect selected (1/20)")).toBeNull(),
     );
   });
 

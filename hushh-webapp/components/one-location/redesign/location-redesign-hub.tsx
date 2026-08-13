@@ -1253,7 +1253,7 @@ function NowHub({
         <SettingsRow
           icon={MessageCircleQuestionMark}
           iconTone="accent"
-          title="Request Location"
+          title="Request location"
           density="compact"
           chevron
           onClick={onRequestLocation}
@@ -1382,15 +1382,15 @@ function LocationDetailFlow({
   const copy = {
     "active-shares": {
       title: "Active shares",
-      description: "Only the people below can currently see your location.",
+      description: "People who can see you now.",
     },
     "shared-with-me": {
       title: "Shared with me",
-      description: "Live locations disappear when access ends or is revoked.",
+      description: "Live access from others.",
     },
     "needs-review": {
       title: "Needs my review",
-      description: "Review every request before location is shared.",
+      description: "Approve before sharing.",
     },
   }[kind];
 
@@ -1424,7 +1424,7 @@ function LocationDetailFlow({
         ) : (
           <EmptyState
             title="No active shares"
-            description="Start a consent-first share when you are ready."
+            description="Share when needed."
           />
         )
       ) : null}
@@ -1484,7 +1484,7 @@ function LocationDetailFlow({
         ) : (
           <EmptyState
             title="Nothing shared with you"
-            description="A person's live location appears here only while their grant is active."
+            description="Live grants appear here."
           />
         )
       ) : null}
@@ -1507,7 +1507,7 @@ function LocationDetailFlow({
         ) : (
           <EmptyState
             title="Nothing to review"
-            description="Incoming location requests will appear here."
+            description="Requests appear here."
           />
         )
       ) : null}
@@ -1577,13 +1577,13 @@ function LocationSettingsFlow({
       <TaskFlowHeader
         eyebrow="Location"
         title="Settings"
-        description="You control who sees your location and when. Change this anytime."
+        description="Control live sharing."
       />
 
       <SettingsGroup title="Location sharing" separatorInset>
         <SettingsRow
           title="Auto-share my location"
-          description="On — approved shares keep receiving live updates. Off — new shares send only the location you explicitly confirm."
+          description="Approved shares get live updates."
           trailing={
             <LocationToggle
               checked={vm.autoShareEnabled}
@@ -1595,7 +1595,7 @@ function LocationSettingsFlow({
         />
         <SettingsRow
           title="Show me on their map"
-          description="On — people you already share with can see you move on their map. Off — they still get your location, but only as a card. This never adds anyone new."
+          description="Controls live movement on shared maps."
           trailing={
             <LocationToggle
               checked={vm.mapPresenceEnabled === true}
@@ -1608,7 +1608,7 @@ function LocationSettingsFlow({
         />
         <SettingsRow
           title="Pause my location"
-          description="Stop new private-share updates and check out from Nearby. Existing shares keep their expiry and may retain your last encrypted point."
+          description="Stop new updates."
           trailing={
             <LocationToggle
               checked={vm.locationPaused}
@@ -1630,8 +1630,7 @@ function LocationSettingsFlow({
       <div className="flex items-start gap-2.5 px-1">
         <Shield className="mt-0.5 h-[15px] w-[15px] shrink-0 text-[color:var(--app-accent)]" />
         <p className={MUTED_TEXT}>
-          Private shares stay in your circle. Nearby Check-In is separate and
-          only starts after you explicitly agree.
+          Private shares stay in your circle.
         </p>
       </div>
 
@@ -1770,7 +1769,7 @@ function PeopleHub({
 
         <SectionCard
           title="Connections"
-          description="Connections and Circle members are eligible for explicit private sharing."
+          description="People ready for sharing."
         >
           {/* Symmetric action layout with generous breathing room: a 2-col
               primary row (Add / Invite) over a matching 2-col contact row
@@ -1784,7 +1783,7 @@ function PeopleHub({
                 className="h-12 w-full font-medium"
               >
                 <UsersRound className="mr-2 h-4 w-4" />
-                Add Connections
+                Add people
               </Button>
               <Button
                 variant="outline"
@@ -1793,7 +1792,7 @@ function PeopleHub({
                 className="h-12 w-full font-medium"
               >
                 <UserPlus className="mr-2 h-4 w-4" />
-                Invite trusted person
+                Invite
               </Button>
             </div>
             <div className="grid grid-cols-2 gap-3.5">
@@ -1857,7 +1856,7 @@ function PeopleHub({
             className="h-12 w-full font-medium"
           >
             <UsersRound className="mr-2 h-4 w-4" />
-            Add Connections
+            Add people
           </Button>
           <Button
             variant="outline"
@@ -1866,7 +1865,7 @@ function PeopleHub({
             className="h-12 w-full font-medium border-[color:var(--app-accent)] text-[color:var(--app-accent)]"
           >
             <UserPlus className="mr-2 h-4 w-4" />
-            Invite trusted person
+            Invite
           </Button>
         </div>
         <div className="grid grid-cols-2 gap-3.5">
@@ -2058,7 +2057,7 @@ function LinksHub({
       ) : (
         <EmptyState
           title="No active links"
-          description="Create one below to share with someone outside your Circle."
+          description="Create one when needed."
         />
       )}
 
@@ -2068,14 +2067,13 @@ function LinksHub({
         className="w-full"
       >
         <Plus className="mr-2 h-4 w-4" />
-        Create a new link
+        Create link
       </Button>
 
       <div className="flex items-start gap-2 px-1">
         <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <p className={MUTED_TEXT}>
-          Links stop working automatically when they expire. You can revoke any
-          link anytime.
+          Links expire automatically.
         </p>
       </div>
     </div>
@@ -2376,7 +2374,7 @@ function ShareFlow({
       <TaskFlowHeader
         eyebrow="Step 1 of 2 · Choose people"
         title="Who can see you?"
-        description="Only trusted and location-ready people can receive private live location."
+        description="Only ready people appear."
       />
       {vm.circles.length ? (
         <SectionCard title="Share with a Circle">
@@ -2485,7 +2483,7 @@ function ShareFlow({
       ) : (
         <EmptyState
           title="No trusted people yet"
-          description="Invite someone to your Circle to start sharing."
+          description="Invite someone first."
         />
       )}
       {/* A plain step change. Advancing must not depend on device permission:
@@ -2564,8 +2562,8 @@ function AskFlow({
     <div className="space-y-5">
       <TaskFlowHeader
         eyebrow="Request with context"
-        title="Make it comfortable"
-        description="Requests should explain why. The other person chooses whether to share."
+        title="Ask clearly"
+        description="They choose whether to share."
       />
 
       {justSent ? (
@@ -2575,7 +2573,7 @@ function AskFlow({
         >
           <ShieldCheck className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[color:var(--app-success)]" />
           <p className="text-sm font-medium text-foreground">
-            Request sent. We&apos;ll notify you here when they respond.
+            Request sent.
           </p>
         </div>
       ) : null}
@@ -2632,7 +2630,7 @@ function AskFlow({
           <div className="mt-3">
             <EmptyState
               title="No one to request from yet"
-              description="Invite someone to your Circle, then ask them to share."
+              description="Invite someone first."
             />
           </div>
         )}
@@ -2672,7 +2670,7 @@ function AskFlow({
 
       <TrustNoteCard
         title="No silent tracking"
-        description="They approve, decline, or ignore."
+        description="They choose."
       />
 
       {/* Send is enabled once at least one recipient is chosen. Duration and
@@ -2710,7 +2708,7 @@ function AskFlow({
             {justSent ? (
               <>
                 <ShieldCheck className="mr-1.5 h-[18px] w-[18px]" aria-hidden />
-                Request Sent
+                Sent
               </>
             ) : (
               "Send request"
@@ -2753,7 +2751,7 @@ function InviteFlow({
         <TaskFlowHeader
           eyebrow="Share invite link"
           title="Invite link created"
-          description="They must approve before location sharing starts."
+          description="They approve first."
         />
         <SectionCard>
           <div className="flex items-center gap-3">
@@ -2817,12 +2815,11 @@ function InviteFlow({
       <TaskFlowHeader
         eyebrow="Invite to One / Circle"
         title="Invite to Circle"
-        description="Use this when the person is not ready for private location sharing yet."
+        description="Invite before sharing."
       />
       <SectionCard title="What happens next?">
         <p className="text-sm text-muted-foreground">
-          They sign in, verify phone, and approve before private sharing starts.
-          This invite does not share your live location.
+          They sign in, verify phone, and approve.
         </p>
       </SectionCard>
       <SectionCard title="Invite expires after">
@@ -2838,8 +2835,8 @@ function InviteFlow({
         />
       </SectionCard>
       <TrustNoteCard
-        title="No location is shared by creating an invite"
-        description="Sharing starts only after they approve."
+        title="No location shared"
+        description="They approve first."
       />
       <Button
         onClick={vm.onCreateCircleInvite}
@@ -2876,8 +2873,8 @@ function TemporaryLinkFlow({
           title="Public location link active"
         />
         <WarningCard
-          title="Anyone with this link can view your location until it expires."
-          description="Public access ends automatically at expiry."
+          title="Anyone with the link can view you."
+          description="Access expires automatically."
         />
         {invite ? (
           <TemporaryLinkCard
