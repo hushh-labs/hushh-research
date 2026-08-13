@@ -110,9 +110,24 @@ describe("SosPanel", () => {
       });
 
       expect(clipboardWriteText).toHaveBeenCalledWith("112");
+      // The "this browser cannot dial" explanation is a toast now, not a
+      // permanent paragraph: it wrapped to four lines in a half-width grid
+      // cell and buried the number it was trying to hand over. It carries the
+      // number, because that is the part you can act on.
       await waitFor(() =>
-        expect(screen.getByText("Number copied to clipboard.")).toBeInTheDocument(),
+        expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
+          "112 copied",
+          expect.objectContaining({
+            description: expect.stringContaining("Call 112 from your phone now"),
+          }),
+        ),
       );
+      // The button itself still confirms, so the state survives the toast.
+      expect(screen.getByText("Copied 112")).toBeInTheDocument();
+      expect(screen.getByText("Dial it from your phone")).toBeInTheDocument();
+      expect(
+        screen.queryByText(/Windows browsers cannot open emergency dialers/i),
+      ).toBeNull();
     } finally {
       navigatorUserAgent.mockRestore();
       navigatorPlatform.mockRestore();

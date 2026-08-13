@@ -75,6 +75,7 @@ import {
 } from "@/lib/one-location/circle-recipient-selection";
 
 import {
+  Avatar,
   EmptyState,
   SectionCard,
   TaskFlowHeader,
@@ -83,6 +84,7 @@ import {
 } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import {
+  initialsFrom,
   RequestCard,
   SharedWithMeCard,
   TemporaryLinkCard,
@@ -264,7 +266,15 @@ export type LocationHubViewModel = {
   onOpenLocationSettings: () => void;
   onSyncContacts: () => void;
   onShareToContacts: () => void;
+  /** Legacy composer only: pre-flights device permission, then opens review. */
   onOpenShareReview: () => void;
+  /**
+   * Records that the merged confirm step's consent read-back is on screen.
+   * Side-effect free by design — see `announceShareReviewOpened`. Asking the OS
+   * for permission here would prompt merely because a screen rendered; the
+   * share itself runs that pre-flight when it actually needs the point.
+   */
+  onEnterShareConfirm: () => void;
   onConfirmShare: () => void;
   onSendRequest: (reason?: string | null) => void;
   onApprove: (request: OneLocationAccessRequest) => void;
@@ -869,7 +879,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   ]);
 
   // When a share completes successfully (page bumps shareCompletedTick), close
-  // the 3-step share flow and return to the main One Location hub.
+  // the 2-step share flow and return to the main One Location hub.
   const lastShareTickRef = useRef(vm.shareCompletedTick);
   useEffect(() => {
     if (vm.shareCompletedTick !== lastShareTickRef.current) {
@@ -2126,6 +2136,39 @@ function ShareFlow({
   setStep: (s: "person" | "details") => void;
   onClose: () => void;
 }) {
+  // Ticks the "access ends" line so a screen left open for a while does not
+  // quote a time that has already slipped past.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (step !== "details") return;
+    const intervalId = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(intervalId);
+  }, [step]);
+
+  const setShareReviewOpen = vm.setShareReviewOpen;
+  const backToPeople = useCallback(() => {
+    // Leaving the confirm step means the person is no longer looking at what
+    // they would be agreeing to, so the review flag must not stay latched.
+    setShareReviewOpen(false);
+    setStep("person");
+  }, [setShareReviewOpen, setStep]);
+
+  // The consent read-back is now part of the confirm step rather than a screen
+  // of its own, so entering that step is what "the review was shown" means.
+  // Fired once per entry: the callback identity changes with the duration, and
+  // re-announcing on every duration tweak would be a different claim.
+  const onEnterShareConfirm = vm.onEnterShareConfirm;
+  const announcedStepRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (step !== "details") {
+      announcedStepRef.current = null;
+      return;
+    }
+    if (announcedStepRef.current === "details") return;
+    announcedStepRef.current = "details";
+    onEnterShareConfirm();
+  }, [onEnterShareConfirm, step]);
+
   const filtered = vm.visibleShareRecipients;
   const recipientById = new globalThis.Map(
     vm.recipients.map((recipient) => [recipient.userId, recipient]),
@@ -2147,98 +2190,87 @@ function ShareFlow({
     vm.selectedRecipientIds,
   );
 
-  // Review screen (consent check) is driven by the existing shareReviewOpen flag.
-  if (vm.shareReviewOpen) {
-    // Only claim the Circle in the consent check while it is still whole. A
-    // partially deselected roster is a hand-picked list of people, and the
-    // review step is the last place that may overstate who is included.
+  // Step 2 of 2 — "Details" and the old separate "Consent check" merged.
+  //
+  // They were split as set-then-confirm, which put a screen transition between
+  // choosing a duration and reading back what that duration meant. Merged, the
+  // consent summary is LIVE: the recipient list and the "access ends" time sit
+  // directly above the controls that set them, so the answer to "what am I
+  // agreeing to" is on screen at the instant the button is pressed rather than
+  // one navigation earlier. Nothing was dropped to achieve it — who can see
+  // you, for how long, when it ends and that you can stop are all still stated
+  // before the share starts, which is the property the consent step existed for.
+  if (step === "details") {
+    // Only claim the Circle while it is still whole. A partially deselected
+    // roster is a hand-picked list of people, and this is the last surface that
+    // may overstate who is included.
     const selectedCircle = shareCircleFullySelected
       ? vm.selectedShareCircleSelection
       : null;
+    const peopleNoun = selectedReady.length === 1 ? "person" : "people";
     return (
       <div className="space-y-5">
         <TaskFlowHeader
-          eyebrow="Step 3 of 3 · Consent check"
-          title="Before you start"
-          description="Confirm exactly who can see you, what they see, and when access ends."
+          eyebrow="Step 2 of 2 · Confirm"
+          title="Ready to share?"
+          description="Check who can see you and when access ends, then start."
         />
-        <SectionCard>
-          <div className="space-y-3">
-            {selectedCircle ? (
-              <ReviewRow
-                label="Circle"
-                value={`${selectedCircle.circle.name} · ${selectedReady.length} ${
-                  selectedReady.length === 1 ? "person" : "people"
-                }`}
-              />
-            ) : null}
-            <ReviewRow
-              label="Can see"
-              value={
-                selectedReady.length ? (
-                  <ul
-                    aria-label="People who can see your location"
-                    className="min-w-0 space-y-1 text-right"
-                  >
-                    {selectedReady.map((recipient) => (
-                      <li
-                        key={recipient.userId}
-                        className="break-words [overflow-wrap:anywhere]"
-                      >
-                        {vm.recipientLabel(recipient)}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  "Selected people"
-                )
-              }
-            />
-            {/* No "Location type" row. It read back whichever option was
-                picked, which made the review step the most convincing part of
-                a promise nothing kept — see the note above ShareFlow. */}
-            <ReviewRow
-              label="Duration"
-              value={durationLabel(vm.shareDurationHours)}
-            />
-            <ReviewRow label="Control" value="You can stop anytime" />
-          </div>
-        </SectionCard>
-        <div className="space-y-2.5">
-          <Button
-            onClick={vm.onConfirmShare}
-            isLoading={vm.busy === "share"}
-            data-voice-control-id="one-location-confirm-share"
-            className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-          >
-            Start sharing
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={onClose}
-            className="h-11 w-full rounded-2xl text-sm"
-          >
-            Cancel
-          </Button>
-        </div>
-      </div>
-    );
-  }
 
-  if (step === "details") {
-    return (
-      <div className="space-y-5">
-        <TaskFlowHeader
-          eyebrow="Step 2 of 3 · Details"
-          title="What are you sharing?"
-        />
+        <SectionCard
+          title="Can see you"
+          description={
+            selectedCircle
+              ? `${selectedCircle.circle.name} · ${selectedReady.length} ${peopleNoun}`
+              : `${selectedReady.length} ${peopleNoun}`
+          }
+          action={
+            <Button
+              variant="ghost"
+              onClick={backToPeople}
+              className="h-9 rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)] hover:text-[color:var(--app-accent)]"
+            >
+              Edit
+            </Button>
+          }
+        >
+          {selectedReady.length ? (
+            <ul
+              aria-label="People who can see your location"
+              className="space-y-1"
+            >
+              {selectedReady.map((recipient) => (
+                <li
+                  key={recipient.userId}
+                  className="flex min-h-11 items-center gap-3"
+                >
+                  <Avatar initials={initialsFrom(vm.recipientLabel(recipient))} />
+                  <span className="min-w-0 flex-1 break-words text-[15px] font-medium text-foreground [overflow-wrap:anywhere]">
+                    {vm.recipientLabel(recipient)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className={MUTED_TEXT}>
+              Nobody is selected yet. Tap Edit to choose people.
+            </p>
+          )}
+        </SectionCard>
+
         <SectionCard>
           <div className="space-y-5">
-            <DurationSelector
-              value={vm.shareDurationHours}
-              onChange={vm.setShareDurationHours}
-              presentation="select"
-            />
+            <div className="space-y-2">
+              <DurationSelector
+                value={vm.shareDurationHours}
+                onChange={vm.setShareDurationHours}
+                presentation="select"
+              />
+              {/* The absolute end time is the part people actually reason
+                  about; "4 hours" makes them do the arithmetic themselves. */}
+              <p className={MUTED_TEXT} aria-live="polite">
+                {shareEndsAtLabel(vm.shareDurationHours, nowMs)}
+              </p>
+            </div>
             <div className="space-y-2">
               <label
                 htmlFor="one-location-share-note"
@@ -2287,14 +2319,33 @@ function ShareFlow({
             </div>
           </div>
         </SectionCard>
-        <Button
-          onClick={vm.onOpenShareReview}
-          disabled={!vm.canShare || shareNoteLimitExceeded}
-          isLoading={vm.busy === "share"}
-          className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
-        >
-          Review share
-        </Button>
+
+        {/* No "Location type" row. It read back whichever option was picked,
+            which made the consent step the most convincing part of a promise
+            nothing kept — see the note above ShareFlow. */}
+        <TrustNoteCard
+          title="You stay in control"
+          description="Live location is encrypted for each person you picked. It stops on its own when the time is up, and you can stop it sooner from Location."
+        />
+
+        <div className="space-y-2.5">
+          <Button
+            onClick={vm.onConfirmShare}
+            disabled={!vm.canShare || shareNoteLimitExceeded}
+            isLoading={vm.busy === "share"}
+            data-voice-control-id="one-location-confirm-share"
+            className="h-12 w-full rounded-2xl bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35"
+          >
+            Start sharing
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={onClose}
+            className="h-11 w-full rounded-2xl text-sm"
+          >
+            Cancel
+          </Button>
+        </div>
       </div>
     );
   }
@@ -2303,7 +2354,7 @@ function ShareFlow({
   return (
     <div className="space-y-5">
       <TaskFlowHeader
-        eyebrow="Step 1 of 3 · Choose person"
+        eyebrow="Step 1 of 2 · Choose people"
         title="Who can see you?"
         description="Only trusted and location-ready people can receive private live location."
       />
@@ -2417,6 +2468,10 @@ function ShareFlow({
           description="Invite someone to your Circle to start sharing."
         />
       )}
+      {/* A plain step change. Advancing must not depend on device permission:
+          the confirm step stays reachable when sharing is blocked so the reason
+          is visible on a disabled "Start sharing" rather than a button that
+          silently does nothing here. */}
       <Button
         onClick={() => setStep("details")}
         disabled={!selectedReady.length}
@@ -2428,35 +2483,30 @@ function ShareFlow({
   );
 }
 
-function ReviewRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: ReactNode;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3 border-b border-border/50 pb-3 last:border-0 last:pb-0">
-      <span className="shrink-0 text-[15px] font-normal leading-[20px] tracking-[-0.006em] text-[#8E8E93]">
-        {label}
-      </span>
-      <div className="min-w-0 max-w-[70%] text-right text-sm font-medium text-foreground">
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function durationLabel(value: string): string {
-  const map: Record<string, string> = {
-    "0.25": "15 min",
-    "0.5": "30 min",
-    "1": "1 hour",
-    "4": "4 hours",
-    "8": "8 hours",
-    "24": "24 hours",
-  };
-  return map[value] ?? `${value} hours`;
+/**
+ * "Access ends around 4:35 PM" — the confirm step's read-back of the duration.
+ *
+ * A duration is a promise about a moment, and "4 hours" makes the reader do the
+ * arithmetic. Stating the clock time is what lets someone notice that a share
+ * they meant to end before a meeting actually runs past it. Over 12 hours the
+ * weekday is included, because "8:00 AM" alone is ambiguous by then.
+ *
+ * Rounded to the nearest minute and hedged with "around": the share starts when
+ * the button is pressed, not when the label rendered.
+ */
+function shareEndsAtLabel(durationHours: string, nowMs: number): string {
+  const hours = Number(durationHours);
+  if (!Number.isFinite(hours) || hours <= 0) return "Access ends when time is up.";
+  const endsAt = new Date(nowMs + Math.round(hours * 60) * 60_000);
+  const time = endsAt.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  if (hours >= 12) {
+    const day = endsAt.toLocaleDateString(undefined, { weekday: "long" });
+    return `Access ends around ${time} on ${day}.`;
+  }
+  return `Access ends around ${time}.`;
 }
 
 /* =================================================================== */

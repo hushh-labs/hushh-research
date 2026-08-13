@@ -748,7 +748,10 @@ async function openSharePersonStep() {
   ).toBeTruthy();
 }
 
-async function openShareDetailsStep() {
+// Details and the old separate consent check are ONE step now: "Ready to
+// share?" carries the duration, the note, and the live read-back of who can see
+// you, so there is no navigation between setting a value and confirming it.
+async function openShareConfirmStep() {
   await openSharePersonStep();
   // No recipient is auto-selected anymore — the user must pick someone before
   // Continue is enabled. Select the first ready recipient (the action button's
@@ -761,15 +764,7 @@ async function openShareDetailsStep() {
 
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   expect(
-    await screen.findByRole("heading", { name: "What are you sharing?" }),
-  ).toBeTruthy();
-}
-
-async function openShareReviewStep() {
-  await openShareDetailsStep();
-  fireEvent.click(screen.getByRole("button", { name: /Review share/i }));
-  expect(
-    await screen.findByRole("heading", { name: "Before you start" }),
+    await screen.findByRole("heading", { name: "Ready to share?" }),
   ).toBeTruthy();
 }
 
@@ -1427,7 +1422,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(
-      await screen.findByRole("heading", { name: "What are you sharing?" }),
+      await screen.findByRole("heading", { name: "Ready to share?" }),
     ).toBeTruthy();
     // The precision options are gone: nothing behind them ever coarsened the
     // point, so offering the choice made a privacy promise the share did not
@@ -1438,6 +1433,14 @@ describe("OneLocationAgentPage", () => {
       screen.queryByText("Updates while you move for your loved ones"),
     ).toBeNull();
     expect(screen.queryByText("Private by design")).toBeNull();
+
+    // Details and consent now share one screen: the recipient read-back is
+    // visible while the duration is still being chosen, so there is no step
+    // where the person can set a value they have not seen confirmed.
+    const people = screen.getByRole("list", {
+      name: "People who can see your location",
+    });
+    expect(within(people).getByText("Trusted B")).toBeTruthy();
 
     const duration = screen.getByRole("combobox", { name: "Duration" });
     expect(duration.textContent).toContain("30 min");
@@ -1451,40 +1454,33 @@ describe("OneLocationAgentPage", () => {
     ]);
     fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
     expect(duration.textContent).toContain("4 hours");
+    // The duration reads back as a clock time on the same screen that set it.
+    expect(screen.getByText(/^Access ends around /)).toBeTruthy();
 
     const note = screen.getByRole("textbox", { name: "Optional note" });
-    const reviewButton = screen.getByRole("button", { name: "Review share" });
+    const startButton = screen.getByRole("button", { name: "Start sharing" });
     expect(screen.getByText("0/140")).toBeTruthy();
 
     fireEvent.change(note, { target: { value: "a".repeat(140) } });
     expect(screen.getByText("140/140")).toBeTruthy();
-    expect(reviewButton).toBeEnabled();
+    expect(startButton).toBeEnabled();
     expect(screen.queryByText("character limit exceed")).toBeNull();
 
     fireEvent.change(note, { target: { value: "a".repeat(141) } });
     expect(screen.getByText("141/140")).toBeTruthy();
     expect(screen.getByText("character limit exceed")).toBeTruthy();
-    expect(reviewButton).toBeDisabled();
+    expect(startButton).toBeDisabled();
 
     fireEvent.change(note, { target: { value: "On my way" } });
     expect(screen.getByText("9/140")).toBeTruthy();
     expect(screen.queryByText("character limit exceed")).toBeNull();
-    expect(reviewButton).toBeEnabled();
+    expect(startButton).toBeEnabled();
 
-    fireEvent.click(reviewButton);
-    expect(
-      await screen.findByRole("heading", { name: "Before you start" }),
-    ).toBeTruthy();
-    expect(screen.getByText("4 hours")).toBeTruthy();
     expect(
       screen.queryByText("Access ends automatically after expiry"),
     ).toBeNull();
-    const people = screen.getByRole("list", {
-      name: "People who can see your location",
-    });
-    expect(within(people).getByText("Trusted B")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Start sharing" }));
+    fireEvent.click(startButton);
     await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
     expect(mockCreateGrant).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1576,11 +1572,21 @@ describe("OneLocationAgentPage", () => {
       target: { value: "Trusted" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      await screen.findByRole("heading", { name: "Ready to share?" }),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("combobox", { name: "Duration" }));
     fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Optional note" }), {
       target: { value: "Meet me by the entrance" },
     });
+
+    // Back to the people step so the pending permission below is attached to
+    // Continue — the one control that now runs the device pre-flight.
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(
+      await screen.findByRole("heading", { name: "Who can see you?" }),
+    ).toBeTruthy();
 
     let resolvePermission:
       | ((value: {
@@ -1596,7 +1602,7 @@ describe("OneLocationAgentPage", () => {
           resolvePermission = resolve;
         }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Review share" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     const hubParams = new URLSearchParams();
     mockUseSearchParams.mockReturnValue(hubParams);
@@ -1641,6 +1647,9 @@ describe("OneLocationAgentPage", () => {
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      await screen.findByRole("heading", { name: "Ready to share?" }),
+    ).toBeTruthy();
     // No precision radios to reset — the reopened flow offers only the fields
     // that actually carry through to the share.
     expect(
@@ -1657,10 +1666,6 @@ describe("OneLocationAgentPage", () => {
     );
     expect(screen.getByText("0/140")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Review share" }));
-    expect(
-      await screen.findByRole("heading", { name: "Before you start" }),
-    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: /^Share location$/i }));
     expect(
@@ -1768,6 +1773,91 @@ describe("OneLocationAgentPage", () => {
 
     await act(async () => {
       resolveReopenedLookup?.({
+        name: "Times Square",
+        formattedAddress: "Manhattan, NY, USA",
+        countryCode: "US",
+      });
+    });
+    await expectEmergencyAction("911", "United States");
+  });
+
+  it("shows a locally-confirmed number immediately instead of a spinner", async () => {
+    // The whole point of caching WHERE a country was confirmed: arriving at the
+    // same place must not re-run "Finding local number" on the one screen where
+    // seconds matter. The authoritative lookup still runs behind this.
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+    window.localStorage.setItem(
+      "one_location_emergency_info_v1",
+      // Exactly where mockCaptureCurrentPosition puts the user.
+      JSON.stringify({ countryCode: "IN", lat: 28.6139, lng: 77.209 }),
+    );
+    mockSearchParams.toString = () => "action=sos";
+    mockSearchParamsGet.mockImplementation((name: string) =>
+      name === "action" ? "sos" : null,
+    );
+    // Never resolves: anything on screen came from the cache, not the network.
+    mockReverseGeocode.mockImplementation(() => new Promise(() => {}));
+
+    render(<OneLocationAgentPage />);
+
+    expect(
+      await screen.findByRole("heading", { name: /Save my soul/i }),
+    ).toBeTruthy();
+    await expectEmergencyAction("112", "India");
+    expect(
+      screen.queryByRole("button", { name: "Finding local emergency number" }),
+    ).toBeNull();
+  });
+
+  it("ignores a cached number from a country the user has since left", async () => {
+    // Cached in Delhi, standing in New York. Showing 112 here is the failure
+    // the origin check exists to prevent: the spinner is the correct state
+    // until the authoritative lookup answers.
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+    window.localStorage.setItem(
+      "one_location_emergency_info_v1",
+      JSON.stringify({ countryCode: "IN", lat: 28.6139, lng: 77.209 }),
+    );
+    mockCaptureCurrentPosition.mockResolvedValue({
+      latitude: 40.7128,
+      longitude: -74.006,
+      accuracyM: 12,
+      capturedAt: "2026-05-20T07:35:00.000Z",
+      sourcePlatform: "web",
+    });
+    mockSearchParams.toString = () => "action=sos";
+    mockSearchParamsGet.mockImplementation((name: string) =>
+      name === "action" ? "sos" : null,
+    );
+
+    let resolveLookup:
+      | ((value: {
+          name: string | null;
+          formattedAddress: string | null;
+          countryCode: string | null;
+        }) => void)
+      | null = null;
+    mockReverseGeocode.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveLookup = resolve;
+        }),
+    );
+
+    render(<OneLocationAgentPage />);
+
+    expect(
+      await screen.findByRole("heading", { name: /Save my soul/i }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByRole("button", {
+        name: "Finding local emergency number",
+      }),
+    ).toBeDisabled();
+    expect(screen.queryByText("112")).toBeNull();
+
+    await act(async () => {
+      resolveLookup?.({
         name: "Times Square",
         formattedAddress: "Manhattan, NY, USA",
         countryCode: "US",
@@ -2880,7 +2970,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openShareReviewStep();
+    await openShareConfirmStep();
     fireEvent.click(screen.getByRole("button", { name: /Start sharing/i }));
 
     await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
@@ -2938,10 +3028,7 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy(),
     );
     expect(
-      screen.queryByRole("heading", { name: "Before you start" }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("heading", { name: "What are you sharing?" }),
+      screen.queryByRole("heading", { name: "Ready to share?" }),
     ).toBeNull();
   });
 
@@ -2960,7 +3047,7 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openShareReviewStep();
+    await openShareConfirmStep();
     fireEvent.click(screen.getByRole("button", { name: /Start sharing/i }));
 
     await waitFor(() => expect(mockStoreEnvelope).toHaveBeenCalledTimes(2));
@@ -3059,11 +3146,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(
-      await screen.findByRole("heading", { name: "What are you sharing?" }),
-    ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Review share/i }));
-    expect(
-      await screen.findByRole("heading", { name: "Before you start" }),
+      await screen.findByRole("heading", { name: "Ready to share?" }),
     ).toBeTruthy();
     const people = screen.getByRole("list", {
       name: "People who can see your location",
@@ -3384,9 +3467,9 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openShareDetailsStep();
+    await openShareConfirmStep();
     const shareButton = screen.getByRole("button", {
-      name: /Review share/i,
+      name: /Start sharing/i,
     }) as HTMLButtonElement;
     expect(shareButton.disabled).toBe(false);
   });
@@ -3408,9 +3491,9 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await openShareDetailsStep();
+    await openShareConfirmStep();
     const shareButton = screen.getByRole("button", {
-      name: /Review share/i,
+      name: /Start sharing/i,
     }) as HTMLButtonElement;
     expect(shareButton.disabled).toBe(true);
     expect(mockCreateGrant).not.toHaveBeenCalled();
