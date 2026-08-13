@@ -17,6 +17,7 @@ import {
   MapPin,
   Search,
   UsersRound,
+  WifiOff,
   X,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -93,7 +94,44 @@ type RenderMarker = {
   kind: "person" | "self" | "place";
   grantId?: string;
   tint?: { r: number; g: number; b: number; a: number };
+  /**
+   * When this position was taken, not when it was fetched. A person whose
+   * phone locked keeps their last known pin instead of disappearing, and this
+   * is what lets the map say so rather than quietly implying they are still
+   * moving.
+   */
+  capturedAt?: string | null;
 };
+
+/** Grey. A pin whose owner has gone quiet stops claiming to be live. */
+const STALE_TINT = { r: 142, g: 142, b: 147, a: 255 } as const;
+
+/** "last seen 7m ago" -- a fact about their signal, not their intent. */
+function lastSeenLabel(
+  capturedAt: string | null | undefined,
+  nowMs: number,
+): string | null {
+  if (!capturedAt) return null;
+  const captured = Date.parse(capturedAt);
+  if (!Number.isFinite(captured)) return null;
+  const minutes = Math.floor(Math.max(0, nowMs - captured) / 60_000);
+  if (minutes < 1) return "last seen just now";
+  if (minutes < 60) return `last seen ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `last seen ${hours}h ago`;
+  return `last seen ${Math.floor(hours / 24)}d ago`;
+}
+
+function isStaleAt(
+  capturedAt: string | null | undefined,
+  freshnessSeconds: number,
+  nowMs: number,
+): boolean {
+  if (!capturedAt) return false;
+  const captured = Date.parse(capturedAt);
+  if (!Number.isFinite(captured)) return false;
+  return nowMs - captured > freshnessSeconds * 1_000;
+}
 
 function displayLabel(marker: OneLocationMapMarker): string {
   return marker.grant.ownerDisplayName?.trim() || "A trusted person";
@@ -329,6 +367,18 @@ export function LocationImmersiveMap({
     presenceMode: "ghost",
   });
   const [markers, setMarkers] = useState<RenderMarker[]>([]);
+  // The server's own definition of live, rather than a second copy of 90 in
+  // the client that could drift away from it.
+  const [freshnessSeconds, setFreshnessSeconds] = useState(90);
+  // Staleness is a function of time passing, not of new data arriving -- a pin
+  // has to go grey while nothing at all is happening. The marker refresh alone
+  // would never notice, because a phone that stopped publishing sends nothing
+  // to notice.
+  const [staleClockMs, setStaleClockMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setStaleClockMs(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [selfMarker, setSelfMarker] = useState<RenderMarker | null>(null);
   // Count of the account's own ACTIVE outgoing shares (people it is sharing
   // its location WITH). Sourced from the full getState (map-state only carries
@@ -692,6 +742,7 @@ export function LocationImmersiveMap({
               label: displayLabel(marker),
               kind: "person",
               grantId: marker.grant.id,
+              capturedAt: marker.envelope.capturedAt ?? null,
             } satisfies RenderMarker;
           } catch {
             // A device without the recipient private key must not show a stale or
@@ -705,6 +756,9 @@ export function LocationImmersiveMap({
         (item): item is RenderMarker => item !== null,
       );
       setPreferences(state.preferences);
+      if (Number.isFinite(state.freshnessSeconds) && state.freshnessSeconds > 0) {
+        setFreshnessSeconds(state.freshnessSeconds);
+      }
       const nextSignature = markerSignature(nextMarkers);
       if (nextSignature !== markerSignatureRef.current) {
         markerSignatureRef.current = nextSignature;
@@ -1320,7 +1374,13 @@ export function LocationImmersiveMap({
                       : "Sharing privately now",
               }
             : {}),
-          tintColor: marker.tint,
+          // Grey once the position is older than live. tintColor is the only
+          // per-pin styling this bridge exposes -- `title` cannot carry it,
+          // because the web renderer paints titles across the map as a glyph
+          // (see above) -- so the colour is where staleness has to be said.
+          tintColor: isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs)
+            ? STALE_TINT
+            : marker.tint,
           zIndex:
             marker.kind === "self" ? 10 : marker.kind === "place" ? 9 : 1,
         };
@@ -1358,7 +1418,18 @@ export function LocationImmersiveMap({
     return () => {
       cancelled = true;
     };
-  }, [entryLocationSettled, mapReady, visibleMarkers]);
+    // staleClockMs and freshnessSeconds are dependencies because a pin has to
+    // change colour while nothing else changes at all. Without them the tint
+    // is decided once, when the marker is drawn, and a person who went quiet
+    // keeps a live-coloured pin until some unrelated refresh happens to redraw
+    // it.
+  }, [
+    entryLocationSettled,
+    mapReady,
+    visibleMarkers,
+    freshnessSeconds,
+    staleClockMs,
+  ]);
 
   const acceptRenderer = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -1400,8 +1471,12 @@ export function LocationImmersiveMap({
       setPreferences(next);
       toast.success(
         nextMode === "ghost"
-          ? "Ghost Mode is on."
-          : "Map visibility is ready. Tap Locate me to appear.",
+          ? "Ghost Mode is on. Nobody sees you on their map."
+          // "Tap Locate me to appear" was true while the locate button was the
+          // only thing that ever published a map-visible position. Sharing does
+          // it now, so telling somebody to go and tap something else would send
+          // them looking for a step that no longer exists.
+          : "You will appear on the map of anyone you share with.",
       );
     } catch {
       toast.error("Map visibility could not be updated.");
@@ -2183,8 +2258,8 @@ export function LocationImmersiveMap({
                     </h3>
                     <p className="text-xs text-muted-foreground">
                       Nearby check-ins stay in the list and never become map
-                      pins. A pin appears only after that person explicitly
-                      shares their location with you.
+                      pins. A pin needs two things: they share their location
+                      with you, and they have turned on appearing on maps.
                     </p>
                   </div>
                   <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">
@@ -2197,6 +2272,19 @@ export function LocationImmersiveMap({
                 >
                   {filteredPeople.map((person) => {
                     const selectedPerson = selected?.key === person.key;
+                    // The tray is where identity lives, because it is the only
+                    // part of this screen that is real DOM. Map pins come from
+                    // the Capacitor bridge, which offers a tint and nothing
+                    // else -- no avatar, no badge, and no hover at all on a
+                    // touch device.
+                    const personStale = isStaleAt(
+                      person.capturedAt,
+                      freshnessSeconds,
+                      staleClockMs,
+                    );
+                    const lastSeen = personStale
+                      ? lastSeenLabel(person.capturedAt, staleClockMs)
+                      : null;
                     return (
                       <button
                         key={person.key}
@@ -2206,22 +2294,59 @@ export function LocationImmersiveMap({
                             ? MAP_ACCENT_ACTIVE_CLASSNAME
                             : "border-border/60 bg-muted/70 text-foreground hover:bg-muted"
                         }`}
-                        aria-label={`Show ${person.label} on the map`}
+                        // The live case keeps its original name exactly. Only a
+                        // person who has gone quiet has anything extra worth
+                        // announcing, and saying "sharing live" on every other
+                        // row would be noise in a screen reader.
+                        aria-label={
+                          lastSeen
+                            ? `Show ${person.label} on the map. Last seen ${lastSeen}.`
+                            : `Show ${person.label} on the map`
+                        }
+                        title={
+                          lastSeen
+                            ? `${person.label} — last seen ${lastSeen}`
+                            : `${person.label} — live now`
+                        }
                         data-testid="one-location-map-person"
+                        data-stale={personStale ? "true" : "false"}
                         onClick={() => void focusMarker(person)}
                       >
-                        <span
-                          className="grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white"
-                          style={{
-                            backgroundColor: person.tint
-                              ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
-                              : "var(--app-accent)",
-                          }}
-                        >
-                          {personInitials(person.label)}
+                        <span className="relative shrink-0">
+                          <span
+                            className={`grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white transition-[filter,opacity] ${
+                              personStale ? "opacity-70 grayscale" : ""
+                            }`}
+                            style={{
+                              backgroundColor: person.tint
+                                ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
+                                : "var(--app-accent)",
+                            }}
+                          >
+                            {personInitials(person.label)}
+                          </span>
+                          {/* Bottom-right, over the avatar's own edge. Shape as
+                              well as colour, so it survives being read on a
+                              greyscale avatar by someone who cannot rely on
+                              the grey itself. */}
+                          {personStale ? (
+                            <span
+                              className="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-background ring-1 ring-border"
+                              aria-hidden="true"
+                            >
+                              <WifiOff className="h-2.5 w-2.5 text-muted-foreground" />
+                            </span>
+                          ) : null}
                         </span>
-                        <span className="max-w-28 truncate font-medium">
-                          {person.label}
+                        <span className="flex min-w-0 flex-col leading-tight">
+                          <span className="max-w-28 truncate font-medium">
+                            {person.label}
+                          </span>
+                          {lastSeen ? (
+                            <span className="max-w-28 truncate text-[11px] text-muted-foreground">
+                              {lastSeen}
+                            </span>
+                          ) : null}
                         </span>
                       </button>
                     );

@@ -537,6 +537,17 @@ export class OneLocationService {
     });
   }
 
+  /** The viewer's own map presence preference, without the marker payload. */
+  static async getMapPreferences(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationMapPreferences> {
+    const response = await apiJson<{ preferences: OneLocationMapPreferences }>(
+      "/api/one/location/map-preferences",
+      { headers: authHeaders(vaultOwnerToken) },
+    );
+    return response.preferences;
+  }
+
   static async updateMapPreferences(params: {
     vaultOwnerToken: string;
     presenceMode?: OneLocationMapPreferences["presenceMode"];

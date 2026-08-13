@@ -445,6 +445,20 @@ def get_location_map_state(token_data: dict = Depends(require_vault_owner_token)
         raise _handle_error(exc) from exc
 
 
+@router.get("/location/map-preferences")
+def get_location_map_preferences(token_data: dict = Depends(require_vault_owner_token)):
+    """Read the viewer's own map presence preference.
+
+    Separate from `/location/map-state`, which also returns every marker and
+    costs a decrypt-and-render pass. Location settings needs one boolean, and
+    should not pay for the map to ask a question about a switch.
+    """
+    try:
+        return {"preferences": _service().get_map_preferences(user_id=_user_id(token_data))}
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.patch("/location/map-preferences")
 def update_location_map_preferences(
     payload: UpdateMapPreferencesRequest,
