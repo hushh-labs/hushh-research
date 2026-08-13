@@ -1,7 +1,7 @@
 """Adding a cloud provider must not require editing the common pod architecture.
 
 This is the falsifiable form of the deployment abstraction boundary
-(docs/reference/architecture/deployment-abstraction-boundary.md). The boundary is
+(docs/reference/architecture/deployment-standard.md). The boundary is
 worth exactly as much as the thing that detects a breach, and every breach of it looks
 locally reasonable at the moment it is made -- one `if backend == "aws"` in the
 orchestrator is a two-line change that solves a real problem and permanently converts a

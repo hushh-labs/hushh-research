@@ -4,6 +4,28 @@ When someone signs in and their private agent does not appear, this is how to fi
 where it stopped. Every stage below is observable; the point of this page is that you
 should never have to guess which one failed.
 
+## Visual Context
+
+Canonical visual owner: [Operations Index](./README.md). Companion contracts:
+[dev-fast-lane.md](./dev-fast-lane.md) (how the branch under test got deployed),
+[../architecture/deployment-standard.md](../architecture/deployment-standard.md)
+(which layer each stage belongs to).
+
+```mermaid
+flowchart LR
+  reg["1 registration<br/>phone verified"] --> row["2 registry row<br/>HusshID minted"]
+  row --> grant["3 standing grant<br/>pkm.read"]
+  grant --> sub["4 substrate<br/>BYOC only"]
+  sub --> svc["5 Cloud Run service<br/>one-pod-&lt;id&gt;"]
+  svc --> serve["6 genuinely serving<br/>probe=http /health"]
+  serve --> key["7 pod key pushed<br/>handshake"]
+  key --> turn["8 turn answers<br/>on the pod"]
+```
+
+Stages 4 and 5 are the two layers of [the deployment
+standard](../architecture/deployment-standard.md): substrate must apply before an
+instance is built on it, so a stage-4 failure is never diagnosed at stage 5.
+
 ## The one identifier that joins everything
 
 The **HusshID** (`ha1_…`) is the opaque public handle for a person's agent. It is
