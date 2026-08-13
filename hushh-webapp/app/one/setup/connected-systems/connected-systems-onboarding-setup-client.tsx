@@ -27,7 +27,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
   const router = useRouter();
   const params = useSearchParams();
   const { user } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
+  const { vaultOwnerToken } = useVault();
   const [showUnlock, setShowUnlock] = useState(false);
   const [ready, setReady] = useState(false);
   const coordinator = useSetupCapabilityCoordinator({
@@ -72,7 +72,6 @@ export function ConnectedSystemsOnboardingSetupClient() {
           <VaultStatusInline className="mb-3 px-1" />
           <ConnectedSystemsPanel
             cacheUserId={user?.uid}
-            vaultKey={vaultKey}
             vaultOwnerToken={vaultOwnerToken}
             onRequestUnlock={() => setShowUnlock(true)}
             mode={systemId ? "detail" : "list"}

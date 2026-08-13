@@ -13,9 +13,9 @@ import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 
 import {
-  MajorSectionTitle,
   RowDescription,
   RowLabel,
+  SectionTitle,
 } from "@/components/app-ui/typography";
 import { cn } from "@/lib/utils";
 
@@ -136,7 +136,7 @@ export function QuickActionsSection({
   return (
     <section className={cn("space-y-3", className)}>
       <div className="flex items-center px-1">
-        <MajorSectionTitle>{title}</MajorSectionTitle>
+        <SectionTitle>{title}</SectionTitle>
       </div>
       <div
         className={cn(

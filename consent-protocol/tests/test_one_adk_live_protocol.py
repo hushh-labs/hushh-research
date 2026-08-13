@@ -868,9 +868,7 @@ def test_the_specialist_fingerprint_ignores_the_random_payload_id():
     first = specialist_directive_fingerprint("agent_location", "prompt", "publish_share")
     second = specialist_directive_fingerprint("agent_location", "prompt", "publish_share")
     assert first == second
-    assert first != specialist_directive_fingerprint(
-        "agent_location", "action", "publish_share"
-    )
+    assert first != specialist_directive_fingerprint("agent_location", "action", "publish_share")
 
 
 def test_one_settlement_produces_one_turn_even_when_it_arms_a_continuation():
@@ -905,9 +903,7 @@ def test_one_settlement_produces_one_turn_even_when_it_arms_a_continuation():
 
     # A navigation step arms the navigation continuation...
     assert _is_navigation_step_settlement(navigation_run) is True
-    assert (
-        _navigation_continuation_screen("goal.x", navigation_run, "succeeded") == "connect"
-    )
+    assert _navigation_continuation_screen("goal.x", navigation_run, "succeeded") == "connect"
     # ...and a settled-action journey never does, so the settled-journey note
     # and the navigation note can never both be produced for one settlement.
     assert _is_navigation_step_settlement(settled_run) is False
@@ -915,6 +911,9 @@ def test_one_settlement_produces_one_turn_even_when_it_arms_a_continuation():
 
     # Past the navigation step, what settles is the journey's own action, whose
     # result One is waiting on -- never another cue to act.
-    assert _navigation_continuation_screen("goal.x", {**navigation_run, "step_cursor": 1}, "succeeded") is None
+    assert (
+        _navigation_continuation_screen("goal.x", {**navigation_run, "step_cursor": 1}, "succeeded")
+        is None
+    )
     # A failed navigation arms nothing either.
     assert _navigation_continuation_screen("goal.x", navigation_run, "failed") is None

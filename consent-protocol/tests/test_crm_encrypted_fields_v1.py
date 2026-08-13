@@ -1,4 +1,4 @@
-"""Contract checks for the isolated CRM encrypted UAT profile."""
+"""Contract checks for the external CRM encrypted-fields profile."""
 
 from __future__ import annotations
 
@@ -12,25 +12,25 @@ import pytest
 from pydantic import ValidationError
 
 from hushh_mcp.services.connected_systems_service import (
-    ConnectedSystemBlockedError,
     ConnectedSystemDefinition,
     ConnectedSystemsError,
     ConnectedSystemsService,
     InMemoryConnectedSystemIntentStore,
-    _normalize_crm_zk_uat_ack,
+    _normalize_crm_encrypted_fields_ack,
 )
-from hushh_mcp.services.crm_zk_uat_v1 import (
-    CRM_ZK_UAT_V1_PROFILE,
-    CrmZkUatEncryptedFields,
-    CrmZkUatValidationError,
-    validate_crm_zk_uat_envelope,
+from hushh_mcp.services.crm_encrypted_fields_v1 import (
+    CRM_ENCRYPTED_FIELDS_V1_PROFILE,
+    CrmEncryptedFields,
+    CrmEncryptedFieldsValidationError,
+    validate_crm_encrypted_fields_envelope,
+    validate_crm_encrypted_fields_recipient_key,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture(autouse=True)
-def _uat_runtime(monkeypatch: pytest.MonkeyPatch):
+def _encrypted_fields_runtime(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ENVIRONMENT", "uat")
 
 
@@ -44,7 +44,7 @@ def _fingerprint(byte: int = 1) -> str:
 
 def _envelope(*, direction: str = "update_request", key_id: str = "mulesoft-uat-1") -> dict:
     return {
-        "profile": CRM_ZK_UAT_V1_PROFILE,
+        "profile": CRM_ENCRYPTED_FIELDS_V1_PROFILE,
         "direction": direction,
         "recipientKeyId": key_id,
         "clientOperationId": "czku_" + "a" * 32,
@@ -59,9 +59,9 @@ def _envelope(*, direction: str = "update_request", key_id: str = "mulesoft-uat-
     }
 
 
-def test_uat_envelope_accepts_only_exact_binary_shape_key_and_direction() -> None:
+def test_encrypted_fields_envelope_accepts_only_exact_binary_shape_key_and_direction() -> None:
     value = _envelope()
-    parsed = validate_crm_zk_uat_envelope(
+    parsed = validate_crm_encrypted_fields_envelope(
         value,
         expected_direction="update_request",
         expected_key_id="mulesoft-uat-1",
@@ -71,13 +71,25 @@ def test_uat_envelope_accepts_only_exact_binary_shape_key_and_direction() -> Non
     assert parsed.model_dump(mode="json", by_alias=True)["clientPublicKey"] == _b64(32, 2)
 
     wrong_key = _envelope(key_id="untrusted")
-    with pytest.raises(CrmZkUatValidationError, match="recipient_key_mismatch"):
-        validate_crm_zk_uat_envelope(
+    with pytest.raises(CrmEncryptedFieldsValidationError, match="recipient_key_mismatch"):
+        validate_crm_encrypted_fields_envelope(
             wrong_key,
             expected_direction="update_request",
             expected_key_id="mulesoft-uat-1",
             now_ms=wrong_key["expiresAtMs"] - 1,
         )
+
+
+def test_encrypted_fields_recipient_key_requires_a_matching_fingerprint() -> None:
+    key = {
+        "keyId": "mulesoft-uat-1",
+        "publicKey": _b64(32),
+        "publicKeyFingerprint": _fingerprint(),
+    }
+    validate_crm_encrypted_fields_recipient_key(key)
+
+    with pytest.raises(CrmEncryptedFieldsValidationError, match="recipient_key_mismatch"):
+        validate_crm_encrypted_fields_recipient_key({**key, "publicKeyFingerprint": "sha256:wrong"})
 
 
 @pytest.mark.parametrize(
@@ -92,13 +104,13 @@ def test_uat_envelope_accepts_only_exact_binary_shape_key_and_direction() -> Non
         ("ciphertext", "not-base64"),
     ],
 )
-def test_uat_envelope_rejects_malformed_crypto_fields(field: str, value: str) -> None:
+def test_encrypted_fields_envelope_rejects_malformed_crypto_fields(field: str, value: str) -> None:
     with pytest.raises(ValidationError):
-        CrmZkUatEncryptedFields.model_validate({**_envelope(), field: value})
+        CrmEncryptedFields.model_validate({**_envelope(), field: value})
 
 
 @pytest.mark.asyncio
-async def test_uat_partner_call_replaces_registry_arguments_and_sends_no_configuration(
+async def test_encrypted_fields_partner_call_replaces_registry_arguments_and_sends_no_configuration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     system = ConnectedSystemDefinition(
@@ -116,12 +128,12 @@ async def test_uat_partner_call_replaces_registry_arguments_and_sends_no_configu
             {
                 "operation": "update",
                 "name": "update-crm-record",
-                "crmZkUatToolName": "update-crm-record-zk-uat",
+                "crmEncryptedFieldsToolName": "update-crm-record-encrypted",
             },
         ),
-        transport_tool_arguments={"connectorRef": "must-not-be-merged"},
-        crm_zk_uat_v1_enabled=True,
-        crm_zk_uat_recipient_key={
+        transport_tool_arguments={"legacyArgument": "must-not-be-merged"},
+        crm_encrypted_fields_v1_enabled=True,
+        crm_encrypted_fields_recipient_key={
             "keyId": "mulesoft-uat-1",
             "publicKey": _b64(32),
             "publicKeyFingerprint": _fingerprint(),
@@ -139,14 +151,16 @@ async def test_uat_partner_call_replaces_registry_arguments_and_sends_no_configu
 
     monkeypatch.setattr(service, "_call_operation", fake_call_operation)
     payload = {
-        "profile": CRM_ZK_UAT_V1_PROFILE,
+        "profile": CRM_ENCRYPTED_FIELDS_V1_PROFILE,
         "operation": "update",
         "objectType": "Contact",
         "id": "backend-bound",
         "fieldNames": ["Title"],
         "encryptedFields": _envelope(),
     }
-    await service._call_crm_zk_uat_partner(system=system, operation="update", payload=payload)
+    await service._call_crm_encrypted_fields_partner(
+        system=system, operation="update", payload=payload
+    )
 
     assert captured["replace_tool_arguments"] is True
     assert captured["payload"] == payload
@@ -164,18 +178,23 @@ async def test_uat_partner_call_replaces_registry_arguments_and_sends_no_configu
     )
 
 
-def test_uat_profile_migration_is_release_managed_and_default_off() -> None:
-    migration = (ROOT / "db/migrations/143_crm_zk_uat_v1.sql").read_text("utf-8")
+def test_encrypted_fields_profile_migration_is_release_managed_and_default_off() -> None:
+    migration = (ROOT / "db/migrations/145_crm_encrypted_fields_v1.sql").read_text("utf-8")
+    retirement = (ROOT / "db/migrations/147_retire_crm_zk_runtime_profiles.sql").read_text("utf-8")
     manifest = json.loads((ROOT / "db/release_migration_manifest.json").read_text("utf-8"))
 
-    assert "143_crm_zk_uat_v1.sql" in manifest["ordered_migrations"]
-    assert "crm_zk_uat_v1_enabled BOOLEAN NOT NULL DEFAULT FALSE" in migration
-    assert "NOT (crm_zk_v1_enabled AND crm_zk_uat_v1_enabled)" in migration
+    assert "145_crm_encrypted_fields_v1.sql" in manifest["ordered_migrations"]
+    assert "147_retire_crm_zk_runtime_profiles.sql" in manifest["ordered_migrations"]
+    assert "crm_encrypted_fields_v1_enabled BOOLEAN NOT NULL DEFAULT FALSE" in migration
     assert "environment = 'sandbox'" in migration
-    assert "crm-zk-uat.v1" in migration
+    assert "crm-encrypted-fields.v1" in migration
+    assert "enterprise_crm_registry_legacy_crm_zk_profiles_retired" in retirement
+    assert "non-terminal legacy encrypted intents" in retirement
 
 
-def test_uat_profile_fails_closed_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_encrypted_fields_profile_fails_closed_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("ENVIRONMENT", "production")
     system = ConnectedSystemDefinition(
         system_id="crm-uat",
@@ -192,11 +211,11 @@ def test_uat_profile_fails_closed_in_production(monkeypatch: pytest.MonkeyPatch)
             {
                 "operation": "read",
                 "name": "read-crm-record",
-                "crmZkUatToolName": "read-crm-record-zk-uat",
+                "crmEncryptedFieldsToolName": "read-crm-record-encrypted",
             },
         ),
-        crm_zk_uat_v1_enabled=True,
-        crm_zk_uat_recipient_key={
+        crm_encrypted_fields_v1_enabled=True,
+        crm_encrypted_fields_recipient_key={
             "keyId": "mulesoft-uat-1",
             "publicKey": _b64(32),
             "publicKeyFingerprint": _fingerprint(),
@@ -204,11 +223,89 @@ def test_uat_profile_fails_closed_in_production(monkeypatch: pytest.MonkeyPatch)
         },
     )
 
-    assert system.crm_zk_uat_ready("read") is False
+    assert system.crm_encrypted_fields_ready("read") is False
+
+
+def test_registry_owned_operation_objects_keep_person_account_and_contact_bindings_separate() -> (
+    None
+):
+    system = ConnectedSystemDefinition(
+        system_id="crm-person-account",
+        display_name="Hushh",
+        customer_display_name="Hushh",
+        system_type="Salesforce",
+        system_name="Salesforce",
+        target="Hushh",
+        object_type_default="Contact",
+        transport="external_crm_streamable_mcp",
+        transport_endpoint="registry://crm-person-account",
+        registry_source="enterprise_crm_registry",
+        tool_catalog=(
+            {"operation": "create", "name": "create-crm-record", "objectType": "Account"},
+            {"operation": "read", "name": "read-crm-record", "objectType": "Contact"},
+            {"operation": "update", "name": "update-crm-record", "objectType": "Contact"},
+        ),
+    )
+    store = InMemoryConnectedSystemIntentStore()
+    store.upsert_binding(
+        {
+            "binding_id": "account-binding",
+            "user_id": "owner-1",
+            "system_id": system.system_id,
+            "target": "Hushh",
+            "object_type": "Account",
+            "record_id": "001-person-account",
+            "created_intent_id": "create-account",
+            "last_intent_id": "create-account",
+        }
+    )
+    service = ConnectedSystemsService(registry=(system,), store=store)
+
+    assert system.object_type_for_operation("create") == "Account"
+    assert system.object_type_for_operation("update") == "Contact"
+    with pytest.raises(ConnectedSystemsError, match="Link your CRM record"):
+        service._require_bound_record_id(
+            user_id="owner-1",
+            system_id=system.system_id,
+            object_type=system.object_type_for_operation("update"),
+        )
+
+
+def test_registry_summary_exposes_safe_per_operation_object_types() -> None:
+    system = ConnectedSystemDefinition(
+        system_id="crm-person-account",
+        display_name="Hushh",
+        customer_display_name="Hushh",
+        system_type="Salesforce",
+        system_name="Salesforce",
+        target="Hushh",
+        object_type_default="Contact",
+        transport="external_crm_streamable_mcp",
+        transport_endpoint="registry://crm-person-account",
+        registry_source="test",
+        tool_catalog=(
+            {"operation": "schema", "name": "object-schema", "objectType": "Contact"},
+            {"operation": "create", "name": "create-crm-record", "objectType": "Account"},
+            {"operation": "read", "name": "read-crm-record", "objectType": "Contact"},
+            {"operation": "update", "name": "update-crm-record", "objectType": "Contact"},
+            {"operation": "delete", "name": "delete-crm-record", "objectType": "Contact"},
+        ),
+    )
+
+    summary = system.to_summary(endpoint_configured=True, delete_enabled=True)
+
+    assert summary["operationObjectTypes"] == {
+        "schema": "Contact",
+        "read": "Contact",
+        "create": "Account",
+        "update": "Contact",
+        "delete": "Contact",
+    }
+    assert "record_id" not in json.dumps(summary)
 
 
 @pytest.mark.asyncio
-async def test_uat_update_is_ciphertext_only_and_approval_is_idempotent(
+async def test_encrypted_fields_update_is_ciphertext_only_and_approval_is_idempotent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     system = ConnectedSystemDefinition(
@@ -227,16 +324,16 @@ async def test_uat_update_is_ciphertext_only_and_approval_is_idempotent(
             {
                 "operation": "read",
                 "name": "read-crm-record",
-                "crmZkUatToolName": "read-crm-record-zk-uat",
+                "crmEncryptedFieldsToolName": "read-crm-record",
             },
             {
                 "operation": "update",
                 "name": "update-crm-record",
-                "crmZkUatToolName": "update-crm-record-zk-uat",
+                "crmEncryptedFieldsToolName": "update-crm-record",
             },
         ),
-        crm_zk_uat_v1_enabled=True,
-        crm_zk_uat_recipient_key={
+        crm_encrypted_fields_v1_enabled=True,
+        crm_encrypted_fields_recipient_key={
             "keyId": "mulesoft-uat-1",
             "publicKey": _b64(32),
             "publicKeyFingerprint": _fingerprint(),
@@ -285,9 +382,9 @@ async def test_uat_update_is_ciphertext_only_and_approval_is_idempotent(
         }
 
     monkeypatch.setattr(service, "get_schema", fake_schema)
-    monkeypatch.setattr(service, "_call_crm_zk_uat_partner", fake_partner)
+    monkeypatch.setattr(service, "_call_crm_encrypted_fields_partner", fake_partner)
 
-    prepared = await service.create_crm_zk_uat_update_intent(
+    prepared = await service.create_encrypted_fields_update_intent(
         user_id="owner-1",
         system_id="crm-uat",
         object_type="Contact",
@@ -305,17 +402,17 @@ async def test_uat_update_is_ciphertext_only_and_approval_is_idempotent(
     assert "additionalFields" not in str(stored)
 
     with pytest.raises(ConnectedSystemsError, match="ack lost"):
-        await service.approve_crm_zk_uat_intent(
+        await service.approve_encrypted_fields_intent(
             user_id="owner-1", system_id="crm-uat", intent_id=prepared["intentId"]
         )
     retryable = store.get_intent(
         user_id="owner-1", system_id="crm-uat", intent_id=prepared["intentId"]
     )
     assert retryable is not None and retryable["status"] == "approved"
-    first = await service.approve_crm_zk_uat_intent(
+    first = await service.approve_encrypted_fields_intent(
         user_id="owner-1", system_id="crm-uat", intent_id=prepared["intentId"]
     )
-    second = await service.approve_crm_zk_uat_intent(
+    second = await service.approve_encrypted_fields_intent(
         user_id="owner-1", system_id="crm-uat", intent_id=prepared["intentId"]
     )
     assert first["status"] == second["status"] == "succeeded"
@@ -326,6 +423,8 @@ async def test_uat_update_is_ciphertext_only_and_approval_is_idempotent(
     )
     assert partner_calls[1]["payload"]["id"] == "backend-bound-record"
     assert partner_calls[1]["payload"]["fieldNames"] == ["Title"]
+    assert partner_calls[1]["payload"]["encryptedFields"]["client_public_key"] == _b64(32, 2)
+    assert "clientPublicKey" not in partner_calls[1]["payload"]["encryptedFields"]
 
 
 @pytest.mark.parametrize(
@@ -337,9 +436,9 @@ async def test_uat_update_is_ciphertext_only_and_approval_is_idempotent(
         {"status": "accepted", "accepted": True, "idempotent": "true"},
     ],
 )
-def test_uat_ack_rejects_plaintext_smuggling(unsafe_ack: dict) -> None:
+def test_encrypted_fields_ack_rejects_plaintext_smuggling(unsafe_ack: dict) -> None:
     with pytest.raises(ConnectedSystemsError):
-        _normalize_crm_zk_uat_ack(unsafe_ack)
+        _normalize_crm_encrypted_fields_ack(unsafe_ack)
 
 
 @pytest.mark.asyncio
@@ -360,58 +459,18 @@ async def test_legacy_approval_cannot_consume_an_encrypted_intent() -> None:
     store = InMemoryConnectedSystemIntentStore()
     store.create_intent(
         {
-            "intent_id": "intent-zk-uat",
+            "intent_id": "intent-encrypted",
             "user_id": "owner-1",
             "system_id": "crm-uat",
             "status": "pending",
-            "delivery_mode": CRM_ZK_UAT_V1_PROFILE,
+            "delivery_mode": CRM_ENCRYPTED_FIELDS_V1_PROFILE,
         }
     )
     service = ConnectedSystemsService(registry=(system,), store=store)
 
     with pytest.raises(ConnectedSystemsError, match="standard CRM intents"):
         await service.approve_intent(
-            user_id="owner-1", system_id="crm-uat", intent_id="intent-zk-uat"
+            user_id="owner-1", system_id="crm-uat", intent_id="intent-encrypted"
         )
-    stored = store.get_intent(user_id="owner-1", system_id="crm-uat", intent_id="intent-zk-uat")
+    stored = store.get_intent(user_id="owner-1", system_id="crm-uat", intent_id="intent-encrypted")
     assert stored is not None and stored["status"] == "pending"
-
-
-@pytest.mark.asyncio
-async def test_uat_profile_rejects_legacy_verified_search_before_loading_plaintext() -> None:
-    system = ConnectedSystemDefinition(
-        system_id="crm-uat",
-        display_name="CRM UAT",
-        customer_display_name="CRM UAT",
-        system_type="CRM",
-        system_name="CRM",
-        target="private-target",
-        object_type_default="Contact",
-        transport="external_crm_streamable_mcp",
-        transport_endpoint="registry://crm-uat",
-        registry_source="enterprise_crm_registry",
-        tool_catalog=({"operation": "read", "name": "read-crm-record"},),
-        crm_zk_uat_v1_enabled=True,
-        crm_zk_uat_recipient_key={
-            "keyId": "mulesoft-uat-1",
-            "publicKey": _b64(32),
-            "environment": "sandbox",
-        },
-    )
-
-    class ExplodingIdentity:
-        async def get_actor_identity(self, **_kwargs):
-            raise AssertionError("legacy identity lookup must not run")
-
-    service = ConnectedSystemsService(
-        registry=(system,),
-        store=InMemoryConnectedSystemIntentStore(),
-        identity_service=ExplodingIdentity(),
-    )
-    with pytest.raises(ConnectedSystemBlockedError, match="encrypted UAT search"):
-        await service.search_verified_record(
-            user_id="owner-1",
-            system_id="crm-uat",
-            object_type="Contact",
-            return_fields=["Title"],
-        )

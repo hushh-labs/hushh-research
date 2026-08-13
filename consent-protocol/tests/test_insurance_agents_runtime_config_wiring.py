@@ -41,7 +41,8 @@ _CONFIG_ARGS = (
     "advisors_api_base_url advisors_api_key_source_project "
     "advisors_api_key_source_secret insurance_agents_api_base_url "
     "insurance_agents_api_key_source_project insurance_agents_api_key_source_secret "
-    "one_places_directory_enabled"
+    "one_places_directory_enabled nws_nearby_api_base_url "
+    "nws_nearby_api_key_source_project nws_nearby_api_key_source_secret"
 ).split()
 
 

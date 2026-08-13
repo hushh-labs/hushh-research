@@ -609,7 +609,7 @@
         "page_header": false,
         "settings_ui": false,
         "shared_loader": false,
-        "back_button_pattern": "shared-shell"
+        "back_button_pattern": "route-local-check-required"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
@@ -7873,7 +7873,9 @@
       },
       "voice_action_contract_file": "app/ria/clients/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "ria.clients.nearby_shortlist_record",
         "ria.clients.open_client_workspace",
+        "ria.clients.switch_to_nearby",
         "route.ria_clients"
       ],
       "api_dependencies": [],
@@ -8512,5 +8514,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "5613f8af6b53687283e6d65ed60bf0635824188e7e93ebbb35070c1f71027f9e"
+  "content_sha256": "0910bb37ea96d377f391d495c76effc016aecee8c4f06922de755bdb00ffd17b"
 }

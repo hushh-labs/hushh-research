@@ -654,10 +654,10 @@
         "connected_system_zk_contexts",
         "connected_system_intent_approval_challenges"
       ],
-      "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows, including CRM-ZK request contexts and one-time local-owner approval challenges",
+      "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows, including encrypted-fields request envelopes and local-owner approval",
       "retention_policy": "Pending intents may retain the allowlisted CRM payload required to execute an approved write; terminal rows retain field names, ids, status, and sanitized result summaries only. CRM-ZK contexts and approval challenges expire or are consumed and are compacted promptly. Record bindings retain active and disconnected external CRM record pointers with workflow metadata so recovery does not erase linkage history.",
       "deletion_behavior": "Delete user-linked workflow rows on account deletion; compact terminal rows after the operational review window.",
-      "trust_boundary": "External CRM handoff is outside the Hussh zero-knowledge boundary when plaintext is sent to Salesforce. CRM-ZK rows hold purpose-bound signed context, public-key fingerprints, encrypted field envelopes, hashes, and one-time challenge metadata; private owner and recipient keys never persist in this family. Scrub terminal payload values.",
+      "trust_boundary": "External CRM handoff is outside the Hussh encrypted-fields boundary when plaintext is sent to Salesforce. crm-encrypted-fields.v1 rows hold only recipient public-key metadata, encrypted field envelopes, hashes, and approval metadata; browser and MuleSoft handle field values, Hussh never decrypts them. Scrub terminal payload values.",
       "plaintext_posture": "pending_allowlisted_or_encrypted_envelope_then_metadata",
       "expected_row_growth": "low_workflow"
     },
@@ -707,6 +707,22 @@
       "expected_row_growth": "low_append_only"
     },
     {
+      "id": "legacy_crm_zk_key_registry",
+      "owner": "iam-consent-governance",
+      "data_class": "reference",
+      "lifecycle_status": "legacy_migration",
+      "exact_tables": [
+        "crm_zk_recipient_keys",
+        "crm_zk_uat_recipient_keys"
+      ],
+      "primary_access_path": "Historical recipient-key metadata retained solely for completed CRM-ZK and CRM-ZK-UAT workflow history; no active runtime, route, or registry loader reads these tables.",
+      "retention_policy": "Retain non-secret public-key and lifecycle metadata only for the bounded operational and audit review window; no new rows are created after profile retirement.",
+      "deletion_behavior": "Operator-managed historical reference metadata; do not delete rows needed to explain completed intents or audit records. Purge only under the approved retention process.",
+      "trust_boundary": "Public key, fingerprint, profile, environment, and lifecycle metadata only. No private keys, CRM credentials, record values, ciphertext envelopes, or owner information.",
+      "plaintext_posture": "historical_public_key_metadata_only",
+      "expected_row_growth": "none_retired"
+    },
+    {
       "id": "enterprise_crm_registry",
       "owner": "iam-consent-governance",
       "data_class": "reference",
@@ -714,14 +730,13 @@
       "exact_tables": [
         "enterprise_crm_registry",
         "crm_operation_endpoints",
-        "crm_zk_recipient_keys",
-        "crm_zk_uat_recipient_keys"
+        "crm_encrypted_fields_recipient_keys"
       ],
-      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL, per-operation MCP tool catalog, and profile-specific CRM encrypted recipient public-key registries for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)",
+      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL, per-operation MCP tool catalog, and pinned CRM encrypted-fields recipient public-key registry for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)",
       "retention_policy": "Retain active enterprise CRM integration config, per-operation tool catalog, and recipient public-key records while the integration is provisioned; retire or revoke keys and deactivate the registry rather than delete active history.",
       "deletion_behavior": "Operator-managed reference config; not user-delete scoped. crm_operation_endpoints cascade-delete with their parent crm_id.",
-      "trust_boundary": "Client credentials stored only as AES-256-GCM envelopes (matches vault/encrypt.py EncryptedPayload), decrypted at request time with VAULT_DATA_KEY; CRM-ZK recipient and response-signing public keys plus fingerprints are non-secret verification material. Gateway/base/token URLs are non-secret config in plaintext. No raw long-lived secrets at rest.",
-      "plaintext_posture": "config_urls_and_public_keys_plaintext_credentials_encrypted",
+      "trust_boundary": "MuleSoft bearer rows contain no CRM credentials: gateway authentication is process secret configuration and CRM credentials remain in MuleSoft. Header-auth rows retain encrypted legacy credentials. Recipient public keys and fingerprints are non-secret verification material. Gateway URLs are non-secret config. No raw long-lived secrets at rest.",
+      "plaintext_posture": "config_urls_and_public_keys_plaintext_gateway_or_legacy_encrypted_credentials",
       "expected_row_growth": "low_reference"
     },
     {

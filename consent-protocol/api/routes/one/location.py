@@ -26,7 +26,7 @@ from fastapi import (
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
-from api.middleware import require_vault_owner_token
+from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares.rate_limit import RateLimits, limiter
 from hushh_mcp.services.google_maps_service import (
     GoogleMapsError,
@@ -152,6 +152,12 @@ class ClaimCircleInviteRequest(_CamelModel):
 class CreateNamedCircleRequest(_CamelModel):
     name: str = Field(min_length=2, max_length=80)
     kind: str = Field(default="other", pattern="^(family|friends|other)$")
+
+
+class BootstrapNamedCircleRequest(_CamelModel):
+    # No circle id and no kind: onboarding may only ever create the caller their
+    # own first Circle, so there is nothing for a caller to point this at.
+    name: str = Field(min_length=2, max_length=80)
 
 
 class UpdateNamedCircleRequest(_CamelModel):
@@ -629,6 +635,73 @@ def create_named_location_circle_code(
                 actor_user_id=_user_id(token_data),
                 circle_id=circle_id,
                 rotate=rotate,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circle-codes/preview")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_JOIN)
+def preview_named_location_circle_code(
+    request: Request,
+    payload: NamedCircleCodeRequest,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Show who is behind a code before anyone commits to joining them.
+
+    Firebase auth rather than a vault owner token for the same reason bootstrap
+    is: someone handed a code arrives mid-setup, before a vault exists, and the
+    vault-gated resolve route would reject exactly the person the code was meant
+    for. Read-only, and it reveals nothing a valid code did not already grant --
+    an invalid code is rejected by the same path as before.
+
+    Deliberately separate from the vault-gated resolve rather than loosening it,
+    so the existing route keeps its guarantees untouched.
+    """
+
+    del request
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "circle": _circle_service().resolve_invite_code(
+                user_id=firebase_uid,
+                code=payload.code,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/circles/bootstrap")
+@limiter.limit(RateLimits.ONE_LOCATION_CIRCLE_MUTATION)
+def bootstrap_named_location_circle(
+    request: Request,
+    payload: BootstrapNamedCircleRequest,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Mint the caller's first Circle code during onboarding, before a vault exists.
+
+    Firebase auth rather than a vault owner token, because onboarding runs in the
+    pre-vault setup journey and every other Circle route would reject it -- which
+    silently removed the invite screen from the one flow that needs it. The Circle
+    service reads no vault key material (create_circle and create_invite_code are
+    keyed on the user id alone), so require_vault_owner_token was authenticating
+    here, not guarding key custody.
+
+    The route accepts no circle id and never rotates, so the widest thing it can
+    do is create the caller their first Circle.
+    """
+
+    del request
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return {
+            "invite": _circle_service().bootstrap_first_circle(
+                user_id=firebase_uid,
+                name=payload.name,
             )
         }
     except Exception as exc:

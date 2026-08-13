@@ -54,6 +54,7 @@ import {
 } from "@/lib/voice/voice-action-card";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { getDirectoryPersonDescription } from "./directory-person-label";
+import { cn } from "@/lib/utils";
 
 type ConnectTab = "people" | "nearby";
 
@@ -81,6 +82,10 @@ const SUGGESTED_PEOPLE_LIMIT = 8;
  */
 const PAGE_SIZE_OPTIONS = [8, 16, 24, 50] as const;
 const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
+const CONNECT_ROW_ACTION_CLASSNAME =
+  "h-8 min-h-8 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px]";
+const CONNECT_PAGER_BUTTON_CLASSNAME =
+  "h-[30px] min-h-[30px] rounded-[15px] px-2.5 text-[14px] font-semibold leading-[18px]";
 
 /** Maximum number of connection requests the People bulk action can send. */
 const MAX_BULK_CONNECTION_REQUESTS = 20;
@@ -1164,11 +1169,10 @@ export default function ConnectPageClient() {
                     key={connection.connectionId}
                     icon={Users}
                     iconTone="blue"
-                    stackTrailingOnMobile
                     title={connection.displayName || connection.userId}
                     density="compact"
                     trailing={
-                      <span className="flex shrink-0 items-center gap-1">
+                      <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
                         <Button
                           type="button"
                           variant="none"
@@ -1356,8 +1360,14 @@ export default function ConnectPageClient() {
                         key={person.userId}
                         icon={UserRound}
                         iconTone="blue"
-                        title={title}
-                        description={description}
+                        title={<span className="block min-w-0 truncate">{title}</span>}
+                        description={
+                          description ? (
+                            <span className="block min-w-0 truncate">
+                              {description}
+                            </span>
+                          ) : undefined
+                        }
                         density="compact"
                         trailing={
                           isSelectionMode ? (
@@ -1390,7 +1400,10 @@ export default function ConnectPageClient() {
                               variant="none"
                               effect="fill"
                               size="sm"
-                              className="h-8 rounded-[10px] px-4 text-[13px] font-semibold"
+                              className={cn(
+                                CONNECT_ROW_ACTION_CLASSNAME,
+                                "min-w-[100px]"
+                              )}
                               disabled={busyId === person.userId}
                               onClick={() => void cancelConnectionRequest(person)}
                             >
@@ -1404,7 +1417,10 @@ export default function ConnectPageClient() {
                               variant="none"
                               effect="fill"
                               size="sm"
-                              className="h-8 rounded-[10px] px-4 text-[13px] font-semibold"
+                              className={cn(
+                                CONNECT_ROW_ACTION_CLASSNAME,
+                                "min-w-[72px]"
+                              )}
                               disabled={cta.disabled || busyId === person.userId}
                               onClick={() => void handleConnect(person)}
                             >
@@ -1417,11 +1433,11 @@ export default function ConnectPageClient() {
                   })
                 )}
                 {people.length > 0 || currentPage > 1 ? (
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3">
-                    <div className="flex items-center gap-2">
+                  <div className="grid gap-2 border-t border-[color:var(--app-card-border-standard)] px-3 py-3">
+                    <div className="flex min-h-8 items-center justify-between gap-3">
                       <span
                         id="connect-people-per-page-label"
-                        className="text-xs text-muted-foreground"
+                        className="ui-text-helper-text text-[color:var(--app-secondary-label)]"
                       >
                         Per page
                       </span>
@@ -1432,7 +1448,7 @@ export default function ConnectPageClient() {
                         <SelectTrigger
                           size="sm"
                           aria-label="People per page"
-                          className="w-[78px]"
+                          className="h-8 min-h-8 w-[74px] rounded-2xl text-[15px] font-medium leading-5"
                         >
                           <SelectValue />
                         </SelectTrigger>
@@ -1445,38 +1461,46 @@ export default function ConnectPageClient() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="none"
-                        effect="fill"
-                        size="sm"
-                        className="h-8 rounded-[10px] px-4 text-[13px] font-semibold"
-                        disabled={loading || currentPage <= 1}
-                        onClick={() => goToPage(currentPage - 1)}
-                      >
-                        Previous
-                      </Button>
+                    <div className="flex min-h-8 items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="none"
+                          effect="fill"
+                          size="sm"
+                          className={cn(
+                            CONNECT_PAGER_BUTTON_CLASSNAME,
+                            "min-w-[76px]"
+                          )}
+                          disabled={loading || currentPage <= 1}
+                          onClick={() => goToPage(currentPage - 1)}
+                        >
+                          Previous
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="none"
+                          effect="fill"
+                          size="sm"
+                          className={cn(
+                            CONNECT_PAGER_BUTTON_CLASSNAME,
+                            "min-w-[56px]"
+                          )}
+                          disabled={loading || !hasMore}
+                          onClick={() => goToPage(currentPage + 1)}
+                        >
+                          Next
+                        </Button>
+                      </div>
                       {/* The directory reports only whether more exists, never
                           a total, so this names the page rather than claiming
                           "3 of 12" — a total the surface cannot stand behind. */}
                       <span
-                        className="text-xs tabular-nums text-muted-foreground"
+                        className="ui-text-helper-text tabular-nums text-[color:var(--app-secondary-label)]"
                         aria-live="polite"
                       >
                         Page {currentPage}
                       </span>
-                      <Button
-                        type="button"
-                        variant="none"
-                        effect="fill"
-                        size="sm"
-                        className="h-8 rounded-[10px] px-4 text-[13px] font-semibold"
-                        disabled={loading || !hasMore}
-                        onClick={() => goToPage(currentPage + 1)}
-                      >
-                        Next
-                      </Button>
                     </div>
                   </div>
                 ) : null}

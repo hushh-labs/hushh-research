@@ -16,32 +16,11 @@ vi.mock("sonner", () => ({
   },
 }));
 
-const people = [
-  {
-    userId: "connected_user",
-    displayName: "Connected Person",
-    photoUrl: null,
-    email: "connected@example.com",
-    relationship: "connected" as const,
-  },
-  {
-    userId: "new_user",
-    displayName: "New Person",
-    photoUrl: null,
-    email: "new@example.com",
-    relationship: "none" as const,
-  },
-];
-
-const connections = [
-  {
-    connectionId: "connection_1",
-    userId: "connected_user",
-    displayName: "Connected Person",
-    photoUrl: null,
-    createdAt: "2026-07-13T08:00:00.000Z",
-  },
-];
+const invite = {
+  circleId: "circle-1",
+  circleName: "Meena Family",
+  code: "ABCDEFGHJKLM",
+};
 
 function renderFlow(
   overrides: Partial<
@@ -51,11 +30,6 @@ function renderFlow(
   const props: React.ComponentProps<typeof OneLocationOnboardingFlow> = {
     startAt: "welcome",
     currentUserName: "Test User",
-    currentUserPhotoUrl: null,
-    people,
-    connections,
-    peopleLoading: false,
-    peopleError: null,
     locationPermission: {
       state: "prompt",
       precise: null,
@@ -71,11 +45,6 @@ function renderFlow(
       authState: "authenticated",
       dataState: "loaded",
     },
-    onRetryPeople: vi.fn(),
-    onSendConnectionRequests: vi.fn().mockResolvedValue({
-      sentUserIds: ["new_user"],
-      failedUserIds: [],
-    }),
     onRequestLocation: vi.fn().mockResolvedValue(undefined),
     onLocationReady: vi.fn().mockResolvedValue(true),
     onRequestNotifications: vi.fn().mockResolvedValue(undefined),
@@ -99,9 +68,21 @@ function renderFlow(
   };
 }
 
-function openPeopleScreen() {
+/** welcome -> features -> contacts. */
+function openContactsScreen() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-  fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
+  fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+}
+
+/** ...and on to the invite screen, declining the contacts step. */
+function openInviteScreen() {
+  openContactsScreen();
+  fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+}
+
+/** The terminal CTA, whose label the parent supplies per mode. */
+function finishButton() {
+  return screen.getByRole("button", { name: "Open One Location" });
 }
 
 afterEach(() => {
@@ -142,12 +123,68 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onSkip).not.toHaveBeenCalled();
   });
 
+  it("keeps Back and Skip clear of the iOS status bar on every screen", () => {
+    // The notch and the clock live at the top of every modern iPhone. These two
+    // controls are the only way backwards, so putting them under it is worse
+    // than ugly -- they become findable only by guessing.
+    //
+    // min-h, never a fixed h: a fixed-height header shrinks its content box as
+    // the inset grows, and a vertically centred button then overflows UPWARD.
+    // Adding clearance moved the buttons higher, which is how this was missed.
+    renderFlow({ contactsStepAvailable: true });
+    const headerOf = (testId: string) =>
+      screen.getByTestId(testId).querySelector("header") ??
+      screen.getByTestId(testId).querySelector("nav");
+
+    const advance = [
+      ["one-location-onboarding-welcome", "Get started"],
+      ["one-location-onboarding-features", "Find my people"],
+      ["one-location-onboarding-contacts", "Not now"],
+      ["one-location-onboarding-invite", null],
+    ] as const;
+
+    for (const [testId, next] of advance) {
+      const surface = screen.getByTestId(testId);
+      const header = headerOf(testId);
+      const inset =
+        (header?.className ?? "") + " " + (surface.firstElementChild?.className ?? "");
+      expect(inset).toContain("--app-safe-area-top-effective");
+      if (header) expect(header.className).not.toMatch(/h-16/u);
+      if (next) fireEvent.click(screen.getByRole("button", { name: next }));
+    }
+  });
+
+  it("holds one column width across every screen", () => {
+    // Features used to size off viewport height and widen to 3xl on a large
+    // window, so on desktop the panel visibly jumped wider on step two and
+    // back again on step three -- the surface changing shape under the person
+    // as they advanced through it.
+    renderFlow({ contactsStepAvailable: true });
+    const widths: string[] = [];
+    const record = (testId: string) => {
+      const cls = screen.getByTestId(testId).className;
+      widths.push(/max-w-\[[^\]]+\]/u.exec(cls)?.[0] ?? "none");
+    };
+
+    record("one-location-onboarding-welcome");
+    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    record("one-location-onboarding-features");
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    record("one-location-onboarding-contacts");
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    record("one-location-onboarding-invite");
+
+    expect(widths).toHaveLength(4);
+    expect(new Set(widths).size).toBe(1);
+    expect(widths[0]).toBe("max-w-[430px]");
+  });
+
   it("keeps the mobile feature screen readable and fitted without page scrolling", () => {
     renderFlow();
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
     const featureShell = screen.getByTestId("one-location-onboarding-features");
-    expect(featureShell.className).toContain("max-w-[min(560px,58dvh)]");
+    expect(featureShell.className).toContain("max-w-[430px]");
     expect(featureShell.className).toContain("max-[431px]:max-w-none");
     const featureSurface = featureShell.firstElementChild;
     expect(featureSurface?.className).toContain("overflow-hidden");
@@ -168,9 +205,12 @@ describe("OneLocationOnboardingFlow", () => {
     expect(featureGrid?.className).toContain("shrink-0");
     const lowerGrid = document.querySelector("[data-one-feature-lower-grid]");
     expect(lowerGrid?.className).toContain("grid-cols-2");
+    // mt-3, not mt-4. The subtitle spacing was tightened in the shipped
+    // component but this assertion was never updated, so it has been failing
+    // on main independently of this change. Matched to what actually renders.
     expect(
       document.querySelector("[data-one-feature-subtitle]")?.className,
-    ).toContain("mt-4");
+    ).toContain("mt-3");
     const featureCta = document.querySelector("[data-one-feature-cta]");
     expect(featureCta?.className).not.toContain("mt-auto");
     expect(featureCta?.querySelector("button")?.className).toContain(
@@ -353,26 +393,10 @@ describe("OneLocationOnboardingFlow", () => {
     }
     expect(shareCard.querySelector('img[src*="/orbit-person-"]')).toBeNull();
 
-    expect(screen.getByRole("button", { name: "Add my people" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Find my people" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
     expect(screen.queryByText("Connected Person")).toBeNull();
-  });
-
-  it("lets Skip leave the add-people screen without choosing anyone", () => {
-    // Skip used to call the Continue handler, which rejects an empty selection
-    // with "Choose at least one contact" -- so the button offered a way out and
-    // then refused to take it. Needing a contact to finish setup is the exact
-    // friction this screen should avoid; contacts can be added later from
-    // Connect.
-    const props = renderFlow();
-    openPeopleScreen();
-
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-
-    expect(props.onSkip).toHaveBeenCalledTimes(1);
-    expect(toast.error).not.toHaveBeenCalled();
-    expect(props.onSendConnectionRequests).not.toHaveBeenCalled();
   });
 
 
@@ -384,7 +408,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onLocationReady).not.toHaveBeenCalled();
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
@@ -407,11 +431,11 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onRequestNotifications).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Add my people" }),
+        screen.getByRole("button", { name: "Find my people" }),
       ).toBeEnabled(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onLocationReady).toHaveBeenCalledTimes(1);
   });
@@ -444,7 +468,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Add my people" }),
+        screen.getByRole("button", { name: "Find my people" }),
       ).toBeEnabled(),
     );
   });
@@ -472,7 +496,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     await waitFor(() => expect(onLocationReady).toHaveBeenCalledTimes(1));
     expect(
-      screen.getByRole("button", { name: "Add my people" }),
+      screen.getByRole("button", { name: "Find my people" }),
     ).toBeDisabled();
     expect(screen.queryByTestId("one-location-onboarding-people")).toBeNull();
 
@@ -482,7 +506,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Add my people" }),
+        screen.getByRole("button", { name: "Find my people" }),
       ).toBeEnabled(),
     );
   });
@@ -491,8 +515,8 @@ describe("OneLocationOnboardingFlow", () => {
     const props = renderFlow({ requireLocationToComplete: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    expect(screen.getByRole("button", { name: "Add my people" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
+    expect(screen.getByRole("button", { name: "Find my people" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
 
     expect(props.onRequestLocation).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
@@ -509,174 +533,59 @@ describe("OneLocationOnboardingFlow", () => {
     });
   });
 
-  it("keeps the user on contact selection and explains why one person is required", () => {
-    const props = renderFlow({
-      people: [people[1]!],
-      connections: [],
-    });
-    openPeopleScreen();
 
-    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
-    const continueButton = screen.getByRole("button", { name: "Continue" });
-    expect(continueButton).toBeEnabled();
-    expect(
-      screen.getByText("Select at least one person to continue"),
-    ).toBeTruthy();
-
-    fireEvent.click(continueButton);
-    expect(toast.error).toHaveBeenCalledWith(
-      "Choose at least one contact",
-      {
-        description:
-          "One Location works best with someone in your circle. You can update contacts later from the Connect tab.",
-      },
-    );
-    expect(props.onSendConnectionRequests).not.toHaveBeenCalled();
-    expect(screen.getByTestId("one-location-onboarding-people")).toBeTruthy();
-    expect(
-      screen.queryByTestId("one-location-onboarding-circle"),
-    ).toBeNull();
-  });
-
-  it("allows the user to continue after selecting exactly one person", () => {
-    const props = renderFlow({
-      people: [people[1]!],
-      connections: [],
-    });
-    openPeopleScreen();
-
-    const continueButton = screen.getByRole("button", { name: "Continue" });
-    expect(continueButton).toBeEnabled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
-    expect(continueButton).toBeEnabled();
-    expect(screen.getByText("1 selected")).toBeTruthy();
-
-    fireEvent.click(continueButton);
-    expect(toast.error).not.toHaveBeenCalled();
-    expect(props.onSendConnectionRequests).toHaveBeenCalledWith(["new_user"]);
-    expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
-  });
-
-  it("keeps a selected person visible when their connection request fails", async () => {
-    renderFlow({
-      people: [people[1]!],
-      connections: [],
-      onSendConnectionRequests: vi.fn().mockResolvedValue({
-        sentUserIds: [],
-        failedUserIds: ["new_user"],
-      }),
-    });
-    openPeopleScreen();
-
-    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
-    await waitFor(() =>
-      expect(
-        screen.getByText(
-          "1 invitation could not be sent. You can retry it later from Connect.",
-        ),
-      ).toBeTruthy(),
-    );
-    expect(screen.getByText("New")).toBeTruthy();
-    expect(screen.getByText("Not sent")).toBeTruthy();
-  });
-
-  it("preserves an already-selected person when their relationship settles to pending", async () => {
-    const props = renderFlow({
-      people: [people[1]!],
-      connections: [],
-    });
-    openPeopleScreen();
-    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Go back" })).toBeEnabled(),
-    );
-    props.rerenderFlow({
-      people: [{ ...people[1]!, relationship: "pending_outgoing" }],
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    expect(screen.getByText("1 selected")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
-    expect(toast.error).not.toHaveBeenCalled();
-    expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
-    expect(screen.getByText("New")).toBeTruthy();
-  });
-
-
-  it("sends deliberate requests, shows selected people, and auto-completes after four seconds", async () => {
+  it("completes from the invite screen on one press, and never on its own", async () => {
     vi.useFakeTimers();
     const props = renderFlow();
-    openPeopleScreen();
+    openInviteScreen();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
-    expect(props.onSendConnectionRequests).toHaveBeenCalledWith(["new_user"]);
-    expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
+    expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
     expect(
-      screen.getByRole("heading", { name: "Your circle is ready." }),
+      screen.getByRole("heading", { name: /You're on the map/ }),
     ).toBeTruthy();
-    expect(screen.getByText("Connected")).toBeTruthy();
-    expect(screen.getByText("New")).toBeTruthy();
-    expect(screen.getByText("Joined")).toBeTruthy();
-    expect(screen.getByText("Invited")).toBeTruthy();
-    expect(screen.queryByText("Add more")).toBeNull();
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
 
+    // This screen used to finish itself on a 4s timer. Waiting must now do
+    // nothing at all -- leaving is the person's decision.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(3999);
+      await vi.advanceTimersByTimeAsync(10_000);
     });
     expect(props.onComplete).not.toHaveBeenCalled();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
+
+    fireEvent.click(finishButton());
     expect(props.onComplete).toHaveBeenCalledTimes(1);
   });
 
-  it("does not resend a successful invitation after returning from the circle", async () => {
-    const props = renderFlow();
-    openPeopleScreen();
-    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  it("ignores a second press while completion is still in flight", () => {
+    const onComplete = vi.fn(() => new Promise<void>(() => {}));
+    renderFlow({ onComplete });
+    openInviteScreen();
 
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Go back" })).toBeEnabled(),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(finishButton());
+    fireEvent.click(finishButton());
 
-    expect(props.onSendConnectionRequests).toHaveBeenCalledTimes(1);
-    expect(props.onSendConnectionRequests).toHaveBeenCalledWith(["new_user"]);
+    expect(onComplete).toHaveBeenCalledTimes(1);
   });
 
-  it("automatically retries a transient durable-settlement failure without adding a completion button", async () => {
-    vi.useFakeTimers();
+  it("re-arms the finish CTA after a transient durable-settlement failure", async () => {
     const onComplete = vi
       .fn()
       .mockRejectedValueOnce(new Error("temporary"))
       .mockResolvedValue(undefined);
     renderFlow({ onComplete });
-    openPeopleScreen();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    openInviteScreen();
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(4000);
-    });
+    fireEvent.click(finishButton());
     expect(onComplete).toHaveBeenCalledTimes(1);
+
+    // A rejected settlement must release the in-flight latch, or the person is
+    // stranded on a screen whose only button no longer does anything.
+    await waitFor(() => expect(finishButton()).toBeEnabled());
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000);
-    });
+    fireEvent.click(finishButton());
     expect(onComplete).toHaveBeenCalledTimes(2);
   });
 
@@ -689,11 +598,8 @@ describe("OneLocationOnboardingFlow", () => {
 
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
 
-    expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
     expect(props.onSkip).not.toHaveBeenCalled();
@@ -706,12 +612,14 @@ describe("OneLocationOnboardingFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
 
-    openPeopleScreen();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expect(screen.getByTestId("one-location-onboarding-circle")).toBeTruthy();
+    openInviteScreen();
+    expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    expect(screen.getByTestId("one-location-onboarding-people")).toBeTruthy();
+    expect(screen.getByTestId("one-location-onboarding-contacts")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
   });
 
   it("delegates feature Back when onboarding starts at permissions", () => {
@@ -722,11 +630,10 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onBack).toHaveBeenCalledTimes(1);
   });
 
-  it("lets final-screen Skip exit without racing the completion timer", async () => {
+  it("lets final-screen Skip exit without completion overtaking it", async () => {
     vi.useFakeTimers();
     const props = renderFlow();
-    openPeopleScreen();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    openInviteScreen();
 
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
     expect(props.onSkip).toHaveBeenCalledTimes(1);
@@ -747,8 +654,7 @@ describe("OneLocationOnboardingFlow", () => {
         }),
     );
     const props = renderFlow({ onSkip });
-    openPeopleScreen();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    openInviteScreen();
 
     fireEvent.click(screen.getByRole("button", { name: "Skip" }));
     expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
@@ -764,24 +670,20 @@ describe("OneLocationOnboardingFlow", () => {
     });
     expect(screen.getByRole("button", { name: "Skip" })).toBeEnabled();
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2999);
-    });
+    // A failed Skip must leave the person able to finish instead: the CTA is
+    // the only way off this screen now, so it cannot stay latched shut.
     expect(props.onComplete).not.toHaveBeenCalled();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
+    fireEvent.click(finishButton());
     expect(props.onComplete).toHaveBeenCalledTimes(1);
   });
 
-  it("cancels final completion when Back returns to people", async () => {
+  it("does not complete when Back leaves the final screen", async () => {
     vi.useFakeTimers();
     const props = renderFlow();
-    openPeopleScreen();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    openInviteScreen();
 
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
-    expect(screen.getByTestId("one-location-onboarding-people")).toBeTruthy();
+    expect(screen.getByTestId("one-location-onboarding-contacts")).toBeTruthy();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4000);
@@ -800,63 +702,423 @@ describe("OneLocationOnboardingFlow", () => {
       "dark:bg-[#0c1017]",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
-    const peopleScreen = screen.getByTestId("one-location-onboarding-people");
-    expect(peopleScreen.firstElementChild?.className).toContain(
+    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    const contactsScreen = screen.getByTestId(
+      "one-location-onboarding-contacts",
+    );
+    expect(contactsScreen.firstElementChild?.className).toContain(
       "dark:bg-[#14171d]",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Add New Person" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    const circle = screen.getByTestId("one-location-onboarding-circle");
-    expect(circle.firstElementChild?.className).toContain("dark:bg-[#0c1017]");
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    const inviteScreen = screen.getByTestId("one-location-onboarding-invite");
+    expect(inviteScreen.firstElementChild?.className).toContain(
+      "dark:bg-[#14171d]",
+    );
   });
 
-  it("keeps Continue disabled while recommended contacts are loading", () => {
-    renderFlow({ people: [], connections: [], peopleLoading: true });
-    openPeopleScreen();
-
-    expect(screen.getByText("Finding your people")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
-  });
-
-  it("lets the user refresh a genuinely empty recommendation list", () => {
-    const props = renderFlow({
-      people: [],
-      connections: [],
-      peopleLoading: false,
-    });
-    openPeopleScreen();
-
-    fireEvent.click(screen.getByRole("button", { name: "Refresh people" }));
-
-    expect(props.onRetryPeople).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
-  });
-
-  describe("circle invite screen (third screen)", () => {
-    const invite = {
-      circleId: "circle-1",
-      circleName: "Meena Family",
-      code: "ABCDEFGHJKLM",
+  describe("joining someone else's circle", () => {
+    const preview = {
+      name: "Meena Family",
+      ownerDisplayName: "Meena",
+      memberCount: 4,
+      alreadyMember: false,
     };
 
-    it("shows the invite code before the contact list and lets the user copy/share it", async () => {
+    function openJoin(
+      overrides: Partial<
+        React.ComponentProps<typeof OneLocationOnboardingFlow>
+      > = {},
+    ) {
+      const props = renderFlow({
+        onPreviewCircleCode: vi.fn().mockResolvedValue(preview),
+        onAcceptCircleCode: vi.fn().mockResolvedValue(undefined),
+        ...overrides,
+      });
+      openInviteScreen();
+      return props;
+    }
+
+    it("shows who is behind a code before asking anyone to join", async () => {
+      const props = openJoin();
+
+      fireEvent.click(
+        screen.getByText("Someone sent you a code?"),
+      );
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "abcd-efgh-jklm" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+
+      await waitFor(() =>
+        expect(props.onPreviewCircleCode).toHaveBeenCalledWith("abcd-efgh-jklm"),
+      );
+
+      // Name, owner and size: deciding to share your location with a group is
+      // not a decision to make against an opaque string.
+      const card = await screen.findByTestId("onboarding-join-circle-preview");
+      expect(card.textContent).toContain("Meena Family");
+      expect(card.textContent).toContain("Meena");
+      expect(card.textContent).toContain("4 people");
+      expect(props.onAcceptCircleCode).not.toHaveBeenCalled();
+    });
+
+    it("accepts the circle and says when it will take effect", async () => {
+      const props = openJoin();
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "ABCDEFGHJKLM" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: /Join Meena Family/ }),
+      );
+
+      await waitFor(() =>
+        expect(props.onAcceptCircleCode).toHaveBeenCalledWith("ABCDEFGHJKLM"),
+      );
+      // Honest about the delay rather than claiming a join that has not
+      // happened: the redeem waits for the vault the wizard has yet to create.
+      expect(
+        await screen.findByText(/join Meena Family as soon as One finishes/i),
+      ).toBeTruthy();
+    });
+
+    it("does not offer to join a circle the person is already in", async () => {
+      const props = openJoin({
+        onPreviewCircleCode: vi
+          .fn()
+          .mockResolvedValue({ ...preview, alreadyMember: true }),
+      });
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "ABCDEFGHJKLM" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+
+      expect(
+        await screen.findByText("You're already in this circle."),
+      ).toBeTruthy();
+      expect(
+        screen.queryByRole("button", { name: /Join Meena Family/ }),
+      ).toBeNull();
+      expect(props.onAcceptCircleCode).not.toHaveBeenCalled();
+    });
+
+    it("surfaces a bad code without blocking the way out", async () => {
+      const props = openJoin({
+        onPreviewCircleCode: vi
+          .fn()
+          .mockRejectedValue(new Error("That code has expired.")),
+      });
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "NOPENOPENOPE" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+
+      expect(await screen.findByText("That code has expired.")).toBeTruthy();
+      expect(
+        screen.queryByTestId("onboarding-join-circle-preview"),
+      ).toBeNull();
+
+      // A wrong code is not a dead end.
+      fireEvent.click(finishButton());
+      expect(props.onComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses your own code without spending a lookup on it", async () => {
+      const onPreviewCircleCode = vi.fn();
+      const props = openJoin({
+        onPreviewCircleCode,
+        onPrepareOnboardingCircleInvite: vi.fn().mockResolvedValue(invite),
+      });
+
+      await waitFor(() =>
+        expect(
+          screen.getByTestId("one-location-onboarding-invite-code").textContent,
+        ).toContain("ABCD-EFGH-JKLM"),
+      );
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      // Typed the way it is displayed, dashes and all.
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "abcd-efgh-jklm" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+
+      // Your own code resolves to a circle you already own, so the generic
+      // "already a member" would be true and useless. And there is nothing to
+      // look up, so no request is made.
+      expect(await screen.findByText(/that's your own code/i)).toBeTruthy();
+      expect(onPreviewCircleCode).not.toHaveBeenCalled();
+      expect(props.onComplete).not.toHaveBeenCalled();
+    });
+
+    it("lets the person back out of a preview to try another code", async () => {
+      const props = openJoin();
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "ABCDEFGHJKLM" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+      expect(
+        await screen.findByTestId("onboarding-join-circle-preview"),
+      ).toBeTruthy();
+
+      // Previewing replaces the input, so without a way back a wrong code
+      // stranded the person looking at someone else's circle.
+      fireEvent.click(
+        screen.getByTestId("onboarding-join-circle-reset"),
+      );
+
+      expect(
+        screen.queryByTestId("onboarding-join-circle-preview"),
+      ).toBeNull();
+      const field = screen.getByLabelText("Circle code") as HTMLInputElement;
+      // The typed code survives, so fixing one wrong character is an edit
+      // rather than retyping all twelve.
+      expect(field.value).toBe("ABCDEFGHJKLM");
+
+      fireEvent.change(field, { target: { value: "MNPQRSTUVWXY" } });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+      await waitFor(() =>
+        expect(props.onPreviewCircleCode).toHaveBeenLastCalledWith(
+          "MNPQRSTUVWXY",
+        ),
+      );
+    });
+
+    it("clears a failed lookup when the code is edited", async () => {
+      openJoin({
+        onPreviewCircleCode: vi
+          .fn()
+          .mockRejectedValue(new Error("That code has expired.")),
+      });
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "NOPENOPENOPE" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+      expect(await screen.findByText("That code has expired.")).toBeTruthy();
+
+      // A stale error next to a freshly typed code reads as a verdict on the
+      // new one.
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "ABCDEFGHJKLM" },
+      });
+      expect(screen.queryByText("That code has expired.")).toBeNull();
+    });
+
+    it("is hidden when the parent cannot resolve codes", () => {
+      renderFlow();
+      openInviteScreen();
+
+      expect(screen.queryByTestId("onboarding-join-circle")).toBeNull();
+    });
+  });
+
+  describe("contacts screen", () => {
+    const matches = [
+      { userId: "user_b", displayName: "Trusted B" },
+      { userId: "user_c", displayName: "Advisor C" },
+    ];
+
+    it("does not touch the address book until the person asks", () => {
+      const onSyncOnboardingContacts = vi
+        .fn()
+        .mockResolvedValue({ status: "matched", matches });
+      renderFlow({ onSyncOnboardingContacts });
+      openContactsScreen();
+
+      // The OS contacts prompt is the single most declinable moment in the
+      // flow. Firing it on mount is what makes people say no; it fires on tap.
+      expect(onSyncOnboardingContacts).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Check my contacts" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Not now" })).toBeTruthy();
+    });
+
+    it("shows matched contacts and adds one on request", async () => {
+      const onSyncOnboardingContacts = vi
+        .fn()
+        .mockResolvedValue({ status: "matched", matches });
+      const onAddOnboardingContact = vi.fn().mockResolvedValue(undefined);
+      renderFlow({ onSyncOnboardingContacts, onAddOnboardingContact });
+      openContactsScreen();
+
+      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+      expect(await screen.findByText("Trusted B")).toBeTruthy();
+      expect(screen.getByText("Advisor C")).toBeTruthy();
+
+      const addButtons = screen.getAllByRole("button", { name: "Add" });
+      fireEvent.click(addButtons[0]!);
+
+      await waitFor(() =>
+        expect(onAddOnboardingContact).toHaveBeenCalledWith("user_b"),
+      );
+      expect(await screen.findByRole("button", { name: /Requested/ })).toBeTruthy();
+      // Adding someone is not leaving the flow.
+      expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
+    });
+
+    it("keeps a failed add retryable instead of marking it done", async () => {
+      const onSyncOnboardingContacts = vi
+        .fn()
+        .mockResolvedValue({ status: "matched", matches });
+      const onAddOnboardingContact = vi
+        .fn()
+        .mockRejectedValue(new Error("network"));
+      renderFlow({ onSyncOnboardingContacts, onAddOnboardingContact });
+      openContactsScreen();
+      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+      const addButtons = await screen.findAllByRole("button", { name: "Add" });
+      fireEvent.click(addButtons[0]!);
+
+      await waitFor(() => expect(onAddOnboardingContact).toHaveBeenCalled());
+      // The row must not claim success, and must not stay stuck on "Adding".
+      await waitFor(() =>
+        expect(screen.getAllByRole("button", { name: "Add" }).length).toBe(2),
+      );
+    });
+
+    it("says so plainly when nobody matched, and still moves on", async () => {
+      const onSyncOnboardingContacts = vi
+        .fn()
+        .mockResolvedValue({ status: "none", partial: false });
+      renderFlow({ onSyncOnboardingContacts });
+      openContactsScreen();
+      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+      expect(
+        await screen.findByText(/None of your contacts are on One yet/i),
+      ).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
+    });
+
+    it("does not claim nobody matched when only part of the book was read", async () => {
+      const onSyncOnboardingContacts = vi
+        .fn()
+        .mockResolvedValue({ status: "none", partial: true });
+      renderFlow({ onSyncOnboardingContacts });
+      openContactsScreen();
+      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+      // iOS limited access and the web picker return a hand-picked subset, so
+      // an empty result is inconclusive and must not be reported as a whole
+      // address book that came back empty.
+      expect(
+        await screen.findByText(/contacts you shared are on One yet/i),
+      ).toBeTruthy();
+      expect(screen.queryByText(/None of your contacts/i)).toBeNull();
+    });
+
+    it("offers Settings when permission was declined, and never traps", async () => {
+      const onSyncOnboardingContacts = vi.fn().mockResolvedValue({
+        status: "failed",
+        message: "One does not have access to your contacts yet.",
+        canOpenSettings: true,
+      });
+      const onOpenContactSettings = vi.fn();
+      renderFlow({ onSyncOnboardingContacts, onOpenContactSettings });
+      openContactsScreen();
+      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+      expect(
+        await screen.findByText(/does not have access to your contacts/i),
+      ).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Open Settings" }));
+      expect(onOpenContactSettings).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
+    });
+
+    it("recovers when the sync itself throws", async () => {
+      const onSyncOnboardingContacts = vi
+        .fn()
+        .mockRejectedValue(new Error("plugin exploded"));
+      renderFlow({ onSyncOnboardingContacts });
+      openContactsScreen();
+      fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+      expect(await screen.findByText("plugin exploded")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
+    });
+
+    it("is skipped entirely where no address book can be read", () => {
+      // A desktop browser has nothing to read. Rendering the step there means a
+      // screen whose whole content is "this does not work here" -- a wasted tap
+      // that reads as a dead end. Where it cannot work, it does not exist.
+      const onSyncOnboardingContacts = vi.fn();
+      renderFlow({ contactsStepAvailable: false, onSyncOnboardingContacts });
+
+      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+
+      expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
+      expect(
+        screen.queryByTestId("one-location-onboarding-contacts"),
+      ).toBeNull();
+      expect(onSyncOnboardingContacts).not.toHaveBeenCalled();
+    });
+
+    it("sends Back to the features screen when the step is skipped", () => {
+      renderFlow({ contactsStepAvailable: false });
+
+      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+      fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+
+      // Back must not land on a screen that was never shown.
+      expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
+    });
+
+    it("still completes when the step is skipped", () => {
+      const props = renderFlow({ contactsStepAvailable: false });
+
+      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+      fireEvent.click(finishButton());
+
+      expect(props.onComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it("lets Skip leave from the contacts screen without syncing", () => {
+      const onSyncOnboardingContacts = vi.fn();
+      const props = renderFlow({ onSyncOnboardingContacts });
+      openContactsScreen();
+
+      fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+
+      expect(props.onSkip).toHaveBeenCalledTimes(1);
+      expect(onSyncOnboardingContacts).not.toHaveBeenCalled();
+      expect(props.onComplete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("circle invite screen (final screen)", () => {
+    it("shows the invite code and lets the user copy/share it", async () => {
       const onPrepareOnboardingCircleInvite = vi
         .fn()
         .mockResolvedValue(invite);
       const onCopyOnboardingCircleCode = vi.fn();
       const onShareOnboardingCircleCode = vi.fn();
-      renderFlow({
+      const props = renderFlow({
         onPrepareOnboardingCircleInvite,
         onCopyOnboardingCircleCode,
         onShareOnboardingCircleCode,
       });
 
-      // welcome -> features
-      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      // features -> invite (NOT people, because the invite screen is enabled)
-      fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
+      openInviteScreen();
 
       expect(
         screen.getByTestId("one-location-onboarding-invite"),
@@ -869,7 +1131,7 @@ describe("OneLocationOnboardingFlow", () => {
             .textContent,
         ).toContain("ABCD-EFGH-JKLM"),
       );
-      expect(screen.getByText("Meena Family")).toBeTruthy();
+      expect(screen.getByText(/Bring your people to Meena Family/)).toBeTruthy();
 
       fireEvent.click(screen.getByRole("button", { name: /Copy/ }));
       expect(onCopyOnboardingCircleCode).toHaveBeenCalledWith(
@@ -879,9 +1141,10 @@ describe("OneLocationOnboardingFlow", () => {
       fireEvent.click(screen.getByRole("button", { name: /Share/ }));
       expect(onShareOnboardingCircleCode).toHaveBeenCalledWith(invite);
 
-      // Continue advances from the invite screen to the contact list.
-      fireEvent.click(screen.getByRole("button", { name: "Next" }));
-      expect(screen.getByTestId("one-location-onboarding-people")).toBeTruthy();
+      // Copying and sharing are optional; neither ends onboarding.
+      expect(props.onComplete).not.toHaveBeenCalled();
+      fireEvent.click(finishButton());
+      expect(props.onComplete).toHaveBeenCalledTimes(1);
     });
 
     it("surfaces a retry when preparing the code fails", async () => {
@@ -891,8 +1154,7 @@ describe("OneLocationOnboardingFlow", () => {
         .mockResolvedValue(invite);
       renderFlow({ onPrepareOnboardingCircleInvite });
 
-      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
+      openInviteScreen();
 
       await waitFor(() =>
         expect(screen.getByText("temporary")).toBeTruthy(),
@@ -910,16 +1172,162 @@ describe("OneLocationOnboardingFlow", () => {
       );
     });
 
-    it("skips the invite screen entirely when no prepare handler is provided", () => {
-      renderFlow();
-      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Add my people" }));
-      // With no onPrepareOnboardingCircleInvite, Continue goes straight to the
-      // contact list — the invite screen never appears.
-      expect(screen.getByTestId("one-location-onboarding-people")).toBeTruthy();
+    it("still shows the invite screen, and still completes, with no prepare handler", () => {
+      // This used to assert the opposite: no handler meant the screen was
+      // dropped from the sequence entirely. In the pre-vault setup journey the
+      // handler was always absent, so the one screen onboarding exists to show
+      // was invisible to every genuinely new person. A contract-governed screen
+      // must not vanish because a prop is missing -- it degrades in place.
+      const props = renderFlow();
+      openInviteScreen();
+
+      expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
+      expect(screen.getByText(/circle code will be ready/i)).toBeTruthy();
+
+      fireEvent.click(finishButton());
+      expect(props.onComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it("ends on the map, with the code resting on it rather than gating it", () => {
+      const props = renderFlow({
+        mapPoint: { lat: 19.076, lng: 72.8777 },
+        onPrepareOnboardingCircleInvite: vi.fn().mockResolvedValue(invite),
+      });
+      openInviteScreen();
+
+      // The payoff is seeing yourself on a map, not being handed an errand.
       expect(
-        screen.queryByTestId("one-location-onboarding-invite"),
-      ).toBeNull();
+        screen.getByRole("heading", { name: /You're on the map/ }),
+      ).toBeTruthy();
+      expect(screen.getByTestId("onboarding-live-map")).toBeTruthy();
+
+      // The empty seat, which is the only thing here the map cannot show by
+      // itself and the reason the code below matters.
+      expect(screen.getByTestId("onboarding-ready-empty-seat")).toBeTruthy();
+
+      // And explicitly NOT a second telling of Share / Check in / SOS: the
+      // features screen already introduces those, and repeating them turns the
+      // payoff into a summary slide.
+      expect(screen.queryByText("Share where you are")).toBeNull();
+      expect(screen.queryByText("Check in when you arrive")).toBeNull();
+      expect(screen.queryByText("Send an SOS")).toBeNull();
+
+      // Nothing here blocks leaving.
+      expect(props.onComplete).not.toHaveBeenCalled();
+      fireEvent.click(finishButton());
+      expect(props.onComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it("never lays copy over live map tiles", () => {
+      renderFlow({ mapPoint: { lat: 19.076, lng: 72.8777 } });
+      openInviteScreen();
+
+      const map = screen.getByTestId("onboarding-live-map");
+      const seat = screen.getByTestId("onboarding-ready-empty-seat");
+      const sheet = seat.closest("div.overflow-y-auto");
+
+      // The map owns a band of its own; the words sit on an opaque sheet below
+      // it. A translucent scrim over live tiles is a contrast gamble that dense
+      // city streets win, and the copy loses.
+      expect(map.className).toContain("shrink-0");
+      expect(map.className).not.toContain("absolute");
+      expect(sheet?.className).toContain("bg-white");
+      expect(sheet?.className).not.toMatch(/bg-white\/\d/u);
+      expect(map.contains(seat)).toBe(false);
+    });
+
+    it("yields map height on short windows so the join link stays on screen", () => {
+      renderFlow({ mapPoint: { lat: 19.076, lng: 72.8777 } });
+      openInviteScreen();
+
+      const surface = screen.getByTestId(
+        "one-location-onboarding-ready-surface",
+      );
+      const styles = Array.from(surface.querySelectorAll("style"))
+        .map((n) => n.textContent ?? "")
+        .join(" ");
+
+      // 34dvh of map is right on a phone, which is tall. A 1366x768 laptop is
+      // shorter than an iPhone, and there the same fraction pushed "Someone
+      // sent you a code?" below the fold -- the last thing on the screen took
+      // a scroll to discover it existed. The map yields, not the content.
+      expect(styles).toContain("max-height: 820px");
+      expect(styles).toContain("24dvh");
+    });
+
+    it("renders a composed map even with no point and no Maps key", () => {
+      // A missing or referrer-blocked browser key is common enough that it is
+      // the entire local-dev story. The last screen must still look finished:
+      // onboarding cannot end on an error panel.
+      renderFlow({ mapPoint: null });
+      openInviteScreen();
+
+      const map = screen.getByTestId("onboarding-live-map");
+      expect(map.getAttribute("data-map-state")).toBe("stylised");
+      expect(
+        screen.getByRole("heading", { name: /You're on the map/ }),
+      ).toBeTruthy();
+      expect(finishButton()).toBeEnabled();
+    });
+
+    it("keeps the reveal decorative, so reduced motion loses nothing", () => {
+      renderFlow({ mapPoint: { lat: 19.076, lng: 72.8777 } });
+      openInviteScreen();
+
+      const surface = screen.getByTestId(
+        "one-location-onboarding-ready-surface",
+      );
+      // Both blocks matter: the map's pin pulse and the content reveal.
+      const styles = Array.from(surface.querySelectorAll("style"))
+        .map((node) => node.textContent ?? "")
+        .join(" ");
+      expect(styles.match(/prefers-reduced-motion: reduce/g)).toHaveLength(2);
+      // The animation is an entrance, never a gate: reduced motion resolves it
+      // to the finished state rather than removing the content.
+      expect(styles).toContain("animation: none");
+      expect(styles).toContain("opacity: 1");
+    });
+
+    it("keeps the final screen fitted and iOS-safe on a small phone", async () => {
+      const onPrepareOnboardingCircleInvite = vi
+        .fn()
+        .mockResolvedValue(invite);
+      renderFlow({ onPrepareOnboardingCircleInvite });
+      openInviteScreen();
+
+      const shell = screen.getByTestId("one-location-onboarding-invite")
+        .firstElementChild as HTMLElement;
+      // Header and footer hold their size; only the middle scrolls. Without
+      // min-h-0 the scroll region refuses to shrink and the CTA is pushed off
+      // the bottom of a short screen.
+      expect(shell.className).toContain("min-h-0");
+      const scrollRegion = shell.querySelector("div.overflow-y-auto");
+      expect(scrollRegion?.className).toContain("min-h-0");
+      expect(scrollRegion?.className).toContain("flex-1");
+
+      const footer = shell.querySelector("footer");
+      expect(footer?.className).toContain("shrink-0");
+      // The home indicator must never sit on top of the only way forward.
+      expect(footer?.className).toContain("env(safe-area-inset-bottom,0px)");
+
+      await waitFor(() =>
+        expect(
+          screen.getByTestId("one-location-onboarding-invite-code").textContent,
+        ).toContain("ABCD-EFGH-JKLM"),
+      );
+      const code = screen.getByTestId("one-location-onboarding-invite-code");
+      // 14 wide-tracked monospace glyphs at a fixed 30px overflow the card on a
+      // 390px phone, so the size scales and the code stays on one line.
+      expect(code.className).toContain("text-[clamp(20px,6vw,28px)]");
+      expect(code.className).toContain("whitespace-nowrap");
+    });
+
+    it("uses the label the parent supplies for the terminal CTA", () => {
+      const props = renderFlow({ completeLabel: "Finish" });
+      openInviteScreen();
+
+      fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+      expect(props.onComplete).toHaveBeenCalledTimes(1);
     });
   });
 });

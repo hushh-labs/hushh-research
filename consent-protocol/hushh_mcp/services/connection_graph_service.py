@@ -122,12 +122,23 @@ class ConnectionGraphService:
             conn.execute(
                 text(
                     """
+                    -- LEAST/GREATEST, not the Python-ordered pair.
+                    --
+                    -- `connections_canonical_order` is CHECK (user_a_id <
+                    -- user_b_id), evaluated by Postgres under en_US.UTF8,
+                    -- which compares case-insensitively. Python's `<` is
+                    -- bytewise and puts every uppercase letter first, so for
+                    -- real Firebase UIDs the two disagree about half the time
+                    -- and the insert was rejected with CheckViolation.
+                    -- Deciding the order in the statement the constraint
+                    -- judges is the only way the two cannot drift.
                     INSERT INTO connections (
                       user_a_id, user_b_id, status, source,
                       created_at, updated_at, revoked_at
                     )
                     VALUES (
-                      :user_a, :user_b, 'active', :source,
+                      LEAST(:user_a, :user_b), GREATEST(:user_a, :user_b),
+                      'active', :source,
                       NOW(), NOW(), NULL
                     )
                     ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET

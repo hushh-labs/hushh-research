@@ -76,12 +76,17 @@ export const UI_FLOWS = [
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[0] },
       { type: "click_button", name: "Get started" },
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[1] },
-      { type: "click_button", name: "Add my people" },
+      { type: "click_button", name: "Find my people" },
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[2] },
-      { type: "click_button", name: "Next" },
+      // "Not now" rather than "Check my contacts": the reviewer run must not
+      // trigger an OS contacts prompt, and declining is the path every person
+      // who skips this step takes anyway.
+      { type: "click_button", name: "Not now" },
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[3] },
-      { type: "click_button", name: "Continue" },
-      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[4] },
+      // Stop here rather than pressing the final CTA. It settles the reviewer's
+      // Location capability, and this flow's contract is to traverse every
+      // screen once *without* mutating capability state.
+      { type: "wait_button", name: "Finish" },
     ],
   },
   {

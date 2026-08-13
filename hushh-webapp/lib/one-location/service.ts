@@ -238,6 +238,51 @@ export class OneLocationService {
     return response.circle;
   }
 
+  /**
+   * Find-or-create the caller's first Circle and return its live code.
+   *
+   * Takes a Firebase ID token rather than a vault owner token, because
+   * onboarding runs before the vault exists — the vault is only introduced once
+   * the /one/setup wizard finishes. Every other Circle call here stays
+   * vault-gated; this is the single pre-vault entry point, and it can only ever
+   * act on a Circle the caller owns.
+   */
+  static async bootstrapOnboardingCircle(params: {
+    idToken: string;
+    name: string;
+  }): Promise<{ circleId: string; circleName: string; code: string }> {
+    const response = await apiJson<{
+      invite: { circleId: string; circleName: string; code: string };
+    }>("/api/one/location/circles/bootstrap", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.idToken),
+      body: JSON.stringify({ name: params.name }),
+    });
+    return response.invite;
+  }
+
+  /**
+   * Show what a circle code points at, before joining it.
+   *
+   * Firebase-authenticated like the bootstrap call, because someone who was
+   * handed a code meets it mid-setup, before any vault exists -- which is
+   * precisely the person the vault-gated resolve route would turn away.
+   */
+  static async previewOnboardingCircleCode(params: {
+    idToken: string;
+    code: string;
+  }): Promise<OneLocationCircleInvitePreview> {
+    const response = await apiJson<{ circle: OneLocationCircleInvitePreview }>(
+      "/api/one/location/circle-codes/preview",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.idToken),
+        body: JSON.stringify({ code: params.code }),
+      },
+    );
+    return response.circle;
+  }
+
   static async updateNamedCircle(params: {
     vaultOwnerToken: string;
     circleId: string;

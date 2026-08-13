@@ -186,6 +186,24 @@ for ruleset in ruleset_list:
             actor_info = actor.get("actor") or {}
             if isinstance(actor_info, dict):
                 actor_name = str(actor_info.get("login") or actor_info.get("name") or "").strip()
+            # Repository ruleset responses identify direct user actors by their
+            # numeric account ID without embedding a login. Resolve only against
+            # the policy's bounded allowlist so the verifier can compare the
+            # live actor rather than silently dropping it.
+            actor_id = actor.get("actor_id")
+            if not actor_name and actor_id:
+                for expected_login in expected_queue_bypass:
+                    user_detail = json.loads(
+                        subprocess.run(
+                            ["gh", "api", f"users/{expected_login}"],
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                        ).stdout
+                    )
+                    if user_detail.get("id") == actor_id:
+                        actor_name = expected_login
+                        break
             if actor_name:
                 merge_queue_bypass.append(actor_name)
 merge_queue_bypass = sorted(set(merge_queue_bypass))

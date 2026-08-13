@@ -24,7 +24,7 @@ describe("Profile canonical page layout", () => {
 
     expect(source).toContain('data-profile-avatar-frame="true"');
     expect(source).toContain('className="h-full w-full"');
-    expect(source).toContain('<AvatarImage src={photo} alt={displayName || "Profile"} />');
+    expect(source).toContain('<AvatarImage src={shownPhoto} alt={displayName || "Profile"} />');
     expect(source).toContain('bg-primary/18 p-1');
     expect(source).toContain('<UserIcon className="h-8 w-8 sm:h-9 sm:w-9" />');
     expect(source).not.toContain(

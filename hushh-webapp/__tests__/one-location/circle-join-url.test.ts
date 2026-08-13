@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCircleJoinUrl,
   CIRCLE_JOIN_CODE_PARAM,
+  formatCircleCodeForDisplay,
 } from "@/lib/one-location/circle-join-url";
 
 describe("buildCircleJoinUrl", () => {
@@ -32,5 +33,24 @@ describe("buildCircleJoinUrl", () => {
 
   it("exposes the canonical code param name", () => {
     expect(CIRCLE_JOIN_CODE_PARAM).toBe("code");
+  });
+});
+
+describe("formatCircleCodeForDisplay", () => {
+  it("groups a code the way the sender sees it on their own screen", () => {
+    expect(formatCircleCodeForDisplay("96REHUNFKMVX")).toBe("96RE-HUNF-KMVX");
+  });
+
+  it("normalises whatever survived the trip through a message", () => {
+    // Links get lowercased, wrapped, and re-spaced by messaging apps; the code
+    // on the landing page must still match the one being read aloud.
+    expect(formatCircleCodeForDisplay(" 96re hunf-kmvx ")).toBe(
+      "96RE-HUNF-KMVX",
+    );
+  });
+
+  it("does not leave a trailing separator on an exact multiple of four", () => {
+    expect(formatCircleCodeForDisplay("ABCD")).toBe("ABCD");
+    expect(formatCircleCodeForDisplay("")).toBe("");
   });
 });
