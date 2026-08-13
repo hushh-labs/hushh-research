@@ -1702,7 +1702,14 @@ export function NearbyCheckInSheet({
                     </label>
 
                     <div
-                      className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                      className={cn(
+                        "mt-3 flex gap-2 overflow-x-auto pb-1",
+                        "[scrollbar-width:none] hover:[scrollbar-width:thin]",
+                        "[&::-webkit-scrollbar]:hidden hover:[&::-webkit-scrollbar]:block",
+                        "[&::-webkit-scrollbar]:h-1.5",
+                        "[&::-webkit-scrollbar-track]:bg-transparent",
+                        "[&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/30"
+                      )}
                       aria-label="Nearby place categories"
                     >
                       {typedSearchActive ? (

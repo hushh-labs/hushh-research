@@ -1880,6 +1880,19 @@ function savedLocationPromptKey(prefix: string, userId: string): string {
   return `${prefix}:${userId}`;
 }
 
+/**
+ * How long a confirmed nearby checkout suppresses the next one.
+ *
+ * Deliberately short. Nearby presence is account-wide rather than per-device,
+ * so this device's belief that it already checked out can be made wrong by a
+ * check-in somewhere else. Any window long enough to cover that is far too
+ * long: it would let a pause silently skip the checkout and leave someone
+ * visible while being told they are not. Ten seconds absorbs a person flicking
+ * the switch — the only thing that can actually reach the 6/minute nearby-write
+ * limit — and no real cross-device sequence fits inside it.
+ */
+const NEARBY_CHECKOUT_DEDUPE_MS = 10_000;
+
 export function OneLocationAgentPageContent({
   mode = "workspace",
   surface = "hub",
@@ -2143,19 +2156,20 @@ export function OneLocationAgentPageContent({
   // what the person just did, which on this particular switch is a privacy
   // failure rather than a glitch.
   const locationIntentSeqRef = useRef(0);
-  // True once a nearby checkout has been confirmed and nothing has checked us
-  // back in since. Nearby writes are capped at 6/minute, and a 429 here would
-  // be reported as "you may still be visible to people around you" — a false
-  // alarm about the one thing this surface must never be wrong about.
-  const nearbyPresenceClearedRef = useRef(false);
+  // When the last nearby checkout was confirmed, guarding the next one for
+  // NEARBY_CHECKOUT_DEDUPE_MS. Nearby writes are capped at 6/minute, and a 429
+  // here would be reported as "you may still be visible to people around you" —
+  // a false alarm about the one thing this surface must never be wrong about.
+  const nearbyCheckoutConfirmedAtRef = useRef(0);
   useEffect(() => {
+    // Checked back in: whatever we last confirmed no longer describes presence.
     if (locationControl.nearbyPresenceActive) {
-      nearbyPresenceClearedRef.current = false;
+      nearbyCheckoutConfirmedAtRef.current = 0;
     }
   }, [locationControl.nearbyPresenceActive]);
   useEffect(() => {
-    // A different account carries different presence; never inherit the flag.
-    nearbyPresenceClearedRef.current = false;
+    // A different account carries different presence; never inherit the window.
+    nearbyCheckoutConfirmedAtRef.current = 0;
   }, [auth.userId]);
   const nearbyCheckInAvailable = isOneLocationNearbyCheckInAvailable();
   useEffect(() => {
@@ -7117,16 +7131,19 @@ export function OneLocationAgentPageContent({
     // success either way. So the presence GET that used to precede it bought
     // nothing but a second serialized round trip inside the pause — and asking
     // first is strictly worse than just telling, because the answer can go
-    // stale between the two calls. `nearbyPresenceClearedRef` keeps repeated
-    // pauses off the 6/minute nearby-write limit.
+    // stale between the two calls. The dedupe window below keeps a flurry of
+    // taps off the 6/minute nearby-write limit without letting this device act
+    // on a stale belief about account-wide presence.
+    const checkedOutRecently =
+      nearbyCheckoutConfirmedAtRef.current > 0 &&
+      Date.now() - nearbyCheckoutConfirmedAtRef.current <
+        NEARBY_CHECKOUT_DEDUPE_MS;
     const shouldCheckOut =
-      nearbyCheckInAvailable &&
-      Boolean(vaultOwnerToken) &&
-      !nearbyPresenceClearedRef.current;
+      nearbyCheckInAvailable && Boolean(vaultOwnerToken) && !checkedOutRecently;
     if (shouldCheckOut && vaultOwnerToken) {
       try {
         await OneLocationService.checkoutNearby({ vaultOwnerToken });
-        nearbyPresenceClearedRef.current = true;
+        nearbyCheckoutConfirmedAtRef.current = Date.now();
       } catch {
         // Both halves of the truth, in the order that matters: what is now
         // private, then what is not. Told as `succeeded` because the thing
