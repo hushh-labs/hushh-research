@@ -358,9 +358,18 @@ export function NearbyAroundYou() {
       )}
 
       {covered && records.length > 0 ? (
-        <p className={cn(MUTED_TEXT, "px-1")}>
-          Public work associations. Not homes, not net worth.
-        </p>
+        <div className="flex flex-col gap-0.5 px-1">
+          <p className={MUTED_TEXT}>Public work associations. Not homes, not net worth.</p>
+          {/* Sixty records in one postcode reads like everyone there. It is a
+              reviewed set from a stated number of organisations, and saying so
+              is the difference between a shortlist and a false census. */}
+          {result?.reviewScope && !result.reviewScope.marketCensusComplete ? (
+            <p className={MUTED_TEXT}>
+              Reviewed from {result.reviewScope.organizationAnchorCount ?? "several"}{" "}
+              organisations — not a complete list.
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       <NearbyRecordSheet
@@ -368,6 +377,7 @@ export function NearbyAroundYou() {
         open={Boolean(selected)}
         onOpenChange={(next) => !next && setSelected(null)}
         onShortlist={handleShortlist}
+        capitalAccessNote={result?.financialContext?.capitalAccessNote}
         shortlisted={selected ? shortlisted.has(selected.personId) : false}
       />
       {picker}

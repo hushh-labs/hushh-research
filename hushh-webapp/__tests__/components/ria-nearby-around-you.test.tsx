@@ -85,6 +85,11 @@ function record(over: Partial<Record<string, unknown>> = {}) {
       independentSourceFamilies: false,
       reviewFlags: ["SINGLE_SOURCE_FAMILY"],
     },
+    associationContext: {
+      category: "BASED_HERE",
+      definition:
+        "Current verified public organization or civic association in this market; not a claim of physical presence or residence.",
+    },
     reasons: ["High-authority roles"],
     warnings: [],
     tags: ["semiconductors"],
@@ -125,6 +130,17 @@ const COVERED = {
     candidateCount: 11,
     searchPerformed: true,
     effectiveRadiusKm: 20,
+  },
+  release: {
+    releaseId: "us-wa-kirkland-public-association-2026-08-13",
+    sourceRetrievedAt: "2026-08-13",
+    sourcePolicyVersion: "public-association-v1",
+  },
+  reviewScope: { organizationAnchorCount: 13, marketCensusComplete: false },
+  financialContext: {
+    status: "NOT_PROFILED",
+    capitalAccessNote: "PUBLIC_PROFESSIONAL_RELATIONSHIP_ONLY; not a measure of wealth.",
+    notUsedForRanking: ["net_worth"],
   },
   scoreDefinition: "s",
   results: [
@@ -311,5 +327,42 @@ describe("filters only offer what exists", () => {
     // Two now: the lane chip plus the confidence "All", which always stands
     // because it can never come back empty.
     expect(screen.getAllByRole("button", { name: /^All$/ })).toHaveLength(2);
+  });
+});
+
+
+describe("what the screen claims about completeness", () => {
+  it("says the reviewed set is not everyone in the area", async () => {
+    render(<NearbyAroundYou />);
+    await openAPlace();
+    await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
+
+    // Seven records in one postcode reads like everyone there. It is a
+    // reviewed set from a stated number of organisations.
+    expect(
+      screen.getByText(/reviewed from 13 organisations — not a complete list/i),
+    ).toBeInTheDocument();
+  });
+
+  it("drops the caveat once a market really is a census", async () => {
+    mockDiscover.mockResolvedValue({
+      ...COVERED,
+      reviewScope: { organizationAnchorCount: 13, marketCensusComplete: true },
+    });
+    render(<NearbyAroundYou />);
+    await openAPlace();
+    await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
+
+    expect(screen.queryByText(/not a complete list/i)).not.toBeInTheDocument();
+  });
+
+  it("still renders when an older service sends no review scope", async () => {
+    const { reviewScope: _drop, ...withoutScope } = COVERED;
+    mockDiscover.mockResolvedValue(withoutScope);
+    render(<NearbyAroundYou />);
+    await openAPlace();
+
+    await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
+    expect(screen.queryByText(/not a complete list/i)).not.toBeInTheDocument();
   });
 });

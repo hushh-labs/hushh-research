@@ -444,8 +444,63 @@ def _normalize_discovery(payload: dict[str, Any]) -> dict[str, Any]:
             "searchPerformed": bool(summary.get("search_performed")),
             "effectiveRadiusKm": _coerce_float(summary.get("effective_radius_km")),
         },
+        "release": _normalize_release(payload.get("release")),
+        "reviewScope": _normalize_review_scope(payload.get("discovery")),
+        "financialContext": _normalize_financial_context(payload.get("financial_context")),
         "scoreDefinition": _text(payload.get("score_definition")),
         "results": [_normalize_result(item) for item in results],
+    }
+
+
+def _normalize_release(value: Any) -> dict[str, Any] | None:
+    """Which reviewed release answered, so an advisor can cite what they saw."""
+    block = _as_dict(value)
+    release_id = _text(block.get("release_id"))
+    if not release_id:
+        return None
+    return {
+        "releaseId": release_id,
+        "sourceRetrievedAt": _text(block.get("source_retrieved_at")),
+        "sourcePolicyVersion": _text(block.get("source_policy_version")),
+    }
+
+
+def _normalize_review_scope(value: Any) -> dict[str, Any] | None:
+    """How much of the market has actually been reviewed.
+
+    Sixty records in one postcode reads like everyone there. It is thirteen
+    reviewed organisations, and the release says so rather than leaving the
+    count to imply a census.
+    """
+    block = _as_dict(value)
+    if not block:
+        return None
+    return {
+        "organizationAnchorCount": _coerce_int(block.get("organization_anchor_count")),
+        "marketCensusComplete": bool(block.get("market_census_complete")),
+    }
+
+
+def _normalize_financial_context(value: Any) -> dict[str, Any] | None:
+    """The service's own statement that none of this is about money.
+
+    Carried because the surface renders a component literally named "capital
+    access" to advisers whose job is assessing whether someone can invest.
+    That is the one reading this product must not invite, and the sentence
+    that prevents it belongs next to the number rather than in a document.
+    """
+    block = _as_dict(value)
+    status = _text(block.get("status"))
+    if not status:
+        return None
+    return {
+        "status": status,
+        "capitalAccessNote": _text(block.get("nws_capital_access_component")),
+        "notUsedForRanking": [
+            text
+            for text in (_text(item) for item in _as_list(block.get("not_used_for_ranking")))
+            if text
+        ],
     }
 
 
@@ -492,6 +547,7 @@ def _normalize_result(row: dict[str, Any]) -> dict[str, Any]:
         "tags": [text for text in (_text(item) for item in _as_list(row.get("tags"))) if text],
         "revalidationRequired": bool(row.get("revalidation_required")),
         "evidence": _normalize_evidence(row.get("evidence")),
+        "associationContext": _normalize_association_context(row.get("public_association_context")),
         "sources": [
             {
                 "publisher": _text(item.get("publisher")),
@@ -515,6 +571,20 @@ def _normalize_result(row: dict[str, Any]) -> dict[str, Any]:
 
 def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def _normalize_association_context(value: Any) -> dict[str, Any] | None:
+    """What "in this market" means for this particular person.
+
+    The category alone reads like a claim about where someone lives. The
+    release ships its own definition alongside it, and that definition is the
+    part keeping the claim honest, so the two travel together or not at all.
+    """
+    block = _as_dict(value)
+    category = _text(block.get("category"))
+    if not category:
+        return None
+    return {"category": category, "definition": _text(block.get("definition"))}
 
 
 def _normalize_evidence(value: Any) -> dict[str, Any] | None:

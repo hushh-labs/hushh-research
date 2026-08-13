@@ -18,7 +18,14 @@ function pct(value: number | null): string {
   return typeof value === "number" ? `${Math.round(value * 100)}` : "—";
 }
 
-export function NearbyScoreExplainer({ breakdown }: { breakdown: ScoreBreakdown }) {
+export function NearbyScoreExplainer({
+  breakdown,
+  capitalAccessNote,
+}: {
+  breakdown: ScoreBreakdown;
+  /** The service's own wording for what "capital access" is not. */
+  capitalAccessNote?: string | null;
+}) {
   const components = breakdown.components.filter((c) => typeof c.value === "number");
   if (components.length === 0) return null;
 
@@ -29,7 +36,8 @@ export function NearbyScoreExplainer({ breakdown }: { breakdown: ScoreBreakdown 
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2">
         {components.map((component) => (
-          <div key={component.key} className="flex items-center gap-3">
+          <div key={component.key} className="flex flex-col gap-1">
+          <div className="flex items-center gap-3">
             <span className="w-40 shrink-0 truncate type-footnote">{component.label}</span>
             {/* Bar length is the contribution, not the raw value — a strong
                 score on a 5%-weighted component should not look decisive. */}
@@ -47,6 +55,16 @@ export function NearbyScoreExplainer({ breakdown }: { breakdown: ScoreBreakdown 
             <span className={cn(MUTED_TEXT, "w-16 shrink-0 text-right tabular-nums")}>
               {pct(component.value)} · {pct(component.weight)}%
             </span>
+          </div>
+          {/* "Capital access" sits on a prospecting screen used by advisers
+              whose job is judging whether someone can invest. Read as wealth
+              it is exactly wrong, and the service says so itself — so its own
+              wording goes on the row, not in a footnote nobody reaches. */}
+          {component.key === "capital_access" && capitalAccessNote ? (
+            <p className={cn(MUTED_TEXT, "pl-40")}>
+              Professional relationships only — not wealth or ability to pay.
+            </p>
+          ) : null}
           </div>
         ))}
       </div>
