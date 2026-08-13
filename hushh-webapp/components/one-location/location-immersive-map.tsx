@@ -2225,8 +2225,8 @@ export function LocationImmersiveMap({
                     </h3>
                     <p className="text-xs text-muted-foreground">
                       Nearby check-ins stay in the list and never become map
-                      pins. A pin appears only after that person explicitly
-                      shares their location with you.
+                      pins. A pin needs two things: they share their location
+                      with you, and they have turned on appearing on maps.
                     </p>
                   </div>
                   <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">
