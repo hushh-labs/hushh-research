@@ -1371,29 +1371,56 @@ export default function ConnectPageClient() {
                         density="compact"
                         trailing={
                           isSelectionMode ? (
-                            <Checkbox
-                              checked={isSelected}
-                              disabled={
-                                person.relationship !== "none" ||
-                                (!isSelected && selectionLimitReached)
-                              }
-                              aria-describedby="connect-selection-limit"
-                              onCheckedChange={(checked) => {
-                                setSelectedUserIds((current) => {
-                                  const next = new Set(current);
-                                  if (checked) {
-                                    if (next.size >= MAX_BULK_CONNECTION_REQUESTS) {
-                                      return current;
+                            // A disabled checkbox alone said nothing about WHY.
+                            // Someone already connected, already asked, or
+                            // already asking you looked identical to someone
+                            // selection had simply run out of room for -- both
+                            // rendered as the same greyed box with a
+                            // not-allowed cursor and no visible text. A row
+                            // ineligible because of its relationship isn't a
+                            // choice at all, so it gets no checkbox -- just the
+                            // reason, standing in its place. The limit case
+                            // stays a real (disabled) checkbox, since it flips
+                            // back to selectable the moment the reader frees a
+                            // slot, and it already has a persistent explanation
+                            // in the section description above the list.
+                            person.relationship !== "none" ? (
+                              <span
+                                className="text-xs font-medium text-emerald-700 dark:text-emerald-300"
+                                aria-label={`${title}: ${cta.label}, not selectable`}
+                              >
+                                {cta.label}
+                              </span>
+                            ) : (
+                              <Checkbox
+                                checked={isSelected}
+                                disabled={!isSelected && selectionLimitReached}
+                                // The default unchecked border (border-input)
+                                // reads as near-invisible on this row's light
+                                // background -- readers couldn't tell an
+                                // eligible, clickable checkbox from empty
+                                // space. A darker, thicker border only changes
+                                // that idle state; data-[state=checked] still
+                                // wins once picked.
+                                className="border-2 border-foreground/50"
+                                aria-describedby="connect-selection-limit"
+                                onCheckedChange={(checked) => {
+                                  setSelectedUserIds((current) => {
+                                    const next = new Set(current);
+                                    if (checked) {
+                                      if (next.size >= MAX_BULK_CONNECTION_REQUESTS) {
+                                        return current;
+                                      }
+                                      next.add(person.userId);
+                                    } else {
+                                      next.delete(person.userId);
                                     }
-                                    next.add(person.userId);
-                                  } else {
-                                    next.delete(person.userId);
-                                  }
-                                  return next;
-                                });
-                              }}
-                              aria-label={`Select ${title}`}
-                            />
+                                    return next;
+                                  });
+                                }}
+                                aria-label={`Select ${title}`}
+                              />
+                            )
                           ) : person.relationship === "pending_outgoing" ? (
                             <Button
                               type="button"
