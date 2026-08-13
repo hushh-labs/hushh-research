@@ -48,9 +48,14 @@ Profile bootstrap rule:
 | `ONE_EMAIL_WEBHOOK_AUDIENCE` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | required for hosted One email intake |
 | `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | recommended |
 | `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | required true for hosted One email intake |
-| `ONE_EMAIL_WATCH_RENEW_TOKEN` | `consent-protocol/api/routes/one/email.py` | Y | N | Y | secret | N | secret | N | required for hosted One watch renewal |
+| `ONE_EMAIL_WATCH_RENEW_SCHEDULER_SERVICE_ACCOUNTS` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | Cloud Scheduler OIDC allowlist; empty refuses everyone |
+| `ONE_EMAIL_WATCH_RENEW_AUDIENCE` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | must equal the job's `--oidc-token-audience` |
+| `ONE_EMAIL_WATCH_RENEW_TOKEN` | `consent-protocol/api/routes/one/email.py` | Y | N | Y | secret | N | secret | N | legacy pre-OIDC shared token; delete once the legacy path is off |
 | `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `consent-protocol/api/routes/one/email.py` | Y | N | N | env | N | env | N | required true for hosted One watch renewal |
-| `ONE_LOCATION_RETENTION_TOKEN` | `consent-protocol/api/routes/one/location.py` | Y | N | Y | secret | N | secret | N | required dedicated token for hosted One Location retention purge |
+| `ONE_LOCATION_RETENTION_SCHEDULER_SERVICE_ACCOUNTS` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | Cloud Scheduler OIDC allowlist; empty refuses everyone |
+| `ONE_LOCATION_RETENTION_AUDIENCE` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | must equal the job's `--oidc-token-audience` |
+| `ONE_LOCATION_RETENTION_TOKEN` | `consent-protocol/api/routes/one/location.py` | Y | N | Y | secret | N | secret | N | legacy pre-OIDC dedicated token; delete once the legacy path is off |
+| `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` | `consent-protocol/hushh_mcp/services/scheduler_identity.py` | Y | N | N | env | N | env | N | defaults on; set `0` after both scheduler jobs use OIDC |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | `consent-protocol/api/routes/one/location.py` | Y | N | N | env | N | env | N | optional local/test override; hosted auth remains enabled |
 | `ONE_LOCATION_NEARBY_PRESENCE_MODE` | `consent-protocol/api/routes/one/location.py` | Y | N | N | env | N | N | N | optional non-production override: `disabled` or `uat_simulation`; production always fails closed |
 | `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | strict client-side ZK guard; defaults true |

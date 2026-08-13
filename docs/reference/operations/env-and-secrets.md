@@ -257,9 +257,14 @@ Used by:
 | `ONE_EMAIL_WEBHOOK_AUDIENCE` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (hosted intake) | Expected Pub/Sub push OIDC audience. Falls back to `GMAIL_WEBHOOK_AUDIENCE`. |
 | `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | `hushh_mcp/services/one_email_kyc_service.py` | Recommended | Expected Pub/Sub push service account. Falls back to `GMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL`. |
 | `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | `hushh_mcp/services/one_email_kyc_service.py` | Yes (hosted intake) | Must be `true` in UAT/production so Pub/Sub push OIDC verification cannot silently default off. |
-| `ONE_EMAIL_WATCH_RENEW_TOKEN` | `api/routes/one/email.py` | Yes (hosted watch renewal) | Shared maintenance token for `POST /api/one/email/watch/renew`. |
-| `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `api/routes/one/email.py` | Yes (hosted renewal) | Must be `true` in UAT/production so maintenance endpoints require `X-Hushh-Maintenance-Token`. |
-| `ONE_LOCATION_RETENTION_TOKEN` | `api/routes/one/location.py` | Yes (hosted retention) | Dedicated maintenance token for One Location retention purge. It is not shared with One Email maintenance tokens. |
+| `ONE_EMAIL_WATCH_RENEW_SCHEDULER_SERVICE_ACCOUNTS` | `hushh_mcp/services/scheduler_identity.py` | Yes (hosted watch renewal) | Comma-separated allowlist of Cloud Scheduler service accounts that may call `POST /api/one/email/watch/renew`. Empty refuses everyone. |
+| `ONE_EMAIL_WATCH_RENEW_AUDIENCE` | `hushh_mcp/services/scheduler_identity.py` | Yes (hosted watch renewal) | OIDC audience the scheduler token must carry. Must equal the job's `--oidc-token-audience` exactly; never inferred from the request URL. |
+| `ONE_EMAIL_WATCH_RENEW_TOKEN` | `api/routes/one/email.py` | Legacy, being retired | Pre-OIDC shared maintenance token. Accepted only while `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` is on. |
+| `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `api/routes/one/email.py` | Yes (hosted renewal) | Must be `true` in UAT/production so the maintenance endpoint cannot silently default open. |
+| `ONE_LOCATION_RETENTION_SCHEDULER_SERVICE_ACCOUNTS` | `hushh_mcp/services/scheduler_identity.py` | Yes (hosted retention) | Comma-separated allowlist of Cloud Scheduler service accounts that may call the One Location retention purge. Empty refuses everyone. |
+| `ONE_LOCATION_RETENTION_AUDIENCE` | `hushh_mcp/services/scheduler_identity.py` | Yes (hosted retention) | OIDC audience for the retention purge token. Must equal the job's `--oidc-token-audience` exactly. |
+| `ONE_LOCATION_RETENTION_TOKEN` | `api/routes/one/location.py` | Legacy, being retired | Pre-OIDC dedicated maintenance token. Accepted only while `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` is on. |
+| `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` | `hushh_mcp/services/scheduler_identity.py` | Defaults on | Set to `0` once both scheduler jobs authenticate with OIDC. That is the step that actually retires the shared `X-Hushh-Maintenance-Token` header. |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | `api/routes/one/location.py` | Optional local/test override | One Location retention auth defaults on; `false` is honored only in local/test environments. |
 | `ONE_LOCATION_NEARBY_PRESENCE_MODE` | `api/routes/one/location.py` | Optional non-production override | `disabled` or `uat_simulation`. Development/UAT/staging default to the simulation; production remains disabled even if misconfigured. |
 | `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Defaults to `true`. Backend orchestrates consent/send/writeback metadata only; it must not decrypt exports or persist review draft plaintext. |
@@ -354,9 +359,14 @@ Used by:
 | `ONE_EMAIL_WEBHOOK_AUDIENCE` | Yes (hosted intake) | No | Hosted Cloud Run env | Pub/Sub OIDC audience. |
 | `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | Recommended | No | Hosted Cloud Run env | Pub/Sub push identity. |
 | `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | Yes (hosted intake) | No | Hosted Cloud Run env | Must be `true` in UAT/production. |
-| `ONE_EMAIL_WATCH_RENEW_TOKEN` | Yes (hosted renewal) | Yes | Secret Manager | Send as `X-Hushh-Maintenance-Token`. |
+| `ONE_EMAIL_WATCH_RENEW_SCHEDULER_SERVICE_ACCOUNTS` | Yes (hosted renewal) | No | Hosted Cloud Run env | Not a secret: a service-account allowlist. |
+| `ONE_EMAIL_WATCH_RENEW_AUDIENCE` | Yes (hosted renewal) | No | Hosted Cloud Run env | Must match the scheduler job's `--oidc-token-audience`. |
+| `ONE_EMAIL_WATCH_RENEW_TOKEN` | Legacy, being retired | Yes | Secret Manager | Delete once `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED=0`. |
 | `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | Yes (hosted renewal) | No | Hosted Cloud Run env | Must be `true` in UAT/production. |
-| `ONE_LOCATION_RETENTION_TOKEN` | Yes (hosted retention) | Yes | Secret Manager | Dedicated token for location retention purge. Do not reuse `ONE_EMAIL_WATCH_RENEW_TOKEN`. |
+| `ONE_LOCATION_RETENTION_SCHEDULER_SERVICE_ACCOUNTS` | Yes (hosted retention) | No | Hosted Cloud Run env | Not a secret: a service-account allowlist. |
+| `ONE_LOCATION_RETENTION_AUDIENCE` | Yes (hosted retention) | No | Hosted Cloud Run env | Must match the scheduler job's `--oidc-token-audience`. |
+| `ONE_LOCATION_RETENTION_TOKEN` | Legacy, being retired | Yes | Secret Manager | Delete once `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED=0`. |
+| `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` | Defaults on | No | Hosted Cloud Run env | Set `0` after both jobs are on OIDC. |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | Optional local/test override | No | Local/test env only | Auth defaults on; hosted environments require `ONE_LOCATION_RETENTION_TOKEN` even if this flag is set false. |
 | `ONE_LOCATION_NEARBY_PRESENCE_MODE` | Optional non-production override | No | Local/UAT Cloud Run env | Use `uat_simulation` or `disabled`; omit from production because production is hard-disabled in code. |
 | `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED` | Optional | No | Hosted Cloud Run env | Must remain `true` in dev/UAT strict client-side ZK mode. |
@@ -382,14 +392,25 @@ Used by:
 One mailbox production caveats:
 
 - `one@hushh.ai` is a real Workspace user mailbox. UAT and production must not independently renew Gmail watches for the same mailbox unless a label/topic fanout strategy is explicitly documented and tested.
-- Hosted One intake requires a daily Scheduler or equivalent maintenance call to `POST /api/one/email/watch/renew` with `X-Hushh-Maintenance-Token`. The runtime gate should confirm `one_email_mailbox_state.watch_status=active` and a future `watch_expiration_at`.
-- Hosted One KYC retention uses `deploy/one-email/setup_kyc_retention_scheduler.sh` to schedule `POST /api/one/kyc/retention/purge?older_than_days=30` with the same maintenance token.
+- Hosted One intake requires a daily Scheduler or equivalent maintenance call to `POST /api/one/email/watch/renew`. The runtime gate should confirm `one_email_mailbox_state.watch_status=active` and a future `watch_expiration_at`.
+- Hosted One KYC retention uses `deploy/one-email/setup_kyc_retention_scheduler.sh` to schedule `POST /api/one/kyc/retention/purge?older_than_days=30`.
 - Hosted One Location retention must run
   `deploy/one-location/setup_retention_scheduler.sh` and verify the hourly
   `one-location-retention-purge-uat` job before nearby presence is enabled. The
-  job calls `POST /api/one/location/retention/purge?older_than_hours=12` with
-  `X-Hushh-Maintenance-Token` set to the dedicated
-  `ONE_LOCATION_RETENTION_TOKEN`.
+  job calls `POST /api/one/location/retention/purge?older_than_hours=12`.
+- **Both scheduler jobs authenticate with a per-invocation Google-signed OIDC
+  token, not with a secret baked into the job.** They previously carried the
+  Secret Manager value as a literal `X-Hushh-Maintenance-Token` header, which
+  `gcloud scheduler jobs describe` prints: the credential was readable by anyone
+  with scheduler view access, it never rotated unless a human re-ran the setup
+  script, and because both jobs used the same header name one value opened both
+  endpoints. An OIDC token's `aud` claim binds it to one endpoint. Each setup
+  script needs `SCHEDULER_SERVICE_ACCOUNT` and reads the job back to prove the
+  identity landed and the old header is gone.
+- The migration is ordered: deploy the backend, re-run both setup scripts, then
+  set `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED=0` and delete the two secrets.
+  Until that last step the shared-header path is still open, which is why it is
+  a variable rather than an assumption.
 - One Email KYC connector private keys are client/vault-owned. Do not configure backend connector public, key-id, or private-key env vars for strict client-side ZK mode.
 - Strict client-side ZK KYC drafts are generated after vault unlock and must not persist server-side; production/public launch stays blocked until dev/UAT evidence proves that invariant.
 | `GOOGLE_GENAI_USE_VERTEXAI` | No | No | Local: `.env`; Prod: Cloud Run env | True for Vertex AI |

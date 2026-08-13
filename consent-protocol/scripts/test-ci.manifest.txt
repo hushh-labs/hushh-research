@@ -141,6 +141,7 @@ tests/test_ria_dossier_routes.py
 tests/test_ria_dossier_service.py
 tests/test_ria_iam_service_architecture.py
 tests/test_ria_onboarding_status_claim_event.py
+tests/test_scheduler_identity.py
 tests/test_scoped_export_download.py
 tests/test_simulation_phone_lane.py
 tests/test_specialist_availability_authority.py
