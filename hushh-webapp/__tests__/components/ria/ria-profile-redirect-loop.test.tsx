@@ -41,6 +41,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("lucide-react", () => ({
+  AlertTriangle: () => <span />,
   ArrowRight: () => <span />,
   CheckCircle2: () => <span />,
   ClipboardCheck: () => <span />,
@@ -244,6 +245,86 @@ describe("RiaProfileSection redirect loop breaker", () => {
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
 
+  describe("typed delete confirmation", () => {
+    const LIVE_PROFILE = {
+      exists: true,
+      verification_status: "verified",
+      advisory_status: "active",
+    };
+
+    function openDeleteDialog() {
+      const view = renderSection(LIVE_PROFILE);
+      fireEvent.click(screen.getByTestId("ria-profile-delete"));
+      return view;
+    }
+
+    it("keeps the delete button disabled until DELETE is typed", () => {
+      openDeleteDialog();
+      const action = screen.getByTestId(
+        "ria-delete-confirm-action",
+      ) as HTMLButtonElement;
+
+      expect(action.disabled).toBe(true);
+
+      fireEvent.change(screen.getByTestId("ria-delete-confirm-input"), {
+        target: { value: "DELETE" },
+      });
+      expect(
+        (screen.getByTestId("ria-delete-confirm-action") as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
+    });
+
+    it("rejects near-miss text and never calls the API", async () => {
+      openDeleteDialog();
+
+      for (const value of ["", "delete my profile", "DELET", "remove"]) {
+        fireEvent.change(screen.getByTestId("ria-delete-confirm-input"), {
+          target: { value },
+        });
+        expect(
+          (screen.getByTestId("ria-delete-confirm-action") as HTMLButtonElement)
+            .disabled,
+        ).toBe(true);
+        await act(async () => {
+          fireEvent.click(screen.getByTestId("ria-delete-confirm-action"));
+        });
+      }
+
+      expect(mocks.riaService.deleteProfile).not.toHaveBeenCalled();
+    });
+
+    it("accepts lowercase and surrounding whitespace", () => {
+      openDeleteDialog();
+      fireEvent.change(screen.getByTestId("ria-delete-confirm-input"), {
+        target: { value: "  delete " },
+      });
+      expect(
+        (screen.getByTestId("ria-delete-confirm-action") as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
+    });
+
+    it("re-arms the gate when the dialog is cancelled and reopened", () => {
+      openDeleteDialog();
+      fireEvent.change(screen.getByTestId("ria-delete-confirm-input"), {
+        target: { value: "DELETE" },
+      });
+      fireEvent.click(screen.getByText("Cancel"));
+
+      // Reopening must start inert again, not inherit the satisfied text.
+      fireEvent.click(screen.getByTestId("ria-profile-delete"));
+      expect(
+        (screen.getByTestId("ria-delete-confirm-input") as HTMLInputElement)
+          .value,
+      ).toBe("");
+      expect(
+        (screen.getByTestId("ria-delete-confirm-action") as HTMLButtonElement)
+          .disabled,
+      ).toBe(true);
+    });
+  });
+
   /**
    * Regression: deleting the RIA profile froze the page on "Loading profile..."
    * and never returned to One home (reported on web, 2026-08-13).
@@ -267,8 +348,11 @@ describe("RiaProfileSection redirect loop breaker", () => {
     });
 
     fireEvent.click(screen.getByTestId("ria-profile-delete"));
+    fireEvent.change(screen.getByTestId("ria-delete-confirm-input"), {
+      target: { value: "DELETE" },
+    });
     await act(async () => {
-      fireEvent.click(screen.getByText("Delete profile"));
+      fireEvent.click(screen.getByTestId("ria-delete-confirm-action"));
     });
 
     await waitFor(() =>
