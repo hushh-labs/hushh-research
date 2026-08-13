@@ -19,6 +19,7 @@ from hushh_mcp.services.crm_encrypted_fields_v1 import (
 )
 
 OPERATIONS = ("schema", "read", "create", "update", "delete")
+CRM_ENCRYPTED_FIELDS_CONFORMANCE_VERSION = "crm-encrypted-fields-conformance.v1"
 
 
 class CrmRegistryDescriptorError(ValueError):
@@ -219,6 +220,38 @@ def load_and_validate_descriptor(
         if set(tools) != {"read", "update"}:
             raise CrmRegistryDescriptorError(
                 "encryptedFields.tools may contain only read and update tool names."
+            )
+        partner_conformance = encrypted_fields.get("partnerConformance")
+        if not isinstance(partner_conformance, dict) or set(partner_conformance) != {
+            "version",
+            "evidenceSha256",
+            "decryptedFieldAllowlistEnforced",
+            "strictToolSchemaValidated",
+        }:
+            raise CrmRegistryDescriptorError(
+                "encryptedFields.partnerConformance must contain the exact reviewed "
+                "conformance attestation fields."
+            )
+        if partner_conformance.get("version") != CRM_ENCRYPTED_FIELDS_CONFORMANCE_VERSION:
+            raise CrmRegistryDescriptorError(
+                "encryptedFields.partnerConformance.version is unsupported."
+            )
+        evidence_digest = _text(partner_conformance.get("evidenceSha256"))
+        if (
+            not evidence_digest.startswith("sha256:")
+            or len(evidence_digest) != 71
+            or any(character not in "0123456789abcdef" for character in evidence_digest[7:])
+        ):
+            raise CrmRegistryDescriptorError(
+                "encryptedFields.partnerConformance.evidenceSha256 must be a lowercase SHA-256 digest."
+            )
+        if partner_conformance.get("decryptedFieldAllowlistEnforced") is not True:
+            raise CrmRegistryDescriptorError(
+                "MuleSoft must attest that decrypted CRM update fields are schema-allowlisted."
+            )
+        if partner_conformance.get("strictToolSchemaValidated") is not True:
+            raise CrmRegistryDescriptorError(
+                "MuleSoft strict encrypted-fields tool schemas must be validated before activation."
             )
 
     if capability_set.intersection({"create", "update", "delete"}):

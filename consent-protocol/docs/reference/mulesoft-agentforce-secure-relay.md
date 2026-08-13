@@ -15,8 +15,11 @@ variant and does not alter consent-export cryptography.
 
 `crm-encrypted-fields.v1` is the sole encrypted-fields profile for external
 CRM reads and updates. The browser encrypts CRM field values for MuleSoft;
-Hussh validates the owner, allowed field names, expiration, configured public
-key, and server-bound record ID but never decrypts those values.
+Hussh validates the owner, browser-declared field names, expiration, configured
+public key, and server-bound record ID but never decrypts those values. Because
+this simplified profile has no AAD or signature, MuleSoft must independently
+reject every decrypted update key outside the registered CRM schema. Hussh
+cannot cryptographically prove that the declared names and ciphertext match.
 
 ## Visual Map
 
@@ -31,8 +34,9 @@ sequenceDiagram
   Owner->>One: Review read or update
   One->>API: encryptedFields + public metadata
   API->>API: Validate owner, schema, bound record, expiry and key ID
-  API->>Mule: Bound ID + allowed names + encryptedFields
-  Mule->>CRM: Decrypt and execute approved CRM action
+  API->>Mule: Bound ID + encryptedFields
+  Mule->>Mule: Decrypt and schema-allowlist field names
+  Mule->>CRM: Execute approved CRM action
   Mule-->>API: Encrypted read response or metadata-only update acknowledgement
   API-->>One: Opaque response
   One->>One: Decrypt returned fields in memory
@@ -50,7 +54,7 @@ replay-proof zero-knowledge protocol.
 | --- | --- | --- | --- |
 | Discovery | Derive verified email/phone server-side and accept exactly one CRM match; return binding metadata only | Query the CRM using the governed connector | Narrow server-side identity lookup exception; no values returned to browser |
 | Read | Resolve the existing owner-bound CRM ID and allowed return fields | Decrypt request, read CRM, encrypt `{ "returnFields": { ... } }` to the browser’s fresh X25519 key | Never decrypted or persisted |
-| Update | Persist a ciphertext-only pending intent; enforce user confirmation, record binding, schema, expiry and idempotency | Decrypt exactly the reviewed `{ "additionalFields": { ... } }`, mutate CRM, return metadata-only acknowledgement | Never decrypted or persisted |
+| Update | Persist a ciphertext-only pending intent; enforce user confirmation, record binding, declared field names, schema, expiry and idempotency | Decrypt `{ "additionalFields": { ... } }`, enforce the CRM schema allowlist, mutate CRM, return metadata-only acknowledgement | Never decrypted or persisted |
 | Create | Existing reviewed plaintext lifecycle; HushhTech may create `Account`/Person Account where the registry permits | Create the registered object type | Current lifecycle |
 | Delete | Existing reviewed plaintext lifecycle | Delete only the server-bound object record | Current lifecycle |
 
@@ -105,7 +109,9 @@ ID, client operation ID, and expiry as Hussh control metadata. MuleSoft's
 strict tool schema accepts only the seven snake_case cryptographic fields shown
 above. For update, `update-crm-record` receives `objectType`, the server-bound
 `id`, and `encryptedFields`; Hussh retains intent, approval, idempotency, and
-allowed-field metadata internally. MuleSoft returns only
+declared-field metadata internally. MuleSoft does not receive that metadata in
+the current strict tool schema, so its decrypted-field schema allowlist is a
+mandatory activation condition. MuleSoft returns only
 `{ "status": "accepted", "accepted": true, "operationId": "<opaque-id>" }`.
 
 ## Credential and key custody
@@ -129,7 +135,21 @@ The profile is default-off and sandbox/UAT-only until MuleSoft verifies exact
 request/response vectors, malformed ciphertext/key failures, expiry,
 idempotent update retry, key rotation, Account-create/Contact-binding
 separation, and database/log/trace evidence that no CRM values or credentials
-were recorded by Hussh.
+were recorded by Hussh. The ignored activation descriptor must contain an
+operator-reviewed `partnerConformance` attestation with a SHA-256 digest of the
+evidence, confirmation that strict MCP schemas were tested, and confirmation
+that decrypted update keys are schema-allowlisted. The activation probe checks
+every registry-owned object type; the Hussh cross-object flow therefore proves
+both `Account` and `Contact` schemas. Schema proof alone cannot enable a
+write-capable row; the operator must also provide a safe fixture that proves
+every declared cross-object operation without reusing an Account ID as a
+Contact ID.
+
+The read response is authenticated only by the selected TLS/gateway trust
+model; it is not signed. Hussh restores request-held operation metadata around
+the strict seven-field MuleSoft response. This is an intentional limitation of
+the simplified profile and must not be presented as independent response
+authenticity.
 
 `crm-zk.v1` and `crm-zk-uat.v1` are retired runtime profiles. Their applied
 migrations remain immutable database history; no current route, UI flow, or

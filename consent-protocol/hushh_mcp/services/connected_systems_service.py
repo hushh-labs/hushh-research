@@ -2727,7 +2727,13 @@ class ConnectedSystemsService:
         statuses: list[dict[str, Any]] = []
         for summary in self.list_systems():
             system_id = str(summary.get("systemId") or "")
-            object_type = str(summary.get("objectTypeDefault") or "")
+            operation_object_types = _ensure_dict(summary.get("operationObjectTypes"))
+            # Setup readiness follows the record type that powers the durable
+            # read/update experience. A Person Account create binding is not a
+            # substitute for the Contact binding used by those operations.
+            object_type = str(
+                operation_object_types.get("read") or summary.get("objectTypeDefault") or ""
+            )
             binding = indexed.get((system_id, object_type))
             statuses.append(
                 {
