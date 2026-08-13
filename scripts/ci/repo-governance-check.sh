@@ -17,6 +17,13 @@ python3 scripts/ci/test_resolve_deploy_scope.py
 python3 scripts/ci/test_resolve_uat_verification_plan.py
 python3 scripts/ci/test_change_aware_verification_wiring.py
 python3 scripts/ci/test_pkm_upgrade_gate_scope.py
+# The offline half of the deploy-identity comparison: does the record that declares
+# who may mint a production deploy token still say what it must? Runs everywhere
+# because it needs no cloud. The live half needs IAM read, which the deploy lane's
+# federated identity deliberately does not have, so it runs from the setup script
+# instead -- with the operator credential that can genuinely see.
+python3 scripts/ci/verify-deploy-identity-provenance.py --record-only
+python3 scripts/ci/test_verify_deploy_identity_provenance.py
 ./bin/hushh docs verify
 ./bin/hushh codex data-model-audit
 python3 scripts/ops/generate_runtime_topology_index.py --check

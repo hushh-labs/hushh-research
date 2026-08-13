@@ -24,6 +24,8 @@ The script is idempotent. It:
 5. writes the provider and service-account identifiers as GitHub `production`
    environment variables
 6. runs the live deployment-environment governance verifier
+7. reads the provider and project IAM policy back from GCP and compares them to
+   the literals at the top of this script
 
 Do not create a service-account key, reuse the Firebase Admin service account,
 reuse UAT identity variables, or add a second production provider for this
@@ -48,3 +50,17 @@ repository. GitHub OIDC federation is the only deployment authentication path.
 
 The verifier checks configuration names and environment governance without
 printing variable values.
+
+To compare this directory's record against what GCP actually has — the provider's
+attribute mapping and condition, and every project role bound to the deploy service
+account — run:
+
+```bash
+python3 scripts/ci/verify-deploy-identity-provenance.py
+```
+
+Its expectations are parsed from `setup_production_github_wif.sh` rather than
+restated, so the script stays the single record. `--record-only` runs the half that
+needs no cloud access (it is part of `repo-governance-check.sh`). A live read that
+GCP refuses is reported as `deploy_identity_unverifiable` with a non-zero exit — it
+is never recorded as a pass.
