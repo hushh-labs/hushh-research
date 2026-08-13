@@ -221,15 +221,22 @@ describe("SaveLocationModal", () => {
     expect(
       screen.getByRole("heading", { name: "Add your address details" }),
     ).toHaveFocus();
-    expect(screen.getByLabelText("PIN / postal code")).toHaveValue("110001");
+    expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110001");
     expect(
-      screen.getByText(/kept only for this setup session/i),
+      screen.getByText(/held for this session/i),
     ).toBeInTheDocument();
+    // The detected address lands in the Address field, where it can be
+    // corrected, instead of only being shown back as a read-only card.
+    expect(screen.getByLabelText("Address")).toHaveValue(
+      "Kartavya Path, New Delhi, Delhi 110001, India",
+    );
 
     const saveButton = screen.getByRole("button", { name: "Save location" });
+    // Still off, but now for the one reason that remains, and it says so.
     expect(saveButton).toBeDisabled();
+    expect(screen.getByText("Pick Home, Work or Other first.")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
       target: { value: " Flat 4B, Tower 2 " },
     });
     fireEvent.change(screen.getByLabelText(/Building colour/), {
@@ -246,12 +253,20 @@ describe("SaveLocationModal", () => {
     expect(saveButton).toBeEnabled();
     fireEvent.click(saveButton);
 
-    expect(baseProps.onSave).toHaveBeenCalledWith("other", "Parents' home", {
-      houseOrFlat: "Flat 4B, Tower 2",
-      buildingColor: "Blue gate",
-      landmark: "Opposite City Mall",
-      postalCode: "110001",
-    });
+    // The address line is passed alongside the details, not folded into them,
+    // so the caller composes from parts instead of layering this save on top
+    // of whatever the previous one produced.
+    expect(baseProps.onSave).toHaveBeenCalledWith(
+      "other",
+      "Parents' home",
+      {
+        houseOrFlat: "Flat 4B, Tower 2",
+        buildingColor: "Blue gate",
+        landmark: "Opposite City Mall",
+        postalCode: "110001",
+      },
+      "Kartavya Path, New Delhi, Delhi 110001, India",
+    );
   });
 
   it("updates the dialog context and focus after renderer disclosure", async () => {
@@ -299,14 +314,14 @@ describe("SaveLocationModal", () => {
       <SaveLocationModal {...props} rendererDisclosureAccepted={false} />,
     );
 
-    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
 
     rerender(<SaveLocationModal {...props} rendererDisclosureAccepted />);
 
-    expect(screen.getByLabelText("House, flat, floor or block")).toHaveValue(
+    expect(screen.getByLabelText(/House, flat, floor or block/)).toHaveValue(
       "Flat 4B",
     );
     expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute(
@@ -324,15 +339,15 @@ describe("SaveLocationModal", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
       target: { value: "12A" },
     });
-    fireEvent.change(screen.getByLabelText("PIN / postal code"), {
+    fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
       target: { value: "!" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
 
-    expect(screen.getByLabelText("PIN / postal code")).toHaveAttribute(
+    expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveAttribute(
       "aria-invalid",
       "true",
     );
@@ -340,6 +355,132 @@ describe("SaveLocationModal", () => {
       screen.getByRole("button", { name: "Save location" }),
     ).toBeDisabled();
     expect(baseProps.onSave).not.toHaveBeenCalled();
+  });
+
+  it("saves with just an address, so the button is never dead with nothing to fix", () => {
+    // The gate used to require House, flat AND a valid postal code. On the
+    // edit flow House, flat came back blank every time, so "Update location"
+    // could not be pressed and nothing said why -- which is what "saving
+    // address not working" looked like from the outside.
+    render(
+      <SaveLocationModal
+        {...baseProps}
+        address="Kartavya Path, New Delhi, Delhi 110001, India"
+        collectAddressDetails
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+
+    const saveButton = screen.getByRole("button", { name: "Save location" });
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
+
+    expect(baseProps.onSave).toHaveBeenCalledWith(
+      "home",
+      "",
+      expect.objectContaining({ houseOrFlat: "" }),
+      "Kartavya Path, New Delhi, Delhi 110001, India",
+    );
+  });
+
+  it("says which single thing is missing instead of sitting there dead", () => {
+    render(
+      <SaveLocationModal
+        {...baseProps}
+        address="Kartavya Path, New Delhi, Delhi 110001, India"
+        collectAddressDetails
+      />,
+    );
+
+    expect(
+      screen.getByText("Pick Home, Work or Other first."),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /use detected/i }));
+    fireEvent.change(screen.getByLabelText("Address"), {
+      target: { value: "   " },
+    });
+
+    expect(
+      screen.getByText("Add an address, or tick the box to use the one we found."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Save location" }),
+    ).toBeDisabled();
+  });
+
+  describe("the detected-address checkbox", () => {
+    it("fills the Address field from the pin while it is ticked", () => {
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address="Kartavya Path, New Delhi, Delhi 110001, India"
+          collectAddressDetails
+        />,
+      );
+
+      const checkbox = screen.getByRole("checkbox", { name: /use detected/i });
+      expect(checkbox).toBeChecked();
+      expect(screen.getByLabelText("Address")).toHaveValue(
+        "Kartavya Path, New Delhi, Delhi 110001, India",
+      );
+      // Read-only while it follows the pin: an editable field that silently
+      // reverts on the next geocode is worse than one that says it is locked.
+      expect(screen.getByLabelText("Address")).toBeDisabled();
+    });
+
+    it("hands the field over once unticked, and stops the pin overwriting it", () => {
+      const { rerender } = render(
+        <SaveLocationModal
+          {...baseProps}
+          address="Kartavya Path, New Delhi, Delhi 110001, India"
+          collectAddressDetails
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("checkbox", { name: /use detected/i }));
+      fireEvent.change(screen.getByLabelText("Address"), {
+        target: { value: "Gate 3, Rear entrance, New Delhi" },
+      });
+
+      // A later reverse-geocode arrives. It must not take the field back.
+      rerender(
+        <SaveLocationModal
+          {...baseProps}
+          address="Somewhere Else Entirely, Delhi"
+          collectAddressDetails
+        />,
+      );
+
+      expect(screen.getByLabelText("Address")).toHaveValue(
+        "Gate 3, Rear entrance, New Delhi",
+      );
+    });
+
+    it("restores the detected address when ticked again", () => {
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address="Kartavya Path, New Delhi, Delhi 110001, India"
+          collectAddressDetails
+        />,
+      );
+
+      const checkbox = screen.getByRole("checkbox", { name: /use detected/i });
+      fireEvent.click(checkbox);
+      fireEvent.change(screen.getByLabelText("Address"), {
+        target: { value: "Typed over it" },
+      });
+      fireEvent.click(checkbox);
+
+      // Ticked but still showing the edit it was meant to undo would make the
+      // box a lie, so the field is refilled on the tick itself.
+      expect(screen.getByLabelText("Address")).toHaveValue(
+        "Kartavya Path, New Delhi, Delhi 110001, India",
+      );
+    });
   });
 
   it("refreshes an inferred postal code when the confirmed pin moves", () => {
@@ -355,7 +496,7 @@ describe("SaveLocationModal", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    expect(screen.getByLabelText("PIN / postal code")).toHaveValue("110001");
+    expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110001");
 
     mapPickerMockState.picked = {
       latitude: 12.9716,
@@ -365,7 +506,7 @@ describe("SaveLocationModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit pin" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
 
-    expect(screen.getByLabelText("PIN / postal code")).toHaveValue("560001");
+    expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("560001");
   });
 
   it("preserves a manually corrected postal code when the pin moves", () => {
@@ -381,7 +522,7 @@ describe("SaveLocationModal", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText("PIN / postal code"), {
+    fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
       target: { value: "110002" },
     });
 
@@ -393,7 +534,7 @@ describe("SaveLocationModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit pin" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
 
-    expect(screen.getByLabelText("PIN / postal code")).toHaveValue("110002");
+    expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110002");
   });
 
   it("restores the inferred postal code when the same modal reopens", () => {
@@ -404,13 +545,13 @@ describe("SaveLocationModal", () => {
     };
     const { rerender } = render(<SaveLocationModal {...props} />);
 
-    fireEvent.change(screen.getByLabelText("PIN / postal code"), {
+    fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
       target: { value: "110002" },
     });
     rerender(<SaveLocationModal {...props} open={false} />);
     rerender(<SaveLocationModal {...props} open />);
 
-    expect(screen.getByLabelText("PIN / postal code")).toHaveValue("110001");
+    expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110001");
   });
 
   it("maps Escape to the same safe skip action on the map step", () => {
