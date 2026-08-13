@@ -17,6 +17,7 @@ import {
   MapPin,
   Search,
   UsersRound,
+  WifiOff,
   X,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -104,6 +105,22 @@ type RenderMarker = {
 
 /** Grey. A pin whose owner has gone quiet stops claiming to be live. */
 const STALE_TINT = { r: 142, g: 142, b: 147, a: 255 } as const;
+
+/** "last seen 7m ago" -- a fact about their signal, not their intent. */
+function lastSeenLabel(
+  capturedAt: string | null | undefined,
+  nowMs: number,
+): string | null {
+  if (!capturedAt) return null;
+  const captured = Date.parse(capturedAt);
+  if (!Number.isFinite(captured)) return null;
+  const minutes = Math.floor(Math.max(0, nowMs - captured) / 60_000);
+  if (minutes < 1) return "last seen just now";
+  if (minutes < 60) return `last seen ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `last seen ${hours}h ago`;
+  return `last seen ${Math.floor(hours / 24)}d ago`;
+}
 
 function isStaleAt(
   capturedAt: string | null | undefined,
@@ -2218,6 +2235,19 @@ export function LocationImmersiveMap({
                 >
                   {filteredPeople.map((person) => {
                     const selectedPerson = selected?.key === person.key;
+                    // The tray is where identity lives, because it is the only
+                    // part of this screen that is real DOM. Map pins come from
+                    // the Capacitor bridge, which offers a tint and nothing
+                    // else -- no avatar, no badge, and no hover at all on a
+                    // touch device.
+                    const personStale = isStaleAt(
+                      person.capturedAt,
+                      freshnessSeconds,
+                      staleClockMs,
+                    );
+                    const lastSeen = personStale
+                      ? lastSeenLabel(person.capturedAt, staleClockMs)
+                      : null;
                     return (
                       <button
                         key={person.key}
@@ -2227,22 +2257,59 @@ export function LocationImmersiveMap({
                             ? MAP_ACCENT_ACTIVE_CLASSNAME
                             : "border-border/60 bg-muted/70 text-foreground hover:bg-muted"
                         }`}
-                        aria-label={`Show ${person.label} on the map`}
+                        // The live case keeps its original name exactly. Only a
+                        // person who has gone quiet has anything extra worth
+                        // announcing, and saying "sharing live" on every other
+                        // row would be noise in a screen reader.
+                        aria-label={
+                          lastSeen
+                            ? `Show ${person.label} on the map. Last seen ${lastSeen}.`
+                            : `Show ${person.label} on the map`
+                        }
+                        title={
+                          lastSeen
+                            ? `${person.label} — last seen ${lastSeen}`
+                            : `${person.label} — live now`
+                        }
                         data-testid="one-location-map-person"
+                        data-stale={personStale ? "true" : "false"}
                         onClick={() => void focusMarker(person)}
                       >
-                        <span
-                          className="grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white"
-                          style={{
-                            backgroundColor: person.tint
-                              ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
-                              : "var(--app-accent)",
-                          }}
-                        >
-                          {personInitials(person.label)}
+                        <span className="relative shrink-0">
+                          <span
+                            className={`grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white transition-[filter,opacity] ${
+                              personStale ? "opacity-70 grayscale" : ""
+                            }`}
+                            style={{
+                              backgroundColor: person.tint
+                                ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
+                                : "var(--app-accent)",
+                            }}
+                          >
+                            {personInitials(person.label)}
+                          </span>
+                          {/* Bottom-right, over the avatar's own edge. Shape as
+                              well as colour, so it survives being read on a
+                              greyscale avatar by someone who cannot rely on
+                              the grey itself. */}
+                          {personStale ? (
+                            <span
+                              className="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-background ring-1 ring-border"
+                              aria-hidden="true"
+                            >
+                              <WifiOff className="h-2.5 w-2.5 text-muted-foreground" />
+                            </span>
+                          ) : null}
                         </span>
-                        <span className="max-w-28 truncate font-medium">
-                          {person.label}
+                        <span className="flex min-w-0 flex-col leading-tight">
+                          <span className="max-w-28 truncate font-medium">
+                            {person.label}
+                          </span>
+                          {lastSeen ? (
+                            <span className="max-w-28 truncate text-[11px] text-muted-foreground">
+                              {lastSeen}
+                            </span>
+                          ) : null}
                         </span>
                       </button>
                     );
