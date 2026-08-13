@@ -46,6 +46,10 @@ function metadataString(metadata: Record<string, unknown>, key: string): string 
   return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
+function metadataBool(metadata: Record<string, unknown>, key: string): boolean {
+  return metadata[key] === true;
+}
+
 /**
  * Resolve the most identifying name available for a feed counterparty.
  *
@@ -123,11 +127,12 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     }
     case "location_share_revoked": {
       const hasWho = who !== "Someone";
+      const ownerRevoked = metadataString(item.metadata, "reason") === "owner_revoke";
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: "Stopped sharing location",
+        description: ownerRevoked ? "You stopped sharing location" : "Stopped sharing location",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -157,7 +162,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: "Approved your location request",
+        description: "You approved the location request",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -167,7 +172,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: "Declined your location request",
+        description: "You declined the location request",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -241,37 +246,46 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     // in the backend feed metadata (connections_service.py).
     case "connection_accepted": {
       const hasWho = who !== "Someone";
+      const actorIsSelf = metadataBool(item.metadata, "actor_is_self");
       return {
         icon: UserRound,
         domainLabel,
         label: hasWho ? who : "Connection",
-        description: hasWho
-          ? "accepted your connection request"
-          : "A connection was accepted.",
+        description: !hasWho
+          ? "A connection was accepted."
+          : actorIsSelf
+            ? "You accepted the connection request"
+            : "accepted your connection request",
         href: ROUTES.CONNECT,
       };
     }
     case "connection_rejected": {
       const hasWho = who !== "Someone";
+      const actorIsSelf = metadataBool(item.metadata, "actor_is_self");
       return {
         icon: UserRound,
         domainLabel,
         label: hasWho ? who : "Connection",
-        description: hasWho
-          ? "declined your connection request"
-          : "A connection request was rejected.",
+        description: !hasWho
+          ? "A connection request was rejected."
+          : actorIsSelf
+            ? "You declined the connection request"
+            : "declined your connection request",
         href: ROUTES.CONNECT,
       };
     }
     case "connection_revoked": {
       const hasWho = who !== "Someone";
+      const actorIsSelf = metadataBool(item.metadata, "actor_is_self");
       return {
         icon: UserRound,
         domainLabel,
         label: hasWho ? who : "Connection",
-        description: hasWho
-          ? "removed your connection"
-          : "A connection was removed.",
+        description: !hasWho
+          ? "A connection was removed."
+          : actorIsSelf
+            ? "You removed the connection"
+            : "removed your connection",
         href: ROUTES.CONNECT,
       };
     }
