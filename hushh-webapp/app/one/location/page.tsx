@@ -244,6 +244,7 @@ import type {
 } from "@/lib/one-location/types";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import {
+  isCircleSelectionFullySelected,
   mergeRecipientsByUserId,
   resolveCircleRecipientSelection,
   type CircleRecipientSelection,
@@ -285,12 +286,12 @@ import {
 import { getApiBaseUrl } from "@/lib/services/api-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import {
+  circleShareLabel,
   isShareCancellationError,
   shareNamedCircleCode,
 } from "@/lib/one-location/share-circle-code";
 
 const DURATION_OPTIONS = [
-  { value: "0.25", label: "15 min" },
   { value: "0.5", label: "30 min" },
   { value: "1", label: "1 hour" },
   { value: "4", label: "4 hours" },
@@ -1484,7 +1485,7 @@ const ONE_LOCATION_FIRST_RUN_STEPS: {
   {
     icon: Clock3,
     title: "Choose how long",
-    detail: "15 minutes to a day - it auto-stops when the timer ends.",
+    detail: "30 minutes to a day - it auto-stops when the timer ends.",
   },
   {
     icon: Send,
@@ -5184,8 +5185,15 @@ export function OneLocationAgentPageContent({
 
   const handleSelectNamedCircleForShare = useCallback(
     async (circleId: string) => {
+      // Tapping an already-selected Circle clears it. But a Circle whose members
+      // have been individually deselected below no longer reads as selected, so
+      // the same tap has to re-apply the roster instead of clearing the leftovers.
       if (
-        selectedShareCircleSelection?.circle.id === circleId
+        selectedShareCircleSelection?.circle.id === circleId &&
+        isCircleSelectionFullySelected(
+          selectedShareCircleSelection,
+          selectedRecipientIds,
+        )
       ) {
         setSelectedShareCircleSelection(null);
         setNamedCircleShareContext(null);
@@ -5229,7 +5237,8 @@ export function OneLocationAgentPageContent({
     },
     [
       handleResolveNamedCircleRecipients,
-      selectedShareCircleSelection?.circle.id,
+      selectedRecipientIds,
+      selectedShareCircleSelection,
       setSelectedRecipientIds,
     ],
   );
@@ -5384,11 +5393,14 @@ export function OneLocationAgentPageContent({
           typeof window !== "undefined"
             ? buildCircleJoinUrl(window.location.origin, code)
             : undefined;
+        const circleLabel = circleShareLabel(circle.name);
         const delivery = await shareNamedCircleCode({
           title: `Join ${circle.name} on One`,
+          // The link lives in `url` only. Repeating it inline made share targets
+          // that append `url` to `text` (WhatsApp, Messages) deliver it twice.
           text: joinUrl
-            ? `Join my ${circle.name} Circle on One — tap to join: ${joinUrl} (or enter code ${code}). Location and SMS stay private until you choose to share.`
-            : `Join my ${circle.name} Circle on One with code ${code}. You'll connect with current and future members, while location and SMS stay private until you choose to share.`,
+            ? `Join my ${circleLabel} on One — tap the link to join, or enter code ${code}. Location and SMS stay private until you choose to share.`
+            : `Join my ${circleLabel} on One with code ${code}. You'll connect with current and future members, while location and SMS stay private until you choose to share.`,
           dialogTitle: "Share Circle code",
           url: joinUrl,
         });
@@ -5551,11 +5563,13 @@ export function OneLocationAgentPageContent({
           typeof window !== "undefined"
             ? buildCircleJoinUrl(window.location.origin, invite.code)
             : undefined;
+        const circleLabel = circleShareLabel(invite.circleName);
         const delivery = await shareNamedCircleCode({
           title: `Join ${invite.circleName} on One`,
+          // Link in `url` only — see the note on handleShareNamedCircleCode.
           text: joinUrl
-            ? `Join my ${invite.circleName} Circle on One — tap to join: ${joinUrl} (or enter code ${invite.code}). Set up One, then the link opens the join screen with the code filled in. Location and SMS stay private until you choose to share.`
-            : `Join my ${invite.circleName} Circle on One with code ${invite.code}. Set up One, then open Location → People → Join a circle and enter it. Location and SMS stay private until you choose to share.`,
+            ? `Join my ${circleLabel} on One — tap the link to join, or enter code ${invite.code}. Set up One, then the link opens the join screen with the code filled in. Location and SMS stay private until you choose to share.`
+            : `Join my ${circleLabel} on One with code ${invite.code}. Set up One, then open Location → People → Join a circle and enter it. Location and SMS stay private until you choose to share.`,
           dialogTitle: "Share Circle code",
           url: joinUrl,
         });

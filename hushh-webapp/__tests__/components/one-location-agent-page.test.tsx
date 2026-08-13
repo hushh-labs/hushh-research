@@ -1440,11 +1440,10 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("Private by design")).toBeNull();
 
     const duration = screen.getByRole("combobox", { name: "Duration" });
-    expect(duration.textContent).toContain("15 min");
+    expect(duration.textContent).toContain("30 min");
     fireEvent.click(duration);
     const options = await screen.findAllByRole("option");
     expect(options.map((option) => option.textContent)).toEqual([
-      "15 min",
       "30 min",
       "1 hour",
       "4 hours",
@@ -1652,7 +1651,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
     expect(
       screen.getByRole("combobox", { name: "Duration" }).textContent,
-    ).toContain("15 min");
+    ).toContain("30 min");
     expect(screen.getByRole("textbox", { name: "Optional note" })).toHaveValue(
       "",
     );
@@ -2889,7 +2888,7 @@ describe("OneLocationAgentPage", () => {
       vaultOwnerToken: "vault-token",
       recipientUserId: "user_b",
       recipientKeyId: "key_b",
-      durationHours: 0.25,
+      durationHours: 0.5,
       reason: undefined,
       shareKind: "share",
     });
@@ -2918,7 +2917,7 @@ describe("OneLocationAgentPage", () => {
         route_id: "one_location",
         result: "success",
         selected_count: 1,
-        duration_bucket: "15m",
+        duration_bucket: "30m",
       }),
       expect.any(Object),
     );
@@ -3083,7 +3082,7 @@ describe("OneLocationAgentPage", () => {
     ).toEqual(["user_b", "user_d"]);
     expect(
       mockCreateGrant.mock.calls.map(([payload]) => payload.durationHours),
-    ).toEqual([0.25, 0.25]);
+    ).toEqual([0.5, 0.5]);
     expect(
       mockEncryptLocationForRecipient.mock.calls.map(
         ([payload]) => payload.recipientKeyId,

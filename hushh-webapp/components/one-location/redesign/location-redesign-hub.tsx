@@ -69,7 +69,10 @@ import type {
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 import { locationStatusLabel } from "@/lib/one-location/location-readiness";
-import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
+import {
+  isCircleSelectionFullySelected,
+  type CircleRecipientSelection,
+} from "@/lib/one-location/circle-recipient-selection";
 
 import {
   EmptyState,
@@ -124,7 +127,7 @@ import { CIRCLE_JOIN_CODE_PARAM } from "@/lib/one-location/circle-join-url";
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
-export const ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS = "0.25";
+export const ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS = "0.5";
 
 export type PrivateCheckInResult = {
   succeededRecipientIds: string[];
@@ -2136,10 +2139,22 @@ function ShareFlow({
   const shareNoteLength = vm.shareMessage.length;
   const shareNoteLimitExceeded =
     shareNoteLength > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH;
+  // Picking a Circle selects its ready members in the list below, and those
+  // rows remain individually deselectable. Once one is turned off the recipients
+  // are no longer that Circle, so the Circle row stops reading as selected.
+  const shareCircleFullySelected = isCircleSelectionFullySelected(
+    vm.selectedShareCircleSelection,
+    vm.selectedRecipientIds,
+  );
 
   // Review screen (consent check) is driven by the existing shareReviewOpen flag.
   if (vm.shareReviewOpen) {
-    const selectedCircle = vm.selectedShareCircleSelection;
+    // Only claim the Circle in the consent check while it is still whole. A
+    // partially deselected roster is a hand-picked list of people, and the
+    // review step is the last place that may overstate who is included.
+    const selectedCircle = shareCircleFullySelected
+      ? vm.selectedShareCircleSelection
+      : null;
     return (
       <div className="space-y-5">
         <TaskFlowHeader
@@ -2297,7 +2312,8 @@ function ShareFlow({
           <div className="grid gap-2">
             {vm.circles.map((circle) => {
               const selected =
-                vm.selectedShareCircleSelection?.circle.id === circle.id;
+                vm.selectedShareCircleSelection?.circle.id === circle.id &&
+                shareCircleFullySelected;
               return (
                 <button
                   key={circle.id}
@@ -2338,7 +2354,7 @@ function ShareFlow({
               );
             })}
           </div>
-          {vm.selectedShareCircleSelection ? (
+          {vm.selectedShareCircleSelection && shareCircleFullySelected ? (
             <p className={cn(MUTED_TEXT, "mt-3")}>
               Current ready members only; future members are never added
               automatically.
@@ -2831,8 +2847,9 @@ function TemporaryLinkFlow({
           value={vm.durationHours}
           onChange={vm.setDurationHours}
           label=""
+          // Deliberately shorter than the trusted-share durations: anyone
+          // holding this link can watch, so the public ceiling stays at 1 hour.
           options={[
-            { value: "0.25", label: "15 min" },
             { value: "0.5", label: "30 min" },
             { value: "1", label: "1 hour" },
           ]}

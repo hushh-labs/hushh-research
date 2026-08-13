@@ -97,6 +97,25 @@ export function resolveCircleRecipientSelection(params: {
   return { circle: params.circle, ready, excluded };
 }
 
+/**
+ * Whether a resolved Circle is *still* the recipient selection.
+ *
+ * Picking a Circle selects each of its ready members individually in the people
+ * list below, and those rows stay individually deselectable. The moment one of
+ * them is turned off the share is no longer "this Circle", so the Circle row
+ * must stop reading as selected — and the next tap on it must re-apply the full
+ * roster rather than clear what is left.
+ */
+export function isCircleSelectionFullySelected(
+  selection: CircleRecipientSelection | null | undefined,
+  selectedRecipientIds: readonly string[],
+): boolean {
+  const ready = selection?.ready ?? [];
+  if (!ready.length) return false;
+  const selected = new Set(selectedRecipientIds);
+  return ready.every((target) => selected.has(target.recipient.userId));
+}
+
 export function mergeRecipientsByUserId(
   ...groups: OneLocationRecipient[][]
 ): OneLocationRecipient[] {

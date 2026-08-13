@@ -385,7 +385,6 @@ describe("ConsentCenterPage One Location action routing", () => {
     );
     const options = await screen.findAllByRole("option");
     expect(options.map((option) => option.textContent)).toEqual([
-      "15 min",
       "30 min",
       "1 hour",
       "4 hours",
