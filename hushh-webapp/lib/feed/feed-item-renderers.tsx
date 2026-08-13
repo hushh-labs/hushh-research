@@ -107,54 +107,70 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         description: scope ? `${scope} was revoked.` : "A consent was revoked.",
         href: buildConsentCenterHref("previous"),
       };
-    case "location_share_created":
+    // Location events use a person-first layout: the title is the counterparty's
+    // name (falling back to "Location" only when no name is resolvable), and the
+    // subtitle is the action. The name arrives via `counterpart_label` in the
+    // backend feed metadata (one_location_agent_service.py).
+    case "location_share_created": {
+      const hasWho = who !== "Someone";
       return {
         icon,
         domainLabel,
-        label: "Location shared",
-        description: `${who} shared their live location with you.`,
+        label: hasWho ? who : "Location",
+        description: "Started sharing location",
         href: ROUTES.ONE_LOCATION,
       };
-    case "location_share_revoked":
+    }
+    case "location_share_revoked": {
+      const hasWho = who !== "Someone";
       return {
         icon,
         domainLabel,
-        label: "Location share ended",
-        description: `${who}'s live location share ended.`,
+        label: hasWho ? who : "Location",
+        description: "Stopped sharing location",
         href: ROUTES.ONE_LOCATION,
       };
-    case "location_share_expired":
+    }
+    case "location_share_expired": {
+      const hasWho = who !== "Someone";
       return {
         icon,
         domainLabel,
-        label: "Location share expired",
-        description: `${who}'s live location share expired.`,
+        label: hasWho ? who : "Location",
+        description: "Location share expired",
         href: ROUTES.ONE_LOCATION,
       };
-    case "location_access_request":
+    }
+    case "location_access_request": {
+      const hasWho = who !== "Someone";
       return {
         icon,
         domainLabel,
-        label: "Location access requested",
-        description: `${who} requested to see your location.`,
+        label: hasWho ? who : "Location",
+        description: "Requested your location",
         href: ROUTES.ONE_LOCATION,
       };
-    case "location_access_approved":
+    }
+    case "location_access_approved": {
+      const hasWho = who !== "Someone";
       return {
         icon,
         domainLabel,
-        label: "Location access approved",
-        description: `${who} approved your location request.`,
+        label: hasWho ? who : "Location",
+        description: "Approved your location request",
         href: ROUTES.ONE_LOCATION,
       };
-    case "location_access_denied":
+    }
+    case "location_access_denied": {
+      const hasWho = who !== "Someone";
       return {
         icon,
         domainLabel,
-        label: "Location access denied",
-        description: `${who} denied your location request.`,
+        label: hasWho ? who : "Location",
+        description: "Declined your location request",
         href: ROUTES.ONE_LOCATION,
       };
+    }
     case "circle_member_invited": {
       const circleName = metadataString(item.metadata, "circle_name");
       const inviteId = metadataString(item.metadata, "invite_id");
@@ -220,17 +236,17 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         description: "A connected-system action failed.",
         href: ROUTES.CONNECTED_SYSTEMS,
       };
+    // Connection events use the same person-first layout: title is the other
+    // person's name, subtitle is the action. Name comes from `counterpart_label`
+    // in the backend feed metadata (connections_service.py).
     case "connection_accepted": {
-      // Prefer any resolvable name (label → display → first → phone) so a row
-      // with partial metadata still names the person instead of the generic
-      // fallback. `hasWho` guards the "Someone" sentinel from resolveCounterpartName.
       const hasWho = who !== "Someone";
       return {
         icon: UserRound,
         domainLabel,
-        label: "Connection accepted",
+        label: hasWho ? who : "Connection",
         description: hasWho
-          ? `You and ${who} are connected.`
+          ? "accepted your connection request"
           : "A connection was accepted.",
         href: ROUTES.CONNECT,
       };
@@ -240,9 +256,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       return {
         icon: UserRound,
         domainLabel,
-        label: "Connection rejected",
+        label: hasWho ? who : "Connection",
         description: hasWho
-          ? `${who} declined your connection request.`
+          ? "declined your connection request"
           : "A connection request was rejected.",
         href: ROUTES.CONNECT,
       };
@@ -252,9 +268,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       return {
         icon: UserRound,
         domainLabel,
-        label: "Connection removed",
+        label: hasWho ? who : "Connection",
         description: hasWho
-          ? `Your connection with ${who} was removed.`
+          ? "removed your connection"
           : "A connection was removed.",
         href: ROUTES.CONNECT,
       };
