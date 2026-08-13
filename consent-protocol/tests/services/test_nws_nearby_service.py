@@ -4,6 +4,8 @@ The payloads below are trimmed copies of real responses from the deployed
 service, so a contract drift upstream shows up here rather than on the screen.
 """
 
+import json
+
 import httpx
 import pytest
 
@@ -71,6 +73,29 @@ _COVERED = {
                 "granularity": "EXACT_PUBLIC_VENUE",
                 "approximate_distance_band": "within 2 km",
                 "note": "Distance is to a public professional association, never a residence.",
+            },
+            "score_breakdown": {
+                "components": [
+                    {
+                        "key": "graph_authority",
+                        "label": "Graph authority",
+                        "value": 0.91,
+                        "weight": 0.30,
+                        "contribution": 0.273,
+                    },
+                    {
+                        "key": "institutional_influence",
+                        "label": "Institutional influence",
+                        "value": 0.95,
+                        "weight": 0.20,
+                        "contribution": 0.19,
+                    },
+                ],
+                "evidence_count": 12,
+                "coverage_multiplier": 1.0,
+                "integrity_penalty": 0.034,
+                "local_relevance": 0.772,
+                "method": "Each component is scored 0-1, multiplied by its weight and summed.",
             },
             "reasons": ["High-authority roles at influential institutions"],
             "warnings": [],
@@ -460,3 +485,45 @@ async def test_cache_can_be_disabled_for_a_caller(monkeypatch):
     await service.discover(postal_code="98033")
 
     assert len(calls) == 2
+
+
+# ------------------------------------------------------------ score breakdown
+
+
+@pytest.mark.asyncio
+async def test_the_score_breakdown_is_carried_through(monkeypatch):
+    """A number with no working shown cannot be argued with."""
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=_COVERED))
+    breakdown = (await service.discover(postal_code="98033"))["results"][0]["scoreBreakdown"]
+
+    assert breakdown["evidenceCount"] == 12
+    assert breakdown["coverageMultiplier"] == pytest.approx(1.0)
+    assert breakdown["integrityPenalty"] == pytest.approx(0.034)
+    assert breakdown["localRelevance"] == pytest.approx(0.772)
+    assert breakdown["method"]
+
+    first = breakdown["components"][0]
+    assert first["key"] == "graph_authority"
+    assert first["label"] == "Graph authority"
+    assert first["weight"] == pytest.approx(0.30)
+    assert first["contribution"] == pytest.approx(0.273)
+
+
+@pytest.mark.asyncio
+async def test_a_missing_breakdown_is_absent_rather_than_empty(monkeypatch):
+    """An older upstream revision must not render as a score explained by zeros."""
+    payload = json.loads(json.dumps(_COVERED))
+    payload["results"][0].pop("score_breakdown")
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=payload))
+
+    assert (await service.discover(postal_code="98033"))["results"][0]["scoreBreakdown"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_breakdown_with_no_usable_components_is_dropped(monkeypatch):
+    """Half a breakdown explains nothing and is worse than offering none."""
+    payload = json.loads(json.dumps(_COVERED))
+    payload["results"][0]["score_breakdown"] = {"components": [], "evidence_count": 3}
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=payload))
+
+    assert (await service.discover(postal_code="98033"))["results"][0]["scoreBreakdown"] is None
