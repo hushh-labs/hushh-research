@@ -293,6 +293,10 @@ export function LocationImmersiveMap({
   const markerByMapIdRef = useRef<Map<string, RenderMarker>>(new Map());
   const framedInitialMarkersRef = useRef(false);
   const refreshInFlightRef = useRef(false);
+  /** A tick that arrived mid-refresh, to be served once the current one ends. */
+  const refreshRequestedWhileBusyRef = useRef(false);
+  /** Lets the finally block re-enter refresh without depending on itself. */
+  const refreshRef = useRef<(() => Promise<void>) | null>(null);
   const markerSignatureRef = useRef("");
   const initialDemoModeRef = useRef(initialDemoMode);
   const closeRequestedRef = useRef(false);
@@ -641,7 +645,15 @@ export function LocationImmersiveMap({
 
   const refresh = useCallback(async () => {
     if (!vaultOwnerToken || !auth.userId || !rendererReady) return;
-    if (refreshInFlightRef.current) return;
+    if (refreshInFlightRef.current) {
+      // A slow refresh used to swallow every tick that landed during it, and
+      // the map then sat on whatever it had until some later tick happened to
+      // find the door open. Remember that someone asked instead, and run once
+      // more as soon as this one finishes, so the map converges on the truth
+      // rather than on timing.
+      refreshRequestedWhileBusyRef.current = true;
+      return;
+    }
     refreshInFlightRef.current = true;
     setStatus("loading");
     try {
@@ -694,8 +706,19 @@ export function LocationImmersiveMap({
       if (mountedRef.current) setStatus("error");
     } finally {
       refreshInFlightRef.current = false;
+      // Serve the tick that arrived while this one was running. Chained
+      // rather than recursive, so a permanently slow backend cannot stack
+      // calls on top of each other.
+      if (refreshRequestedWhileBusyRef.current && mountedRef.current) {
+        refreshRequestedWhileBusyRef.current = false;
+        void refreshRef.current?.();
+      }
     }
   }, [auth.userId, demoMode, rendererReady, vaultOwnerToken]);
+
+  useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
 
   const refreshShareCount = useCallback(async () => {
     if (demoMode || !vaultOwnerToken || !auth.userId) return;
@@ -775,6 +798,15 @@ export function LocationImmersiveMap({
     const shareCountTimer = window.setInterval(() => {
       if (document.visibilityState === "visible") void refreshShareCount();
     }, 30_000);
+    // Returning to the app is exactly when the map is most wrong, and the
+    // interval only ever checked visibility on its own schedule -- so coming
+    // back showed a position up to five seconds stale before anything moved.
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      void refresh();
+      void refreshShareCount();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     let appListener: { remove: () => Promise<void> } | undefined;
     if (isNative()) {
       void CapacitorApp.addListener("appStateChange", ({ isActive }) => {
@@ -789,6 +821,7 @@ export function LocationImmersiveMap({
     return () => {
       window.clearInterval(timer);
       window.clearInterval(shareCountTimer);
+      document.removeEventListener("visibilitychange", onVisibility);
       void appListener?.remove();
     };
   }, [demoMode, refresh, refreshShareCount, rendererReady, vaultOwnerToken]);
