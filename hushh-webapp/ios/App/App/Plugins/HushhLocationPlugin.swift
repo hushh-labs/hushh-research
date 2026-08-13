@@ -133,6 +133,13 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         }
     }
 
+    /// How old a cached fix may be before we insist on a fresh one. Matches the
+    /// Android plugin's `getLastKnownLocation` window and the web plugin's
+    /// last-resort reader exactly, and stays well under the 60s the backend
+    /// allows between capture and confirmation — so a fix accepted here still
+    /// passes the server's freshness check and still says where the user is.
+    private static let cachedFixMaxAgeSeconds: TimeInterval = 30
+
     private func requestOneShotLocation(_ call: CAPPluginCall) {
         if
             let existing = pendingLocationCall,
@@ -142,6 +149,24 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
                 "A newer location request replaced this request."
             )
         }
+
+        // iOS was the only platform that always waited for a NEW fix. Android
+        // and web both resolve from a recent cached one first, and CoreLocation
+        // is already holding a good position whenever a watch is running or the
+        // app was recently foregrounded -- so `requestLocation()` spent one to
+        // three seconds rediscovering a coordinate we had the whole time.
+        if
+            let cached = manager.location,
+            cached.horizontalAccuracy >= 0,
+            abs(cached.timestamp.timeIntervalSinceNow) <= Self.cachedFixMaxAgeSeconds
+        {
+            pendingLocationTimeout?.cancel()
+            pendingLocationTimeout = nil
+            pendingLocationCall = nil
+            call.resolve(locationPayload(cached))
+            return
+        }
+
         pendingLocationTimeout?.cancel()
         pendingLocationCall = call
         let timeoutMs = max(3_000, min(call.getInt("timeoutMs") ?? 15_000, 30_000))
@@ -162,6 +187,19 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             execute: timeout
         )
         manager.requestLocation()
+    }
+
+    /// The single shape a CLLocation is handed to JS in. Shared by the cached
+    /// fast path, the one-shot delegate callback, and every active watch, so
+    /// they can never drift apart.
+    private func locationPayload(_ location: CLLocation) -> [String: Any] {
+        [
+            "latitude": location.coordinate.latitude,
+            "longitude": location.coordinate.longitude,
+            "accuracyM": location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : NSNull(),
+            "capturedAt": ISO8601DateFormatter().string(from: location.timestamp),
+            "sourcePlatform": "ios"
+        ]
     }
 
     private func clearPendingLocationCall() -> CAPPluginCall? {
@@ -380,13 +418,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             return
         }
 
-        let payload: [String: Any] = [
-            "latitude": location.coordinate.latitude,
-            "longitude": location.coordinate.longitude,
-            "accuracyM": location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : NSNull(),
-            "capturedAt": ISO8601DateFormatter().string(from: location.timestamp),
-            "sourcePlatform": "ios"
-        ]
+        let payload = locationPayload(location)
 
         // One-shot getCurrentPosition resolves and clears its single call.
         if let call = clearPendingLocationCall() {

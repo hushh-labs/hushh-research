@@ -669,6 +669,33 @@ async function skipLocationEntryFlow(options: { expectMain?: boolean } = {}) {
   mockCaptureCurrentPosition.mockClear();
 }
 
+/**
+ * Hold the next device fix open and hand back its release. Lets a test assert
+ * what the UI does DURING the capture — the window the Location switch used to
+ * spend frozen. Call it after `skipLocationEntryFlow`, which needs a real fix
+ * of its own to get through the entry picker.
+ */
+function holdNextCapture(): () => void {
+  let release: (() => void) | null = null;
+  mockCaptureCurrentPosition.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        release = () =>
+          resolve({
+            latitude: 28.6139,
+            longitude: 77.209,
+            accuracyM: 12,
+            capturedAt: "2026-07-31T00:00:00.000Z",
+            sourcePlatform: "web",
+          });
+      }),
+  );
+  return () => {
+    if (!release) throw new Error("No capture was in flight to release.");
+    release();
+  };
+}
+
 async function expectEmergencyAction(
   number: string,
   countryName: string,
@@ -789,6 +816,13 @@ describe("OneLocationAgentPage", () => {
     const { forgetOneLocationControlPreference } =
       await import("@/lib/one-location/location-control-state");
     forgetOneLocationControlPreference("user_a");
+    // The workspace's decrypted points and last self fix live in a module-level
+    // store too, and it was the one the reset above missed: a coarse point left
+    // by an earlier test carried into the next one's first render and showed as
+    // that test's own state.
+    const { clearAllLocationWorkspaceMemory } =
+      await import("@/lib/one-location/location-workspace-memory");
+    clearAllLocationWorkspaceMemory();
     mockSearchParams.toString = () => "";
     mockSearchParamsGet.mockReturnValue(null);
     mockUseSearchParams.mockReturnValue(mockSearchParams);
@@ -1259,6 +1293,118 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("switch", { name: "Turn location off" }),
     ).toHaveAttribute("aria-checked", "true");
+  });
+
+  // The Location on/off control is a preference over LOCAL state. Every one of
+  // these tests holds the slow half — the device fix, the nearby write — open
+  // and asserts the switch has already moved. Turning any of them back into
+  // "await the network, then render" is the regression they exist to catch.
+  it("moves the switch on tap instead of waiting for the device fix", async () => {
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    // Held open only from here: entry onboarding needs a real capture first.
+    const releaseFix = holdNextCapture();
+    fireEvent.click(
+      await screen.findByRole("switch", { name: "Turn location on" }),
+    );
+
+    // The fix is still outstanding here. The switch is on regardless, and the
+    // status — not a disabled control — carries the fact that we are waiting.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", { name: "Turn location off" }),
+      ).toHaveAttribute("aria-checked", "true"),
+    );
+    expect(screen.getByText("Finding you…")).toBeTruthy();
+    expect(
+      screen.getByRole("switch", { name: "Turn location off" }),
+    ).not.toBeDisabled();
+
+    await act(async () => {
+      releaseFix();
+    });
+    await waitFor(() => expect(screen.getByText("Location on")).toBeTruthy());
+  });
+
+  it("does not let a late fix undo a pause made while it was in flight", async () => {
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    const releaseFix = holdNextCapture();
+    fireEvent.click(
+      await screen.findByRole("switch", { name: "Turn location on" }),
+    );
+    const onSwitch = await screen.findByRole("switch", {
+      name: "Turn location off",
+    });
+    fireEvent.click(onSwitch);
+    await waitFor(() =>
+      expect(screen.getByText("Location paused")).toBeTruthy(),
+    );
+
+    // The fix belongs to an intent the person has already replaced. Applying it
+    // would silently turn location back on after they turned it off.
+    await act(async () => {
+      releaseFix();
+    });
+    expect(
+      screen.getByRole("switch", { name: "Turn location on" }),
+    ).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByText("Location paused")).toBeTruthy();
+  });
+
+  it("pauses the device without waiting on, or first probing, nearby presence", async () => {
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+    mockGetNearbyPresence.mockResolvedValue({
+      presence: {
+        status: "active",
+        audience: "all_opted_in",
+        radiusMeters: 500,
+        allowConnectionRequests: true,
+        consentVersion: "one-location-nearby-presence-v3",
+        checkedInAt: "2026-07-31T00:00:00.000Z",
+        expiresAt: "2026-07-31T01:00:00.000Z",
+        placeLabel: "Event venue",
+      },
+      attendees: [],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    const onSwitch = await screen.findByRole("switch", {
+      name: "Turn location off",
+    });
+    await waitFor(() => expect(mockGetNearbyPresence).toHaveBeenCalled());
+
+    // Any further presence read hangs. The pause used to read presence and only
+    // then check out — two serialized round trips in front of the switch — so a
+    // hanging read would strand it. It must not depend on one.
+    mockGetNearbyPresence.mockImplementation(() => new Promise(() => {}));
+    let releaseCheckout: (() => void) | null = null;
+    mockCheckoutNearby.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseCheckout = () => resolve({ presence: null, attendees: [] });
+        }),
+    );
+
+    fireEvent.click(onSwitch);
+
+    await waitFor(() =>
+      expect(screen.getByText("Location paused")).toBeTruthy(),
+    );
+    await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalledTimes(1));
+    // Still in flight while the device already reads as paused.
+    expect(releaseCheckout).not.toBeNull();
+
+    await act(async () => {
+      (releaseCheckout as unknown as () => void)();
+    });
   });
 
   it("renders a focused, validated share flow with a 15-minute default", async () => {
