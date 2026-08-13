@@ -18,11 +18,26 @@ export function isShareCancellationError(error: unknown): boolean {
 }
 
 /**
- * Share a short-lived Circle invite. When a `url` is supplied it is included as
- * a dedicated, clickable link in the native/web share sheet so the recipient can
- * tap straight into the join flow; the caller-supplied `text` still carries the
- * same human-safe consent explanation (and the raw code) as the clipboard/text
- * fallback for targets that ignore the url field.
+ * How a Circle is named inside share copy ("Join my <label> on One …").
+ *
+ * The copy appends the word "Circle" so a bare name like "K Family" reads as a
+ * group. Names that already end in "Circle" — every default onboarding name is
+ * `<First>'s Circle` — would otherwise be delivered as "JHUMMA's Circle Circle",
+ * so the suffix is only added when the name does not already carry it.
+ */
+export function circleShareLabel(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "Circle";
+  return /\bcircles?$/i.test(trimmed) ? trimmed : `${trimmed} Circle`;
+}
+
+/**
+ * Share a short-lived Circle invite. When a `url` is supplied it is the ONLY
+ * place the join link appears: most share targets (WhatsApp, Messages) append
+ * `url` to `text`, so a link repeated inside `text` is delivered twice. Callers
+ * therefore keep `text` link-free and let it carry the human-safe consent
+ * explanation plus the raw code — which is what targets that ignore the url
+ * field fall back to, since the code alone is enough to join.
  *
  * Capacitor owns the native iOS/Android sheet; browsers use Web Share and then
  * the shared clipboard fallback.

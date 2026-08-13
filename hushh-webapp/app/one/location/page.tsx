@@ -212,6 +212,8 @@ import {
 } from "@/lib/one-location/sos-trigger";
 import {
   emergencyInfoForCountryCode,
+  isCachedEmergencyInfoUsableAt,
+  isWithinEmergencyTrustRadius,
   readCachedEmergencyInfo,
   writeCachedEmergencyInfo,
   EMERGENCY_LOOKUP_TIMEOUT_MS,
@@ -244,6 +246,7 @@ import type {
 } from "@/lib/one-location/types";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import {
+  isCircleSelectionFullySelected,
   mergeRecipientsByUserId,
   resolveCircleRecipientSelection,
   type CircleRecipientSelection,
@@ -285,12 +288,12 @@ import {
 import { getApiBaseUrl } from "@/lib/services/api-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import {
+  circleShareLabel,
   isShareCancellationError,
   shareNamedCircleCode,
 } from "@/lib/one-location/share-circle-code";
 
 const DURATION_OPTIONS = [
-  { value: "0.25", label: "15 min" },
   { value: "0.5", label: "30 min" },
   { value: "1", label: "1 hour" },
   { value: "4", label: "4 hours" },
@@ -1484,7 +1487,7 @@ const ONE_LOCATION_FIRST_RUN_STEPS: {
   {
     icon: Clock3,
     title: "Choose how long",
-    detail: "15 minutes to a day - it auto-stops when the timer ends.",
+    detail: "30 minutes to a day - it auto-stops when the timer ends.",
   },
   {
     icon: Send,
@@ -1971,7 +1974,7 @@ export function OneLocationAgentPageContent({
   // Opt-in: keep publishing location while the app is backgrounded (native only).
   const [backgroundShareEnabled, setBackgroundShareEnabled] = useState(false);
   // Monotonic counter bumped each time a share completes successfully, so the
-  // redesign hub can close the 3-step share flow and return to the main screen.
+  // redesign hub can close the 2-step share flow and return to the main screen.
   const [shareCompletedTick, setShareCompletedTick] = useState(0);
   // Where to land once a share completes, when the caller wants somewhere
   // other than the clean hub.
@@ -1993,6 +1996,22 @@ export function OneLocationAgentPageContent({
   const sosLocationResolutionRef =
     useRef<Promise<PlainLocationPoint | null> | null>(null);
   const sosEmergencyLookupIdRef = useRef(0);
+  /**
+   * The fix the currently displayed emergency number was confirmed at, so a
+   * later fix nearby can reuse it instead of re-resolving, and a distant one
+   * forces a fresh lookup rather than silently keeping the old country.
+   */
+  const sosEmergencyOriginRef = useRef<PlainLocationPoint | null>(null);
+  /**
+   * The lookup currently in flight and the point that started it. Save My Soul
+   * and the background warmer can both react to the same fix within a tick, and
+   * an emergency screen is the last place to spend a second geocode — or to let
+   * two racing lookups decide the number by arrival order.
+   */
+  const sosEmergencyInFlightRef = useRef<{
+    point: PlainLocationPoint;
+    promise: Promise<void>;
+  } | null>(null);
 
   // Hydrate the persisted SOS incident once on mount.
   useEffect(() => {
@@ -3581,7 +3600,7 @@ export function OneLocationAgentPageContent({
         toast.success(summary);
       }
       resetShareComposer();
-      // Signal the redesign hub to close the 3-step share flow and return to
+      // Signal the redesign hub to close the 2-step share flow and return to
       // the main One Location screen now that sharing finished.
       setShareCompletedTick((value) => value + 1);
       await refresh();
@@ -3627,14 +3646,140 @@ export function OneLocationAgentPageContent({
     ],
   );
 
+  /**
+   * Resolve the local emergency number for a point we ALREADY have.
+   *
+   * Split out of the SOS screen so it can also run the moment any part of the
+   * app learns where the person is (see the warming effect below). Doing the
+   * country lookup then, rather than when Save My Soul opens, is what removes
+   * the "Finding local number" wait from the one screen that cannot afford it.
+   *
+   * `seedFromCache` is only honoured when the cached country was confirmed near
+   * this very point — the check lives in `isCachedEmergencyInfoUsableAt`, and a
+   * distant or origin-less entry deliberately shows the spinner instead.
+   */
+  const runEmergencyLookup = useCallback(
+    async (
+      point: PlainLocationPoint,
+      options?: { seedFromCache?: boolean },
+    ): Promise<void> => {
+      if (!vaultOwnerToken) return;
+      const emergencyLookupId = sosEmergencyLookupIdRef.current + 1;
+      sosEmergencyLookupIdRef.current = emergencyLookupId;
+
+      const cached = readCachedEmergencyInfo();
+      if (options?.seedFromCache && isCachedEmergencyInfoUsableAt(cached, point)) {
+        // Show the known-good local number straight away. The authoritative
+        // lookup below still runs and overwrites this if the country differs.
+        setSosEmergency({
+          countryCode: cached!.countryCode,
+          countryName: cached!.countryName,
+          number: cached!.number,
+        });
+        setSosEmergencyStatus("resolved");
+      } else {
+        setSosEmergency(null);
+        setSosEmergencyStatus("resolving");
+      }
+
+      // Cap the authoritative lookup: past EMERGENCY_LOOKUP_TIMEOUT_MS we stop
+      // waiting and fall back to the last cached local number, so the Call
+      // button is never stranded on a spinner during a safety-critical flow.
+      let lookupTimer: ReturnType<typeof setTimeout> | null = null;
+      const lookup = OneLocationService.reverseGeocode({
+        vaultOwnerToken,
+        lat: point.latitude,
+        lng: point.longitude,
+      });
+      const lookupDeadline = new Promise<never>((_, reject) => {
+        lookupTimer = setTimeout(
+          () => reject(new Error("emergency-lookup-timeout")),
+          EMERGENCY_LOOKUP_TIMEOUT_MS,
+        );
+      });
+      try {
+        const place = await Promise.race([lookup, lookupDeadline]);
+        if (sosEmergencyLookupIdRef.current !== emergencyLookupId) return;
+        const emergency = emergencyInfoForCountryCode(place.countryCode);
+        if (!emergency) {
+          setSosEmergency(null);
+          sosEmergencyOriginRef.current = null;
+          setSosEmergencyStatus("unavailable");
+          return;
+        }
+        // Warm the cache WITH the fix that proved it, so the next screen can
+        // trust it instantly instead of showing a spinner or, worse, a number
+        // from a country the person has since left.
+        writeCachedEmergencyInfo(emergency, point);
+        sosEmergencyOriginRef.current = point;
+        setSosEmergency(emergency);
+        setSosEmergencyStatus("resolved");
+      } catch {
+        if (sosEmergencyLookupIdRef.current !== emergencyLookupId) return;
+        // Slow or failed authoritative lookup. A cache entry confirmed near
+        // this point is still a correct answer; anything else is not, and the
+        // retry state is the honest outcome.
+        if (isCachedEmergencyInfoUsableAt(cached, point)) {
+          setSosEmergency({
+            countryCode: cached!.countryCode,
+            countryName: cached!.countryName,
+            number: cached!.number,
+          });
+          sosEmergencyOriginRef.current = point;
+          setSosEmergencyStatus("resolved");
+        } else {
+          setSosEmergency(null);
+          sosEmergencyOriginRef.current = null;
+          setSosEmergencyStatus("unavailable");
+        }
+      } finally {
+        if (lookupTimer) clearTimeout(lookupTimer);
+      }
+    },
+    [vaultOwnerToken],
+  );
+
+  /**
+   * Single entry point for "what is the emergency number here", de-duplicated.
+   *
+   * Save My Soul and the background warmer both react to the same fix within a
+   * tick. Without this they would spend two geocodes on one question and let
+   * arrival order decide the answer — on the one screen where a wrong number is
+   * the worst possible outcome. A request for an area already being looked up
+   * joins the existing answer instead.
+   */
+  const resolveEmergencyInfoForPoint = useCallback(
+    (
+      point: PlainLocationPoint,
+      options?: { seedFromCache?: boolean },
+    ): Promise<void> => {
+      if (!vaultOwnerToken) {
+        setSosEmergencyStatus((current) =>
+          current === "resolved" ? current : "unavailable",
+        );
+        return Promise.resolve();
+      }
+      const inFlight = sosEmergencyInFlightRef.current;
+      if (inFlight && isWithinEmergencyTrustRadius(inFlight.point, point)) {
+        return inFlight.promise;
+      }
+      const promise = runEmergencyLookup(point, options);
+      const entry = { point, promise };
+      sosEmergencyInFlightRef.current = entry;
+      void promise.finally(() => {
+        if (sosEmergencyInFlightRef.current === entry) {
+          sosEmergencyInFlightRef.current = null;
+        }
+      });
+      return promise;
+    },
+    [runEmergencyLookup, vaultOwnerToken],
+  );
+
   const resolveSosLocation = useCallback(() => {
     const inFlight = sosLocationResolutionRef.current;
     if (inFlight) return inFlight;
 
-    setSosEmergency(null);
-    setSosEmergencyStatus("resolving");
-    const emergencyLookupId = sosEmergencyLookupIdRef.current + 1;
-    sosEmergencyLookupIdRef.current = emergencyLookupId;
     const resolution = (async (): Promise<PlainLocationPoint | null> => {
       try {
         const result = await ensureForegroundLocationReady({
@@ -3642,65 +3787,30 @@ export function OneLocationAgentPageContent({
           autoOpenSettings: false,
         });
         if (!result.ready || !result.point) {
-          setSosEmergencyStatus("unavailable");
+          setSosEmergencyStatus((current) =>
+            // A number already confirmed nearby stays on screen: losing the
+            // fix does not make the local emergency number wrong.
+            current === "resolved" ? current : "unavailable",
+          );
           return null;
         }
         // The point remains in foreground-only workspace memory. Merely opening
         // Save My Soul never publishes or durably persists these coordinates.
         setMyLocationPoint(result.point);
         if (!vaultOwnerToken) {
-          setSosEmergencyStatus("unavailable");
+          setSosEmergencyStatus((current) =>
+            current === "resolved" ? current : "unavailable",
+          );
           return result.point;
         }
         // Country lookup continues independently so a slow Maps response never
         // delays the actual Save My Soul SMS after the user completes the hold.
-        // Cap the authoritative lookup: past EMERGENCY_LOOKUP_TIMEOUT_MS we stop
-        // waiting and fall back to the last cached local number, so the Call
-        // button is never stranded on a spinner during a safety-critical flow.
-        let lookupTimer: ReturnType<typeof setTimeout> | null = null;
-        const lookup = OneLocationService.reverseGeocode({
-          vaultOwnerToken,
-          lat: result.point.latitude,
-          lng: result.point.longitude,
-        });
-        const lookupDeadline = new Promise<never>((_, reject) => {
-          lookupTimer = setTimeout(
-            () => reject(new Error("emergency-lookup-timeout")),
-            EMERGENCY_LOOKUP_TIMEOUT_MS,
-          );
-        });
-        void Promise.race([lookup, lookupDeadline])
-          .then((place) => {
-            if (sosEmergencyLookupIdRef.current !== emergencyLookupId) return;
-            const emergency = emergencyInfoForCountryCode(place.countryCode);
-            if (!emergency) {
-              setSosEmergencyStatus("unavailable");
-              return;
-            }
-            // Warm the cache so a later slow/failed lookup can reuse this
-            // verified local number instantly instead of a dead spinner.
-            writeCachedEmergencyInfo(emergency);
-            setSosEmergency(emergency);
-            setSosEmergencyStatus("resolved");
-          })
-          .catch(() => {
-            if (sosEmergencyLookupIdRef.current !== emergencyLookupId) return;
-            // Slow or failed authoritative lookup: fall back to the last cached
-            // local number when we have one, else surface the retry state.
-            const cached = readCachedEmergencyInfo();
-            if (cached) {
-              setSosEmergency(cached);
-              setSosEmergencyStatus("resolved");
-            } else {
-              setSosEmergencyStatus("unavailable");
-            }
-          })
-          .finally(() => {
-            if (lookupTimer) clearTimeout(lookupTimer);
-          });
+        void resolveEmergencyInfoForPoint(result.point, { seedFromCache: true });
         return result.point;
       } catch {
-        setSosEmergencyStatus("unavailable");
+        setSosEmergencyStatus((current) =>
+          current === "resolved" ? current : "unavailable",
+        );
         return null;
       }
     })();
@@ -3719,7 +3829,40 @@ export function OneLocationAgentPageContent({
       },
     );
     return resolution;
-  }, [ensureForegroundLocationReady, setMyLocationPoint, vaultOwnerToken]);
+  }, [
+    ensureForegroundLocationReady,
+    resolveEmergencyInfoForPoint,
+    setMyLocationPoint,
+    vaultOwnerToken,
+  ]);
+
+  // Warm the local emergency number from ANY location the app already has.
+  //
+  // Save My Soul used to start from nothing: open the screen, ask for a fix,
+  // then wait on a reverse-geocode, leaving "Finding local number" on the one
+  // control someone might need in seconds. Every other flow here — the map, a
+  // share, a check-in — already produces a fix, so the country can be settled
+  // long before the SOS screen is ever opened.
+  //
+  // Runs only when the answer would actually change: no fix, no token, or a fix
+  // still inside the radius the current number was confirmed at, and it does
+  // nothing. It never requests permission, so it cannot prompt on its own.
+  useEffect(() => {
+    if (!myLocationPoint || !vaultOwnerToken) return;
+    const alreadyCoversThisPoint =
+      sosEmergencyStatus === "resolved" &&
+      isWithinEmergencyTrustRadius(
+        sosEmergencyOriginRef.current,
+        myLocationPoint,
+      );
+    if (alreadyCoversThisPoint) return;
+    void resolveEmergencyInfoForPoint(myLocationPoint, { seedFromCache: true });
+  }, [
+    myLocationPoint,
+    resolveEmergencyInfoForPoint,
+    sosEmergencyStatus,
+    vaultOwnerToken,
+  ]);
 
   const handleTriggerSos = useCallback(
     async (note?: string | null) => {
@@ -5319,8 +5462,15 @@ export function OneLocationAgentPageContent({
 
   const handleSelectNamedCircleForShare = useCallback(
     async (circleId: string) => {
+      // Tapping an already-selected Circle clears it. But a Circle whose members
+      // have been individually deselected below no longer reads as selected, so
+      // the same tap has to re-apply the roster instead of clearing the leftovers.
       if (
-        selectedShareCircleSelection?.circle.id === circleId
+        selectedShareCircleSelection?.circle.id === circleId &&
+        isCircleSelectionFullySelected(
+          selectedShareCircleSelection,
+          selectedRecipientIds,
+        )
       ) {
         setSelectedShareCircleSelection(null);
         setNamedCircleShareContext(null);
@@ -5364,7 +5514,8 @@ export function OneLocationAgentPageContent({
     },
     [
       handleResolveNamedCircleRecipients,
-      selectedShareCircleSelection?.circle.id,
+      selectedRecipientIds,
+      selectedShareCircleSelection,
       setSelectedRecipientIds,
     ],
   );
@@ -5519,11 +5670,14 @@ export function OneLocationAgentPageContent({
           typeof window !== "undefined"
             ? buildCircleJoinUrl(window.location.origin, code)
             : undefined;
+        const circleLabel = circleShareLabel(circle.name);
         const delivery = await shareNamedCircleCode({
           title: `Join ${circle.name} on One`,
+          // The link lives in `url` only. Repeating it inline made share targets
+          // that append `url` to `text` (WhatsApp, Messages) deliver it twice.
           text: joinUrl
-            ? `Join my ${circle.name} Circle on One — tap to join: ${joinUrl} (or enter code ${code}). Location and SMS stay private until you choose to share.`
-            : `Join my ${circle.name} Circle on One with code ${code}. You'll connect with current and future members, while location and SMS stay private until you choose to share.`,
+            ? `Join my ${circleLabel} on One — tap the link to join, or enter code ${code}. Location and SMS stay private until you choose to share.`
+            : `Join my ${circleLabel} on One with code ${code}. You'll connect with current and future members, while location and SMS stay private until you choose to share.`,
           dialogTitle: "Share Circle code",
           url: joinUrl,
         });
@@ -5686,11 +5840,13 @@ export function OneLocationAgentPageContent({
           typeof window !== "undefined"
             ? buildCircleJoinUrl(window.location.origin, invite.code)
             : undefined;
+        const circleLabel = circleShareLabel(invite.circleName);
         const delivery = await shareNamedCircleCode({
           title: `Join ${invite.circleName} on One`,
+          // Link in `url` only — see the note on handleShareNamedCircleCode.
           text: joinUrl
-            ? `Join my ${invite.circleName} Circle on One — tap to join: ${joinUrl} (or enter code ${invite.code}). Set up One, then the link opens the join screen with the code filled in. Location and SMS stay private until you choose to share.`
-            : `Join my ${invite.circleName} Circle on One with code ${invite.code}. Set up One, then open Location → People → Join a circle and enter it. Location and SMS stay private until you choose to share.`,
+            ? `Join my ${circleLabel} on One — tap the link to join, or enter code ${invite.code}. Set up One, then the link opens the join screen with the code filled in. Location and SMS stay private until you choose to share.`
+            : `Join my ${circleLabel} on One with code ${invite.code}. Set up One, then open Location → People → Join a circle and enter it. Location and SMS stay private until you choose to share.`,
           dialogTitle: "Share Circle code",
           url: joinUrl,
         });
@@ -6887,20 +7043,14 @@ export function OneLocationAgentPageContent({
     shareMessage.length <= ONE_LOCATION_SHARE_NOTE_MAX_LENGTH &&
     !locationPermissionBlocksSharing(permission),
   );
-  const handleOpenShareReview = useCallback(async () => {
-    if (!canShare) return;
-    const attemptId = shareReviewAttemptRef.current + 1;
-    shareReviewAttemptRef.current = attemptId;
-    shareReviewPendingRef.current = true;
-    setBusy("share");
-    const readiness = await ensureForegroundLocationReady({
-      capturePoint: false,
-      autoOpenSettings: true,
-    });
-    if (shareReviewAttemptRef.current !== attemptId) return;
-    shareReviewPendingRef.current = false;
-    setBusy(null);
-    if (!readiness.ready) return;
+  // Marks the consent read-back as on screen and records that it was seen.
+  //
+  // Deliberately free of side effects: the redesign flow calls this when its
+  // merged confirm step mounts, and a step that asked the OS for permission
+  // just by being rendered would prompt before the person has done anything.
+  // The permission work belongs to the share itself, which already runs the
+  // same pre-flight inside `handleShare`.
+  const announceShareReviewOpened = useCallback(() => {
     setShareReviewOpen(true);
     trackEvent(
       "one_location_share_review_opened",
@@ -6927,13 +7077,30 @@ export function OneLocationAgentPageContent({
       },
     );
   }, [
-    canShare,
-    ensureForegroundLocationReady,
     permission?.state,
     setupNeededSelectedRecipients.length,
     shareDurationHours,
     shareReadySelectedRecipients,
   ]);
+
+  // Legacy single-screen composer: there the review IS a separate screen, so
+  // opening it stays gated on the device pre-flight.
+  const handleOpenShareReview = useCallback(async () => {
+    if (!canShare) return;
+    const attemptId = shareReviewAttemptRef.current + 1;
+    shareReviewAttemptRef.current = attemptId;
+    shareReviewPendingRef.current = true;
+    setBusy("share");
+    const readiness = await ensureForegroundLocationReady({
+      capturePoint: false,
+      autoOpenSettings: true,
+    });
+    if (shareReviewAttemptRef.current !== attemptId) return;
+    shareReviewPendingRef.current = false;
+    setBusy(null);
+    if (!readiness.ready) return;
+    announceShareReviewOpened();
+  }, [announceShareReviewOpened, canShare, ensureForegroundLocationReady]);
   const dataState: "loading" | "loaded" | "unavailable-valid" = loadError
     ? "unavailable-valid"
     : state
@@ -8988,6 +9155,7 @@ export function OneLocationAgentPageContent({
     onSyncContacts: () => void handleSyncContactSignal(),
     onShareToContacts: () => void handleShareContactInvite(),
     onOpenShareReview: () => void handleOpenShareReview(),
+    onEnterShareConfirm: announceShareReviewOpened,
     onConfirmShare: () => void handleShare(),
     onSendRequest: (reason) => void handleRequestAccess(reason),
     onApprove: (request) => void handleApprove(request),
