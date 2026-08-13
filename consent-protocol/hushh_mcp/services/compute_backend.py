@@ -44,6 +44,14 @@ from typing import Any, Optional, Protocol, runtime_checkable
 TIER_LOGICAL = "logical"
 TIER_DEDICATED = "dedicated"
 
+# Resource tiers, distinct from the isolation tiers above: these say how warm a pod is
+# kept, not how isolated it is. `_liveness_mode` in gcp_backend derives the same two
+# names from minScale, so they are named once here and consumed on both sides rather
+# than spelled as literals in each.
+RESOURCE_TIER_ECONOMY = "economy"  # minScale 0: scales to zero, silence is healthy
+RESOURCE_TIER_WARM = "warm"  # minScale 1: a paid instance is held, silence is a fault
+RESOURCE_TIERS = (RESOURCE_TIER_ECONOMY, RESOURCE_TIER_WARM)
+
 # Canonical backend ids (the ``PERSONAL_AGENT_BACKEND`` values).
 BACKEND_NULL = "null"
 BACKEND_GCP = "gcp"
@@ -136,6 +144,22 @@ class PodSpec:
     # actually built as rather than what the environment happens to say today.
     deployment_target: Optional[str] = None
     model_credential_mode: Optional[str] = None
+
+    # -- the third axis: how warm THIS person's pod is kept -----------------------
+    #
+    # Same defect as the two above, one layer down. `HUSSH_POD_MIN_INSTANCES` is read
+    # once when the backend is constructed, so every pod a process provisions gets the
+    # same `minScale` -- "economy by default, warm when someone needs it" was not
+    # expressible for one person, only for a whole deployment.
+    #
+    # It is not merely a cost knob. The liveness evaluator reads a warm pod's silence
+    # as a FAULT and an economy pod's silence as its healthy steady state, so the tier
+    # decides whether auto-heal restarts a pod that is working perfectly. Getting it
+    # wrong for one person is a restart loop for that person.
+    #
+    # `None` means "use the deployment default", which is what every existing caller
+    # gets and why this is additive.
+    resource_tier: Optional[str] = None
 
 
 @dataclass(frozen=True)

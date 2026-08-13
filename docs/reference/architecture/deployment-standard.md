@@ -198,6 +198,31 @@ as a design defect in the boundary, not a task in the provider. This is falsifia
 guarded: `tests/test_deployment_boundary_holds.py` fails by name if a provider term
 reaches the orchestrator or the registry.
 
+## The three per-person axes
+
+`PodSpec` carries what must be true of **one person's** pod rather than of a whole
+deployment. Each of the three was a process-wide environment variable first, and each
+was promoted for the same reason: a value that can only be set for the fleet cannot
+express a fact about a person.
+
+| Axis | Field | `None` means |
+|---|---|---|
+| Where the pod runs | `deployment_target` | the deployment default backend |
+| Whose model credential it uses | `model_credential_mode` | the deployment default |
+| How warm it is kept | `resource_tier` (`economy` / `warm`) | `HUSSH_POD_MIN_INSTANCES` |
+
+`resource_tier` is not a cost knob. `pod_liveness_service` reads a **warm** pod's
+silence as a fault and an **economy** pod's silence as its healthy steady state, so the
+tier decides whether auto-heal restarts a pod that is working perfectly. That is why
+`livenessMode` is read back from the rendered artifact rather than recomputed: a row
+recording `economy` for a pod that actually holds a paid instance would make that
+person's silence read as healthy forever, and the fleet would look fine throughout.
+
+An unrecognised tier falls back to the deployment default rather than guessing —
+guessing `warm` bills for an instance nobody asked for, guessing `economy` stops
+watching a pod that needed watching. Guard:
+`tests/test_pod_resource_tier_is_per_person.py`.
+
 ## Open debt
 
 **`backend_metadata` is an untyped dict read by magic key in the common layer.**

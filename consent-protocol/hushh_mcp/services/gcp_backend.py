@@ -42,6 +42,8 @@ from hushh_mcp.services.compute_backend import (
     BACKEND_GCP,
     POD_CPU,
     POD_MEMORY,
+    RESOURCE_TIER_ECONOMY,
+    RESOURCE_TIER_WARM,
     TIER_DEDICATED,
     TIER_LOGICAL,
     BackendHandle,
@@ -214,10 +216,14 @@ class GcpBackend:
         """
         name = _service_name(spec.hushh_id)
         dedicated = spec.tier == TIER_DEDICATED
+        # This person's warm floor, not the process's. Resolved once so the three
+        # places it shapes the artifact -- minScale, CPU allocation, and the liveness
+        # mode recorded on the handle -- can never disagree about the same pod.
+        min_instances = _min_instances_for(spec, self._min_instances)
         template_annotations: dict[str, str] = {
             # Default minScale=1 -> the pod keeps a warm instance so the agent
             # endpoint answers in real time (no ~10s cold start). Per-tier tunable.
-            "autoscaling.knative.dev/minScale": str(self._min_instances),
+            "autoscaling.knative.dev/minScale": str(min_instances),
             # maxScale stays at 1 for CORRECTNESS, not cost. The pod's storage engine
             # assumes a single writer per pod (SQLite `BEGIN IMMEDIATE` over one file,
             # with the sealed commit log as the system of record). A second instance
@@ -230,7 +236,7 @@ class GcpBackend:
             # request come down without making the pod feel slower.
             "run.googleapis.com/startup-cpu-boost": "true",
         }
-        if self._min_instances >= 1:
+        if min_instances >= 1:
             # CPU allocated between requests, on the WARM tier only.
             #
             # Cloud Run throttles an instance's CPU to near zero the moment no
@@ -293,9 +299,7 @@ class GcpBackend:
             # and memory is the cheapest axis to buy safety on.
             "resources": {
                 "limits": {
-                    "cpu": _cpu_for_allocation(
-                        self._cpu, always_allocated=self._min_instances >= 1
-                    ),
+                    "cpu": _cpu_for_allocation(self._cpu, always_allocated=min_instances >= 1),
                     "memory": self._memory,
                 }
             },
@@ -462,7 +466,11 @@ class GcpBackend:
             # because HUSSH_POD_MIN_INSTANCES can change later, and re-judging a
             # running fleet against a setting it was not built under would either
             # mass-alarm on sleeping pods or silently stop watching paid ones.
-            "livenessMode": _liveness_mode(self._min_instances),
+            #
+            # Read from the config just rendered above, not recomputed from the
+            # backend's own default: the tier is per-person now, so the process
+            # default is not this pod's answer.
+            "livenessMode": _liveness_mode(_rendered_min_scale(config)),
         }
         if self._live:
             return await self._execute(spec, config)
@@ -599,10 +607,49 @@ class GcpBackend:
                 # Same contract as the plan path: the live handle must carry the
                 # liveness rule too, or a pod created live would fall back to the
                 # column default instead of recording what it was really given.
-                "livenessMode": _liveness_mode(self._min_instances),
+                #
+                # Read from the CONFIG that was deployed. Once the tier became
+                # per-person, recomputing here recorded the DEPLOYMENT's tier for
+                # someone who asked for a different one -- so the row would say
+                # `economy` while a paid instance was held, and the liveness
+                # evaluator would read that pod's silence as healthy forever.
+                "livenessMode": _liveness_mode(_rendered_min_scale(config)),
             },
             attestation_ref=("pending-attestation" if spec.tier == TIER_DEDICATED else None),
         )
+
+
+def _min_instances_for(spec: PodSpec, deployment_default: int) -> int:
+    """This person's warm floor: their own tier when set, the deployment's otherwise.
+
+    An unrecognised value falls back to the deployment default rather than guessing.
+    Guessing `warm` holds a paid instance nobody asked for; guessing `economy` makes
+    the liveness evaluator read a warm-intended pod's silence as healthy, so a broken
+    pod is never restarted. Neither guess is safe, so it defers and says so.
+    """
+    tier = str(spec.resource_tier or "").strip().lower()
+    if tier == RESOURCE_TIER_WARM:
+        return max(1, deployment_default)
+    if tier == RESOURCE_TIER_ECONOMY:
+        return 0
+    if tier:
+        logger.warning("gcp_backend.unknown_resource_tier tier=%s", tier)
+    return deployment_default
+
+
+def _rendered_min_scale(config: dict[str, Any]) -> int:
+    """The minScale the deployed artifact actually carries.
+
+    Reading it back from the config is the difference between recording what a pod
+    WAS given and re-deriving what it probably would have been given.
+    """
+    annotations = (((config.get("spec") or {}).get("template") or {}).get("metadata") or {}).get(
+        "annotations"
+    ) or {}
+    try:
+        return int(annotations.get("autoscaling.knative.dev/minScale", 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _liveness_mode(min_instances: int) -> str:

@@ -119,6 +119,7 @@ tests/test_pod_memory_service.py
 tests/test_pod_mode.py
 tests/test_pod_no_trace_reset.py
 tests/test_pod_observability_contract.py
+tests/test_pod_resource_tier_is_per_person.py
 tests/test_pod_relay.py
 tests/test_pod_server.py
 tests/test_pod_spec_deployment_axes.py
