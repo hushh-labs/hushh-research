@@ -1539,13 +1539,21 @@ export function AgentChatWorkspace({
     if (!textarea || voiceActive) return;
     textarea.style.height = "0px";
     const nextHeight = textarea.scrollHeight;
-    textarea.style.height = `${nextHeight}px`;
     // `scrollHeight` includes soft-wrapped text, which is the visual behavior
     // people notice. Reveal the larger editor after roughly four rendered rows.
     const long = input.trim().length > 0 && nextHeight > 96;
     setComposerLong(long);
     if (!long) setComposerExpanded(false);
-  }, [input, voiceActive]);
+    // The expanded writing surface owns its fixed, spacious height. The compact
+    // pill grows only to its CSS ceiling and then scrolls internally.
+    textarea.style.height = composerExpanded ? "" : `${nextHeight}px`;
+  }, [composerExpanded, input, voiceActive]);
+
+  useEffect(() => {
+    if (!composerExpanded) return;
+    const frame = window.requestAnimationFrame(() => composerTextareaRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [composerExpanded]);
 
   useEffect(() => {
     if (!isHistoryDrawerOpen) return;
@@ -3887,6 +3895,37 @@ export function AgentChatWorkspace({
       onDeleteConversation={handleDeleteConversation}
     />
   );
+  const composerActionRail = (
+    <>
+      {agentVoiceEnabled ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          data-native-voice-control-id="one_voice_agent_chat_start"
+          data-testid="one-voice-agent-chat-start"
+          className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:text-[color:var(--app-accent-deep)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:max-sm:text-[color:var(--app-accent-deep)]"
+          disabled={!canToggleVoice}
+          onClick={() => {
+            void startConversationalVoice();
+          }}
+          aria-label="Start voice mode"
+          title="Start voice mode"
+        >
+          <Mic className="h-4 w-4" />
+        </Button>
+      ) : null}
+      <Button
+        type="submit"
+        size="icon"
+        className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:rounded-full max-sm:enabled:bg-[color:var(--app-accent)] max-sm:enabled:text-[color:var(--app-accent-fg)] max-sm:enabled:shadow-[var(--app-accent-ring)] max-sm:enabled:hover:bg-[color:var(--app-accent-hover)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500 dark:max-sm:enabled:bg-[color:var(--app-accent)] dark:max-sm:enabled:text-[color:var(--app-accent-fg)]"
+        disabled={!canSend}
+        aria-label="Send message"
+      >
+        <Send className="h-4 w-4" />
+      </Button>
+    </>
+  );
 
   return (
     <div
@@ -4733,79 +4772,92 @@ export function AgentChatWorkspace({
                   />
                 </div>
               ) : (
-                <div
-                  data-testid="agent-chat-composer"
-                  className="flex min-h-14 items-end gap-2 rounded-[var(--app-radius-pill)] border border-border/70 bg-foreground/[0.04] px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[color:var(--app-accent)] max-sm:focus-within:ring-[color:var(--app-accent-ring)]"
-                >
-                  <div className="relative min-w-0 flex-1 self-stretch">
-                    <textarea
-                      ref={composerTextareaRef}
-                      data-testid="agent-chat-composer-textarea"
-                      aria-label="Message One"
-                      value={input}
-                      onChange={(event) => setInput(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
-                          return;
-                        }
-                        event.preventDefault();
-                        if (canSend) {
-                          event.currentTarget.form?.requestSubmit();
-                        }
-                      }}
-                      disabled={isLoadingHistory || isVoiceConnecting}
-                      placeholder="Message One..."
-                      rows={1}
-                      className={cn(
-                        "min-h-8 w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-1 py-2 pr-9 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm",
-                        composerExpanded
-                          ? "max-h-[min(40dvh,18rem)] sm:max-h-[min(48dvh,28rem)]"
-                          : "max-h-28 sm:max-h-36",
-                      )}
-                    />
-                    {composerLong ? (
+                <>
+                  {composerExpanded ? (
+                    <div
+                      data-testid="agent-chat-composer-expanded"
+                      className="relative mb-2 overflow-hidden rounded-[var(--app-card-radius-compact)] border border-border/70 bg-foreground/[0.04] shadow-[var(--app-card-shadow-standard)]"
+                    >
+                      <textarea
+                        ref={composerTextareaRef}
+                        data-testid="agent-chat-composer-expanded-textarea"
+                        aria-label="Expanded message One"
+                        value={input}
+                        onChange={(event) => setInput(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+                            return;
+                          }
+                          event.preventDefault();
+                          if (canSend) {
+                            event.currentTarget.form?.requestSubmit();
+                          }
+                        }}
+                        disabled={isLoadingHistory || isVoiceConnecting}
+                        placeholder="Write a longer message..."
+                        className="block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-14 pt-4 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-16 sm:pt-5 sm:text-sm"
+                      />
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        data-testid="agent-chat-composer-expand"
-                        className="absolute right-0.5 top-0.5 h-8 w-8 rounded-lg text-muted-foreground"
-                        aria-label={composerExpanded ? "Collapse message editor" : "Expand message editor"}
-                        title={composerExpanded ? "Collapse" : "Expand"}
-                        onClick={() => setComposerExpanded((expanded) => !expanded)}
+                        className="absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
+                        aria-label="Collapse message editor"
+                        title="Collapse"
+                        onClick={() => setComposerExpanded(false)}
                       >
-                        {composerExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                        <Minimize2 className="h-4 w-4" />
                       </Button>
-                    ) : null}
-                  </div>
-                  {agentVoiceEnabled ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      data-native-voice-control-id="one_voice_agent_chat_start"
-                      data-testid="one-voice-agent-chat-start"
-                      className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:text-[color:var(--app-accent-deep)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:max-sm:text-[color:var(--app-accent-deep)]"
-                      disabled={!canToggleVoice}
-                      onClick={() => {
-                        void startConversationalVoice();
-                      }}
-                      aria-label="Start voice mode"
-                      title="Start voice mode"
-                    >
-                      <Mic className="h-4 w-4" />
-                    </Button>
+                      <div className="absolute bottom-3 right-3 flex items-center gap-2 sm:bottom-4 sm:right-4">
+                        {composerActionRail}
+                      </div>
+                    </div>
                   ) : null}
-                  <Button
-                    type="submit"
-                    size="icon"
-                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:rounded-full max-sm:enabled:bg-[color:var(--app-accent)] max-sm:enabled:text-[color:var(--app-accent-fg)] max-sm:enabled:shadow-[var(--app-accent-ring)] max-sm:enabled:hover:bg-[color:var(--app-accent-hover)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500 dark:max-sm:enabled:bg-[color:var(--app-accent)] dark:max-sm:enabled:text-[color:var(--app-accent-fg)]"
-                    disabled={!canSend}
-                    aria-label="Send message"
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
-                </div>
+                  {!composerExpanded ? (
+                    <div
+                      data-testid="agent-chat-composer"
+                      className="flex min-h-16 items-end gap-2 rounded-[var(--app-radius-pill)] border border-border/70 bg-foreground/[0.04] px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[color:var(--app-accent)] max-sm:focus-within:ring-[color:var(--app-accent-ring)]"
+                    >
+                      <div className="relative min-w-0 flex-1 self-stretch">
+                        <textarea
+                          ref={composerTextareaRef}
+                          data-testid="agent-chat-composer-textarea"
+                          aria-label="Message One"
+                          value={input}
+                          onChange={(event) => setInput(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+                              return;
+                            }
+                            event.preventDefault();
+                            if (canSend) {
+                              event.currentTarget.form?.requestSubmit();
+                            }
+                          }}
+                          disabled={isLoadingHistory || isVoiceConnecting}
+                          placeholder="Message One..."
+                          rows={1}
+                          className="min-h-10 max-h-28 w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-7 py-3 pr-14 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:px-8 sm:pr-14 sm:text-sm"
+                        />
+                        {composerLong ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            data-testid="agent-chat-composer-expand"
+                            className="absolute right-1 top-1.5 h-9 w-9 rounded-xl text-muted-foreground"
+                            aria-label="Expand message editor"
+                            title="Expand"
+                            onClick={() => setComposerExpanded(true)}
+                          >
+                            <Maximize2 className="h-4 w-4" />
+                          </Button>
+                        ) : null}
+                      </div>
+                      {composerActionRail}
+                    </div>
+                  ) : null}
+                </>
               )}
             </div>
           </form>
