@@ -11,11 +11,12 @@
 import { ExternalLink, Star } from "lucide-react";
 
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
+import { NearbyEvidencePanel } from "@/components/ria/nearby/nearby-evidence-panel";
 import { NearbyScoreExplainer } from "@/components/ria/nearby/nearby-score-explainer";
 import { Button } from "@/lib/morphy-ux/button";
 import { AvatarBubble, StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
 import { EYEBROW, MUTED_TEXT, SUBCARD_SURFACE } from "@/lib/morphy-ux/tokens/surfaces";
-import { formatScore, type NearbyRecord } from "@/lib/services/nws-nearby-service";
+import { factTypeLabel, formatScore, type NearbyRecord } from "@/lib/services/nws-nearby-service";
 import { cn } from "@/lib/utils";
 
 function initialsOf(name: string | null): string {
@@ -93,10 +94,6 @@ export function NearbyRecordSheet({
           </p>
         ) : null}
 
-        {record.revalidationRequired ? (
-          <StatusPill tone="pending">Needs revalidation</StatusPill>
-        ) : null}
-
         {record.scoreBreakdown ? (
           <div className="flex flex-col gap-2">
             <span className={EYEBROW}>How this score is built</span>
@@ -117,10 +114,12 @@ export function NearbyRecordSheet({
           </div>
         ) : null}
 
-        {record.warnings.length > 0 ? (
+        {record.evidence ? (
+          <NearbyEvidencePanel evidence={record.evidence} warnings={record.warnings} />
+        ) : record.warnings.length > 0 ? (
           <ul className="flex flex-col gap-1">
             {record.warnings.map((warning) => (
-              <li key={warning} className="type-footnote text-destructive">
+              <li key={warning} className={MUTED_TEXT}>
                 {warning}
               </li>
             ))}
@@ -141,16 +140,23 @@ export function NearbyRecordSheet({
           <div className="flex flex-col gap-1.5">
             <span className={EYEBROW}>Sources</span>
             {record.sources.map((source) => (
-              <a
-                key={`${source.url}-${source.title}`}
-                href={source.url ?? "#"}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="type-footnote inline-flex items-center gap-1.5 text-[color:var(--app-accent-fg)] underline-offset-4 hover:underline"
-              >
-                <span>{source.title || source.publisher}</span>
-                <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
-              </a>
+              <div key={`${source.url}-${source.title}`} className="flex flex-col gap-0.5">
+                <a
+                  href={source.url ?? "#"}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="type-footnote inline-flex items-center gap-1.5 text-[color:var(--app-accent-fg)] underline-offset-4 hover:underline"
+                >
+                  <span>{source.title || source.publisher}</span>
+                  <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+                </a>
+                {source.factTypes.length > 0 ? (
+                  <span className={MUTED_TEXT}>
+                    {source.publisher ? `${source.publisher} · ` : ""}
+                    Proves {source.factTypes.map(factTypeLabel).join(", ").toLowerCase()}
+                  </span>
+                ) : null}
+              </div>
             ))}
           </div>
         ) : null}

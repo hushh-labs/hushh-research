@@ -29,6 +29,7 @@ import { MUTED_TEXT, SUBCARD_SURFACE } from "@/lib/morphy-ux/tokens/surfaces";
 import {
   DEFAULT_NEARBY_FILTERS,
   NwsNearbyService,
+  availableGrades,
   availableTags,
   formatScore,
   laneCounts as computeLaneCounts,
@@ -156,6 +157,7 @@ export function NearbyAroundYou() {
   const all = useMemo(() => result?.results ?? [], [result?.results]);
   const laneCounts = useMemo(() => computeLaneCounts(all), [all]);
   const tags = useMemo(() => availableTags(all), [all]);
+  const grades = useMemo(() => availableGrades(all), [all]);
   const records = useMemo(() => {
     const lane = filters.lanes[0];
     return lane ? all.filter((r) => r.lane === lane) : all;
@@ -286,6 +288,7 @@ export function NearbyAroundYou() {
               onChange={setFilters}
               laneCounts={laneCounts}
               tags={tags}
+              grades={grades}
               disabled={loading}
             />
           </div>

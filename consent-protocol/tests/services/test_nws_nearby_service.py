@@ -101,11 +101,20 @@ _COVERED = {
             "warnings": [],
             "tags": ["semiconductors", "founder", "board"],
             "revalidation_required": False,
+            "evidence": {
+                "citation_count": 2,
+                "source_family_count": 1,
+                "evidence_fact_count": 4,
+                "independent_source_families": False,
+                "review_flags": ["SINGLE_SOURCE_FAMILY"],
+            },
             "sources": [
                 {
                     "publisher": "Monolithic Power Systems",
                     "title": "Management",
                     "url": "https://www.monolithicpower.com/management",
+                    "fact_types": ["identity", "current_role"],
+                    "retrieved_at": "2026-08-13",
                 }
             ],
             "model_version": "nws-v2.2.0-bootstrap.2026-08-12",
@@ -527,3 +536,47 @@ async def test_a_breakdown_with_no_usable_components_is_dropped(monkeypatch):
     service = _service(monkeypatch, lambda request: httpx.Response(200, json=payload))
 
     assert (await service.discover(postal_code="98033"))["results"][0]["scoreBreakdown"] is None
+
+
+# ------------------------------------------------------- reviewed release v2
+
+
+@pytest.mark.asyncio
+async def test_evidence_quality_is_carried_through(monkeypatch):
+    """Two links from one organisation are not two confirmations.
+
+    The reviewed release reports that per record, and it is the difference
+    between a claim an advisor can act on and one they should check first.
+    """
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=_COVERED))
+    evidence = (await service.discover(postal_code="98033"))["results"][0]["evidence"]
+
+    assert evidence["citationCount"] == 2
+    assert evidence["sourceFamilyCount"] == 1
+    assert evidence["factCount"] == 4
+    assert evidence["independentSourceFamilies"] is False
+    assert evidence["reviewFlags"] == ["SINGLE_SOURCE_FAMILY"]
+
+
+@pytest.mark.asyncio
+async def test_each_citation_says_what_it_proves(monkeypatch):
+    """An advisor doing diligence needs to know which claim a link supports."""
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=_COVERED))
+    source = (await service.discover(postal_code="98033"))["results"][0]["sources"][0]
+
+    assert source["factTypes"] == ["identity", "current_role"]
+    assert source["retrievedAt"] == "2026-08-13"
+
+
+@pytest.mark.asyncio
+async def test_a_service_without_the_reviewed_release_still_works(monkeypatch):
+    """An older revision publishes no evidence block; the app degrades, not breaks."""
+    payload = json.loads(json.dumps(_COVERED))
+    payload["results"][0].pop("evidence")
+    payload["results"][0]["sources"][0].pop("fact_types")
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=payload))
+
+    record = (await service.discover(postal_code="98033"))["results"][0]
+    assert record["evidence"] is None
+    assert record["sources"][0]["factTypes"] == []
+    assert record["sources"][0]["url"]
