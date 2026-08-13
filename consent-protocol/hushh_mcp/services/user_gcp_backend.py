@@ -31,6 +31,8 @@ setup exists (a user project + federation cannot be mocked into being).
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
 import re
 from typing import Any, Optional
@@ -57,6 +59,63 @@ _SLUG = re.compile(r"[^a-z0-9-]+")
 
 def _slug(hushh_id: str) -> str:
     return _SLUG.sub("-", str(hushh_id or "").lower()).strip("-")[:40]
+
+
+#: Google's hard limit on a service-account `accountId`. Not a style preference:
+#: `CreateServiceAccountRequest.accountId` is documented as "6-30 characters" and the
+#: IAM API answers 400 outside that range.
+_SA_ID_MAX = 30
+_SA_PREFIX = "one-pod-"
+#: Base32 of a SHA-256, lowercased. 8 chars = 40 bits, on top of the ~45 bits the
+#: retained slug prefix still carries, so two people colliding needs both halves to
+#: match. Base32 rather than hex because the alphabet is denser per character and
+#: every symbol is already legal in an accountId.
+_SA_DIGEST_CHARS = 8
+
+
+def pod_service_account_id(hushh_id: str) -> str:
+    """The pod's runtime identity, guaranteed to fit Google's 6-30 character limit.
+
+    THE DEFECT THIS EXISTS TO CLOSE
+
+    A real HusshID is ``"ha1_"`` + base32(20 bytes) = **36 characters**, `_slug` caps
+    at 40 so nothing is trimmed, and ``"one-pod-" + slug`` is therefore **44** — over
+    the limit by 14 for **every real person**. The `pod_service_account` bootstrap step
+    could only ever return 400, and the Cloud Run body would name a service account
+    that cannot exist.
+
+    It survived because every test and the single live BYOC run used a short synthetic
+    id: ``HA1BYOC0000001`` (22), ``HA1ABC234DEF`` (20), ``ha1byocjourney01`` (24). Each
+    fits, so the whole suite was green against a limit no real id can satisfy. That is
+    the shape of §2e in `verify-before-claim` -- a guard that never fired -- with the
+    twist that the *fixture* was what kept it quiet.
+
+    WHY IT TRUNCATES-AND-HASHES RATHER THAN JUST TRUNCATING
+
+    The name must stay a deterministic function of the HusshID: re-provision, teardown
+    and the drift read all recompute it rather than looking it up, so two people must
+    never derive the same account. A bare truncation to 22 characters keeps only the
+    first ~9 characters of entropy after the constant ``ha1-`` prefix; appending a
+    digest of the WHOLE id restores the rest.
+
+    Ids that already fit are returned byte-identical, so nothing that exists today is
+    renamed -- only names that were invalid anyway change.
+    """
+    slug = _slug(hushh_id)
+    candidate = f"{_SA_PREFIX}{slug}"
+    if len(candidate) <= _SA_ID_MAX:
+        return candidate
+
+    digest = (
+        base64.b32encode(hashlib.sha256(str(hushh_id or "").encode("utf-8")).digest())
+        .decode("ascii")
+        .lower()[:_SA_DIGEST_CHARS]
+    )
+    keep = _SA_ID_MAX - len(_SA_PREFIX) - 1 - _SA_DIGEST_CHARS
+    head = slug[:keep].strip("-")
+    # A pathological id whose head strips to nothing would otherwise render a double
+    # hyphen, which IAM also rejects.
+    return f"{_SA_PREFIX}{head}-{digest}" if head else f"{_SA_PREFIX}{digest}"
 
 
 #: Env the MANAGED tier ships that a BYOC pod must never receive. Two are plaintext
@@ -232,7 +291,7 @@ class UserGcpBackend:
         # The pod runs as its own least-privilege identity, the one the bootstrap
         # created and bound to this person's key and bucket.
         cfg["spec"]["template"]["spec"]["serviceAccountName"] = (
-            f"one-pod-{slug}@{project}.iam.gserviceaccount.com"
+            f"{pod_service_account_id(spec.hushh_id)}@{project}.iam.gserviceaccount.com"
         )
 
         kept = [e for e in container.get("env", []) if e["name"] not in _MANAGED_ONLY_ENV]
@@ -287,7 +346,7 @@ class UserGcpBackend:
         slug = _slug(spec.hushh_id)
         name = _service_name(spec.hushh_id)
         project = self._user_project or "<user-project>"
-        pod_sa = f"one-pod-{slug}@{project}.iam.gserviceaccount.com"
+        pod_sa = f"{pod_service_account_id(spec.hushh_id)}@{project}.iam.gserviceaccount.com"
         kms_key = f"one-pod-{slug}-key"
         bucket = f"one-pod-{slug}-blobs"
         invoker = self._hushh_invoker_sa or "<hushh-consent-plane-sa>"
@@ -566,7 +625,9 @@ class UserGcpBackend:
         change to the naming rule cannot silently desynchronise the account the
         bootstrap creates from the account the hub will later trust.
         """
-        return f"one-pod-{_slug(spec.hushh_id)}@{self._user_project}.iam.gserviceaccount.com"
+        return (
+            f"{pod_service_account_id(spec.hushh_id)}@{self._user_project}.iam.gserviceaccount.com"
+        )
 
     async def deprovision(self, external_agent_id: str) -> None:
         if self._live:
