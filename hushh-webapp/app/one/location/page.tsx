@@ -3057,7 +3057,11 @@ export function OneLocationAgentPageContent({
         if (shouldCapturePoint && !options?.isStale?.()) {
           activateMyLocation(point);
         }
-        return shouldCapturePoint ? { ready: true, point } : { ready: true };
+        // The fix is returned even when this caller did not ask to capture one,
+        // so a later step in the same flow can use it instead of paying for a
+        // second acquisition. `shouldCapturePoint` still governs the SIDE
+        // EFFECT (activateMyLocation) above — only the return widens.
+        return { ready: true, point };
       } catch (error) {
         const nextPermission =
           await OneLocationService.getPermissionState().catch(() => null);
@@ -4394,19 +4398,50 @@ export function OneLocationAgentPageContent({
         return;
       livePublishInFlightRef.current = true;
       try {
-        const point = await OneLocationService.captureCurrentPosition();
+        // Never a reused fix: a recipient watching this person move must see
+        // where they are now, not where they were when a button was last
+        // pressed. One capture here still serves every grant below.
+        const point = await OneLocationService.captureCurrentPosition({
+          maxAgeMs: 0,
+        });
         if (!automaticPrivatePublishingAllowedRef.current) return;
-        for (const grant of activeOwnerGrants) {
-          if (!automaticPrivatePublishingAllowedRef.current) return;
-          const recipient = recipientForGrant(grant);
-          if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
-          await publishEnvelopeWithRetry(
-            grant,
-            recipient,
-            "foreground_interval",
-            point,
-          );
-        }
+        // Every grant is published independently. Sharing this loop's failure
+        // between recipients is what made "share with several people" look
+        // broken: the catch used to sit outside, so one recipient who threw
+        // aborted the whole tick — and because the grant order is stable, the
+        // SAME recipient threw on every tick and everyone after them in the
+        // list was starved permanently. The first person kept moving; nobody
+        // else ever updated again.
+        await Promise.all(
+          activeOwnerGrants.map(async (grant) => {
+            if (!automaticPrivatePublishingAllowedRef.current) return;
+            const recipient = recipientForGrant(grant);
+            if (!recipient?.keyId || !recipient.publicKeyJwk) {
+              // The grant is frozen against one recipient key and the backend
+              // rejects an envelope sealed with any other, so we cannot
+              // substitute a current key here. Say so instead of skipping in
+              // silence — this is a share that will never update again.
+              console.warn(
+                "[OneLocationAgent] No usable recipient key for grant; live updates cannot resume until they share again:",
+                grant.id,
+              );
+              return;
+            }
+            try {
+              await publishEnvelopeWithRetry(
+                grant,
+                recipient,
+                "foreground_interval",
+                point,
+              );
+            } catch (error) {
+              console.warn(
+                "[OneLocationAgent] Live update failed for one recipient:",
+                error,
+              );
+            }
+          }),
+        );
       } catch (error) {
         void refreshLocationPermission();
         console.warn(
@@ -4498,19 +4533,32 @@ export function OneLocationAgentPageContent({
 
       livePublishInFlightRef.current = true;
       try {
-        for (const grant of activeOwnerGrants) {
-          if (!automaticPrivatePublishingAllowedRef.current) return;
-          const recipient = recipientForGrant(grant);
-          if (!recipient?.keyId || !recipient.publicKeyJwk) continue;
-          const driven = await drivePointForGrant(grant, point);
-          const pointForGrant = pickupPointForGrant(grant, driven);
-          await publishEnvelopeWithRetry(
-            grant,
-            recipient,
-            "foreground_interval",
-            pointForGrant,
-          );
-        }
+        // Per-recipient isolation, as in the interval publisher above: one
+        // recipient throwing must not stop the others from seeing this move,
+        // and must not hold back `lastPublishedPointRef` — leaving that stale
+        // made the movement gate re-fire the same failing publish forever.
+        await Promise.all(
+          activeOwnerGrants.map(async (grant) => {
+            if (!automaticPrivatePublishingAllowedRef.current) return;
+            const recipient = recipientForGrant(grant);
+            if (!recipient?.keyId || !recipient.publicKeyJwk) return;
+            try {
+              const driven = await drivePointForGrant(grant, point);
+              const pointForGrant = pickupPointForGrant(grant, driven);
+              await publishEnvelopeWithRetry(
+                grant,
+                recipient,
+                "foreground_interval",
+                pointForGrant,
+              );
+            } catch (error) {
+              console.warn(
+                "[OneLocationAgent] Live movement update failed for one recipient:",
+                error,
+              );
+            }
+          }),
+        );
         lastPublishedPointRef.current = point;
         lastWatchPublishAtRef.current = Date.now();
       } catch (error) {
@@ -5079,7 +5127,15 @@ export function OneLocationAgentPageContent({
     if (!vaultOwnerToken) return;
     setBusy("publicInvite");
     try {
-      const point = await OneLocationService.captureCurrentPosition();
+      // Goes through the same readiness gate as every other share entry point.
+      // Reaching for the device directly is what left this control with no way
+      // to say "your location is off" — it could only spin and then fail.
+      const readiness = await ensureForegroundLocationReady({
+        capturePoint: true,
+        autoOpenSettings: true,
+      });
+      if (!readiness.ready || !readiness.point) return;
+      const point = readiness.point;
       const response = await OneLocationService.createPublicInvite({
         vaultOwnerToken,
         durationHours: Number(durationHours),
@@ -5118,7 +5174,13 @@ export function OneLocationAgentPageContent({
     } finally {
       setBusy(null);
     }
-  }, [activePublicInvites.length, durationHours, refresh, vaultOwnerToken]);
+  }, [
+    activePublicInvites.length,
+    durationHours,
+    ensureForegroundLocationReady,
+    refresh,
+    vaultOwnerToken,
+  ]);
 
   const handleCopyPublicInvite = useCallback(async () => {
     if (!publicInviteUrl) return;
@@ -5158,7 +5220,12 @@ export function OneLocationAgentPageContent({
     try {
       let url = publicInviteUrl;
       if (!url) {
-        const point = await OneLocationService.captureCurrentPosition();
+        const readiness = await ensureForegroundLocationReady({
+          capturePoint: true,
+          autoOpenSettings: true,
+        });
+        if (!readiness.ready || !readiness.point) return;
+        const point = readiness.point;
         const response = await OneLocationService.createPublicInvite({
           vaultOwnerToken,
           durationHours: Number(durationHours),
@@ -5201,6 +5268,7 @@ export function OneLocationAgentPageContent({
   }, [
     activePublicInvites.length,
     durationHours,
+    ensureForegroundLocationReady,
     publicInviteUrl,
     refresh,
     vaultOwnerToken,
@@ -8617,7 +8685,12 @@ export function OneLocationAgentPageContent({
     }
     const sessionEpoch = savedLocationSessionEpochRef.current;
     try {
-      const point = await OneLocationService.captureCurrentPosition();
+      // "Locate me" drops a pin, so it reads the device directly. Reusing an
+      // earlier fix here is what previously placed the pin at the last place
+      // the user was rather than this one.
+      const point = await OneLocationService.captureCurrentPosition({
+        maxAgeMs: 0,
+      });
       if (
         savedLocationSessionEpochRef.current !== sessionEpoch ||
         savedLocationPointUserIdRef.current !== auth.userId

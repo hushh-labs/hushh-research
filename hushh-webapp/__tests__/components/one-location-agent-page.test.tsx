@@ -3072,6 +3072,56 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("keeps publishing to the other recipients when one of them fails", async () => {
+    // "Share with several people doesn't work": the live publisher used to hold
+    // one try/catch OUTSIDE its loop, so the first recipient that threw aborted
+    // the whole tick. Grant order is stable, so the SAME recipient threw every
+    // tick and everyone after them in the list was starved permanently — the
+    // first person's dot kept moving, nobody else ever updated again.
+    const base = locationState().ownerGrants[0]!;
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [
+        { ...base, id: "grant_b", recipientUserId: "user_b", recipientKeyId: "key_b" },
+        {
+          ...base,
+          id: "grant_d",
+          recipientUserId: "user_d",
+          recipientDisplayName: "Investor D",
+          recipientKeyId: "key_d",
+        },
+      ],
+    });
+    mockEncryptLocationForRecipient.mockImplementation(
+      async ({ recipientKeyId }: { recipientKeyId: string }) => ({
+        recipientKeyId,
+        ciphertext: "cipher",
+        iv: "iv",
+        ephemeralPublicKeyJwk: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+      }),
+    );
+    // The first recipient in the list is the one that fails.
+    mockStoreEnvelope.mockImplementation(
+      async ({ envelope }: { envelope: { recipientKeyId: string } }) => {
+        if (envelope.recipientKeyId === "key_b") {
+          throw new Error("LOCATION_ENVELOPE_KEY_MISMATCH");
+        }
+        return {};
+      },
+    );
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => {
+      const publishedKeyIds = mockStoreEnvelope.mock.calls.map(
+        (call) => call[0]?.envelope?.recipientKeyId,
+      );
+      // The second recipient must still be reached despite the first throwing.
+      expect(publishedKeyIds).toContain("key_d");
+    });
+  });
+
   it("shares one GPS capture through separate encrypted grants for multiple selected recipients", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),

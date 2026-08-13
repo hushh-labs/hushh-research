@@ -370,7 +370,9 @@ export function NearbyCheckInSheet({
   open: boolean;
   ownerId: string | null;
   vaultOwnerToken: string | null;
-  captureCurrentPosition: () => Promise<PlainLocationPoint>;
+  captureCurrentPosition: (options?: {
+    maxAgeMs?: number;
+  }) => Promise<PlainLocationPoint>;
   onOpenChange: (open: boolean) => void;
   onStateChange?: (state: OneLocationNearbyPresenceState) => void;
   /** Transient renderer hint; never persisted or published. */
@@ -1173,8 +1175,9 @@ export function NearbyCheckInSheet({
     let confirmationPoint: PlainLocationPoint | null = null;
     try {
       // The persisted radius anchor must describe where the owner confirms the
-      // check-in, not the earlier point used to load place suggestions.
-      const freshPoint = await captureCurrentPosition();
+      // check-in, not the earlier point used to load place suggestions — so
+      // this one opts out of the shared capture cache entirely.
+      const freshPoint = await captureCurrentPosition({ maxAgeMs: 0 });
       confirmationPoint = freshPoint;
       if (
         ownerEpochRef.current !== expectedOwnerEpoch ||
