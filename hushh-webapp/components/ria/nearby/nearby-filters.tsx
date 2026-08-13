@@ -30,12 +30,15 @@ export function NearbyFilterBar({
   onChange,
   laneCounts,
   tags,
+  grades,
   disabled = false,
 }: {
   filters: NearbyFilters;
   onChange: (next: NearbyFilters) => void;
   laneCounts: Record<NearbyLane, number>;
   tags: string[];
+  /** Grades present in the current results. See the confidence control below. */
+  grades: Set<ConfidenceGrade>;
   disabled?: boolean;
 }) {
   const [more, setMore] = useState(false);
@@ -112,6 +115,10 @@ export function NearbyFilterBar({
                 label: `${km} km`,
               }))}
             />
+            {/* Only grades with records behind them. The reviewed release
+                grades every record B, so offering A would return an empty
+                screen — the same dead-option trap the empty lane chips had.
+                "All" always stands, because it can never come back empty. */}
             <SegmentedTabs
               value={filters.minimumConfidenceGrade}
               disabled={disabled}
@@ -119,9 +126,9 @@ export function NearbyFilterBar({
                 onChange({ ...filters, minimumConfidenceGrade: v as ConfidenceGrade })
               }
               options={[
-                { value: "A", label: "A" },
-                { value: "B", label: "B" },
-                { value: "C", label: "C" },
+                ...(["A", "B", "C"] as const)
+                  .filter((grade) => grades.has(grade))
+                  .map((grade) => ({ value: grade, label: grade })),
                 { value: "D", label: "All" },
               ]}
             />

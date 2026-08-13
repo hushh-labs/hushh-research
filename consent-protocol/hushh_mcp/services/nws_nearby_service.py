@@ -491,11 +491,21 @@ def _normalize_result(row: dict[str, Any]) -> dict[str, Any]:
         ],
         "tags": [text for text in (_text(item) for item in _as_list(row.get("tags"))) if text],
         "revalidationRequired": bool(row.get("revalidation_required")),
+        "evidence": _normalize_evidence(row.get("evidence")),
         "sources": [
             {
                 "publisher": _text(item.get("publisher")),
                 "title": _text(item.get("title")),
                 "url": _text(item.get("url")),
+                # What this citation actually establishes — identity, current
+                # role, organization identity, public association. An advisor
+                # doing diligence needs to know which claim a link supports.
+                "factTypes": [
+                    text
+                    for text in (_text(fact) for fact in _as_list(item.get("fact_types")))
+                    if text
+                ],
+                "retrievedAt": _text(item.get("retrieved_at")),
             }
             for item in sources
         ],
@@ -505,6 +515,29 @@ def _normalize_result(row: dict[str, Any]) -> dict[str, Any]:
 
 def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def _normalize_evidence(value: Any) -> dict[str, Any] | None:
+    """How well-sourced a record is, as the reviewed release reports it.
+
+    This is the diligence signal. Two links from the same organization are not
+    two independent confirmations, and the release says so per record rather
+    than leaving a reader to count publishers by eye.
+    """
+    block = _as_dict(value)
+    if not block:
+        return None
+
+    return {
+        "citationCount": _coerce_int(block.get("citation_count")),
+        # Distinct publishing organizations behind the citations.
+        "sourceFamilyCount": _coerce_int(block.get("source_family_count")),
+        "factCount": _coerce_int(block.get("evidence_fact_count")),
+        "independentSourceFamilies": bool(block.get("independent_source_families")),
+        "reviewFlags": [
+            text for text in (_text(flag) for flag in _as_list(block.get("review_flags"))) if text
+        ],
+    }
 
 
 def _normalize_breakdown(value: Any) -> dict[str, Any] | None:
