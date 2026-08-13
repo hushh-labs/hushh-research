@@ -70,6 +70,12 @@ import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition
 import { motionDurations, motionEasings } from "@/lib/morphy-ux/motion";
 import { useVault } from "@/lib/vault/vault-context";
 import {
+  claimNativeMap,
+  isNativeMapSuperseded,
+  waitForLaidOutBox,
+  withNativeMapLock,
+} from "@/lib/one-location/native-map-lifecycle";
+import {
   GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
   readCachedRendererConsentAccepted,
   writeCachedRendererConsentAccepted,
@@ -77,52 +83,12 @@ import {
 
 const MAP_ID = "one-location-private-map";
 
-// @capacitor/google-maps addresses every native map by its string id alone.
-// `destroy()` resolves to `maps.removeValue(forKey: id)` on both iOS and
-// Android with no check that the caller is the instance that registered it,
-// and `create()` cannot be called back: it waits ~200 ms (longer while the
-// element still measures zero) before the native view is registered, and
-// nothing cancels that.
-//
-// So an unmount landing inside a create window left the screen blank. The
-// cleanup found `mapRef.current` still null and destroyed nothing, the
-// abandoned create registered its map anyway, and its cancelled branch then
-// destroyed MAP_ID -- by which time MAP_ID belonged to the map the NEXT mount
-// had just created. The component believed it was ready (`mapReady` true,
-// loading overlay gone) over a native canvas that no longer existed: chrome
-// and people tray drawn over a blank surface, correct again on the next entry
-// because that one mounts only once.
-//
-// Serializing every create and destroy for this id fixes the ordering. A
-// superseded instance tears its own map down while still holding the lock, so
-// the next create always starts on a free id and no destroy outlives it.
-let nativeMapLifecycle: Promise<unknown> = Promise.resolve();
-let nativeMapGeneration = 0;
-
-function withNativeMapLock<T>(task: () => Promise<T>): Promise<T> {
-  const run = nativeMapLifecycle.then(task, task);
-  nativeMapLifecycle = run.catch(() => undefined);
-  return run;
-}
-
-/**
- * The plugin measures the container once and bakes width/height into the
- * native view's frame, but it only retries while the *width* is zero. A
- * container measured mid-layout at full width and zero height is accepted as
- * given, and the native map is placed with no height at all -- created, ready,
- * and invisible, with no later resize to correct it. Hand the element over
- * only once it has a real box.
- */
-async function waitForLaidOutBox(element: HTMLElement): Promise<void> {
-  // Native only: on web the plugin renders the JS SDK into this element and
-  // has no native frame to get wrong, and jsdom reports every box as zero.
-  if (!isNative()) return;
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    const rect = element.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) return;
-    await new Promise((resolve) => window.setTimeout(resolve, 32));
-  }
-}
+// Create and destroy for this id are serialized in `native-map-lifecycle`.
+// The plugin addresses every native map by its string id alone and cannot
+// cancel an in-flight create, so an unmount inside a create window used to let
+// an abandoned instance destroy the map the NEXT mount had just created --
+// leaving Your Map blank while the screen reported itself ready. See that
+// module for the full contract and its latency budget.
 
 const NEARBY_CHECK_IN_RADIUS_METERS = 500;
 const MAP_ACCENT_CONTROL_CLASSNAME =
@@ -977,7 +943,7 @@ export function LocationImmersiveMap({
     let cancelled = false;
     // Claimed before any await, so a later mount always wins the id even if
     // React runs this effect before the previous instance's cleanup.
-    const generation = ++nativeMapGeneration;
+    const claim = claimNativeMap(MAP_ID);
     if (isNative()) {
       document.documentElement.classList.add("one-location-map-native");
       document.body.classList.add("one-location-map-native");
@@ -988,9 +954,10 @@ export function LocationImmersiveMap({
     const cachedPoint = rendererReady
       ? readLocationWorkspaceMemory(auth.userId).myLocationPoint
       : null;
-    const superseded = () => cancelled || generation !== nativeMapGeneration;
+    const superseded = () =>
+      cancelled || isNativeMapSuperseded(MAP_ID, claim);
 
-    void withNativeMapLock(async () => {
+    void withNativeMapLock(MAP_ID, async () => {
       // Never touch the bridge on behalf of a mount that is already gone: the
       // point of the lock is that a superseded instance cannot register a map
       // the live instance would then inherit and destroy out from under.
@@ -1067,7 +1034,9 @@ export function LocationImmersiveMap({
       markerIdsRef.current = [];
       markerByMapIdRef.current.clear();
       if (staleMap) {
-        void withNativeMapLock(() => staleMap.destroy()).catch(() => undefined);
+        void withNativeMapLock(MAP_ID, () => staleMap.destroy()).catch(
+          () => undefined,
+        );
       }
     };
     // rendererReady is read once, at creation time, only to decide the
@@ -1788,7 +1757,7 @@ export function LocationImmersiveMap({
     const closingMap = mapRef.current;
     mapRef.current = null;
     if (closingMap) {
-      void withNativeMapLock(async () => {
+      void withNativeMapLock(MAP_ID, async () => {
         await closingMap.disableTouch().catch(() => undefined);
         await closingMap.destroy().catch(() => undefined);
       });
