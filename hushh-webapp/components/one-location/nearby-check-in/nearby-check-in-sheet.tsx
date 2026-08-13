@@ -838,8 +838,7 @@ export function NearbyCheckInSheet({
     void loadPresence(!open, expectedOwnerEpoch).then((next) => {
       if (
         !open ||
-        next === null ||
-        next.presence ||
+        next?.presence ||
         ownerEpochRef.current !== expectedOwnerEpoch
       ) {
         return;
