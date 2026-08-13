@@ -649,7 +649,12 @@ async function initializeWebFCM(
         typeof primaryError === "object" && primaryError && "code" in primaryError
           ? String((primaryError as { code?: unknown }).code ?? "")
           : "";
-      if (primaryErrorCode !== "messaging/token-subscribe-failed") {
+      const isSubscribeError =
+        primaryErrorCode === "messaging/token-subscribe-failed" ||
+        (primaryError instanceof Error && primaryError.name === "InvalidAccessError") ||
+        (typeof DOMException !== "undefined" && primaryError instanceof DOMException && primaryError.name === "InvalidAccessError");
+        
+      if (!isSubscribeError) {
         throw primaryError;
       }
 
@@ -813,12 +818,13 @@ async function initializeWebFCM(
     // permission, unsupported Push API) is an expected, non-fatal outcome. Log
     // it as a warning instead of an error so it does not surface as a red
     // console error / Next.js dev overlay alarm. App functionality (vault,
-    // consent, agent) does not depend on web push.
     const errorName = error instanceof Error ? error.name : "";
     const isExpectedPushDenial =
       errorName === "AbortError" ||
       errorName === "NotAllowedError" ||
-      /permission denied|push service|registration failed/i.test(errorMessage);
+      errorName === "InvalidAccessError" ||
+      errorName === "DOMException" ||
+      /permission denied|push service|registration failed|applicationserverkey/i.test(errorMessage);
     if (isExpectedPushDenial) {
       console.warn(
         "[FCM] Web push unavailable (permission denied / unsupported). Continuing without push notifications.",
