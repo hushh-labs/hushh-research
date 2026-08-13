@@ -28,6 +28,13 @@ function breakdown(over: Partial<ScoreBreakdown> = {}): ScoreBreakdown {
         weight: 0.05,
         contribution: 0.046,
       },
+      {
+        key: "capital_access",
+        label: "Capital access",
+        value: 0.64,
+        weight: 0.1,
+        contribution: 0.064,
+      },
     ],
     evidenceCount: 12,
     coverageMultiplier: 1,
@@ -57,7 +64,9 @@ describe("score explainer", () => {
       parseFloat((el as HTMLElement).style.width),
     );
 
-    expect(widths).toHaveLength(2);
+    expect(widths).toHaveLength(3);
+    // Graph authority (0.91 × 30%) draws longer than freshness (0.92 × 5%),
+    // despite freshness scoring higher.
     expect(widths[0]).toBeGreaterThan(widths[1]);
   });
 
@@ -117,5 +126,42 @@ describe("score explainer", () => {
 
     expect(screen.getByText("50 · 44%")).toBeInTheDocument();
     expect(screen.queryByText(/30%/)).not.toBeInTheDocument();
+  });
+});
+
+
+describe("capital access cannot be read as wealth", () => {
+  const NOTE =
+    "PUBLIC_PROFESSIONAL_RELATIONSHIP_ONLY; it is not a measure of personal wealth or ability to pay.";
+
+  it("qualifies the component on the row itself", () => {
+    // This screen is used by advisers judging whether someone can invest. A
+    // bare "Capital access 64" invites exactly the wrong reading, and a
+    // footnote elsewhere does not reach the person reading the number.
+    render(<NearbyScoreExplainer breakdown={breakdown()} capitalAccessNote={NOTE} />);
+
+    expect(screen.getByText("Capital access")).toBeInTheDocument();
+    expect(
+      screen.getByText("Professional relationships only — not wealth or ability to pay."),
+    ).toBeInTheDocument();
+  });
+
+  it("qualifies only that component", () => {
+    render(<NearbyScoreExplainer breakdown={breakdown()} capitalAccessNote={NOTE} />);
+
+    expect(
+      screen.getAllByText("Professional relationships only — not wealth or ability to pay."),
+    ).toHaveLength(1);
+  });
+
+  it("never invents the qualification when the service did not send one", () => {
+    // The wording exists because the service asserts it. Without that
+    // assertion the app must not put words in its mouth.
+    render(<NearbyScoreExplainer breakdown={breakdown()} />);
+
+    expect(screen.getByText("Capital access")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/not wealth or ability to pay/),
+    ).not.toBeInTheDocument();
   });
 });

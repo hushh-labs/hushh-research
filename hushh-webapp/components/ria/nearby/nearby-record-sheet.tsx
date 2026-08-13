@@ -16,7 +16,12 @@ import { NearbyScoreExplainer } from "@/components/ria/nearby/nearby-score-expla
 import { Button } from "@/lib/morphy-ux/button";
 import { AvatarBubble, StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
 import { EYEBROW, MUTED_TEXT, SUBCARD_SURFACE } from "@/lib/morphy-ux/tokens/surfaces";
-import { factTypeLabel, formatScore, type NearbyRecord } from "@/lib/services/nws-nearby-service";
+import {
+  associationCategoryLabel,
+  factTypeLabel,
+  formatScore,
+  type NearbyRecord,
+} from "@/lib/services/nws-nearby-service";
 import { cn } from "@/lib/utils";
 
 function initialsOf(name: string | null): string {
@@ -36,6 +41,7 @@ export function NearbyRecordSheet({
   onShortlist,
   shortlisted,
   saving = false,
+  capitalAccessNote,
 }: {
   record: NearbyRecord | null;
   open: boolean;
@@ -43,6 +49,7 @@ export function NearbyRecordSheet({
   onShortlist: (record: NearbyRecord) => void;
   shortlisted: boolean;
   saving?: boolean;
+  capitalAccessNote?: string | null;
 }) {
   if (!record) return null;
 
@@ -86,18 +93,34 @@ export function NearbyRecordSheet({
         </div>
 
         {record.publicLocation.label ? (
-          <p className="type-footnote">
-            {record.publicLocation.label}
-            {record.publicLocation.distanceBand ? (
-              <span className={MUTED_TEXT}> · {record.publicLocation.distanceBand}</span>
+          <div className="flex flex-col gap-0.5">
+            <p className="type-footnote">
+              {record.associationContext ? (
+                <span className="font-medium">
+                  {associationCategoryLabel(record.associationContext.category)} ·{" "}
+                </span>
+              ) : null}
+              {record.publicLocation.label}
+              {record.publicLocation.distanceBand ? (
+                <span className={MUTED_TEXT}> · {record.publicLocation.distanceBand}</span>
+              ) : null}
+            </p>
+            {/* "Based here" alone reads as a claim about where someone lives.
+                The release ships the definition that prevents that, so it is
+                shown rather than summarised. */}
+            {record.associationContext?.definition ? (
+              <p className={MUTED_TEXT}>{record.associationContext.definition}</p>
             ) : null}
-          </p>
+          </div>
         ) : null}
 
         {record.scoreBreakdown ? (
           <div className="flex flex-col gap-2">
             <span className={EYEBROW}>How this score is built</span>
-            <NearbyScoreExplainer breakdown={record.scoreBreakdown} />
+            <NearbyScoreExplainer
+              breakdown={record.scoreBreakdown}
+              capitalAccessNote={capitalAccessNote}
+            />
           </div>
         ) : record.reasons.length > 0 ? (
           // Older service revisions publish prose but no arithmetic. Show the

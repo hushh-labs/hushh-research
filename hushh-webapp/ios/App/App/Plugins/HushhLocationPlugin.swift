@@ -158,7 +158,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         if
             let cached = manager.location,
             cached.horizontalAccuracy >= 0,
-            abs(cached.timestamp.timeIntervalSinceNow) <= Self.cachedFixMaxAgeSeconds
+            abs(cached.timestamp.timeIntervalSinceNow) <= HushhLocationPlugin.cachedFixMaxAgeSeconds
         {
             pendingLocationTimeout?.cancel()
             pendingLocationTimeout = nil
@@ -193,13 +193,18 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     /// fast path, the one-shot delegate callback, and every active watch, so
     /// they can never drift apart.
     private func locationPayload(_ location: CLLocation) -> [String: Any] {
-        [
+        // The explicit annotation is load-bearing rather than stylistic: the
+        // `accuracyM` ternary yields Double on one branch and NSNull on the
+        // other, and those only unify once something supplies `Any` as the
+        // contextual type. This is the exact form that already compiles below.
+        let payload: [String: Any] = [
             "latitude": location.coordinate.latitude,
             "longitude": location.coordinate.longitude,
             "accuracyM": location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : NSNull(),
             "capturedAt": ISO8601DateFormatter().string(from: location.timestamp),
             "sourcePlatform": "ios"
         ]
+        return payload
     }
 
     private func clearPendingLocationCall() -> CAPPluginCall? {
