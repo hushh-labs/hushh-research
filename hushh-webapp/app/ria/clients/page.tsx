@@ -195,14 +195,17 @@ export default function RiaClientsPage() {
           title={
             <span className="inline-flex flex-wrap items-center gap-2">
               {RIA_COPY.clients.title}
-              {clientItems.length > 0 ? (
+              {view === "connected" && clientItems.length > 0 ? (
                 <Badge variant="secondary" className="text-[10px]">
                   {clientItems.length}
                 </Badge>
               ) : null}
             </span>
           }
-          description={RIA_COPY.clients.description}
+          // The roster count and its description belong to Connected. Carrying
+          // them over to Around you labelled a list of public records with a
+          // count of the advisor's own clients.
+          description={view === "connected" ? RIA_COPY.clients.description : undefined}
           icon={UserRound}
           accent="ria"
         />

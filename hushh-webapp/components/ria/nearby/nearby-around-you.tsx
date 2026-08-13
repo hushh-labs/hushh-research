@@ -39,6 +39,9 @@ import {
 } from "@/lib/services/nws-nearby-service";
 import { cn } from "@/lib/utils";
 
+/** Enough to judge a place at a glance; the ranking decides which five. */
+const VISIBLE_RECORDS = 5;
+
 /** One line per state. The reason code decides which; the advisor reads six words. */
 const COVERAGE_COPY: Record<string, string> = {
   NO_APPROVED_MARKET_DATA: "No records here yet.",
@@ -58,6 +61,7 @@ export function NearbyAroundYou() {
   const [selected, setSelected] = useState<NearbyRecord | null>(null);
   const [shortlisted, setShortlisted] = useState<Set<string>>(new Set());
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const requestSeq = useRef(0);
   // Read at fetch time rather than depended on, so a lane change — which must
@@ -157,6 +161,21 @@ export function NearbyAroundYou() {
     return lane ? all.filter((r) => r.lane === lane) : all;
   }, [all, filters.lanes]);
 
+  // The service answers with everything it has. Rendering all of it turns a
+  // ranked shortlist into a scroll, and the ranking is the product — the top
+  // few are the ones worth an advisor's attention. The rest stay one tap away.
+  const visible = useMemo(
+    () => (expanded ? records : records.slice(0, VISIBLE_RECORDS)),
+    [records, expanded],
+  );
+  const hidden = records.length - visible.length;
+
+  // Collapse again whenever the result set changes underneath, so a filter
+  // change never lands the advisor halfway down an expanded list.
+  useEffect(() => {
+    setExpanded(false);
+  }, [anchor, filters.lanes, filters.tag]);
+
   const handleShortlist = useCallback(
     async (record: NearbyRecord) => {
       const idToken = await user?.getIdToken();
@@ -242,7 +261,11 @@ export function NearbyAroundYou() {
           <div className="min-w-0">
             <p className="truncate type-headline">{place}</p>
             {covered ? (
-              <p className={MUTED_TEXT}>{records.length} public records</p>
+              <p className={MUTED_TEXT}>
+                {hidden > 0
+                  ? `Top ${visible.length} of ${records.length}`
+                  : `${records.length} public ${records.length === 1 ? "record" : "records"}`}
+              </p>
             ) : null}
           </div>
           <Button
@@ -293,7 +316,7 @@ export function NearbyAroundYou() {
         />
       ) : (
         <SettingsGroup separatorInset>
-          {records.map((record) => (
+          {visible.map((record) => (
             <SettingsRow
               key={record.personId}
               icon={UserRound}
@@ -319,6 +342,15 @@ export function NearbyAroundYou() {
               }
             />
           ))}
+          {hidden > 0 ? (
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="w-full px-4 py-3 text-left type-footnote text-[color:var(--app-accent-fg)]"
+            >
+              Show {hidden} more
+            </button>
+          ) : null}
         </SettingsGroup>
       )}
 
