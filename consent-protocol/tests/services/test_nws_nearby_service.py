@@ -48,6 +48,25 @@ _COVERED = {
         "model_version": "nws-v2.2.0-bootstrap.2026-08-12",
         "verified_at": "2026-08-12",
     },
+    "release": {
+        "release_id": "us-wa-kirkland-public-association-2026-08-13",
+        "source_retrieved_at": "2026-08-13",
+        "source_policy_version": "public-association-v1",
+    },
+    "discovery": {
+        "mode": "ORGANIZATION_ANCHOR_REVIEW_PIPELINE_O1",
+        "organization_anchor_count": 13,
+        "market_census_complete": False,
+        "automatic_candidate_publication": False,
+    },
+    "financial_context": {
+        "status": "NOT_PROFILED",
+        "nws_capital_access_component": (
+            "PUBLIC_PROFESSIONAL_RELATIONSHIP_ONLY; it is not a measure of personal "
+            "wealth or ability to pay."
+        ),
+        "not_used_for_ranking": ["net_worth", "compensation"],
+    },
     "score_definition": "NWS estimates public professional network strength.",
     "summary": {
         "verified_seed_candidate_count": 11,
@@ -101,6 +120,13 @@ _COVERED = {
             "warnings": [],
             "tags": ["semiconductors", "founder", "board"],
             "revalidation_required": False,
+            "public_association_context": {
+                "category": "BASED_HERE",
+                "definition": (
+                    "Current verified public organization or civic association in this "
+                    "market; not a claim of physical presence or residence."
+                ),
+            },
             "evidence": {
                 "citation_count": 2,
                 "source_family_count": 1,
@@ -580,3 +606,71 @@ async def test_a_service_without_the_reviewed_release_still_works(monkeypatch):
     assert record["evidence"] is None
     assert record["sources"][0]["factTypes"] == []
     assert record["sources"][0]["url"]
+
+
+# ------------------------------------------------------------- release v2.5
+
+
+@pytest.mark.asyncio
+async def test_the_finance_boundary_travels_with_the_response(monkeypatch):
+    """The app renders a component named "capital access" to advisers.
+
+    Read as wealth it is exactly wrong, and the service says so itself. That
+    sentence has to reach the screen, so it is carried rather than restated.
+    """
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=_COVERED))
+    context = (await service.discover(postal_code="98033"))["financialContext"]
+
+    assert context["status"] == "NOT_PROFILED"
+    assert "not a measure of personal wealth" in context["capitalAccessNote"]
+    assert "net_worth" in context["notUsedForRanking"]
+
+
+@pytest.mark.asyncio
+async def test_review_scope_says_the_set_is_not_a_census(monkeypatch):
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=_COVERED))
+    scope = (await service.discover(postal_code="98033"))["reviewScope"]
+
+    assert scope["organizationAnchorCount"] == 13
+    assert scope["marketCensusComplete"] is False
+
+
+@pytest.mark.asyncio
+async def test_release_identity_is_carried_so_a_result_can_be_cited(monkeypatch):
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=_COVERED))
+    release = (await service.discover(postal_code="98033"))["release"]
+
+    assert release["releaseId"] == "us-wa-kirkland-public-association-2026-08-13"
+    assert release["sourceRetrievedAt"] == "2026-08-13"
+
+
+@pytest.mark.asyncio
+async def test_association_context_keeps_its_own_definition(monkeypatch):
+    """ "Based here" alone reads as a claim about where someone lives.
+
+    The definition is the part that prevents that, so a category without one is
+    dropped rather than shown bare.
+    """
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=_COVERED))
+    context = (await service.discover(postal_code="98033"))["results"][0]["associationContext"]
+
+    assert context["category"] == "BASED_HERE"
+    assert "not a claim of physical presence or residence" in context["definition"]
+
+
+@pytest.mark.asyncio
+async def test_an_older_service_revision_omits_the_new_blocks_cleanly(monkeypatch):
+    payload = json.loads(json.dumps(_COVERED))
+    for key in ("release", "discovery", "financial_context"):
+        payload.pop(key)
+    payload["results"][0].pop("public_association_context")
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=payload))
+
+    result = await service.discover(postal_code="98033")
+    assert result["release"] is None
+    assert result["reviewScope"] is None
+    assert result["financialContext"] is None
+    assert result["results"][0]["associationContext"] is None
+    # The parts that predate this release still work.
+    assert result["coverage"]["status"] == "COVERED"
+    assert result["results"][0]["scoreBreakdown"] is not None
