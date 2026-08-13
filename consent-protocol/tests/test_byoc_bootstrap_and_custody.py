@@ -282,6 +282,71 @@ def test_already_exists_is_tolerated_so_resource_steps_are_rerunnable() -> None:
     )
 
 
+def test_a_half_applied_bootstrap_converges_on_a_re_run() -> None:
+    """A substrate that failed partway must CONVERGE, not wedge.
+
+    The realistic BYOC failure is not "nothing was created". It is a person who
+    granted access, had most resources created, and then hit a quota or a propagation
+    delay on one. If the re-run then fails on the ones that already exist, that person
+    can never be provisioned at all -- their project is permanently half-built, and
+    the only remedy is a human deleting resources out of someone else's cloud.
+
+    SCOPE, stated rather than implied. This asserts convergence over the steps whose
+    idempotency IS 409-tolerance. The read-then-write steps -- the IAM merges and the
+    secret version -- are excluded because a faithful second-pass fixture for them
+    would have to invent GET responses (an existing policy, an existing version), and
+    a test built on invented responses proves what I assumed rather than what GCP
+    does. Those steps have their own dedicated coverage: `_bindings_equal` /
+    `_merge_binding` and `_seed_secret_version`, each tested directly.
+    """
+    plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
+    tolerant_steps = {
+        "kms_keyring",
+        "kms_key",
+        "pod_service_account",
+        "mail_topic",
+        "mail_subscription",
+        "watch_renew_job",
+    }
+
+    # Pass 1: the KMS key ring fails with a quota error; everything else proceeds.
+    #
+    # `cryptoKeys` is listed first deliberately: routes match by substring in insertion
+    # order and the key-create URL contains `/keyRings/` too, so a bare `keyRings` route
+    # would fail BOTH steps and prove nothing about convergence.
+    first = UserGcpBootstrap(
+        project=USER_PROJECT,
+        token=BORROWED,
+        session=_Session(
+            routes={
+                "cryptoKeys": _Response(200, {}),
+                "keyRings": _Response(429, text="quota exceeded"),
+            }
+        ),
+    ).apply(plan, dry_run=False)
+    assert "kms_keyring" in first["failed"], "the fixture did not reproduce a partial apply"
+
+    # Pass 2: the same project, now carrying what pass 1 created. `serviceusage` answers
+    # 200 because batchEnable is idempotent for an already-enabled API -- a 409 there
+    # would be a real fault, not a re-run.
+    second = UserGcpBootstrap(
+        project=USER_PROJECT,
+        token=BORROWED,
+        session=_Session(
+            [_Response(409, text="already exists")] * 24,
+            routes={"serviceusage": _Response(200, {"done": True})},
+        ),
+    ).apply(plan, dry_run=False)
+
+    assert tolerant_steps.isdisjoint(set(second["failed"])), (
+        "the re-run failed on resource steps the first run had already created: "
+        f"{sorted(tolerant_steps & set(second['failed']))}. A half-applied substrate "
+        "that cannot be re-run leaves a person permanently unprovisionable in their "
+        "own project, with the only remedy being a human deleting resources out of "
+        "someone else's cloud."
+    )
+
+
 # -- key custody --------------------------------------------------------------------
 
 
