@@ -12,7 +12,10 @@ import {
   ConnectedSystemLogo,
   ConnectedSystemsPanel,
 } from "@/components/profile/connected-systems-panel";
-import { ConnectedSystemsService } from "@/lib/services/connected-systems-service";
+import {
+  ConnectedSystemsRequestError,
+  ConnectedSystemsService,
+} from "@/lib/services/connected-systems-service";
 import {
   CACHE_KEYS,
   CACHE_TTL,
@@ -45,6 +48,16 @@ vi.mock("@/lib/services/device-resource-cache-service", () => ({
 }));
 
 vi.mock("@/lib/services/connected-systems-service", () => ({
+  ConnectedSystemsRequestError: class ConnectedSystemsRequestError extends Error {
+    constructor(
+      message: string,
+      readonly code: string | null,
+      readonly status: number,
+    ) {
+      super(message);
+      this.name = "ConnectedSystemsRequestError";
+    }
+  },
   ConnectedSystemsService: {
     getRegistry: vi.fn(),
     getSchema: vi.fn(),
@@ -264,10 +277,7 @@ describe("ConnectedSystemsPanel", () => {
 
     const logo = screen.getByRole("img", { name: "Chase logo" });
     expect(logo).toHaveClass("filter-none");
-    expect(logo.parentElement).toHaveClass(
-      "!bg-white",
-      "dark:!bg-white",
-    );
+    expect(logo.parentElement).toHaveClass("!bg-white", "dark:!bg-white");
   });
 
   it("uses the same fixed row frame for branded and fallback CRM marks", () => {
@@ -570,6 +580,588 @@ describe("ConnectedSystemsPanel", () => {
       ),
     );
     expect(await screen.findByText("Review create request")).toBeTruthy();
+  });
+
+  it("waits for a separately verified Contact binding after Person Account creation", async () => {
+    const personAccountSystem = {
+      ...system,
+      objectTypeDefault: "Contact",
+      operationObjectTypes: {
+        schema: "Contact",
+        read: "Contact",
+        create: "Account",
+        update: "Contact",
+        delete: "Contact",
+      },
+    };
+    const contactSchema = {
+      ...readySchema,
+      objectType: "Contact",
+    };
+    vi.mocked(ConnectedSystemsService.getRegistry).mockResolvedValue({
+      registryRevision: 1,
+      systems: [personAccountSystem],
+    });
+    vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValueOnce(
+      contactSchema,
+    );
+    vi.mocked(ConnectedSystemsService.getRecordBinding).mockImplementation(
+      async ({ objectType }) => ({
+        systemId: personAccountSystem.systemId,
+        target: personAccountSystem.target,
+        objectType: objectType || "Contact",
+        status: "unbound",
+        binding: null,
+      }),
+    );
+    vi.mocked(ConnectedSystemsService.createRecordIntent).mockResolvedValueOnce(
+      {
+        intentId: "intent-account-create",
+        systemId: personAccountSystem.systemId,
+        action: "create",
+        objectType: "Account",
+        status: "pending",
+        fieldNames: ["FirstName", "LastName", "PersonEmail"],
+      },
+    );
+    vi.mocked(ConnectedSystemsService.approveIntent).mockResolvedValueOnce({
+      intentId: "intent-account-create",
+      systemId: personAccountSystem.systemId,
+      action: "create",
+      objectType: "Account",
+      status: "succeeded",
+      recordId: "001-person-account",
+      fieldNames: ["FirstName", "LastName", "PersonEmail"],
+      binding: {
+        systemId: personAccountSystem.systemId,
+        objectType: "Account",
+        recordId: "001-person-account",
+        status: "active",
+      },
+    });
+
+    render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={personAccountSystem.systemId}
+        profile={{
+          displayName: "Jordan Lee",
+          email: "jordan@example.test",
+          phone: "4155550100",
+        }}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Find my record" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Create profile" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Confirm create" }),
+    );
+
+    expect(await screen.findByText("Your profile was created")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Check for Contact" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create profile" })).toBeNull();
+    expect(screen.queryByText("001-person-account")).toBeNull();
+    expect(ConnectedSystemsService.readRecord).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(ConnectedSystemsService.searchRecord).toHaveBeenCalledTimes(2);
+      expect(ConnectedSystemsService.searchRecord).toHaveBeenLastCalledWith(
+        "HCT:test",
+        expect.objectContaining({ objectType: "Contact" }),
+      );
+    });
+  });
+
+  it("restores the Contact-binding wait after reload without reusing an Account ID", async () => {
+    const personAccountSystem = {
+      ...system,
+      objectTypeDefault: "Contact",
+      operationObjectTypes: {
+        schema: "Contact",
+        read: "Contact",
+        create: "Account",
+        update: "Contact",
+        delete: "Contact",
+      },
+    };
+    vi.mocked(ConnectedSystemsService.getRegistry).mockResolvedValue({
+      registryRevision: 1,
+      systems: [personAccountSystem],
+    });
+    vi.mocked(ConnectedSystemsService.getSchema).mockResolvedValueOnce({
+      ...readySchema,
+      objectType: "Contact",
+    });
+    vi.mocked(ConnectedSystemsService.getRecordBinding).mockImplementation(
+      async ({ objectType }) => {
+        if (objectType === "Account") {
+          return {
+            systemId: personAccountSystem.systemId,
+            target: personAccountSystem.target,
+            objectType: "Account",
+            status: "active",
+            binding: {
+              systemId: personAccountSystem.systemId,
+              objectType: "Account",
+              recordId: "001-person-account",
+              status: "active",
+            },
+          };
+        }
+        return {
+          systemId: personAccountSystem.systemId,
+          target: personAccountSystem.target,
+          objectType: "Contact",
+          status: "unbound",
+          binding: null,
+        };
+      },
+    );
+
+    render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={personAccountSystem.systemId}
+      />,
+    );
+
+    expect(await screen.findByText("Your profile was created")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Check for Contact" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create profile" })).toBeNull();
+    expect(screen.queryByText("001-person-account")).toBeNull();
+    expect(ConnectedSystemsService.readRecord).not.toHaveBeenCalled();
+    expect(ConnectedSystemsService.updateRecordIntent).not.toHaveBeenCalled();
+  });
+
+  it("ignores a late cross-object binding response after switching CRM systems", async () => {
+    const personAccountSystem = {
+      ...system,
+      systemId: "person-account-crm",
+      displayName: "Person Account CRM",
+      customerDisplayName: "Person Account CRM",
+      target: "Person Account CRM",
+      objectTypeDefault: "Contact",
+      operationObjectTypes: {
+        schema: "Contact",
+        read: "Contact",
+        create: "Account",
+        update: "Contact",
+        delete: "Contact",
+      },
+    };
+    const contactSystem = {
+      ...system,
+      systemId: "contact-crm",
+      displayName: "Contact CRM",
+      customerDisplayName: "Contact CRM",
+      target: "Contact CRM",
+      objectTypeDefault: "Contact",
+    };
+    let resolveAccountBinding!: (value: {
+      systemId: string;
+      target: string;
+      objectType: string;
+      status: string;
+      binding: {
+        systemId: string;
+        objectType: string;
+        recordId: string;
+        status: string;
+      };
+    }) => void;
+    const accountBinding = new Promise<{
+      systemId: string;
+      target: string;
+      objectType: string;
+      status: string;
+      binding: {
+        systemId: string;
+        objectType: string;
+        recordId: string;
+        status: string;
+      };
+    }>((resolve) => {
+      resolveAccountBinding = resolve;
+    });
+    vi.mocked(ConnectedSystemsService.getRegistry).mockResolvedValue({
+      registryRevision: 1,
+      systems: [personAccountSystem, contactSystem],
+    });
+    vi.mocked(ConnectedSystemsService.getSchema).mockImplementation(
+      async ({ systemId }) => ({
+        ...readySchema,
+        systemId: systemId || personAccountSystem.systemId,
+        target:
+          systemId === contactSystem.systemId
+            ? contactSystem.target
+            : personAccountSystem.target,
+        objectType: "Contact",
+      }),
+    );
+    vi.mocked(ConnectedSystemsService.getRecordBinding).mockImplementation(
+      async ({ systemId, objectType }) => {
+        if (
+          systemId === personAccountSystem.systemId &&
+          objectType === "Account"
+        ) {
+          return accountBinding;
+        }
+        return {
+          systemId: systemId || personAccountSystem.systemId,
+          target:
+            systemId === contactSystem.systemId
+              ? contactSystem.target
+              : personAccountSystem.target,
+          objectType: objectType || "Contact",
+          status: "unbound",
+          binding: null,
+        };
+      },
+    );
+
+    const { rerender } = render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={personAccountSystem.systemId}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(ConnectedSystemsService.getRecordBinding).toHaveBeenCalledWith(
+        expect.objectContaining({
+          systemId: personAccountSystem.systemId,
+          objectType: "Account",
+        }),
+      );
+    });
+
+    rerender(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={contactSystem.systemId}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Find my record" }),
+    ).toBeTruthy();
+    await act(async () => {
+      resolveAccountBinding({
+        systemId: personAccountSystem.systemId,
+        target: personAccountSystem.target,
+        objectType: "Account",
+        status: "active",
+        binding: {
+          systemId: personAccountSystem.systemId,
+          objectType: "Account",
+          recordId: "001-person-account",
+          status: "active",
+        },
+      });
+    });
+
+    expect(screen.getByRole("button", { name: "Find my record" })).toBeTruthy();
+    expect(screen.queryByText("Your profile was created")).toBeNull();
+    expect(screen.queryByText("001-person-account")).toBeNull();
+  });
+
+  it("does not redirect for a late mutation failure after switching CRM systems", async () => {
+    const firstSystem = {
+      ...system,
+      systemId: "late-mutation-first-crm",
+      displayName: "First CRM",
+      customerDisplayName: "First CRM",
+      target: "First CRM",
+    };
+    const secondSystem = {
+      ...system,
+      systemId: "late-mutation-second-crm",
+      displayName: "Second CRM",
+      customerDisplayName: "Second CRM",
+      target: "Second CRM",
+    };
+    let rejectCreate!: (reason: Error) => void;
+    const createIntent = new Promise<never>((_resolve, reject) => {
+      rejectCreate = reject;
+    });
+
+    vi.mocked(ConnectedSystemsService.getRegistry).mockResolvedValue({
+      registryRevision: 1,
+      systems: [firstSystem, secondSystem],
+    });
+    vi.mocked(ConnectedSystemsService.getSchema).mockImplementation(
+      async ({ systemId }) => ({
+        ...readySchema,
+        systemId: systemId || firstSystem.systemId,
+        target:
+          systemId === secondSystem.systemId
+            ? secondSystem.target
+            : firstSystem.target,
+      }),
+    );
+    vi.mocked(ConnectedSystemsService.getRecordBinding).mockImplementation(
+      async ({ systemId }) => ({
+        systemId: systemId || firstSystem.systemId,
+        target:
+          systemId === secondSystem.systemId
+            ? secondSystem.target
+            : firstSystem.target,
+        objectType: system.objectTypeDefault,
+        status: "unbound",
+        binding: null,
+      }),
+    );
+    vi.mocked(ConnectedSystemsService.createRecordIntent).mockImplementation(
+      async () => createIntent,
+    );
+
+    const { rerender } = render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={firstSystem.systemId}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Find my record" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Create profile" }),
+    );
+    await waitFor(() => {
+      expect(ConnectedSystemsService.createRecordIntent).toHaveBeenCalledWith(
+        "HCT:test",
+        expect.objectContaining({ systemId: firstSystem.systemId }),
+      );
+    });
+
+    rerender(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={secondSystem.systemId}
+      />,
+    );
+    expect(
+      await screen.findByRole("button", { name: "Find my record" }),
+    ).toBeTruthy();
+
+    await act(async () => {
+      rejectCreate(
+        new ConnectedSystemsRequestError(
+          "Phone verification is required.",
+          "CONNECTED_SYSTEM_PHONE_VERIFICATION_REQUIRED",
+          403,
+        ),
+      );
+    });
+
+    expect(routerPushMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Find my record" })).toBeTruthy();
+  });
+
+  it("closes a pending CRM confirmation when the selected system changes", async () => {
+    const firstSystem = {
+      ...system,
+      systemId: "pending-confirmation-first-crm",
+      displayName: "First CRM",
+      customerDisplayName: "First CRM",
+      target: "First CRM",
+    };
+    const secondSystem = {
+      ...system,
+      systemId: "pending-confirmation-second-crm",
+      displayName: "Second CRM",
+      customerDisplayName: "Second CRM",
+      target: "Second CRM",
+    };
+    vi.mocked(ConnectedSystemsService.getRegistry).mockResolvedValue({
+      registryRevision: 1,
+      systems: [firstSystem, secondSystem],
+    });
+    vi.mocked(ConnectedSystemsService.getSchema).mockImplementation(
+      async ({ systemId }) => ({
+        ...readySchema,
+        systemId: systemId || firstSystem.systemId,
+        target:
+          systemId === secondSystem.systemId
+            ? secondSystem.target
+            : firstSystem.target,
+      }),
+    );
+    vi.mocked(ConnectedSystemsService.getRecordBinding).mockImplementation(
+      async ({ systemId }) => ({
+        systemId: systemId || firstSystem.systemId,
+        target:
+          systemId === secondSystem.systemId
+            ? secondSystem.target
+            : firstSystem.target,
+        objectType: system.objectTypeDefault,
+        status: "unbound",
+        binding: null,
+      }),
+    );
+    vi.mocked(ConnectedSystemsService.createRecordIntent).mockResolvedValueOnce(
+      {
+        intentId: "intent-first-create",
+        systemId: firstSystem.systemId,
+        action: "create",
+        status: "pending",
+        fieldNames: ["Email"],
+      },
+    );
+
+    const { rerender } = render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={firstSystem.systemId}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Find my record" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Create profile" }),
+    );
+    expect(await screen.findByText("Review create request")).toBeTruthy();
+
+    rerender(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={secondSystem.systemId}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("Review create request")).toBeNull();
+    });
+    expect(ConnectedSystemsService.approveIntent).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole("button", { name: "Find my record" }),
+    ).toBeTruthy();
+  });
+
+  it("closes a staged update review when the selected system changes", async () => {
+    const firstSystem = {
+      ...system,
+      systemId: "staged-review-first-crm",
+      displayName: "First CRM",
+      customerDisplayName: "First CRM",
+      target: "First CRM",
+    };
+    const secondSystem = {
+      ...system,
+      systemId: "staged-review-second-crm",
+      displayName: "Second CRM",
+      customerDisplayName: "Second CRM",
+      target: "Second CRM",
+    };
+    vi.mocked(ConnectedSystemsService.getRegistry).mockResolvedValue({
+      registryRevision: 1,
+      systems: [firstSystem, secondSystem],
+    });
+    vi.mocked(ConnectedSystemsService.getSchema).mockImplementation(
+      async ({ systemId }) => ({
+        ...readySchema,
+        systemId: systemId || firstSystem.systemId,
+        target:
+          systemId === secondSystem.systemId
+            ? secondSystem.target
+            : firstSystem.target,
+      }),
+    );
+    vi.mocked(ConnectedSystemsService.getRecordBinding).mockImplementation(
+      async ({ systemId }) => {
+        const isFirstSystem = systemId !== secondSystem.systemId;
+        return {
+          systemId: systemId || firstSystem.systemId,
+          target: isFirstSystem ? firstSystem.target : secondSystem.target,
+          objectType: system.objectTypeDefault,
+          status: isFirstSystem ? "active" : "unbound",
+          binding: isFirstSystem
+            ? {
+                systemId: firstSystem.systemId,
+                objectType: system.objectTypeDefault,
+                recordId: "person-42",
+                status: "active",
+              }
+            : null,
+        };
+      },
+    );
+    // Schema and binding hydration can issue a second equivalent read. Both
+    // resolve the same bound record; this test is about discarding its staged
+    // update when the CRM changes, not incidental hook scheduling.
+    vi.mocked(ConnectedSystemsService.readRecord).mockResolvedValue({
+      systemId: firstSystem.systemId,
+      target: firstSystem.target,
+      objectType: system.objectTypeDefault,
+      resultClass: "succeeded",
+      recordId: "person-42",
+      records: [
+        {
+          recordId: "person-42",
+          fields: {
+            Email: "person@example.test",
+            PreferredLanguage: "English",
+          },
+        },
+      ],
+    });
+
+    const { rerender } = render(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={firstSystem.systemId}
+        profile={{ email: "person@example.test" }}
+      />,
+    );
+
+    // Let the current CRM detail finish its passive record lifecycle before
+    // opening the editor; the assertion below is about the later CRM switch.
+    expect(
+      await screen.findByRole("region", { name: "CRM record fields" }),
+    ).toBeTruthy();
+    expect(await screen.findByText("person@example.test")).toBeTruthy();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Edit Preferred language" }),
+    );
+    fireEvent.change(await screen.findByRole("combobox"), {
+      target: { value: "French" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Stage change" }));
+    fireEvent.click(screen.getByRole("button", { name: "Update record" }));
+    expect(await screen.findByText("Review changes")).toBeTruthy();
+
+    rerender(
+      <ConnectedSystemsPanel
+        cacheUserId="user-1"
+        vaultOwnerToken="HCT:test"
+        systemId={secondSystem.systemId}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("Review changes")).toBeNull();
+    });
+    expect(ConnectedSystemsService.updateRecordIntent).not.toHaveBeenCalled();
   });
 
   it("links a verified-identity match and renders its returned record", async () => {

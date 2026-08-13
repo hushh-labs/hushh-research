@@ -4,7 +4,8 @@ import type {
   CrmEncryptedFields,
 } from "@/lib/connected-systems/crm-encrypted-fields-v1";
 
-export type ConnectedSystemStatus = "connected" | "needs_configuration" | string;
+export type ConnectedSystemStatus =
+  "connected" | "needs_configuration" | string;
 
 export type ConnectedSystemSummary = {
   systemId: string;
@@ -15,6 +16,14 @@ export type ConnectedSystemSummary = {
   status: ConnectedSystemStatus;
   target: string;
   objectTypeDefault: string;
+  /** Registry-owned object type selected for each operation; never a record ID. */
+  operationObjectTypes?: Partial<{
+    schema: string;
+    read: string;
+    create: string;
+    update: string;
+    delete: string;
+  }>;
   transport: string;
   transportLabel?: string;
   endpointConfigured?: boolean;
@@ -150,7 +159,14 @@ export type ConnectedSystemIntent = {
   target?: string;
   objectType?: string;
   action: "create" | "update" | "delete" | string;
-  status: "pending" | "approved" | "rejected" | "succeeded" | "partial" | "failed" | string;
+  status:
+    | "pending"
+    | "approved"
+    | "rejected"
+    | "succeeded"
+    | "partial"
+    | "failed"
+    | string;
   recordId?: string | null;
   approvalId?: string | null;
   fieldNames: string[];
@@ -200,7 +216,7 @@ export class ConnectedSystemsRequestError extends Error {
   constructor(
     message: string,
     readonly code: string | null,
-    readonly status: number
+    readonly status: number,
   ) {
     super(message);
     this.name = "ConnectedSystemsRequestError";
@@ -212,10 +228,14 @@ async function readJsonOrThrow<T>(response: Response): Promise<T> {
   if (response.ok) {
     return payload as T;
   }
-  const record = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
-  const detail = record.detail && typeof record.detail === "object"
-    ? (record.detail as Record<string, unknown>)
-    : record;
+  const record =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : {};
+  const detail =
+    record.detail && typeof record.detail === "object"
+      ? (record.detail as Record<string, unknown>)
+      : record;
   const message =
     typeof detail.message === "string"
       ? detail.message
@@ -225,7 +245,7 @@ async function readJsonOrThrow<T>(response: Response): Promise<T> {
   throw new ConnectedSystemsRequestError(
     message,
     typeof detail.code === "string" ? detail.code : null,
-    response.status
+    response.status,
   );
 }
 
@@ -244,16 +264,23 @@ export class ConnectedSystemsService {
    * Signed-in is enough: pass a vault owner token when one is available (agent
    * lanes), otherwise the caller's Firebase ID token. The backend accepts both.
    */
-  static async listSystems(authToken: string): Promise<ConnectedSystemSummary[]> {
+  static async listSystems(
+    authToken: string,
+  ): Promise<ConnectedSystemSummary[]> {
     return (await this.getRegistry(authToken)).systems;
   }
 
-  static async getRegistry(authToken: string): Promise<ConnectedSystemsRegistryResponse> {
+  static async getRegistry(
+    authToken: string,
+  ): Promise<ConnectedSystemsRegistryResponse> {
     const response = await ApiService.apiFetch("/api/connected-systems", {
       method: "GET",
       headers: authHeaders(authToken),
     });
-    const payload = await readJsonOrThrow<Partial<ConnectedSystemsRegistryResponse>>(response);
+    const payload =
+      await readJsonOrThrow<Partial<ConnectedSystemsRegistryResponse>>(
+        response,
+      );
     return {
       registryRevision: Number(payload.registryRevision || 0),
       systems: Array.isArray(payload.systems) ? payload.systems : [],
@@ -275,7 +302,7 @@ export class ConnectedSystemsService {
       {
         method: "GET",
         headers: authHeaders(input.vaultOwnerToken),
-      }
+      },
     );
     return readJsonOrThrow<ConnectedSystemSchemaResponse>(response);
   }
@@ -286,7 +313,7 @@ export class ConnectedSystemsService {
   }): Promise<CrmEncryptedFieldsConfiguration> {
     const response = await ApiService.apiFetch(
       `/api/connected-systems/${systemPath(input.systemId)}/encrypted-fields/config`,
-      { method: "GET", headers: authHeaders(input.vaultOwnerToken) }
+      { method: "GET", headers: authHeaders(input.vaultOwnerToken) },
     );
     return readJsonOrThrow<CrmEncryptedFieldsConfiguration>(response);
   }
@@ -318,7 +345,7 @@ export class ConnectedSystemsService {
           returnFields: input.returnFields,
           encryptedFields: input.encryptedFields,
         }),
-      }
+      },
     );
     return readJsonOrThrow(response);
   }
@@ -340,7 +367,7 @@ export class ConnectedSystemsService {
           fieldNames: input.fieldNames,
           encryptedFields: input.encryptedFields,
         }),
-      }
+      },
     );
     return readJsonOrThrow<ConnectedSystemIntent>(response);
   }
@@ -352,14 +379,14 @@ export class ConnectedSystemsService {
   }): Promise<ConnectedSystemIntent> {
     const response = await ApiService.apiFetch(
       `/api/connected-systems/${systemPath(input.systemId)}/intents/${encodeURIComponent(input.intentId)}/approve-encrypted`,
-      { method: "POST", headers: authHeaders(input.vaultOwnerToken) }
+      { method: "POST", headers: authHeaders(input.vaultOwnerToken) },
     );
     return readJsonOrThrow<ConnectedSystemIntent>(response);
   }
 
   static async readRecord(
     vaultOwnerToken: string,
-    input: ConnectedSystemReadInput
+    input: ConnectedSystemReadInput,
   ): Promise<ConnectedSystemMcpResponse> {
     const response = await ApiService.apiFetch(
       `/api/connected-systems/${systemPath(input.systemId)}/records/read`,
@@ -370,7 +397,7 @@ export class ConnectedSystemsService {
           objectType: input.objectType,
           returnFields: input.returnFields,
         }),
-      }
+      },
     );
     return readJsonOrThrow<ConnectedSystemMcpResponse>(response);
   }
@@ -388,7 +415,7 @@ export class ConnectedSystemsService {
       {
         method: "GET",
         headers: authHeaders(input.vaultOwnerToken),
-      }
+      },
     );
     return readJsonOrThrow<ConnectedSystemBindingResponse>(response);
   }
@@ -406,27 +433,36 @@ export class ConnectedSystemsService {
       {
         method: "DELETE",
         headers: authHeaders(input.vaultOwnerToken),
-      }
+      },
     );
     return readJsonOrThrow<ConnectedSystemBindingResponse>(response);
   }
 
-  static async listRecordBindingStatuses(
-    vaultOwnerToken: string
-  ): Promise<{ bindings: Array<{ systemId: string; objectType: string; status: string }> }> {
-    const response = await ApiService.apiFetch("/api/connected-systems/record-bindings", {
-      method: "GET",
-      headers: authHeaders(vaultOwnerToken),
-    });
+  static async listRecordBindingStatuses(vaultOwnerToken: string): Promise<{
+    bindings: Array<{ systemId: string; objectType: string; status: string }>;
+  }> {
+    const response = await ApiService.apiFetch(
+      "/api/connected-systems/record-bindings",
+      {
+        method: "GET",
+        headers: authHeaders(vaultOwnerToken),
+      },
+    );
     const payload = await readJsonOrThrow<{
-      bindings?: Array<{ systemId: string; objectType: string; status: string }>;
+      bindings?: Array<{
+        systemId: string;
+        objectType: string;
+        status: string;
+      }>;
     }>(response);
-    return { bindings: Array.isArray(payload.bindings) ? payload.bindings : [] };
+    return {
+      bindings: Array.isArray(payload.bindings) ? payload.bindings : [],
+    };
   }
 
   static async searchRecord(
     vaultOwnerToken: string,
-    input: ConnectedSystemReadInput
+    input: ConnectedSystemReadInput,
   ): Promise<ConnectedSystemMcpResponse> {
     const response = await ApiService.apiFetch(
       `/api/connected-systems/${systemPath(input.systemId)}/records/search`,
@@ -437,14 +473,14 @@ export class ConnectedSystemsService {
           objectType: input.objectType,
           returnFields: input.returnFields,
         }),
-      }
+      },
     );
     return readJsonOrThrow<ConnectedSystemMcpResponse>(response);
   }
 
   static async createRecordIntent(
     vaultOwnerToken: string,
-    input: ConnectedSystemCreateIntentInput
+    input: ConnectedSystemCreateIntentInput,
   ): Promise<ConnectedSystemIntent> {
     const response = await ApiService.apiFetch(
       `/api/connected-systems/${systemPath(input.systemId)}/records/create-intents`,
@@ -454,14 +490,14 @@ export class ConnectedSystemsService {
         body: JSON.stringify({
           objectType: input.objectType,
         }),
-      }
+      },
     );
     return readJsonOrThrow<ConnectedSystemIntent>(response);
   }
 
   static async updateRecordIntent(
     vaultOwnerToken: string,
-    input: ConnectedSystemUpdateIntentInput
+    input: ConnectedSystemUpdateIntentInput,
   ): Promise<ConnectedSystemIntent> {
     const response = await ApiService.apiFetch(
       `/api/connected-systems/${systemPath(input.systemId)}/records/update-intents`,
@@ -473,7 +509,7 @@ export class ConnectedSystemsService {
           additionalFields: input.additionalFields,
           recordFields: input.recordFields,
         }),
-      }
+      },
     );
     return readJsonOrThrow<ConnectedSystemIntent>(response);
   }
@@ -485,12 +521,12 @@ export class ConnectedSystemsService {
   }): Promise<ConnectedSystemIntent> {
     const response = await ApiService.apiFetch(
       `/api/connected-systems/${systemPath(input.systemId)}/intents/${encodeURIComponent(
-        input.intentId
+        input.intentId,
       )}/approve`,
       {
         method: "POST",
         headers: authHeaders(input.vaultOwnerToken),
-      }
+      },
     );
     return readJsonOrThrow<ConnectedSystemIntent>(response);
   }
@@ -502,12 +538,12 @@ export class ConnectedSystemsService {
   }): Promise<ConnectedSystemIntent> {
     const response = await ApiService.apiFetch(
       `/api/connected-systems/${systemPath(input.systemId)}/intents/${encodeURIComponent(
-        input.intentId
+        input.intentId,
       )}/reject`,
       {
         method: "POST",
         headers: authHeaders(input.vaultOwnerToken),
-      }
+      },
     );
     return readJsonOrThrow<ConnectedSystemIntent>(response);
   }
@@ -515,7 +551,7 @@ export class ConnectedSystemsService {
   /** Create a reviewable delete intent. Approval is a separate explicit call. */
   static async createDeleteIntent(
     vaultOwnerToken: string,
-    input: ConnectedSystemDeleteInput
+    input: ConnectedSystemDeleteInput,
   ): Promise<ConnectedSystemIntent> {
     const response = await ApiService.apiFetch(
       `/api/connected-systems/${systemPath(input.systemId)}/records/delete-intents`,
@@ -525,7 +561,7 @@ export class ConnectedSystemsService {
         body: JSON.stringify({
           objectType: input.objectType,
         }),
-      }
+      },
     );
     return readJsonOrThrow<ConnectedSystemIntent>(response);
   }
