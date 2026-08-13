@@ -2931,7 +2931,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openTemporaryLinkFlow();
     fireEvent.click(
-      screen.getByRole("button", { name: /Review public location link/i }),
+      screen.getByRole("button", { name: /^Create link$/i }),
     );
 
     await waitFor(() =>

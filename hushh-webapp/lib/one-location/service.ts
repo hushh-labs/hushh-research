@@ -94,6 +94,23 @@ async function apiJsonWithRetry<T>(
  */
 export const CAPTURE_DEFAULT_MAX_AGE_MS = 20_000;
 
+/**
+ * The window for a caller that needs a fix describing where the user is *now*
+ * — dropping a pin, saving a place, anchoring a check-in.
+ *
+ * Deliberately a few seconds rather than zero. `maxAgeMs: 0` forces a full
+ * device acquisition on every press, and on a laptop with no GPS that is well
+ * over a second of dead time before any UI appears. But a fix taken five
+ * seconds ago is not meaningfully different: at walking pace that is about
+ * seven metres, comfortably inside the 10-35m accuracy the device reports
+ * anyway. So the "fresh" reading and the reused one describe the same place,
+ * and one of them is free.
+ *
+ * Zero is still correct for the live-share publisher — nobody is waiting on it,
+ * and a recipient watching someone move must see the newest fix there is.
+ */
+export const CAPTURE_FRESH_MAX_AGE_MS = 5_000;
+
 /** The most recent fix, reused inside CAPTURE_DEFAULT_MAX_AGE_MS. */
 let lastCapturedPoint: PlainLocationPoint | null = null;
 
@@ -140,8 +157,21 @@ export class OneLocationService {
    */
   static async captureCurrentPosition(options?: {
     maxAgeMs?: number;
+    /**
+     * "I need a fix that describes where the user is right now" — dropping a
+     * pin, saving a place, anchoring a check-in.
+     *
+     * Prefer this over `maxAgeMs: 0` at a call site. It says what the caller
+     * needs rather than a number, and it keeps the freshness policy in one
+     * place. It is also deliberately not importable state: a caller that had to
+     * import a constant from this module would break the moment a test mocked
+     * the module without re-exporting it.
+     */
+    fresh?: boolean;
   }): Promise<PlainLocationPoint> {
-    const maxAgeMs = options?.maxAgeMs ?? CAPTURE_DEFAULT_MAX_AGE_MS;
+    const maxAgeMs =
+      options?.maxAgeMs ??
+      (options?.fresh ? CAPTURE_FRESH_MAX_AGE_MS : CAPTURE_DEFAULT_MAX_AGE_MS);
 
     if (lastCapturedPoint && maxAgeMs > 0) {
       const capturedMs = Date.parse(lastCapturedPoint.capturedAt);

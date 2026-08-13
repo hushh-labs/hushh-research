@@ -8755,11 +8755,11 @@ export function OneLocationAgentPageContent({
     }
     const sessionEpoch = savedLocationSessionEpochRef.current;
     try {
-      // "Locate me" drops a pin, so it reads the device directly. Reusing an
-      // earlier fix here is what previously placed the pin at the last place
-      // the user was rather than this one.
+      // "Locate me" drops a pin, so it needs a current fix — but only current,
+      // not brand new. A reading from the last few seconds puts the pin in the
+      // same place and saves the user a full acquisition.
       const point = await OneLocationService.captureCurrentPosition({
-        maxAgeMs: 0,
+        fresh: true,
       });
       if (
         savedLocationSessionEpochRef.current !== sessionEpoch ||
