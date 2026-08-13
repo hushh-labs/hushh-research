@@ -88,6 +88,31 @@ export type ScoreBreakdown = {
   method: string | null;
 };
 
+/**
+ * How well-sourced a record is, from the reviewed release.
+ *
+ * Two links from the same organisation are not two independent confirmations.
+ * The release reports that per record, which is the difference between a claim
+ * an advisor can act on and one they should check first.
+ */
+export type NearbyEvidence = {
+  citationCount: number | null;
+  /** Distinct publishing organisations behind those citations. */
+  sourceFamilyCount: number | null;
+  factCount: number | null;
+  independentSourceFamilies: boolean;
+  reviewFlags: string[];
+};
+
+export type NearbySource = {
+  publisher: string | null;
+  title: string | null;
+  url: string | null;
+  /** What this citation establishes: identity, current role, association. */
+  factTypes: string[];
+  retrievedAt: string | null;
+};
+
 export type NearbyRecord = {
   rank: number | null;
   personId: string;
@@ -115,7 +140,9 @@ export type NearbyRecord = {
   warnings: string[];
   tags: string[];
   revalidationRequired: boolean;
-  sources: { publisher: string | null; title: string | null; url: string | null }[];
+  /** Null on a service revision that predates the reviewed release. */
+  evidence: NearbyEvidence | null;
+  sources: NearbySource[];
   modelVersion: string | null;
 };
 
@@ -328,6 +355,30 @@ export function availableTags(records: NearbyRecord[]): string[] {
     for (const tag of record.tags) seen.add(tag);
   }
   return [...seen].sort();
+}
+
+/** Plain names for what a citation proves. */
+export const FACT_TYPE_LABELS: Record<string, string> = {
+  identity: "Identity",
+  current_role: "Current role",
+  organization_identity: "Organisation",
+  public_association: "Association",
+};
+
+export function factTypeLabel(key: string): string {
+  return FACT_TYPE_LABELS[key] ?? key.replace(/_/g, " ");
+}
+
+/** Confidence grades that actually have records behind them.
+ *
+ * The reviewed release grades every record B, so offering A returns an empty
+ * screen — the same dead-option trap the empty lane chips had. */
+export function availableGrades(records: NearbyRecord[]): Set<ConfidenceGrade> {
+  const grades = new Set<ConfidenceGrade>();
+  for (const record of records) {
+    if (record.confidence.grade) grades.add(record.confidence.grade);
+  }
+  return grades;
 }
 
 /** Score to one decimal. The approved range spans ~16 points, so a bar would be noise. */

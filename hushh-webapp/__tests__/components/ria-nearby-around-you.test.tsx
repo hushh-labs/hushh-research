@@ -59,7 +59,7 @@ function record(over: Partial<Record<string, unknown>> = {}) {
     globalNws: 83.4,
     nearbyRankScore: 83.4,
     scoreStatus: "PROVISIONAL",
-    confidence: { score: 0.93, grade: "A" },
+    confidence: { score: 0.78, grade: "B" },
     publicLocation: {
       label: "MPS public Kirkland office",
       associationKind: "CURRENT_ORGANIZATION_OFFICE",
@@ -78,11 +78,26 @@ function record(over: Partial<Record<string, unknown>> = {}) {
       localRelevance: 0.772,
       method: "Each component is scored 0-1, multiplied by its weight and summed.",
     },
+    evidence: {
+      citationCount: 2,
+      sourceFamilyCount: 1,
+      factCount: 4,
+      independentSourceFamilies: false,
+      reviewFlags: ["SINGLE_SOURCE_FAMILY"],
+    },
     reasons: ["High-authority roles"],
     warnings: [],
     tags: ["semiconductors"],
     revalidationRequired: false,
-    sources: [{ publisher: "MPS", title: "Management", url: "https://x.test" }],
+    sources: [
+      {
+        publisher: "MPS",
+        title: "Management",
+        url: "https://x.test",
+        factTypes: ["identity", "current_role"],
+        retrievedAt: "2026-08-13",
+      },
+    ],
     modelVersion: "m",
     ...over,
   };
@@ -272,5 +287,29 @@ describe("what the list actually shows", () => {
 
     expect(screen.queryByRole("button", { name: /show .* more/i })).not.toBeInTheDocument();
     expect(screen.getByText("1 public record")).toBeInTheDocument();
+  });
+});
+
+
+describe("filters only offer what exists", () => {
+  it("hides a confidence grade with no records behind it", async () => {
+    render(<NearbyAroundYou />);
+    await openAPlace();
+    await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
+
+    // One "All" before opening: the lane chip.
+    expect(screen.getAllByRole("button", { name: /^All$/ })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /more filters/i }));
+
+    // The reviewed release grades every record B. Offering A would return an
+    // empty screen — the same dead-option trap the empty lane chips had.
+    expect(screen.getByRole("button", { name: /^B$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^A$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^C$/ })).not.toBeInTheDocument();
+
+    // Two now: the lane chip plus the confidence "All", which always stands
+    // because it can never come back empty.
+    expect(screen.getAllByRole("button", { name: /^All$/ })).toHaveLength(2);
   });
 });
