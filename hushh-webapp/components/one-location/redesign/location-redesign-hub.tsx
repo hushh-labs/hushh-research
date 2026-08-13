@@ -194,7 +194,12 @@ export type LocationHubViewModel = {
    * and must not be told their location is blocked.
    */
   locationBlocked: boolean;
-  autoShareEnabled: boolean;
+  /**
+   * Approve incoming location requests without being asked each time. Applies
+   * only to requests that arrive after it is switched on -- people already
+   * waiting stay the person's own decision.
+   */
+  autoApproveRequestsEnabled: boolean;
   /**
    * Whether this person appears as a pin on the maps of people they already
    * share with. Opt-in, and separate from sharing itself: sharing sends a
@@ -269,7 +274,7 @@ export type LocationHubViewModel = {
   onShowMyLocation: () => void;
   onHideMyLocation: () => void;
   onResumeMyLocation: () => void;
-  onAutoShareChange: (enabled: boolean) => void;
+  onAutoApproveRequestsChange: (enabled: boolean) => void;
   onRequestPermission: () => void;
   onOpenLocationSettings: () => void;
   onSyncContacts: () => void;
@@ -1572,28 +1577,31 @@ function LocationSettingsFlow({
 }) {
   return (
     <div className="space-y-5">
-      <TaskFlowHeader
-        eyebrow="Location"
-        title="Settings"
-        description="Control live sharing."
-      />
+      {/* No header description. Each row below already says what it does, and
+          the line that used to sit here ("Control live sharing") describes
+          something this screen's first control no longer does. */}
+      <TaskFlowHeader eyebrow="Location" title="Settings" />
 
       <SettingsGroup title="Location sharing" separatorInset>
+        {/* The one caveat that cannot be cut: this does not answer the people
+            already waiting, and somebody who switches it on expecting their
+            approvals list to clear has to be told that here, not by watching
+            it stay full. */}
         <SettingsRow
-          title="Auto-share my location"
-          description="Approved shares get live updates."
+          title="Auto-approve requests"
+          description="New requests only. Anyone already waiting still needs your answer."
           trailing={
             <LocationToggle
-              checked={vm.autoShareEnabled}
-              onChange={vm.onAutoShareChange}
-              label="Auto-share my location"
+              checked={vm.autoApproveRequestsEnabled}
+              onChange={vm.onAutoApproveRequestsChange}
+              label="Auto-approve requests"
             />
           }
           density="compact"
         />
         <SettingsRow
           title="Show me on their map"
-          description="Controls live movement on shared maps."
+          description="People you share with can watch you move."
           trailing={
             <LocationToggle
               checked={vm.mapPresenceEnabled === true}
@@ -1606,7 +1614,7 @@ function LocationSettingsFlow({
         />
         <SettingsRow
           title="Pause my location"
-          description="Stop new updates."
+          description="Stops new updates and checks you out of Nearby."
           trailing={
             <LocationToggle
               checked={vm.locationPaused}
@@ -1628,7 +1636,7 @@ function LocationSettingsFlow({
       <div className="flex items-start gap-2.5 px-1">
         <Shield className="mt-0.5 h-[15px] w-[15px] shrink-0 text-[color:var(--app-accent)]" />
         <p className={MUTED_TEXT}>
-          Private shares stay in your circle.
+          Nearby Check-In is separate, and only starts when you agree.
         </p>
       </div>
 

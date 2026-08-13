@@ -1186,21 +1186,23 @@ describe("OneLocationAgentPage", () => {
     const pauseSwitch = await screen.findByRole("switch", {
       name: "Pause my location",
     });
-    const autoShareSwitch = screen.getByRole("switch", {
-      name: "Auto-share my location",
+    const autoApproveSwitch = screen.getByRole("switch", {
+      name: "Auto-approve requests",
     });
     expect(pauseSwitch).toHaveAttribute("aria-checked", "false");
-    expect(autoShareSwitch).toHaveAttribute("aria-checked", "true");
+    // Off until asked for: approving a location request is consent, and a
+    // default may not give it.
+    expect(autoApproveSwitch).toHaveAttribute("aria-checked", "false");
 
-    fireEvent.click(autoShareSwitch);
-    expect(autoShareSwitch).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(autoApproveSwitch);
+    expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
 
     fireEvent.click(pauseSwitch);
     await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalled());
     await waitFor(() =>
       expect(pauseSwitch).toHaveAttribute("aria-checked", "true"),
     );
-    expect(autoShareSwitch).toHaveAttribute("aria-checked", "false");
+    expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
 
     mockCaptureCurrentPosition.mockClear();
     fireEvent.click(pauseSwitch);
@@ -1208,7 +1210,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() =>
       expect(pauseSwitch).toHaveAttribute("aria-checked", "false"),
     );
-    expect(autoShareSwitch).toHaveAttribute("aria-checked", "false");
+    expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
   });
 
   it("does not claim Location is paused when Nearby checkout fails", async () => {
