@@ -198,6 +198,46 @@ def build_service(
     return service, adapter
 
 
+def test_binding_status_uses_read_object_for_cross_object_registry() -> None:
+    store = InMemoryConnectedSystemIntentStore()
+    definition = ConnectedSystemDefinition(
+        system_id="hussh-crm",
+        display_name="Hussh",
+        customer_display_name="Hussh",
+        system_type="Salesforce",
+        system_name="Salesforce",
+        target="Hussh",
+        object_type_default="Account",
+        transport="external_crm_streamable_mcp",
+        transport_endpoint="https://example.invalid/mcp",
+        registry_source="test",
+        capabilities=frozenset({"schema", "read", "create", "update"}),
+        tool_catalog=(
+            {"name": "object-schema", "operation": "schema", "objectType": "Contact"},
+            {"name": "read-crm-record", "operation": "read", "objectType": "Contact"},
+            {"name": "create-crm-record", "operation": "create", "objectType": "Account"},
+            {"name": "update-crm-record", "operation": "update", "objectType": "Contact"},
+        ),
+    )
+    store.upsert_binding(
+        {
+            "user_id": "owner-1",
+            "system_id": "hussh-crm",
+            "object_type": "Contact",
+            "record_id": "contact-1",
+        }
+    )
+    service = ConnectedSystemsService(
+        adapter=FakeExternalCrmAdapter(),
+        store=store,
+        registry=(definition,),
+    )
+
+    assert service.list_record_binding_statuses(user_id="owner-1") == {
+        "bindings": [{"systemId": "hussh-crm", "objectType": "Contact", "status": "active"}]
+    }
+
+
 @pytest.mark.asyncio
 async def test_generic_crm_uses_its_registered_schema_tool_endpoint_and_field_contract():
     definition = ConnectedSystemDefinition(

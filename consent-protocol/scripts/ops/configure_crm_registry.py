@@ -68,12 +68,21 @@ def _credentials(descriptor: ValidatedCrmRegistryDescriptor) -> tuple[str, str]:
     return str(os.environ[first]), str(os.environ[second])
 
 
+def _registry_kdf_parameters() -> tuple[str, int]:
+    salt = get_connector_kdf_salt()
+    iterations = get_connector_kdf_iterations()
+    if not salt or not iterations:
+        raise CrmRegistryDescriptorError(
+            "Connector KDF configuration is unavailable; registry was not changed."
+        )
+    return salt, iterations
+
+
 def _encrypted_credentials(descriptor: ValidatedCrmRegistryDescriptor) -> tuple[str, str]:
     client_id, client_secret = _credentials(descriptor)
     password = get_connector_secrets_key()
-    salt = get_connector_kdf_salt()
-    iterations = get_connector_kdf_iterations()
-    if not password or not salt or not iterations:
+    salt, iterations = _registry_kdf_parameters()
+    if not password:
         raise CrmRegistryDescriptorError(
             "Connector encryption configuration is unavailable; registry was not changed."
         )
@@ -102,9 +111,25 @@ def _definition(descriptor: ValidatedCrmRegistryDescriptor) -> ConnectedSystemDe
         for operation, config in descriptor.operations.items()
     )
     auth_style = str(raw.get("authHeaderStyle") or "bearer").lower()
+    connection_mode = str(raw.get("connectionMode") or "managed").lower()
+    gateway_profile = str(raw.get("gatewayCredentialProfile") or "shared").lower()
+    replacement_tool_arguments = None
     if auth_style == "bearer":
-        headers = get_omnigateway_transport_headers()
-        tool_arguments = None
+        headers = get_omnigateway_transport_headers(gateway_profile)
+        if connection_mode == "dynamic_registry":
+            client_id, client_secret = _credentials(descriptor)
+            crm_connection = raw["crmConnection"]
+            tool_arguments = {
+                "target": raw["displayName"],
+                "crmBaseUrl": crm_connection["baseUrl"],
+                "crmMcpEndpoint": crm_connection["mcpEndpoint"],
+                "clientId": client_id,
+                "clientSecret": client_secret,
+                "crmTokenUrl": crm_connection["tokenUrl"],
+            }
+            replacement_tool_arguments = dict(tool_arguments)
+        else:
+            tool_arguments = None
     else:
         client_id, client_secret = _credentials(descriptor)
         headers = (("client_id", client_id), ("client_secret", client_secret))
@@ -124,6 +149,7 @@ def _definition(descriptor: ValidatedCrmRegistryDescriptor) -> ConnectedSystemDe
         tool_catalog=operations,
         transport_headers=headers,
         transport_tool_arguments=tool_arguments,
+        transport_replacement_tool_arguments=replacement_tool_arguments,
         capabilities=frozenset(descriptor.capabilities),
         timeout_seconds=max(1, int(raw.get("timeoutSeconds") or 30)),
         retry_count=max(0, int(raw.get("retryCount") or 0)),
@@ -136,6 +162,28 @@ def _replace_record_id(value: Any, record_id: str) -> Any:
     if isinstance(value, list):
         return [_replace_record_id(item, record_id) for item in value]
     return record_id if value == "{{recordId}}" else value
+
+
+def _probe_schema_object_types(definition: ConnectedSystemDefinition) -> tuple[str, ...]:
+    """Return every registry-owned object whose schema must pass before activation."""
+    operation_types = [
+        definition.object_type_for_operation(operation)
+        for operation in ("create", "read", "update", "delete")
+        if definition.operation(operation)
+    ]
+    return tuple(dict.fromkeys([definition.object_type_default, *operation_types]))
+
+
+def _require_probe_coverage(
+    descriptor: ValidatedCrmRegistryDescriptor, probe_result: dict[str, Any]
+) -> None:
+    verified = {str(value) for value in probe_result.get("verifiedOperations") or ()}
+    missing = sorted(set(descriptor.capabilities) - verified)
+    if missing:
+        raise CrmRegistryDescriptorError(
+            "Activation is blocked until the probe verifies every declared operation; "
+            f"missing: {', '.join(missing)}."
+        )
 
 
 async def _probe(descriptor: ValidatedCrmRegistryDescriptor) -> dict[str, Any]:
@@ -172,24 +220,36 @@ async def _probe(descriptor: ValidatedCrmRegistryDescriptor) -> dict[str, Any]:
         store=InMemoryConnectedSystemIntentStore(),
         schema_cache=_ProbeCache(),
     )
-    schema = await service.get_schema(
-        system_id=definition.system_id,
-        object_type=definition.object_type_default,
-        force_refresh=True,
-    )
-    result: dict[str, Any] = {
-        "schemaFingerprint": schema.get("schemaFingerprint"),
-        "fieldCount": len(schema.get("fields") or []),
-        "verifiedOperations": ["schema"],
-        "_normalizedSchema": schema,
-    }
-    probe = descriptor.raw.get("probe") or {}
-    lifecycle = probe.get("lifecycle") or {}
     operation_object_types = {
         operation: str((definition.operation(operation) or {}).get("objectType") or "")
         for operation in ("create", "read", "update", "delete")
         if definition.operation(operation)
     }
+    schema_object_types = _probe_schema_object_types(definition)
+    schemas = {
+        object_type: await service.get_schema(
+            system_id=definition.system_id,
+            object_type=object_type,
+            force_refresh=True,
+        )
+        for object_type in schema_object_types
+    }
+    schema = schemas[definition.object_type_default]
+    result: dict[str, Any] = {
+        "schemaFingerprint": schema.get("schemaFingerprint"),
+        "fieldCount": len(schema.get("fields") or []),
+        "schemaObjects": {
+            object_type: {
+                "schemaFingerprint": object_schema.get("schemaFingerprint"),
+                "fieldCount": len(object_schema.get("fields") or []),
+            }
+            for object_type, object_schema in schemas.items()
+        },
+        "verifiedOperations": ["schema"],
+        "_normalizedSchema": schema,
+    }
+    probe = descriptor.raw.get("probe") or {}
+    lifecycle = probe.get("lifecycle") or {}
     if len(set(operation_object_types.values())) > 1:
         if probe.get("mode") != "cross-object-bound-lifecycle.v1":
             raise CrmRegistryDescriptorError(
@@ -197,6 +257,7 @@ async def _probe(descriptor: ValidatedCrmRegistryDescriptor) -> dict[str, Any]:
             )
         result["lifecycle"] = "cross-object-bound-lifecycle-required"
         result["bindingRule"] = "verified_identity_lookup_for_read_update_delete"
+        result["verifiedObjectSchemas"] = list(schema_object_types)
         return result
     if not lifecycle:
         if "read" in descriptor.capabilities:
@@ -323,11 +384,19 @@ def _apply(
     operator: str,
     probe_result: dict[str, Any],
 ) -> None:
+    _require_probe_coverage(descriptor, probe_result)
     raw = descriptor.raw
     auth_style = str(raw.get("authHeaderStyle") or "bearer").lower()
+    connection_mode = str(raw.get("connectionMode") or "managed").lower()
+    gateway_profile = str(raw.get("gatewayCredentialProfile") or "shared").lower()
+    has_registry_credentials = auth_style != "bearer" or connection_mode == "dynamic_registry"
     cid_blob, secret_blob = (
-        (None, None) if auth_style == "bearer" else _encrypted_credentials(descriptor)
+        _encrypted_credentials(descriptor) if has_registry_credentials else (None, None)
     )
+    kdf_salt, kdf_iterations = (
+        _registry_kdf_parameters() if has_registry_credentials else (None, None)
+    )
+    crm_connection = raw.get("crmConnection") or {}
     operations = descriptor.operations
     safe_probe_result = {
         key: value for key, value in probe_result.items() if not key.startswith("_")
@@ -355,13 +424,19 @@ def _apply(
                   encryption_algorithm, key_id, auth_header_style, supports_create,
                   supports_read, supports_update, supports_delete, user_object_name,
                   timeout_seconds, retry_count, is_active, business_owner, technical_owner,
-                  configuration_revision, crm_encrypted_fields_v1_enabled, validated_at, updated_at
+                  configuration_revision, crm_encrypted_fields_v1_enabled, validated_at, updated_at,
+                  gateway_credential_profile, crm_connection_mode,
+                  crm_connection_base_url, crm_connection_mcp_endpoint, crm_connection_token_url,
+                  kdf_salt, kdf_iterations
                 ) VALUES (
                   :crm_id, :name, :crm_type, :environment, :base_url, :token_url,
                   :mcp_endpoint, :cid_blob, :secret_blob, :algorithm, :key_id,
                   :auth_style, :supports_create, :supports_read, :supports_update,
                   :supports_delete, :object_type, :timeout_seconds, :retry_count,
-                  FALSE, :business_owner, :technical_owner, :revision, :encrypted_fields_enabled, NOW(), NOW()
+                  FALSE, :business_owner, :technical_owner, :revision, :encrypted_fields_enabled, NOW(), NOW(),
+                  :gateway_profile, :connection_mode, :crm_connection_base_url,
+                  :crm_connection_mcp_endpoint, :crm_connection_token_url,
+                  :kdf_salt, :kdf_iterations
                 )
                 ON CONFLICT (crm_id) DO UPDATE SET
                   crm_enterprise_name=EXCLUDED.crm_enterprise_name,
@@ -381,6 +456,13 @@ def _apply(
                   business_owner=EXCLUDED.business_owner, technical_owner=EXCLUDED.technical_owner,
                   configuration_revision=EXCLUDED.configuration_revision,
                   crm_encrypted_fields_v1_enabled=EXCLUDED.crm_encrypted_fields_v1_enabled,
+                  gateway_credential_profile=EXCLUDED.gateway_credential_profile,
+                  crm_connection_mode=EXCLUDED.crm_connection_mode,
+                  crm_connection_base_url=EXCLUDED.crm_connection_base_url,
+                  crm_connection_mcp_endpoint=EXCLUDED.crm_connection_mcp_endpoint,
+                  crm_connection_token_url=EXCLUDED.crm_connection_token_url,
+                  kdf_salt=EXCLUDED.kdf_salt,
+                  kdf_iterations=EXCLUDED.kdf_iterations,
                   validated_at=NOW(), is_active=FALSE, updated_at=NOW()
                 """
             ),
@@ -394,10 +476,12 @@ def _apply(
                 "mcp_endpoint": raw["mcpEndpoint"],
                 "cid_blob": cid_blob,
                 "secret_blob": secret_blob,
-                "algorithm": "managed_gateway" if auth_style == "bearer" else PBKDF2_CBC_ALGORITHM,
-                "key_id": "omnigateway_transport"
-                if auth_style == "bearer"
-                else "connector_secrets_key_v1",
+                "algorithm": PBKDF2_CBC_ALGORITHM
+                if has_registry_credentials
+                else "managed_gateway",
+                "key_id": "connector_secrets_key_v1"
+                if has_registry_credentials
+                else "omnigateway_transport",
                 "auth_style": auth_style,
                 "supports_create": "create" in capability_set,
                 "supports_read": "read" in capability_set,
@@ -410,6 +494,13 @@ def _apply(
                 "technical_owner": raw.get("technicalOwner"),
                 "revision": revision,
                 "encrypted_fields_enabled": bool(descriptor.encrypted_fields),
+                "gateway_profile": gateway_profile,
+                "connection_mode": connection_mode,
+                "crm_connection_base_url": crm_connection.get("baseUrl"),
+                "crm_connection_mcp_endpoint": crm_connection.get("mcpEndpoint"),
+                "crm_connection_token_url": crm_connection.get("tokenUrl"),
+                "kdf_salt": kdf_salt,
+                "kdf_iterations": kdf_iterations,
             },
         )
         connection.execute(

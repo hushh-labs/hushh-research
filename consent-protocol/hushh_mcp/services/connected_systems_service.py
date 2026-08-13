@@ -1016,6 +1016,11 @@ class ConnectedSystemDefinition:
     # Extra MCP tool arguments sourced from the private registry row. These are
     # never exposed in to_summary(); they are merged into the tool call payload.
     transport_tool_arguments: dict[str, Any] | None = None
+    # Trusted server-side connection arguments that remain required when an
+    # encrypted-fields call replaces ordinary tool arguments. This is used only
+    # by the MuleSoft dynamic-registry profile; browser input can never populate
+    # it and it is never exposed by ``to_summary``.
+    transport_replacement_tool_arguments: dict[str, Any] | None = None
     # Salesforce delete uses a different endpoint path than schema/CRUD-read, so
     # the registry can carry a dedicated delete endpoint. None → fall back to
     # transport_endpoint. Only consulted when supports_delete is enabled.
@@ -1196,12 +1201,14 @@ class ExternalCrmStreamableMcpAdapter:
         tool_catalog: tuple[dict[str, Any], ...] | None = None,
         headers: tuple[tuple[str, str], ...] = (),
         tool_arguments: dict[str, Any] | None = None,
+        replacement_tool_arguments: dict[str, Any] | None = None,
     ):
         self.endpoint = endpoint
         self.timeout_seconds = timeout_seconds
         self.tool_catalog = tuple(tool_catalog or ())
         self.headers = tuple(headers or ())
         self.tool_arguments = _deepcopy_json(tool_arguments or {})
+        self.replacement_tool_arguments = _deepcopy_json(replacement_tool_arguments or {})
         self._demo_record: dict[str, Any] = {
             "Id": "003gK00000jlmaLQAQ",
             "FirstName": "Maria",
@@ -1226,11 +1233,21 @@ class ExternalCrmStreamableMcpAdapter:
             tool_catalog=system.tool_catalog,
             headers=system.transport_headers,
             tool_arguments=system.transport_tool_arguments,
+            replacement_tool_arguments=system.transport_replacement_tool_arguments,
         )
 
     @property
     def configured(self) -> bool:
         return bool(self.endpoint)
+
+    def _tool_arguments_for_call(
+        self, arguments: dict[str, Any], *, replace_tool_arguments: bool
+    ) -> dict[str, Any]:
+        trusted = self.replacement_tool_arguments if replace_tool_arguments else self.tool_arguments
+        return {
+            **_deepcopy_json(trusted),
+            **_deepcopy_json(arguments),
+        }
 
     async def object_schema(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self._call_tool("object-schema", payload)
@@ -1299,17 +1316,13 @@ class ExternalCrmStreamableMcpAdapter:
         if resolved_endpoint.startswith("registry://"):
             return self._call_registry_tool(name, arguments)
 
-        # Encrypted-fields calls are allowed to use only a trusted connector
-        # reference.
-        # Do not merge the legacy registry credentials/URLs into their MCP
-        # arguments: MuleSoft resolves those from its own secret store.
-        tool_arguments = (
-            _deepcopy_json(arguments)
-            if replace_tool_arguments
-            else {
-                **_deepcopy_json(self.tool_arguments),
-                **_deepcopy_json(arguments),
-            }
+        # Replacement calls discard ordinary arguments but may retain an
+        # independently registered, server-only connection bundle. This is the
+        # external CRM dynamic-registry boundary: callers can supply an opaque
+        # encrypted envelope, never CRM URLs or credentials.
+        tool_arguments = self._tool_arguments_for_call(
+            arguments,
+            replace_tool_arguments=replace_tool_arguments,
         )
 
         async def _run() -> dict[str, Any]:
@@ -2406,12 +2419,10 @@ class ConnectedSystemsService:
             system=system,
             operation="read",
             payload={
-                "profile": CRM_ENCRYPTED_FIELDS_V1_PROFILE,
-                "operation": "read",
                 "objectType": object_type_value,
                 "id": record_id,
                 "returnFields": allowed_return,
-                "encryptedFields": envelope.model_dump(mode="json"),
+                "encryptedFields": envelope.mulesoft_payload(),
             },
         )
         payload = _ensure_dict(result.get("payload"))
@@ -2432,9 +2443,14 @@ class ConnectedSystemsService:
                 code="CONNECTED_SYSTEM_CRM_ENCRYPTED_FIELDS_RESPONSE_INVALID",
                 status_code=502,
             )
-        response_envelope = self._validated_crm_encrypted_fields_envelope(
-            system=system, encrypted_fields=response_fields, direction="read_response"
-        )
+        try:
+            response_envelope = envelope.with_mulesoft_response(response_fields)
+        except (ValueError, TypeError) as error:
+            raise ConnectedSystemConfigurationError(
+                "The CRM partner returned an invalid encrypted field response.",
+                code="CONNECTED_SYSTEM_CRM_ENCRYPTED_FIELDS_RESPONSE_INVALID",
+                status_code=502,
+            ) from error
         if (
             response_envelope.client_operation_id != envelope.client_operation_id
             or response_envelope.client_public_key != envelope.client_public_key
@@ -2608,15 +2624,9 @@ class ConnectedSystemsService:
                 system=system,
                 operation="update",
                 payload={
-                    "profile": CRM_ENCRYPTED_FIELDS_V1_PROFILE,
-                    "operation": "update",
                     "objectType": intent["object_type"],
                     "id": record_id,
-                    "fieldNames": intent.get("field_names") or [],
-                    "intentId": intent_id,
-                    "approvalId": approval,
-                    "clientOperationId": envelope.client_operation_id,
-                    "encryptedFields": envelope.model_dump(mode="json"),
+                    "encryptedFields": envelope.mulesoft_payload(),
                 },
             )
             normalized_ack = _normalize_crm_encrypted_fields_ack(result.get("payload"))
@@ -2678,7 +2688,7 @@ class ConnectedSystemsService:
         operation: Literal["read", "update"],
         payload: dict[str, Any],
     ) -> dict[str, Any]:
-        """Call the registered encrypted-fields tool without connector secrets."""
+        """Call the registered encrypted tool with only server-owned connection state."""
         tool_name = system.crm_encrypted_fields_tool_name(operation)
         if not tool_name:
             raise ConnectedSystemConfigurationError(
@@ -2717,7 +2727,13 @@ class ConnectedSystemsService:
         statuses: list[dict[str, Any]] = []
         for summary in self.list_systems():
             system_id = str(summary.get("systemId") or "")
-            object_type = str(summary.get("objectTypeDefault") or "")
+            operation_object_types = _ensure_dict(summary.get("operationObjectTypes"))
+            # Setup readiness follows the record type that powers the durable
+            # read/update experience. A Person Account create binding is not a
+            # substitute for the Contact binding used by those operations.
+            object_type = str(
+                operation_object_types.get("read") or summary.get("objectTypeDefault") or ""
+            )
             binding = indexed.get((system_id, object_type))
             statuses.append(
                 {

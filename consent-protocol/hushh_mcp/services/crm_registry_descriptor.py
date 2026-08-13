@@ -19,6 +19,7 @@ from hushh_mcp.services.crm_encrypted_fields_v1 import (
 )
 
 OPERATIONS = ("schema", "read", "create", "update", "delete")
+CRM_ENCRYPTED_FIELDS_CONFORMANCE_VERSION = "crm-encrypted-fields-conformance.v1"
 
 
 class CrmRegistryDescriptorError(ValueError):
@@ -108,14 +109,39 @@ def load_and_validate_descriptor(
         )
 
     auth_header_style = _text(raw.get("authHeaderStyle") or "bearer").lower()
+    gateway_credential_profile = _text(raw.get("gatewayCredentialProfile") or "shared").lower()
+    if gateway_credential_profile not in {"shared", "external_crm"}:
+        raise CrmRegistryDescriptorError("gatewayCredentialProfile must be shared or external_crm.")
+    connection_mode = _text(raw.get("connectionMode") or "managed").lower()
+    if connection_mode not in {"managed", "dynamic_registry"}:
+        raise CrmRegistryDescriptorError("connectionMode must be managed or dynamic_registry.")
+    if connection_mode == "dynamic_registry" and auth_header_style != "bearer":
+        raise CrmRegistryDescriptorError("dynamic_registry requires bearer gateway authentication.")
+    if gateway_credential_profile == "external_crm" and connection_mode != "dynamic_registry":
+        raise CrmRegistryDescriptorError(
+            "external_crm gateway credentials require dynamic_registry connection mode."
+        )
     credentials = raw.get("credentials")
     client_id_env: str | None = None
     client_secret_env: str | None = None
-    if auth_header_style != "bearer":
+    if auth_header_style != "bearer" or connection_mode == "dynamic_registry":
         if not isinstance(credentials, dict):
             raise CrmRegistryDescriptorError("credentials is required for header-auth connectors.")
         client_id_env = _safe_env_name(credentials.get("clientIdEnv"), "clientIdEnv")
         client_secret_env = _safe_env_name(credentials.get("clientSecretEnv"), "clientSecretEnv")
+    crm_connection = raw.get("crmConnection")
+    if connection_mode == "dynamic_registry":
+        if not isinstance(crm_connection, dict):
+            raise CrmRegistryDescriptorError(
+                "crmConnection is required for dynamic_registry connectors."
+            )
+        _require_url(crm_connection.get("baseUrl"), "crmConnection.baseUrl")
+        endpoint = _text(crm_connection.get("mcpEndpoint"))
+        if not endpoint or not endpoint.startswith("/"):
+            raise CrmRegistryDescriptorError(
+                "crmConnection.mcpEndpoint must be an absolute CRM-relative path."
+            )
+        _require_url(crm_connection.get("tokenUrl"), "crmConnection.tokenUrl")
     if require_credentials and client_id_env and client_secret_env:
         missing = [
             name for name in (client_id_env, client_secret_env) if not _text(os.getenv(name))
@@ -195,6 +221,38 @@ def load_and_validate_descriptor(
             raise CrmRegistryDescriptorError(
                 "encryptedFields.tools may contain only read and update tool names."
             )
+        partner_conformance = encrypted_fields.get("partnerConformance")
+        if not isinstance(partner_conformance, dict) or set(partner_conformance) != {
+            "version",
+            "evidenceSha256",
+            "decryptedFieldAllowlistEnforced",
+            "strictToolSchemaValidated",
+        }:
+            raise CrmRegistryDescriptorError(
+                "encryptedFields.partnerConformance must contain the exact reviewed "
+                "conformance attestation fields."
+            )
+        if partner_conformance.get("version") != CRM_ENCRYPTED_FIELDS_CONFORMANCE_VERSION:
+            raise CrmRegistryDescriptorError(
+                "encryptedFields.partnerConformance.version is unsupported."
+            )
+        evidence_digest = _text(partner_conformance.get("evidenceSha256"))
+        if (
+            not evidence_digest.startswith("sha256:")
+            or len(evidence_digest) != 71
+            or any(character not in "0123456789abcdef" for character in evidence_digest[7:])
+        ):
+            raise CrmRegistryDescriptorError(
+                "encryptedFields.partnerConformance.evidenceSha256 must be a lowercase SHA-256 digest."
+            )
+        if partner_conformance.get("decryptedFieldAllowlistEnforced") is not True:
+            raise CrmRegistryDescriptorError(
+                "MuleSoft must attest that decrypted CRM update fields are schema-allowlisted."
+            )
+        if partner_conformance.get("strictToolSchemaValidated") is not True:
+            raise CrmRegistryDescriptorError(
+                "MuleSoft strict encrypted-fields tool schemas must be validated before activation."
+            )
 
     if capability_set.intersection({"create", "update", "delete"}):
         if not {"read", "create", "update", "delete"}.issubset(capability_set):
@@ -249,4 +307,8 @@ def redacted_summary(descriptor: ValidatedCrmRegistryDescriptor) -> dict[str, An
             os.getenv(name) for name in descriptor.credential_env_names if name
         ),
         "encryptedFields": bool(descriptor.encrypted_fields),
+        "gatewayCredentialProfile": _text(
+            descriptor.raw.get("gatewayCredentialProfile") or "shared"
+        ).lower(),
+        "connectionMode": _text(descriptor.raw.get("connectionMode") or "managed").lower(),
     }

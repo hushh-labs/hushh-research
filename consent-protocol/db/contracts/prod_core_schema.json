@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 148,
+  "expected_migration_version": 149,
   "migration_version_policy": "exact",
   "required_functions": [
     "merge_domain_summary",
@@ -1042,7 +1042,12 @@
       "crm_zk_v1_enabled",
       "crm_zk_uat_v1_enabled",
       "crm_encrypted_fields_v1_enabled",
-      "mulesoft_connector_ref"
+      "mulesoft_connector_ref",
+      "gateway_credential_profile",
+      "crm_connection_mode",
+      "crm_connection_base_url",
+      "crm_connection_mcp_endpoint",
+      "crm_connection_token_url"
     ],
     "crm_operation_endpoints": [
       "crm_id",

@@ -132,6 +132,39 @@ class CrmEncryptedFields(BaseModel):
         ).encode("utf-8")
         return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
+    def mulesoft_payload(self) -> dict[str, str]:
+        """Return the exact seven-field shape accepted by the external CRM MCP.
+
+        Profile, direction, key ID, operation ID and expiry remain Hussh control
+        metadata. MuleSoft's strict tool schema rejects those fields and accepts
+        only the cryptographic material below.
+        """
+        return {
+            "client_public_key": self.client_public_key,
+            "wrapped_payload_key": self.wrapped_payload_key,
+            "wrapped_key_iv": self.wrapped_key_iv,
+            "wrapped_key_tag": self.wrapped_key_tag,
+            "payload_iv": self.payload_iv,
+            "payload_tag": self.payload_tag,
+            "ciphertext": self.ciphertext,
+        }
+
+    def with_mulesoft_response(self, value: dict[str, Any]) -> "CrmEncryptedFields":
+        """Bind a strict MuleSoft response to request metadata held by Hussh."""
+        allowed = set(self.mulesoft_payload())
+        if set(value) != allowed:
+            raise CrmEncryptedFieldsValidationError("crm_encrypted_fields_invalid_partner_response")
+        return CrmEncryptedFields.model_validate(
+            {
+                "profile": CRM_ENCRYPTED_FIELDS_V1_PROFILE,
+                "direction": "read_response",
+                "recipient_key_id": self.recipient_key_id,
+                "client_operation_id": self.client_operation_id,
+                "expires_at_ms": self.expires_at_ms,
+                **value,
+            }
+        )
+
 
 def validate_crm_encrypted_fields_envelope(
     value: CrmEncryptedFields | dict[str, Any],
