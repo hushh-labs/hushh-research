@@ -3706,8 +3706,8 @@ export function AgentChatWorkspace({
     const prompt = queuedHandoffPrompt?.trim();
     if (!prompt) return;
     setQueuedHandoffPrompt(null);
-    enqueuePrompt(prompt);
-  }, [enqueuePrompt, queuedHandoffPrompt]);
+    void handoffPromptSubmitRef.current?.(prompt);
+  }, [queuedHandoffPrompt, setQueuedHandoffPrompt]);
 
   useEffect(() => {
     if (!isPopover || !isSurfaceClosing) return;
