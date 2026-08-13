@@ -88,7 +88,7 @@ const CONNECT_PAGER_BUTTON_CLASSNAME =
   "h-[30px] min-h-[30px] rounded-[15px] px-2.5 text-[14px] font-semibold leading-[18px]";
 
 /** Maximum number of connection requests the People bulk action can send. */
-const MAX_BULK_CONNECTION_REQUESTS = 20;
+const MAX_BULK_CONNECTION_REQUESTS = 5;
 
 /**
  * Bounds on resolving ONE spoken name against the directory.
@@ -1405,12 +1405,13 @@ export default function ConnectPageClient() {
                                 className="border-2 border-foreground/50"
                                 aria-describedby="connect-selection-limit"
                                 onCheckedChange={(checked) => {
+                                  if (checked && selectedUserIds.size >= MAX_BULK_CONNECTION_REQUESTS) {
+                                    toast.error("You can only select up to 5 people at a time.");
+                                    return;
+                                  }
                                   setSelectedUserIds((current) => {
                                     const next = new Set(current);
                                     if (checked) {
-                                      if (next.size >= MAX_BULK_CONNECTION_REQUESTS) {
-                                        return current;
-                                      }
                                       next.add(person.userId);
                                     } else {
                                       next.delete(person.userId);
@@ -1542,7 +1543,7 @@ export default function ConnectPageClient() {
                     >
                       {isConnectingMultiple
                         ? "Sending requests…"
-                        : `Connect to Selected (${selectedUserIds.size}/${MAX_BULK_CONNECTION_REQUESTS})`}
+                        : `Accept All (${selectedUserIds.size})`}
                     </Button>
                   </div>
                 )}
