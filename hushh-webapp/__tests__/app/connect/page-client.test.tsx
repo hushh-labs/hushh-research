@@ -498,6 +498,44 @@ describe("Connect — People", () => {
       expect(screen.queryByText("Connect to Selected (1/20)")).toBeNull(),
     );
   });
+
+  it("says why an ineligible person's checkbox can't be checked, instead of a mute disabled box", async () => {
+    // The reported bug: a few rows in selection mode showed a disabled
+    // checkbox and nothing else, so clicking looked like it "did nothing"
+    // with no way to tell an already-connected person from a bug. A row
+    // that isn't a real choice now carries no checkbox at all -- just its
+    // reason, in place of one.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [
+        { ...person("u1", "Connected Carl"), relationship: "connected" as const },
+        {
+          ...person("u2", "Requested Rita"),
+          relationship: "pending_outgoing" as const,
+        },
+        person("u3", "Selectable Sam"),
+      ],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    expect(await screen.findByText("Connected Carl")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select people" }));
+
+    // Eligible: a real, enabled checkbox.
+    expect(
+      (screen.getByLabelText("Select Selectable Sam") as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    // Already connected: no checkbox to click -- its reason stands in for one.
+    expect(screen.getByText("Connected")).toBeTruthy();
+    expect(screen.queryByLabelText("Select Connected Carl")).toBeNull();
+
+    // Request already out: same treatment, its own reason.
+    expect(screen.getByText("Requested")).toBeTruthy();
+    expect(screen.queryByLabelText("Select Requested Rita")).toBeNull();
+  });
 });
 
 describe("Connect — removing a connection", () => {

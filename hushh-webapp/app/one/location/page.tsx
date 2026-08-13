@@ -1880,6 +1880,19 @@ function savedLocationPromptKey(prefix: string, userId: string): string {
   return `${prefix}:${userId}`;
 }
 
+/**
+ * How long a confirmed nearby checkout suppresses the next one.
+ *
+ * Deliberately short. Nearby presence is account-wide rather than per-device,
+ * so this device's belief that it already checked out can be made wrong by a
+ * check-in somewhere else. Any window long enough to cover that is far too
+ * long: it would let a pause silently skip the checkout and leave someone
+ * visible while being told they are not. Ten seconds absorbs a person flicking
+ * the switch — the only thing that can actually reach the 6/minute nearby-write
+ * limit — and no real cross-device sequence fits inside it.
+ */
+const NEARBY_CHECKOUT_DEDUPE_MS = 10_000;
+
 export function OneLocationAgentPageContent({
   mode = "workspace",
   surface = "hub",
@@ -2136,6 +2149,28 @@ export function OneLocationAgentPageContent({
     automaticPrivatePublishingAllowedRef.current =
       !locationControl.paused && locationControl.autoShareEnabled;
   }, [locationControl.autoShareEnabled, locationControl.paused]);
+  // Monotonic claim on the Location on/off control. Every tap takes the next
+  // number; work started by an earlier tap must not write its result once a
+  // newer one exists. Without it, "on" (device fix still in flight) followed by
+  // "off" lands back ON when that fix arrives — the control silently undoing
+  // what the person just did, which on this particular switch is a privacy
+  // failure rather than a glitch.
+  const locationIntentSeqRef = useRef(0);
+  // When the last nearby checkout was confirmed, guarding the next one for
+  // NEARBY_CHECKOUT_DEDUPE_MS. Nearby writes are capped at 6/minute, and a 429
+  // here would be reported as "you may still be visible to people around you" —
+  // a false alarm about the one thing this surface must never be wrong about.
+  const nearbyCheckoutConfirmedAtRef = useRef(0);
+  useEffect(() => {
+    // Checked back in: whatever we last confirmed no longer describes presence.
+    if (locationControl.nearbyPresenceActive) {
+      nearbyCheckoutConfirmedAtRef.current = 0;
+    }
+  }, [locationControl.nearbyPresenceActive]);
+  useEffect(() => {
+    // A different account carries different presence; never inherit the window.
+    nearbyCheckoutConfirmedAtRef.current = 0;
+  }, [auth.userId]);
   const nearbyCheckInAvailable = isOneLocationNearbyCheckInAvailable();
   useEffect(() => {
     setLocationWorkspace(readLocationWorkspaceMemory(auth.userId));
@@ -2893,6 +2928,14 @@ export function OneLocationAgentPageContent({
       capturePoint?: boolean;
       autoOpenSettings?: boolean;
       requestNativePrompt?: boolean;
+      /**
+       * Lets a caller whose request has been superseded discard the fix instead
+       * of applying it. A capture can outlive the intent that started it, and
+       * `activateMyLocation` un-pauses — so a stale fix from an abandoned "turn
+       * on" would otherwise reverse the pause that replaced it. Only the
+       * on/off control passes this; every other caller keeps today's behaviour.
+       */
+      isStale?: () => boolean;
     }): Promise<{ ready: boolean; point?: PlainLocationPoint }> => {
       const shouldCapturePoint = Boolean(options?.capturePoint);
       const shouldOpenSettings = options?.autoOpenSettings !== false;
@@ -2930,17 +2973,24 @@ export function OneLocationAgentPageContent({
         // is what keeps Safari honest, where the value is simply unreadable.
         observedLocationDenialRef.current = false;
         setLocationDenialObserved(false);
-        const nextPermission =
-          await OneLocationService.getPermissionState().catch(() => null);
-        setPermission(
-          nextPermission ?? {
-            state: "granted",
-            precise: null,
-            background: "foreground-only",
-            locationServicesEnabled: true,
-          },
-        );
-        if (shouldCapturePoint) {
+        // Re-reading permission here is bookkeeping — it refreshes `precise`
+        // for the accuracy badge — not a precondition for holding the fix we
+        // just got. Awaiting it put a second platform round trip in front of
+        // every caller, including the on/off control, for a value nothing on
+        // this path goes on to read. Fire it and let it land on its own.
+        void OneLocationService.getPermissionState()
+          .catch(() => null)
+          .then((nextPermission) =>
+            setPermission(
+              nextPermission ?? {
+                state: "granted",
+                precise: null,
+                background: "foreground-only",
+                locationServicesEnabled: true,
+              },
+            ),
+          );
+        if (shouldCapturePoint && !options?.isStale?.()) {
           activateMyLocation(point);
         }
         return shouldCapturePoint ? { ready: true, point } : { ready: true };
@@ -6938,16 +6988,65 @@ export function OneLocationAgentPageContent({
 
   // Returns its outcome so the voice handler below can report what actually
   // happened rather than assuming success. Tap call sites discard it.
+  //
+  // Turning Location on is a PREFERENCE, and the preference is local — nothing
+  // about storing it needs the network. What takes time is the device: a cold
+  // GPS fix is a second or two on a phone and can run the whole sampling budget
+  // on a laptop with no GPS at all. Holding the switch until that fix arrives
+  // is what made this control feel broken, identically, on every platform.
+  //
+  // So the switch moves first and the fix follows it. The one thing that could
+  // make that flip wrong is the platform refusing outright, and that is
+  // readable synchronously from state we already hold — so the common case
+  // never shows an "on" it has to take back.
   const handleShowMyLiveLocation =
     useCallback(async (): Promise<LocalOnboardingActionResult> => {
-      setBusy("selfLocation");
+      const intent = ++locationIntentSeqRef.current;
+      const isStale = () => locationIntentSeqRef.current !== intent;
+      const superseded: LocalOnboardingActionResult = {
+        status: "succeeded",
+        summary: "A newer location change replaced this one.",
+      };
       setMyLocationError(null);
+
+      // Already-known refusal: do not claim an "on" the device cannot deliver.
+      // Everything below still runs, so the person is routed to settings.
+      const platformRefuses = Boolean(locationBlockReason(permission));
+      const previous = locationControl;
+      const applyOptimisticOn = () => {
+        if (platformRefuses) return;
+        automaticPrivatePublishingAllowedRef.current = previous.autoShareEnabled;
+        updateOneLocationControlState(auth.userId, (current) => ({
+          ...current,
+          paused: false,
+          selfPreviewEnabled: true,
+        }));
+      };
+      const rollbackOptimisticOn = () => {
+        if (platformRefuses) return;
+        automaticPrivatePublishingAllowedRef.current =
+          !previous.paused && previous.autoShareEnabled;
+        updateOneLocationControlState(auth.userId, (current) => ({
+          ...current,
+          paused: previous.paused,
+          selfPreviewEnabled: previous.selfPreviewEnabled,
+        }));
+      };
+
+      applyOptimisticOn();
+      setBusy("selfLocation");
       try {
         const result = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: true,
+          isStale,
         });
+        // A newer tap owns the control now. Reporting this one's outcome would
+        // describe a state the person has already moved on from, and rolling
+        // back would fight the newer intent.
+        if (isStale()) return superseded;
         if (!result.ready || !result.point) {
+          rollbackOptimisticOn();
           const message =
             "Live location preview needs device Location permission.";
           setMyLocationError(message);
@@ -6960,70 +7059,92 @@ export function OneLocationAgentPageContent({
           summary: "Location updates are on again for this device.",
         };
       } catch (error) {
+        if (isStale()) return superseded;
+        rollbackOptimisticOn();
         const message = locationServicesErrorMessage(error);
         setMyLocationError(message);
         toast.error(message);
         return { status: "failed", summary: message };
       } finally {
-        setBusy(null);
+        // A newer intent owns `busy` and will clear it itself; clearing it here
+        // would wipe the pending state of work that is still running.
+        if (!isStale()) setBusy(null);
       }
-    }, [ensureForegroundLocationReady]);
+    }, [
+      auth.userId,
+      ensureForegroundLocationReady,
+      locationControl,
+      permission,
+    ]);
 
   // One coordinated pause owns every Location entry point. Private grants keep
   // their consent/expiry contract, but all new foreground/background updates
   // stop. Nearby presence is a separate authority and must explicitly check
-  // out before the UI may claim that Location is paused.
+  // out before the UI may claim that Nearby is clear.
+  //
+  // The ORDER here is the whole safety argument. Every part of a pause that
+  // this device controls happens synchronously, before any await: someone who
+  // says "stop showing me" should not stay visible locally for as long as a
+  // round trip takes, and none of that state lives on a server anyway. What
+  // genuinely is remote — nearby checkout — follows, and is still reported
+  // exactly as honestly as before.
+  //
+  // The pause used to sit BEHIND two serialized nearby calls, which is what
+  // made the switch take seconds to move.
   const handleHideMyLiveLocation =
     useCallback(async (): Promise<LocalOnboardingActionResult> => {
     if (!auth.userId) {
       return { status: "blocked", summary: "Sign in to pause your location." };
     }
+
+    const intent = ++locationIntentSeqRef.current;
+    const isStale = () => locationIntentSeqRef.current !== intent;
+    // A capture still in flight from an earlier "on" no longer owns the pending
+    // state, and its own `finally` will decline to clear it. Clear it here so
+    // the control cannot be stranded looking busy.
+    setBusy((current) => (current === "selfLocation" ? null : current));
+
+    automaticPrivatePublishingAllowedRef.current = false;
+    updateOneLocationControlState(auth.userId, (current) => ({
+      ...current,
+      paused: true,
+      selfPreviewEnabled: false,
+      nearbyPresenceActive: false,
+      nearbyCheckedInAt: null,
+    }));
+    clearMyLocationPreview();
+    setBackgroundShareEnabled(false);
+    setMyLocationError(null);
+
+    // Nearby presence lives on the server under the vault's authority. A locked
+    // vault means we cannot check out — but that is no longer a reason to
+    // refuse the pause, which has already taken effect on this device. Refusing
+    // outright left the person MORE exposed than telling them both halves does.
     if (nearbyCheckInAvailable && !vaultOwnerToken) {
-      const message = "Unlock One before pausing nearby location.";
+      const message =
+        "Location updates are paused on this device, but I could not check you out of nearby presence -- unlock One and pause again to finish that.";
       toast.error(message);
-      return { status: "blocked", summary: message };
+      return { status: "succeeded", summary: message };
     }
 
-    setBusy("selfLocation");
-    automaticPrivatePublishingAllowedRef.current = false;
-    // Nearby checkout is attempted first and is allowed to fail on its own.
-    //
-    // It used to sit inside the main try, so a throw from either nearby call
-    // abandoned the WHOLE pause -- including the local pause, which would
-    // have worked. Observed live: every spoken "pause my location" settled
-    // `failed` with "you may still be visible nearby", while resume always
-    // succeeded. Resume touches nearby not at all, which is the entire
-    // asymmetry: the failure was never about pausing.
-    //
-    // Hiding locally is the part the person asked for and the part that can
-    // still be delivered, so it is no longer held hostage to the other. What
-    // is NOT done is call it a clean pause when the nearby half failed --
-    // that would be the one lie this action must never tell.
-    let nearbyCheckoutFailed = false;
-    if (nearbyCheckInAvailable && vaultOwnerToken) {
+    // Checkout is idempotent server-side: it clears an ACTIVE row and reports
+    // success either way. So the presence GET that used to precede it bought
+    // nothing but a second serialized round trip inside the pause — and asking
+    // first is strictly worse than just telling, because the answer can go
+    // stale between the two calls. The dedupe window below keeps a flurry of
+    // taps off the 6/minute nearby-write limit without letting this device act
+    // on a stale belief about account-wide presence.
+    const checkedOutRecently =
+      nearbyCheckoutConfirmedAtRef.current > 0 &&
+      Date.now() - nearbyCheckoutConfirmedAtRef.current <
+        NEARBY_CHECKOUT_DEDUPE_MS;
+    const shouldCheckOut =
+      nearbyCheckInAvailable && Boolean(vaultOwnerToken) && !checkedOutRecently;
+    if (shouldCheckOut && vaultOwnerToken) {
       try {
-        const nearby = await OneLocationService.getNearbyPresence({
-          vaultOwnerToken,
-        });
-        if (nearby.presence) {
-          await OneLocationService.checkoutNearby({ vaultOwnerToken });
-        }
+        await OneLocationService.checkoutNearby({ vaultOwnerToken });
+        nearbyCheckoutConfirmedAtRef.current = Date.now();
       } catch {
-        nearbyCheckoutFailed = true;
-      }
-    }
-    try {
-      updateOneLocationControlState(auth.userId, (current) => ({
-        ...current,
-        paused: true,
-        selfPreviewEnabled: false,
-        nearbyPresenceActive: false,
-        nearbyCheckedInAt: null,
-      }));
-      clearMyLocationPreview();
-      setBackgroundShareEnabled(false);
-      setMyLocationError(null);
-      if (nearbyCheckoutFailed) {
         // Both halves of the truth, in the order that matters: what is now
         // private, then what is not. Told as `succeeded` because the thing
         // asked for did happen -- reporting failure would send someone to
@@ -7034,27 +7155,25 @@ export function OneLocationAgentPageContent({
         toast.error(message);
         return { status: "succeeded", summary: message };
       }
-      toast.success("Location updates are paused on this device.");
+    }
+
+    // The checkout still had to happen, but announcing a pause after the person
+    // has already turned Location back on would describe a state that is no
+    // longer true.
+    if (isStale()) {
       return {
         status: "succeeded",
-        summary: "Location updates are paused on this device.",
+        summary: "A newer location change replaced this one.",
       };
-    } catch {
-      automaticPrivatePublishingAllowedRef.current =
-        locationControl.autoShareEnabled;
-      const message =
-        "Pause did not complete. You may still be visible nearby; please try again.";
-      toast.error(message);
-      // Reported as failed, not blocked: the person may still be visible, and
-      // saying "paused" here would be the one lie this action must never tell.
-      return { status: "failed", summary: message };
-    } finally {
-      setBusy(null);
     }
+    toast.success("Location updates are paused on this device.");
+    return {
+      status: "succeeded",
+      summary: "Location updates are paused on this device.",
+    };
   }, [
     auth.userId,
     clearMyLocationPreview,
-    locationControl.autoShareEnabled,
     nearbyCheckInAvailable,
     vaultOwnerToken,
   ]);
@@ -8669,6 +8788,12 @@ export function OneLocationAgentPageContent({
     autoShareEnabled: locationControl.autoShareEnabled,
     locationPaused: locationControl.paused,
     locationAccuracyLimited,
+    // The switch is already on and the device has not found us yet. This is the
+    // honest replacement for the old disabled-and-pulsing switch: the control
+    // stays live and the STATUS carries the waiting, instead of the person
+    // being locked out of a control that looks stuck.
+    locationAcquiring:
+      locationEnabled && !myLocationPoint && busy === "selfLocation",
     myLocationPoint,
     myLocationError,
     recipients: shareRecipientPool,

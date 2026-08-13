@@ -114,6 +114,15 @@ export class HushhLocationWeb implements HushhLocationPlugin {
     // Accuracy (meters) at which we stop sampling early — a confident fix.
     const TARGET_ACCURACY_M = 35;
 
+    // How long to keep refining AFTER the first usable fix lands. The sampling
+    // budget below is the ceiling for finding ANY fix at all; once one is in
+    // hand, holding the caller for the rest of it buys accuracy nobody is
+    // waiting for. It cost the most on the devices that could least afford it:
+    // a laptop with no GPS produces one coarse fix and no better one is ever
+    // coming, so every capture sat out the entire budget before returning a
+    // result it already had within a few hundred milliseconds.
+    const REFINE_AFTER_FIRST_FIX_MS = 1_200;
+
     const toFix = (position: GeolocationPosition): WebFix => ({
       latitude: position.coords.latitude,
       longitude: position.coords.longitude,
@@ -162,11 +171,16 @@ export class HushhLocationWeb implements HushhLocationPlugin {
         let settled = false;
         let watchId: number | null = null;
         let timer: ReturnType<typeof setTimeout> | null = null;
+        let refineTimer: ReturnType<typeof setTimeout> | null = null;
 
         const cleanup = () => {
           if (timer !== null) {
             clearTimeout(timer);
             timer = null;
+          }
+          if (refineTimer !== null) {
+            clearTimeout(refineTimer);
+            refineTimer = null;
           }
           if (watchId !== null) {
             navigator.geolocation.clearWatch(watchId);
@@ -191,6 +205,17 @@ export class HushhLocationWeb implements HushhLocationPlugin {
                 best.accuracyM <= TARGET_ACCURACY_M
               ) {
                 finish(best);
+                return;
+              }
+              // First fix in hand but not yet confident. Give later fixes a
+              // short window to beat it — enough to reject one jumpy reading,
+              // which is the whole point of sampling — then return the best of
+              // them rather than waiting out the full budget.
+              if (refineTimer === null) {
+                refineTimer = setTimeout(
+                  () => finish(best),
+                  REFINE_AFTER_FIRST_FIX_MS,
+                );
               }
             },
             (error) => {

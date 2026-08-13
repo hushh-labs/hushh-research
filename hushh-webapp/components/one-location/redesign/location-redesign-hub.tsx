@@ -191,6 +191,12 @@ export type LocationHubViewModel = {
   autoShareEnabled: boolean;
   locationPaused: boolean;
   locationAccuracyLimited: boolean;
+  /**
+   * Location is on and the device has not produced a fix yet. Drives the status
+   * text only — never a disabled control, because this is exactly the window in
+   * which someone is most likely to want to change their mind.
+   */
+  locationAcquiring: boolean;
   myLocationPoint: PlainLocationPoint | null;
   myLocationError: string | null;
 
@@ -510,18 +516,21 @@ export function resolveLocationDeepLinkFocus(input: {
   return { detailAction: null, nextTab: null };
 }
 
-const BUSY = (vm: LocationHubViewModel, key: string) => vm.busy === key;
-
 function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
   const locationOn = vm.locationEnabled;
-  const toggling = BUSY(vm, "selfLocation");
-  const refreshing = BUSY(vm, "load");
-  const statusLabel = locationStatusLabel({
-    readiness: vm.locationBlocked ? "blocked" : locationOn ? "ready" : "askable",
-    previewOn: locationOn,
-    paused: vm.locationPaused,
-    accuracyLimited: vm.locationAccuracyLimited,
-  });
+  const acquiring = vm.locationAcquiring;
+  const statusLabel = acquiring
+    ? "Finding you…"
+    : locationStatusLabel({
+        readiness: vm.locationBlocked
+          ? "blocked"
+          : locationOn
+            ? "ready"
+            : "askable",
+        previewOn: locationOn,
+        paused: vm.locationPaused,
+        accuracyLimited: vm.locationAccuracyLimited,
+      });
 
   const handleLocationChange = (checked: boolean) => {
     if (checked === locationOn) return;
@@ -550,7 +559,11 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
           size="ios"
           checked={locationOn}
           onCheckedChange={handleLocationChange}
-          disabled={toggling || refreshing}
+          // Deliberately never disabled. What it controls is local state that
+          // flips on tap, so a disabled window could only ever swallow the
+          // person's NEXT tap — during the very seconds the device spends
+          // finding them, which is when they are most likely to change their
+          // mind. The status text carries the waiting instead.
           aria-label={locationOn ? "Turn location off" : "Turn location on"}
           // The same pair of contract actions the Settings toggle carries.
           // Both are the same control in two places, so voice can offer
@@ -558,7 +571,7 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
           data-voice-control-id="one-location-updates-toggle"
           // No colour override: the shared Switch already carries the iOS
           // system green, so this toggle reads the same as every other one.
-          className={cn(toggling && "animate-pulse")}
+          className={cn(acquiring && "animate-pulse")}
         />
       </div>
     </div>
@@ -1532,7 +1545,6 @@ function LocationSettingsFlow({
               checked={vm.autoShareEnabled}
               onChange={vm.onAutoShareChange}
               label="Auto-share my location"
-              disabled={BUSY(vm, "selfLocation")}
             />
           }
           density="compact"
@@ -1551,7 +1563,6 @@ function LocationSettingsFlow({
                 vm.onResumeMyLocation();
               }}
               label="Pause my location"
-              disabled={BUSY(vm, "selfLocation")}
               voiceControlId="one-location-updates-toggle"
             />
           }

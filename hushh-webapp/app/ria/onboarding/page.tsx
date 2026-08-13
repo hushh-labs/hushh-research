@@ -396,10 +396,12 @@ export default function RiaOnboardingPage({
           });
         }
 
-        // An explicit ?edit=license / ?step= / ?reinitiate deep-link wins over the
-        // persisted draft step so the profile CTAs land on the right step.
-        const preferredStepId =
-          requestedStepIdRef.current ?? localDraft?.currentStepId ?? null;
+        // Opening RIA setup always lands on step 1. The saved draft still
+        // prefills every field, but its step pointer is deliberately ignored so
+        // entering the flow never drops the user mid-wizard (and never skips the
+        // welcome step's cinematic intro). Only an explicit
+        // ?edit=license / ?step= / ?reinitiate deep-link may land elsewhere.
+        const preferredStepId = requestedStepIdRef.current;
         const currentStepId = preferredStepId
           ? resolveRiaOnboardingStepId(resolvedDraft, preferredStepId, {
               licenseVerificationSatisfied:
