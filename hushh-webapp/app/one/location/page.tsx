@@ -284,6 +284,8 @@ import {
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
+import { trackLocationShareConfirmed } from "@/lib/observability/location-events";
+import { trackLocationFunnelStepCompleted } from "@/lib/observability/growth";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
 import { LiveMap } from "@/components/one-location/live-map";
@@ -3944,7 +3946,7 @@ export function OneLocationAgentPageContent({
       if (!successCount && lastRecipientError) {
         throw lastRecipientError;
       }
-      trackEvent("one_location_share_confirmed", {
+      trackLocationShareConfirmed({
         route_id: "one_location",
         result: oneLocationEventResult(successCount, recipientFailureCount),
         selected_count: shareReadySelectedRecipients.length,
@@ -3975,7 +3977,7 @@ export function OneLocationAgentPageContent({
         recipientFailureCount ||
         shareReadySelectedRecipients.length - successCount ||
         1;
-      trackEvent("one_location_share_confirmed", {
+      trackLocationShareConfirmed({
         route_id: "one_location",
         result: oneLocationEventResult(successCount, failureCount),
         selected_count: shareReadySelectedRecipients.length,
@@ -4287,6 +4289,18 @@ export function OneLocationAgentPageContent({
           (mail.withoutEmail.length > 0
             ? ` No email on file for ${formatNameList(mail.withoutEmail)}.`
             : "");
+
+        // Counts only — never the note, the coordinates, or who was contacted.
+        // `reached_count: 0` is the signal that matters: an emergency alert
+        // that reached nobody is the most serious failure this product has.
+        trackEvent("one_location_sos_triggered", {
+          route_id: "one_location",
+          result: reached > 0 ? "success" : "error",
+          selected_count: totalSelected,
+          reached_count: reached,
+          unreachable_count: unreachable.length,
+          has_note: Boolean(note && note.trim()),
+        });
 
         if (reached === 0) {
           const stillNoOne = mail.emailed === 0;
@@ -5858,6 +5872,7 @@ export function OneLocationAgentPageContent({
         copied_to_clipboard: copiedToClipboard,
         active_invite_count: activeCircleInvites.length + 1,
       });
+      trackLocationFunnelStepCompleted("invite_shared");
       toast.success(
         copiedToClipboard
           ? "Invite to One link created and copied."
@@ -6099,6 +6114,14 @@ export function OneLocationAgentPageContent({
           kind,
         });
         scheduleNamedCircleStateRefresh();
+        // The kind, never the name — a Circle name is the user's own words and
+        // often identifies a household.
+        trackEvent("one_location_circle_created", {
+          route_id: "one_location",
+          result: "success",
+          circle_kind: kind,
+        });
+        trackLocationFunnelStepCompleted("circle_created");
         toast.success(`${circle.name} created.`);
         return circle;
       } catch (error) {
@@ -7199,7 +7222,7 @@ export function OneLocationAgentPageContent({
         }
         const successCount = succeededRecipientIds.length;
         const failureCount = failedRecipientIds.length;
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(successCount, failureCount),
           selected_count: selected.length,
@@ -7207,6 +7230,18 @@ export function OneLocationAgentPageContent({
           failure_count: failureCount,
           duration_bucket: oneLocationDurationBucket(durationHoursValue),
           review_required: false,
+        });
+        // Emitted alongside the share event, not instead of it: a check-in *is*
+        // a recipient-scoped share and still counts toward activation, but
+        // without its own event Check-In and live sharing are indistinguishable
+        // in reporting, so we cannot tell which feature people actually use.
+        trackEvent("one_location_check_in_completed", {
+          route_id: "one_location",
+          result: oneLocationEventResult(successCount, failureCount),
+          selected_count: selected.length,
+          success_count: successCount,
+          failure_count: failureCount,
+          circle_targeted: Boolean(request.sourceCircleId),
         });
         if (failureCount === 0) {
           toast.success(
@@ -7236,7 +7271,7 @@ export function OneLocationAgentPageContent({
           .filter(
             (recipientId) => !succeededRecipientIds.includes(recipientId),
           );
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(
             succeededRecipientIds.length,
@@ -7506,7 +7541,7 @@ export function OneLocationAgentPageContent({
           await publishEnvelopeWithRetry(grant, recipient, "manual", point);
           successCount += 1;
         }
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(successCount, 0),
           selected_count: selected.length,
@@ -7522,7 +7557,7 @@ export function OneLocationAgentPageContent({
         void refresh().catch(() => null);
       } catch (error) {
         const failureCount = selected.length - successCount || 1;
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(successCount, failureCount),
           selected_count: selected.length,

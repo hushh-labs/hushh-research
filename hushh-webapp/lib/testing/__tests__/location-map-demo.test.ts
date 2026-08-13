@@ -21,18 +21,50 @@ describe("location map demo fixture", () => {
     expect(isLocationMapDemoEnabled("true")).toBe(false);
   });
 
-  it("is available in UAT but stays hidden in ordinary production", () => {
+  /**
+   * This case previously asserted that a UAT-stamped build shows the fixture.
+   * That assertion was the bug: the public App Store and Play Store builds are
+   * stamped `NEXT_PUBLIC_APP_ENV=uat` because they ship against the UAT backend
+   * (`release-ios-appstore.yml`, `ship-android-playstore-v1.yml`), so "UAT means
+   * safe to show fifty fictional people" put them on real users' maps.
+   *
+   * The contract is now explicit opt-in, and this test guards the store case
+   * directly.
+   */
+  it("stays hidden in any build that has not opted in, including store builds", () => {
     const previousEnvironment = process.env.NEXT_PUBLIC_APP_ENV;
+    const previousFlag = process.env.NEXT_PUBLIC_LOCATION_MAP_DEMO;
     try {
       nativeTestHarness.enabled = false;
+      delete process.env.NEXT_PUBLIC_LOCATION_MAP_DEMO;
+
+      // The exact shape of a public App Store / Play Store build.
       process.env.NEXT_PUBLIC_APP_ENV = "uat";
-      expect(isLocationMapDemoAvailable()).toBe(true);
+      expect(isLocationMapDemoAvailable()).toBe(false);
+
       process.env.NEXT_PUBLIC_APP_ENV = "production";
       expect(isLocationMapDemoAvailable()).toBe(false);
+
+      // Operators opt in explicitly, independent of which backend is targeted.
+      process.env.NEXT_PUBLIC_LOCATION_MAP_DEMO = "true";
+      expect(isLocationMapDemoAvailable()).toBe(true);
+      delete process.env.NEXT_PUBLIC_LOCATION_MAP_DEMO;
+
+      // Local development keeps the fixture without any flag.
+      process.env.NEXT_PUBLIC_APP_ENV = "development";
+      expect(isLocationMapDemoAvailable()).toBe(true);
+
+      // Native UI tests keep it regardless of environment.
+      process.env.NEXT_PUBLIC_APP_ENV = "uat";
       nativeTestHarness.enabled = true;
       expect(isLocationMapDemoAvailable()).toBe(true);
     } finally {
       process.env.NEXT_PUBLIC_APP_ENV = previousEnvironment;
+      if (previousFlag === undefined) {
+        delete process.env.NEXT_PUBLIC_LOCATION_MAP_DEMO;
+      } else {
+        process.env.NEXT_PUBLIC_LOCATION_MAP_DEMO = previousFlag;
+      }
       nativeTestHarness.enabled = true;
     }
   });

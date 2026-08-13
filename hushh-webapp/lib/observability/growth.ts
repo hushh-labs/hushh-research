@@ -6,6 +6,9 @@ import type {
   AuthMethod,
   GrowthEntrySurface,
   GrowthJourney,
+  GrowthLocationActivationPath,
+  GrowthLocationInviteSource,
+  GrowthLocationStep,
   GrowthPortfolioSource,
   GrowthRiaStep,
   GrowthWorkspaceSource,
@@ -19,6 +22,7 @@ const CLIENT_VERSION_FALLBACK = "unknown";
 interface GrowthJourneyContext {
   entrySurface?: GrowthEntrySurface;
   authMethod?: AuthMethod;
+  inviteSource?: GrowthLocationInviteSource;
   updatedAt?: string;
 }
 
@@ -27,13 +31,42 @@ interface GrowthAttributionContext {
   referrerHost?: string;
   landingPath?: string;
   capturedAt: string;
+  /**
+   * First-touch campaign values. Held here rather than read from the URL at
+   * emit time because the One auth gate (sign-in, phone verification, vault
+   * unlock) navigates away from the tagged landing URL long before a user
+   * reaches activation. Without persistence every social visit reports as
+   * `(direct) / (not set)`.
+   */
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmContent?: string;
 }
 
 interface GrowthContextState {
   version: 1;
   investor?: GrowthJourneyContext;
   ria?: GrowthJourneyContext;
+  location?: GrowthJourneyContext;
   attribution?: GrowthAttributionContext;
+  /**
+   * Funnel steps already emitted, so each fires at most once per user per
+   * device. The dedupe in `client.ts` is an in-memory burst guard that resets
+   * on reload — it cannot express "once, ever", which is what a funnel needs
+   * for its step-to-step ratios to be readable as drop-off.
+   */
+  emittedSteps?: string[];
+}
+
+/** Campaign values are attacker-controlled URL input; keep them short and boring. */
+const MAX_UTM_VALUE_LENGTH = 100;
+
+function sanitizeCampaignValue(value: string | null): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim().slice(0, MAX_UTM_VALUE_LENGTH);
+  if (!trimmed) return undefined;
+  return trimmed.replace(/[^\w.\-/ ]/g, "").toLowerCase() || undefined;
 }
 
 interface GrowthContextPatch {
@@ -80,7 +113,11 @@ function readGrowthContext(): GrowthContextState {
       version: 1,
       investor: parsed.investor,
       ria: parsed.ria,
+      location: parsed.location,
       attribution: parsed.attribution,
+      emittedSteps: Array.isArray(parsed.emittedSteps)
+        ? parsed.emittedSteps
+        : undefined,
     };
   } catch {
     return { version: 1 };
@@ -145,6 +182,15 @@ export function resolveGrowthJourneyForPath(pathname: string): GrowthJourney | n
   if (pathname === KAI_MARKET_PATH || pathname.startsWith(`${KAI_MARKET_PATH}/`)) {
     return "investor";
   }
+  if (
+    pathname === ROUTES.ONE_LOCATION ||
+    pathname.startsWith(`${ROUTES.ONE_LOCATION}/`) ||
+    pathname === ROUTES.ONE_SETUP_LOCATION ||
+    pathname.startsWith(`${ROUTES.ONE_SETUP_LOCATION}/`) ||
+    pathname.startsWith("/circle/join")
+  ) {
+    return "location";
+  }
   return null;
 }
 
@@ -168,6 +214,22 @@ export function resolveGrowthEntrySurface(pathname: string): GrowthEntrySurface 
   }
   if (pathname === ROUTES.RIA_HOME || pathname.startsWith(`${ROUTES.RIA_HOME}/`)) {
     return "ria_home";
+  }
+  if (pathname.startsWith("/circle/join")) return "circle_join";
+  if (pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)) {
+    return "public_location_link";
+  }
+  if (
+    pathname === ROUTES.ONE_SETUP_LOCATION ||
+    pathname.startsWith(`${ROUTES.ONE_SETUP_LOCATION}/`)
+  ) {
+    return "one_location_onboarding";
+  }
+  if (
+    pathname === ROUTES.ONE_LOCATION ||
+    pathname.startsWith(`${ROUTES.ONE_LOCATION}/`)
+  ) {
+    return "one_location";
   }
   return "unknown";
 }
@@ -193,17 +255,36 @@ export function captureGrowthAttribution(pathname: string): void {
   const nextEntrySurface = resolveGrowthEntrySurface(pathname);
   const journey = resolveGrowthJourneyForPath(pathname);
 
+  // First-touch wins: once a campaign is recorded it is never overwritten by a
+  // later untagged visit, otherwise an internal navigation would relabel a
+  // Reddit-sourced user as direct.
+  const alreadyAttributedToCampaign = Boolean(context.attribution?.utmSource);
+
   if (
     campaignTagged ||
     referrerHost ||
     !context.attribution ||
     context.attribution.landingPath !== pathname
   ) {
+    const previous = context.attribution;
     context.attribution = {
-      campaignTagged,
-      referrerHost,
-      landingPath: pathname,
-      capturedAt: nowIso(),
+      campaignTagged: campaignTagged || Boolean(previous?.campaignTagged),
+      referrerHost: referrerHost || previous?.referrerHost,
+      landingPath: previous?.landingPath || pathname,
+      capturedAt: previous?.capturedAt || nowIso(),
+      ...(alreadyAttributedToCampaign
+        ? {
+            utmSource: previous?.utmSource,
+            utmMedium: previous?.utmMedium,
+            utmCampaign: previous?.utmCampaign,
+            utmContent: previous?.utmContent,
+          }
+        : {
+            utmSource: sanitizeCampaignValue(searchParams.get("utm_source")),
+            utmMedium: sanitizeCampaignValue(searchParams.get("utm_medium")),
+            utmCampaign: sanitizeCampaignValue(searchParams.get("utm_campaign")),
+            utmContent: sanitizeCampaignValue(searchParams.get("utm_content")),
+          }),
     };
   }
 
@@ -297,6 +378,114 @@ export function trackInvestorActivationCompleted({
       dedupeWindowMs,
     }
   );
+}
+
+/**
+ * Records that a once-per-user milestone has fired and reports whether this
+ * call is the first. Durable across reloads and across the auth gate, which an
+ * in-memory dedupe window cannot be.
+ */
+function claimOncePerUser(marker: string): boolean {
+  const context = readGrowthContext();
+  const emitted = context.emittedSteps || [];
+  if (emitted.includes(marker)) return false;
+  context.emittedSteps = [...emitted, marker];
+  writeGrowthContext(context);
+  return true;
+}
+
+export function rememberLocationInviteSource(
+  inviteSource: GrowthLocationInviteSource
+): void {
+  const context = readGrowthContext();
+  // First touch wins — a user who arrived on a circle code and later opens a
+  // public link is still a circle-code acquisition.
+  if (context.location?.inviteSource) return;
+  context.location = {
+    ...(context.location || {}),
+    inviteSource,
+    updatedAt: nowIso(),
+  };
+  writeGrowthContext(context);
+}
+
+/**
+ * Emits one step of the One Location funnel, at most once per user per device.
+ * Step-to-step ratios are the drop-off readout, so a step that fired twice for
+ * one user would silently corrupt the funnel.
+ */
+export function trackLocationFunnelStepCompleted(
+  step: GrowthLocationStep,
+  options: { entrySurface?: GrowthEntrySurface; authMethod?: AuthMethod } = {}
+): void {
+  if (!claimOncePerUser(`location:${step}`)) return;
+
+  const current = resolveJourneyContext("location");
+  const resolvedEntrySurface =
+    options.entrySurface ||
+    current.entrySurface ||
+    resolveGrowthEntrySurface(
+      typeof window !== "undefined" ? window.location.pathname : ""
+    );
+  const resolvedAuthMethod = options.authMethod || current.authMethod;
+
+  rememberGrowthJourneyContext("location", {
+    entrySurface: resolvedEntrySurface,
+    authMethod: resolvedAuthMethod,
+  });
+
+  trackEvent("growth_funnel_step_completed", {
+    journey: "location",
+    step,
+    ...(resolvedEntrySurface ? { entry_surface: resolvedEntrySurface } : {}),
+    ...(resolvedAuthMethod ? { auth_method: resolvedAuthMethod } : {}),
+    ...(current.inviteSource ? { invite_source: current.inviteSource } : {}),
+    app_version: resolveClientVersion(),
+  });
+}
+
+/**
+ * The One Location north-star: location has actually moved between two people.
+ * Fires at most once per user, on whichever side happens first.
+ */
+export function trackLocationActivationCompleted({
+  activationPath,
+  entrySurface,
+  authMethod,
+  recipientCountBucket,
+  shareDurationBucket,
+}: {
+  activationPath: GrowthLocationActivationPath;
+  entrySurface?: GrowthEntrySurface;
+  authMethod?: AuthMethod;
+  recipientCountBucket?: string;
+  shareDurationBucket?: string;
+}): void {
+  if (!claimOncePerUser("location:activated")) return;
+
+  const current = resolveJourneyContext("location");
+  const resolvedEntrySurface =
+    entrySurface ||
+    current.entrySurface ||
+    resolveGrowthEntrySurface(
+      typeof window !== "undefined" ? window.location.pathname : ""
+    );
+  const resolvedAuthMethod = authMethod || current.authMethod;
+
+  trackEvent("one_location_activation_completed", {
+    journey: "location",
+    activation_path: activationPath,
+    ...(resolvedEntrySurface ? { entry_surface: resolvedEntrySurface } : {}),
+    ...(resolvedAuthMethod ? { auth_method: resolvedAuthMethod } : {}),
+    ...(current.inviteSource ? { invite_source: current.inviteSource } : {}),
+    ...(recipientCountBucket
+      ? { recipient_count_bucket: recipientCountBucket }
+      : {}),
+    ...(shareDurationBucket
+      ? { share_duration_bucket: shareDurationBucket }
+      : {}),
+    app_version: resolveClientVersion(),
+  });
 }
 
 export function trackRiaActivationCompleted({
