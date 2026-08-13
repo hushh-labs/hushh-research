@@ -376,6 +376,11 @@ jobs:
           # Durable Kai analyze-run store ON in UAT: exercises the migration-125
           # persist/replay path against real Cloud SQL before prod flips it on.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_KAI_ANALYZE_DURABLE_RUN_STORE=true"
+          verify_managed_vertex_runtime=false
+          if [ "${{ steps.verification-plan.outputs.pkm_evaluator_runs }}" != "0" ]; then
+            verify_managed_vertex_runtime=true
+          fi
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_VERIFY_MANAGED_VERTEX_RUNTIME=${verify_managed_vertex_runtime}"
           # RIA claim-by-phone: identity resolver + the UAT demo passcode
           # allowlist (fixed code, no SMS to real firm lines). UAT-only.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RIA_IDENTITY_BASE_URL_SECRET=RIA_IDENTITY_BASE_URL##_RIA_IDENTITY_API_KEY_SECRET=RIA_IDENTITY_API_KEY##_RIA_CLAIM_TEST_NUMBERS_SECRET=RIA_CLAIM_TEST_NUMBERS##_RIA_CLAIM_TEST_CODE_SECRET=RIA_CLAIM_TEST_CODE##_RIA_CLAIM_TEST_EMAILS_SECRET=RIA_CLAIM_TEST_EMAILS##_INTELLIGENCE_API_BASE_URL_SECRET=INTELLIGENCE_API_BASE_URL##_INTELLIGENCE_API_KEY_SECRET=INTELLIGENCE_API_KEY##_SUPPORT_EMAIL_TEST_TO_SECRET=SUPPORT_EMAIL_TEST_TO##_SUPPORT_EMAIL_MODE_SECRET=SUPPORT_EMAIL_MODE##_SUPPORT_EMAIL_DELEGATED_USER_SECRET=SUPPORT_EMAIL_DELEGATED_USER##_SUPPORT_EMAIL_FROM_SECRET=SUPPORT_EMAIL_FROM##_GOOGLE_SERVICE_ACCOUNT_EMAIL_SECRET=GOOGLE_SERVICE_ACCOUNT_EMAIL##_GOOGLE_PRIVATE_KEY_SECRET=GOOGLE_PRIVATE_KEY"
