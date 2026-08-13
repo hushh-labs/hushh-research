@@ -283,10 +283,14 @@ import {
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
 import { forgetCachedRendererConsent } from "@/lib/one-location/map-renderer-consent";
+import { __resetNativeMapLifecycleForTests } from "@/lib/one-location/native-map-lifecycle";
 
 const DEFAULT_PLACE_FOCUS = { ...experienceHarness.placeFocus };
 
 beforeEach(() => {
+  // Lanes are module state: without this a superseded claim or a queued
+  // teardown from an earlier case leaks into the next one.
+  __resetNativeMapLifecycleForTests();
   experienceHarness.placeFocus = { ...DEFAULT_PLACE_FOCUS };
   forgetOneLocationControlPreference("test-user");
   forgetCachedRendererConsent("test-user");
@@ -1409,5 +1413,158 @@ describe("LocationImmersiveMap native map lifecycle", () => {
       "destroyed:1",
       "create:2",
     ]);
+  });
+});
+
+/**
+ * Time-to-map is a latency budget, not a feeling. These cases pin the cost of
+ * opening Your Map in bridge round-trips and scheduler turns so a regression
+ * shows up here rather than in someone's hand on a device.
+ */
+describe("LocationImmersiveMap open latency", () => {
+  it("issues the native create without waiting on any timer", async () => {
+    render(<LocationImmersiveMap />);
+
+    // Drain microtasks only -- never advance a timer. Reaching the bridge here
+    // proves nothing on the open path is gated on a scheduled delay: not the
+    // layout wait, which short-circuits on an already-measured container, and
+    // not the lane, which is free. A regression that puts either behind a
+    // timer fails right here rather than showing up as a slow map on a device.
+    await act(async () => {
+      for (let tick = 0; tick < 12; tick += 1) await Promise.resolve();
+    });
+    expect(mapHarness.create).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    // One native create per open. A second would mean the map is built twice
+    // on the way in -- the cost the serialization exists to avoid, not add.
+    expect(mapHarness.create).toHaveBeenCalledTimes(1);
+    expect(mapHarness.map.destroy).not.toHaveBeenCalled();
+  });
+
+  it("costs the live map one teardown, not an unbounded wait, when a mount is superseded", async () => {
+    const first = render(<LocationImmersiveMap />);
+    await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    render(<LocationImmersiveMap />);
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    // Exactly two creates and one destroy: the outgoing map is torn down once
+    // and the incoming one is built once. Serializing must not turn a remount
+    // into a retry loop.
+    expect(mapHarness.create).toHaveBeenCalledTimes(2);
+    expect(mapHarness.map.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("still opens after a create fails, instead of hanging behind it", async () => {
+    // A poisoned lane would leave every later open on a spinner that never
+    // resolves -- a worse outcome than the blank map this all started with.
+    mapHarness.create.mockRejectedValueOnce(new Error("bridge unavailable"));
+
+    const failed = render(<LocationImmersiveMap />);
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-map"),
+      ).toHaveAttribute("data-map-ready", "false");
+    });
+    failed.unmount();
+
+    render(<LocationImmersiveMap />);
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+  });
+});
+
+/**
+ * The paths that actually put a second mount inside a create window. Each one
+ * is ordinary navigation, not an edge case, which is why the blank map was
+ * reproducible enough for QA to file it.
+ */
+describe("LocationImmersiveMap remount triggers", () => {
+  it("survives the owner-scoped remount both map routes perform", async () => {
+    // /one/location/map and /one/location/check-in both render this component
+    // under key={auth.userId ?? "anonymous"}. When the owner id arrives the key
+    // changes, React throws the mount away and builds a fresh one -- straight
+    // through an in-flight create.
+    const first = render(<LocationImmersiveMap key="anonymous" />);
+    await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    render(<LocationImmersiveMap key="test-user" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    expect(mapHarness.map.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("redirects the legacy check-in entry point off the map route", async () => {
+    // The Location hub still pushes /one/location/map?action=check-in, and the
+    // map route bounces it to the check-in route. That bounce is a second
+    // mount of this same component on the same native map id.
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+
+    render(<LocationImmersiveMap />);
+
+    await waitFor(() => {
+      expect(navigationHarness.replace).toHaveBeenCalledWith(
+        "/one/location/check-in",
+        { scroll: false },
+      );
+    });
+  });
+
+  it("leaves a usable map behind when check-in is opened and dismissed", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "";
+
+    render(<LocationImmersiveMap surface="check-in" />);
+    // Renderer consent gates the sheet and the marker refresh alike.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
+
+    // Dismissing the sheet is not leaving the screen: the map underneath has
+    // to still be there, and still be the one this mount created.
+    await waitFor(() => {
+      expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
+        "data-open",
+        "false",
+      );
+    });
+    expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+      "data-map-ready",
+      "true",
+    );
+    expect(mapHarness.map.destroy).not.toHaveBeenCalled();
   });
 });
