@@ -86,6 +86,20 @@ async function apiJsonWithRetry<T>(
   }
 }
 
+/**
+ * How long a captured fix stays reusable. Deliberately well under the 60s the
+ * backend allows between capture and confirmation, so a reused point still
+ * passes the server's freshness check and still describes where the user
+ * actually is.
+ */
+export const CAPTURE_DEFAULT_MAX_AGE_MS = 20_000;
+
+/** The most recent fix, reused inside CAPTURE_DEFAULT_MAX_AGE_MS. */
+let lastCapturedPoint: PlainLocationPoint | null = null;
+
+/** In-flight capture, shared so N simultaneous callers cause one GPS read. */
+let pendingCapture: Promise<PlainLocationPoint> | null = null;
+
 export class OneLocationService {
   static async getPermissionState() {
     return HushhLocation.getPermissionState();
@@ -107,11 +121,66 @@ export class OneLocationService {
     return HushhLocation.openLocationSettings();
   }
 
-  static async captureCurrentPosition(): Promise<PlainLocationPoint> {
-    return HushhLocation.getCurrentPosition({
+  /**
+   * The account's current position, held briefly and shared between callers.
+   *
+   * Every control on this surface used to reach the device directly, so one
+   * share wizard paid for a full GPS acquisition per step and each one cost
+   * seconds. Two guards remove that without ever serving a position stale
+   * enough to be wrong:
+   *
+   * - a fix younger than `maxAgeMs` is reused instead of re-acquired;
+   * - concurrent callers share ONE in-flight acquisition rather than each
+   *   starting their own — sharing with N people used to mean N simultaneous
+   *   GPS reads, which is slower than one read for every one of them.
+   *
+   * Pass `maxAgeMs: 0` to force a genuinely new fix. The live-share publisher
+   * does exactly that: a recipient watching someone move must never be handed
+   * a cached point, or the share looks paused.
+   */
+  static async captureCurrentPosition(options?: {
+    maxAgeMs?: number;
+  }): Promise<PlainLocationPoint> {
+    const maxAgeMs = options?.maxAgeMs ?? CAPTURE_DEFAULT_MAX_AGE_MS;
+
+    if (lastCapturedPoint && maxAgeMs > 0) {
+      const capturedMs = Date.parse(lastCapturedPoint.capturedAt);
+      if (Number.isFinite(capturedMs) && Date.now() - capturedMs <= maxAgeMs) {
+        return lastCapturedPoint;
+      }
+    }
+
+    // An acquisition already running is fresher than anything we could start
+    // now, so every caller joins it — including one that asked for maxAgeMs: 0.
+    if (pendingCapture) return pendingCapture;
+
+    pendingCapture = HushhLocation.getCurrentPosition({
       enableHighAccuracy: true,
       timeoutMs: 15_000,
-    });
+    })
+      .then((point) => {
+        lastCapturedPoint = point;
+        return point;
+      })
+      .finally(() => {
+        pendingCapture = null;
+      });
+
+    return pendingCapture;
+  }
+
+  /**
+   * Drop the reusable fix. Call when the device may have moved without us —
+   * a permission change, or the app returning from background.
+   */
+  static invalidateCapturedPosition(): void {
+    lastCapturedPoint = null;
+  }
+
+  /** Test seam. Never call from app code. */
+  static __resetCaptureCacheForTests(): void {
+    lastCapturedPoint = null;
+    pendingCapture = null;
   }
 
   /**

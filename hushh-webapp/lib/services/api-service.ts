@@ -348,6 +348,54 @@ async function classifyVaultOwnerAuthFailure(
  * Wrapped with API progress tracking so the route progress bar can reflect
  * real network activity across the app.
  */
+/**
+ * Ceiling for a browser `fetch`. Above the Next proxy's own 45s upstream
+ * timeout so the proxy's 504 still wins and `apiJsonWithRetry` keeps working —
+ * this only ever bounds a request the proxy itself could not bound.
+ */
+const WEB_FETCH_TIMEOUT_MS = 60_000;
+
+/**
+ * `fetch` has no default timeout. A request that never receives a response
+ * leaves its promise pending for as long as the tab lives, and every caller
+ * awaiting it spins with no error and no way back. The native branch of
+ * `apiFetch` bounds itself for exactly this reason; the web branch relied on
+ * the Next proxy, which bounds only ITS upstream call and cannot help when the
+ * proxy is the slow hop.
+ *
+ * Composed manually rather than with `AbortSignal.any`, which is not available
+ * in every WKWebView this app runs in.
+ */
+export async function fetchWithWebTimeout(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const controller = new AbortController();
+  const callerSignal = init.signal ?? null;
+
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort(callerSignal.reason);
+    else callerSignal.addEventListener("abort", abortFromCaller, { once: true });
+  }
+
+  const timer = setTimeout(() => {
+    controller.abort(
+      new DOMException(
+        `Request timed out after ${WEB_FETCH_TIMEOUT_MS}ms`,
+        "TimeoutError",
+      ),
+    );
+  }, WEB_FETCH_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener("abort", abortFromCaller);
+  }
+}
+
 async function apiFetch(
   path: string,
   options: RequestInit = {},
@@ -538,9 +586,9 @@ async function apiFetch(
 
       const method = (options.method || "GET").toUpperCase();
       // CapacitorHttp has no per-request AbortSignal or default timeout, so a
-      // slow backend hangs the native request indefinitely (the web path is
-      // bounded by fetch + the Next proxy). Bound it explicitly: a generous
-      // ceiling for the RIA scrape routes, a tight one otherwise.
+      // slow backend hangs the native request indefinitely (the web path has
+      // its own ceiling — see fetchWithWebTimeout). Bound it explicitly: a
+      // generous ceiling for the RIA scrape routes, a tight one otherwise.
       const isLongRunningRoute =
         path.includes("/ria/onboarding/") ||
         path.includes("/ria/profile/refresh-license");
@@ -659,7 +707,7 @@ async function apiFetch(
       return response;
     }
 
-    const response = await fetch(url, {
+    const response = await fetchWithWebTimeout(url, {
       ...options,
       credentials: "include",
       headers: mergedHeaders,
