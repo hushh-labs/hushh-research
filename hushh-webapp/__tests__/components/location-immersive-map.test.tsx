@@ -282,12 +282,14 @@ import {
   readOneLocationControlState,
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
+import { forgetCachedRendererConsent } from "@/lib/one-location/map-renderer-consent";
 
 const DEFAULT_PLACE_FOCUS = { ...experienceHarness.placeFocus };
 
 beforeEach(() => {
   experienceHarness.placeFocus = { ...DEFAULT_PLACE_FOCUS };
   forgetOneLocationControlPreference("test-user");
+  forgetCachedRendererConsent("test-user");
   window.sessionStorage.clear();
   window.history.replaceState({}, "", "/one/location/map");
   Object.defineProperty(window, "innerHeight", {
@@ -349,6 +351,7 @@ beforeEach(() => {
 
 afterEach(() => {
   forgetOneLocationControlPreference("test-user");
+  forgetCachedRendererConsent("test-user");
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -1026,9 +1029,14 @@ describe("LocationImmersiveMap demo experience", () => {
     experienceHarness.query = "";
 
     const openMap = async () => {
-      fireEvent.click(
-        screen.getByRole("button", { name: "Continue to Your Map" }),
-      );
+      // The second render below reuses the consent this test's first render
+      // already gave -- accepting is now cached, so the disclosure is
+      // correctly skipped on remount within the same session. Click it only
+      // when it's actually there.
+      const continueButton = screen.queryByRole("button", {
+        name: "Continue to Your Map",
+      });
+      if (continueButton) fireEvent.click(continueButton);
       await waitFor(() => {
         expect(screen.getByTestId("one-location-map")).toHaveAttribute(
           "data-map-ready",
