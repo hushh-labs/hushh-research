@@ -271,6 +271,39 @@ def test_registry_owned_operation_objects_keep_person_account_and_contact_bindin
         )
 
 
+def test_registry_summary_exposes_safe_per_operation_object_types() -> None:
+    system = ConnectedSystemDefinition(
+        system_id="crm-person-account",
+        display_name="Hushh",
+        customer_display_name="Hushh",
+        system_type="Salesforce",
+        system_name="Salesforce",
+        target="Hushh",
+        object_type_default="Contact",
+        transport="external_crm_streamable_mcp",
+        transport_endpoint="registry://crm-person-account",
+        registry_source="test",
+        tool_catalog=(
+            {"operation": "schema", "name": "object-schema", "objectType": "Contact"},
+            {"operation": "create", "name": "create-crm-record", "objectType": "Account"},
+            {"operation": "read", "name": "read-crm-record", "objectType": "Contact"},
+            {"operation": "update", "name": "update-crm-record", "objectType": "Contact"},
+            {"operation": "delete", "name": "delete-crm-record", "objectType": "Contact"},
+        ),
+    )
+
+    summary = system.to_summary(endpoint_configured=True, delete_enabled=True)
+
+    assert summary["operationObjectTypes"] == {
+        "schema": "Contact",
+        "read": "Contact",
+        "create": "Account",
+        "update": "Contact",
+        "delete": "Contact",
+    }
+    assert "record_id" not in json.dumps(summary)
+
+
 @pytest.mark.asyncio
 async def test_encrypted_fields_update_is_ciphertext_only_and_approval_is_idempotent(
     monkeypatch: pytest.MonkeyPatch,

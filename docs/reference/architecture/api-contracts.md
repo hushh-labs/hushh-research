@@ -465,11 +465,11 @@ active binding exists.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/connected-systems` | List active registry systems with `registryRevision` and per-system `configurationRevision`; signed-in metadata only |
+| GET | `/api/connected-systems` | List active registry systems with `registryRevision`, per-system `configurationRevision`, and registry-owned `operationObjectTypes`; signed-in metadata only |
 | GET | `/api/connected-systems/{system_id}/schema?objectType={primary_object}&forceRefresh=false` | Return the normalized schema catalogue, fingerprint, freshness, refresh guidance, and exact `effectiveActions` |
 | GET | `/api/connected-systems/record-bindings` | Return owner-scoped binding statuses for every active CRM in one request; no CRM record IDs or values |
-| GET | `/api/connected-systems/{system_id}/record-binding?objectType=Contact` | Return the current One user binding for this external CRM record, or `unbound` |
-| DELETE | `/api/connected-systems/{system_id}/record-binding?objectType=Contact` | Idempotently disconnect the authenticated owner's current local binding; the request accepts no record ID and does not delete the remote CRM record |
+| GET | `/api/connected-systems/{system_id}/record-binding?objectType={registry_object}` | Return the current One user binding for the requested registry-owned CRM object, or `unbound` |
+| DELETE | `/api/connected-systems/{system_id}/record-binding?objectType={registry_object}` | Idempotently disconnect the authenticated owner's current local binding; the request accepts no record ID and does not delete the remote CRM record |
 | POST | `/api/connected-systems/{system_id}/records/read` | Read the exact owner-bound record using `{ objectType, returnFields }`; returns a sanitized normalized projection or explicit `remote_record_missing` recovery state |
 | POST | `/api/connected-systems/{system_id}/records/search` | Search and bind the One user when the registered record id mapping resolves a record |
 | POST | `/api/connected-systems/{system_id}/records/create-intents` | Create a pending schema-validated `{ objectType, recordFields }` intent |

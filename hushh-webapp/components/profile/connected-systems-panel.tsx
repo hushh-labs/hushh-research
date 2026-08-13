@@ -137,8 +137,17 @@ type PendingUpdateReviewField = {
 };
 
 type PendingUpdateReview = {
+  systemKey: string;
   recordFields: CrmFieldValues;
   fields: PendingUpdateReviewField[];
+};
+
+type CrossObjectBindingState = "idle" | "account_created_waiting_for_contact";
+
+type PanelRequestContext = {
+  systemKey: string;
+  vaultOwnerToken: string;
+  mode: ConnectedSystemsPanelProps["mode"];
 };
 
 function statusBadge(status: string | undefined | null): string {
@@ -447,6 +456,13 @@ function normalizedCrmFieldToken(value?: string | null): string {
     .toLocaleLowerCase();
 }
 
+function sameCrmObjectType(
+  left?: string | null,
+  right?: string | null,
+): boolean {
+  return normalizedCrmFieldToken(left) === normalizedCrmFieldToken(right);
+}
+
 function isCrmFieldLocked(field: CrmProfileField): boolean {
   return (
     field.identityField === true ||
@@ -523,6 +539,10 @@ export function ConnectedSystemsPanel({
   const [unboundLookupState, setUnboundLookupState] = useState<
     "idle" | "checking" | "no_match" | "remote_missing" | "failed"
   >("idle");
+  const [crossObjectBindingState, setCrossObjectBindingState] =
+    useState<CrossObjectBindingState>("idle");
+  const [crossObjectBindingResolvedKey, setCrossObjectBindingResolvedKey] =
+    useState<string | null>(null);
   const consumedAgentInstructionRef = useRef<string | null>(null);
   // Tracks which systems (by systemId) have an active record binding, across
   // ALL available systems, not just the one currently open in detail view.
@@ -558,9 +578,25 @@ export function ConnectedSystemsPanel({
   const selectedSystem =
     systems.find((system) => system.systemId === systemId) ||
     (!systemId ? systems[0] || null : null);
-  const encryptedFieldsEnabled = selectedSystem?.crmEncryptedFields?.profile === "crm-encrypted-fields.v1";
-  const encryptedFieldsReadReady = selectedSystem?.crmEncryptedFields?.readReady === true;
-  const encryptedFieldsUpdateReady = selectedSystem?.crmEncryptedFields?.updateReady === true;
+  const selectedSystemId = selectedSystem?.systemId || "";
+  const defaultObjectType = selectedSystem?.objectTypeDefault || "Contact";
+  const readObjectType =
+    selectedSystem?.operationObjectTypes?.read || defaultObjectType;
+  const createObjectType =
+    selectedSystem?.operationObjectTypes?.create || defaultObjectType;
+  const updateObjectType =
+    selectedSystem?.operationObjectTypes?.update || defaultObjectType;
+  const deleteObjectType =
+    selectedSystem?.operationObjectTypes?.delete || defaultObjectType;
+  const hasCrossObjectCreateFlow = Boolean(
+    selectedSystem && !sameCrmObjectType(createObjectType, readObjectType),
+  );
+  const encryptedFieldsEnabled =
+    selectedSystem?.crmEncryptedFields?.profile === "crm-encrypted-fields.v1";
+  const encryptedFieldsReadReady =
+    selectedSystem?.crmEncryptedFields?.readReady === true;
+  const encryptedFieldsUpdateReady =
+    selectedSystem?.crmEncryptedFields?.updateReady === true;
   useEffect(() => {
     if (!vaultOwnerToken) {
       clearCrmEncryptedFieldsEphemeralKeys();
@@ -573,14 +609,48 @@ export function ConnectedSystemsPanel({
     if (selectedSystem) onSystemResolved?.(selectedSystem);
   }, [onSystemResolved, selectedSystem]);
   const selectedSystemKey = selectedSystem
-    ? `${selectedSystem.systemId}:${selectedSystem.objectTypeDefault || "Contact"}`
+    ? `${selectedSystem.systemId}:${readObjectType}`
     : "";
+  const previousSelectedSystemKeyRef = useRef<string | null>(null);
+  // Binding reads can have a second Account lookup for Person Account CRM
+  // configurations. Keep late results from an old system, vault token, or
+  // presentation mode from overwriting the detail currently on screen.
+  const bindingRequestSequenceRef = useRef(0);
+  const currentBindingContextRef = useRef({
+    systemKey: selectedSystemKey,
+    vaultOwnerToken: vaultOwnerToken || "",
+    mode,
+  });
+  currentBindingContextRef.current = {
+    systemKey: selectedSystemKey,
+    vaultOwnerToken: vaultOwnerToken || "",
+    mode,
+  };
+  const capturePanelRequestContext = (): PanelRequestContext => ({
+    ...currentBindingContextRef.current,
+  });
+  const isCurrentPanelRequest = (context: PanelRequestContext): boolean => {
+    const current = currentBindingContextRef.current;
+    return (
+      current.systemKey === context.systemKey &&
+      current.vaultOwnerToken === context.vaultOwnerToken &&
+      current.mode === context.mode
+    );
+  };
+  const activePendingIntent =
+    pendingIntent && pendingIntent.systemId === selectedSystem?.systemId
+      ? pendingIntent
+      : null;
+  const activePendingUpdateReview =
+    pendingUpdateReview?.systemKey === selectedSystemKey
+      ? pendingUpdateReview
+      : null;
   const selectedConfigurationRevision =
     selectedSystem?.configurationRevision || 1;
   const schemaCacheKey = ConnectedSystemsResourceService.schemaCacheKey({
     userId: cacheScope,
     systemId: selectedSystem?.systemId || "none",
-    objectType: selectedSystem?.objectTypeDefault || "Contact",
+    objectType: readObjectType,
     configurationRevision: selectedConfigurationRevision,
   });
   const loadSelectedSchema = useCallback(
@@ -592,13 +662,14 @@ export function ConnectedSystemsPanel({
         userId: cacheScope,
         vaultOwnerToken,
         systemId: selectedSystem.systemId,
-        objectType: selectedSystem.objectTypeDefault || "Contact",
+        objectType: readObjectType,
         configurationRevision: selectedConfigurationRevision,
         forceRefresh: options?.force,
       });
     },
     [
       cacheScope,
+      readObjectType,
       selectedConfigurationRevision,
       selectedSystem,
       vaultOwnerToken,
@@ -619,10 +690,10 @@ export function ConnectedSystemsPanel({
   const schemaReady = schema?.schemaStatus === "ready";
   const schemaMatchesSelectedConfiguration = Boolean(
     schema &&
-      selectedSystem &&
-      schema.systemId === selectedSystem.systemId &&
-      schema.objectType === (selectedSystem.objectTypeDefault || "Contact") &&
-      schema.configurationRevision === selectedConfigurationRevision,
+    selectedSystem &&
+    schema.systemId === selectedSystem.systemId &&
+    schema.objectType === readObjectType &&
+    schema.configurationRevision === selectedConfigurationRevision,
   );
   const supportsAction = (
     action: "schema" | "read" | "create" | "update" | "delete",
@@ -725,17 +796,21 @@ export function ConnectedSystemsPanel({
   const crmRecordReadKey = useMemo(
     () =>
       selectedSystem && currentRecordId
-        ? [
-            selectedSystem.systemId,
-            selectedSystem.objectTypeDefault || "Contact",
-            currentRecordId,
-          ].join(":")
+        ? [selectedSystem.systemId, readObjectType, currentRecordId].join(":")
         : "",
-    [currentRecordId, selectedSystem],
+    [currentRecordId, readObjectType, selectedSystem],
   );
   const bindingResolved = Boolean(
     selectedSystemKey && bindingResolvedKey === selectedSystemKey,
   );
+  const crossObjectBindingResolved =
+    !hasCrossObjectCreateFlow ||
+    Boolean(
+      selectedSystemKey && crossObjectBindingResolvedKey === selectedSystemKey,
+    );
+  const awaitingContactBinding =
+    hasCrossObjectCreateFlow &&
+    crossObjectBindingState === "account_created_waiting_for_contact";
   const boundRecordReadResolved =
     !hasBoundRecord ||
     readResultHasCurrentRecord ||
@@ -762,10 +837,12 @@ export function ConnectedSystemsPanel({
     !effectiveError &&
     (!selectedSystem ||
       !bindingResolved ||
+      !crossObjectBindingResolved ||
       isSchemaPreparationPending ||
       isBoundRecordHydrating);
   const canShowUnboundRecordActions =
     !hasBoundRecord &&
+    !awaitingContactBinding &&
     !isRecordStateLoading &&
     schemaReady &&
     visibleProfileFields.length > 0 &&
@@ -797,18 +874,49 @@ export function ConnectedSystemsPanel({
 
   useEffect(() => {
     if (mode !== "detail") return;
+    const previousSelectedSystemKey = previousSelectedSystemKeyRef.current;
+    // Registry hydration begins before a concrete CRM is selected. That first
+    // selection is not navigation and must not clear an edit/confirmation the
+    // user opens as the detail settles. Once a CRM has been selected, any
+    // different non-empty key is a true cross-CRM transition.
+    const selectionChanged = Boolean(
+      previousSelectedSystemKey &&
+      selectedSystemKey &&
+      previousSelectedSystemKey !== selectedSystemKey,
+    );
+    if (selectedSystemKey) {
+      previousSelectedSystemKeyRef.current = selectedSystemKey;
+    }
+    if (selectionChanged) {
+      // A confirmation belongs to one CRM only. Never keep a pending Account
+      // create, update review, record values, or local IDs when navigation
+      // moves to another CRM.
+      setBinding(null);
+      setCrmFieldValues({});
+      setCrmBaselineValues({});
+      setUpdateId("");
+      setDeleteId("");
+      setDeleteResult(null);
+      setEditingField(null);
+      setEditingValue("");
+      setPendingIntent(null);
+      setPendingUpdateReview(null);
+    }
     const cachedRecordSnapshot =
-      cacheUserId && selectedSystem
+      cacheUserId && selectedSystemId
         ? ConnectedSystemsResourceService.getLiveRecordSnapshot(
             cacheUserId,
-            selectedSystem.systemId,
+            selectedSystemId,
           )
         : null;
     setReadResolvedKey(null);
     setReadResult(cachedRecordSnapshot?.record ?? null);
     setCachedRecordRefreshPending(Boolean(cachedRecordSnapshot));
     setUnboundLookupState("idle");
-  }, [cacheUserId, mode, selectedSystem, selectedSystemKey]);
+    setCrossObjectBindingState("idle");
+    setCrossObjectBindingResolvedKey(null);
+    setBusy(null);
+  }, [cacheUserId, mode, selectedSystemId, selectedSystemKey]);
 
   useEffect(() => {
     if (vaultOwnerToken) return;
@@ -823,6 +931,9 @@ export function ConnectedSystemsPanel({
     setUpdateId("");
     setDeleteId("");
     setBoundSystemIds(new Set());
+    setCrossObjectBindingState("idle");
+    setCrossObjectBindingResolvedKey(null);
+    setBusy(null);
   }, [vaultOwnerToken]);
 
   const refreshSystems = useCallback(async () => {
@@ -875,26 +986,57 @@ export function ConnectedSystemsPanel({
   const refreshBinding = useCallback(async () => {
     if (!vaultOwnerToken || !selectedSystem || mode !== "detail") return null;
     const nextBindingKey = selectedSystemKey;
+    const requestSequence = ++bindingRequestSequenceRef.current;
+    const isCurrentRequest = () => {
+      const current = currentBindingContextRef.current;
+      return (
+        bindingRequestSequenceRef.current === requestSequence &&
+        current.systemKey === nextBindingKey &&
+        current.vaultOwnerToken === vaultOwnerToken &&
+        current.mode === mode
+      );
+    };
     setBusy("binding");
     setError(null);
     try {
       const response = await ConnectedSystemsService.getRecordBinding({
         vaultOwnerToken,
         systemId: selectedSystem.systemId,
-        objectType: selectedSystem.objectTypeDefault || "Contact",
+        objectType: readObjectType,
       });
+      if (!isCurrentRequest()) return null;
       const nextBinding =
         response.binding?.status === "active" ? response.binding : null;
       setBinding(nextBinding || null);
       if (nextBinding?.recordId) {
         setUpdateId(nextBinding.recordId);
         setDeleteId(nextBinding.recordId);
+        setCrossObjectBindingState("idle");
+      } else if (hasCrossObjectCreateFlow) {
+        // Person Account creation and Contact operations intentionally use
+        // different CRM bindings. Only retain the existence of the Account
+        // binding in UI state; never promote its ID to a Contact binding.
+        const createBinding = await ConnectedSystemsService.getRecordBinding({
+          vaultOwnerToken,
+          systemId: selectedSystem.systemId,
+          objectType: createObjectType,
+        });
+        if (!isCurrentRequest()) return null;
+        setCrossObjectBindingState(
+          createBinding.binding?.status === "active"
+            ? "account_created_waiting_for_contact"
+            : "idle",
+        );
+        setUpdateId("");
+        setDeleteId("");
       } else {
         setUpdateId("");
         setDeleteId("");
+        setCrossObjectBindingState("idle");
       }
       return nextBinding || null;
     } catch (err) {
+      if (!isCurrentRequest()) return null;
       if (err instanceof ConnectedSystemsRequestError) {
         if (err.code === "CONNECTED_SYSTEM_PHONE_VERIFICATION_REQUIRED") {
           router.push(ROUTES.PROFILE_ACCOUNT_PHONE);
@@ -911,15 +1053,28 @@ export function ConnectedSystemsPanel({
         setBinding(null);
         setUpdateId("");
         setDeleteId("");
+        setCrossObjectBindingState("idle");
         return null;
       }
       setError(message);
       return null;
     } finally {
-      setBindingResolvedKey(nextBindingKey);
-      setBusy(null);
+      if (isCurrentRequest()) {
+        setBindingResolvedKey(nextBindingKey);
+        setCrossObjectBindingResolvedKey(nextBindingKey);
+        setBusy(null);
+      }
     }
-  }, [mode, router, selectedSystem, selectedSystemKey, vaultOwnerToken]);
+  }, [
+    createObjectType,
+    hasCrossObjectCreateFlow,
+    mode,
+    readObjectType,
+    router,
+    selectedSystem,
+    selectedSystemKey,
+    vaultOwnerToken,
+  ]);
 
   useEffect(() => {
     if (!vaultOwnerToken || !selectedSystem || mode !== "detail") return;
@@ -936,6 +1091,7 @@ export function ConnectedSystemsPanel({
     action: () => Promise<T>,
     options: { showErrorToast?: boolean; background?: boolean } = {},
   ): Promise<T | null> {
+    const requestContext = capturePanelRequestContext();
     if (!vaultOwnerToken) {
       onRequestUnlock?.();
       return null;
@@ -945,8 +1101,10 @@ export function ConnectedSystemsPanel({
       setError(null);
     }
     try {
-      return await action();
+      const result = await action();
+      return isCurrentPanelRequest(requestContext) ? result : null;
     } catch (err) {
+      if (!isCurrentPanelRequest(requestContext)) return null;
       if (err instanceof ConnectedSystemsRequestError) {
         if (err.code === "CONNECTED_SYSTEM_PHONE_VERIFICATION_REQUIRED") {
           router.push(ROUTES.PROFILE_ACCOUNT_PHONE);
@@ -963,7 +1121,9 @@ export function ConnectedSystemsPanel({
       }
       return null;
     } finally {
-      if (!options.background) setBusy(null);
+      if (!options.background && isCurrentPanelRequest(requestContext)) {
+        setBusy(null);
+      }
     }
   }
 
@@ -976,6 +1136,7 @@ export function ConnectedSystemsPanel({
     },
     action: () => Promise<T>,
   ): Promise<T | null> {
+    const requestContext = capturePanelRequestContext();
     if (!vaultOwnerToken) {
       onRequestUnlock?.();
       return null;
@@ -991,7 +1152,10 @@ export function ConnectedSystemsPanel({
         return value;
       })
       .catch((err) => {
-        if (err instanceof ConnectedSystemsRequestError) {
+        if (
+          isCurrentPanelRequest(requestContext) &&
+          err instanceof ConnectedSystemsRequestError
+        ) {
           if (err.code === "CONNECTED_SYSTEM_PHONE_VERIFICATION_REQUIRED") {
             router.push(ROUTES.PROFILE_ACCOUNT_PHONE);
           } else if (
@@ -1002,18 +1166,55 @@ export function ConnectedSystemsPanel({
         }
         throw new Error(connectedSystemsUserMessage(err));
       });
-    toast.promise(promise, {
+    const mutationToast = toast.promise(promise, {
       ...messages,
-      error: (err) => (err instanceof Error ? err.message : messages.error),
+      success: (value) =>
+        isCurrentPanelRequest(requestContext)
+          ? typeof messages.success === "function"
+            ? messages.success(value)
+            : messages.success
+          : null,
+      error: (err) =>
+        isCurrentPanelRequest(requestContext)
+          ? err instanceof Error
+            ? err.message
+            : messages.error
+          : null,
     });
+    // Promise toasts outlive the route that started them. Dismiss a late
+    // completion instead of showing CRM A feedback while CRM B is on screen.
+    void promise.then(
+      () => {
+        if (!isCurrentPanelRequest(requestContext)) {
+          const toastId =
+            typeof mutationToast === "string" ||
+            typeof mutationToast === "number"
+              ? mutationToast
+              : null;
+          if (toastId !== null) toast.dismiss(toastId);
+        }
+      },
+      () => {
+        if (!isCurrentPanelRequest(requestContext)) {
+          const toastId =
+            typeof mutationToast === "string" ||
+            typeof mutationToast === "number"
+              ? mutationToast
+              : null;
+          if (toastId !== null) toast.dismiss(toastId);
+        }
+      },
+    );
     try {
-      return await promise;
+      const result = await promise;
+      return isCurrentPanelRequest(requestContext) ? result : null;
     } catch (err) {
+      if (!isCurrentPanelRequest(requestContext)) return null;
       const message = err instanceof Error ? err.message : messages.error;
       setError(message);
       return null;
     } finally {
-      setBusy(null);
+      if (isCurrentPanelRequest(requestContext)) setBusy(null);
     }
   }
 
@@ -1061,6 +1262,7 @@ export function ConnectedSystemsPanel({
     }
     if (nextBinding) {
       setBinding(nextBinding);
+      setCrossObjectBindingState("idle");
       if (nextBinding.recordId) {
         setUpdateId(nextBinding.recordId);
         setDeleteId(nextBinding.recordId);
@@ -1082,11 +1284,7 @@ export function ConnectedSystemsPanel({
       );
       if (selectedSystem && resolvedRecordId) {
         setReadResolvedKey(
-          [
-            selectedSystem.systemId,
-            selectedSystem.objectTypeDefault || "Contact",
-            resolvedRecordId,
-          ].join(":"),
+          [selectedSystem.systemId, readObjectType, resolvedRecordId].join(":"),
         );
       }
     }
@@ -1104,22 +1302,27 @@ export function ConnectedSystemsPanel({
     if (!encryptedFieldsReadReady) {
       throw new Error("This CRM is not ready for encrypted field reads.");
     }
-    const configuration = await ConnectedSystemsService.getCrmEncryptedFieldsConfiguration({
-      vaultOwnerToken,
-      systemId: selectedSystem.systemId,
-    });
+    const configuration =
+      await ConnectedSystemsService.getCrmEncryptedFieldsConfiguration({
+        vaultOwnerToken,
+        systemId: selectedSystem.systemId,
+      });
     const envelope = await createCrmEncryptedFieldsEnvelope({
       configuration,
       direction: "read_request",
       payload: { searchFields: {} },
     });
-    let response: Awaited<ReturnType<typeof ConnectedSystemsService.readCrmEncryptedFieldsRecord>>;
-    let decrypted: Awaited<ReturnType<typeof decryptCrmEncryptedFieldsReadResponse>>;
+    let response: Awaited<
+      ReturnType<typeof ConnectedSystemsService.readCrmEncryptedFieldsRecord>
+    >;
+    let decrypted: Awaited<
+      ReturnType<typeof decryptCrmEncryptedFieldsReadResponse>
+    >;
     try {
       response = await ConnectedSystemsService.readCrmEncryptedFieldsRecord({
         vaultOwnerToken,
         systemId: selectedSystem.systemId,
-        objectType: selectedSystem.objectTypeDefault,
+        objectType: readObjectType,
         returnFields,
         encryptedFields: envelope,
       });
@@ -1132,9 +1335,13 @@ export function ConnectedSystemsPanel({
     }
     const allowed = new Set(returnFields);
     const fields = Object.fromEntries(
-      Object.entries(decrypted.returnFields).filter(([name, value]) =>
-        allowed.has(name) &&
-        (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null)
+      Object.entries(decrypted.returnFields).filter(
+        ([name, value]) =>
+          allowed.has(name) &&
+          (typeof value === "string" ||
+            typeof value === "number" ||
+            typeof value === "boolean" ||
+            value === null),
       ),
     ) as Record<string, string | number | boolean | null>;
     return {
@@ -1143,9 +1350,10 @@ export function ConnectedSystemsPanel({
       objectType: response.objectType,
       recordId: response.recordId || null,
       resultClass: response.status === "failed" ? "failed" : "succeeded",
-      records: response.totalSize === 1
-        ? [{ recordId: response.recordId || null, fields }]
-        : [],
+      records:
+        response.totalSize === 1
+          ? [{ recordId: response.recordId || null, fields }]
+          : [],
       bindingStatus: response.bindingStatus,
       binding: response.binding || undefined,
     } satisfies ConnectedSystemMcpResponse;
@@ -1158,6 +1366,7 @@ export function ConnectedSystemsPanel({
       background?: boolean;
     } = {},
   ) => {
+    const requestContext = capturePanelRequestContext();
     const result = await runAction(
       options.bindSearch ? "lookup" : "read",
       async () => {
@@ -1166,15 +1375,13 @@ export function ConnectedSystemsPanel({
           .map((field) => field.rawName || field.key);
         const completedReadKey =
           !options.bindSearch && selectedSystem && currentRecordId
-            ? [
-                selectedSystem.systemId,
-                selectedSystem.objectTypeDefault || "Contact",
-                currentRecordId,
-              ].join(":")
+            ? [selectedSystem.systemId, readObjectType, currentRecordId].join(
+                ":",
+              )
             : "";
         const payload = {
           systemId: selectedSystem?.systemId,
-          objectType: selectedSystem?.objectTypeDefault,
+          objectType: readObjectType,
           returnFields,
         };
         const nextResult = options.bindSearch
@@ -1188,7 +1395,9 @@ export function ConnectedSystemsPanel({
                 vaultOwnerToken || "",
                 payload,
               );
-        if (completedReadKey) setReadResolvedKey(completedReadKey);
+        if (completedReadKey && isCurrentPanelRequest(requestContext)) {
+          setReadResolvedKey(completedReadKey);
+        }
         return nextResult;
       },
       { showErrorToast: !options.silent, background: options.background },
@@ -1217,7 +1426,9 @@ export function ConnectedSystemsPanel({
         }
       }
     }
-    if (options.background) setCachedRecordRefreshPending(false);
+    if (options.background && isCurrentPanelRequest(requestContext)) {
+      setCachedRecordRefreshPending(false);
+    }
     return result || null;
   };
 
@@ -1303,6 +1514,7 @@ export function ConnectedSystemsPanel({
   };
 
   const createRecordFromSchema = async () => {
+    const requestContext = capturePanelRequestContext();
     const result = await runMutation(
       "create",
       {
@@ -1313,25 +1525,26 @@ export function ConnectedSystemsPanel({
       () =>
         ConnectedSystemsService.createRecordIntent(vaultOwnerToken || "", {
           systemId: selectedSystem?.systemId,
-          objectType: selectedSystem?.objectTypeDefault,
+          objectType: createObjectType,
         }),
     );
-    if (result) {
+    if (result && isCurrentPanelRequest(requestContext)) {
       setPendingIntent(result);
     }
-    return result;
+    return isCurrentPanelRequest(requestContext) ? result : null;
   };
 
   const recoverMissingRecord = async () => {
     if (!selectedSystem || unboundLookupState !== "remote_missing") return;
+    const requestContext = capturePanelRequestContext();
     const disconnected = await runAction("binding", () =>
       ConnectedSystemsService.disconnectRecordBinding({
         vaultOwnerToken: vaultOwnerToken || "",
         systemId: selectedSystem.systemId,
-        objectType: selectedSystem.objectTypeDefault,
+        objectType: readObjectType,
       }),
     );
-    if (!disconnected) return;
+    if (!disconnected || !isCurrentPanelRequest(requestContext)) return;
     setBinding(null);
     setReadResult(null);
     setUpdateId("");
@@ -1349,35 +1562,52 @@ export function ConnectedSystemsPanel({
       );
       ConnectedSystemsResourceService.rememberBindingStatus(cacheUserId, {
         systemId: selectedSystem.systemId,
-        objectType: selectedSystem.objectTypeDefault || "Contact",
+        objectType: readObjectType,
         status: "unbound",
       });
     }
     await createRecordFromSchema();
   };
 
-  const findExistingProfile = async () => {
-    if (!supportsAction("read")) return;
+  const findExistingProfile = async (
+    options: { afterAccountCreate?: boolean; announce?: boolean } = {},
+  ): Promise<boolean> => {
+    if (!supportsAction("read")) return false;
+    const requestContext = capturePanelRequestContext();
     setUnboundLookupState("checking");
     const found = await readRecord({ silent: true, bindSearch: true });
+    if (!isCurrentPanelRequest(requestContext)) return false;
     if (found?.binding?.status === "active") {
       setUnboundLookupState("idle");
+      setCrossObjectBindingState("idle");
       setBoundSystemIds((current) => new Set(current).add(found.systemId));
-      toast.success(
-        `Found your existing ${customerName} profile and linked it.`,
-      );
+      if (options.announce !== false) {
+        toast.success(
+          `Found your existing ${customerName} profile and linked it.`,
+        );
+      }
       if (isSetupPresentation && setupRouteBase) router.push(setupRouteBase);
-      return;
+      return true;
     }
     if (!found) {
       setUnboundLookupState("failed");
-      return;
+      if (options.afterAccountCreate) {
+        setCrossObjectBindingState("account_created_waiting_for_contact");
+      }
+      return false;
     }
     setUnboundLookupState("no_match");
-    toast.info(`No matching ${customerName} profile was found.`);
+    if (options.afterAccountCreate) {
+      setCrossObjectBindingState("account_created_waiting_for_contact");
+    }
+    if (options.announce !== false) {
+      toast.info(`No matching ${customerName} profile was found.`);
+    }
+    return false;
   };
 
   const updateRecordFromSchema = () => {
+    if (!selectedSystem) return;
     const recordFields = changedProfileFields;
     if (Object.keys(recordFields).length === 0) {
       toast.error("Change at least one CRM field before updating the record.");
@@ -1389,6 +1619,7 @@ export function ConnectedSystemsPanel({
       visibleProfileFields.map((field) => [field.key, field]),
     );
     setPendingUpdateReview({
+      systemKey: selectedSystemKey,
       recordFields,
       fields: Object.entries(recordFields).map(([key, nextValue]) => ({
         key,
@@ -1401,6 +1632,14 @@ export function ConnectedSystemsPanel({
 
   const approveUpdateReview = async () => {
     if (!pendingUpdateReview) return;
+    if (
+      !selectedSystem ||
+      pendingUpdateReview.systemKey !== selectedSystemKey
+    ) {
+      setPendingUpdateReview(null);
+      return;
+    }
+    const requestContext = capturePanelRequestContext();
     const review = pendingUpdateReview;
     updateReviewSubmittingRef.current = true;
     let preparedIntent: ConnectedSystemIntent | null = null;
@@ -1414,27 +1653,33 @@ export function ConnectedSystemsPanel({
       async () => {
         if (encryptedFieldsEnabled) {
           if (!selectedSystem || !vaultOwnerToken) {
-            throw new Error("Unlock your vault to approve this encrypted CRM update.");
+            throw new Error(
+              "Unlock your vault to approve this encrypted CRM update.",
+            );
           }
           if (!encryptedFieldsUpdateReady) {
-            throw new Error("This CRM is not ready for encrypted field updates.");
+            throw new Error(
+              "This CRM is not ready for encrypted field updates.",
+            );
           }
-          const configuration = await ConnectedSystemsService.getCrmEncryptedFieldsConfiguration({
-            vaultOwnerToken,
-            systemId: selectedSystem.systemId,
-          });
+          const configuration =
+            await ConnectedSystemsService.getCrmEncryptedFieldsConfiguration({
+              vaultOwnerToken,
+              systemId: selectedSystem.systemId,
+            });
           const envelope = await createCrmEncryptedFieldsEnvelope({
             configuration,
             direction: "update_request",
             payload: { additionalFields: review.recordFields },
           });
-          preparedIntent = await ConnectedSystemsService.createCrmEncryptedFieldsUpdateIntent({
-            vaultOwnerToken,
-            systemId: selectedSystem.systemId,
-            objectType: selectedSystem.objectTypeDefault,
-            fieldNames: Object.keys(review.recordFields),
-            encryptedFields: envelope,
-          });
+          preparedIntent =
+            await ConnectedSystemsService.createCrmEncryptedFieldsUpdateIntent({
+              vaultOwnerToken,
+              systemId: selectedSystem.systemId,
+              objectType: updateObjectType,
+              fieldNames: Object.keys(review.recordFields),
+              encryptedFields: envelope,
+            });
           return ConnectedSystemsService.approveCrmEncryptedFieldsIntent({
             vaultOwnerToken,
             systemId: selectedSystem.systemId,
@@ -1445,7 +1690,7 @@ export function ConnectedSystemsPanel({
           vaultOwnerToken || "",
           {
             systemId: selectedSystem?.systemId,
-            objectType: selectedSystem?.objectTypeDefault,
+            objectType: updateObjectType,
             additionalFields: {},
             recordFields: review.recordFields,
           },
@@ -1458,6 +1703,7 @@ export function ConnectedSystemsPanel({
       },
     );
     updateReviewSubmittingRef.current = false;
+    if (!isCurrentPanelRequest(requestContext)) return;
     if (!result) {
       // A prepared intent remains safely pending server-side. Reuse it rather
       // than submitting a second update if approval has to be retried.
@@ -1478,6 +1724,7 @@ export function ConnectedSystemsPanel({
   };
 
   const deleteRecord = async () => {
+    const requestContext = capturePanelRequestContext();
     const result = await runMutation(
       "delete",
       {
@@ -1488,17 +1735,22 @@ export function ConnectedSystemsPanel({
       () =>
         ConnectedSystemsService.createDeleteIntent(vaultOwnerToken || "", {
           systemId: selectedSystem?.systemId,
-          objectType: selectedSystem?.objectTypeDefault || "Contact",
+          objectType: deleteObjectType,
         }),
     );
-    if (result) {
+    if (result && isCurrentPanelRequest(requestContext)) {
       setPendingIntent(result);
     }
   };
 
   const approvePendingIntent = async () => {
     if (!pendingIntent) return;
+    if (!selectedSystem || pendingIntent.systemId !== selectedSystem.systemId) {
+      setPendingIntent(null);
+      return;
+    }
     const intent = pendingIntent;
+    const requestContext = capturePanelRequestContext();
     const result = await runMutation(
       intent.action === "delete"
         ? "delete"
@@ -1517,7 +1769,7 @@ export function ConnectedSystemsPanel({
           intentId: intent.intentId,
         }),
     );
-    if (!result) return;
+    if (!result || !isCurrentPanelRequest(requestContext)) return;
     setPendingIntent(null);
     if (result.action === "delete") {
       setDeleteResult(result);
@@ -1525,6 +1777,26 @@ export function ConnectedSystemsPanel({
       setReadResult(null);
       setUpdateId("");
       setDeleteId("");
+      return;
+    }
+    const completedObjectType =
+      result.objectType || intent.objectType || createObjectType;
+    if (
+      result.action === "create" &&
+      (hasCrossObjectCreateFlow ||
+        !sameCrmObjectType(completedObjectType, readObjectType))
+    ) {
+      // A Person Account creation result is not a Contact binding. Do not
+      // retain, display, or reuse its ID for Contact reads or updates. The
+      // only safe next step is the existing server-derived verified lookup.
+      setBinding(null);
+      setReadResult(null);
+      setReadResolvedKey(null);
+      setUpdateId("");
+      setDeleteId("");
+      setCrossObjectBindingState("account_created_waiting_for_contact");
+      setCrmBaselineValues((current) => ({ ...current, ...crmFieldValues }));
+      void findExistingProfile({ afterAccountCreate: true, announce: false });
       return;
     }
     const recordId = cleanFieldValue(
@@ -1563,14 +1835,21 @@ export function ConnectedSystemsPanel({
 
   const rejectPendingIntent = async () => {
     if (!pendingIntent) return;
-    await runAction("update", async () => {
-      await ConnectedSystemsService.rejectIntent({
+    if (!selectedSystem || pendingIntent.systemId !== selectedSystem.systemId) {
+      setPendingIntent(null);
+      return;
+    }
+    const requestContext = capturePanelRequestContext();
+    const rejected = await runAction("update", () =>
+      ConnectedSystemsService.rejectIntent({
         vaultOwnerToken: vaultOwnerToken || "",
         systemId: pendingIntent.systemId,
         intentId: pendingIntent.intentId,
-      });
+      }),
+    );
+    if (rejected && isCurrentPanelRequest(requestContext)) {
       setPendingIntent(null);
-    });
+    }
   };
 
   const crmFieldRows: CrmFieldTableRow[] = displayedProfileFields.map(
@@ -1882,7 +2161,9 @@ export function ConnectedSystemsPanel({
           aria-label={
             isSchemaPreparationPending
               ? "Preparing your CRM profile"
-              : "Checking saved CRM record"
+              : !crossObjectBindingResolved
+                ? "Checking your CRM profile link"
+                : "Checking saved CRM record"
           }
           className="flex justify-center py-2 text-muted-foreground"
         >
@@ -1914,6 +2195,34 @@ export function ConnectedSystemsPanel({
                     "This CRM is shown as a field catalogue until its verified onboarding mapping is available.",
             )}
           </div>
+        </SettingsGroup>
+      ) : null}
+
+      {awaitingContactBinding && !isRecordStateLoading ? (
+        <SettingsGroup title="Linking your CRM profile">
+          <SettingsRow
+            icon={Database}
+            title="Your profile was created"
+            description={`We are locating the separately verified ${readObjectType} record required before private CRM fields can be read or updated. The profile creation ID is never reused for this step.`}
+            trailing={
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                size="sm"
+                disabled={busy !== null || !supportsAction("read")}
+                onClick={() =>
+                  void findExistingProfile({ afterAccountCreate: true })
+                }
+              >
+                <Icon icon={RefreshCw} size="sm" className="mr-2" />
+                {busy === "lookup"
+                  ? `Checking ${readObjectType}…`
+                  : `Check for ${readObjectType}`}
+              </Button>
+            }
+            stackTrailingOnMobile
+          />
         </SettingsGroup>
       ) : null}
 
@@ -2192,7 +2501,7 @@ export function ConnectedSystemsPanel({
         </SettingsDetailPanel>
       ) : null}
       <AlertDialog
-        open={Boolean(pendingUpdateReview)}
+        open={Boolean(activePendingUpdateReview)}
         onOpenChange={(open) => {
           if (!open && !updateReviewSubmittingRef.current && busy === null) {
             setPendingUpdateReview(null);
@@ -2216,7 +2525,7 @@ export function ConnectedSystemsPanel({
               <span>Updated value</span>
             </div>
             <dl className="divide-y divide-[color:var(--app-card-border-standard)]">
-              {pendingUpdateReview?.fields.map((field) => (
+              {activePendingUpdateReview?.fields.map((field) => (
                 <div
                   key={field.key}
                   className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-3 gap-y-1 px-5 py-3 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)] sm:gap-x-4 sm:px-6"
@@ -2248,7 +2557,7 @@ export function ConnectedSystemsPanel({
         </AlertDialogContent>
       </AlertDialog>
       <AlertDialog
-        open={Boolean(pendingIntent)}
+        open={Boolean(activePendingIntent)}
         onOpenChange={(open) => {
           if (!open && busy === null) setPendingIntent(null);
         }}
@@ -2256,22 +2565,22 @@ export function ConnectedSystemsPanel({
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Review {pendingIntent?.action || "CRM"} request
+              Review {activePendingIntent?.action || "CRM"} request
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingIntent
-                ? `${customerName} · ${pendingIntent.objectType || primaryObjectLabel}`
+              {activePendingIntent
+                ? `${customerName} · ${activePendingIntent.objectType || primaryObjectLabel}`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {pendingIntent?.action === "delete" ? (
+          {activePendingIntent?.action === "delete" ? (
             <p className="text-sm text-muted-foreground">
               This permanently removes the selected record from {customerName}{" "}
               and clears its One binding after confirmation.
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">
-              {pendingIntent?.fieldNames.map((field) => (
+              {activePendingIntent?.fieldNames.map((field) => (
                 <Badge key={field} variant="secondary">
                   {field}
                 </Badge>
@@ -2287,12 +2596,14 @@ export function ConnectedSystemsPanel({
             </AlertDialogCancel>
             <AlertDialogAction
               variant={
-                pendingIntent?.action === "delete" ? "destructive" : "default"
+                activePendingIntent?.action === "delete"
+                  ? "destructive"
+                  : "default"
               }
               disabled={busy !== null}
               onClick={() => void approvePendingIntent()}
             >
-              Confirm {pendingIntent?.action || "request"}
+              Confirm {activePendingIntent?.action || "request"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

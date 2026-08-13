@@ -1117,6 +1117,14 @@ class ConnectedSystemDefinition:
             operation: self.supports(operation) and (operation != "delete" or delete_enabled)
             for operation in ("schema", "read", "create", "update", "delete")
         }
+        # The registry, never a browser-supplied object name, owns the record
+        # type used by each operation. This makes a Person Account create /
+        # Contact read-update lifecycle explicit without exposing record IDs.
+        operation_object_types = {
+            operation: self.object_type_for_operation(operation)
+            for operation, enabled in supported_actions.items()
+            if enabled
+        }
         return {
             "systemId": self.system_id,
             "configurationRevision": self.configuration_revision,
@@ -1127,6 +1135,7 @@ class ConnectedSystemDefinition:
             "status": "connected" if endpoint_configured else "needs_configuration",
             "target": self.target,
             "objectTypeDefault": self.object_type_default,
+            "operationObjectTypes": operation_object_types,
             "transport": self.transport,
             "transportLabel": "External CRM MCP",
             "endpointConfigured": endpoint_configured,
@@ -1290,7 +1299,8 @@ class ExternalCrmStreamableMcpAdapter:
         if resolved_endpoint.startswith("registry://"):
             return self._call_registry_tool(name, arguments)
 
-        # CRM ZK calls are allowed to use only a trusted connector reference.
+        # Encrypted-fields calls are allowed to use only a trusted connector
+        # reference.
         # Do not merge the legacy registry credentials/URLs into their MCP
         # arguments: MuleSoft resolves those from its own secret store.
         tool_arguments = (
@@ -3363,7 +3373,7 @@ class ConnectedSystemsService:
         if system.crm_encrypted_fields_v1_enabled:
             raise ConnectedSystemBlockedError(
                 "This CRM requires its configured encrypted update protocol.",
-                code="CONNECTED_SYSTEM_CRM_ZK_UPDATE_REQUIRED",
+                code="CONNECTED_SYSTEM_ENCRYPTED_FIELDS_UPDATE_REQUIRED",
             )
         self._require_operation(system, "update")
         object_type_value = system.object_type_for_operation("update")
@@ -3623,7 +3633,7 @@ class ConnectedSystemsService:
         if system.crm_encrypted_fields_v1_enabled:
             raise ConnectedSystemBlockedError(
                 "This CRM requires its configured encrypted read protocol.",
-                code="CONNECTED_SYSTEM_CRM_ZK_READ_REQUIRED",
+                code="CONNECTED_SYSTEM_ENCRYPTED_FIELDS_READ_REQUIRED",
             )
         object_type_value = system.object_type_for_operation("read")
         record_id = self._require_bound_record_id(
@@ -3870,7 +3880,8 @@ class ConnectedSystemsService:
             )
         if system.crm_encrypted_fields_v1_enabled:
             # Verified-identity discovery remains a deliberately narrow
-            # server-side exception. A ZK connector never receives plaintext
+            # server-side exception. An encrypted-fields connector never
+            # receives plaintext
             # CRM fields on this route; the browser must issue a fresh bound
             # encrypted-fields read after it receives binding metadata.
             return {
