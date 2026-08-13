@@ -76,6 +76,54 @@ import {
 } from "@/lib/one-location/map-renderer-consent";
 
 const MAP_ID = "one-location-private-map";
+
+// @capacitor/google-maps addresses every native map by its string id alone.
+// `destroy()` resolves to `maps.removeValue(forKey: id)` on both iOS and
+// Android with no check that the caller is the instance that registered it,
+// and `create()` cannot be called back: it waits ~200 ms (longer while the
+// element still measures zero) before the native view is registered, and
+// nothing cancels that.
+//
+// So an unmount landing inside a create window left the screen blank. The
+// cleanup found `mapRef.current` still null and destroyed nothing, the
+// abandoned create registered its map anyway, and its cancelled branch then
+// destroyed MAP_ID -- by which time MAP_ID belonged to the map the NEXT mount
+// had just created. The component believed it was ready (`mapReady` true,
+// loading overlay gone) over a native canvas that no longer existed: chrome
+// and people tray drawn over a blank surface, correct again on the next entry
+// because that one mounts only once.
+//
+// Serializing every create and destroy for this id fixes the ordering. A
+// superseded instance tears its own map down while still holding the lock, so
+// the next create always starts on a free id and no destroy outlives it.
+let nativeMapLifecycle: Promise<unknown> = Promise.resolve();
+let nativeMapGeneration = 0;
+
+function withNativeMapLock<T>(task: () => Promise<T>): Promise<T> {
+  const run = nativeMapLifecycle.then(task, task);
+  nativeMapLifecycle = run.catch(() => undefined);
+  return run;
+}
+
+/**
+ * The plugin measures the container once and bakes width/height into the
+ * native view's frame, but it only retries while the *width* is zero. A
+ * container measured mid-layout at full width and zero height is accepted as
+ * given, and the native map is placed with no height at all -- created, ready,
+ * and invisible, with no later resize to correct it. Hand the element over
+ * only once it has a real box.
+ */
+async function waitForLaidOutBox(element: HTMLElement): Promise<void> {
+  // Native only: on web the plugin renders the JS SDK into this element and
+  // has no native frame to get wrong, and jsdom reports every box as zero.
+  if (!isNative()) return;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const rect = element.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) return;
+    await new Promise((resolve) => window.setTimeout(resolve, 32));
+  }
+}
+
 const NEARBY_CHECK_IN_RADIUS_METERS = 500;
 const MAP_ACCENT_CONTROL_CLASSNAME =
   "!border-[var(--app-accent-border)] !bg-[var(--app-accent-surface)] !text-[var(--app-accent-deep)] hover:!bg-[var(--app-accent-surface-strong)] dark:!text-[var(--app-accent-bright)]";
@@ -803,8 +851,11 @@ export function LocationImmersiveMap({
       markerIdsRef.current = [];
       nearbyCircleIdsRef.current = [];
       markerByMapIdRef.current.clear();
-      void mapRef.current?.destroy();
-      mapRef.current = null;
+      // Deliberately does NOT destroy the map. The create effect's cleanup is
+      // the single teardown owner and also runs on unmount, through the lock
+      // that keeps destroys ordered against the next mount's create. A second
+      // owner destroying MAP_ID unlocked from here is exactly how a live map
+      // used to get torn down behind a screen that thought it was ready.
       // Android draws the native map behind the WebView. Restore every layer on
       // exit so no other Hussh surface becomes transparent.
       document.documentElement.classList.remove("one-location-map-native");
@@ -905,6 +956,7 @@ export function LocationImmersiveMap({
     // and recipient markers are set later, entirely by the separate
     // rendererReady-gated effects below, once this same map instance exists.
     if (!mapElement.current) return;
+    const element = mapElement.current;
     const apiKey = mapApiKey();
     if (!apiKey) {
       setUnavailableReason("maps-key");
@@ -912,6 +964,9 @@ export function LocationImmersiveMap({
       return;
     }
     let cancelled = false;
+    // Claimed before any await, so a later mount always wins the id even if
+    // React runs this effect before the previous instance's cleanup.
+    const generation = ++nativeMapGeneration;
     if (isNative()) {
       document.documentElement.classList.add("one-location-map-native");
       document.body.classList.add("one-location-map-native");
@@ -922,59 +977,69 @@ export function LocationImmersiveMap({
     const cachedPoint = rendererReady
       ? readLocationWorkspaceMemory(auth.userId).myLocationPoint
       : null;
-    void GoogleMap.create({
-      id: MAP_ID,
-      element: mapElement.current,
-      apiKey,
-      forceCreate: true,
-      config: {
-        center: cachedPoint
-          ? { lat: cachedPoint.latitude, lng: cachedPoint.longitude }
-          : initialDemoModeRef.current
-            ? { lat: 37.7749, lng: -122.4194 }
-            : { lat: 20, lng: 0 },
-        zoom: cachedPoint
-          ? zoomForAccuracy(cachedPoint.accuracyM)
-          : initialDemoModeRef.current
-            ? 11
-            : 2,
-        disableDefaultUI: true,
-        // Open dark to match the mobile dark theme. Read the resolved theme from
-        // the <html> `dark` class that next-themes sets, so no camera-recreating
-        // hook dependency is introduced; a cloud-styled mapId can supersede this.
-        styles:
-          typeof document !== "undefined" &&
-          document.documentElement.classList.contains("dark")
-            ? DARK_MAP_STYLES
-            : undefined,
-      },
-    })
-      .then(async (map) => {
-        if (cancelled) {
-          void map.destroy();
-          return;
-        }
-        mapRef.current = map;
-        await map.setOnMarkerClickListener((event) => {
-          const marker = markerByMapIdRef.current.get(event.markerId);
-          if (!marker) return;
-          setSelected(marker);
-          void map.setCamera({
-            coordinate: {
-              lat: marker.point.latitude,
-              lng: marker.point.longitude,
-            },
-            zoom: 15,
-            animate: true,
-          });
-        });
-        setMapReady(true);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setUnavailableReason("renderer");
-        setStatus("unavailable");
+    const superseded = () => cancelled || generation !== nativeMapGeneration;
+
+    void withNativeMapLock(async () => {
+      // Never touch the bridge on behalf of a mount that is already gone: the
+      // point of the lock is that a superseded instance cannot register a map
+      // the live instance would then inherit and destroy out from under.
+      if (superseded()) return;
+      await waitForLaidOutBox(element);
+      if (superseded()) return;
+      const map = await GoogleMap.create({
+        id: MAP_ID,
+        element,
+        apiKey,
+        forceCreate: true,
+        config: {
+          center: cachedPoint
+            ? { lat: cachedPoint.latitude, lng: cachedPoint.longitude }
+            : initialDemoModeRef.current
+              ? { lat: 37.7749, lng: -122.4194 }
+              : { lat: 20, lng: 0 },
+          zoom: cachedPoint
+            ? zoomForAccuracy(cachedPoint.accuracyM)
+            : initialDemoModeRef.current
+              ? 11
+              : 2,
+          disableDefaultUI: true,
+          // Open dark to match the mobile dark theme. Read the resolved theme
+          // from the <html> `dark` class that next-themes sets, so no
+          // camera-recreating hook dependency is introduced; a cloud-styled
+          // mapId can supersede this.
+          styles:
+            typeof document !== "undefined" &&
+            document.documentElement.classList.contains("dark")
+              ? DARK_MAP_STYLES
+              : undefined,
+        },
       });
+      if (superseded()) {
+        // Still holding the lock, so this can only be destroying the map this
+        // very call created -- never one a later mount registered.
+        await map.destroy().catch(() => undefined);
+        return;
+      }
+      mapRef.current = map;
+      await map.setOnMarkerClickListener((event) => {
+        const marker = markerByMapIdRef.current.get(event.markerId);
+        if (!marker) return;
+        setSelected(marker);
+        void map.setCamera({
+          coordinate: {
+            lat: marker.point.latitude,
+            lng: marker.point.longitude,
+          },
+          zoom: 15,
+          animate: true,
+        });
+      });
+      setMapReady(true);
+    }).catch(() => {
+      if (cancelled) return;
+      setUnavailableReason("renderer");
+      setStatus("unavailable");
+    });
     return () => {
       cancelled = true;
       setMapReady(false);
@@ -982,12 +1047,17 @@ export function LocationImmersiveMap({
       // this, closing Your Map left the @capacitor/google-maps instance
       // (registered under MAP_ID) alive; re-opening then raced a fresh create()
       // against the stale instance and rendered a blank canvas the second time.
-      // Nulling the ref also stops the unmount effect from double-destroying it.
+      //
+      // This effect is the single owner of teardown -- it runs on unmount as
+      // well as on re-run -- and the destroy goes through the lock so it can
+      // never interleave with a create the next mount has already started.
       const staleMap = mapRef.current;
       mapRef.current = null;
       markerIdsRef.current = [];
       markerByMapIdRef.current.clear();
-      void staleMap?.destroy();
+      if (staleMap) {
+        void withNativeMapLock(() => staleMap.destroy()).catch(() => undefined);
+      }
     };
     // rendererReady is read once, at creation time, only to decide the
     // starting center -- intentionally not a dependency. Consent flips this
@@ -1593,33 +1663,35 @@ export function LocationImmersiveMap({
     filteredNearbyAttendees.length > 0 ||
     selected !== null;
 
+  // One number, one word for what it counts. The screen is already the map and
+  // the tray is already the people, so "live locations on your map" spent five
+  // words restating both. Everything the row used to explain in a subtitle now
+  // either shows here or is not worth a line.
   const peopleDrawerLabel = useMemo(() => {
     if (nearbyPresenceState.presence) {
       if (nearbyAttendees.length > 0 && markers.length > 0) {
         return `${nearbyAttendees.length} nearby · ${markers.length} sharing`;
       }
       if (nearbyAttendees.length > 0) {
-        return `${nearbyAttendees.length} ${
-          nearbyAttendees.length === 1 ? "person" : "people"
-        } checked in nearby`;
+        return `${nearbyAttendees.length} nearby`;
       }
       if (markers.length > 0) {
-        return `${markers.length} ${
-          markers.length === 1 ? "person" : "people"
-        } sharing · no one nearby`;
+        return `${markers.length} sharing · none nearby`;
       }
-      return "No one checked in nearby";
+      return "No one nearby";
     }
-    return `${markers.length} live ${
-      markers.length === 1 ? "location" : "locations"
-    } on your map`;
+    return markers.length > 0
+      ? `${markers.length} on your map`
+      : "No one sharing yet";
   }, [markers.length, nearbyAttendees.length, nearbyPresenceState.presence]);
 
+  // Only when it adds something the title cannot. Restating the title in
+  // smaller grey type is the noise this tray had most of.
   const peopleDrawerSubtitle = nearbyPresenceState.presence
-    ? `Within ${nearbyPresenceState.presence.radiusMeters} m · precise nearby locations stay private`
+    ? `Within ${nearbyPresenceState.presence.radiusMeters} m · exact spots stay private`
     : (activeShareCount ?? 0) > 0
-      ? `People sharing with you · you're sharing with ${activeShareCount}`
-      : "People sharing their location with you";
+      ? `Sharing with ${activeShareCount}`
+      : null;
 
   const connectNearbyAttendee = useCallback(
     async (attendee: OneLocationNearbyAttendee) => {
@@ -1698,8 +1770,18 @@ export function LocationImmersiveMap({
     // should dismiss the overlay (the on-device "X does nothing" report), and it
     // must never cover the next screen. Destroying it up front frees the touch
     // surface before we navigate.
-    void mapRef.current?.disableTouch();
-    void mapRef.current?.destroy();
+    //
+    // Through the lock, and dropping the ref first, so that closing and
+    // immediately re-opening the map cannot land this destroy on top of the
+    // next entry's create.
+    const closingMap = mapRef.current;
+    mapRef.current = null;
+    if (closingMap) {
+      void withNativeMapLock(async () => {
+        await closingMap.disableTouch().catch(() => undefined);
+        await closingMap.destroy().catch(() => undefined);
+      });
+    }
     beginRouteTransition(
       ROUTES.ONE_LOCATION,
       () => router.replace(ROUTES.ONE_LOCATION, { scroll: false }),
@@ -2120,9 +2202,11 @@ export function LocationImmersiveMap({
                     </span>
                   ) : null}
                 </span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {peopleDrawerSubtitle}
-                </span>
+                {peopleDrawerSubtitle ? (
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {peopleDrawerSubtitle}
+                  </span>
+                ) : null}
               </span>
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] transition-colors group-hover:bg-[var(--app-accent-surface-strong)] dark:text-[var(--app-accent-bright)]">
                 <ChevronDown className="h-4 w-4" />
@@ -2157,7 +2241,7 @@ export function LocationImmersiveMap({
                   className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4"
                   data-testid="one-location-map-search"
                   inputMode="search"
-                  placeholder="Find a person"
+                  placeholder="Search"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                 />
@@ -2243,29 +2327,20 @@ export function LocationImmersiveMap({
                   ) : (
                     <p className="px-1 py-2 text-sm text-muted-foreground">
                       {nearbyAttendees.length > 0
-                        ? "No nearby check-ins match your search."
-                        : "No one else is checked in nearby yet."}
+                        ? "No matches."
+                        : "No one else here yet."}
                     </p>
                   )}
                 </section>
               ) : null}
 
-              <section className="mt-3">
-                <div className="flex items-center justify-between gap-3 px-1">
-                  <div>
-                    <h3 className="text-sm font-semibold">
-                      Live locations shared with you
-                    </h3>
-                    <p className="text-xs text-muted-foreground">
-                      Nearby check-ins stay in the list and never become map
-                      pins. A pin needs two things: they share their location
-                      with you, and they have turned on appearing on maps.
-                    </p>
-                  </div>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">
-                    {markers.length}
-                  </span>
-                </div>
+              {/* The heading, the count badge and the two-sentence pin rule
+                  all used to sit here, and all three said what the row above
+                  already says: how many people are on this map. What survives
+                  is the list itself, plus the pin rule in the one state where
+                  it answers a real question -- "why is this list empty when
+                  people are checked in nearby?" -- phrased once, in a line. */}
+              <section className="mt-3" aria-label="Live locations shared with you">
                 <div
                   className="mt-2 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                   data-testid="one-location-map-people"
@@ -2354,8 +2429,11 @@ export function LocationImmersiveMap({
                   {filteredPeople.length === 0 ? (
                     <p className="py-2 pl-1 text-sm text-muted-foreground">
                       {markers.length > 0
-                        ? "No live shares match your search."
-                        : "No one is sharing a live location with you."}
+                        ? "No matches."
+                        : // The header already says no one is sharing. This
+                          // line spends itself on the part the header cannot:
+                          // what it takes to appear here.
+                          "Pins appear once they share and allow maps."}
                     </p>
                   ) : null}
                 </div>
@@ -2370,11 +2448,13 @@ export function LocationImmersiveMap({
                     <p className="truncate text-sm font-medium">
                       {selected.label}
                     </p>
-                    <p className="text-xs text-muted-foreground">
-                      {selected.kind === "self"
-                        ? "Your current location"
-                        : "Sharing privately now"}
-                    </p>
+                    {/* The self marker is already labelled "You"; captioning it
+                        "Your current location" was the same fact twice. */}
+                    {selected.kind === "self" ? null : (
+                      <p className="text-xs text-muted-foreground">
+                        Sharing now
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : null}
@@ -2395,9 +2475,9 @@ export function LocationImmersiveMap({
                     onClick={toggleDemoPeople}
                   >
                     <UsersRound className="h-4 w-4 shrink-0" />
-                    <span className="truncate">
-                      {demoMode ? "Demo on" : "Demo"}
-                    </span>
+                    {/* Pressed state is already carried by the accent fill and
+                        aria-pressed; the label need not say it too. */}
+                    <span className="truncate">Demo</span>
                   </Button>
                 ) : null}
                 <Button
@@ -2414,11 +2494,7 @@ export function LocationImmersiveMap({
                   onClick={() => void setPresence()}
                 >
                   <span className="truncate">
-                    {preferences.presenceMode === "ghost"
-                      ? demoAvailable
-                        ? "Ghost"
-                        : "Ghost Mode"
-                      : "Visible"}
+                    {preferences.presenceMode === "ghost" ? "Ghost" : "Visible"}
                   </span>
                   {preferences.presenceMode === "ghost" ? (
                     <EyeOff className="h-4 w-4 shrink-0" />
@@ -2432,12 +2508,12 @@ export function LocationImmersiveMap({
                   disabled={visibleMarkers.length === 0}
                   onClick={() => void showEveryone()}
                 >
-                  {demoAvailable ? "Everyone" : "Show everyone"}
+                  Everyone
                 </Button>
               </div>
               {status === "error" ? (
                 <p className="mt-2 text-center text-xs text-destructive">
-                  Some locations could not be refreshed.
+                  Some locations didn&apos;t refresh.
                 </p>
               ) : null}
             </div>
