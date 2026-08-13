@@ -1413,7 +1413,14 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   display: flex;
   flex-direction: column;
   min-height: calc(100dvh - var(--top-shell-reserved-height, 0px));
-  padding-bottom: calc(env(safe-area-inset-bottom) + 2rem);
+  /* Was a hardcoded `env(safe-area-inset-bottom) + 2rem` on main (uat had its
+   * own stale `7.5rem`), sized only for the bottom nav bar. That left the
+   * last "Your settings" rows (Account access → Sign out) tucked under the
+   * separate fixed "Talk to One" Agent Bar that floats above the nav. Use the
+   * shared, runtime-measured clearance token (see --bottom-chrome-stack-height
+   * in app/providers.tsx) so this page reserves space for both fixed bars,
+   * the same as every other route. */
+  padding-bottom: var(--app-bottom-content-clearance);
 }
 
 .profile-home-screen .app-page-header-region {
@@ -1641,10 +1648,6 @@ body:has(.profile-home-screen) .foundation-public-ambient {
 }
 
 @media (min-width: 768px) {
-  .profile-home-screen {
-    padding-bottom: calc(env(safe-area-inset-bottom) + 2.5rem);
-  }
-
   .profile-home-hero {
     padding-top: 24px;
   }
