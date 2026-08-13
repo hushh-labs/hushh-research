@@ -395,6 +395,27 @@ def personal_agent_autoprovision_enabled() -> bool:
     return _bool_from_value(_clean_env("PERSONAL_AGENT_AUTOPROVISION_ENABLED"), default=False)
 
 
+def user_gcp_substrate_apply_enabled() -> bool:
+    """Let the BYOC bootstrap CREATE resources in a user's own GCP project.
+
+    OFF (the default) the ensurer still runs and still renders the full plan, but
+    ``UserGcpBootstrap.apply`` stays in dry-run and nothing is created. That is the
+    honest inert state: the plan and its resource identifiers are inspectable and
+    diffable before anyone points them at a real person's cloud.
+
+    Separate from ``HUSSH_USER_GCP_LIVE`` deliberately, because the two authorise
+    different things. This one creates DURABLE infrastructure in someone else's project
+    -- a KMS key, a CMEK bucket, a service account and its IAM -- which outlives any pod
+    and which hushh cannot remove unilaterally. ``HUSSH_USER_GCP_LIVE`` merely creates a
+    Cloud Run service on substrate that already exists. One switch for both would mean
+    the first person to enable pod provisioning had silently also authorised permanent
+    resource creation in their cloud.
+
+    Consulted only when the person's ``deployment_target`` is the BYOC backend; every
+    other target resolves to the no-substrate ensurer and never reaches this."""
+    return _bool_from_value(_clean_env("HUSSH_USER_GCP_SUBSTRATE_APPLY"), default=False)
+
+
 def personal_agent_backend() -> str:
     """Selected compute backend for the per-user agent (see ``compute_backend``).
 

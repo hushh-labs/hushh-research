@@ -138,6 +138,17 @@ FEED_REASON_INVALID_DETAILS = "invalid_details"
 FEED_REASON_TEMPORARY = "temporary_issue"
 
 
+class SubstrateNotReadyError(RuntimeError):
+    """The tenant's infrastructure is not there, so there is nothing to build a pod on.
+
+    Deliberately NOT a ``ValueError``: nothing the person typed is wrong, so
+    ``user_safe_failure_reason`` classifies this as temporary rather than as invalid
+    details. For BYOC the usual causes are external and often self-healing -- the
+    bootstrap grant was never completed, or it was revoked -- and telling someone their
+    details are invalid would send them to fix the one thing that is fine.
+    """
+
+
 def user_safe_failure_reason(exc: BaseException) -> str:
     """Coarse reason code for a failed transition -- never derived from the message."""
     return FEED_REASON_INVALID_DETAILS if isinstance(exc, ValueError) else FEED_REASON_TEMPORARY
@@ -239,15 +250,36 @@ class PersonalAgentProvisioningService:
         registry: _Registry,
         grant: Optional[_Grant] = None,
         backend: Optional[ComputeBackend] = None,
+        substrate: Optional[Any] = None,
     ) -> None:
         self._registry = registry
         self._grant: _Grant = grant or PersonalAgentGrantService()
+        # Per-tenant substrate, resolved per person when not injected. Left as None
+        # rather than defaulting to the no-substrate ensurer: a default here would
+        # silently disable the BYOC bootstrap for every caller constructed before this
+        # parameter existed, which is exactly the kind of quiet inertness this
+        # workstream keeps finding.
+        self._substrate = substrate
         # Compute host provider (the provider abstraction, ARCHITECTURE.md §5).
         # NullBackend by default, so Phase 0 stays a pure registry stamp with no
         # host call. M4/M7 thread host create through provision(); deprovision()
         # already routes teardown through it (guarded on a populated
         # external_agent_id, which is always NULL until a real backend provisions).
         self._backend: ComputeBackend = backend or NullBackend()
+
+    def _substrate_for(self, spec: PodSpec):
+        """The substrate ensurer for THIS person's target.
+
+        Injected when supplied -- a test hands in a fake exactly as it does for the
+        backend. Kept beside ``_backend_for`` because the two answer the same
+        per-person question of the two different lifecycles: what runs this person's
+        pod, and what does that pod need to already exist.
+        """
+        if self._substrate is not None:
+            return self._substrate
+        from hushh_mcp.services.byoc_substrate import resolve_substrate_ensurer  # noqa: PLC0415
+
+        return resolve_substrate_ensurer(spec)
 
     def _backend_for(self, spec: PodSpec) -> ComputeBackend:
         """The backend that should build THIS person's pod.
@@ -383,6 +415,13 @@ class PersonalAgentProvisioningService:
                     "standingReadExpiresAt": None,
                 }
 
+            # Declared before `_record` closes over it. The first `_record` call happens
+            # before substrate is ensured (the row must exist before any side effect),
+            # and it passes no handle, so it never reads this -- but leaving the name
+            # unbound until later would make that ordering a latent NameError rather
+            # than a stated invariant.
+            substrate_receipt: Optional[dict[str, Any]] = None
+
             async def _record(status: str, handle: Optional[BackendHandle] = None) -> None:
                 fields: dict[str, Any] = dict(
                     user_id=user_id,
@@ -399,11 +438,20 @@ class PersonalAgentProvisioningService:
                     # None handle fields are dropped by the repo, so NullBackend (all-None)
                     # leaves the row's host columns at their schema NULLs -- behavior
                     # identical to the pre-threading Phase-0 stamp.
+                    # The substrate receipt travels INSIDE backend_metadata rather than
+                    # replacing it: the backend's own metadata (liveness mode, tenancy,
+                    # ingress) and the record of what was created in the tenant's project
+                    # are different facts about the same pod, and the row has one JSONB
+                    # column for both. Merged rather than overwritten so neither erases
+                    # the other.
+                    merged_metadata = dict(handle.backend_metadata or {})
+                    if substrate_receipt is not None:
+                        merged_metadata["substrateReceipt"] = substrate_receipt
                     fields.update(
                         external_agent_id=handle.external_agent_id,
                         a2a_route=handle.a2a_route,
                         backend=handle.backend,
-                        backend_metadata=handle.backend_metadata,
+                        backend_metadata=merged_metadata or None,
                         attestation_ref=handle.attestation_ref,
                         # The backend is the only component that knows the minScale
                         # this pod actually got, so it is the only honest source for
@@ -441,8 +489,36 @@ class PersonalAgentProvisioningService:
             # connected their own cloud must be built THERE even though the hub that
             # is building it runs on hushh's. Absent a per-person target this returns
             # the injected backend unchanged, so nothing existing moves.
+            # The tenant's infrastructure has to exist before a pod can be built on it:
+            # the pod's service account, its CMEK bucket and its wrapped log key all
+            # come from the bootstrap, and a pod created without them boots into a
+            # project with nowhere to write and no key to write with.
+            #
+            # Called UNCONDITIONALLY and resolved per person. Targets with no per-tenant
+            # substrate get the no-op ensurer, so this costs them nothing and the
+            # orchestrator never names a provider to decide -- which is what keeps this
+            # file passing tests/test_deployment_boundary_holds.py.
+            substrate = self._substrate_for(spec)
+            receipt = await substrate.ensure(spec)
+            if not receipt.applied and substrate.ensurer_id != "none":
+                # Stop rather than provision onto infrastructure that is not there. The
+                # row stays in `provisioning` for the reconcile sweep, and the message
+                # carries the FIRST failing step -- the applier already marks everything
+                # downstream "not attempted", so naming them all would report one cause
+                # as several problems.
+                first = (receipt.failed_steps or [{}])[0]
+                raise SubstrateNotReadyError(
+                    f"substrate not ready in {receipt.tenant_ref}: "
+                    f"{first.get('step') or receipt.detail or 'unknown step'}"
+                )
+
             backend = self._backend_for(spec)
             handle = await backend.provision(spec)
+            # The receipt rides along on the row: identifiers, plan digest and the grant
+            # that authorised them -- never attributes, never key material. This is the
+            # teardown inventory, and without it nothing records what was created in a
+            # customer's project, so nothing can clean it up.
+            substrate_receipt = receipt.as_record() if receipt.resource_ids else None
             await _record("provisioning", handle=handle)
 
             if pod_key is None:

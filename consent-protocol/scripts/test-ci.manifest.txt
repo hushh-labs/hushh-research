@@ -21,6 +21,7 @@ tests/test_ai_connection_gate.py
 tests/test_anypoint_backend.py
 tests/test_byoc_bootstrap_and_custody.py
 tests/test_byoc_project_naming.py
+tests/test_byoc_substrate.py
 tests/test_campaign_context_tool.py
 tests/test_cloudbuild_step_arg_limit.py
 tests/test_compute_backend.py
