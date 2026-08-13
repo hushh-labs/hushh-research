@@ -1309,7 +1309,6 @@ function LocationDetailFlow({
   const reverseGeocodePoint = vm.reverseGeocodePoint;
   useEffect(() => {
     if (kind !== "shared-with-me" || !reverseGeocodePoint) return;
-    let cancelled = false;
     for (const grant of vm.receivedGrants) {
       const point = vm.decryptedPoints[grant.id];
       if (!point) continue;
@@ -1320,18 +1319,44 @@ function LocationDetailFlow({
         ...current,
         [grant.id]: { key, status: "loading", text: null },
       }));
-      void reverseGeocodePoint(point).then((text) => {
-        if (cancelled) return;
+      // The skeleton has exactly one way to stop: this settling the entry. It
+      // used to have three ways not to, and all three left it spinning
+      // forever under a pin that never resolved.
+      const settle = (text: string | null) => {
         setAddressByGrant((current) => {
           const entry = current[grant.id];
+          // Still keyed to these coordinates? A newer position owns the row
+          // now, and its own lookup will settle it.
           if (!entry || entry.key !== key) return current;
           return { ...current, [grant.id]: { key, status: "done", text } };
         });
-      });
+      };
+      void reverseGeocodePoint(point)
+        .then(settle)
+        .catch(() => {
+          // 1. A rejected lookup never settled anything, so one network
+          //    hiccup meant a permanent skeleton. Falling through to `done`
+          //    with no text lets the card show the coordinates it already
+          //    has, which is worse than a street name and far better than
+          //    a grey bar.
+          //
+          // 2. The retry guard was claimed BEFORE the call, so a failure was
+          //    permanent for those coordinates -- the loop skipped them on
+          //    every later pass and never tried again. Releasing it here
+          //    means the next refresh at this position gets another go.
+          if (resolvedAddressKeyRef.current[grant.id] === key) {
+            delete resolvedAddressKeyRef.current[grant.id];
+          }
+          settle(null);
+        });
     }
-    return () => {
-      cancelled = true;
-    };
+    // 3. No `cancelled` flag. `vm.decryptedPoints` changes on the five-second
+    //    live refresh, so this effect re-runs constantly; cancelling on
+    //    cleanup abandoned every in-flight lookup, while the guard above
+    //    stopped it being retried. That combination -- not a failing geocoder
+    //    -- is what left the address loading indefinitely in normal use.
+    //    `settle` is keyed by coordinates, so a late resolution either lands
+    //    on the row it belongs to or is ignored.
   }, [kind, reverseGeocodePoint, vm.receivedGrants, vm.decryptedPoints]);
   const copy = {
     "active-shares": {
