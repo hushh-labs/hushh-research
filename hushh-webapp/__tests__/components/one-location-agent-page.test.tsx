@@ -774,10 +774,7 @@ async function openShareReviewStep() {
 }
 
 async function openAskFlow() {
-  fireEvent.click(screen.getByRole("button", { name: "People" }));
-  fireEvent.click(
-    await screen.findByRole("button", { name: /Ask someone to share/i }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: /Request Location/i }));
   expect(
     await screen.findByRole("heading", { name: "Make it comfortable" }),
   ).toBeTruthy();
@@ -1102,6 +1099,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByRole("button", { name: "Refresh location" }),
     ).toBeNull();
+    expect(screen.queryByText(/Ask someone to share/)).toBeNull();
 
     const heading = screen.getByRole("heading", { name: "Location Agent" });
     const headerRow = heading.closest('[data-slot="page-header-row"]');
@@ -1117,6 +1115,10 @@ describe("OneLocationAgentPage", () => {
       screen.getByRole("switch", { name: "Turn location on" }),
     ).toHaveAttribute("data-size", "ios");
     expect(screen.getByText("Location off").className).toContain("sm:inline");
+    expect(screen.getByText("Location off").className).toContain(
+      "text-[color:var(--app-secondary-label)]",
+    );
+    expect(headerActions.innerHTML).not.toContain("--app-neutral-fill");
 
     mockCaptureCurrentPosition.mockClear();
     const locationOffSwitch = screen.getByRole("switch", {
@@ -2566,6 +2568,13 @@ describe("OneLocationAgentPage", () => {
     // Populated People tab: no "Trusted Circle" heading — search + person cards shown.
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(await screen.findByText("Trusted B")).toBeTruthy();
+    expect(screen.queryByText(/Ask someone to share/)).toBeNull();
+    expect(screen.getByText("TB").className).toContain(
+      "bg-[color:var(--app-accent-surface)]",
+    );
+    expect(screen.getByText("TB").className).toContain(
+      "text-[color:var(--app-accent-deep)]",
+    );
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Now" }));
