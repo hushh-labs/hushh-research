@@ -281,6 +281,62 @@ state which probe you ran, and ask whether a differently-shaped one would find i
 the same failure as §2d's count-that-did-not-move — a check that succeeds at looking
 rather than at finding.
 
+## 2h. "Could not look" is not "looked and it was fine"
+
+A checker that cannot reach the thing it checks must say so, in a way a caller cannot
+mistake for a pass. This is the same defect as a soft-404 in §1, one layer up: the
+failure is not a wrong answer, it is a *confident* answer produced without evidence.
+
+**It happened to the tool built to prevent it.** `trace_pod_journey.py` reports a
+person's 0→1 journey across eight stages. Its summary was derived from `stopped_at`,
+which only knows about FAIL — so a trace where **all eight stages were SKIPPED** (no
+database credential in the environment, and a backend whose pod does not live on the
+Cloud Run plane) printed:
+
+> The journey is complete: this person has a private agent that serves.
+
+Nothing failed. Nothing was checked either. Observed 2026-08-13 running
+`--backend anypoint` with no DB in the environment.
+
+**The shape, and the fix:**
+
+- A verdict vocabulary of PASS/FAIL is not enough. You need a third state for *unread*,
+  and the summary must count it.
+- Exit codes must distinguish all three, or a caller gating on the tool gets a pass for
+  a run that read nothing. `trace_pod_journey.py` is now `0` proven / `1` blocked /
+  `2` unproven.
+- The same rule produced `deploy_identity_unverifiable` in
+  `scripts/ci/verify-deploy-identity-provenance.py`: the deploy lane's federated identity
+  may deploy but may not read IAM, so "I could not look" is the *expected* answer in some
+  contexts and must never be recorded as green.
+
+**A permission error is the most dangerous input a verifier can receive**, because it
+arrives on the success path of every naive `try/except`. Handle it as its own outcome.
+
+## 2i. Verify WHICH build is running before you verify anything about it
+
+Before checking whether a change works in a deployed environment, check that the
+environment is running that change. Otherwise every subsequent observation is about
+someone else's code, and it can be green in a way that reads as your work succeeding.
+
+Observed 2026-08-13: a branch had six merged phases of work, all committed, pushed and
+CI-green. The dev environment was serving `HUSHH_DEPLOY_SHA=adc0eb4bb…` — a SHA that is
+not an ancestor of the branch head, missing 281 of its commits. Had a validation run
+started there, the substrate seam and its production caller would have been absent, and
+the failure would have looked like a code defect rather than a stale deploy.
+
+The check costs one read. Every Cloud Run revision in this repo carries the SHA as an
+env var, put there for exactly this purpose:
+
+```bash
+# from consent-protocol/ — reads HUSHH_DEPLOY_SHA off the serving revision
+uv run python -c "..."   # see scripts/ops/verify_pod_journey.py --sha <sha>
+git merge-base --is-ancestor <deployed-sha> HEAD   # is it even on my line?
+```
+
+**The generalisation:** an environment variable that records provenance is worthless
+unless something reads it. Read it *first*, before the thing you actually came to test.
+
 ## 3. Read the real code before you design
 
 Design decisions made from assumption get thrown away.
@@ -378,6 +434,8 @@ Run before reporting any coding work complete:
 [ ] Tests pass — and I know which ones actually exercise my change
 [ ] New tests/checks are registered wherever CI enumerates them, and the total count moved
 [ ] CI is green on the exact pushed SHA (not "should be")
+[ ] If I checked a deployed environment, I confirmed WHICH build it is running first
+[ ] Any check that could not run reports "unproven", never silence and never a pass
 [ ] Flag-off behavior is unchanged, and I tested that specifically
 [ ] Limitations are written in the file, in plain language
 [ ] Nothing I did suppresses a control or fabricates an attestation
