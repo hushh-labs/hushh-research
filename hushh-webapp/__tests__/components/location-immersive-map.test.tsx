@@ -576,7 +576,7 @@ describe("LocationImmersiveMap demo experience", () => {
     );
     fireEvent.click(screen.getByTestId("one-location-map-nearby-check-in"));
     expect(navigationHarness.push).toHaveBeenCalledWith(
-      "/one/location/check-in?source=map",
+      "/one/location/check-in",
       { scroll: false },
     );
 
@@ -633,7 +633,7 @@ describe("LocationImmersiveMap demo experience", () => {
       }),
     );
     expect(navigationHarness.push).toHaveBeenCalledWith(
-      "/one/location/check-in?source=map",
+      "/one/location/check-in",
       { scroll: false },
     );
   });
@@ -1047,11 +1047,85 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.queryByTestId("one-location-map-people-tray")).toBeNull();
   });
 
-  it("returns to Your Map when check-in was opened from Your Map", async () => {
-    // The reported bug: check in from Your Map, close the sheet, and you were
-    // thrown past the map onto the Location hub's Now tab -- two screens back,
-    // right after making yourself discoverable. Dismiss now follows the opener
-    // recorded when Your Map pushed the route.
+  // The reported bug, in both of its lives: dismissing the sheet on check-in's
+  // own route navigated away -- first to the Location hub for everyone, then to
+  // whichever screen a `?source=` param claimed had opened the flow. Someone who
+  // has just checked in and closed the sheet is asking for the sheet to be gone,
+  // not for the screen behind it to be replaced. Every entry point is covered
+  // here because dismiss no longer consults where the person came from; if it
+  // ever starts again, the `query: ""` case is the one that regresses first.
+  const CHECK_IN_ENTRIES = [
+    { name: "Your Map", query: "source=map" },
+    { name: "the Location hub", query: "" },
+    { name: "a legacy deep link", query: "demo=people" },
+  ] as const;
+
+  for (const entry of CHECK_IN_ENTRIES) {
+    it(`closes the sheet without navigating when opened from ${entry.name}`, async () => {
+      experienceHarness.demoMode = false;
+      experienceHarness.nearbyAvailable = true;
+      experienceHarness.query = entry.query;
+
+      render(<LocationImmersiveMap surface="check-in" />);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Continue to Your Map" }),
+      );
+      await waitFor(() => {
+        expect(
+          screen.getByTestId("nearby-check-in-sheet-mock"),
+        ).toHaveAttribute("data-open", "true");
+      });
+      navigationHarness.push.mockClear();
+      navigationHarness.replace.mockClear();
+
+      fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
+
+      await waitFor(() => {
+        expect(
+          screen.getByTestId("nearby-check-in-sheet-mock"),
+        ).toHaveAttribute("data-open", "false");
+      });
+      // The map itself is what stays behind, so nothing routes anywhere.
+      expect(navigationHarness.push).not.toHaveBeenCalled();
+      expect(navigationHarness.replace).not.toHaveBeenCalled();
+    });
+  }
+
+  it("keeps the sheet dismissed while the route re-renders", async () => {
+    // The dismissal is a ref rather than URL state, and the effect that syncs
+    // the sheet to the route re-runs on every fresh `searchParams` object. If
+    // that effect stops respecting the ref, the sheet springs back open a paint
+    // after the person closes it.
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "source=map";
+
+    const view = render(<LocationImmersiveMap surface="check-in" />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
+        "data-open",
+        "true",
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
+    view.rerender(<LocationImmersiveMap surface="check-in" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
+        "data-open",
+        "false",
+      );
+    });
+  });
+
+  it("re-opens check-in from the map's own pill after a dismiss", async () => {
+    // Dismissing leaves the check-in map standing, so there has to be a way
+    // back in from it. The pill is that way, and on this route it must toggle
+    // the sheet rather than push the route it is already on.
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     experienceHarness.query = "source=map";
@@ -1066,45 +1140,24 @@ describe("LocationImmersiveMap demo experience", () => {
         "true",
       );
     });
-
     fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
+    await waitFor(() => {
+      expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
+        "data-open",
+        "false",
+      );
+    });
+    navigationHarness.push.mockClear();
 
-    // `replace`, not `push`: a dismissed flow must not be what the next Back
-    // press re-opens.
-    expect(navigationHarness.replace).toHaveBeenCalledWith(
-      "/one/location/map",
-      { scroll: false },
-    );
-    expect(navigationHarness.push).not.toHaveBeenCalledWith(
-      "/one/location",
-      expect.anything(),
-    );
-    expect(navigationHarness.push).not.toHaveBeenCalledWith("/one/location");
-  });
+    fireEvent.click(screen.getByTestId("one-location-map-nearby-check-in"));
 
-  it("returns to the Location hub when nothing recorded an opener", async () => {
-    // The hub's own "Check in" card, notification deep links and old shared
-    // URLs record nothing. The hub is where those came from and where they go.
-    experienceHarness.demoMode = false;
-    experienceHarness.nearbyAvailable = true;
-    experienceHarness.query = "";
-
-    render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
-    );
     await waitFor(() => {
       expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
         "data-open",
         "true",
       );
     });
-
-    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
-
-    expect(navigationHarness.replace).toHaveBeenCalledWith("/one/location", {
-      scroll: false,
-    });
+    expect(navigationHarness.push).not.toHaveBeenCalled();
   });
 
   it("does not build a synthetic history boundary on the check-in route", async () => {

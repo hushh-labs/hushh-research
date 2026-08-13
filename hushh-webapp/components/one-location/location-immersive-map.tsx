@@ -34,11 +34,7 @@ import {
   decryptLocationEnvelope,
   encryptLocationForRecipient,
 } from "@/lib/one-location/encryption";
-import {
-  buildCheckInHrefFromYourMap,
-  CHECK_IN_SOURCE_PARAM,
-  resolveCheckInDismissHref,
-} from "@/lib/one-location/check-in-navigation";
+import { buildCheckInHrefFromYourMap } from "@/lib/one-location/check-in-navigation";
 import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
@@ -301,6 +297,11 @@ export function LocationImmersiveMap({
   const initialDemoModeRef = useRef(initialDemoMode);
   const closeRequestedRef = useRef(false);
   const nearbyHistoryPreparedRef = useRef(false);
+  // Whether the person has dismissed the sheet on check-in's own route. Held in
+  // a ref, not the URL: the route-sync effect below re-runs whenever Next hands
+  // back a fresh `searchParams` object, and without this the dismiss would be
+  // undone on the next render.
+  const checkInSheetDismissedRef = useRef(false);
   const entryLocationRequestedRef = useRef(false);
   const locationCaptureRef = useRef<Promise<PlainLocationPoint> | null>(null);
   const nearbyConnectInFlightRef = useRef(false);
@@ -408,9 +409,15 @@ export function LocationImmersiveMap({
       );
       return;
     }
-    // On its own route the sheet is the screen, not an overlay the URL
-    // toggles -- there is no Your Map underneath to fall back to.
-    const requested = isCheckInSurface;
+    // On its own route the sheet opens with the screen, but it is not welded to
+    // it: once dismissed it stays dismissed until the person re-opens it, and
+    // the check-in map is left standing underneath.
+    if (!isCheckInSurface) {
+      // Leaving the route retires the dismissal, so arriving at check-in always
+      // arrives with the flow open.
+      checkInSheetDismissedRef.current = false;
+    }
+    const requested = isCheckInSurface && !checkInSheetDismissedRef.current;
     setNearbyCheckInOpen(requested);
     if (
       !requested ||
@@ -461,14 +468,19 @@ export function LocationImmersiveMap({
   }, [isCheckInSurface, nearbyCheckInAvailable, router, searchParams]);
 
   const openNearbyCheckIn = useCallback(() => {
-    if (
-      !nearbyCheckInAvailable ||
-      !rendererReady ||
-      demoMode ||
-      // Nothing to open: on the check-in route the flow already is the screen.
-      isCheckInSurface ||
-      searchParams.get("action") === "check-in"
-    ) {
+    if (!nearbyCheckInAvailable || !rendererReady || demoMode) {
+      return;
+    }
+    // Already on the flow's own route: re-opening is a state change, not a
+    // navigation. This is the way back in after a dismiss -- the "Check in"
+    // pill in the top controls renders here too -- and pushing the route onto
+    // itself would only stack a duplicate history entry.
+    if (isCheckInSurface) {
+      checkInSheetDismissedRef.current = false;
+      setNearbyCheckInOpen(true);
+      return;
+    }
+    if (searchParams.get("action") === "check-in") {
       return;
     }
     setTrayExpanded(false);
@@ -487,19 +499,23 @@ export function LocationImmersiveMap({
   ]);
 
   const closeNearbyCheckIn = useCallback(() => {
-    // Dismissing on the dedicated route must leave it. Clearing the flag alone
-    // would strand the person on a bare map that is not Your Map and has none
-    // of its content -- the emptiest possible screen.
+    // Closing a drawer is not a request to leave the screen behind it.
+    //
+    // On its own route dismiss used to navigate -- first to the Location hub
+    // for everyone, then to whichever screen a `?source=` param said had opened
+    // the flow. Both were answering the wrong question. Someone who has just
+    // checked in and swiped the sheet away wants the sheet away; the map they
+    // were standing on, with where they are and the place they picked, is
+    // already the right screen. Sending them anywhere -- especially back to the
+    // Location hub, two screens from the flow they just completed -- reads as
+    // the app throwing them out.
+    //
+    // What is left behind is a real screen, not a bare map: the top controls
+    // still carry the "Check in" pill that re-opens the sheet, the locate
+    // button, and an explicit "Back to Location" X for people who do want out.
     if (isCheckInSurface) {
-      // `replace`, not `push`: check-in is done with, and leaving it on the
-      // stack made the very next Back press re-open the flow just dismissed.
-      // History is not consulted for the destination either -- this app's back
-      // is authored, because the browser stack carries external origins and on
-      // iOS walking it can eject the person out of the app entirely.
-      router.replace(
-        resolveCheckInDismissHref(searchParams.get(CHECK_IN_SOURCE_PARAM)),
-        { scroll: false },
-      );
+      checkInSheetDismissedRef.current = true;
+      setNearbyCheckInOpen(false);
       return;
     }
     setNearbyCheckInOpen(false);
@@ -509,7 +525,7 @@ export function LocationImmersiveMap({
     ) {
       window.history.back();
     }
-  }, [isCheckInSurface, router, searchParams]);
+  }, [isCheckInSurface]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1553,8 +1569,14 @@ export function LocationImmersiveMap({
     // native, where the map layer/transition could leave the close affordance
     // inert), force a hard navigation to the Location dashboard so the user is
     // never trapped in the full-screen map.
+    //
+    // The escape hatch is armed against the route we are leaving, whichever it
+    // is. Hard-coding Your Map's path silently disarmed it on check-in's own
+    // route -- the one screen where the X is now the primary way out, because
+    // dismissing the sheet deliberately leaves you standing here.
+    const exitingFrom = window.location.pathname;
     window.setTimeout(() => {
-      if (window.location.pathname !== ROUTES.ONE_LOCATION_MAP) return;
+      if (window.location.pathname !== exitingFrom) return;
       window.location.assign(ROUTES.ONE_LOCATION);
     }, 1_200);
   }, [router]);
