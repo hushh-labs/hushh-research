@@ -19,6 +19,7 @@ tests/test_agent_prompt_service.py
 tests/test_agent_runtime_tool_resolution_error.py
 tests/test_ai_connection_gate.py
 tests/test_anypoint_backend.py
+tests/test_byoc_authorization_script_matches_the_applier.py
 tests/test_byoc_bootstrap_and_custody.py
 tests/test_byoc_project_naming.py
 tests/test_byoc_substrate.py
