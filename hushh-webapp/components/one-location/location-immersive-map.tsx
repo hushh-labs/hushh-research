@@ -661,10 +661,15 @@ export function LocationImmersiveMap({
     setNearbyPresenceState({ presence: null, attendees: [] });
   }, [auth.userId, demoMode, nearbyCheckInAvailable, vaultOwnerToken]);
 
-  const captureCurrentLocation =
-    useCallback((): Promise<PlainLocationPoint> => {
-      if (locationCaptureRef.current) return locationCaptureRef.current;
-      const request = OneLocationService.captureCurrentPosition();
+  const captureCurrentLocation = useCallback(
+    (options?: { maxAgeMs?: number }): Promise<PlainLocationPoint> => {
+      // A caller demanding a genuinely fresh fix must not be handed the
+      // in-flight one this ref is holding — that is how the check-in anchor
+      // silently became "wherever we already were".
+      if (locationCaptureRef.current && options?.maxAgeMs !== 0) {
+        return locationCaptureRef.current;
+      }
+      const request = OneLocationService.captureCurrentPosition(options);
       locationCaptureRef.current = request;
       void request.then(
         () => {
@@ -681,17 +686,23 @@ export function LocationImmersiveMap({
       return request;
     }, []);
 
-  const captureAndRememberCurrentLocation = useCallback(async () => {
-    const point = await captureCurrentLocation();
-    if (auth.userId) {
-      const workspace = readLocationWorkspaceMemory(auth.userId);
-      writeLocationWorkspaceMemory(auth.userId, {
-        ...workspace,
-        myLocationPoint: point,
-      });
-    }
-    return point;
-  }, [auth.userId, captureCurrentLocation]);
+  // Forwards `options` deliberately. Declared with no parameters, this silently
+  // dropped a caller's `maxAgeMs: 0` — TypeScript accepts the narrower arity, so
+  // it compiled clean while the check-in anchor quietly used a cached fix.
+  const captureAndRememberCurrentLocation = useCallback(
+    async (options?: { maxAgeMs?: number }) => {
+      const point = await captureCurrentLocation(options);
+      if (auth.userId) {
+        const workspace = readLocationWorkspaceMemory(auth.userId);
+        writeLocationWorkspaceMemory(auth.userId, {
+          ...workspace,
+          myLocationPoint: point,
+        });
+      }
+      return point;
+    },
+    [auth.userId, captureCurrentLocation],
+  );
 
   const handleNearbyStateChange = useCallback(
     (next: OneLocationNearbyPresenceState) => {

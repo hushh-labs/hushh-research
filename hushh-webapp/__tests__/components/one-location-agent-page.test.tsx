@@ -25,6 +25,7 @@ const {
   mockPlacesAutocomplete,
   mockPlaceDetails,
   mockGetMapState,
+  mockGetMapPreferences,
   mockUpdateMapPreferences,
   mockAddSavedLocation,
   mockLoadSavedLocations,
@@ -71,6 +72,7 @@ const {
   mockPlacesAutocomplete: vi.fn(),
   mockPlaceDetails: vi.fn(),
   mockGetMapState: vi.fn(),
+  mockGetMapPreferences: vi.fn(),
   mockUpdateMapPreferences: vi.fn(),
   mockAddSavedLocation: vi.fn(),
   mockLoadSavedLocations: vi.fn(),
@@ -263,6 +265,7 @@ vi.mock("@/lib/one-location/service", () => ({
     placesAutocomplete: mockPlacesAutocomplete,
     placeDetails: mockPlaceDetails,
     getMapState: mockGetMapState,
+    getMapPreferences: mockGetMapPreferences,
     updateMapPreferences: mockUpdateMapPreferences,
     watchCurrentPosition: vi.fn().mockResolvedValue(null),
     clearWatch: vi.fn(),
@@ -893,6 +896,10 @@ describe("OneLocationAgentPage", () => {
       },
       freshnessSeconds: 60,
       markers: [],
+    });
+    mockGetMapPreferences.mockResolvedValue({
+      presenceMode: "ghost",
+      rendererConsentVersion: "google-maps-renderer-v1",
     });
     mockUpdateMapPreferences.mockResolvedValue({
       presenceMode: "ghost",
