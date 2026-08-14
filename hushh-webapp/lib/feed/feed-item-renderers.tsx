@@ -255,7 +255,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           ? "A connection was accepted."
           : actorIsSelf
             ? "You accepted the connection request"
-            : "accepted your connection request",
+            : "Accepted your connection request",
         href: ROUTES.CONNECT,
       };
     }
@@ -270,7 +270,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           ? "A connection request was rejected."
           : actorIsSelf
             ? "You declined the connection request"
-            : "declined your connection request",
+            : "Declined your connection request",
         href: ROUTES.CONNECT,
       };
     }
@@ -285,7 +285,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           ? "A connection was removed."
           : actorIsSelf
             ? "You removed the connection"
-            : "removed your connection",
+            : "Removed your connection",
         href: ROUTES.CONNECT,
       };
     }
