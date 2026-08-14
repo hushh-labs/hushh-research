@@ -317,6 +317,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // removed outright, since callers throughout this file still call them at
   // every activity/resolution point; scheduleVoiceIdleTimer just no longer
   // arms anything.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Nudges a confirmation card once if the person hasn't tapped Confirm/Cancel
   // within PENDING_CONFIRMATION_NUDGE_MS. Cleared the instant the card
@@ -1640,6 +1643,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   }, [onboardingGreeterMode]);
 
   const unmountBar =
+    !mounted ||
     !agentPopover ||
     authLoading ||
     // Focused onboarding routes retain voice but use the voice-only rendering

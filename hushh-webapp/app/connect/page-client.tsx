@@ -265,9 +265,9 @@ export default function ConnectPageClient() {
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [isConnectingMultiple, setIsConnectingMultiple] = useState(false);
   const [batchConnectDraft, setBatchConnectDraft] = useState<{
-    people: SelectedPerson[];
+    people: DirectoryPerson[];
   } | null>(null);
-  const [isLimitAlertOpen, setIsLimitAlertOpen] = useState(false);
+  const [showLimitBanner, setShowLimitBanner] = useState(false);
 
   const getIdToken = useCallback(
     async () => (user ? await user.getIdToken() : null),
@@ -450,12 +450,13 @@ export default function ConnectPageClient() {
           idToken,
           counterpartUserId: person.userId,
         });
+        if (catalog.items.length === 0 && catalog.offerableItems.length === 0) {
+          await sendConnectionRequest(person, [], []);
+          return;
+        }
         setScopeDraft({
           person,
           catalog,
-          // A requested capability belongs to the counterpart, so it must be
-          // an intentional sender choice and still needs recipient approval.
-          // Never imply a request merely because a capability is eligible.
           requestedHandles: [],
           offeredHandles: [],
         });
@@ -469,12 +470,12 @@ export default function ConnectPageClient() {
         setBusyId((current) => (current === person.userId ? null : current));
       }
     },
-    [user],
+    [sendConnectionRequest, user],
   );
 
   const handleConnect = useCallback(
     (person: DirectoryPerson) => {
-      if (!user) return;
+      if (!user || isSelectionMode) return;
       const cta = relationshipCta(person.relationship);
       if (cta.action === "respond") {
         router.push(buildConsentCenterHref("pending"));
@@ -482,7 +483,7 @@ export default function ConnectPageClient() {
       }
       if (cta.action === "connect") void sendConnectRequest(person);
     },
-    [router, sendConnectRequest, user],
+    [isSelectionMode, router, sendConnectRequest, user],
   );
 
   const toggleDraftHandle = useCallback(
@@ -1328,6 +1329,7 @@ export default function ConnectPageClient() {
                   onClick={() => {
                     setIsSelectionMode((current) => !current);
                     setSelectedUserIds(new Set());
+                    setShowLimitBanner(false);
                   }}
                 >
                   {isSelectionMode ? "Cancel selection" : "Select people"}
@@ -1425,7 +1427,6 @@ export default function ConnectPageClient() {
                             ) : (
                               <Checkbox
                                 checked={isSelected}
-                                disabled={!isSelected && selectionLimitReached}
                                 // The default unchecked border (border-input)
                                 // reads as near-invisible on this row's light
                                 // background -- readers couldn't tell an
@@ -1437,15 +1438,21 @@ export default function ConnectPageClient() {
                                 aria-describedby="connect-selection-limit"
                                 onCheckedChange={(checked) => {
                                   if (checked && selectedUserIds.size >= MAX_BULK_CONNECTION_REQUESTS) {
-                                    setIsLimitAlertOpen(true);
+                                    setShowLimitBanner(true);
                                     return;
                                   }
                                   setSelectedUserIds((current) => {
                                     const next = new Set(current);
                                     if (checked) {
                                       next.add(person.userId);
+                                      if (next.size >= MAX_BULK_CONNECTION_REQUESTS) {
+                                        setShowLimitBanner(true);
+                                      }
                                     } else {
                                       next.delete(person.userId);
+                                      if (next.size < MAX_BULK_CONNECTION_REQUESTS) {
+                                        setShowLimitBanner(false);
+                                      }
                                     }
                                     return next;
                                   });
@@ -1566,18 +1573,11 @@ export default function ConnectPageClient() {
                       disabled={isConnectingMultiple}
                       onClick={() => {
                         const selectedPeople = people
-                          .filter((p) => selectedUserIds.has(p.userId))
-                          .map((p) => ({
-                            userId: p.userId,
-                            displayName: p.displayName,
-                            email: p.email,
-                          }));
+                          .filter((p) => selectedUserIds.has(p.userId));
                         setBatchConnectDraft({ people: selectedPeople });
                       }}
                     >
-                      {isConnectingMultiple
-                        ? "Sending…"
-                        : `Connect selected (${selectedUserIds.size}/${MAX_BULK_CONNECTION_REQUESTS})`}
+                      {isConnectingMultiple ? "Sending…" : "Connect selected"}
                     </Button>
                   </div>
                 )}
@@ -1743,7 +1743,7 @@ export default function ConnectPageClient() {
 
           {batchConnectDraft ? (
             <div className="space-y-4 overflow-y-auto min-h-0 flex-1 px-1 pb-2">
-              <SettingsGroup title={`Selected people (${batchConnectDraft.people.length})`} separatorInset>
+              <SettingsGroup title="Selected people" separatorInset>
                 {batchConnectDraft.people.map((person) => {
                   const title = person.displayName || person.email || person.userId;
                   return (
@@ -1813,38 +1813,6 @@ export default function ConnectPageClient() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={isLimitAlertOpen} onOpenChange={setIsLimitAlertOpen}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Limit reached</AlertDialogTitle>
-            <AlertDialogDescription>
-              You can connect up to {MAX_BULK_CONNECTION_REQUESTS} at a time.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel variant="none" className="text-muted-foreground font-normal">
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant="none"
-              className="text-[color:var(--app-primary-action)] font-medium"
-              onClick={() => {
-                const selectedPeople = people
-                  .filter((p) => selectedUserIds.has(p.userId))
-                  .map((p) => ({
-                    userId: p.userId,
-                    displayName: p.displayName,
-                    email: p.email,
-                  }));
-                if (selectedPeople.length === 0) return;
-                setBatchConnectDraft({ people: selectedPeople });
-              }}
-            >
-              Review
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <Dialog
         open={informationScopeDraft !== null}
@@ -1902,6 +1870,42 @@ export default function ConnectPageClient() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {showLimitBanner && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[9999] w-[92%] max-w-md rounded-2xl bg-popover/95 backdrop-blur-md p-3.5 shadow-xl border border-border/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-200">
+          <span className="text-xs font-medium text-foreground">
+            You can connect up to {MAX_BULK_CONNECTION_REQUESTS} at a time.
+          </span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Button
+              type="button"
+              variant="none"
+              effect="fade"
+              size="sm"
+              className="h-7 rounded-xl px-2.5 text-xs font-normal text-muted-foreground hover:bg-muted"
+              onClick={() => setShowLimitBanner(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="blue"
+              effect="fill"
+              size="sm"
+              className="h-7 rounded-xl px-3 text-xs font-medium"
+              onClick={() => {
+                setShowLimitBanner(false);
+                const selectedPeople = people.filter((p) =>
+                  selectedUserIds.has(p.userId)
+                );
+                if (selectedPeople.length === 0) return;
+                setBatchConnectDraft({ people: selectedPeople });
+              }}
+            >
+              Review
+            </Button>
+          </div>
+        </div>
+      )}
     </AppPageShell>
   );
 }
