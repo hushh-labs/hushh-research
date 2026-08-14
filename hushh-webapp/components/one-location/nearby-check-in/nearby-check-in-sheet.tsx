@@ -984,10 +984,27 @@ export function NearbyCheckInSheet({
         requestGenerationRef.current += 1;
         searchGenerationRef.current += 1;
       });
-    const timer = window.setInterval(() => void poll(), 15_000);
+    // Poll on a timer ONLY while the drawer is actually on screen.
+    //
+    // The guard above is `state.presence`, not `open`, so this effect also runs
+    // for a checked-in owner who has the sheet mounted but closed — and the
+    // sheet is mounted by every map surface. At 15s that is 4 reads a minute
+    // each, against a server budget of 8 a minute for this route, keyed per
+    // ACCOUNT rather than per tab. Two mounted-but-closed sheets therefore
+    // spend the entire allowance on nobody looking at anything, and the hub's
+    // own presence read comes back 429. That is what put three
+    // "429 (Too Many Requests)" lines on the Location screen.
+    //
+    // Closed, the sheet still refreshes on the two events that actually matter
+    // — the tab becoming visible and the app returning to the foreground —
+    // which is where a stale presence would otherwise be noticed. Nothing is
+    // lost except requests nobody was waiting for.
+    const timer = open
+      ? window.setInterval(() => void poll(), 15_000)
+      : null;
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
-      window.clearInterval(timer);
+      if (timer !== null) window.clearInterval(timer);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       removeLifecycleListener();
     };

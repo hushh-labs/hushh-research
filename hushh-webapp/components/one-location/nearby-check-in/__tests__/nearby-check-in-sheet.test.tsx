@@ -1639,4 +1639,125 @@ describe("NearbyCheckInSheet", () => {
       });
     });
   });
+
+  /**
+   * The presence poller and the server's 8-requests-per-minute budget.
+   *
+   * The poller's guard is `state.presence`, not `open`, and the sheet is
+   * mounted by every map surface. A checked-in owner therefore had a CLOSED
+   * drawer polling every 15 seconds -- 4 reads a minute each, against a limit
+   * of 8 a minute keyed per ACCOUNT, not per tab. Two mounted-but-closed
+   * sheets spent the whole allowance on nobody looking at anything, and the
+   * Location hub's own read came back 429.
+   */
+  describe("presence polling and the request budget", () => {
+    const activePresence = {
+      presence: {
+        status: "active",
+        audience: "all_opted_in",
+        radiusMeters: 500,
+        allowConnectionRequests: false,
+        consentVersion: "one-location-nearby-presence-v3",
+        checkedInAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        placeLabel: "Stanford University",
+      },
+      attendees: [],
+    };
+
+    it("does not poll on a timer while the drawer is closed", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        service.getNearbyPresence.mockResolvedValue(activePresence);
+
+        render(
+          <NearbyCheckInSheet
+            open={false}
+            ownerId="user-1"
+            vaultOwnerToken="owner-token"
+            captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+            onOpenChange={vi.fn()}
+          />,
+        );
+
+        await waitFor(() =>
+          expect(service.getNearbyPresence).toHaveBeenCalled(),
+        );
+        const afterMount = service.getNearbyPresence.mock.calls.length;
+
+        // Two full minutes. At the old cadence this is 8 reads - the entire
+        // per-account budget - burned by a drawer nobody opened.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(120_000);
+        });
+
+        expect(service.getNearbyPresence.mock.calls.length).toBe(afterMount);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("still polls while the drawer is open", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        service.getNearbyPresence.mockResolvedValue(activePresence);
+
+        render(
+          <NearbyCheckInSheet
+            open
+            ownerId="user-1"
+            vaultOwnerToken="owner-token"
+            captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+            onOpenChange={vi.fn()}
+          />,
+        );
+
+        await screen.findByTestId("nearby-presence-active");
+        const afterMount = service.getNearbyPresence.mock.calls.length;
+
+        // Someone watching the attendee list needs it live; that is what the
+        // budget is for.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(35_000);
+        });
+
+        expect(service.getNearbyPresence.mock.calls.length).toBeGreaterThan(
+          afterMount,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("still refreshes a closed drawer when the tab becomes visible", async () => {
+      service.getNearbyPresence.mockResolvedValue(activePresence);
+
+      render(
+        <NearbyCheckInSheet
+          open={false}
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      await waitFor(() => expect(service.getNearbyPresence).toHaveBeenCalled());
+      const afterMount = service.getNearbyPresence.mock.calls.length;
+
+      // Dispatched inside the retry loop on purpose: `poll()` declines while
+      // the mount read is still in flight, so a single dispatch races the
+      // fixture and fails only under load. Re-dispatching until the count
+      // moves tests the behaviour rather than the timing.
+      //
+      // Dropping the timer must not mean a stale presence survives a return to
+      // the tab - that is the moment staleness actually matters.
+      await waitFor(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+        expect(service.getNearbyPresence.mock.calls.length).toBeGreaterThan(
+          afterMount,
+        );
+      });
+    });
+  });
 });
