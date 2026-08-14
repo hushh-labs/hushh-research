@@ -56,8 +56,32 @@ flow root means the flow has left the shell. The top bar is still mounted undern
 but it is now covered — so the user sees a screen with no trail and no way back except
 whatever the flow drew for itself.
 
-This is exactly what SOS did until PR #5251. The symptom the user reports is *"the
-header system isn't working on this screen"*; the cause is always this line.
+This is exactly what SOS did until PR #5251.
+
+### 1b. Check the shell rule too — a component fix cannot reach it
+
+There is a second, higher place a screen can lose its header, and it is the one that
+wastes an afternoon: **the shell can be told to blank the chrome for a specific
+`?action=` value.** Until PR #5253, `app-route-layout.ts` exported
+`shouldSuppressPersistentChromeForRouteState`, which returned `true` for `sos` and
+`sms-contacts`. `providers.tsx` OR-ed it into `hidesPersistentChrome`.
+
+The failure mode: you remove the overlay from the component, every test passes, the
+screen is perfectly in-flow — and it still renders with **no back control, no trail and
+no avatar**, because the shell never mounted them. Nothing in the component is wrong.
+
+So when a Location screen has no header, check **both** layers before editing anything:
+
+```bash
+grep -rn "persistentChrome\|SuppressPersistentChrome" hushh-webapp/lib/navigation hushh-webapp/app/providers.tsx
+grep -n "fixed inset-0\|100dvh\|z-\[" <the flow component>
+```
+
+Chrome visibility is a property of the **route**, declared once as
+`persistentChrome` in `app-route-layout.contract.json` where it sits beside every other
+route's. It is never a property of the `?action=` flow open inside that route. "It is an
+emergency screen so it owns the viewport" is the argument that produced this bug; an
+emergency is not a reason to make someone re-learn how to leave a screen.
 
 **Corollary:** once the shell owns the canvas, the flow cannot hardcode dark-only
 colors. Use `foreground` / `muted-foreground` / `border` / `--app-card-surface-compact`
@@ -160,16 +184,24 @@ Audited at PR #5251. Fix drift when you touch a row, don't leave it.
 | `?action=active-shares` | Active shares | Active shares | *none* | ⚠️ same |
 | `?action=needs-review` | Needs my review | Needs my review | *none* | ⚠️ same |
 | `?action=check-in` | Check-In | *raw `<h1>`* | *none* | ❌ no `TaskFlowHeader` |
-| `?action=sms-contacts` | Settings→(slug) | *raw `<h1>`* | *none* | ❌ raw `<h1>` **and** its own `ChevronLeft` |
+| `?action=sms-contacts` | SMS contacts | SMS contacts | *none* | ✅ fixed in #5253 |
 | `?action=share` | Share location | Who can see you? / Ready to share? | `Step 1 of 2 · …` | ⚠️ eyebrow is a step, title ≠ crumb |
 | `?action=ask` | Ask someone | Ask clearly | `Request with context` | ⚠️ title ≠ crumb |
 | `?action=invite` | Invite to Circle | Invite to Circle | `Invite to One / Circle` | ⚠️ title ✅, eyebrow is a tagline |
 | `?action=temp-link` | Public link | Public location link active / Share outside your Circle | `Copy, share or revoke` / *none* | ⚠️ two titles, neither is the crumb |
 | `/one/location/map` | Your Map | — | — | Map route, own chrome |
 
-**The two rows the user reported as broken are the two `❌` rows.** They are broken the
-same way SOS was: no `TaskFlowHeader`, so no eyebrow, no shared title treatment — and
-`sms-contacts` additionally re-adds the second back button.
+**Check-In is the one row still broken**, the same way SOS was: no `TaskFlowHeader`, so
+no shared title treatment.
+
+Note what `sms-contacts` needed on top of the component fix. Its back target is not the
+hub — it is reachable from Settings *and* from the middle of an SOS, and returning that
+second person to Settings drops them out of the emergency flow at the worst possible
+moment. The hub records the origin as `?source=sos`; `resolveSmsContactsBackAction` in
+`top-shell-breadcrumbs.ts` is the single implementation of that rule, and the hub's
+`resolveSmsContactsBackFlow` delegates to it. **When you delete a flow's in-content back
+button, check what that button knew that the breadcrumb does not** — a hardcoded
+`backHref` will silently lose it.
 
 ### The eyebrow is being used two ways
 

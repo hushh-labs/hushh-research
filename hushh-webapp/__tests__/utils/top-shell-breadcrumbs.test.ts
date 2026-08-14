@@ -545,6 +545,9 @@ describe("top shell breadcrumbs", () => {
       ["private-check-in", "Private Check-In"],
       // The crumb mirrors the screen's own <h1>, which reads "Save my Soul".
       ["sos", "Save my Soul"],
+      // NOTE: sms-contacts is deliberately absent from this table — it is the
+      // one flow whose back target is not the hub (it retraces to whoever
+      // opened it), so its label and back href are asserted separately below.
       ["share", "Share location"],
       ["ask", "Ask someone"],
       ["invite", "Invite to Circle"],
@@ -646,6 +649,24 @@ describe("top shell breadcrumbs", () => {
     fromSettings.set("action", "sms-contacts");
     expect(
       resolveTopShellBreadcrumb("/one/location", fromSettings)?.backHref,
+    ).toBe("/one/location?action=settings");
+
+    // SOS → SMS contacts → back to SOS. Contacts is reachable mid-emergency,
+    // and returning that person to Settings drops them out of the flow they
+    // were in the middle of, at the worst possible moment.
+    const fromSos = new URLSearchParams();
+    fromSos.set("action", "sms-contacts");
+    fromSos.set("source", "sos");
+    expect(resolveTopShellBreadcrumb("/one/location", fromSos)?.backHref).toBe(
+      "/one/location?action=sos",
+    );
+
+    // An unrecognised source is not an emergency; Settings stays the default.
+    const fromUnknown = new URLSearchParams();
+    fromUnknown.set("action", "sms-contacts");
+    fromUnknown.set("source", "nearby");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromUnknown)?.backHref,
     ).toBe("/one/location?action=settings");
   });
 

@@ -2,10 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { resolveTopShellMetrics } from "@/components/app-ui/top-shell-metrics";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import {
-  resolveAppRouteLayout,
-  shouldSuppressPersistentChromeForRouteState,
-} from "@/lib/navigation/app-route-layout";
+import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { ROUTES } from "@/lib/navigation/routes";
 
 describe("home shell contract", () => {
@@ -33,19 +30,22 @@ describe("home shell contract", () => {
     expect(resolveTopShellMetrics(ROUTES.CONNECT).hasTabs).toBe(false);
   });
 
-  it("suppresses persistent chrome only for immersive SMS safety surfaces", () => {
-    expect(
-      shouldSuppressPersistentChromeForRouteState(ROUTES.ONE_LOCATION, "sos"),
-    ).toBe(true);
-    expect(
-      shouldSuppressPersistentChromeForRouteState(
-        ROUTES.ONE_LOCATION,
-        "sms-contacts",
-      ),
-    ).toBe(true);
-    expect(
-      shouldSuppressPersistentChromeForRouteState(ROUTES.ONE_LOCATION, "share"),
-    ).toBe(false);
+  it("keeps the persistent chrome on every Location task flow", () => {
+    // SOS and SMS contacts used to hide the top and bottom chrome, which took
+    // the back control, the "Location › …" trail and the profile avatar off
+    // exactly two screens and forced each to draw a private back button.
+    // Chrome visibility is a property of the ROUTE, so `?action=` never
+    // changes it — a route that needs a bare canvas says so in the layout
+    // contract instead.
+    for (const action of ["sos", "sms-contacts", "share", "settings", null]) {
+      const query = action ? `?action=${action}` : "";
+      expect(
+        resolveTopShellMetrics(`${ROUTES.ONE_LOCATION}${query}`).shellVisible,
+      ).toBe(true);
+    }
+    expect(resolveAppRouteLayout(ROUTES.ONE_LOCATION).persistentChrome).not.toBe(
+      "none",
+    );
   });
 
   it("keeps auth-only routes out of the shared command surface", () => {
