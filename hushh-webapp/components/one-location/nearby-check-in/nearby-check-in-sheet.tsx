@@ -38,6 +38,7 @@ import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-
 import {
   readLastKnownFix,
   rememberLastKnownFix,
+  rememberLocationGrant,
 } from "@/lib/one-location/location-grant-memory";
 import { locationBlockReason } from "@/lib/one-location/location-readiness";
 import { OneLocationService } from "@/lib/one-location/service";
@@ -786,6 +787,13 @@ export function NearbyCheckInSheet({
         // starting from nothing, which is what turns a failed first GPS read
         // from a dead end into a labelled fallback.
         void rememberLastKnownFix({ userId: ownerId, point: nextPoint });
+        // The grant belongs next to the fix, not to whichever surface happens
+        // to run key bootstrap. This drawer reaches the device directly and is
+        // routinely the FIRST place an account ever produces a coordinate, so
+        // omitting it here left the account's own record of "location works for
+        // me" empty on the surface most likely to prove it. Verified against
+        // live UAT: the sealed fix was written and the grant was not.
+        rememberLocationGrant(ownerId);
         setPointOrigin("fresh");
         setPoint(nextPoint);
         await loadPlaces(nextPoint, generation, expectedOwnerEpoch);
