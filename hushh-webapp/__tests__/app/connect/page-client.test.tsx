@@ -183,13 +183,18 @@ describe("Connect — People", () => {
     expect(await screen.findByText("Page 1")).toBeTruthy();
   });
 
-  it("matches the first name, not the surname, when filtering search results", async () => {
-    // The directory API matches a substring anywhere in the name, so a
-    // search for "R" server-side returns both people below -- one whose
-    // surname happens to start with R, one whose first name does. The
-    // client-side filter must keep only the first-name match.
+  it("renders every person the directory returned, in the order it returned them", async () => {
+    // Matching and ranking belong to the server, which applies them before
+    // LIMIT/OFFSET. This screen renders the page it was given.
+    //
+    // It used to re-filter here instead, keeping only first-name matches. That
+    // ran on rows the server had ALREADY cut to a page under a different rule,
+    // so it could only ever subtract -- and dropping "Abdul Rashid" from a
+    // page of 8 does not promote a ninth row to replace it. The server now
+    // ranks first-name matches above surname matches across the whole result
+    // set, which is the only place that ranking can be applied truthfully.
     mocks.searchDirectory.mockResolvedValue({
-      items: [person("u1", "Abdul Rashid"), person("u2", "Rashid Ahmed")],
+      items: [person("u2", "Rashid Ahmed"), person("u1", "Abdul Rashid")],
       hasMore: false,
       page: 1,
     });
@@ -202,7 +207,121 @@ describe("Connect — People", () => {
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
 
     expect(await screen.findByText("Rashid Ahmed")).toBeTruthy();
-    expect(screen.queryByText("Abdul Rashid")).toBeNull();
+    expect(screen.getByText("Abdul Rashid")).toBeTruthy();
+  });
+
+  it("shows every match for a single typed letter", async () => {
+    // The reported bug, as a test. Typing "N" showed nothing at all: the
+    // server returned a page of substring matches and the client hid all of
+    // them, so real people named Nilesh and Nirmal were invisible behind an
+    // empty list with a live "Next" button.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [
+        person("u-nilesh", "Nilesh"),
+        person("u-nirmal", "Nirmal"),
+        person("u-nolan", "Nolan"),
+      ],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "N" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+
+    expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({
+      query: "N",
+      page: 1,
+      limit: 8,
+    });
+    for (const name of ["Nilesh", "Nirmal", "Nolan"]) {
+      expect(await screen.findByText(name)).toBeTruthy();
+    }
+    expect(screen.queryByText('No one matches "N"')).toBeNull();
+  });
+
+  it("preserves the directory's A-Z order rather than re-sorting the page", async () => {
+    // A client sort can only order the rows it can see, so re-sorting one page
+    // of a paged list makes the index lie at every page boundary: a name on
+    // page 2 could sort ahead of one on page 1. The order arrives correct.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [
+        person("u-a", "Nilesh"),
+        person("u-b", "Nirmal"),
+        person("u-c", "Abdul Nasser"),
+      ],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "N" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+
+    await screen.findByText("Abdul Nasser");
+    // "Abdul Nasser" is a surname match, ranked last by the server. A local
+    // alphabetical sort would pull it to the top, so its position is the whole
+    // assertion.
+    const order = ["Nilesh", "Nirmal", "Abdul Nasser"].map((name) =>
+      screen.getByText(name),
+    );
+    expect(
+      order[0].compareDocumentPosition(order[1]) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      order[1].compareDocumentPosition(order[2]) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("says so when a search matches nobody", async () => {
+    // The empty state used to be gated on the raw server page while the rows
+    // came from a filtered copy of it, so "8 rows, all hidden" rendered as
+    // blank space under a heading -- no rows, no message, and a pager.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "Zzz" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+
+    expect(await screen.findByText('No one matches "Zzz"')).toBeTruthy();
+  });
+
+  it("asks for page one once when the query changes while paged", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+    expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({ page: 2 });
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "N" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(3));
+
+    // One request, for page 1. Resetting the page in an effect landed a render
+    // too late and fired page 2 of the new query first -- a wasted round trip
+    // that was also free to resolve last and paint a page nobody asked for.
+    expect(mocks.searchDirectory.mock.calls[2][0]).toMatchObject({
+      query: "N",
+      page: 1,
+    });
+    expect(mocks.searchDirectory).toHaveBeenCalledTimes(3);
   });
 
   it("runs a spoken name through the governed Connect search handler", async () => {
@@ -454,8 +573,8 @@ describe("Connect — People", () => {
     expect(await screen.findByText('No one matches "Nobody"')).toBeTruthy();
   });
 
-  it("caps bulk connection requests at 20 people", async () => {
-    const bulkPeople = Array.from({ length: 21 }, (_, index) =>
+  it("caps bulk connection requests at 5 people", async () => {
+    const bulkPeople = Array.from({ length: 6 }, (_, index) =>
       person(`bulk-${index}`, `Bulk person ${index}`),
     );
     mocks.searchDirectory.mockResolvedValue({
@@ -469,32 +588,37 @@ describe("Connect — People", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Select people" }));
 
-    for (let index = 0; index < 20; index += 1) {
+    for (let index = 0; index < 5; index += 1) {
       fireEvent.click(screen.getByLabelText(`Select Bulk person ${index}`));
     }
 
-    expect(screen.getByText("Connect selected (20/20)")).toBeTruthy();
+    expect(screen.getByText("Connect selected (5/5)")).toBeTruthy();
     expect(
-      (screen.getByLabelText("Select Bulk person 20") as HTMLButtonElement)
+      (screen.getByLabelText("Select Bulk person 5") as HTMLButtonElement)
         .disabled,
     ).toBe(true);
 
     fireEvent.click(screen.getByLabelText("Select Bulk person 0"));
     expect(
-      (screen.getByLabelText("Select Bulk person 20") as HTMLButtonElement)
+      (screen.getByLabelText("Select Bulk person 5") as HTMLButtonElement)
         .disabled,
     ).toBe(false);
     fireEvent.click(screen.getByLabelText("Select Bulk person 0"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect selected (20/20)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect selected (5/5)" }));
 
-    await waitFor(() => expect(mocks.sendRequest).toHaveBeenCalledTimes(20));
+    // Selecting opens the scope-review dialog; sending is a second, deliberate
+    // act. This test predated that dialog and stopped at the first click, so
+    // it had been asserting against a dispatch that no longer happened there.
+    fireEvent.click(await screen.findByRole("button", { name: "Send requests" }));
+
+    await waitFor(() => expect(mocks.sendRequest).toHaveBeenCalledTimes(5));
 
     expect(mocks.sendRequest).toHaveBeenCalledWith(
       expect.objectContaining({ addresseeUserId: "bulk-0" }),
     );
     expect(mocks.sendRequest).not.toHaveBeenCalledWith(
-      expect.objectContaining({ addresseeUserId: "bulk-20" }),
+      expect.objectContaining({ addresseeUserId: "bulk-5" }),
     );
   });
 
@@ -504,7 +628,7 @@ describe("Connect — People", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Select people" }));
     fireEvent.click(screen.getByLabelText("Select Person 0"));
-    expect(screen.getByText("Connect selected (1/20)")).toBeTruthy();
+    expect(screen.getByText("Connect selected (1/5)")).toBeTruthy();
 
     mocks.searchDirectory.mockResolvedValue({
       items: [person("u9", "Person 9")],
@@ -517,7 +641,7 @@ describe("Connect — People", () => {
 
     expect(await screen.findByText("Person 9")).toBeTruthy();
     await waitFor(() =>
-      expect(screen.queryByText("Connect selected (1/20)")).toBeNull(),
+      expect(screen.queryByText("Connect selected (1/5)")).toBeNull(),
     );
   });
 

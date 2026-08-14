@@ -1821,11 +1821,49 @@ class ConnectionsService:
             people = directory_page.get("items") or []
             has_more = bool(directory_page.get("hasMore"))
         else:
+            # The in-memory fallback has to answer the same question the SQL
+            # path answers, or the two disagree about who is findable depending
+            # on which one a deployment happens to take. Same two tiers, same
+            # A-Z within each, and the same rule that ranking and matching
+            # finish BEFORE the page is cut.
             people = self._directory_lookup(user_id) or []
             if needle:
-                people = [
-                    p for p in people if needle in str(p.get("displayName") or "").strip().lower()
-                ]
+                # Same separator folding as the SQL path's TRANSLATE. Without
+                # it the two paths disagree about "Abdul-Rashid": Python's
+                # bare split() sees one word, the SQL sees two, and whether a
+                # person is findable comes down to which branch a deployment
+                # happened to take.
+                def _folded(value: str) -> str:
+                    folded = value.strip().lower()
+                    for separator in "-'._/,":
+                        folded = folded.replace(separator, " ")
+                    return folded
+
+                def _tier(person: dict[str, Any]) -> int | None:
+                    name = _folded(str(person.get("displayName") or ""))
+                    if name.startswith(needle):
+                        return 0
+                    if any(word.startswith(needle) for word in name.split()):
+                        return 1
+                    return None
+
+                ranked = [(tier, p) for p in people if (tier := _tier(p)) is not None]
+                ranked.sort(
+                    key=lambda entry: (
+                        entry[0],
+                        str(entry[1].get("displayName") or "").strip().lower(),
+                        str(entry[1].get("userId") or ""),
+                    )
+                )
+                people = [p for _, p in ranked]
+            else:
+                people = sorted(
+                    people,
+                    key=lambda p: (
+                        str(p.get("displayName") or "").strip().lower(),
+                        str(p.get("userId") or ""),
+                    ),
+                )
             offset = (page - 1) * limit
             has_more = offset + limit < len(people)
             people = people[offset : offset + limit]

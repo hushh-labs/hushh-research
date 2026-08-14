@@ -1691,7 +1691,21 @@ class OneLocationAgentService:
         *,
         owner_user_id: str,
         recipients: list[dict[str, Any]],
+        preserve_order: bool = False,
     ) -> list[dict[str, Any]]:
+        """Annotate recipients with Kai recommendation signals.
+
+        ``preserve_order`` keeps the caller's incoming order instead of
+        re-ranking by score. The Location screen wants the ranking -- "who
+        should I share with" is exactly a recommendation question. A paged
+        directory search does not: its order was decided by SQL, ahead of
+        LIMIT, and re-sorting the slice here would reorder rows *within* a page
+        while the page boundaries stayed alphabetical. That inconsistency was
+        survivable only while the Connect client re-sorted the page itself;
+        the moment that client sort was removed, the A-Z index the reader was
+        promised became recommendation-score order wearing alphabetical page
+        breaks.
+        """
         if not recipients:
             return []
         recipient_ids = {str(recipient.get("userId") or "") for recipient in recipients}
@@ -1832,14 +1846,15 @@ class OneLocationAgentService:
                 }
             )
 
-        enriched.sort(
-            key=lambda item: (
-                -int(item.get("recommendationScore") or 0),
-                0 if item.get("canReceiveLocation") else 1,
-                str(item.get("displayName") or "").lower(),
-                str(item.get("userId") or ""),
+        if not preserve_order:
+            enriched.sort(
+                key=lambda item: (
+                    -int(item.get("recommendationScore") or 0),
+                    0 if item.get("canReceiveLocation") else 1,
+                    str(item.get("displayName") or "").lower(),
+                    str(item.get("userId") or ""),
+                )
             )
-        )
         for index, recipient in enumerate(enriched, start=1):
             recipient["recommendationRank"] = index
         return enriched
@@ -3066,6 +3081,22 @@ class OneLocationAgentService:
         This preserves the existing discovery policy while preventing callers
         from being limited by an in-memory first page.  The result remains a
         safe profile projection; it is not an all-account directory.
+
+        Matching, ranking and ordering all happen HERE, in one statement, ahead
+        of ``LIMIT``.  That placement is the contract, not an implementation
+        detail: this used to match any substring (``LIKE '%n%'``) and leave the
+        caller to narrow the result, so Connect asked for 8 rows for "n", got
+        the 8 alphabetically-first names that merely CONTAIN an n -- Anand,
+        Ankit, Arun -- and then discarded all 8 client-side because none of
+        them START with n.  Nilesh and Nirmal existed and were real, and were
+        several pages further into a result set nobody could reach.  A filter
+        applied after ``LIMIT`` can only ever subtract from a page that was
+        already chosen wrongly, so no caller-side rule could have fixed it.
+
+        The order is: name-prefix matches first, then word-prefix matches, and
+        A-Z (case-insensitively) within each tier.  Paging is therefore paging
+        through one stable, fully-ranked list, and ``hasMore`` describes the
+        same rows the reader is looking at.
         """
         page = max(1, int(page or 1))
         # Keep the legacy Ready People caller's 100-item ceiling intact. The
@@ -3075,6 +3106,36 @@ class OneLocationAgentService:
         offset = (page - 1) * limit
         needle = (query or "").strip().lower()
         target = (candidate_user_id or "").strip() or None
+        # LIKE metacharacters in a typed name are literal characters, not
+        # wildcards. Unescaped, a single "%" typed into Connect matches every
+        # row in the directory and "_" matches any letter, so the escape is
+        # what keeps the pattern describing the name the person actually typed.
+        #
+        # "!" is the escape character rather than the conventional backslash on
+        # purpose: a backslash would have to survive both Python's string
+        # escaping and Postgres' standard_conforming_strings, and getting
+        # either wrong degrades silently into a pattern that still runs.
+        escaped_needle = needle.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        # Two patterns, because a directory search is answered in two tiers.
+        #   name_prefix -- the name STARTS with what was typed. Typing "n" is
+        #     an index request: every N person, A-Z. This is the tier the
+        #     Connect screen exists to serve.
+        #   word_prefix -- some later word starts with it, so "rashid" still
+        #     finds "Abdul Rashid". An earlier version matched surnames with no
+        #     ranking at all, which is why "r" felt random; here the tier is
+        #     strictly below name_prefix, so a first-name hit always outranks a
+        #     surname hit and the list never reads as shuffled.
+        #
+        # Both patterns are applied to a name that has been trimmed, lowered,
+        # and had its separators folded to spaces (see the TRANSLATE in the
+        # statement). Names are not stored tidily: " Nilesh" with a leading
+        # space would fail a `n%` test and get demoted to the surname tier,
+        # and "Abdul-Rashid" or "Abdul R." would put their second word behind
+        # a character that `% r%` cannot see. Fold once, match once, and the
+        # tier a person lands in is about their name rather than about the
+        # punctuation someone typed into a profile field.
+        name_prefix_pattern = f"{escaped_needle}%"
+        word_prefix_pattern = f"% {escaped_needle}%"
         rows = self._execute_many(
             """
             SELECT
@@ -3132,15 +3193,28 @@ class OneLocationAgentService:
               )
               AND (
                 :query = ''
-                OR LOWER(COALESCE(a.display_name, '')) LIKE '%' || :query || '%'
+                OR TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')
+                     LIKE :name_prefix ESCAPE '!'
+                OR TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')
+                     LIKE :word_prefix ESCAPE '!'
               )
-            ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
+            ORDER BY
+              CASE
+                WHEN :query = '' THEN 0
+                WHEN TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')
+                       LIKE :name_prefix ESCAPE '!' THEN 0
+                ELSE 1
+              END,
+              LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id)),
+              a.user_id
             LIMIT :fetch_limit OFFSET :offset
             """,
             {
                 "owner_user_id": owner_user_id,
                 "candidate_user_id": target,
                 "query": needle,
+                "name_prefix": name_prefix_pattern,
+                "word_prefix": word_prefix_pattern,
                 "fetch_limit": limit + 1,
                 "offset": offset,
             },
@@ -3151,6 +3225,11 @@ class OneLocationAgentService:
         items = self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,
+            # The SQL above already decided rank and A-Z, across the whole
+            # matched set rather than this slice of it. Re-sorting here would
+            # only ever shuffle one page against boundaries drawn by a
+            # different ordering.
+            preserve_order=True,
         )
         return {"items": items, "page": page, "hasMore": has_more}
 
