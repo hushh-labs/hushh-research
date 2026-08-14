@@ -24,8 +24,18 @@ const navigation = vi.hoisted(() => ({
   push: vi.fn(),
 }));
 
+const locationMemory = vi.hoisted(() => ({
+  readLastKnownFix: vi.fn(),
+  rememberLastKnownFix: vi.fn(),
+}));
+
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: service,
+}));
+
+vi.mock("@/lib/one-location/location-grant-memory", () => ({
+  readLastKnownFix: locationMemory.readLastKnownFix,
+  rememberLastKnownFix: locationMemory.rememberLastKnownFix,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -53,6 +63,12 @@ describe("NearbyCheckInSheet", () => {
   beforeEach(() => {
     Object.values(service).forEach((mock) => mock.mockReset());
     navigation.push.mockReset();
+    locationMemory.readLastKnownFix.mockReset();
+    locationMemory.rememberLastKnownFix.mockReset();
+    // Default: nothing carried over, which is what every pre-existing test in
+    // this file assumed before durable memory existed.
+    locationMemory.readLastKnownFix.mockResolvedValue(null);
+    locationMemory.rememberLastKnownFix.mockResolvedValue(undefined);
     service.nearbyCheckInErrorDetails.mockReturnValue({
       message: "Check-in didn't complete. Your location is not visible.",
       retryLocation: false,
@@ -1379,5 +1395,141 @@ describe("NearbyCheckInSheet", () => {
     // No point captured while a check-in is already live, so there is nothing
     // to compare against and the sheet stays silent rather than guessing.
     expect(screen.queryByTestId("nearby-active-drift")).not.toBeInTheDocument();
+  });
+
+  /**
+   * The reported failure, on a cold start.
+   *
+   * Opening the drawer after a reload used to mean: nothing in the in-session
+   * ref, a first GPS read that fails with `kCLErrorLocationUnknown` (routine on
+   * any machine without a GPS radio), and therefore "Still finding you" with an
+   * empty list — on a device that knew exactly where it was minutes earlier.
+   */
+  describe("on a cold start", () => {
+    /**
+     * Built per test, never once at module load: the age label is relative to
+     * `Date.now()` at render, so a fixture frozen when the file was imported
+     * drifts by however long the rest of the suite took to reach this test.
+     */
+    function carriedOver(ageMs = 4 * 60_000) {
+      return {
+        ...point,
+        latitude: 37.4279,
+        capturedAt: new Date(Date.now() - ageMs).toISOString(),
+      };
+    }
+
+    function unavailable() {
+      return new Error(
+        "Could not get your location. Turn on Location for your device/browser and try again.",
+      );
+    }
+
+    it("lists places around the carried-over fix instead of dead-ending", async () => {
+      const carriedOverPoint = carriedOver();
+      locationMemory.readLastKnownFix.mockResolvedValue(carriedOverPoint);
+
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockRejectedValue(unavailable())}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      await screen.findByRole("radio", { name: /Stanford University/ });
+      expect(
+        screen.queryByTestId("nearby-location-fallback"),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText("Still finding you")).not.toBeInTheDocument();
+      expect(service.nearbyPlaces).toHaveBeenCalledWith({
+        vaultOwnerToken: "owner-token",
+        lat: carriedOverPoint.latitude,
+        lng: carriedOverPoint.longitude,
+        category: "all",
+      });
+    });
+
+    it("says the position is carried over, and how old it is", async () => {
+      const carriedOverPoint = carriedOver();
+      locationMemory.readLastKnownFix.mockResolvedValue(carriedOverPoint);
+
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockRejectedValue(unavailable())}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      const notice = await screen.findByTestId("nearby-last-known-notice");
+      // Silently drawing an old position as the current one would be the wrong
+      // trade. The drawer keeps working AND says what it is showing.
+      expect(notice).toHaveTextContent(/last known position/i);
+      expect(notice).toHaveTextContent(/about 4 minutes ago/i);
+    });
+
+    it("still says so plainly when there is nothing carried over", async () => {
+      locationMemory.readLastKnownFix.mockResolvedValue(null);
+
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockRejectedValue(unavailable())}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      // A first-ever open with no fix genuinely has nothing to show. Inventing
+      // a position here would be worse than the error.
+      await screen.findByTestId("nearby-location-fallback");
+      expect(screen.getByText("Still finding you")).toBeInTheDocument();
+    });
+
+    it("reads the carried-over fix for the account that asked for it", async () => {
+      const carriedOverPoint = carriedOver();
+      locationMemory.readLastKnownFix.mockResolvedValue(carriedOverPoint);
+
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-9"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockRejectedValue(unavailable())}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      await screen.findByRole("radio", { name: /Stanford University/ });
+      expect(locationMemory.readLastKnownFix).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: "user-9" }),
+      );
+    });
+
+    it("carries a successful fix forward for the next one", async () => {
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      await screen.findByRole("radio", { name: /Stanford University/ });
+      await waitFor(() => {
+        expect(locationMemory.rememberLastKnownFix).toHaveBeenCalledWith({
+          userId: "user-1",
+          point,
+        });
+      });
+    });
   });
 });
