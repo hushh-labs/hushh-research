@@ -21,6 +21,21 @@ const GLOBALS_SOURCE = fs.readFileSync(
   path.resolve(__dirname, "../../app/globals.css"),
   "utf8",
 );
+const SMS_CONTACTS_SOURCE = fs.readFileSync(
+  path.resolve(
+    __dirname,
+    "../../components/one-location/redesign/sms-contacts-flow.tsx",
+  ),
+  "utf8",
+);
+const ROUTE_LAYOUT_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, "../../lib/navigation/app-route-layout.ts"),
+  "utf8",
+);
+const PROVIDERS_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, "../../app/providers.tsx"),
+  "utf8",
+);
 
 describe("One Location SMS emergency actions", () => {
   it("renders a dialer only after the local emergency number resolves", () => {
@@ -87,6 +102,32 @@ describe("One Location SMS emergency actions", () => {
   it("leaves the single back control to the top bar", () => {
     expect(SMS_PANEL_SOURCE).not.toContain("ChevronLeft");
     expect(SMS_PANEL_SOURCE).not.toContain('aria-label="Back to Location"');
+  });
+
+  // The deeper cause of the missing header, and the one a component-level fix
+  // could not reach: the shell had a rule that blanked the top and bottom
+  // chrome for these two `?action=` values, so the panel could be perfectly
+  // in-flow and still render with no back control, no trail and no avatar.
+  it("never hides the shell chrome for a Location action flow", () => {
+    expect(ROUTE_LAYOUT_SOURCE).not.toContain(
+      "shouldSuppressPersistentChromeForRouteState",
+    );
+    expect(PROVIDERS_SOURCE).not.toContain(
+      "shouldSuppressPersistentChromeForRouteState",
+    );
+    // Chrome visibility stays a property of the route, decided in one place.
+    expect(PROVIDERS_SOURCE).toContain(
+      'routeLayout.persistentChrome === "none"',
+    );
+  });
+
+  it("keeps SMS contacts — reachable from SOS — on the same header system", () => {
+    expect(SMS_CONTACTS_SOURCE).toContain("TaskFlowHeader");
+    expect(SMS_CONTACTS_SOURCE).toContain('title="SMS contacts"');
+    expect(SMS_CONTACTS_SOURCE).not.toContain("<h1");
+    expect(SMS_CONTACTS_SOURCE).not.toContain("ChevronLeft");
+    expect(SMS_CONTACTS_SOURCE).not.toContain("fixed inset-0");
+    expect(SMS_CONTACTS_SOURCE).not.toContain("100dvh");
   });
 
   it("keeps SOS motion in the app's single motion driver", () => {

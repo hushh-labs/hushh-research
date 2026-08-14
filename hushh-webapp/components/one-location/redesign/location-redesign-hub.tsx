@@ -108,6 +108,7 @@ import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ROUTES } from "@/lib/navigation/routes";
+import { resolveSmsContactsBackAction } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
   CircleDetailFlow,
   CirclesSection,
@@ -467,7 +468,9 @@ const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
 export function resolveSmsContactsBackFlow(
   source: string | null | undefined,
 ): "sos" | "settings" {
-  return source === SOS_FLOW_SOURCE ? "sos" : "settings";
+  // Delegates so the rule has ONE implementation: the top bar is what actually
+  // performs this navigation now, and it resolves the target the same way.
+  return resolveSmsContactsBackAction(source);
 }
 
 const RETIRED_ACTIONS = new Set([
@@ -617,11 +620,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const nearbyPrivateCheckIn =
     searchParams.get(FLOW_ACTION_PARAM) === PRIVATE_CHECK_IN_ACTION &&
     searchParams.get(FLOW_SOURCE_PARAM) === NEARBY_CHECK_IN_SOURCE;
-  const smsContactsBackFlow = resolveSmsContactsBackFlow(
-    searchParams.get(FLOW_ACTION_PARAM) === FLOW_TO_ACTION["sms-contacts"]
-      ? searchParams.get(FLOW_SOURCE_PARAM)
-      : null,
-  );
   const nearbyReturnToken = searchParams.get(NEARBY_PRIVATE_RETURN_TOKEN_PARAM);
   const nearbyCheckInReturnHref =
     nearbyPrivateCheckIn && isNearbyPrivateReturnToken(nearbyReturnToken)
@@ -977,12 +975,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             circles={vm.circles}
             selectedUserIds={vm.smsContactUserIds}
             busyKey={vm.busy}
-            // Emergency contacts is opened from Settings and from SOS, so the
-            // back arrow follows whoever opened it rather than a fixed target.
-            // Sending someone from SOS back to Settings drops them out of the
-            // emergency flow they were in the middle of, which is the worst
-            // moment to make them find their way back.
-            onBack={() => openFlow(smsContactsBackFlow)}
+            // Back is the shell's, not this screen's. The top bar resolves the
+            // target from `?source=`, so opening contacts mid-SOS still returns
+            // to SOS rather than dropping the person into Settings.
             onAdd={vm.onAddSmsContact}
             onAddCircle={vm.onAddSmsCircle}
             onRemove={vm.onRemoveSmsContact}

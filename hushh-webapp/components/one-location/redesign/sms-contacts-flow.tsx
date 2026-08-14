@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { ChevronLeft, Loader2, UsersRound } from "lucide-react";
+import { Loader2, UsersRound } from "lucide-react";
 
 import {
   AlertDialog,
@@ -18,6 +18,7 @@ import type {
   OneLocationRecipient,
 } from "@/lib/one-location/types";
 import { MUTED_TEXT, SECTION_HEADING } from "@/components/one-location/redesign/tokens";
+import { TaskFlowHeader } from "@/components/one-location/redesign/primitives";
 
 const AVATAR_TONES = [
   "bg-[#2f80ed]",
@@ -32,7 +33,6 @@ type SmsContactsFlowProps = {
   circles: OneLocationCircleSummary[];
   selectedUserIds: string[];
   busyKey: string | null;
-  onBack: () => void;
   onAdd: (recipientUserId: string) => void;
   onAddCircle: (circleId: string) => Promise<void>;
   onRemove: (recipientUserId: string) => Promise<boolean>;
@@ -131,7 +131,6 @@ export function SmsContactsFlow({
   circles,
   selectedUserIds,
   busyKey,
-  onBack,
   onAdd,
   onAddCircle,
   onRemove,
@@ -165,32 +164,22 @@ export function SmsContactsFlow({
   };
 
   return (
-    <section
-      className="fixed inset-0 z-[540] h-[100dvh] min-h-[100dvh] overflow-y-auto overscroll-none bg-background text-foreground"
-      data-ambient-chrome-ignore
-      data-testid="sms-contacts-screen"
-    >
+    // Renders inside the signed-in shell like every other Location task flow,
+    // so the top bar keeps the single back control, the
+    // "Location › SMS contacts" trail and the profile avatar. It used to pin
+    // itself over the whole viewport, which hid all three and left it drawing
+    // its own back arrow.
+    <section data-testid="sms-contacts-screen">
       {/* 430px is a phone, not a layout. Held at every width it left most of a
           tablet or a desktop window as empty grey while the lists below scrolled
           inside a narrow ribbon. The column grows with the viewport instead, and
           stops at 960px so the rows never stretch into unreadable full-bleed
           lines. */}
-      <div className="mx-auto min-h-[100dvh] w-full max-w-[430px] px-3.5 pb-[max(28px,env(safe-area-inset-bottom))] pt-[max(38px,env(safe-area-inset-top))] md:max-w-[720px] md:px-6 xl:max-w-[960px]">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="Back"
-          className="press-scale flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)]"
-        >
-          <ChevronLeft className="h-[19px] w-[19px]" />
-        </button>
-
-        <h1 className="mt-3 !text-[28px] !font-bold !leading-[34px] !tracking-normal">
-          SMS contacts
-        </h1>
-        <p className="mt-2 max-w-[350px] text-[15px] font-normal leading-[20px] text-muted-foreground">
-          Alert these people in an emergency.
-        </p>
+      <div className="mx-auto w-full max-w-[430px] md:max-w-[720px] xl:max-w-[960px]">
+        <TaskFlowHeader
+          title="SMS contacts"
+          description="Alert these people in an emergency."
+        />
 
         {circles.length ? (
           <>
