@@ -172,11 +172,8 @@ textarea {
 }
 
 :root {
-  /* Centralized app typography variables. Apple devices resolve to the native
-   * system face; other platforms fall through to Inter Variable/system. */
-  --font-family-product:
-    -apple-system, BlinkMacSystemFont, "InterVariable", "Inter", system-ui,
-    sans-serif;
+  /* Centralized app typography variables. Product UI uses Inter only. */
+  --font-family-product: "InterVariable", "Inter", system-ui, sans-serif;
   --font-app-display: var(--font-family-product);
   --font-app-body: var(--font-family-product);
   --font-app-text: var(--font-app-body);
@@ -282,8 +279,8 @@ textarea {
   --type-row-label-tracking: normal;
   --type-page-subtitle-size: 15px;
   --type-page-subtitle-line: 20px;
-  --type-row-description-size: 15px;
-  --type-row-description-line: 20px;
+  --type-row-description-size: 13px;
+  --type-row-description-line: 18px;
   --type-row-description-weight: 400;
   --type-row-description-tracking: 0;
   --type-form-label-size: 15px;
@@ -669,10 +666,10 @@ textarea {
   --ios-account-regular-weight: var(--foundation-body-weight);
   --ios-account-medium-weight: 500;
   --ios-account-row-title-size: 17px;
-  --ios-account-row-title-line: 24.5px;
+  --ios-account-row-title-line: 22px;
   --ios-account-row-title-tracking: -0.01em;
-  --ios-account-row-value-size: 17px;
-  --ios-account-row-value-line: 24.5px;
+  --ios-account-row-value-size: var(--type-row-description-size);
+  --ios-account-row-value-line: var(--type-row-description-line);
   --ios-account-tab-label-size: 11px;
   --ios-account-tab-label-line: 13.75px;
   --ios-account-card-margin-inline: 0px;
@@ -683,7 +680,7 @@ textarea {
   --ios-account-row-vertical-pad: 11px;
   --ios-account-separator-thickness: 0.5px;
   --ios-account-section-header-bottom-gap: 8px;
-  --ios-account-section-gap: 28px;
+  --ios-account-section-gap: 18px;
   --ios-account-icon-tile-size: 34px;
   --ios-account-icon-tile-radius: 8px;
   --ios-account-icon-glyph-size: 20px;
@@ -1002,14 +999,15 @@ textarea {
 [data-profile-stack-screen="account"] [data-profile-stack-content],
 [data-profile-stack-screen="panel:account"] [data-profile-stack-content] {
   max-width: 720px !important;
-  padding-inline: 0 !important;
+  padding-inline: var(--page-inline-gutter-standard) !important;
   padding-top: 0 !important;
 }
 
 [data-profile-stack-screen="account"] [data-profile-stack-header],
 [data-profile-stack-screen="panel:account"] [data-profile-stack-header] {
   max-width: 720px !important;
-  padding-inline: 0 !important;
+  padding-inline: var(--page-inline-gutter-standard) !important;
+  padding-top: 18px !important;
 }
 
 body:has([data-profile-account-preview-root]) nextjs-portal {
@@ -1114,10 +1112,10 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-account-hero-email {
   color: var(--ios-account-secondary-label);
   font-family: var(--font-app-body);
-  font-size: 17px;
+  font-size: var(--type-row-description-size);
   font-weight: 400;
-  letter-spacing: -0.01em;
-  line-height: 24.5px;
+  letter-spacing: var(--type-row-description-tracking);
+  line-height: var(--type-row-description-line);
   margin: 6px 0 0;
 }
 
@@ -1273,10 +1271,10 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   [data-slot="settings-row-description"],
 .profile-account-content [data-slot="settings-row-description"] {
   color: var(--ios-account-secondary-label) !important;
-  font-size: var(--type-row-description-size) !important;
+  font-size: var(--ios-account-description-size) !important;
   font-weight: var(--ios-account-regular-weight) !important;
   letter-spacing: 0 !important;
-  line-height: var(--type-row-description-line) !important;
+  line-height: var(--ios-account-description-line) !important;
 }
 
 [data-profile-stack-screen="account"]
@@ -1351,10 +1349,10 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 
 .profile-account-inline-action {
   color: var(--ios-account-accent);
-  font-size: var(--ios-account-row-title-size);
-  font-weight: var(--ios-account-regular-weight);
-  letter-spacing: var(--ios-account-row-title-tracking);
-  line-height: var(--ios-account-row-title-line);
+  font-size: var(--type-trailing-action-size, 15px);
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: var(--type-trailing-action-line, 20px);
 }
 
 .profile-account-row-value {
@@ -1405,7 +1403,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 
 .profile-home-screen {
   --settings-group-stack-gap: 8px;
-  --settings-heading-stack-gap: 6px;
+  --settings-heading-stack-gap: 4px;
   --settings-row-px: 20px;
   --settings-row-py: 10px;
   --settings-row-gap: 12px;
@@ -1435,8 +1433,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-hero {
-  gap: 12px !important;
-  padding-top: 16px;
+  gap: 10px !important;
+  padding-top: 10px;
 }
 
 .profile-home-screen [data-profile-avatar-frame="true"] {
@@ -1504,10 +1502,10 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-meta {
   color: var(--ios-account-secondary-label) !important;
   font-family: var(--font-app-body);
-  font-size: 17px !important;
+  font-size: var(--type-row-description-size) !important;
   font-weight: 400;
   letter-spacing: 0 !important;
-  line-height: 24.5px !important;
+  line-height: var(--type-row-description-line) !important;
 }
 
 .profile-home-meta svg {
@@ -1525,8 +1523,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-content {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  margin-top: 20px;
+  gap: 16px;
+  margin-top: 14px;
   width: 100%;
 }
 
@@ -1649,7 +1647,7 @@ body:has(.profile-home-screen) .foundation-public-ambient {
 
 @media (min-width: 768px) {
   .profile-home-hero {
-    padding-top: 24px;
+    padding-top: 16px;
   }
 
   .profile-home-screen [data-profile-avatar-frame="true"] {
@@ -1662,7 +1660,7 @@ body:has(.profile-home-screen) .foundation-public-ambient {
   }
 
   .profile-home-content {
-    margin-top: 24px;
+    margin-top: 18px;
   }
 }
 
@@ -3695,8 +3693,7 @@ html.native-ios [data-testid="one-location-onboarding"] {
     text-transform: none !important;
   }
 
-  .app-page-shell .profile-account-content [data-slot="settings-row-title"],
-  .app-page-shell .profile-account-inline-action {
+  .app-page-shell .profile-account-content [data-slot="settings-row-title"] {
     font-family: var(--font-app-body);
     font-size: var(--ios-account-row-title-size) !important;
     line-height: var(--ios-account-row-title-line) !important;
@@ -3704,12 +3701,20 @@ html.native-ios [data-testid="one-location-onboarding"] {
     letter-spacing: var(--ios-account-row-title-tracking) !important;
   }
 
+  .app-page-shell .profile-account-inline-action {
+    font-family: var(--font-app-body);
+    font-size: 15px !important;
+    line-height: 20px !important;
+    font-weight: 500 !important;
+    letter-spacing: 0 !important;
+  }
+
   .app-page-shell
     .profile-account-content
     [data-slot="settings-row-description"] {
     font-family: var(--font-app-body);
-    font-size: var(--type-row-description-size) !important;
-    line-height: var(--type-row-description-line) !important;
+    font-size: var(--ios-account-description-size) !important;
+    line-height: var(--ios-account-description-line) !important;
     font-weight: var(--ios-account-regular-weight) !important;
     letter-spacing: 0 !important;
   }
@@ -5652,7 +5657,7 @@ body[data-persona-surface="ria"] {
 }
 
 :is(.ui-text-row-description) {
-  color: var(--app-secondary-label) !important;
+  color: var(--app-tertiary-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-row-description-size) !important;
   font-weight: var(--type-row-description-weight) !important;

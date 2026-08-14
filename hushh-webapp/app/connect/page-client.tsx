@@ -85,7 +85,9 @@ const DEFAULT_PAGE_SIZE = SUGGESTED_PEOPLE_LIMIT;
 const CONNECT_ROW_ACTION_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px]";
 const CONNECT_PAGER_BUTTON_CLASSNAME =
-  "h-[30px] min-h-[30px] rounded-[15px] px-2.5 text-[14px] font-semibold leading-[18px]";
+  "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
+const CONNECT_INLINE_BUTTON_CLASSNAME =
+  "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
 
 /** Maximum number of connection requests the People bulk action can send. */
 const MAX_BULK_CONNECTION_REQUESTS = 5;
@@ -680,15 +682,16 @@ export default function ConnectPageClient() {
         .toLowerCase();
     // Strict prefix filter. The directory API matches a substring anywhere
     // (`LIKE '%q%'`), so typing "z" returned "Abdul Zalil" and "shankz".
-    // Constrain the rendered list to entries whose NAME (full or any word) or
-    // EMAIL local-part starts with the query, which is what the user expects
-    // from a name search. Applied on top of the server result, so it never
-    // fetches more; it only hides the substring-only matches.
+    // Constrain the rendered list to entries whose FIRST NAME or EMAIL
+    // local-part starts with the query -- matching on the last/middle name
+    // too (as an earlier version of this did) meant searching "r" surfaced
+    // "Abdul Rashid" and "Divya Rajendran" on their surnames, which reads as
+    // random to someone searching by first name. Applied on top of the
+    // server result, so it never fetches more; it only hides non-matches.
     const prefixMatches = (person: DirectoryPerson): boolean => {
       if (!q) return true;
       const name = nameOf(person);
       if (name.startsWith(q)) return true;
-      if (name.split(/\s+/).some((word) => word.startsWith(q))) return true;
       const email = (person.email || "").trim().toLowerCase();
       return email.startsWith(q) || email.split("@")[0]?.startsWith(q) === true;
     };
@@ -1173,7 +1176,7 @@ export default function ConnectPageClient() {
               {connections.length === 0 ? (
                 <SettingsRow
                   title="No connections yet"
-                  description="People you connect with will appear here."
+                  description="Connections appear here."
                   density="compact"
                   disabled
                 />
@@ -1186,13 +1189,13 @@ export default function ConnectPageClient() {
                     title={connection.displayName || connection.userId}
                     density="compact"
                     trailing={
-                      <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
+                      <span className="flex shrink-0 items-center justify-end gap-1.5 whitespace-nowrap">
                         <Button
                           type="button"
                           variant="none"
                           effect="fade"
                           size="sm"
-                          className="h-8 rounded-[10px] px-3 text-[13px] font-medium"
+                          className={CONNECT_INLINE_BUTTON_CLASSNAME}
                           disabled={busyId === connection.connectionId}
                           onClick={() => void viewInformationScopes(connection)}
                         >
@@ -1205,7 +1208,7 @@ export default function ConnectPageClient() {
                               variant="destructive"
                               effect="fill"
                               size="sm"
-                              className="h-8 rounded-[10px] px-3 text-[13px] font-medium"
+                              className={CONNECT_INLINE_BUTTON_CLASSNAME}
                               disabled={busyId === connection.connectionId}
                               onClick={() => void handleRemove(connection)}
                             >
@@ -1218,7 +1221,7 @@ export default function ConnectPageClient() {
                               variant="none"
                               effect="fade"
                               size="sm"
-                              className="h-8 rounded-[10px] px-3 text-[13px] font-medium"
+                              className={CONNECT_INLINE_BUTTON_CLASSNAME}
                               disabled={busyId === connection.connectionId}
                               onClick={() => setPendingRemoveId(null)}
                             >
@@ -1235,7 +1238,10 @@ export default function ConnectPageClient() {
                               setPendingRemoveId(connection.connectionId)
                             }
                             aria-label={`Remove connection with ${connection.displayName || connection.userId}`}
-                            className="h-8 rounded-[10px] px-3 text-[13px] font-medium text-muted-foreground hover:text-destructive"
+                            className={cn(
+                              CONNECT_INLINE_BUTTON_CLASSNAME,
+                              "text-muted-foreground hover:text-destructive",
+                            )}
                           >
                             Remove
                           </Button>
@@ -1322,12 +1328,12 @@ export default function ConnectPageClient() {
                   isSelectionMode
                     ? (
                         <span id="connect-selection-limit">
-                          Select up to {MAX_BULK_CONNECTION_REQUESTS} people to send connection requests.
+                          Select up to {MAX_BULK_CONNECTION_REQUESTS} people.
                         </span>
                       )
                     : hasQuery
-                    ? "Send a connection request to someone you know."
-                    : "A few people on Hussh. Search by name to find someone specific."
+                    ? "Send a request."
+                    : "Search by name."
                 }
                 separatorInset
               >
@@ -1348,14 +1354,14 @@ export default function ConnectPageClient() {
                   hasQuery ? (
                     <SettingsRow
                       title={`No one matches "${trimmedQuery}"`}
-                      description="Check the spelling, or try their full name."
+                      description="Try their full name."
                       density="compact"
                       disabled
                     />
                   ) : (
                     <SettingsRow
                       title="No people yet"
-                      description="Search by name to find someone on Hussh."
+                      description="Search by name."
                       density="compact"
                       disabled
                     />
@@ -1475,12 +1481,14 @@ export default function ConnectPageClient() {
                   })
                 )}
                 {people.length > 0 || currentPage > 1 ? (
-                  <div className="grid gap-2 border-t border-[color:var(--app-card-border-standard)] px-3 py-3">
-                    <div className="flex min-h-8 items-center justify-between gap-3">
-                      <span
-                        id="connect-people-per-page-label"
-                        className="ui-text-helper-text text-[color:var(--app-secondary-label)]"
-                      >
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3">
+                    <div className="flex min-h-9 items-center gap-2.5">
+                      <span className="ui-text-helper-text tabular-nums text-[color:var(--app-secondary-label)]">
+                        Page {currentPage}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="ui-text-helper-text text-[color:var(--app-secondary-label)]">
                         Per page
                       </span>
                       <Select
@@ -1503,46 +1511,38 @@ export default function ConnectPageClient() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="flex min-h-8 items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="none"
-                          effect="fill"
-                          size="sm"
-                          className={cn(
-                            CONNECT_PAGER_BUTTON_CLASSNAME,
-                            "min-w-[76px]"
-                          )}
-                          disabled={loading || currentPage <= 1}
-                          onClick={() => goToPage(currentPage - 1)}
-                        >
-                          Previous
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="none"
-                          effect="fill"
-                          size="sm"
-                          className={cn(
-                            CONNECT_PAGER_BUTTON_CLASSNAME,
-                            "min-w-[56px]"
-                          )}
-                          disabled={loading || !hasMore}
-                          onClick={() => goToPage(currentPage + 1)}
-                        >
-                          Next
-                        </Button>
-                      </div>
-                      {/* The directory reports only whether more exists, never
-                          a total, so this names the page rather than claiming
-                          "3 of 12" — a total the surface cannot stand behind. */}
-                      <span
-                        className="ui-text-helper-text tabular-nums text-[color:var(--app-secondary-label)]"
-                        aria-live="polite"
+                    <div
+                      className="flex min-h-9 items-center gap-2"
+                      aria-live="polite"
+                    >
+                      <Button
+                        type="button"
+                        variant="none"
+                        effect="fill"
+                        size="sm"
+                        className={cn(
+                          CONNECT_PAGER_BUTTON_CLASSNAME,
+                          "min-w-[44px] px-3"
+                        )}
+                        disabled={loading || currentPage <= 1}
+                        onClick={() => goToPage(currentPage - 1)}
                       >
-                        Page {currentPage}
-                      </span>
+                        Prev
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="none"
+                        effect="fill"
+                        size="sm"
+                        className={cn(
+                          CONNECT_PAGER_BUTTON_CLASSNAME,
+                          "min-w-[44px] px-3"
+                        )}
+                        disabled={loading || !hasMore}
+                        onClick={() => goToPage(currentPage + 1)}
+                      >
+                        Next
+                      </Button>
                     </div>
                   </div>
                 ) : null}
@@ -1559,8 +1559,8 @@ export default function ConnectPageClient() {
                       }}
                     >
                       {isConnectingMultiple
-                        ? "Sending requests…"
-                        : `Accept All (${selectedUserIds.size})`}
+                        ? "Sending…"
+                        : `Connect selected (${selectedUserIds.size}/${MAX_BULK_CONNECTION_REQUESTS})`}
                     </Button>
                   </div>
                 )}
@@ -1580,11 +1580,9 @@ export default function ConnectPageClient() {
       >
         <DialogContent showCloseButton={false} className="gap-5">
           <DialogHeader className="text-left">
-            <DialogTitle>Review connection capabilities</DialogTitle>
+            <DialogTitle>Connection access</DialogTitle>
             <DialogDescription>
-              A connection never shares information by itself. Choose only the
-              capabilities you want to request or offer; the other person can
-              approve a subset or decline them all.
+              Choose what to request or offer.
             </DialogDescription>
           </DialogHeader>
 
@@ -1650,13 +1648,13 @@ export default function ConnectPageClient() {
               {scopeDraft.catalog.items.length === 0 &&
               scopeDraft.catalog.offerableItems.length === 0 ? (
                 <SettingsGroup
-                  title="No capabilities available yet"
-                  description="You can still send a connection request. Capabilities appear here only when this relationship is eligible for them."
+                  title="No access yet"
+                  description="Send a connection request now."
                   separatorInset
                 >
                   <SettingsRow
                     title="Connection only"
-                    description="This request does not grant access to any information or Kai debate."
+                    description="No information access."
                     density="compact"
                     disabled
                   />
@@ -1811,23 +1809,21 @@ export default function ConnectPageClient() {
       >
         <DialogContent className="gap-5">
           <DialogHeader className="text-left">
-            <DialogTitle>Available information scopes</DialogTitle>
+            <DialogTitle>Available details</DialogTitle>
             <DialogDescription>
-              {informationScopeDraft?.connection.displayName || "This person"} controls which
-              scopes appear here. This is metadata only; requesting a scope still requires their
-              explicit consent before an encrypted export can be created.
+              They choose what appears here.
             </DialogDescription>
           </DialogHeader>
           <Input
             type="search"
             value={informationScopeQuery}
             onChange={(event) => setInformationScopeQuery(event.target.value)}
-            placeholder="Search available scopes"
-            aria-label="Search available scopes"
+            placeholder="Search details"
+            aria-label="Search details"
           />
           <div className="max-h-[45vh] overflow-y-auto">
             {visibleInformationScopes && visibleInformationScopes.length > 0 ? (
-              <SettingsGroup title="Discoverable scopes" separatorInset>
+              <SettingsGroup title="Available" separatorInset>
                 {visibleInformationScopes.map((item) => (
                   <SettingsRow
                     key={item.scope}
@@ -1839,10 +1835,10 @@ export default function ConnectPageClient() {
                 ))}
               </SettingsGroup>
             ) : (
-              <SettingsGroup title="No matching scopes" separatorInset>
+              <SettingsGroup title="No matches" separatorInset>
                 <SettingsRow
-                  title="Nothing is available for this search"
-                  description="Private, internal, and empty scopes are never listed."
+                  title="Nothing found"
+                  description="Private details stay hidden."
                   density="compact"
                   disabled
                 />

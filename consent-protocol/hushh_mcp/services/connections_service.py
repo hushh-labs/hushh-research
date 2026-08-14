@@ -1566,7 +1566,10 @@ class ConnectionsService:
         # caller to retry an already-authorized connection transition.
         for owner, counterpart in ((user_id, requester), (requester, user_id)):
             try:
-                counterpart_metadata: dict[str, Any] = {"counterpart_user_id": counterpart}
+                counterpart_metadata: dict[str, Any] = {
+                    "counterpart_user_id": counterpart,
+                    "actor_is_self": owner == user_id,
+                }
                 counterpart_name = self._display_name_for(counterpart)
                 if counterpart_name:
                     counterpart_metadata["counterpart_label"] = counterpart_name
@@ -1578,6 +1581,27 @@ class ConnectionsService:
                 )
             except Exception:  # noqa: BLE001 - feed projection cannot roll back consent
                 logger.exception("connections.accepted_feed_projection_failed")
+
+        # Auto-share hook: a newly accepted connection makes both people
+        # mutually location-eligible. Honor each account persisted Auto-share
+        # flag. Best-effort, post-commit: the connection is already durable so
+        # an auto-share failure never undoes it. Gated per owner inside
+        # auto_start_share_for_new_peer, and only ever creates the
+        # metadata.source=auto_share grant a later toggle-off tears down.
+        try:
+            from hushh_mcp.services.one_location_agent_service import (
+                OneLocationAgentService,
+            )
+
+            location_service = OneLocationAgentService()
+            location_service.auto_start_share_for_new_peer(
+                owner_user_id=user_id, peer_user_id=requester
+            )
+            location_service.auto_start_share_for_new_peer(
+                owner_user_id=requester, peer_user_id=user_id
+            )
+        except Exception:  # noqa: BLE001 - auto-share cannot roll back the connection
+            logger.warning("connections.accepted_auto_share_failed", exc_info=True)
         return {
             "status": "accepted",
             "requestId": req.get("id"),
@@ -1660,19 +1684,23 @@ class ConnectionsService:
                 reason="connection_rejected",
             )
             requester = str(req.get("requester_user_id"))
-        try:
-            rejected_metadata: dict[str, Any] = {"counterpart_user_id": user_id}
-            rejected_name = self._display_name_for(user_id)
-            if rejected_name:
-                rejected_metadata["counterpart_label"] = rejected_name
-            FeedService().record_event(
-                user_id=requester,
-                source_domain="connections",
-                event_type="connection_rejected",
-                metadata=rejected_metadata,
-            )
-        except Exception:  # noqa: BLE001 - projection cannot roll back rejection
-            logger.exception("connections.rejected_feed_projection_failed")
+        for owner, counterpart in ((requester, user_id), (user_id, requester)):
+            try:
+                rejected_metadata: dict[str, Any] = {
+                    "counterpart_user_id": counterpart,
+                    "actor_is_self": owner == user_id,
+                }
+                rejected_name = self._display_name_for(counterpart)
+                if rejected_name:
+                    rejected_metadata["counterpart_label"] = rejected_name
+                FeedService().record_event(
+                    user_id=owner,
+                    source_domain="connections",
+                    event_type="connection_rejected",
+                    metadata=rejected_metadata,
+                )
+            except Exception:  # noqa: BLE001 - projection cannot roll back rejection
+                logger.exception("connections.rejected_feed_projection_failed")
         return {"status": "rejected", "requestId": req.get("id")}
 
     def cancel_request(self, user_id: str, request_id: str) -> dict[str, Any]:
@@ -1939,10 +1967,16 @@ class ConnectionsService:
             user_b_id = str(user_b or "")
             user_a_name = self._display_name_for(user_a_id)
             user_b_name = self._display_name_for(user_b_id)
-            a_metadata: dict[str, Any] = {"counterpart_user_id": user_b_id}
+            a_metadata: dict[str, Any] = {
+                "counterpart_user_id": user_b_id,
+                "actor_is_self": user_a_id == user_id,
+            }
             if user_b_name:
                 a_metadata["counterpart_label"] = user_b_name
-            b_metadata: dict[str, Any] = {"counterpart_user_id": user_a_id}
+            b_metadata: dict[str, Any] = {
+                "counterpart_user_id": user_a_id,
+                "actor_is_self": user_b_id == user_id,
+            }
             if user_a_name:
                 b_metadata["counterpart_label"] = user_a_name
             FeedService().record_event(

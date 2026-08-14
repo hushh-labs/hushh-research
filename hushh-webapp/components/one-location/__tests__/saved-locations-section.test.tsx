@@ -224,7 +224,7 @@ describe("SavedLocationsSection", () => {
     await screen.findByText("Kasturba Road, Bengaluru");
     expect(screen.getByRole("button", { name: /add place/i })).toBeDisabled();
     expect(
-      screen.getByText(/resume location before capturing another saved place/i),
+      screen.getByText(/resume location to save another place/i),
     ).toBeInTheDocument();
     expect(mocks.captureCurrentPosition).not.toHaveBeenCalled();
   });
@@ -318,7 +318,7 @@ describe("SavedLocationsSection", () => {
       await screen.findByRole("heading", { name: "Add your address details" }),
     ).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
       target: { value: "Flat 4B, Tower 2" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -339,6 +339,16 @@ describe("SavedLocationsSection", () => {
           // buildSavedLocationAddress folds the entrance details into the
           // pinned map address (postal code already present, so not repeated).
           address: `Flat 4B, Tower 2, ${PICKED_ENTRANCE_ADDRESS}`,
+          // Stored alongside so a later edit rebuilds this line from its
+          // parts. Composing on top of the composed result is what made an
+          // edited address grow its own entrance details a second time.
+          addressBase: PICKED_ENTRANCE_ADDRESS,
+          addressDetails: {
+            houseOrFlat: "Flat 4B, Tower 2",
+            buildingColor: "",
+            landmark: "",
+            postalCode: "110001",
+          },
         },
       }),
     );
@@ -358,7 +368,7 @@ describe("SavedLocationsSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
     await screen.findByRole("heading", { name: "Add your address details" });
 
-    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
@@ -390,7 +400,7 @@ describe("SavedLocationsSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
     await screen.findByRole("heading", { name: "Add your address details" });
 
-    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
@@ -410,7 +420,11 @@ describe("SavedLocationsSection", () => {
     render(<SavedLocationsSection />);
     await screen.findByText("Kasturba Road, Bengaluru");
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove Home" }));
+    // Edit and Remove now live inside the row, behind its disclosure arrow --
+    // they were crowding every row for the two moments a year anyone needs
+    // them, and the address had no room left to be read.
+    fireEvent.click(screen.getByRole("button", { name: /Home/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 
     await waitFor(() =>
       expect(mocks.removeSavedLocation).toHaveBeenCalledWith({

@@ -17,6 +17,7 @@ import {
   MapPin,
   Search,
   UsersRound,
+  WifiOff,
   X,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -69,12 +70,26 @@ import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition
 import { motionDurations, motionEasings } from "@/lib/morphy-ux/motion";
 import { useVault } from "@/lib/vault/vault-context";
 import {
+  claimNativeMap,
+  isNativeMapSuperseded,
+  waitForLaidOutBox,
+  withNativeMapLock,
+} from "@/lib/one-location/native-map-lifecycle";
+import {
   GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
   readCachedRendererConsentAccepted,
   writeCachedRendererConsentAccepted,
 } from "@/lib/one-location/map-renderer-consent";
 
 const MAP_ID = "one-location-private-map";
+
+// Create and destroy for this id are serialized in `native-map-lifecycle`.
+// The plugin addresses every native map by its string id alone and cannot
+// cancel an in-flight create, so an unmount inside a create window used to let
+// an abandoned instance destroy the map the NEXT mount had just created --
+// leaving Your Map blank while the screen reported itself ready. See that
+// module for the full contract and its latency budget.
+
 const NEARBY_CHECK_IN_RADIUS_METERS = 500;
 const MAP_ACCENT_CONTROL_CLASSNAME =
   "!border-[var(--app-accent-border)] !bg-[var(--app-accent-surface)] !text-[var(--app-accent-deep)] hover:!bg-[var(--app-accent-surface-strong)] dark:!text-[var(--app-accent-bright)]";
@@ -93,7 +108,44 @@ type RenderMarker = {
   kind: "person" | "self" | "place";
   grantId?: string;
   tint?: { r: number; g: number; b: number; a: number };
+  /**
+   * When this position was taken, not when it was fetched. A person whose
+   * phone locked keeps their last known pin instead of disappearing, and this
+   * is what lets the map say so rather than quietly implying they are still
+   * moving.
+   */
+  capturedAt?: string | null;
 };
+
+/** Grey. A pin whose owner has gone quiet stops claiming to be live. */
+const STALE_TINT = { r: 142, g: 142, b: 147, a: 255 } as const;
+
+/** "last seen 7m ago" -- a fact about their signal, not their intent. */
+function lastSeenLabel(
+  capturedAt: string | null | undefined,
+  nowMs: number,
+): string | null {
+  if (!capturedAt) return null;
+  const captured = Date.parse(capturedAt);
+  if (!Number.isFinite(captured)) return null;
+  const minutes = Math.floor(Math.max(0, nowMs - captured) / 60_000);
+  if (minutes < 1) return "last seen just now";
+  if (minutes < 60) return `last seen ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `last seen ${hours}h ago`;
+  return `last seen ${Math.floor(hours / 24)}d ago`;
+}
+
+function isStaleAt(
+  capturedAt: string | null | undefined,
+  freshnessSeconds: number,
+  nowMs: number,
+): boolean {
+  if (!capturedAt) return false;
+  const captured = Date.parse(capturedAt);
+  if (!Number.isFinite(captured)) return false;
+  return nowMs - captured > freshnessSeconds * 1_000;
+}
 
 function displayLabel(marker: OneLocationMapMarker): string {
   return marker.grant.ownerDisplayName?.trim() || "A trusted person";
@@ -297,6 +349,10 @@ export function LocationImmersiveMap({
   const markerByMapIdRef = useRef<Map<string, RenderMarker>>(new Map());
   const framedInitialMarkersRef = useRef(false);
   const refreshInFlightRef = useRef(false);
+  /** A tick that arrived mid-refresh, to be served once the current one ends. */
+  const refreshRequestedWhileBusyRef = useRef(false);
+  /** Lets the finally block re-enter refresh without depending on itself. */
+  const refreshRef = useRef<(() => Promise<void>) | null>(null);
   const markerSignatureRef = useRef("");
   const initialDemoModeRef = useRef(initialDemoMode);
   const closeRequestedRef = useRef(false);
@@ -325,6 +381,18 @@ export function LocationImmersiveMap({
     presenceMode: "ghost",
   });
   const [markers, setMarkers] = useState<RenderMarker[]>([]);
+  // The server's own definition of live, rather than a second copy of 90 in
+  // the client that could drift away from it.
+  const [freshnessSeconds, setFreshnessSeconds] = useState(90);
+  // Staleness is a function of time passing, not of new data arriving -- a pin
+  // has to go grey while nothing at all is happening. The marker refresh alone
+  // would never notice, because a phone that stopped publishing sends nothing
+  // to notice.
+  const [staleClockMs, setStaleClockMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setStaleClockMs(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const [selfMarker, setSelfMarker] = useState<RenderMarker | null>(null);
   // Count of the account's own ACTIVE outgoing shares (people it is sharing
   // its location WITH). Sourced from the full getState (map-state only carries
@@ -559,10 +627,22 @@ export function LocationImmersiveMap({
     setNearbyPresenceState({ presence: null, attendees: [] });
   }, [auth.userId, demoMode, nearbyCheckInAvailable, vaultOwnerToken]);
 
-  const captureCurrentLocation =
-    useCallback((): Promise<PlainLocationPoint> => {
-      if (locationCaptureRef.current) return locationCaptureRef.current;
-      const request = OneLocationService.captureCurrentPosition();
+  const captureCurrentLocation = useCallback(
+    (options?: {
+      maxAgeMs?: number;
+      fresh?: boolean;
+    }): Promise<PlainLocationPoint> => {
+      // A caller demanding a genuinely fresh fix must not be handed the
+      // in-flight one this ref is holding — that is how the check-in anchor
+      // silently became "wherever we already were".
+      if (
+        locationCaptureRef.current &&
+        options?.maxAgeMs !== 0 &&
+        !options?.fresh
+      ) {
+        return locationCaptureRef.current;
+      }
+      const request = OneLocationService.captureCurrentPosition(options);
       locationCaptureRef.current = request;
       void request.then(
         () => {
@@ -579,17 +659,23 @@ export function LocationImmersiveMap({
       return request;
     }, []);
 
-  const captureAndRememberCurrentLocation = useCallback(async () => {
-    const point = await captureCurrentLocation();
-    if (auth.userId) {
-      const workspace = readLocationWorkspaceMemory(auth.userId);
-      writeLocationWorkspaceMemory(auth.userId, {
-        ...workspace,
-        myLocationPoint: point,
-      });
-    }
-    return point;
-  }, [auth.userId, captureCurrentLocation]);
+  // Forwards `options` deliberately. Declared with no parameters, this silently
+  // dropped a caller's `maxAgeMs: 0` — TypeScript accepts the narrower arity, so
+  // it compiled clean while the check-in anchor quietly used a cached fix.
+  const captureAndRememberCurrentLocation = useCallback(
+    async (options?: { maxAgeMs?: number; fresh?: boolean }) => {
+      const point = await captureCurrentLocation(options);
+      if (auth.userId) {
+        const workspace = readLocationWorkspaceMemory(auth.userId);
+        writeLocationWorkspaceMemory(auth.userId, {
+          ...workspace,
+          myLocationPoint: point,
+        });
+      }
+      return point;
+    },
+    [auth.userId, captureCurrentLocation],
+  );
 
   const handleNearbyStateChange = useCallback(
     (next: OneLocationNearbyPresenceState) => {
@@ -650,7 +736,15 @@ export function LocationImmersiveMap({
 
   const refresh = useCallback(async () => {
     if (!vaultOwnerToken || !auth.userId || !rendererReady) return;
-    if (refreshInFlightRef.current) return;
+    if (refreshInFlightRef.current) {
+      // A slow refresh used to swallow every tick that landed during it, and
+      // the map then sat on whatever it had until some later tick happened to
+      // find the door open. Remember that someone asked instead, and run once
+      // more as soon as this one finishes, so the map converges on the truth
+      // rather than on timing.
+      refreshRequestedWhileBusyRef.current = true;
+      return;
+    }
     refreshInFlightRef.current = true;
     setStatus("loading");
     try {
@@ -680,6 +774,7 @@ export function LocationImmersiveMap({
               label: displayLabel(marker),
               kind: "person",
               grantId: marker.grant.id,
+              capturedAt: marker.envelope.capturedAt ?? null,
             } satisfies RenderMarker;
           } catch {
             // A device without the recipient private key must not show a stale or
@@ -693,6 +788,9 @@ export function LocationImmersiveMap({
         (item): item is RenderMarker => item !== null,
       );
       setPreferences(state.preferences);
+      if (Number.isFinite(state.freshnessSeconds) && state.freshnessSeconds > 0) {
+        setFreshnessSeconds(state.freshnessSeconds);
+      }
       const nextSignature = markerSignature(nextMarkers);
       if (nextSignature !== markerSignatureRef.current) {
         markerSignatureRef.current = nextSignature;
@@ -703,8 +801,19 @@ export function LocationImmersiveMap({
       if (mountedRef.current) setStatus("error");
     } finally {
       refreshInFlightRef.current = false;
+      // Serve the tick that arrived while this one was running. Chained
+      // rather than recursive, so a permanently slow backend cannot stack
+      // calls on top of each other.
+      if (refreshRequestedWhileBusyRef.current && mountedRef.current) {
+        refreshRequestedWhileBusyRef.current = false;
+        void refreshRef.current?.();
+      }
     }
   }, [auth.userId, demoMode, rendererReady, vaultOwnerToken]);
+
+  useEffect(() => {
+    refreshRef.current = refresh;
+  }, [refresh]);
 
   const refreshShareCount = useCallback(async () => {
     if (demoMode || !vaultOwnerToken || !auth.userId) return;
@@ -726,8 +835,11 @@ export function LocationImmersiveMap({
       markerIdsRef.current = [];
       nearbyCircleIdsRef.current = [];
       markerByMapIdRef.current.clear();
-      void mapRef.current?.destroy();
-      mapRef.current = null;
+      // Deliberately does NOT destroy the map. The create effect's cleanup is
+      // the single teardown owner and also runs on unmount, through the lock
+      // that keeps destroys ordered against the next mount's create. A second
+      // owner destroying MAP_ID unlocked from here is exactly how a live map
+      // used to get torn down behind a screen that thought it was ready.
       // Android draws the native map behind the WebView. Restore every layer on
       // exit so no other Hussh surface becomes transparent.
       document.documentElement.classList.remove("one-location-map-native");
@@ -791,6 +903,15 @@ export function LocationImmersiveMap({
     const shareCountTimer = window.setInterval(() => {
       if (document.visibilityState === "visible") void refreshShareCount();
     }, 30_000);
+    // Returning to the app is exactly when the map is most wrong, and the
+    // interval only ever checked visibility on its own schedule -- so coming
+    // back showed a position up to five seconds stale before anything moved.
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      void refresh();
+      void refreshShareCount();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     let appListener: { remove: () => Promise<void> } | undefined;
     if (isNative()) {
       void CapacitorApp.addListener("appStateChange", ({ isActive }) => {
@@ -805,6 +926,7 @@ export function LocationImmersiveMap({
     return () => {
       window.clearInterval(timer);
       window.clearInterval(shareCountTimer);
+      document.removeEventListener("visibilitychange", onVisibility);
       void appListener?.remove();
     };
   }, [demoMode, refresh, refreshShareCount, rendererReady, vaultOwnerToken]);
@@ -818,6 +940,7 @@ export function LocationImmersiveMap({
     // and recipient markers are set later, entirely by the separate
     // rendererReady-gated effects below, once this same map instance exists.
     if (!mapElement.current) return;
+    const element = mapElement.current;
     const apiKey = mapApiKey();
     if (!apiKey) {
       setUnavailableReason("maps-key");
@@ -825,6 +948,9 @@ export function LocationImmersiveMap({
       return;
     }
     let cancelled = false;
+    // Claimed before any await, so a later mount always wins the id even if
+    // React runs this effect before the previous instance's cleanup.
+    const claim = claimNativeMap(MAP_ID);
     if (isNative()) {
       document.documentElement.classList.add("one-location-map-native");
       document.body.classList.add("one-location-map-native");
@@ -835,59 +961,70 @@ export function LocationImmersiveMap({
     const cachedPoint = rendererReady
       ? readLocationWorkspaceMemory(auth.userId).myLocationPoint
       : null;
-    void GoogleMap.create({
-      id: MAP_ID,
-      element: mapElement.current,
-      apiKey,
-      forceCreate: true,
-      config: {
-        center: cachedPoint
-          ? { lat: cachedPoint.latitude, lng: cachedPoint.longitude }
-          : initialDemoModeRef.current
-            ? { lat: 37.7749, lng: -122.4194 }
-            : { lat: 20, lng: 0 },
-        zoom: cachedPoint
-          ? zoomForAccuracy(cachedPoint.accuracyM)
-          : initialDemoModeRef.current
-            ? 11
-            : 2,
-        disableDefaultUI: true,
-        // Open dark to match the mobile dark theme. Read the resolved theme from
-        // the <html> `dark` class that next-themes sets, so no camera-recreating
-        // hook dependency is introduced; a cloud-styled mapId can supersede this.
-        styles:
-          typeof document !== "undefined" &&
-          document.documentElement.classList.contains("dark")
-            ? DARK_MAP_STYLES
-            : undefined,
-      },
-    })
-      .then(async (map) => {
-        if (cancelled) {
-          void map.destroy();
-          return;
-        }
-        mapRef.current = map;
-        await map.setOnMarkerClickListener((event) => {
-          const marker = markerByMapIdRef.current.get(event.markerId);
-          if (!marker) return;
-          setSelected(marker);
-          void map.setCamera({
-            coordinate: {
-              lat: marker.point.latitude,
-              lng: marker.point.longitude,
-            },
-            zoom: 15,
-            animate: true,
-          });
-        });
-        setMapReady(true);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setUnavailableReason("renderer");
-        setStatus("unavailable");
+    const superseded = () =>
+      cancelled || isNativeMapSuperseded(MAP_ID, claim);
+
+    void withNativeMapLock(MAP_ID, async () => {
+      // Never touch the bridge on behalf of a mount that is already gone: the
+      // point of the lock is that a superseded instance cannot register a map
+      // the live instance would then inherit and destroy out from under.
+      if (superseded()) return;
+      await waitForLaidOutBox(element);
+      if (superseded()) return;
+      const map = await GoogleMap.create({
+        id: MAP_ID,
+        element,
+        apiKey,
+        forceCreate: true,
+        config: {
+          center: cachedPoint
+            ? { lat: cachedPoint.latitude, lng: cachedPoint.longitude }
+            : initialDemoModeRef.current
+              ? { lat: 37.7749, lng: -122.4194 }
+              : { lat: 20, lng: 0 },
+          zoom: cachedPoint
+            ? zoomForAccuracy(cachedPoint.accuracyM)
+            : initialDemoModeRef.current
+              ? 11
+              : 2,
+          disableDefaultUI: true,
+          // Open dark to match the mobile dark theme. Read the resolved theme
+          // from the <html> `dark` class that next-themes sets, so no
+          // camera-recreating hook dependency is introduced; a cloud-styled
+          // mapId can supersede this.
+          styles:
+            typeof document !== "undefined" &&
+            document.documentElement.classList.contains("dark")
+              ? DARK_MAP_STYLES
+              : undefined,
+        },
       });
+      if (superseded()) {
+        // Still holding the lock, so this can only be destroying the map this
+        // very call created -- never one a later mount registered.
+        await map.destroy().catch(() => undefined);
+        return;
+      }
+      mapRef.current = map;
+      await map.setOnMarkerClickListener((event) => {
+        const marker = markerByMapIdRef.current.get(event.markerId);
+        if (!marker) return;
+        setSelected(marker);
+        void map.setCamera({
+          coordinate: {
+            lat: marker.point.latitude,
+            lng: marker.point.longitude,
+          },
+          zoom: 15,
+          animate: true,
+        });
+      });
+      setMapReady(true);
+    }).catch(() => {
+      if (cancelled) return;
+      setUnavailableReason("renderer");
+      setStatus("unavailable");
+    });
     return () => {
       cancelled = true;
       setMapReady(false);
@@ -895,12 +1032,19 @@ export function LocationImmersiveMap({
       // this, closing Your Map left the @capacitor/google-maps instance
       // (registered under MAP_ID) alive; re-opening then raced a fresh create()
       // against the stale instance and rendered a blank canvas the second time.
-      // Nulling the ref also stops the unmount effect from double-destroying it.
+      //
+      // This effect is the single owner of teardown -- it runs on unmount as
+      // well as on re-run -- and the destroy goes through the lock so it can
+      // never interleave with a create the next mount has already started.
       const staleMap = mapRef.current;
       mapRef.current = null;
       markerIdsRef.current = [];
       markerByMapIdRef.current.clear();
-      void staleMap?.destroy();
+      if (staleMap) {
+        void withNativeMapLock(MAP_ID, () => staleMap.destroy()).catch(
+          () => undefined,
+        );
+      }
     };
     // rendererReady is read once, at creation time, only to decide the
     // starting center -- intentionally not a dependency. Consent flips this
@@ -1287,7 +1431,13 @@ export function LocationImmersiveMap({
                       : "Sharing privately now",
               }
             : {}),
-          tintColor: marker.tint,
+          // Grey once the position is older than live. tintColor is the only
+          // per-pin styling this bridge exposes -- `title` cannot carry it,
+          // because the web renderer paints titles across the map as a glyph
+          // (see above) -- so the colour is where staleness has to be said.
+          tintColor: isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs)
+            ? STALE_TINT
+            : marker.tint,
           zIndex:
             marker.kind === "self" ? 10 : marker.kind === "place" ? 9 : 1,
         };
@@ -1325,7 +1475,18 @@ export function LocationImmersiveMap({
     return () => {
       cancelled = true;
     };
-  }, [entryLocationSettled, mapReady, visibleMarkers]);
+    // staleClockMs and freshnessSeconds are dependencies because a pin has to
+    // change colour while nothing else changes at all. Without them the tint
+    // is decided once, when the marker is drawn, and a person who went quiet
+    // keeps a live-coloured pin until some unrelated refresh happens to redraw
+    // it.
+  }, [
+    entryLocationSettled,
+    mapReady,
+    visibleMarkers,
+    freshnessSeconds,
+    staleClockMs,
+  ]);
 
   const acceptRenderer = useCallback(async () => {
     if (!vaultOwnerToken) return;
@@ -1367,8 +1528,12 @@ export function LocationImmersiveMap({
       setPreferences(next);
       toast.success(
         nextMode === "ghost"
-          ? "Ghost Mode is on."
-          : "Map visibility is ready. Tap Locate me to appear.",
+          ? "Ghost Mode is on. Nobody sees you on their map."
+          // "Tap Locate me to appear" was true while the locate button was the
+          // only thing that ever published a map-visible position. Sharing does
+          // it now, so telling somebody to go and tap something else would send
+          // them looking for a step that no longer exists.
+          : "You will appear on the map of anyone you share with.",
       );
     } catch {
       toast.error("Map visibility could not be updated.");
@@ -1403,7 +1568,7 @@ export function LocationImmersiveMap({
       }
       if (preferences.presenceMode !== "foreground_private") {
         toast.message(
-          "Your location is visible only to you. Turn off Ghost Mode to appear to active private recipients.",
+          "Ghost Mode is on. Only you can see this.",
         );
         return;
       }
@@ -1485,33 +1650,35 @@ export function LocationImmersiveMap({
     filteredNearbyAttendees.length > 0 ||
     selected !== null;
 
+  // One number, one word for what it counts. The screen is already the map and
+  // the tray is already the people, so "live locations on your map" spent five
+  // words restating both. Everything the row used to explain in a subtitle now
+  // either shows here or is not worth a line.
   const peopleDrawerLabel = useMemo(() => {
     if (nearbyPresenceState.presence) {
       if (nearbyAttendees.length > 0 && markers.length > 0) {
         return `${nearbyAttendees.length} nearby · ${markers.length} sharing`;
       }
       if (nearbyAttendees.length > 0) {
-        return `${nearbyAttendees.length} ${
-          nearbyAttendees.length === 1 ? "person" : "people"
-        } checked in nearby`;
+        return `${nearbyAttendees.length} nearby`;
       }
       if (markers.length > 0) {
-        return `${markers.length} ${
-          markers.length === 1 ? "person" : "people"
-        } sharing · no one nearby`;
+        return `${markers.length} sharing · none nearby`;
       }
-      return "No one checked in nearby";
+      return "No one nearby";
     }
-    return `${markers.length} live ${
-      markers.length === 1 ? "location" : "locations"
-    } on your map`;
+    return markers.length > 0
+      ? `${markers.length} on your map`
+      : "No one sharing yet";
   }, [markers.length, nearbyAttendees.length, nearbyPresenceState.presence]);
 
+  // Only when it adds something the title cannot. Restating the title in
+  // smaller grey type is the noise this tray had most of.
   const peopleDrawerSubtitle = nearbyPresenceState.presence
-    ? `Within ${nearbyPresenceState.presence.radiusMeters} m · precise nearby locations stay private`
+    ? `Within ${nearbyPresenceState.presence.radiusMeters} m · exact spots stay private`
     : (activeShareCount ?? 0) > 0
-      ? `People sharing with you · you're sharing with ${activeShareCount}`
-      : "People sharing their location with you";
+      ? `Sharing with ${activeShareCount}`
+      : null;
 
   const connectNearbyAttendee = useCallback(
     async (attendee: OneLocationNearbyAttendee) => {
@@ -1590,8 +1757,18 @@ export function LocationImmersiveMap({
     // should dismiss the overlay (the on-device "X does nothing" report), and it
     // must never cover the next screen. Destroying it up front frees the touch
     // surface before we navigate.
-    void mapRef.current?.disableTouch();
-    void mapRef.current?.destroy();
+    //
+    // Through the lock, and dropping the ref first, so that closing and
+    // immediately re-opening the map cannot land this destroy on top of the
+    // next entry's create.
+    const closingMap = mapRef.current;
+    mapRef.current = null;
+    if (closingMap) {
+      void withNativeMapLock(MAP_ID, async () => {
+        await closingMap.disableTouch().catch(() => undefined);
+        await closingMap.destroy().catch(() => undefined);
+      });
+    }
     beginRouteTransition(
       ROUTES.ONE_LOCATION,
       () => router.replace(ROUTES.ONE_LOCATION, { scroll: false }),
@@ -1894,8 +2071,8 @@ export function LocationImmersiveMap({
           </h1>
           <p className="relative max-w-sm text-sm text-muted-foreground">
             {unavailableReason === "maps-key"
-              ? "Your location is fine — this app build was packaged without its restricted Google Maps key, so the map cannot render. Nothing about your location was captured or shared."
-              : "The map renderer failed to load. Check your connection and try again — your location was not captured or shared."}
+              ? "Maps is not configured for this build."
+              : "Check your connection and try again."}
           </p>
         </div>
       ) : null}
@@ -2012,9 +2189,11 @@ export function LocationImmersiveMap({
                     </span>
                   ) : null}
                 </span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {peopleDrawerSubtitle}
-                </span>
+                {peopleDrawerSubtitle ? (
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {peopleDrawerSubtitle}
+                  </span>
+                ) : null}
               </span>
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] transition-colors group-hover:bg-[var(--app-accent-surface-strong)] dark:text-[var(--app-accent-bright)]">
                 <ChevronDown className="h-4 w-4" />
@@ -2049,7 +2228,7 @@ export function LocationImmersiveMap({
                   className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4"
                   data-testid="one-location-map-search"
                   inputMode="search"
-                  placeholder="Find a person"
+                  placeholder="Search"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                 />
@@ -2135,35 +2314,39 @@ export function LocationImmersiveMap({
                   ) : (
                     <p className="px-1 py-2 text-sm text-muted-foreground">
                       {nearbyAttendees.length > 0
-                        ? "No nearby check-ins match your search."
-                        : "No one else is checked in nearby yet."}
+                        ? "No matches."
+                        : "No one else here yet."}
                     </p>
                   )}
                 </section>
               ) : null}
 
-              <section className="mt-3">
-                <div className="flex items-center justify-between gap-3 px-1">
-                  <div>
-                    <h3 className="text-sm font-semibold">
-                      Live locations shared with you
-                    </h3>
-                    <p className="text-xs text-muted-foreground">
-                      Nearby check-ins stay in the list and never become map
-                      pins. A pin appears only after that person explicitly
-                      shares their location with you.
-                    </p>
-                  </div>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">
-                    {markers.length}
-                  </span>
-                </div>
+              {/* The heading, the count badge and the two-sentence pin rule
+                  all used to sit here, and all three said what the row above
+                  already says: how many people are on this map. What survives
+                  is the list itself, plus the pin rule in the one state where
+                  it answers a real question -- "why is this list empty when
+                  people are checked in nearby?" -- phrased once, in a line. */}
+              <section className="mt-3" aria-label="Live locations shared with you">
                 <div
                   className="mt-2 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                   data-testid="one-location-map-people"
                 >
                   {filteredPeople.map((person) => {
                     const selectedPerson = selected?.key === person.key;
+                    // The tray is where identity lives, because it is the only
+                    // part of this screen that is real DOM. Map pins come from
+                    // the Capacitor bridge, which offers a tint and nothing
+                    // else -- no avatar, no badge, and no hover at all on a
+                    // touch device.
+                    const personStale = isStaleAt(
+                      person.capturedAt,
+                      freshnessSeconds,
+                      staleClockMs,
+                    );
+                    const lastSeen = personStale
+                      ? lastSeenLabel(person.capturedAt, staleClockMs)
+                      : null;
                     return (
                       <button
                         key={person.key}
@@ -2173,22 +2356,59 @@ export function LocationImmersiveMap({
                             ? MAP_ACCENT_ACTIVE_CLASSNAME
                             : "border-border/60 bg-muted/70 text-foreground hover:bg-muted"
                         }`}
-                        aria-label={`Show ${person.label} on the map`}
+                        // The live case keeps its original name exactly. Only a
+                        // person who has gone quiet has anything extra worth
+                        // announcing, and saying "sharing live" on every other
+                        // row would be noise in a screen reader.
+                        aria-label={
+                          lastSeen
+                            ? `Show ${person.label} on the map. Last seen ${lastSeen}.`
+                            : `Show ${person.label} on the map`
+                        }
+                        title={
+                          lastSeen
+                            ? `${person.label} — last seen ${lastSeen}`
+                            : `${person.label} — live now`
+                        }
                         data-testid="one-location-map-person"
+                        data-stale={personStale ? "true" : "false"}
                         onClick={() => void focusMarker(person)}
                       >
-                        <span
-                          className="grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white"
-                          style={{
-                            backgroundColor: person.tint
-                              ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
-                              : "var(--app-accent)",
-                          }}
-                        >
-                          {personInitials(person.label)}
+                        <span className="relative shrink-0">
+                          <span
+                            className={`grid h-7 w-7 place-items-center rounded-full text-[11px] font-semibold text-white transition-[filter,opacity] ${
+                              personStale ? "opacity-70 grayscale" : ""
+                            }`}
+                            style={{
+                              backgroundColor: person.tint
+                                ? `rgba(${person.tint.r}, ${person.tint.g}, ${person.tint.b}, ${person.tint.a / 255})`
+                                : "var(--app-accent)",
+                            }}
+                          >
+                            {personInitials(person.label)}
+                          </span>
+                          {/* Bottom-right, over the avatar's own edge. Shape as
+                              well as colour, so it survives being read on a
+                              greyscale avatar by someone who cannot rely on
+                              the grey itself. */}
+                          {personStale ? (
+                            <span
+                              className="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-background ring-1 ring-border"
+                              aria-hidden="true"
+                            >
+                              <WifiOff className="h-2.5 w-2.5 text-muted-foreground" />
+                            </span>
+                          ) : null}
                         </span>
-                        <span className="max-w-28 truncate font-medium">
-                          {person.label}
+                        <span className="flex min-w-0 flex-col leading-tight">
+                          <span className="max-w-28 truncate font-medium">
+                            {person.label}
+                          </span>
+                          {lastSeen ? (
+                            <span className="max-w-28 truncate text-[11px] text-muted-foreground">
+                              {lastSeen}
+                            </span>
+                          ) : null}
                         </span>
                       </button>
                     );
@@ -2196,8 +2416,11 @@ export function LocationImmersiveMap({
                   {filteredPeople.length === 0 ? (
                     <p className="py-2 pl-1 text-sm text-muted-foreground">
                       {markers.length > 0
-                        ? "No live shares match your search."
-                        : "No one is sharing a live location with you."}
+                        ? "No matches."
+                        : // The header already says no one is sharing. This
+                          // line spends itself on the part the header cannot:
+                          // what it takes to appear here.
+                          "Pins appear once they share and allow maps."}
                     </p>
                   ) : null}
                 </div>
@@ -2212,11 +2435,13 @@ export function LocationImmersiveMap({
                     <p className="truncate text-sm font-medium">
                       {selected.label}
                     </p>
-                    <p className="text-xs text-muted-foreground">
-                      {selected.kind === "self"
-                        ? "Your current location"
-                        : "Sharing privately now"}
-                    </p>
+                    {/* The self marker is already labelled "You"; captioning it
+                        "Your current location" was the same fact twice. */}
+                    {selected.kind === "self" ? null : (
+                      <p className="text-xs text-muted-foreground">
+                        Sharing now
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : null}
@@ -2237,9 +2462,9 @@ export function LocationImmersiveMap({
                     onClick={toggleDemoPeople}
                   >
                     <UsersRound className="h-4 w-4 shrink-0" />
-                    <span className="truncate">
-                      {demoMode ? "Demo on" : "Demo"}
-                    </span>
+                    {/* Pressed state is already carried by the accent fill and
+                        aria-pressed; the label need not say it too. */}
+                    <span className="truncate">Demo</span>
                   </Button>
                 ) : null}
                 <Button
@@ -2256,11 +2481,7 @@ export function LocationImmersiveMap({
                   onClick={() => void setPresence()}
                 >
                   <span className="truncate">
-                    {preferences.presenceMode === "ghost"
-                      ? demoAvailable
-                        ? "Ghost"
-                        : "Ghost Mode"
-                      : "Visible"}
+                    {preferences.presenceMode === "ghost" ? "Ghost" : "Visible"}
                   </span>
                   {preferences.presenceMode === "ghost" ? (
                     <EyeOff className="h-4 w-4 shrink-0" />
@@ -2274,12 +2495,12 @@ export function LocationImmersiveMap({
                   disabled={visibleMarkers.length === 0}
                   onClick={() => void showEveryone()}
                 >
-                  {demoAvailable ? "Everyone" : "Show everyone"}
+                  Everyone
                 </Button>
               </div>
               {status === "error" ? (
                 <p className="mt-2 text-center text-xs text-destructive">
-                  Some locations could not be refreshed.
+                  Some locations didn&apos;t refresh.
                 </p>
               ) : null}
             </div>

@@ -95,8 +95,8 @@ for (const [token, value] of [
   ["--type-row-label-size", "17px"],
   ["--type-row-label-line", "22px"],
   ["--type-row-label-tracking", "normal"],
-  ["--type-row-description-size", "15px"],
-  ["--type-row-description-line", "20px"],
+  ["--type-row-description-size", "13px"],
+  ["--type-row-description-line", "18px"],
   ["--type-row-description-tracking", "0"],
   ["--type-input-value-size", "17px"],
   ["--type-input-value-line", "22px"],
@@ -128,6 +128,17 @@ if (!/\.type-caption\s*\{[^}]*text-transform:\s*none;/s.test(globals)) {
 if (!globals.includes(".app-page-shell")) {
   failures.push("app/globals.css: app shell must keep scoped readable-text guardrails");
 }
+
+expectIncludes(
+  "app/globals.css",
+  '--font-family-product: "InterVariable", "Inter", system-ui, sans-serif;',
+  "product UI must use Inter only",
+);
+expectNotIncludes(
+  "app/globals.css",
+  '--font-family-product:\n    -apple-system, BlinkMacSystemFont, "InterVariable"',
+  "product UI must not prefer the Apple/system font stack",
+);
 
 for (const repoPath of [
   "components/app-ui/settings-ui.tsx",

@@ -124,7 +124,7 @@ export function RiaClientAccountDetail({
     return (
       <RiaCompatibilityState
         title="Account detail is unavailable in this environment"
-        description="The route is wired, but this environment still needs the full IAM schema before advisor-side account detail can load."
+        description="IAM setup is required here."
         nativeTest={{
           routeId: "/ria/clients/[userId]/accounts/[accountId]",
           marker: "native-route-ria-client-account-detail",
@@ -179,7 +179,7 @@ export function RiaClientAccountDetail({
         <SettingsGroup
           embedded
           title="Account not available"
-          description="The account branch is not part of the current client workspace or has not been approved for this advisor view."
+          description="This branch is not approved."
         >
           <SettingsRow
             title="Return to the client workspace"
@@ -215,7 +215,7 @@ export function RiaClientAccountDetail({
               <SectionHeader
                 eyebrow="Access"
                 title="Approval and branch status"
-                description="Per-account approval remains explicit. This route surfaces what the advisor can currently access for this branch."
+                description="Approved account access."
                 icon={Wallet}
                 accent="ria"
               />
@@ -248,14 +248,14 @@ export function RiaClientAccountDetail({
               <SectionHeader
                 eyebrow="Explorer"
                 title="Readable branch summary"
-                description="This view stays intentionally summary-first until richer account-level explorer payloads are available from the backend."
+                description="Summary-first view."
                 icon={Database}
                 accent="ria"
               />
               <SettingsGroup embedded>
                 <SettingsRow
                   title="Account coverage"
-                  description="This advisor route currently inherits domain-level financial summaries plus explicit branch approval metadata."
+                  description="Approved branch metadata."
                 />
                 <SettingsRow
                   title="Household risk"

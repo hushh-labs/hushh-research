@@ -6907,12 +6907,11 @@
         "required_inputs": [
           {
             "name": "duration_hours",
-            "prompt": "For how long? You can say 15 minutes, 30 minutes, 1 hour, 4 hours or 24 hours.",
+            "prompt": "For how long? You can say 30 minutes, 1 hour, 4 hours or 24 hours.",
             "required": false,
             "slot": "duration_hours",
             "resolver": "location_share_duration",
             "options": [
-              "0.25",
               "0.5",
               "1",
               "4",
@@ -7063,23 +7062,23 @@
     {
       "action_id": "location.set_auto_share",
       "surface_id": "one_location",
-      "label": "Turn automatic location sharing on or off",
+      "label": "Turn automatic approval of location requests on or off",
       "aliases": [
-        "automatic sharing",
+        "automatic approval",
+        "auto approve",
         "auto share",
-        "keep updating my location",
-        "stop updating automatically",
-        "live updates"
+        "approve requests automatically",
+        "stop asking me about location requests"
       ],
       "search_keywords": [
         "automatic",
         "auto",
-        "live",
-        "updates",
+        "approve",
+        "requests",
         "setting",
         "privacy"
       ],
-      "meaning": "Controls whether people you have already approved keep receiving live updates, or only see your location when you explicitly share it. It does not create or end any share.",
+      "meaning": "Controls whether incoming location requests are approved without asking the person each time. Applies only to requests that arrive after it is switched on; requests already waiting still need an explicit answer.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -7110,7 +7109,7 @@
       },
       "control_ids": [],
       "state_exposure": [
-        "automatic sharing enabled"
+        "automatic approval enabled"
       ],
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md"
@@ -7137,7 +7136,7 @@
         "required_inputs": [
           {
             "name": "enabled",
-            "prompt": "Should automatic sharing be on or off?",
+            "prompt": "Should automatic approval be on or off?",
             "required": true,
             "slot": "enabled",
             "resolver": "on_or_off",
@@ -7154,7 +7153,7 @@
         "workflow_steps": [
           {
             "type": "action",
-            "label": "Turn automatic location sharing on or off",
+            "label": "Turn automatic approval of location requests on or off",
             "failure_behavior": "stop",
             "action_id": "location.set_auto_share",
             "settlement_target": {

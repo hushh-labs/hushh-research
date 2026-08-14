@@ -155,8 +155,10 @@ describe("saved-place onboarding to Settings persistence", () => {
       expect.objectContaining({
         domain: "location",
         domainData: expect.objectContaining({
+          // v2 adds addressBase + addressDetails so an edit rebuilds the
+          // composed line from its parts. v1 entries stay readable.
           saved_places: expect.objectContaining({
-            schema_version: 1,
+            schema_version: 2,
           }),
         }),
       }),

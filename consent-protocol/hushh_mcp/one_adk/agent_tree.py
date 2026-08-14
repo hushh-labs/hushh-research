@@ -1357,7 +1357,7 @@ def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
         tools=_one_roster_tools(specialist_model=text_model),
         # Surface Gemini reasoning summaries so Agent Chat can stream a visible
         # "Thinking" trace. include_thoughts only surfaces the summaries; it
-        # sends no token-budget control (3.6-flash owns its own thinking policy).
+        # sends no token-budget control (3.7-flash owns its own thinking policy).
         generate_content_config=genai_types.GenerateContentConfig(
             thinking_config=genai_types.ThinkingConfig(include_thoughts=True),
         ),

@@ -87,6 +87,7 @@ const EMPTY_NEARBY_STATE: OneLocationNearbyPresenceState = {
 };
 
 type LocationRecovery = "app-settings" | "location-settings" | null;
+type PresenceLoadResult = OneLocationNearbyPresenceState | "error" | null;
 
 /**
  * How the point driving the place list was obtained. A degraded fix still
@@ -370,7 +371,10 @@ export function NearbyCheckInSheet({
   open: boolean;
   ownerId: string | null;
   vaultOwnerToken: string | null;
-  captureCurrentPosition: () => Promise<PlainLocationPoint>;
+  captureCurrentPosition: (options?: {
+    maxAgeMs?: number;
+    fresh?: boolean;
+  }) => Promise<PlainLocationPoint>;
   onOpenChange: (open: boolean) => void;
   onStateChange?: (state: OneLocationNearbyPresenceState) => void;
   /** Transient renderer hint; never persisted or published. */
@@ -469,7 +473,7 @@ export function NearbyCheckInSheet({
     async (
       background = false,
       expectedOwnerEpoch = ownerEpochRef.current,
-    ): Promise<OneLocationNearbyPresenceState | null> => {
+    ): Promise<PresenceLoadResult> => {
       if (!ownerId || !vaultOwnerToken || mutationInFlightRef.current) {
         return null;
       }
@@ -502,7 +506,7 @@ export function NearbyCheckInSheet({
           setPresenceLoadError(message);
           toast.error(message);
         }
-        return null;
+        return "error";
       } finally {
         if (
           !background &&
@@ -548,9 +552,7 @@ export function NearbyCheckInSheet({
         const boundedSuggestions = normalizeAutomaticPlaces(suggestions);
         setAutomaticPlaces(boundedSuggestions);
         if (boundedSuggestions.length === 0) {
-          setPlacesError(
-            "No check-in-able places were found within 500 m. Search by name to pick one.",
-          );
+          setPlacesError("No places found within 500 m.");
         }
       } catch (error) {
         if (
@@ -842,6 +844,7 @@ export function NearbyCheckInSheet({
     void loadPresence(!open, expectedOwnerEpoch).then((next) => {
       if (
         !open ||
+        next === "error" ||
         next?.presence ||
         ownerEpochRef.current !== expectedOwnerEpoch
       ) {
@@ -888,6 +891,7 @@ export function NearbyCheckInSheet({
         if (
           open &&
           next !== null &&
+          next !== "error" &&
           !next.presence &&
           ownerEpochRef.current === expectedOwnerEpoch
         ) {
@@ -1145,6 +1149,7 @@ export function NearbyCheckInSheet({
     const next = await loadPresence(false, expectedOwnerEpoch);
     if (
       next === null ||
+      next === "error" ||
       next.presence ||
       ownerEpochRef.current !== expectedOwnerEpoch
     ) {
@@ -1173,8 +1178,10 @@ export function NearbyCheckInSheet({
     let confirmationPoint: PlainLocationPoint | null = null;
     try {
       // The persisted radius anchor must describe where the owner confirms the
-      // check-in, not the earlier point used to load place suggestions.
-      const freshPoint = await captureCurrentPosition();
+      // check-in, not the earlier point used to load place suggestions — but a
+      // fix from a few seconds ago describes the same spot, so the tight window
+      // keeps the anchor honest without paying a full acquisition on the press.
+      const freshPoint = await captureCurrentPosition({ fresh: true });
       confirmationPoint = freshPoint;
       if (
         ownerEpochRef.current !== expectedOwnerEpoch ||
@@ -1803,7 +1810,7 @@ export function NearbyCheckInSheet({
                             className="w-full text-muted-foreground"
                             onClick={() => setVisiblePlacesCount((c) => c + 3)}
                           >
-                            Load more places
+                            More places
                           </Button>
                         </div>
                       ) : null}
@@ -1857,8 +1864,7 @@ export function NearbyCheckInSheet({
                           ? null
                           : `${places.length} ${
                               places.length === 1 ? "place" : "places"
-                            } · sorted by distance · `}
-                        Place data from{" "}
+                            } · `}
                         <span translate="no" className="whitespace-nowrap font-normal">
                           Google Maps
                         </span>
@@ -1906,29 +1912,38 @@ export function NearbyCheckInSheet({
                       setConsentAccepted(checked === true)
                     }
                   />
-                  <span>
+                  <span className="min-w-0">
                     <span className="block text-sm font-semibold">
-                      Show me in the nearby people list
+                      Appear nearby
                     </span>
-                    <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
-                      Your current point is sent to Google to suggest nearby
-                      places; searching may send it again to improve results. At
-                      confirmation, Hussh stores your check-in point only as
-                      short-lived encrypted data to match opted-in people within
-                      500 metres. They see your display name in their list, never
-                      your point or exact distance. It is cleared on checkout or
-                      expiry. Closing the app does not check you out.
+                    <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
+                      People see your name only.
                     </span>
                   </span>
                 </label>
 
+                <details className="group rounded-xl bg-muted/45 px-3 py-2 text-xs leading-4 text-muted-foreground">
+                  <summary className="cursor-pointer list-none font-medium text-foreground/80">
+                    How sharing works
+                  </summary>
+                  <p className="mt-2">
+                    Your current point is sent to Google to suggest nearby
+                    places; searching may send it again to improve results. At
+                    confirmation, Hussh stores your check-in point only as
+                    short-lived encrypted data to match opted-in people within
+                    500 metres. They see your display name in their list, never
+                    your point or exact distance. It is cleared on checkout or
+                    expiry. Closing the app does not check you out.
+                  </p>
+                </details>
+
                 <div className="flex items-center justify-between gap-4 border-t border-border/60 pt-3">
                   <div>
                     <p className="text-sm font-semibold">
-                      Allow connection requests
+                      Connection requests
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Off by default. You can still connect with others.
+                      Off by default.
                     </p>
                   </div>
                   <Switch
@@ -1957,7 +1972,7 @@ export function NearbyCheckInSheet({
                 ) : (
                   <UsersRound className="h-4 w-4" />
                 )}
-                Check in and see people
+                Check in
               </Button>
             </div>
           )}

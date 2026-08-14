@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Briefcase,
+  ChevronDown,
   Home,
   Loader2,
   MapPin,
@@ -78,6 +79,9 @@ export function SavedLocationsSection() {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  // One row open at a time: this is a short list a person scans, not a set of
+  // panels they compare, and several open rows push the rest off the screen.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [repairingId, setRepairingId] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [saveLocationModalOpen, setSaveLocationModalOpen] = useState(false);
@@ -236,7 +240,11 @@ export function SavedLocationsSection() {
     captureRequestIdRef.current = captureRequestId;
     const session = { userId, vaultKey, vaultOwnerToken };
     try {
-      const point = await OneLocationService.captureCurrentPosition();
+      // Saving a place records where the user is standing right now — a fix
+      // from the last few seconds says the same thing and costs nothing.
+      const point = await OneLocationService.captureCurrentPosition({
+        fresh: true,
+      });
       if (
         captureRequestIdRef.current !== captureRequestId ||
         !isCurrentVaultSession(session) ||
@@ -294,7 +302,7 @@ export function SavedLocationsSection() {
         return;
       }
       toast.error(
-        "We could not read your current location. Check location permission and try again.",
+        "Check location permission and try again.",
       );
     } finally {
       if (
@@ -318,18 +326,25 @@ export function SavedLocationsSection() {
       category: SavedLocationCategory,
       label: string,
       details?: SavedLocationAddressDetails,
+      addressLine?: string | null,
     ) => {
       if (!userId || !vaultKey || !vaultOwnerToken || !saveLocationPoint) {
         toast.error("Unlock your vault and capture the location again.");
         return;
       }
 
-      // Fold the structured entrance details into the single encrypted address
-      // string (same contract onboarding uses), so Home/Work/Other saved from
-      // Settings carry the house/flat, landmark and postal code too.
+      // Compose from the Address field the person just confirmed, NOT from
+      // this component's `saveLocationAddress`. On an edit the latter holds
+      // the previously composed line, so folding the details in again
+      // prepended them to a string that already began with them -- "Flat 5C,
+      // Flat 4B, Blue gate building, ..." growing on every save until it hit
+      // the 300-character ceiling. The base is stored alongside so the next
+      // edit rebuilds from parts instead of from the result.
+      const baseAddress =
+        addressLine === undefined ? saveLocationAddress : addressLine;
       const composedAddress = details
-        ? buildSavedLocationAddress(saveLocationAddress, details)
-        : saveLocationAddress;
+        ? buildSavedLocationAddress(baseAddress, details)
+        : baseAddress;
 
       const editing = editingLocation;
       // Only guard against a *different* saved place occupying the same spot.
@@ -354,6 +369,8 @@ export function SavedLocationsSection() {
           latitude: saveLocationPoint.latitude,
           longitude: saveLocationPoint.longitude,
           address: composedAddress,
+          addressBase: baseAddress,
+          addressDetails: details ?? null,
         };
         const next = editing
           ? await updateSavedLocation({
@@ -414,7 +431,10 @@ export function SavedLocationsSection() {
         capturedAt: new Date().toISOString(),
         sourcePlatform: "web",
       });
-      setSaveLocationAddress(location.address ?? null);
+      // The street address on its own where it was recorded. Places saved
+      // before that was kept fall back to their composed line, which is the
+      // closest thing they have to a base and is at least editable.
+      setSaveLocationAddress(location.addressBase ?? location.address ?? null);
       setSaveLocationAddressLoading(false);
       setSaveLocationModalOpen(true);
     },
@@ -499,10 +519,12 @@ export function SavedLocationsSection() {
     setSaveLocationAddressLoading(false);
   }, []);
 
-  // "Locate me" inside the map picker — re-center on a fresh GPS fix.
+  // "Locate me" inside the map picker — re-centre on a current fix.
   const locateMeForSavedLocation = useCallback(async () => {
     try {
-      const point = await OneLocationService.captureCurrentPosition();
+      const point = await OneLocationService.captureCurrentPosition({
+        fresh: true,
+      });
       return { latitude: point.latitude, longitude: point.longitude };
     } catch {
       return null;
@@ -620,80 +642,113 @@ export function SavedLocationsSection() {
               </div>
             </div>
           ) : (
-            locations.map((location, index) => (
-              <div
-                key={location.id}
-                className={cn(
-                  "flex min-h-[60px] items-center gap-3.5 p-3.5",
-                  index > 0 &&
-                    "border-t border-[color:var(--app-separator)]",
-                )}
-              >
-                <CategoryIcon category={location.category} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
-                    {location.label}
-                  </p>
-                  <p className="mt-0.5 truncate text-[15px] leading-5 text-muted-foreground">
-                    {location.address || "Address unavailable"}
-                  </p>
-                </div>
-                {!location.address ? (
+            locations.map((location, index) => {
+              const expanded = expandedId === location.id;
+              return (
+                <div
+                  key={location.id}
+                  className={cn(
+                    index > 0 && "border-t border-[color:var(--app-separator)]",
+                  )}
+                >
+                  {/* A saved address is longer than one line at this width, so
+                      the row used to end in an ellipsis with no way to read the
+                      rest. The arrow opens it -- and takes the edit and delete
+                      buttons with it, which were crowding every row for the two
+                      moments a year anyone needs them. */}
                   <button
                     type="button"
-                    aria-label={`Find address for ${location.label}`}
-                    title="Find address"
-                    onClick={() => void handleRepairAddress(location)}
-                    disabled={repairingId !== null}
-                    className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[color:var(--app-tertiary-label)] transition-colors hover:bg-foreground/[0.05] hover:text-[color:var(--app-accent)] disabled:opacity-45"
+                    onClick={() =>
+                      setExpandedId((current) =>
+                        current === location.id ? null : location.id,
+                      )
+                    }
+                    aria-expanded={expanded}
+                    className="press-scale flex min-h-[60px] w-full items-center gap-3.5 p-3.5 text-left"
                   >
-                    <RefreshCw
+                    <CategoryIcon category={location.category} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
+                        {location.label}
+                      </p>
+                      <p
+                        className={cn(
+                          "mt-0.5 text-[15px] leading-5 text-muted-foreground",
+                          expanded ? "whitespace-pre-line" : "truncate",
+                        )}
+                      >
+                        {location.address || "Address unavailable"}
+                      </p>
+                    </div>
+                    <ChevronDown
                       className={cn(
-                        "h-[17px] w-[17px]",
-                        repairingId === location.id && "animate-spin",
+                        "h-[18px] w-[18px] shrink-0 text-[color:var(--app-tertiary-label)] transition-transform duration-200",
+                        expanded && "rotate-180",
                       )}
                       strokeWidth={2}
+                      aria-hidden
                     />
                   </button>
-                ) : null}
-                <button
-                  type="button"
-                  aria-label={`Edit ${location.label}`}
-                  title="Edit place"
-                  onClick={() => handleEditSavedLocation(location)}
-                  disabled={
-                    removingId !== null ||
-                    repairingId !== null ||
-                    capturing ||
-                    locationControl.paused
-                  }
-                  className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[color:var(--app-tertiary-label)] transition-colors hover:bg-foreground/[0.05] hover:text-[color:var(--app-accent)] disabled:opacity-45"
-                >
-                  <Pencil className="h-[17px] w-[17px]" strokeWidth={2} />
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Remove ${location.label}`}
-                  onClick={() => void handleRemove(location.id)}
-                  disabled={removingId !== null}
-                  className="press-scale flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[color:var(--app-tertiary-label)] transition-colors hover:bg-[color:var(--app-destructive)]/10 hover:text-[color:var(--app-destructive)] disabled:opacity-45"
-                >
 
-                  {removingId === location.id ? (
-                    <Loader2 className="h-[18px] w-[18px] animate-spin" />
-                  ) : (
-                    <Trash2 className="h-[18px] w-[18px]" strokeWidth={2} />
-                  )}
-                </button>
-              </div>
-            ))
+                  {expanded ? (
+                    <div className="flex items-center gap-2 px-3.5 pb-3.5 pl-[64px]">
+                      {!location.address ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleRepairAddress(location)}
+                          disabled={repairingId !== null}
+                          className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full bg-[color:var(--app-accent)]/12 px-3 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45"
+                        >
+                          <RefreshCw
+                            className={cn(
+                              "h-[15px] w-[15px]",
+                              repairingId === location.id && "animate-spin",
+                            )}
+                            strokeWidth={2}
+                            aria-hidden
+                          />
+                          Find address
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => handleEditSavedLocation(location)}
+                        disabled={
+                          removingId !== null ||
+                          repairingId !== null ||
+                          capturing ||
+                          locationControl.paused
+                        }
+                        className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full bg-foreground/[0.05] px-3 text-[13px] font-semibold text-foreground disabled:opacity-45"
+                      >
+                        <Pencil className="h-[15px] w-[15px]" strokeWidth={2} aria-hidden />
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRemove(location.id)}
+                        disabled={removingId !== null}
+                        className="press-scale inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-[color:var(--app-destructive)] transition-colors hover:bg-[color:var(--app-destructive)]/10 disabled:opacity-45"
+                      >
+                        {removingId === location.id ? (
+                          <Loader2 className="h-[15px] w-[15px] animate-spin" aria-hidden />
+                        ) : (
+                          <Trash2 className="h-[15px] w-[15px]" strokeWidth={2} aria-hidden />
+                        )}
+                        Remove
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })
           )}
         </div>
         {hasVaultAccess ? (
           <p className="mt-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
             {locationControl.paused
-              ? "Resume Location before capturing another saved place."
-              : "Saved places are encrypted in your vault and shared only when you explicitly approve location access."}
+              ? "Resume Location to save another place."
+              : "Encrypted in your vault."}
           </p>
         ) : null}
       </section>
@@ -723,19 +778,23 @@ export function SavedLocationsSection() {
         initialCustomLabel={
           editingLocation?.category === "other" ? editingLocation.label : null
         }
+        // What the person actually typed last time. This used to hand back an
+        // empty houseOrFlat on every edit, which the modal required before it
+        // would enable its own button -- so "Update location" was permanently
+        // dead on a screen that gave no reason.
         initialDetails={
           editingLocation
-            ? {
+            ? (editingLocation.addressDetails ?? {
                 houseOrFlat: "",
                 buildingColor: "",
                 landmark: "",
                 postalCode: inferPostalCode(editingLocation.address),
-              }
+              })
             : null
         }
         saveLabel={editingLocation ? "Update location" : "Save location"}
-        onSave={(category, label, details) =>
-          void handleSave(category, label, details)
+        onSave={(category, label, details, addressLine) =>
+          void handleSave(category, label, details, addressLine)
         }
         onSkip={() => {
           if (saveLocationSaving) return;

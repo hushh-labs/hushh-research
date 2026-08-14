@@ -189,8 +189,7 @@ export function SmsContactsFlow({
           SMS contacts
         </h1>
         <p className="mt-2 max-w-[350px] text-[15px] font-normal leading-[20px] text-muted-foreground">
-          These people are alerted with your live location the moment you send
-          the SMS.
+          Alert these people in an emergency.
         </p>
 
         {circles.length ? (
@@ -238,8 +237,7 @@ export function SmsContactsFlow({
               })}
             </ContactGroup>
             <p className={cn(MUTED_TEXT, "mt-2 px-1")}>
-              This adds a snapshot of current ready members. Anyone who joins
-              later is never added to SMS automatically.
+              Adds current ready members only.
             </p>
             {/* Growing a Circle deliberately does NOT live here. This screen
                 answers one question -- who gets the alert -- and a per-Circle
@@ -315,8 +313,7 @@ export function SmsContactsFlow({
         </div>
 
         <p className={cn(MUTED_TEXT, "mt-4 px-1")}>
-          Only people in your circle can be SMS contacts. They&apos;re never
-          notified unless you send the SMS.
+          Only Circle people can be SMS contacts.
         </p>
       </div>
 
@@ -350,8 +347,7 @@ export function SmsContactsFlow({
               </span>
             </AlertDialogTitle>
             <AlertDialogDescription className="mt-1 !max-w-[290px] !text-center !text-[15px] !leading-5 !text-muted-foreground">
-              They&apos;ll no longer be alerted with your live location when you
-              trigger SMS.
+              They won&apos;t receive SMS alerts.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="mt-4 grid gap-2">

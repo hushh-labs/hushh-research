@@ -119,7 +119,12 @@ function SelectItem({
         className="absolute right-2 flex size-3.5 items-center justify-center"
       >
         <SelectPrimitive.ItemIndicator>
-          <CheckIcon className="size-4" />
+          {/* `text-current` opts the tick out of the item's
+              `[&_svg:not([class*='text-'])]:text-muted-foreground` rule so it
+              inherits the row's own colour. On a highlighted row that is
+              `accent-foreground`, which keeps the tick legible against the solid
+              accent fill instead of leaving muted grey on blue. */}
+          <CheckIcon className="size-4 text-current" />
         </SelectPrimitive.ItemIndicator>
       </span>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>

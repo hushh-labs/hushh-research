@@ -110,7 +110,7 @@ describe("Connect — People", () => {
 
     expect(
       await screen.findByText(
-        "A few people on Hussh. Search by name to find someone specific.",
+        "Search by name.",
       ),
     ).toBeTruthy();
     expect(screen.getByText("Person 0")).toBeTruthy();
@@ -124,14 +124,14 @@ describe("Connect — People", () => {
 
     expect(
       await screen.findByText(
-        "A few people on Hussh. Search by name to find someone specific.",
+        "Search by name.",
       ),
     ).toBeTruthy();
     expect(screen.getByText("Page 1")).toBeTruthy();
     expect(screen.getByLabelText("People per page")).toBeTruthy();
     // hasMore is true in the fixture, so forward is offered and back is not.
     expect(screen.getByText("Next").closest("button")?.disabled).toBe(false);
-    expect(screen.getByText("Previous").closest("button")?.disabled).toBe(true);
+    expect(screen.getByText("Prev").closest("button")?.disabled).toBe(true);
   });
 
   it("asks the server for the page the reader moved to", async () => {
@@ -176,11 +176,33 @@ describe("Connect — People", () => {
     await waitFor(() =>
       expect(
         screen.queryByText(
-          "A few people on Hussh. Search by name to find someone specific.",
+          "Search by name.",
         ),
       ).toBeNull(),
     );
     expect(await screen.findByText("Page 1")).toBeTruthy();
+  });
+
+  it("matches the first name, not the surname, when filtering search results", async () => {
+    // The directory API matches a substring anywhere in the name, so a
+    // search for "R" server-side returns both people below -- one whose
+    // surname happens to start with R, one whose first name does. The
+    // client-side filter must keep only the first-name match.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u1", "Abdul Rashid"), person("u2", "Rashid Ahmed")],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "R" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+
+    expect(await screen.findByText("Rashid Ahmed")).toBeTruthy();
+    expect(screen.queryByText("Abdul Rashid")).toBeNull();
   });
 
   it("runs a spoken name through the governed Connect search handler", async () => {
@@ -451,7 +473,7 @@ describe("Connect — People", () => {
       fireEvent.click(screen.getByLabelText(`Select Bulk person ${index}`));
     }
 
-    expect(screen.getByText("Connect to Selected (20/20)")).toBeTruthy();
+    expect(screen.getByText("Connect selected (20/20)")).toBeTruthy();
     expect(
       (screen.getByLabelText("Select Bulk person 20") as HTMLButtonElement)
         .disabled,
@@ -464,7 +486,7 @@ describe("Connect — People", () => {
     ).toBe(false);
     fireEvent.click(screen.getByLabelText("Select Bulk person 0"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect to Selected (20/20)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect selected (20/20)" }));
 
     await waitFor(() => expect(mocks.sendRequest).toHaveBeenCalledTimes(20));
 
@@ -482,7 +504,7 @@ describe("Connect — People", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Select people" }));
     fireEvent.click(screen.getByLabelText("Select Person 0"));
-    expect(screen.getByText("Connect to Selected (1/20)")).toBeTruthy();
+    expect(screen.getByText("Connect selected (1/20)")).toBeTruthy();
 
     mocks.searchDirectory.mockResolvedValue({
       items: [person("u9", "Person 9")],
@@ -495,7 +517,7 @@ describe("Connect — People", () => {
 
     expect(await screen.findByText("Person 9")).toBeTruthy();
     await waitFor(() =>
-      expect(screen.queryByText("Connect to Selected (1/20)")).toBeNull(),
+      expect(screen.queryByText("Connect selected (1/20)")).toBeNull(),
     );
   });
 

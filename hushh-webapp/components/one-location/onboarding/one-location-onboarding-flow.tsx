@@ -1415,9 +1415,9 @@ function ContactsScreen({
         </h1>
         <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
           {primed
-            ? "See which of your contacts are already on One, so you can connect without typing a single number."
+            ? "Find contacts already on One."
             : state.kind === "matched"
-              ? "These contacts are already on One. Add anyone you want to stay connected with."
+              ? "Add anyone you trust."
               : "You can always find people later from the People tab."}
         </p>
 

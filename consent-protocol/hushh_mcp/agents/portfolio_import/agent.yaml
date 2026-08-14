@@ -6,7 +6,7 @@ description: |
   Intelligent portfolio document parser that extracts financial data from 
   CSV files, PDF statements, and images. Supports Fidelity, JPMorgan, 
   Schwab, Vanguard, and generic formats.
-model: gemini-3.6-flash
+model: gemini-3.7-flash
 
 system_instruction: |
   You are a financial document parsing specialist. Your role is to:

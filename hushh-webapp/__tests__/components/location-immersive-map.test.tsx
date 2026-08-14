@@ -283,10 +283,14 @@ import {
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
 import { forgetCachedRendererConsent } from "@/lib/one-location/map-renderer-consent";
+import { __resetNativeMapLifecycleForTests } from "@/lib/one-location/native-map-lifecycle";
 
 const DEFAULT_PLACE_FOCUS = { ...experienceHarness.placeFocus };
 
 beforeEach(() => {
+  // Lanes are module state: without this a superseded claim or a queued
+  // teardown from an earlier case leaks into the next one.
+  __resetNativeMapLifecycleForTests();
   experienceHarness.placeFocus = { ...DEFAULT_PLACE_FOCUS };
   forgetOneLocationControlPreference("test-user");
   forgetCachedRendererConsent("test-user");
@@ -359,6 +363,9 @@ afterEach(() => {
     if ("mockClear" in value) value.mockClear();
   }
   mapHarness.create.mockClear();
+  // Restored explicitly: the lifecycle cases below swap in their own
+  // implementation, and vi.restoreAllMocks() only rolls back spies.
+  mapHarness.create.mockImplementation(async () => mapHarness.map);
   navigationHarness.beginRouteTransition.mockClear();
   navigationHarness.push.mockClear();
   navigationHarness.replace.mockClear();
@@ -533,11 +540,17 @@ describe("LocationImmersiveMap demo experience", () => {
       );
     });
 
-    expect(
-      screen.getByText("0 live locations on your map"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("No one sharing yet")).toBeInTheDocument();
     expect(
       screen.queryByText("0 people sharing with you"),
+    ).not.toBeInTheDocument();
+    // The tray states the count once. The subtitle that used to restate it,
+    // the section heading, and the standalone count badge are all gone.
+    expect(
+      screen.queryByText("People sharing their location with you"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Live locations shared with you"),
     ).not.toBeInTheDocument();
 
     const trayToggle = screen.getByTestId("one-location-map-tray-toggle");
@@ -605,7 +618,7 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.getByText("Aarav Shah")).toBeInTheDocument();
     expect(screen.getByText("Connected")).toBeInTheDocument();
     expect(
-      screen.getByText(/Within 500 m.*precise nearby locations stay private/i),
+      screen.getByText(/Within 500 m.*exact spots stay private/i),
     ).toBeInTheDocument();
     expect(JSON.stringify(mapHarness.map.addMarkers.mock.calls)).not.toContain(
       "Neelesh Meena",
@@ -1236,5 +1249,322 @@ describe("LocationImmersiveMap demo experience", () => {
       expect(locate).toHaveAttribute("aria-busy", "false"),
     );
     expect(locate.querySelector(".animate-spin")).toBeNull();
+  });
+});
+
+/**
+ * The QA report was "Your Map is blank the first time, fine after that": map
+ * chrome and the people tray drawn over a blank native canvas, with no error
+ * and no loading state, because the component genuinely believed it was ready.
+ *
+ * @capacitor/google-maps makes that reachable. `GoogleMap.create()` cannot be
+ * cancelled -- it waits ~200 ms before the native view is registered, longer
+ * while the container still measures zero -- and `destroy()` addresses the map
+ * by its string id alone (`maps.removeValue(forKey: id)` on iOS and Android,
+ * with no check that the caller is the instance that registered it).
+ *
+ * So any unmount inside a create window (the owner-scoped `key={userId}` on
+ * both map routes, the `?action=check-in` redirect from the Location hub, a
+ * quick back-and-forth between Your Map and check-in) left an abandoned create
+ * running. It registered its map anyway, and its cancelled branch then
+ * destroyed the id -- which by then belonged to the map the NEXT mount had
+ * created.
+ *
+ * The stub below reproduces that by keeping the bridge's two phases apart, the
+ * way the device does: `land()` is the native call arriving (registering the
+ * id, honouring forceCreate), `settle()` is the JS promise resolving after it,
+ * which is the only moment the component gets to react. Collapsing the two --
+ * resolving creates one at a time -- hides the bug entirely.
+ */
+describe("LocationImmersiveMap native map lifecycle", () => {
+  const NATIVE_MAP_ID = "one-location-private-map";
+
+  type PendingCreate = {
+    instance: number;
+    map: Record<string, ReturnType<typeof vi.fn>>;
+    land: () => void;
+    settle: () => void;
+    settled: boolean;
+  };
+
+  function stubNativeBridge() {
+    // Whatever native currently holds the id, exactly one entry deep.
+    const registry = new Map<string, number>();
+    const events: string[] = [];
+    const pending: PendingCreate[] = [];
+    let instances = 0;
+
+    mapHarness.create.mockImplementation((options: { id: string }) => {
+      const instance = ++instances;
+      events.push(`create:${instance}`);
+      const map = {
+        ...mapHarness.map,
+        destroy: vi.fn(async () => {
+          // `destroy()` awaits its listener teardown before the native call
+          // lands, so a destroy fired alongside a create does not win the
+          // race by virtue of being called first.
+          await Promise.resolve();
+          await Promise.resolve();
+          // Keyed by id, never by identity -- the native contract.
+          registry.delete(options.id);
+          events.push(`destroyed:${instance}`);
+        }),
+      };
+      const entry: PendingCreate = {
+        instance,
+        map,
+        settled: false,
+        land: () => {
+          // forceCreate: true -- a later create tears down whatever holds the
+          // id before taking it.
+          registry.set(options.id, instance);
+        },
+        settle: () => undefined,
+      };
+      pending.push(entry);
+      return new Promise((resolve) => {
+        entry.settle = () => {
+          entry.settled = true;
+          resolve(map);
+        };
+      });
+    });
+
+    /**
+     * Advance the bridge until nothing is outstanding. Within a round every
+     * outstanding native call lands before any JS promise settles, which is
+     * the real interleaving: the plugin's 200 ms create timers fire close
+     * together, while a destroy only reaches native after `destroy()` has
+     * awaited its listener teardown.
+     */
+    async function pump() {
+      for (let round = 0; round < 8; round += 1) {
+        // Let effects run and the lock hand over first: with creates
+        // serialized, `GoogleMap.create` is invoked a microtask after the
+        // effect, so reading `pending` straight after render sees nothing.
+        await act(async () => {
+          for (let tick = 0; tick < 6; tick += 1) await Promise.resolve();
+        });
+        const outstanding = pending.filter((entry) => !entry.settled);
+        if (outstanding.length === 0) return;
+        await act(async () => {
+          for (const entry of outstanding) entry.land();
+          for (const entry of outstanding) entry.settle();
+          await Promise.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+      }
+    }
+
+    return { registry, events, pending, pump };
+  }
+
+  it("keeps a live native map when a mount is superseded mid-create", async () => {
+    const { registry, pending, pump } = stubNativeBridge();
+
+    const first = render(<LocationImmersiveMap />);
+    await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(1));
+
+    // Unmount while create() is still in flight, then mount again: the exact
+    // window nothing can call the plugin back out of.
+    first.unmount();
+    render(<LocationImmersiveMap />);
+
+    await pump();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    // The screen says it is ready, so a native map has to actually be
+    // registered under this id. Blank-first-view was this expectation failing
+    // while every other assertion on the screen still passed.
+    expect(registry.has(NATIVE_MAP_ID)).toBe(true);
+    const live = registry.get(NATIVE_MAP_ID);
+    const owner = pending.find((entry) => entry.instance === live);
+    expect(owner?.map.destroy).not.toHaveBeenCalled();
+  });
+
+  it("finishes destroying the outgoing map before creating the next one", async () => {
+    const { events, pump } = stubNativeBridge();
+
+    const first = render(<LocationImmersiveMap />);
+    await pump();
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    first.unmount();
+    render(<LocationImmersiveMap />);
+    await pump();
+
+    // Teardown has to *complete* before the next create is issued. Firing the
+    // destroy and the create back to back leaves them interleaving on one id,
+    // which is how a live map got torn down behind a ready screen.
+    expect(events).toEqual([
+      "create:1",
+      "destroyed:1",
+      "create:2",
+    ]);
+  });
+});
+
+/**
+ * Time-to-map is a latency budget, not a feeling. These cases pin the cost of
+ * opening Your Map in bridge round-trips and scheduler turns so a regression
+ * shows up here rather than in someone's hand on a device.
+ */
+describe("LocationImmersiveMap open latency", () => {
+  it("issues the native create without waiting on any timer", async () => {
+    render(<LocationImmersiveMap />);
+
+    // Drain microtasks only -- never advance a timer. Reaching the bridge here
+    // proves nothing on the open path is gated on a scheduled delay: not the
+    // layout wait, which short-circuits on an already-measured container, and
+    // not the lane, which is free. A regression that puts either behind a
+    // timer fails right here rather than showing up as a slow map on a device.
+    await act(async () => {
+      for (let tick = 0; tick < 12; tick += 1) await Promise.resolve();
+    });
+    expect(mapHarness.create).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    // One native create per open. A second would mean the map is built twice
+    // on the way in -- the cost the serialization exists to avoid, not add.
+    expect(mapHarness.create).toHaveBeenCalledTimes(1);
+    expect(mapHarness.map.destroy).not.toHaveBeenCalled();
+  });
+
+  it("costs the live map one teardown, not an unbounded wait, when a mount is superseded", async () => {
+    const first = render(<LocationImmersiveMap />);
+    await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    render(<LocationImmersiveMap />);
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    // Exactly two creates and one destroy: the outgoing map is torn down once
+    // and the incoming one is built once. Serializing must not turn a remount
+    // into a retry loop.
+    expect(mapHarness.create).toHaveBeenCalledTimes(2);
+    expect(mapHarness.map.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("still opens after a create fails, instead of hanging behind it", async () => {
+    // A poisoned lane would leave every later open on a spinner that never
+    // resolves -- a worse outcome than the blank map this all started with.
+    mapHarness.create.mockRejectedValueOnce(new Error("bridge unavailable"));
+
+    const failed = render(<LocationImmersiveMap />);
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-map"),
+      ).toHaveAttribute("data-map-ready", "false");
+    });
+    failed.unmount();
+
+    render(<LocationImmersiveMap />);
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+  });
+});
+
+/**
+ * The paths that actually put a second mount inside a create window. Each one
+ * is ordinary navigation, not an edge case, which is why the blank map was
+ * reproducible enough for QA to file it.
+ */
+describe("LocationImmersiveMap remount triggers", () => {
+  it("survives the owner-scoped remount both map routes perform", async () => {
+    // /one/location/map and /one/location/check-in both render this component
+    // under key={auth.userId ?? "anonymous"}. When the owner id arrives the key
+    // changes, React throws the mount away and builds a fresh one -- straight
+    // through an in-flight create.
+    const first = render(<LocationImmersiveMap key="anonymous" />);
+    await waitFor(() => expect(mapHarness.create).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    render(<LocationImmersiveMap key="test-user" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    expect(mapHarness.map.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("redirects the legacy check-in entry point off the map route", async () => {
+    // The Location hub still pushes /one/location/map?action=check-in, and the
+    // map route bounces it to the check-in route. That bounce is a second
+    // mount of this same component on the same native map id.
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "action=check-in";
+
+    render(<LocationImmersiveMap />);
+
+    await waitFor(() => {
+      expect(navigationHarness.replace).toHaveBeenCalledWith(
+        "/one/location/check-in",
+        { scroll: false },
+      );
+    });
+  });
+
+  it("leaves a usable map behind when check-in is opened and dismissed", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "";
+
+    render(<LocationImmersiveMap surface="check-in" />);
+    // Renderer consent gates the sheet and the marker refresh alike.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
+
+    // Dismissing the sheet is not leaving the screen: the map underneath has
+    // to still be there, and still be the one this mount created.
+    await waitFor(() => {
+      expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
+        "data-open",
+        "false",
+      );
+    });
+    expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+      "data-map-ready",
+      "true",
+    );
+    expect(mapHarness.map.destroy).not.toHaveBeenCalled();
   });
 });

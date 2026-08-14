@@ -94,14 +94,17 @@ def get_owned_prs(repo: str, days: int) -> list[dict]:
 def get_owned_issues(repo: str, days: int) -> list[dict]:
     """Issues the operator is assigned to, updated recently (open and closed)."""
     since = (dt.datetime.now() - dt.timedelta(days=days)).strftime("%Y-%m-%d")
-    return _gh_json([
-        "issue", "list", "--repo", repo,
-        "--state", "all",
-        "--search", f"assignee:{OPERATOR_LOGIN} updated:>={since}",
-        "--limit", "15", # Kept small for fast execution
-        "--json",
-        "number,title,state,url,assignees,labels,createdAt,updatedAt,body",
-    ])
+    try:
+        return _gh_json([
+            "issue", "list", "--repo", repo,
+            "--state", "all",
+            "--search", f"assignee:{OPERATOR_LOGIN} updated:>={since}",
+            "--limit", "15", # Kept small for fast execution
+            "--json",
+            "number,title,state,url,assignees,labels,createdAt,updatedAt,body",
+        ])
+    except Exception:
+        return []
 
 
 def is_owned_by_operator(item: dict) -> bool:
@@ -345,6 +348,7 @@ _SECTOR_BY_REPO = {
     "hushh-labs/HushhVoice": "HushhVoice",
     "RGlodAkshat/HushhVoice": "HushhVoice",
     "hushh-labs/HusshOne": "Hussh One",
+    "hushh-labs/hussh-one-hermes": "Hussh One",
     "hushh-labs/hermes-agent": "Hussh One",
 }
 
@@ -441,7 +445,7 @@ def sync_taxonomy_fields(dry_run: bool = False) -> tuple[list[str], bool]:
 
 
 def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
-    tracked_repos = ["hushh-labs/hushh-research", "hushh-labs/hushh-search-console"]
+    tracked_repos = ["hushh-labs/hushh-research", "hushh-labs/hushh-search-console", "hushh-labs/hussh-one-hermes"]
     has_changes = False
     prev_state = _load_state()
     cur_state: dict[str, str] = {}

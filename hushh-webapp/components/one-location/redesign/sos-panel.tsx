@@ -306,13 +306,28 @@ export function SosPanel({
     }
   };
 
+  // The "your browser cannot dial" explanation is a toast, not body copy.
+  //
+  // As a permanent paragraph under the button it wrapped to four lines on the
+  // narrow half-width grid cell, pushing Cancel around and burying the number
+  // it was trying to give you. It is only true at the moment you tap, so it is
+  // said at that moment — and the toast carries the number, which is the part
+  // that is actually actionable.
   const handleWindowsEmergencyCopy = useCallback(async () => {
     if (!emergency) return;
     try {
       await navigator.clipboard.writeText(emergency.number);
       setWindowsCopyStatus("copied");
+      toast.success(`${emergency.number} copied`, {
+        description: `This browser cannot open a dialer. Call ${emergency.number} from your phone now — ${emergency.countryName}.`,
+        duration: 10_000,
+      });
     } catch {
       setWindowsCopyStatus("error");
+      toast.error("Could not copy the number", {
+        description: `Dial ${emergency.number} from your phone now — ${emergency.countryName}.`,
+        duration: 10_000,
+      });
     }
   }, [emergency]);
 
@@ -326,7 +341,7 @@ export function SosPanel({
       data-ambient-chrome-ignore
       data-testid="sms-safety-screen"
     >
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(44px,env(safe-area-inset-top))]">
+      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(44px,env(safe-area-inset-top))] lg:max-w-[520px]">
         <button
           type="button"
           onClick={onClose}
@@ -341,8 +356,7 @@ export function SosPanel({
             SMS · Save my Soul
           </h1>
           <p className="mx-auto mt-2 max-w-[310px] text-[15px] font-normal leading-[20px] text-white/70">
-            Press and hold. An SMS with your live location goes to your people —
-            even with no internet.
+            Hold to send your live location by SMS.
           </p>
         </header>
 
@@ -491,8 +505,7 @@ export function SosPanel({
                   : "Your location, with no message."}
               </p>
               <p className="mt-2 text-white/50">
-                The message cannot be changed while this alert is live. Cancel
-                it to send a different one.
+                Cancel to change it.
               </p>
             </div>
           ) : null}
@@ -619,38 +632,26 @@ export function SosPanel({
           <div className="mt-3 grid grid-cols-2 gap-2.5">
             {emergencyStatus === "resolved" && emergency ? (
               shouldFallbackWindowsEmergencyCall ? (
-                <div className="flex min-h-12 flex-col justify-center">
-                  <button
-                    type="button"
-                    onClick={handleWindowsEmergencyCopy}
-                    className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[color:var(--app-destructive)] px-3 text-white"
-                    aria-label={`Copy ${emergency.number} emergency services (${emergency.countryName})`}
-                  >
-                    <Phone className="h-4 w-4 fill-current" aria-hidden />
-                    <span className="min-w-0 text-left leading-tight">
-                      <span className="block text-[15px] font-semibold">
-                        Copy emergency number
-                      </span>
-                      <span className="block truncate text-[12px] text-white/75">
-                        {emergency.countryName} · {emergency.number}
-                      </span>
+                <button
+                  type="button"
+                  onClick={handleWindowsEmergencyCopy}
+                  className="press-scale flex h-12 items-center justify-center gap-2 rounded-full bg-[color:var(--app-destructive)] px-3 text-white"
+                  aria-label={`Copy ${emergency.number} emergency services (${emergency.countryName})`}
+                >
+                  <Phone className="h-4 w-4 fill-current" aria-hidden />
+                  <span className="min-w-0 text-left leading-tight">
+                    <span className="block text-[15px] font-semibold">
+                      {windowsCopyStatus === "copied"
+                        ? `Copied ${emergency.number}`
+                        : `Copy ${emergency.number}`}
                     </span>
-                  </button>
-                  <span className="mt-1 block text-[13px] leading-[18px] text-white/75">
-                    Windows browsers cannot open emergency dialers directly. Call {emergency.number}
-                    from your phone now.
+                    <span className="block truncate text-[12px] text-white/75">
+                      {windowsCopyStatus === "copied"
+                        ? "Dial it from your phone"
+                        : emergency.countryName}
+                    </span>
                   </span>
-                  {windowsCopyStatus === "copied" ? (
-                    <span className="mt-1 block text-[13px] leading-[18px] text-[color:var(--app-success)]">
-                      Number copied to clipboard.
-                    </span>
-                  ) : null}
-                  {windowsCopyStatus === "error" ? (
-                    <span className="mt-1 block text-[13px] leading-[18px] text-[#ff9a75]">
-                      Could not copy. Please open your phone dialer manually.
-                    </span>
-                  ) : null}
-                </div>
+                </button>
               ) : (
                 <a
                   href={`tel:${emergency.number}`}

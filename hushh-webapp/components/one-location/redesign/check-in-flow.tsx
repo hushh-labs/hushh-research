@@ -35,6 +35,7 @@ import { toast } from "sonner";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import {
+  isCircleSelectionFullySelected,
   mergeRecipientsByUserId,
   type CircleRecipientSelection,
 } from "@/lib/one-location/circle-recipient-selection";
@@ -246,9 +247,18 @@ export function CheckInFlow({
     [circleSelection, vm.sosRecipients],
   );
 
+  // Choosing a Circle ticks each ready member in the list below, and those rows
+  // stay individually untickable. Once one is cleared the check-in is no longer
+  // that Circle, so the Circle row stops reading as selected — and the next tap
+  // re-ticks the full roster instead of clearing what is left.
+  const circleFullySelected = isCircleSelectionFullySelected(
+    circleSelection,
+    checkedIds,
+  );
+
   const selectCircle = async (circleId: string) => {
     if (circleLoadingId) return;
-    if (circleSelection?.circle.id === circleId) {
+    if (circleSelection?.circle.id === circleId && circleFullySelected) {
       setCircleSelection(null);
       setCheckedIds([]);
       setSeeded(false);
@@ -476,9 +486,7 @@ export function CheckInFlow({
               Nearby and private sharing are separate
             </p>
             <p className="mt-1 text-[15px] leading-[20px] text-[#8E8E93]">
-              Nearby people can see your name only. People you select below
-              receive your encrypted precise location for the duration you
-              choose.
+              Nearby sees your name only. Selected people get this share.
             </p>
           </div>
         </section>
@@ -564,7 +572,8 @@ export function CheckInFlow({
       {vm.circles.length ? (
         <div className={cn(CARD, "mb-2 overflow-hidden")}>
           {vm.circles.map((circle, index) => {
-            const selected = circleSelection?.circle.id === circle.id;
+            const selected =
+              circleSelection?.circle.id === circle.id && circleFullySelected;
             return (
               <button
                 key={circle.id}
@@ -695,8 +704,7 @@ export function CheckInFlow({
             {completedRecipientIds.length === 1 ? "person" : "people"} already
           </p>
           <p className="mt-1 text-[15px] leading-[20px] text-[#8E8E93]">
-            They keep the original encrypted location, duration, and message.
-            Any edits apply only to people who have not received this check-in.
+            Edits apply only to people still waiting.
           </p>
         </section>
       ) : null}
@@ -725,7 +733,7 @@ export function CheckInFlow({
       </div>
       <p className="mt-2 flex items-center gap-1.5 px-1 text-[15px] leading-[20px] text-[#8E8E93]">
         <Shield className="h-3 w-3 shrink-0" strokeWidth={1.5} />
-        Sharing stops automatically — no manual revoke needed.
+        Stops automatically.
       </p>
 
       {/* MESSAGE — encrypted with the reviewed point for selected recipients. */}
@@ -747,8 +755,8 @@ export function CheckInFlow({
       </div>
       <p className="mb-[18px] mt-2 px-1 text-[15px] leading-[20px] text-[#8E8E93]">
         {retryLocked
-          ? "Retry keeps the same duration, encrypted message, and reviewed location, and sends only to people who still failed."
-          : "This message is encrypted with your location. The notification only says that you shared a check-in."}
+          ? "Retry sends only to failed people."
+          : "Encrypted with your location."}
       </p>
       {retryLocked ? (
         <button
