@@ -137,6 +137,71 @@ describe("NearbyCheckInSheet", () => {
     });
   });
 
+  it("uses the compact Check in header and a count-aware place expansion", async () => {
+    service.nearbyPlaces.mockResolvedValue([
+      {
+        placeId: "long-name-cafe",
+        text: "An exceptionally long nearby cafe name that should stay on one line",
+        name: "An exceptionally long nearby cafe name that should stay on one line",
+        address: "1 Main Street",
+        category: "Cafe",
+        distanceMeters: 42,
+        latitude: 37.4276,
+        longitude: -122.1697,
+      },
+      {
+        placeId: "place-two",
+        text: "Place Two",
+        distanceMeters: 80,
+        latitude: 37.4277,
+        longitude: -122.1698,
+      },
+      {
+        placeId: "place-three",
+        text: "Place Three",
+        distanceMeters: 110,
+        latitude: 37.4278,
+        longitude: -122.1699,
+      },
+      {
+        placeId: "place-four",
+        text: "Place Four",
+        distanceMeters: 140,
+        latitude: 37.4279,
+        longitude: -122.17,
+      },
+    ]);
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Check in" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Preview")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Choose a real place within 500 m of your current location."),
+    ).not.toBeInTheDocument();
+
+    const longName = await screen.findByText(
+      "An exceptionally long nearby cafe name that should stay on one line",
+    );
+    expect(longName).toHaveClass("truncate");
+    expect(
+      screen.getByRole("button", { name: "Show all 4 places" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show all 4 places" }));
+    expect(await screen.findByRole("radio", { name: /Place Four/ })).toBeInTheDocument();
+  });
+
   it("captures a fresh point, preselects the nearest place, and keeps consent explicit", async () => {
     const confirmationPoint = {
       ...point,
@@ -1348,7 +1413,7 @@ describe("NearbyCheckInSheet", () => {
     // The mall sits at 920 m and is dropped by the 500 m bound before this.
     expect(empty).toHaveTextContent("2 other places are nearby.");
 
-    fireEvent.click(screen.getByRole("button", { name: "Show all places" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show all 2 places" }));
     expect(
       await screen.findByRole("radio", { name: /Stanford University/ }),
     ).toBeInTheDocument();

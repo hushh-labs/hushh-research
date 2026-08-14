@@ -27,7 +27,6 @@ import { Input } from "@/components/ui/input";
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -1484,22 +1483,12 @@ export function NearbyCheckInSheet({
         data-testid="one-location-nearby-check-in-sheet"
         data-one-location-nearby-check-in-sheet=""
       >
-        <SheetHeader className="border-b border-border/60 px-5 pb-4 text-left">
-          <div className="flex items-center gap-2 pr-10">
-            <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--app-accent-surface-strong)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]">
-              <UsersRound className="h-4 w-4" />
+        <SheetHeader className="gap-0 border-b border-border/60 px-5 py-4 text-left">
+          <div className="flex min-h-9 items-center gap-2 pr-10">
+            <SheetTitle className="text-[17px] leading-6">Check in</SheetTitle>
+            <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+              Preview
             </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <SheetTitle>Check in nearby</SheetTitle>
-                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                  Preview
-                </span>
-              </div>
-              <SheetDescription>
-                Choose a real place within 500 m of your current location.
-              </SheetDescription>
-            </div>
           </div>
         </SheetHeader>
 
@@ -1837,6 +1826,7 @@ export function NearbyCheckInSheet({
                             ),
                           ),
                         );
+                        const metadataLabel = metadata.join(" · ");
                         return (
                           <button
                             key={place.placeId}
@@ -1853,12 +1843,18 @@ export function NearbyCheckInSheet({
                           >
                             <MapPin className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
                             <span className="min-w-0 flex-1">
-                              <span className="block break-words text-sm font-semibold leading-5">
+                              <span
+                                title={name}
+                                className="block truncate text-sm font-semibold leading-5"
+                              >
                                 {name}
                               </span>
                               {metadata.length ? (
-                                <span className="mt-0.5 block break-words text-xs leading-4 text-muted-foreground">
-                                  {metadata.join(" · ")}
+                                <span
+                                  title={metadataLabel}
+                                  className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground"
+                                >
+                                  {metadataLabel}
                                 </span>
                               ) : null}
                             </span>
@@ -1880,7 +1876,7 @@ export function NearbyCheckInSheet({
                             className="w-full text-muted-foreground"
                             onClick={() => setVisiblePlacesCount(places.length)}
                           >
-                            Show all places
+                            Show all {places.length} places
                           </Button>
                         </div>
                       ) : null}
@@ -1924,7 +1920,7 @@ export function NearbyCheckInSheet({
                           className="mt-3"
                           onClick={() => selectCategory("all")}
                         >
-                          Show all places
+                          Show all {automaticPlaces.length} places
                         </Button>
                       </div>
                     ) : null}
