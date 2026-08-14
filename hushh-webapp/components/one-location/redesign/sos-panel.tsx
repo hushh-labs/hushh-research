@@ -41,6 +41,8 @@ const QUICK_MESSAGES: readonly SmsQuickMessage[] = [
  * every breakpoint — the ring does not need a per-size copy of itself.
  */
 const RING_CIRCUMFERENCE = 1055.6;
+const RING_RADIUS = RING_CIRCUMFERENCE / (2 * Math.PI);
+const RING_CENTER = 172;
 
 type WindowsFallbackCopyStatus = "idle" | "copied" | "error";
 
@@ -178,6 +180,21 @@ export function SosPanel({
   // Editing is closed from the moment the alert is sent until it is cancelled.
   const messageLocked = active || busy;
 
+  // Endpoint of each half-arc, computed directly from `progress` rather than
+  // via stroke-dasharray/-dashoffset. The dash trick reliably anchors growth
+  // at the path's start when combined with a `<circle>` rotated -90deg (the
+  // standard recipe every tutorial uses), but that guarantee does not carry
+  // over to an explicit two-point `<path>` arc — it rendered growing from the
+  // BOTTOM (the arc's end point) instead of the top. Walking the angle by
+  // hand removes that ambiguity: at progress 0 the endpoint IS the top point
+  // (a zero-length arc, invisible), and at progress 1 it is exactly the
+  // bottom point, with nothing in between left to a dash/gap tiling.
+  const ringSweepAngle = progress * Math.PI;
+  const ringEndDx = RING_RADIUS * Math.sin(ringSweepAngle);
+  const ringEndY = RING_CENTER - RING_RADIUS * Math.cos(ringSweepAngle);
+  const ringRightArcD = `M${RING_CENTER},${RING_CENTER - RING_RADIUS} A${RING_RADIUS},${RING_RADIUS} 0 0 1 ${RING_CENTER + ringEndDx},${ringEndY}`;
+  const ringLeftArcD = `M${RING_CENTER},${RING_CENTER - RING_RADIUS} A${RING_RADIUS},${RING_RADIUS} 0 0 0 ${RING_CENTER - ringEndDx},${ringEndY}`;
+
   // The alert ending is the only thing that releases the record and the lock.
   // Cancelling is deliberately the single escape: an editable picker over a
   // live alert invites someone to believe they have changed a message that has
@@ -295,6 +312,20 @@ export function SosPanel({
     if (event.button > 0) return;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     startHold();
+  };
+
+  // Pointer capture (set on pointerdown, above) is what lets the hold survive
+  // the cursor drifting off the circular hitbox — pointerup/pointercancel are
+  // routed to this button regardless of where the pointer physically ends up.
+  // Some Chrome builds still fire `pointerleave` on boundary crossing even
+  // while capture is held, which cancelled a perfectly good hold the instant a
+  // mouse wobbled off the circle for a frame. Only treat leave as a real
+  // release when capture was never established (e.g. an unsupported pointer
+  // type), so the ring cannot be reset by anything short of an actual
+  // pointerup/pointercancel/blur.
+  const handlePointerLeave = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) return;
+    cancelHold();
   };
 
   const handlePointerEnd = (event: PointerEvent<HTMLButtonElement>) => {
@@ -469,7 +500,7 @@ export function SosPanel({
           <svg
             viewBox="0 0 344 344"
             aria-hidden
-            className="absolute inset-0 h-full w-full -rotate-90"
+            className="absolute inset-0 h-full w-full"
           >
             <circle
               cx="172"
@@ -480,18 +511,25 @@ export function SosPanel({
               strokeWidth="2"
               vectorEffect="non-scaling-stroke"
             />
-            <circle
-              cx="172"
-              cy="172"
-              r="168"
+            {/* Two half-arcs, both starting at the top and racing down to meet
+                at the bottom, so the hold reads as closing in from both sides
+                rather than one hand sweeping clockwise. Both endpoints derive
+                from the same `progress`, so they always land together. */}
+            <path
+              d={ringRightArcD}
               fill="none"
               stroke="var(--app-destructive)"
               strokeWidth="3"
               strokeLinecap="round"
-              strokeDasharray={RING_CIRCUMFERENCE}
-              strokeDashoffset={RING_CIRCUMFERENCE * (1 - progress)}
               vectorEffect="non-scaling-stroke"
-              style={{ transition: "stroke-dashoffset 80ms linear" }}
+            />
+            <path
+              d={ringLeftArcD}
+              fill="none"
+              stroke="var(--app-destructive)"
+              strokeWidth="3"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
             />
           </svg>
 
@@ -520,7 +558,7 @@ export function SosPanel({
               onPointerDown={handlePointerDown}
               onPointerUp={handlePointerEnd}
               onPointerCancel={handlePointerEnd}
-              onPointerLeave={cancelHold}
+              onPointerLeave={handlePointerLeave}
               onKeyDown={handleKeyDown}
               onKeyUp={handleKeyUp}
               onContextMenu={(event) => event.preventDefault()}
@@ -759,34 +797,42 @@ export function SosPanel({
             <button
               type="button"
               onClick={onResolveEmergencyNumber}
-              disabled={
-                emergencyStatus === "idle" || emergencyStatus === "resolving"
-              }
+              // "resolving" is the only state that must stay inert -- it means
+              // a lookup is already in flight. "idle" (nothing looked up yet)
+              // and "unavailable" (a lookup failed) both stay tappable, since
+              // each needs the tap to be the thing that starts the next lookup.
+              disabled={emergencyStatus === "resolving"}
               aria-label={
                 emergencyStatus === "unavailable"
                   ? "Retry local emergency number"
-                  : "Finding local emergency number"
+                  : emergencyStatus === "resolving"
+                    ? "Finding local emergency number"
+                    : "Find local emergency number"
               }
               className="press-scale flex items-center gap-2.5 text-[color:var(--app-destructive)] transition-opacity hover:opacity-70 disabled:cursor-wait disabled:opacity-75"
             >
-              {emergencyStatus === "unavailable" ? (
-                <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
-              ) : (
+              {emergencyStatus === "resolving" ? (
                 <Loader2
                   className="h-[17px] w-[17px] animate-spin"
                   aria-hidden
                 />
+              ) : (
+                <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
               )}
               <span className="text-left leading-tight">
                 <span className="block text-[16px] font-medium tracking-[-0.3px] lg:text-[17px] lg:tracking-[-0.37px]">
                   {emergencyStatus === "unavailable"
                     ? "Retry local number"
-                    : "Finding local number"}
+                    : emergencyStatus === "resolving"
+                      ? "Finding local number"
+                      : "Find local number"}
                 </span>
                 <span className="block text-[12px] text-[color:var(--sos-label)]">
                   {emergencyStatus === "unavailable"
                     ? "Location unavailable"
-                    : "Using current location"}
+                    : emergencyStatus === "resolving"
+                      ? "Using current location"
+                      : "Tap to look up"}
                 </span>
               </span>
             </button>

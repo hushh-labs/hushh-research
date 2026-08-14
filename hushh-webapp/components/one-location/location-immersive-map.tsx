@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   GoogleMap,
   LatLngBounds,
@@ -42,7 +49,6 @@ import {
 } from "@/lib/one-location/location-workspace-memory";
 import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
 import {
-  DARK_MAP_STYLES,
   getBrowserMapsApiKey,
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
@@ -91,6 +97,13 @@ const MAP_ID = "one-location-private-map";
 // module for the full contract and its latency budget.
 
 const NEARBY_CHECK_IN_RADIUS_METERS = 500;
+const TRAY_COLLAPSED_HEIGHT_PX = 56; // 3.5rem, the collapsed pill.
+// The section's own `border` (1px top + 1px bottom) is border-box, so it
+// eats into the content area rather than shrink it away from the header and
+// scroll container. It is the one piece of the sheet's height that isn't a
+// measured DOM element, so it stays a literal constant -- everything else
+// below is read from the real, rendered header and body instead of guessed.
+const TRAY_BORDER_HEIGHT_PX = 2;
 const MAP_ACCENT_CONTROL_CLASSNAME =
   "!border-[var(--app-accent-border)] !bg-[var(--app-accent-surface)] !text-[var(--app-accent-deep)] hover:!bg-[var(--app-accent-surface-strong)] dark:!text-[var(--app-accent-bright)]";
 const MAP_ACCENT_ACTIVE_CLASSNAME =
@@ -339,6 +352,15 @@ export function LocationImmersiveMap({
   const mapRef = useRef<GoogleMap | null>(null);
   const topControlsRef = useRef<HTMLElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
+  // Measures the tray's real rendered pieces -- the toggle header and the
+  // body's natural (unclipped) content -- so the sheet can size itself to
+  // its content instead of a hand-computed guess at their heights (a guess
+  // that was previously off by the section's own border-width). Reading the
+  // DOM directly here means there is nothing left to keep in sync by hand.
+  const trayHeaderRef = useRef<HTMLButtonElement | null>(null);
+  const trayContentRef = useRef<HTMLDivElement | null>(null);
+  const [trayHeaderHeight, setTrayHeaderHeight] = useState(0);
+  const [trayContentHeight, setTrayContentHeight] = useState(0);
   const markerIdsRef = useRef<string[]>([]);
   const markerGenerationRef = useRef(0);
   const markerCommandRef = useRef<Promise<void>>(Promise.resolve());
@@ -988,15 +1010,19 @@ export function LocationImmersiveMap({
               ? 11
               : 2,
           disableDefaultUI: true,
-          // Open dark to match the mobile dark theme. Read the resolved theme
-          // from the <html> `dark` class that next-themes sets, so no
-          // camera-recreating hook dependency is introduced; a cloud-styled
-          // mapId can supersede this.
-          styles:
-            typeof document !== "undefined" &&
-            document.documentElement.classList.contains("dark")
-              ? DARK_MAP_STYLES
-              : undefined,
+          // `styles` is deliberately NOT passed.
+          //
+          // @capacitor/google-maps sets its own `mapId` because advanced
+          // markers require one, and Google ignores `styles` entirely whenever
+          // a mapId is present — logging "A Map's styles property cannot be
+          // set when a mapId is present" on every single map create. So this
+          // was never theming anything: it was dead config that produced a
+          // warning each time the map mounted, and made the console look like
+          // the map was failing when it was not.
+          //
+          // Restoring a dark map means styling the mapId in the Google Cloud
+          // console, which is where a mapId's appearance now lives. Passing
+          // DARK_MAP_STYLES here cannot do it.
         },
       });
       if (superseded()) {
@@ -1172,7 +1198,7 @@ export function LocationImmersiveMap({
     // expanded. Anchor the camera's bottom inset to the tray's stable bottom
     // edge plus its COLLAPSED footprint, never its live expanded height, so
     // toggling the tray open/closed never re-frames (zooms/pans) the map.
-    const COLLAPSED_TRAY_HEIGHT = 56; // 3.5rem, matches the collapsed tray
+    const COLLAPSED_TRAY_HEIGHT = TRAY_COLLAPSED_HEIGHT_PX;
     const publishPadding = () => {
       const top = topControlsRef.current?.getBoundingClientRect().bottom ?? 72;
       const trayRect = peopleTrayRef.current?.getBoundingClientRect();
@@ -1232,6 +1258,30 @@ export function LocationImmersiveMap({
       window.removeEventListener("resize", schedulePadding);
     };
   }, [mapReady, nearbyCheckInOpen]);
+
+  // The tray body's rendered box is height-clamped by its scroll container,
+  // so its own size never reflects how tall its content actually is. Track
+  // the header and the body's content directly instead, synchronously
+  // before paint so there is no grow-in flash, and again whenever either
+  // changes size (chips added/removed, search narrows the list, nearby
+  // results arrive). The tray section itself only mounts once the renderer
+  // is ready, so the dependencies below -- its exact mount condition --
+  // make sure this attaches once the refs actually exist, not just once on
+  // the component's own first render.
+  useLayoutEffect(() => {
+    const header = trayHeaderRef.current;
+    const content = trayContentRef.current;
+    if (!header || !content) return;
+    const measure = () => {
+      setTrayHeaderHeight(header.offsetHeight);
+      setTrayContentHeight(content.offsetHeight);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(header);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [rendererReady, status, isCheckInSurface]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1645,10 +1695,6 @@ export function LocationImmersiveMap({
   }, [nearbyAttendees, searchQuery]);
 
   const drawerEntryCount = markers.length + nearbyAttendees.length;
-  const hasVisibleTrayResults =
-    filteredPeople.length > 0 ||
-    filteredNearbyAttendees.length > 0 ||
-    selected !== null;
 
   // One number, one word for what it counts. The screen is already the map and
   // the tray is already the people, so "live locations on your map" spent five
@@ -2117,10 +2163,15 @@ export function LocationImmersiveMap({
             width: trayExpanded
               ? "min(34rem, calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)))"
               : "3.5rem",
+            // Fit the sheet to its content (header + measured body), not the
+            // viewport's full allowance -- that fixed allowance is what left
+            // a slab of dead space below the last row of buttons whenever
+            // the content was shorter than the available height. The
+            // viewport calc and 29.5rem figure now only cap it: a short list
+            // shrinks the sheet, a long one still stops short of the notch
+            // and scrolls internally.
             height: trayExpanded
-              ? hasVisibleTrayResults
-                ? "clamp(10rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 29.5rem)"
-                : "min(22rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)))"
+              ? `clamp(${TRAY_COLLAPSED_HEIGHT_PX}px, ${trayHeaderHeight + trayContentHeight + TRAY_BORDER_HEIGHT_PX}px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))`
               : "3.5rem",
             borderRadius: trayExpanded ? "1.75rem" : "999px",
             transition: [
@@ -2133,6 +2184,7 @@ export function LocationImmersiveMap({
           }}
         >
           <button
+            ref={trayHeaderRef}
             type="button"
             className={`group relative flex w-full shrink-0 touch-manipulation items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70 motion-reduce:transition-none ${
               trayExpanded
@@ -2247,9 +2299,13 @@ export function LocationImmersiveMap({
             inert={!trayExpanded}
           >
             <div
-              className="h-full min-h-0 overflow-y-auto overscroll-contain px-3 pb-3 pt-1"
+              className="h-full min-h-0 overflow-y-auto overscroll-contain"
               data-testid="one-location-map-tray-scroll"
             >
+              {/* Unconstrained by the scroll container's fixed height above,
+                  so its offsetHeight is the content's true natural size,
+                  padding included since that padding lives here now. */}
+              <div ref={trayContentRef} className="px-3 pb-3 pt-1">
               <label className="relative block">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <span className="sr-only">Find a person on Your Map</span>
@@ -2532,6 +2588,7 @@ export function LocationImmersiveMap({
                   Some locations didn&apos;t refresh.
                 </p>
               ) : null}
+              </div>
             </div>
           </div>
         </section>

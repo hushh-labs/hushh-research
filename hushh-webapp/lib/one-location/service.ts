@@ -1,4 +1,7 @@
+import { Capacitor } from "@capacitor/core";
+
 import { HushhLocation } from "@/lib/capacitor";
+import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import {
   ApiError,
   apiErrorCode,
@@ -42,6 +45,15 @@ import type {
 
 function authHeaders(vaultOwnerToken: string): Record<string, string> {
   return { Authorization: `Bearer ${vaultOwnerToken}` };
+}
+
+/**
+ * Origin prefix for a route served by the Next.js app rather than the Python
+ * backend. Empty on web (relative is correct); the web origin on native, where
+ * a relative path would otherwise resolve against the backend.
+ */
+function nextRouteOrigin(): string {
+  return Capacitor.isNativePlatform() ? resolveRuntimeFrontendUrl() : "";
 }
 
 function jsonAuthHeaders(vaultOwnerToken: string): Record<string, string> {
@@ -911,7 +923,13 @@ export class OneLocationService {
         attempted?: number;
         configured?: boolean;
         withoutEmail?: string[];
-      }>("/api/one/location/sos-email", {
+        // Unlike every other call in this file, this one does NOT go to the
+        // Python backend — it is a Next.js route (only the webapp lane holds
+        // MAIL_API_KEY). On native, a relative path resolves against the
+        // backend, where this path does not exist, so the alert's email leg
+        // would 404 on iOS and Android — the two platforms an SOS is most
+        // likely to be sent from. Same treatment as `/api/auth/mail`.
+      }>(`${nextRouteOrigin()}/api/one/location/sos-email`, {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({
