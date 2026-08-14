@@ -1557,7 +1557,9 @@ describe("OneLocationAgentPage", () => {
       await screen.findByPlaceholderText("Search trusted people"),
       { target: { value: "Investor" } },
     );
-    fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Share with Investor D/i }),
+    );
     expect(
       await screen.findByRole("heading", { name: "Who can see you?" }),
     ).toBeTruthy();
@@ -3511,27 +3513,29 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await switchLocationTab("People", "Your circles");
+    await switchLocationTab("People", "Circles");
 
     const search = await screen.findByPlaceholderText("Search trusted people");
     const person = await screen.findByText("Trusted B");
+    expect(screen.getByTestId("one-location-people-list")).toHaveClass(
+      "max-h-[50vh]",
+      "overflow-y-auto",
+      "overflow-x-hidden",
+    );
 
     // The search input used to be separated from its own results by four
     // buttons, which read as page search rather than list search. Nothing
     // focusable may sit between the field and the list it filters.
     expect(
-      search.compareDocumentPosition(person) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      search.compareDocumentPosition(person) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     const between = Array.from(
       document.querySelectorAll("button, a[href], input, textarea, select"),
     ).filter(
       (el) =>
         el !== search &&
-        search.compareDocumentPosition(el) &
-          Node.DOCUMENT_POSITION_FOLLOWING &&
-        person.compareDocumentPosition(el) &
-          Node.DOCUMENT_POSITION_PRECEDING,
+        search.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING &&
+        person.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING,
     );
     expect(between).toHaveLength(0);
 
@@ -3542,34 +3546,94 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
     // The three that remain each carry a different weight, so the common one
     // reads as the default rather than one of four equal choices.
-    expect(screen.getByRole("button", { name: /Add people/i })).toBeTruthy();
+    const addPeople = screen.getByRole("button", { name: /Add people/i });
+    const syncContacts = screen.getByRole("button", {
+      name: /Sync contacts/i,
+    });
+    expect(addPeople).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Invite$/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Sync contacts/i })).toBeTruthy();
+    expect(syncContacts).toBeTruthy();
+    expect(
+      syncContacts.compareDocumentPosition(search) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      person.compareDocumentPosition(addPeople) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: /Stop sharing with Trusted B/i,
+      }),
+    ).toBeTruthy();
   });
 
-  it("offers Create and Join with code straight under the circles heading", async () => {
+  it("keeps desktop People actions in the same visual and keyboard order", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === "(min-width: 640px)",
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+      await switchLocationTab("People", "Circles");
+
+      const addPeople = screen.getByRole("button", { name: /Add people/i });
+      const search = await screen.findByPlaceholderText("Search trusted people");
+      const syncContacts = screen.getByRole("button", {
+        name: /Sync contacts/i,
+      });
+      const invite = screen.getByRole("button", { name: /^Invite$/i });
+
+      expect(
+        syncContacts.compareDocumentPosition(invite) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        invite.compareDocumentPosition(addPeople) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        addPeople.compareDocumentPosition(search) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it("offers New circle and Join with code beside the circles heading", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await switchLocationTab("People", "Your circles");
+    await switchLocationTab("People", "Circles");
 
     const section = screen.getByTestId("one-location-named-circles");
     const heading = within(section).getByRole("heading", {
-      name: "Your circles",
+      name: "Circles",
     });
-    const create = within(section).getByRole("button", { name: /^Create$/i });
+    const create = within(section).getByRole("button", {
+      name: /^New circle$/i,
+    });
     const join = within(section).getByRole("button", {
       name: /Join with code/i,
     });
 
-    // Structural, not "somewhere after": the heading block is the section's
-    // first child and the actions are its second, so the pair cannot drift back
-    // below the circle list — where a long list stranded them past a scroll,
-    // exactly when someone had enough circles to need them.
+    // Structural, not "somewhere after": the compact heading row owns both
+    // actions, so a long circle list cannot strand them below the fold.
     expect(section.children[0]).toContainElement(heading);
-    expect(section.children[1]).toContainElement(create);
-    expect(section.children[1]).toContainElement(join);
+    expect(section.children[0]).toContainElement(create);
+    expect(section.children[0]).toContainElement(join);
   });
 
   it("does not show owner-grant revoke actions in the compact mobile flow", async () => {
@@ -3671,16 +3735,12 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    await switchLocationTab("People", "Your circles");
+    await switchLocationTab("People", "Circles");
     // Empty state keeps connection management and invite/sync/share actions.
     // Request-location affordances are populated-state-only, and the redundant
     // approval explainer must not add another card below these actions.
-    expect(
-      screen.getByRole("button", { name: /Add people/i }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: /^Invite$/i }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add people/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Invite$/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Sync contacts/i })).toBeTruthy();
     // "Share to contacts" is deliberately absent: it minted a PUBLIC link,
     // which is the Links tab's job, not a control belonging beside named

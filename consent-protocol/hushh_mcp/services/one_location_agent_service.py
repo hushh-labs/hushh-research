@@ -954,6 +954,100 @@ class OneLocationAgentService:
             data=data or {},
         )
 
+    def list_sos_email_recipients(
+        self,
+        *,
+        owner_user_id: str,
+        grant_ids: list[str],
+    ) -> dict[str, Any]:
+        """Who One may email for this Save my Soul alert.
+
+        Resolution and authorization only — the message is rendered and sent by
+        One through `hushh-mail-api`, the same service every other product mail
+        uses. A second sender identity is a deliverability risk, and an
+        emergency mail is the worst place to find that out.
+
+        Returns the owner's display label plus one entry per reachable contact.
+        Addresses are returned to One's server route, never to a browser: a
+        sender does not necessarily know their contacts' email addresses and
+        this must not be where they learn them.
+        """
+        from hushh_mcp.services.one_location_sos_email_service import (
+            select_emailable_recipients,
+        )
+
+        cleaned_ids = [str(value).strip() for value in grant_ids if str(value or "").strip()]
+        if not cleaned_ids:
+            return {"ownerDisplayName": "", "openInOneUrl": "", "recipients": []}
+
+        rows = self._execute_many(
+            """
+            SELECT
+              g.id::TEXT             AS grant_id,
+              g.owner_user_id        AS owner_user_id,
+              g.recipient_user_id    AS recipient_user_id,
+              g.status               AS status,
+              g.expires_at           AS expires_at,
+              EXTRACT(EPOCH FROM g.created_at) AS created_at_epoch,
+              COALESCE(g.metadata ->> 'share_kind', '') AS share_kind,
+              recipient.email        AS recipient_email,
+              recipient.display_name AS recipient_display_name
+            FROM one_location_share_grants g
+            LEFT JOIN actor_identity_cache recipient
+              ON recipient.user_id = g.recipient_user_id
+            WHERE g.id = ANY(CAST(:grant_ids AS UUID[]))
+              AND g.owner_user_id = :owner_user_id
+            """,
+            {"grant_ids": cleaned_ids, "owner_user_id": owner_user_id},
+        )
+
+        now_epoch = datetime.now(timezone.utc).timestamp()
+        selected = select_emailable_recipients(
+            rows, owner_user_id=owner_user_id, now_epoch_seconds=now_epoch
+        )
+
+        # Who this alert could NOT reach by mail, and why. Skipping them
+        # silently is what made a broken email channel look like a working one:
+        # the sender saw "Emailed 0" with nothing to act on. A phone-only
+        # contact has no address anywhere, and the only fix is for them to add
+        # one -- which the sender can only ask for if they are told.
+        emailable_ids = {str(row.get("recipient_user_id") or "") for row in selected}
+        without_email = [
+            str(row.get("recipient_display_name") or "").strip() or "A contact"
+            for row in rows
+            if str(row.get("recipient_user_id") or "") not in emailable_ids
+            and str(row.get("share_kind") or "") == "sos"
+            and "@" not in str(row.get("recipient_email") or "")
+        ]
+
+        if not selected:
+            return {
+                "ownerDisplayName": "",
+                "openInOneUrl": "",
+                "recipients": [],
+                "withoutEmail": without_email,
+            }
+
+        owner_label = _identity_notification_label(self._identity_row(owner_user_id))
+        return {
+            "ownerDisplayName": owner_label,
+            # Same builder the push notification uses, so the email link and the
+            # notification link cannot drift and the frontend origin has exactly
+            # one reader (the runtime-config contract requires that).
+            "openInOneUrl": _one_location_url(section="shared"),
+            "recipients": [
+                {
+                    "grantId": str(row.get("grant_id") or ""),
+                    "recipientUserId": str(row.get("recipient_user_id") or ""),
+                    "email": str(row.get("recipient_email") or ""),
+                    "displayName": str(row.get("recipient_display_name") or ""),
+                    "expiresAt": _iso(row.get("expires_at")),
+                }
+                for row in selected
+            ],
+            "withoutEmail": without_email,
+        }
+
     def _identity_row(self, user_id: str) -> dict[str, Any] | None:
         try:
             return self._execute_one(

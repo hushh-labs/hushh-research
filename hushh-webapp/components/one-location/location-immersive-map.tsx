@@ -49,7 +49,6 @@ import {
 } from "@/lib/one-location/location-workspace-memory";
 import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
 import {
-  DARK_MAP_STYLES,
   getBrowserMapsApiKey,
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
@@ -351,7 +350,7 @@ export function LocationImmersiveMap({
   const initialDemoMode = isLocationMapDemoEnabled(searchParams.get("demo"));
   const mapElement = useRef<HTMLElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
-  const topControlsRef = useRef<HTMLDivElement | null>(null);
+  const topControlsRef = useRef<HTMLElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
   // Measures the tray's real rendered pieces -- the toggle header and the
   // body's natural (unclipped) content -- so the sheet can size itself to
@@ -1011,15 +1010,19 @@ export function LocationImmersiveMap({
               ? 11
               : 2,
           disableDefaultUI: true,
-          // Open dark to match the mobile dark theme. Read the resolved theme
-          // from the <html> `dark` class that next-themes sets, so no
-          // camera-recreating hook dependency is introduced; a cloud-styled
-          // mapId can supersede this.
-          styles:
-            typeof document !== "undefined" &&
-            document.documentElement.classList.contains("dark")
-              ? DARK_MAP_STYLES
-              : undefined,
+          // `styles` is deliberately NOT passed.
+          //
+          // @capacitor/google-maps sets its own `mapId` because advanced
+          // markers require one, and Google ignores `styles` entirely whenever
+          // a mapId is present — logging "A Map's styles property cannot be
+          // set when a mapId is present" on every single map create. So this
+          // was never theming anything: it was dead config that produced a
+          // warning each time the map mounted, and made the console look like
+          // the map was failing when it was not.
+          //
+          // Restoring a dark map means styling the mapId in the Google Cloud
+          // console, which is where a mapId's appearance now lives. Passing
+          // DARK_MAP_STYLES here cannot do it.
         },
       });
       if (superseded()) {
@@ -1892,8 +1895,11 @@ export function LocationImmersiveMap({
           closing ? "pointer-events-none" : ""
         }`}
       />
-      <div
+      <header
         ref={topControlsRef}
+        aria-label={
+          isCheckInSurface ? "Check in map controls" : "Location map controls"
+        }
         // z-30 (above the z-20 map loading/error overlay and people tray): at
         // equal z-index the later-in-DOM full-screen overlay painted on top of
         // the close X and could swallow the tap that dismisses the map. Keeping
@@ -1945,6 +1951,8 @@ export function LocationImmersiveMap({
             aria-label={`You are sharing your location with ${activeShareCount} ${
               activeShareCount === 1 ? "person" : "people"
             }`}
+            role="status"
+            aria-live="polite"
             className="pointer-events-none hidden min-w-0 shrink items-center gap-1.5 truncate rounded-full border border-[var(--app-accent-border)] bg-background/85 px-3 py-1.5 text-[12px] font-semibold text-[var(--app-accent-deep)] shadow-lg backdrop-blur-md md:flex dark:text-[var(--app-accent-bright)]"
           >
             <span
@@ -1975,7 +1983,7 @@ export function LocationImmersiveMap({
             )}
           </ShellActionSurface>
         ) : null}
-      </div>
+      </header>
       {/*
         Two pins on one map need naming, or the owner cannot tell which is
         "me" and which is "the place I'm checking in to" -- and those are

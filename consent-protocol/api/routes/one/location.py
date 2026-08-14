@@ -8,6 +8,7 @@ Path parameters (public_token, invite_id, grant_id) are bounded to 128 chars max
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 from datetime import datetime
 from typing import Annotated, Any
@@ -49,6 +50,8 @@ from hushh_mcp.services.one_location_nearby_presence_service import (
 )
 
 router = APIRouter(prefix="/api/one", tags=["One Location Agent"])
+
+logger = logging.getLogger(__name__)
 
 _PublicToken = Annotated[str, Path(min_length=1, max_length=128)]
 _InviteId = Annotated[str, Path(min_length=1, max_length=128)]
@@ -108,6 +111,19 @@ class CreateGrantWithEnvelopeRequest(CreateGrantRequest):
 
 class AddSmsContactRequest(_CamelModel):
     recipient_user_id: str = Field(alias="recipientUserId", min_length=1, max_length=160)
+
+
+class SosEmailRecipientsRequest(_CamelModel):
+    """Which contacts One may email for a Save my Soul alert.
+
+    `grantIds` is the authorization, not a hint: only the recipients of live
+    SOS grants the caller's own account just created are returned. No
+    coordinates here — the message is rendered and sent by One, and the server
+    never sees a plaintext location (`one_location_envelopes` keeps
+    coordinates inside the ciphertext).
+    """
+
+    grant_ids: list[str] = Field(alias="grantIds", min_length=1, max_length=20)
 
 
 class StoreEnvelopeRequest(_CamelModel):
@@ -419,6 +435,36 @@ def add_location_sms_contact(
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
+
+
+@router.post("/location/sos-email-recipients")
+def list_location_sos_email_recipients(
+    payload: SosEmailRecipientsRequest,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Resolve who One may email for a Save my Soul alert.
+
+    The push notification is the first channel and reaches nobody when a
+    contact has notifications off or the app uninstalled; email is the second.
+    One renders and sends that mail through `hushh-mail-api` — the same
+    service as every other product mail — so this endpoint only answers who is
+    reachable, and does so under the caller's own grants.
+
+    Never fails the caller: the alert has already gone out by the time this is
+    called, so a resolution problem is an empty list, not an error. An
+    exception here would make a successful emergency look like a failed one.
+    """
+    # Contact addresses in the body; never cached, never stored.
+    _set_private_no_store(response)
+    try:
+        return _service().list_sos_email_recipients(
+            owner_user_id=_user_id(token_data),
+            grant_ids=payload.grant_ids,
+        )
+    except Exception:
+        logger.warning("one.location.sos_email_recipients.route_failed", exc_info=False)
+        return {"ownerDisplayName": "", "openInOneUrl": "", "recipients": []}
 
 
 @router.delete("/location/sms-contacts/{recipient_user_id}")

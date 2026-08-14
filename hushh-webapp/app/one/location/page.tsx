@@ -3911,33 +3911,11 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
-  // Warm the local emergency number from ANY location the app already has.
-  //
-  // Save My Soul used to start from nothing: open the screen, ask for a fix,
-  // then wait on a reverse-geocode, leaving "Finding local number" on the one
-  // control someone might need in seconds. Every other flow here — the map, a
-  // share, a check-in — already produces a fix, so the country can be settled
-  // long before the SOS screen is ever opened.
-  //
-  // Runs only when the answer would actually change: no fix, no token, or a fix
-  // still inside the radius the current number was confirmed at, and it does
-  // nothing. It never requests permission, so it cannot prompt on its own.
-  useEffect(() => {
-    if (!myLocationPoint || !vaultOwnerToken) return;
-    const alreadyCoversThisPoint =
-      sosEmergencyStatus === "resolved" &&
-      isWithinEmergencyTrustRadius(
-        sosEmergencyOriginRef.current,
-        myLocationPoint,
-      );
-    if (alreadyCoversThisPoint) return;
-    void resolveEmergencyInfoForPoint(myLocationPoint, { seedFromCache: true });
-  }, [
-    myLocationPoint,
-    resolveEmergencyInfoForPoint,
-    sosEmergencyStatus,
-    vaultOwnerToken,
-  ]);
+  // The local emergency number is looked up only when someone actually taps
+  // "Find local number" (resolveSosLocation, wired to onResolveEmergencyNumber
+  // below) or triggers Save My Soul. It used to also warm silently off any fix
+  // the app already had, which made the control read as permanently loading
+  // before anyone pressed it — the lookup must stay a deliberate, on-click act.
 
   const handleTriggerSos = useCallback(
     async (note?: string | null) => {
@@ -3984,19 +3962,48 @@ export function OneLocationAgentPageContent({
           .map((outcome) => outcome.displayName);
         const reached = readyRecipients.length - unreachable.length;
 
+        // Second channel. A push reaches nobody when notifications are off, so
+        // the same alert goes out by email — the one place a closed app cannot
+        // swallow it. Awaited (not fired and forgotten) so the message below
+        // can tell the sender what actually happened, which is the whole point
+        // of having a fallback. It never throws.
+        const mail = await OneLocationService.sendSosEmails({
+          vaultOwnerToken,
+          grantIds: incident.grantIds,
+          latitude: point.latitude,
+          longitude: point.longitude,
+          accuracyM: point.accuracyM ?? null,
+          note,
+          emergencyNumber: sosEmergency?.number ?? null,
+        });
+
+        // Only worth saying when it changes what the sender should do next:
+        // "nobody's phone lit up" reads very differently if two inboxes got it.
+        // And a contact with no address is named rather than skipped in
+        // silence — "Emailed 0" with no reason is what made a broken email
+        // channel look like a working one.
+        const mailNote =
+          (mail.emailed > 0 ? ` Emailed ${mail.emailed}.` : "") +
+          (mail.withoutEmail.length > 0
+            ? ` No email on file for ${formatNameList(mail.withoutEmail)}.`
+            : "");
+
         if (reached === 0) {
+          const stillNoOne = mail.emailed === 0;
           toast.error(
-            `Location shared, but no one was alerted — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off. Call emergency services if you need help now.`,
+            stillNoOne
+              ? `Location shared, but no one was alerted — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off. Call emergency services if you need help now.`
+              : `No phones lit up — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off.${mailNote} Call emergency services if you need help now.`,
           );
         } else if (unreachable.length > 0) {
           toast.warning(
-            `Alerted ${reached} of ${readyRecipients.length} contacts. Couldn't reach ${formatNameList(unreachable)} — notifications are off on their end.`,
+            `Alerted ${reached} of ${readyRecipients.length} contacts. Couldn't reach ${formatNameList(unreachable)} — notifications are off on their end.${mailNote}`,
           );
         } else {
           toast.success(
             skipped > 0
-              ? `Alerted ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).`
-              : `Alerted ${readyRecipients.length} contact(s).`,
+              ? `Alerted ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).${mailNote}`
+              : `Alerted ${readyRecipients.length} contact(s).${mailNote}`,
           );
         }
         void refresh().catch(() => null);
@@ -4020,6 +4027,9 @@ export function OneLocationAgentPageContent({
       smsActionRecipients,
       refresh,
       sosIncident,
+      // The local emergency number is read at send time so the email can tell
+      // the recipient which number to dial where the sender is.
+      sosEmergency?.number,
       vaultOwnerToken,
     ],
   );

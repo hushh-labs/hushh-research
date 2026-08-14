@@ -82,6 +82,15 @@ jobs:
             fi
           elif [ "${{ github.event_name }}" = "push" ]; then
             LOG_OPTS="$(resolve_from_default_branch)"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # A manually dispatched run validates a BRANCH, so it scans that
+            # branch's own commits — the same range a push resolves. It used to
+            # fall through to the bare-SHA case below, which walks all history
+            # (~3400 commits) and fails on findings that predate the branch by
+            # years. That made the manual lane useless exactly when it is
+            # needed most: when the pull_request event does not fire and this
+            # is the only way to validate a change.
+            LOG_OPTS="$(resolve_from_default_branch)"
           else
             LOG_OPTS="${{ github.sha }}"
           fi

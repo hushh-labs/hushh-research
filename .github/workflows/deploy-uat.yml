@@ -74,18 +74,29 @@ jobs:
         shell: bash
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
 
+      # A branch tip is "whatever happened most recently", which is a different
+      # question from "what is proven". On 2026-08-14 those answers differed by
+      # seconds: a green merge, then a teammate's merge whose own post-merge
+      # gate had not finished, and this step resolved to that unproven tip. The
+      # validator below caught it — but only after the dispatch, and only by
+      # luck of ordering. Selecting is the fix; validating is the backstop.
+      #
+      # A blank input now means "pick the newest commit that has its OWN
+      # successful post-merge gate", never `git rev-parse origin/main`.
       - name: Resolve deployment SHA
         id: resolve-sha
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ -n "${{ github.event.inputs.sha }}" ]; then
-            DEPLOY_SHA="${{ github.event.inputs.sha }}"
-          else
-            git fetch --no-tags origin main
-            DEPLOY_SHA="$(git rev-parse origin/main)"
+            # An explicit SHA is a request, not a permission: it still has to
+            # clear the exact-gate validator in the next step.
+            echo "sha=${{ github.event.inputs.sha }}" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
+          node hushh-webapp/scripts/ci/select-uat-target.mjs --limit 20 --github-output
 
       - name: Validate deployment SHA against main
         env:
