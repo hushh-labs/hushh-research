@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
 const STACK_TRANSITION_MS = 260;
 
