@@ -954,6 +954,115 @@ class OneLocationAgentService:
             data=data or {},
         )
 
+    def send_sos_emails(
+        self,
+        *,
+        owner_user_id: str,
+        grant_ids: list[str],
+        latitude: float,
+        longitude: float,
+        accuracy_m: float | None,
+        note: str | None,
+        emergency_number: str | None,
+        frontend_origin: str | None = None,
+    ) -> dict[str, Any]:
+        """Mail a Save my Soul alert to the contacts of the given SOS grants.
+
+        The second channel behind the push. A recipient with notifications off
+        is invisible to FCM but still has an inbox, and an SOS that reaches
+        nobody is the failure this exists to prevent.
+
+        `latitude`/`longitude` arrive from the sender's client and are used for
+        the length of this call only: the envelope invariant keeps coordinates
+        out of our tables, and nothing here writes or logs them. The grants are
+        the authorization — a caller can only mail people they just created a
+        live SOS grant for, under their own account.
+        """
+        from hushh_mcp.services.one_location_sos_email_service import (
+            get_sos_email_service,
+            select_emailable_recipients,
+            summarize,
+        )
+
+        service = get_sos_email_service()
+        if not service.configured:
+            # Not an error: the alert itself already went out. The sender is
+            # told the count, and a missing binding must never look like a
+            # failed emergency.
+            logger.info("one.location.sos_email.skipped reason=not_configured")
+            return {"emailed": 0, "attempted": 0, "results": [], "configured": False}
+
+        cleaned_ids = [str(value).strip() for value in grant_ids if str(value or "").strip()]
+        if not cleaned_ids:
+            return {"emailed": 0, "attempted": 0, "results": [], "configured": True}
+
+        rows = self._execute_many(
+            """
+            SELECT
+              g.id::TEXT             AS grant_id,
+              g.owner_user_id        AS owner_user_id,
+              g.recipient_user_id    AS recipient_user_id,
+              g.status               AS status,
+              g.expires_at           AS expires_at,
+              EXTRACT(EPOCH FROM g.created_at) AS created_at_epoch,
+              COALESCE(g.metadata ->> 'share_kind', '') AS share_kind,
+              recipient.email        AS recipient_email,
+              recipient.display_name AS recipient_display_name
+            FROM one_location_share_grants g
+            LEFT JOIN actor_identity_cache recipient
+              ON recipient.user_id = g.recipient_user_id
+            WHERE g.id = ANY(CAST(:grant_ids AS UUID[]))
+              AND g.owner_user_id = :owner_user_id
+            """,
+            {"grant_ids": cleaned_ids, "owner_user_id": owner_user_id},
+        )
+
+        now_epoch = datetime.now(timezone.utc).timestamp()
+        selected = select_emailable_recipients(
+            rows, owner_user_id=owner_user_id, now_epoch_seconds=now_epoch
+        )
+        if not selected:
+            return {"emailed": 0, "attempted": 0, "results": [], "configured": True}
+
+        owner_identity = self._identity_row(owner_user_id)
+        owner_label = _identity_notification_label(owner_identity)
+        sent_at_label = datetime.now(timezone.utc).strftime("%H:%M UTC on %d %b %Y")
+        origin = (frontend_origin or os.getenv("APP_FRONTEND_ORIGIN") or "").rstrip("/")
+        open_in_one_url = f"{origin}/one/location?section=shared" if origin else "/one/location"
+
+        try:
+            session = service._build_authorized_session()
+        except Exception as exc:  # noqa: BLE001 - never fails the alert
+            logger.warning("one.location.sos_email.auth_failed error=%s", type(exc).__name__)
+            return {"emailed": 0, "attempted": 0, "results": [], "configured": True}
+
+        outcomes = []
+        for row in selected:
+            expires_at = row.get("expires_at")
+            outcomes.append(
+                service.send_one(
+                    session=session,
+                    recipient_user_id=str(row.get("recipient_user_id") or ""),
+                    recipient_email=str(row.get("recipient_email") or ""),
+                    recipient_display_name=row.get("recipient_display_name"),
+                    owner_display_name=owner_label,
+                    note=note,
+                    latitude=latitude,
+                    longitude=longitude,
+                    accuracy_m=accuracy_m,
+                    sent_at_label=sent_at_label,
+                    expires_at_label=(
+                        expires_at.strftime("%H:%M UTC on %d %b")
+                        if hasattr(expires_at, "strftime")
+                        else None
+                    ),
+                    open_in_one_url=open_in_one_url,
+                    emergency_number=emergency_number,
+                )
+            )
+
+        return {**summarize(outcomes), "configured": True}
+
     def _identity_row(self, user_id: str) -> dict[str, Any] | None:
         try:
             return self._execute_one(
