@@ -250,20 +250,15 @@ describe("observability route map", () => {
  * which is what made it survive so long.
  */
 describe("route ids from the native (trailing-slash) build", () => {
-  it("resolves trailing-slash paths to the same id as the web form", () => {
-    const pairs: Array<[string, string]> = [
-      ["/one", "/one/"],
-      ["/one/location", "/one/location/"],
-      ["/one/location/map", "/one/location/map/"],
-      ["/one/location/check-in", "/one/location/check-in/"],
-      ["/one/kyc", "/one/kyc/"],
-      ["/one/feed", "/one/feed/"],
-      ["/one/connect", "/one/connect/"],
-      ["/one/profile", "/one/profile/"],
-      ["/one/wallet-card", "/one/wallet-card/"],
-      ["/login", "/login/"],
-    ];
-    for (const [web, native] of pairs) {
+  it("resolves every first-party route in its native trailing-slash form", () => {
+    // Derived from the route tree rather than a hand-written list, so a route
+    // added later with a `startsWith(".../")` prefix cannot regress on
+    // iOS/Android unnoticed -- which is exactly how `/ria/clients/` came to
+    // report the per-client workspace id for the clients list screen.
+    const appDir = path.resolve(process.cwd(), "app");
+    for (const route of collectAppPageRoutes(appDir)) {
+      const web = route.replace(/\[[^\]]+\]/g, "sample");
+      const native = web === "/" ? "/" : `${web}/`;
       expect(resolveRouteId(native)).toBe(resolveRouteId(web));
       expect(resolveRouteId(native)).not.toBe("unknown");
     }

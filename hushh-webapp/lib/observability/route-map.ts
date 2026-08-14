@@ -1,4 +1,8 @@
-import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
+import {
+  KAI_MARKET_PATH,
+  normalizeStaticExportPathname,
+  ROUTES,
+} from "@/lib/navigation/routes";
 
 export const ROUTE_ID_VALUES = [
   "one_dashboard",
@@ -110,17 +114,18 @@ export type RouteId = (typeof ROUTE_ID_VALUES)[number];
  * log the raw pathname, and on the share-link routes the pathname *is* the
  * token. Fewer fall-throughs means fewer raw paths written anywhere.
  *
- * Query and hash are stripped defensively: a caller passing a full href should
- * degrade to the right route id rather than to "unknown".
+ * Delegates the trailing-slash and index-document handling to
+ * `normalizeStaticExportPathname`, which route admission and the analytics
+ * exemption check already use. A second private copy would be free to drift
+ * from it, and a disagreement between this and `isAnalyticsExemptRoute` is
+ * precisely the case where an unexempted event writes a share token into the
+ * dataLayer. Query and hash are stripped here on top, so a caller passing a
+ * full href degrades to the right route id rather than to "unknown".
  */
 function normalizeRoutePathname(pathname: string): string {
   if (!pathname) return "/";
   const withoutQuery = pathname.split("?")[0]!.split("#")[0]!;
-  // Static exports serve a directory route as its index document.
-  const withoutIndex = withoutQuery.replace(/\/index\.html$/i, "/");
-  if (withoutIndex.length <= 1) return withoutIndex || "/";
-  const withoutTrailingSlash = withoutIndex.replace(/\/+$/, "");
-  return withoutTrailingSlash || "/";
+  return normalizeStaticExportPathname(withoutQuery);
 }
 
 export function resolveRouteId(rawPathname: string): RouteId {
@@ -243,9 +248,17 @@ export function resolveRouteId(rawPathname: string): RouteId {
   // folding them together would hide the split from every page-view metric.
   if (pathname === ROUTES.ONE_LOCATION_CHECK_IN) return "one_location_check_in";
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
-  if (pathname.startsWith("/one/location/request/"))
+  // Both forms: the bare route and a token beneath it. Normalization strips the
+  // trailing slash, so a `startsWith("/one/location/request/")` check alone would send
+  // "/one/location/request/" to "unknown" — and falling through logs the raw pathname on the
+  // one route family whose pathname carries a share token.
+  if (pathname === "/one/location/request" || pathname.startsWith("/one/location/request/"))
     return "one_location_public_request";
-  if (pathname.startsWith("/one/location/invite/"))
+  // Both forms: the bare route and a token beneath it. Normalization strips the
+  // trailing slash, so a `startsWith("/one/location/invite/")` check alone would send
+  // "/one/location/invite/" to "unknown" — and falling through logs the raw pathname on the
+  // one route family whose pathname carries a share token.
+  if (pathname === "/one/location/invite" || pathname.startsWith("/one/location/invite/"))
     return "one_location_circle_invite";
   // Recipient landing for a shared Circle join link. It only forwards into
   // /one/location with the code pre-filled, but it still needs an id: falling

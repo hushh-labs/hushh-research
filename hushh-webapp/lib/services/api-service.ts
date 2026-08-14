@@ -51,6 +51,10 @@ import {
   getOrCreateRequestTimestampMs,
   REQUEST_TIMESTAMP_HEADER,
 } from "@/lib/observability/request-id";
+import type {
+  ConsentPendingCountBucket,
+  ConsentPendingLoadSurface,
+} from "@/lib/observability/events";
 import { resolveRouteId } from "@/lib/observability/route-map";
 import {
   resolveRuntimeBackendUrl,
@@ -262,29 +266,50 @@ function toStatusBucketFromStatus(
   return "network_error";
 }
 
-/** Bucketed so the Consent Center reports shape, never a per-user request count. */
-function consentPendingCountBucket(count: number): string {
+/**
+ * Bucketed so the Consent Center reports the shape of a queue, never a
+ * per-user request count.
+ *
+ * No exact non-zero label: `"1"` would state precisely that this person had one
+ * consent request waiting at that moment, which is a per-user fact about their
+ * consent activity in the same payload where the schema deliberately denylists
+ * request ids and requester names. Matches the house convention set by
+ * `toPkmFactCountBucket` and `contactCountBucket`, and the ranges do not
+ * overlap — 10 belongs to exactly one label.
+ */
+export function consentPendingCountBucket(
+  count: number,
+): ConsentPendingCountBucket {
   if (count <= 0) return "0";
-  if (count === 1) return "1";
-  if (count <= 3) return "2_3";
+  if (count <= 3) return "1_3";
   if (count <= 10) return "4_10";
-  return "10_plus";
+  return "11_plus";
 }
 
 /**
  * Reads how many consent requests came back, without disturbing the caller.
  *
- * The response body can only be read once, so this works on a clone: a
- * tracking call must never change what the caller receives. Returns null when
- * the shape is not what we expect, so a parsing surprise degrades to a missing
- * dimension rather than to a thrown error on the consent path.
+ * Returns null — meaning "unknown", so the dimension is omitted — rather than
+ * a confident zero whenever we cannot actually see the queue. That covers a
+ * non-OK response, an unparseable body, and the API route's degraded fallback,
+ * which serves `{ pending: [], degraded: true }` with HTTP 200 when the backend
+ * is unreachable. Counting that as an empty inbox would make every outage look
+ * like "people opened a screen with nothing on it" — the precise misreading
+ * this dimension exists to prevent.
+ *
+ * Works on a clone: the body can be read only once, and a tracking call must
+ * never change what the caller receives.
  */
-async function readPendingConsentCount(
+export async function readPendingConsentCount(
   response: Response,
 ): Promise<number | null> {
   if (!response.ok) return null;
   try {
-    const body = (await response.clone().json()) as { pending?: unknown };
+    const body = (await response.clone().json()) as {
+      pending?: unknown;
+      degraded?: unknown;
+    };
+    if (body?.degraded === true) return null;
     return Array.isArray(body?.pending) ? body.pending.length : null;
   } catch {
     return null;
@@ -2446,7 +2471,18 @@ export class ApiService {
   static async getPendingConsents(
     userId: string,
     vaultOwnerToken: string,
+    /**
+     * Which surface asked. This endpoint is called both when someone opens the
+     * Consent Center and, on every unlock, by the warm orchestrator. Without a
+     * way to tell them apart the pending-count dimension is dominated by
+     * background prefetches for a screen nobody looked at, and the question it
+     * was added to answer -- are people ignoring decisions, or opening an empty
+     * screen -- stays unanswerable.
+     */
+    options?: { loadSurface?: ConsentPendingLoadSurface },
   ): Promise<Response> {
+    const loadSurface: ConsentPendingLoadSurface =
+      options?.loadSurface ?? "screen";
     if (!vaultOwnerToken) {
       const response = new Response(
         JSON.stringify({ error: "Vault must be unlocked" }),
@@ -2454,6 +2490,7 @@ export class ApiService {
       );
       trackEvent("consent_pending_loaded", {
         result: "error",
+        load_surface: loadSurface,
       });
       return response;
     }
@@ -2473,7 +2510,15 @@ export class ApiService {
         );
         trackEvent("consent_pending_loaded", {
           result: "success",
-          pending_count_bucket: consentPendingCountBucket(consents?.length ?? 0),
+          // Omitted rather than reported as "0" when the plugin returns no
+          // array: an unreadable native response and a genuinely empty inbox
+          // must not share a bucket, or the two platforms are not comparable.
+          ...(Array.isArray(consents)
+            ? {
+                pending_count_bucket: consentPendingCountBucket(consents.length),
+              }
+            : {}),
+          load_surface: loadSurface,
         });
         return response;
       } catch (e) {
@@ -2484,6 +2529,7 @@ export class ApiService {
         });
         trackEvent("consent_pending_loaded", {
           result: "error",
+          load_surface: loadSurface,
         });
         return response;
       }
@@ -2504,6 +2550,7 @@ export class ApiService {
       ...(pendingCount === null
         ? {}
         : { pending_count_bucket: consentPendingCountBucket(pendingCount) }),
+      load_surface: loadSurface,
     });
     return response;
   }
