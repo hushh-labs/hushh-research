@@ -543,7 +543,8 @@ describe("top shell breadcrumbs", () => {
     const cases: Array<[string, string]> = [
       ["check-in", "Check-In"],
       ["private-check-in", "Private Check-In"],
-      ["sos", "Safety"],
+      // The crumb mirrors the screen's own <h1>, which reads "SOS".
+      ["sos", "SOS"],
       ["share", "Share location"],
       ["ask", "Ask someone"],
       ["invite", "Invite to Circle"],

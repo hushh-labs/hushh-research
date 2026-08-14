@@ -63,7 +63,10 @@ function oneLocationActionLabel(action: string): string {
     "active-shares": "Active shares",
     "shared-with-me": "Shared with me",
     "needs-review": "Needs my review",
-    sos: "Safety",
+    // The crumb must match the on-screen title of the flow it names. The SOS
+    // screen's TaskFlowHeader reads "SOS", so the crumb reads "SOS" — a crumb
+    // saying "Safety" for a screen titled "SOS" breaks the trail.
+    sos: "SOS",
     settings: "Settings",
     privacy: "Settings",
   };

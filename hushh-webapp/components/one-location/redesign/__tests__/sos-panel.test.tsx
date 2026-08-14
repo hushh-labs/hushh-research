@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -118,7 +124,9 @@ describe("SosPanel", () => {
         expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
           "112 copied",
           expect.objectContaining({
-            description: expect.stringContaining("Call 112 from your phone now"),
+            description: expect.stringContaining(
+              "Call 112 from your phone now",
+            ),
           }),
         ),
       );
@@ -132,13 +140,17 @@ describe("SosPanel", () => {
       navigatorUserAgent.mockRestore();
       navigatorPlatform.mockRestore();
       if (clipboardDescriptor) {
-        Object.defineProperty(window.navigator, "clipboard", clipboardDescriptor);
+        Object.defineProperty(
+          window.navigator,
+          "clipboard",
+          clipboardDescriptor,
+        );
       } else {
-        delete (window.navigator as unknown as { clipboard?: unknown }).clipboard;
+        delete (window.navigator as unknown as { clipboard?: unknown })
+          .clipboard;
       }
       vi.useFakeTimers();
     }
-
   });
 
   it("renders the Save My Soul UI, selected recipients, and local dialer", () => {
@@ -150,22 +162,31 @@ describe("SosPanel", () => {
       .mockReturnValue("Linux x86_64");
 
     try {
-    render(<SosPanel {...baseProps} />);
+      render(<SosPanel {...baseProps} />);
 
-    expect(screen.getByText("SMS · Save my Soul")).toBeInTheDocument();
-    expect(screen.getByText("Hold to send your live location by SMS.")).toBeInTheDocument();
-    expect(screen.getByText(/SMS goes to Carol/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /call 112/i })).toHaveAttribute(
-      "href",
-      "tel:112",
-    );
-    expect(screen.getByText("India")).toBeInTheDocument();
-    expect(screen.queryByText(/voice note/i)).not.toBeInTheDocument();
-    expect(screen.getByTestId("sms-safety-screen")).toHaveClass(
-      "fixed",
-      "inset-0",
-      "bg-black",
-    );
+      // Header grammar shared with every other Location task flow: the route
+      // name is the eyebrow, the screen name is the <h1>.
+      expect(screen.getByText("Location")).toBeInTheDocument();
+      expect(
+        screen.getByRole("heading", { level: 1, name: "SOS" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText("Hold to send your live location by SMS."),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/SMS goes to Carol/)).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /call 112/i })).toHaveAttribute(
+        "href",
+        "tel:112",
+      );
+      expect(screen.getByText("India")).toBeInTheDocument();
+      expect(screen.queryByText(/voice note/i)).not.toBeInTheDocument();
+      // SOS renders INSIDE the signed-in shell so the top bar keeps the
+      // "One › Location › SOS" breadcrumb. It must never re-open itself as a
+      // fullscreen overlay, which is what hid the breadcrumb before.
+      const screenEl = screen.getByTestId("sms-safety-screen");
+      expect(screenEl).not.toHaveClass("fixed");
+      expect(screenEl.className).not.toMatch(/\binset-0\b/);
+      expect(screenEl.className).not.toMatch(/\bbg-black\b/);
     } finally {
       navigatorUserAgent.mockRestore();
       navigatorPlatform.mockRestore();
@@ -337,9 +358,7 @@ describe("SosPanel", () => {
       screen.queryByRole("textbox", { name: "Short text message" }),
     ).toBeNull();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Short text message" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Short text message" }));
     const composer = screen.getByRole("textbox", {
       name: "Short text message",
     });
@@ -373,9 +392,7 @@ describe("SosPanel", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Short text message" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Short text message" }));
     fireEvent.change(
       screen.getByRole("textbox", { name: "Short text message" }),
       { target: { value: "  Meet me by the north entrance.  " } },
@@ -390,9 +407,7 @@ describe("SosPanel", () => {
     act(() => vi.advanceTimersByTime(2_000));
 
     expect(onTrigger).toHaveBeenCalledTimes(1);
-    expect(onTrigger).toHaveBeenCalledWith(
-      "Meet me by the north entrance.",
-    );
+    expect(onTrigger).toHaveBeenCalledWith("Meet me by the north entrance.");
   });
 
   it("fails closed and prompts to add a contact when none are ready", () => {
@@ -445,9 +460,7 @@ describe("SosPanel", () => {
 
   it("disables 'Cancel the alert' and shows a spinner while stopping", () => {
     const onStopSos = vi.fn();
-    render(
-      <SosPanel {...baseProps} active stopBusy onStopSos={onStopSos} />,
-    );
+    render(<SosPanel {...baseProps} active stopBusy onStopSos={onStopSos} />);
     const cancel = screen.getByTestId("sos-cancel-alert");
     expect(cancel).toBeDisabled();
     expect(cancel).toHaveTextContent("Cancelling…");
@@ -468,16 +481,54 @@ describe("SosPanel", () => {
 
   it("keeps the SMS action in one centered stack on large screens", () => {
     const { container } = render(<SosPanel {...baseProps} />);
-    const screenEl = screen.getByTestId("sms-safety-screen");
-    // Mobile behavior preserved: still the full-screen black overlay.
-    expect(screenEl).toHaveClass("fixed", "inset-0", "bg-black");
-    // The inner container keeps the mobile strip and widens only enough to
-    // keep the emergency action centered beneath the title/subtitle.
-    const inner = screenEl.firstElementChild as HTMLElement;
-    expect(inner).toHaveClass("max-w-[407px]", "lg:max-w-[520px]");
-    // The press ring + controls must not split into a desktop grid.
+    // The press ring + controls must not split into a desktop grid. Width is
+    // owned by the shell's AppPageShell container, not by this panel.
     expect(container.querySelector('[class*="lg:grid-cols-"]')).toBeNull();
     expect(container.querySelector('[class*="lg:grid-cols_"]')).toBeNull();
+  });
+});
+
+describe("SosPanel — shell header contract", () => {
+  // The regression this locks: SOS used to paint itself over the whole
+  // viewport, which removed the top-bar breadcrumb and forced a second back
+  // arrow into the content. Every Location task flow renders inside the shell
+  // and lets the top bar own the single back control.
+  it("renders inside the shell instead of a fullscreen overlay", () => {
+    render(<SosPanel {...baseProps} />);
+    const screenEl = screen.getByTestId("sms-safety-screen");
+
+    expect(screenEl.className).not.toMatch(/\bfixed\b/);
+    expect(screenEl.className).not.toMatch(/\binset-0\b/);
+    expect(screenEl.className).not.toMatch(/\bz-\[/);
+    expect(screenEl.className).not.toMatch(/\b(min-)?h-\[100dvh\]/);
+  });
+
+  it("uses the Location eyebrow + screen title used by the other flows", () => {
+    render(<SosPanel {...baseProps} />);
+
+    const heading = screen.getByRole("heading", { level: 1, name: "SOS" });
+    expect(heading).toBeInTheDocument();
+    expect(screen.getByText("Location")).toBeInTheDocument();
+  });
+
+  it("exposes no in-content back control — the top bar owns back", () => {
+    render(<SosPanel {...baseProps} />);
+
+    expect(screen.queryByRole("button", { name: /^back/i })).toBeNull();
+    expect(screen.queryByLabelText("Back to Location")).toBeNull();
+  });
+
+  it("keeps a Cancel control that returns to the Location hub", () => {
+    const onClose = vi.fn();
+    render(<SosPanel {...baseProps} onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("declares no inline <style> block — motion lives in globals.css", () => {
+    const { container } = render(<SosPanel {...baseProps} />);
+    expect(container.querySelector("style")).toBeNull();
   });
 });
 
