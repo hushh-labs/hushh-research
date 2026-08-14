@@ -36,6 +36,10 @@ const PROVIDERS_SOURCE = fs.readFileSync(
   path.resolve(__dirname, "../../app/providers.tsx"),
   "utf8",
 );
+const LOCATION_PAGE_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, "../../app/one/location/page.tsx"),
+  "utf8",
+);
 
 describe("One Location SMS emergency actions", () => {
   it("renders a dialer only after the local emergency number resolves", () => {
@@ -139,6 +143,21 @@ describe("One Location SMS emergency actions", () => {
     expect(GLOBALS_SOURCE).toContain("@keyframes sosHalo");
     expect(GLOBALS_SOURCE).toContain("[data-sos-pulse]");
     expect(GLOBALS_SOURCE).toContain("[data-sos-core]");
+  });
+
+  // Nothing in this flow sends an SMS. It creates a location grant, publishes
+  // an encrypted envelope, and the backend fires ONE push notification. The
+  // screen used to promise delivery "by SMS -- even with no internet" and the
+  // toasts reported "SMS sent to N contacts", which is the most dangerous kind
+  // of wrong copy: someone can hold that button instead of calling for help.
+  // If an SMS channel is ever built, delete this test in the same PR.
+  it("never promises a channel the flow does not have", () => {
+    for (const source of [SMS_PANEL_SOURCE, LOCATION_PAGE_SOURCE]) {
+      expect(source).not.toMatch(/SMS sent/i);
+      expect(source).not.toMatch(/SMS not sent/i);
+      expect(source).not.toMatch(/by SMS/i);
+      expect(source).not.toMatch(/no internet/i);
+    }
   });
 
   it("keeps the emergency red on the theme-aware destructive token", () => {

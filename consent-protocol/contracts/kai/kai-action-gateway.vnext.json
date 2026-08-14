@@ -7198,7 +7198,7 @@
         "contact",
         "add"
       ],
-      "meaning": "Adds one person to the list who receive your location by SMS if you trigger an SOS. Only people who have finished their own Location setup can be added.",
+      "meaning": "Adds one person to the list who are alerted and receive your live location if you trigger an SOS. Only people who have finished their own Location setup can be added.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -7314,7 +7314,7 @@
         "contact",
         "remove"
       ],
-      "meaning": "Removes one person from the list who receive your location by SMS if you trigger an SOS.",
+      "meaning": "Removes one person from the list who are alerted and receive your live location if you trigger an SOS.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

@@ -171,10 +171,10 @@ describe("SosPanel", () => {
       ).toBeInTheDocument();
       expect(
         screen.getByText(
-          "Hold to send your live location by SMS — even with no internet.",
+          "Hold to alert your emergency contacts and give them your live location.",
         ),
       ).toBeInTheDocument();
-      expect(screen.getByText(/SMS goes to Carol/)).toBeInTheDocument();
+      expect(screen.getByText(/Alerts Carol/)).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /call 112/i })).toHaveAttribute(
         "href",
         "tel:112",

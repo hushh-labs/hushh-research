@@ -3541,7 +3541,11 @@ class OneLocationAgentService:
         owner_label = _identity_notification_label(owner_identity)
         share_message = _visible_share_message(reason)
         if resolved_kind == "sos":
-            notification_title = "SMS · Save my soul"
+            # Titled for what this actually is. It read "SMS · Save my soul",
+            # but no SMS is sent anywhere in this flow -- this push IS the
+            # alert. Naming a channel that does not exist tells a recipient
+            # their phone will buzz by text when it will not.
+            notification_title = "Save my Soul"
             notification_body = (
                 f"{owner_label}: {share_message}"
                 if share_message
