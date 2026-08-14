@@ -1466,12 +1466,14 @@ export default function ConnectPageClient() {
                   })
                 )}
                 {people.length > 0 || currentPage > 1 ? (
-                  <div className="grid gap-2 border-t border-[color:var(--app-card-border-standard)] px-3 py-3">
-                    <div className="flex min-h-8 items-center justify-between gap-3">
-                      <span
-                        id="connect-people-per-page-label"
-                        className="ui-text-helper-text text-[color:var(--app-secondary-label)]"
-                      >
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3">
+                    <div className="flex min-h-9 items-center gap-2.5">
+                      <span className="ui-text-helper-text tabular-nums text-[color:var(--app-secondary-label)]">
+                        Page {currentPage}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="ui-text-helper-text text-[color:var(--app-secondary-label)]">
                         Per page
                       </span>
                       <Select
@@ -1494,46 +1496,38 @@ export default function ConnectPageClient() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="flex min-h-8 items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="none"
-                          effect="fill"
-                          size="sm"
-                          className={cn(
-                            CONNECT_PAGER_BUTTON_CLASSNAME,
-                            "min-w-[76px]"
-                          )}
-                          disabled={loading || currentPage <= 1}
-                          onClick={() => goToPage(currentPage - 1)}
-                        >
-                          Previous
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="none"
-                          effect="fill"
-                          size="sm"
-                          className={cn(
-                            CONNECT_PAGER_BUTTON_CLASSNAME,
-                            "min-w-[56px]"
-                          )}
-                          disabled={loading || !hasMore}
-                          onClick={() => goToPage(currentPage + 1)}
-                        >
-                          Next
-                        </Button>
-                      </div>
-                      {/* The directory reports only whether more exists, never
-                          a total, so this names the page rather than claiming
-                          "3 of 12" — a total the surface cannot stand behind. */}
-                      <span
-                        className="ui-text-helper-text tabular-nums text-[color:var(--app-secondary-label)]"
-                        aria-live="polite"
+                    <div
+                      className="flex min-h-9 items-center gap-2"
+                      aria-live="polite"
+                    >
+                      <Button
+                        type="button"
+                        variant="none"
+                        effect="fill"
+                        size="sm"
+                        className={cn(
+                          CONNECT_PAGER_BUTTON_CLASSNAME,
+                          "min-w-[44px] px-3"
+                        )}
+                        disabled={loading || currentPage <= 1}
+                        onClick={() => goToPage(currentPage - 1)}
                       >
-                        Page {currentPage}
-                      </span>
+                        Prev
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="none"
+                        effect="fill"
+                        size="sm"
+                        className={cn(
+                          CONNECT_PAGER_BUTTON_CLASSNAME,
+                          "min-w-[44px] px-3"
+                        )}
+                        disabled={loading || !hasMore}
+                        onClick={() => goToPage(currentPage + 1)}
+                      >
+                        Next
+                      </Button>
                     </div>
                   </div>
                 ) : null}

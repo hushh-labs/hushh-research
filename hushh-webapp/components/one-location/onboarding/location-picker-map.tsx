@@ -495,14 +495,10 @@ export function LocationPickerMap({
           }
         }
       } else {
-        setLocationError(
-          "Current location is unavailable. Keep the pin here or move the map manually.",
-        );
+        setLocationError("Move the map manually.");
       }
     } catch {
-      setLocationError(
-        "Current location is unavailable. Keep the pin here or move the map manually.",
-      );
+      setLocationError("Move the map manually.");
     } finally {
       setLocating(false);
     }
@@ -520,7 +516,7 @@ export function LocationPickerMap({
   const unavailable = status === "error" || timedOut;
 
   const accuracyHint = unavailable
-    ? "Review the captured point, then complete the address details on the next step."
+    ? "Review the pin, then continue."
     : typeof initialAccuracyM === "number" && Number.isFinite(initialAccuracyM)
       ? initialAccuracyM <= 20
         ? "GPS gave us a strong starting point. Confirm the entrance yourself."

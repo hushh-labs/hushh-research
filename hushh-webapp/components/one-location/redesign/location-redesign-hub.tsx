@@ -1749,8 +1749,7 @@ function PeopleHub({
   // state. (Gating on `recipients` alone hid freshly-synced contact matches.)
   const showPeopleList = filtered.length > 0 || hasSearch;
 
-  // No one to show yet — keep the invite-first empty state. Per design, do NOT
-  // show "Ask someone to share" here: there is no one to ask.
+  // No one to show yet: keep the invite-first empty state.
   if (!showPeopleList) {
     return (
       <div className="space-y-5">
@@ -2349,7 +2348,7 @@ function ShareFlow({
             nothing kept — see the note above ShareFlow. */}
         <TrustNoteCard
           title="You stay in control"
-          description="Live location is encrypted for each person you picked. It stops on its own when the time is up, and you can stop it sooner from Location."
+          description="Encrypted. Ends automatically."
         />
 
         <div className="space-y-2.5">

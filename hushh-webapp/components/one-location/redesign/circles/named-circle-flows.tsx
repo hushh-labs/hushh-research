@@ -1416,10 +1416,10 @@ export function CircleDetailFlow({
                           }
                           description={
                             remainingCapacity === 0
-                              ? "The Circle is full or your pending-invitation limit is reached. Cancel a pending invitation or try again later."
+                              ? "Circle is full."
                               : peopleSearch.trim()
                                 ? "Try a different name."
-                                : "Members and pending invitations are hidden. Add someone in Connect first if this list is empty."
+                                : "Add someone in Connect first."
                           }
                         />
                       )}
@@ -1427,7 +1427,7 @@ export function CircleDetailFlow({
                       {pendingInvites.length ? (
                         <SettingsGroup
                           title="Pending invitations"
-                          description="You can cancel an invitation before it is accepted."
+                          description="Cancel anytime before acceptance."
                         >
                           {pendingInvites.map((invite) => (
                             <SettingsRow

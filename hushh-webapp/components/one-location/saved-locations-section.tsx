@@ -302,7 +302,7 @@ export function SavedLocationsSection() {
         return;
       }
       toast.error(
-        "We could not read your current location. Check location permission and try again.",
+        "Check location permission and try again.",
       );
     } finally {
       if (
@@ -748,7 +748,7 @@ export function SavedLocationsSection() {
           <p className="mt-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
             {locationControl.paused
               ? "Resume Location to save another place."
-              : "Encrypted in your vault. Shared only when you approve access."}
+              : "Encrypted in your vault."}
           </p>
         ) : null}
       </section>

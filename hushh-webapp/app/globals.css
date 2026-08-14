@@ -680,7 +680,7 @@ textarea {
   --ios-account-row-vertical-pad: 11px;
   --ios-account-separator-thickness: 0.5px;
   --ios-account-section-header-bottom-gap: 8px;
-  --ios-account-section-gap: 22px;
+  --ios-account-section-gap: 18px;
   --ios-account-icon-tile-size: 34px;
   --ios-account-icon-tile-radius: 8px;
   --ios-account-icon-glyph-size: 20px;
@@ -999,14 +999,15 @@ textarea {
 [data-profile-stack-screen="account"] [data-profile-stack-content],
 [data-profile-stack-screen="panel:account"] [data-profile-stack-content] {
   max-width: 720px !important;
-  padding-inline: 0 !important;
+  padding-inline: var(--page-inline-gutter-standard) !important;
   padding-top: 0 !important;
 }
 
 [data-profile-stack-screen="account"] [data-profile-stack-header],
 [data-profile-stack-screen="panel:account"] [data-profile-stack-header] {
   max-width: 720px !important;
-  padding-inline: 0 !important;
+  padding-inline: var(--page-inline-gutter-standard) !important;
+  padding-top: 18px !important;
 }
 
 body:has([data-profile-account-preview-root]) nextjs-portal {
@@ -1270,10 +1271,10 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   [data-slot="settings-row-description"],
 .profile-account-content [data-slot="settings-row-description"] {
   color: var(--ios-account-secondary-label) !important;
-  font-size: var(--type-row-description-size) !important;
+  font-size: var(--ios-account-description-size) !important;
   font-weight: var(--ios-account-regular-weight) !important;
   letter-spacing: 0 !important;
-  line-height: var(--type-row-description-line) !important;
+  line-height: var(--ios-account-description-line) !important;
 }
 
 [data-profile-stack-screen="account"]
@@ -3712,8 +3713,8 @@ html.native-ios [data-testid="one-location-onboarding"] {
     .profile-account-content
     [data-slot="settings-row-description"] {
     font-family: var(--font-app-body);
-    font-size: var(--type-row-description-size) !important;
-    line-height: var(--type-row-description-line) !important;
+    font-size: var(--ios-account-description-size) !important;
+    line-height: var(--ios-account-description-line) !important;
     font-weight: var(--ios-account-regular-weight) !important;
     letter-spacing: 0 !important;
   }

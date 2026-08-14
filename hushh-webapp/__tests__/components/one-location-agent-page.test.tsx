@@ -1109,7 +1109,6 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByRole("button", { name: "Refresh location" }),
     ).toBeNull();
-    expect(screen.queryByText(/Ask someone to share/)).toBeNull();
 
     const heading = screen.getByRole("heading", { name: "Location Agent" });
     const headerRow = heading.closest('[data-slot="page-header-row"]');
@@ -2464,7 +2463,7 @@ describe("OneLocationAgentPage", () => {
       await screen.findByRole("button", { name: "Try again" }),
     ).toBeEnabled();
     expect(toast.error).toHaveBeenCalledWith(
-      "We could not read your current location. Check permission and try again.",
+      "Check permission and try again.",
     );
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
 
@@ -2674,7 +2673,7 @@ describe("OneLocationAgentPage", () => {
     // Populated People tab: no "Trusted Circle" heading — search + person cards shown.
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(await screen.findByText("Trusted B")).toBeTruthy();
-    expect(screen.queryByText(/Ask someone to share/)).toBeNull();
+    expect(screen.queryByText(/Request location/)).toBeNull();
     expect(screen.getByText("TB").className).toContain(
       "bg-[color:var(--app-accent-surface)]",
     );
@@ -3601,7 +3600,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await switchLocationTab("People", "Your circles");
     // Empty state keeps connection management and invite/sync/share actions.
-    // "Ask someone to share" is populated-state-only, and the redundant
+    // Request-location affordances are populated-state-only, and the redundant
     // approval explainer must not add another card below these actions.
     expect(
       screen.getByRole("button", { name: /Add people/i }),
@@ -3613,7 +3612,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("button", { name: /Share to contacts/i }),
     ).toBeTruthy();
-    expect(screen.queryByText(/Ask someone to share/)).toBeNull();
+    expect(screen.queryByText(/Request location/)).toBeNull();
     expect(
       screen.queryByText(/Private sharing starts after approval/i),
     ).toBeNull();

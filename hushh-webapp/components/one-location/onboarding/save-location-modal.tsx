@@ -495,8 +495,8 @@ export function SaveLocationModal({
             </DialogTitle>
             <p id={descriptionId} className="sr-only">
               {rendererReady
-                ? "Step one of two. Move the map so the centre pin sits on your entrance, then confirm it."
-                : "Review how Google Maps uses the selected point before opening the map."}
+                ? "Move the pin to the entrance."
+                : "Review before opening Maps."}
             </p>
             {collectAddressDetails ? (
               <p className="text-[13px] font-normal leading-[18px] tracking-normal text-[color:var(--app-accent-deep,#0b62c4)] dark:text-[#9bc7f5]">
@@ -773,8 +773,8 @@ export function SaveLocationModal({
 
             <p className="rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3 text-[13px] leading-[18px] text-muted-foreground">
               {deferredUntilVault
-                ? "Held for this session. One encrypts it once your vault is ready."
-                : "Encrypted in your vault. Shared only when you approve access."}
+                ? "Saved after your vault is ready."
+                : "Saved in your private vault."}
             </p>
 
             <div className="sticky bottom-0 z-20 -mx-3 mt-1 flex flex-col gap-2.5 rounded-t-[18px] border-t border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)]/95 px-3 pb-1 pt-3 backdrop-blur">
@@ -840,9 +840,7 @@ export function SaveLocationModal({
                 id={descriptionId}
                 className="mt-2 text-[15px] leading-5 text-muted-foreground"
               >
-                Tag where you are so One can personalise your experience. It
-                stays encrypted in your vault and is shared only when you
-                approve location access.
+                Tag where you are. It stays encrypted in your vault.
               </p>
             </header>
 

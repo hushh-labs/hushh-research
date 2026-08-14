@@ -131,7 +131,7 @@ describe("Connect — People", () => {
     expect(screen.getByLabelText("People per page")).toBeTruthy();
     // hasMore is true in the fixture, so forward is offered and back is not.
     expect(screen.getByText("Next").closest("button")?.disabled).toBe(false);
-    expect(screen.getByText("Previous").closest("button")?.disabled).toBe(true);
+    expect(screen.getByText("Prev").closest("button")?.disabled).toBe(true);
   });
 
   it("asks the server for the page the reader moved to", async () => {
