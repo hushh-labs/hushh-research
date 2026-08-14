@@ -349,12 +349,19 @@ export function useFeedActionables(): UseFeedActionablesResult {
             vaultOwnerToken,
             grantId: grant.id,
           });
+          // An SOS grant whose first point hasn't landed yet. There is no
+          // address to resolve, and inventing an error here would put a red
+          // state on an emergency card that is actually working — fall through
+          // to the same empty address the catch below produces, which the
+          // filter drops without disturbing the card.
+          const envelope = response.envelope;
+          if (!envelope) return [grant.id, ""] as const;
 
           let point;
           try {
             point = await decryptLocationEnvelope({
               userId,
-              envelope: response.envelope,
+              envelope,
             });
           } catch (decryptError) {
             // Match the Location workspace recovery path: a new device
@@ -372,7 +379,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
               });
               point = await decryptLocationEnvelope({
                 userId,
-                envelope: response.envelope,
+                envelope,
               });
             } else {
               throw decryptError;

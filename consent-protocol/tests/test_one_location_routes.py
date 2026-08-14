@@ -137,6 +137,39 @@ def test_atomic_private_share_route_binds_owner_from_token(monkeypatch) -> None:
     assert service.calls[0]["enforce_connection"] is True
 
 
+def test_view_envelope_route_threads_allow_empty_query_param(monkeypatch) -> None:
+    """The opt-in must reach the service, and must default to off.
+
+    Off by default is the whole point: native bundles already in the field
+    branch on the 404 LOCATION_ENVELOPE_MISSING contract, so a request that does
+    not ask for the relaxed shape must keep getting the old one.
+    """
+
+    class ViewRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def view_latest_envelope(self, **kwargs):
+            self.calls.append(kwargs)
+            return {"grant": {"id": "grant-1"}, "envelope": None, "status": "awaiting"}
+
+    service = ViewRouteProbe()
+    current_user = {"user_id": "recipient-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    grant_id = "123e4567-e89b-12d3-a456-426614174000"
+
+    default_response = client.get(f"/api/one/location/grants/{grant_id}/envelope")
+    opted_in = client.get(f"/api/one/location/grants/{grant_id}/envelope?allow_empty=1")
+
+    assert default_response.status_code == 200
+    assert opted_in.status_code == 200
+    assert service.calls[0]["allow_empty"] is False
+    assert service.calls[1]["allow_empty"] is True
+    # The recipient is always bound from the token, never from the query string.
+    assert service.calls[1]["recipient_user_id"] == "recipient-from-token"
+    assert service.calls[1]["grant_id"] == grant_id
+
+
 def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(monkeypatch) -> None:
     service = FourUserMemoryService()
     current_user = {"user_id": "user_a"}

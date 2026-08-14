@@ -1025,15 +1025,29 @@ export class OneLocationService {
     };
   }
 
+  /**
+   * Latest ciphertext for a share we receive.
+   *
+   * `allow_empty=1` asks the backend to answer "the share is live but the owner
+   * hasn't published a point yet" with `200 { envelope: null }` instead of a
+   * `404 LOCATION_ENVELOPE_MISSING`. That state is a normal step on the happy
+   * path — the recipient almost always opens One before the owner's first GPS
+   * fix lands — and a 404 makes the browser log a failed request every poll for
+   * something that was never an error. The flag is opt-in per request so
+   * already-shipped native bundles keep the legacy contract they branch on.
+   */
   static async viewEnvelope(params: {
     vaultOwnerToken: string;
     grantId: string;
   }): Promise<{
     grant: OneLocationGrant;
-    envelope: OneLocationEncryptedEnvelope;
+    envelope: OneLocationEncryptedEnvelope | null;
+    status?: "published" | "awaiting_first_publish" | string;
   }> {
     return apiJson(
-      `/api/one/location/grants/${encodeURIComponent(params.grantId)}/envelope`,
+      `/api/one/location/grants/${encodeURIComponent(
+        params.grantId,
+      )}/envelope?allow_empty=1`,
       {
         headers: jsonAuthHeaders(params.vaultOwnerToken),
       },
