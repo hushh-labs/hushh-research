@@ -1739,7 +1739,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /SMS.*Save my soul/i }));
 
     expect(
-      await screen.findByRole("heading", { name: "SOS", level: 1 }),
+      await screen.findByRole("heading", { name: "Save my Soul", level: 1 }),
     ).toBeTruthy();
     await waitFor(() =>
       expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1),
@@ -1817,7 +1817,7 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     expect(
-      await screen.findByRole("heading", { name: "SOS", level: 1 }),
+      await screen.findByRole("heading", { name: "Save my Soul", level: 1 }),
     ).toBeTruthy();
     await expectEmergencyAction("112", "India");
     expect(
@@ -1863,7 +1863,7 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     expect(
-      await screen.findByRole("heading", { name: "SOS", level: 1 }),
+      await screen.findByRole("heading", { name: "Save my Soul", level: 1 }),
     ).toBeTruthy();
     expect(
       await screen.findByRole("button", {
@@ -1906,7 +1906,7 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
 
     expect(
-      await screen.findByRole("heading", { name: "SOS", level: 1 }),
+      await screen.findByRole("heading", { name: "Save my Soul", level: 1 }),
     ).toBeTruthy();
     expect(
       await screen.findByRole("button", {
