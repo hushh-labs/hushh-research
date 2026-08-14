@@ -1,5 +1,5 @@
 /**
- * NWS Nearby client — public-association records near a place an advisor chose.
+ * Legacy v2 nearby client — public-association records near a place an advisor chose.
  *
  * The upstream API key is server-side only, so every call goes to our own
  * `/api/ria/nearby/*`. The backend also caches responses, because the upstream
@@ -7,10 +7,11 @@
  *
  * Two product facts this module exists to keep straight:
  *
- * NWS is public *professional network strength*, not financial net worth. And
- * "nearby" means a public professional, institutional, civic or opt-in
- * association — never physical presence, never a residence. Nothing here should
- * be renamed or reshaped in a way that lets a screen imply either.
+ * NWS means Net Worth Score. This module does not provide it: it consumes the
+ * separate v2 professional-directory contract. "Nearby" here means a public
+ * professional, institutional, civic or opt-in association — never physical
+ * presence, never a residence. Its legacy score fields must not be rendered as
+ * NWS or used to imply wealth.
  */
 
 import { ApiService } from "@/lib/services/api-service";
@@ -154,9 +155,9 @@ export type NearbyRecord = {
   headline: string | null;
   organization: string | null;
   lane: NearbyLane | null;
-  /** The person's standing score. Not what the list is ordered by. */
+  /** Legacy professional score. Never render as NWS or financial net worth. */
   globalNws: number | null;
-  /** What the upstream ranks by, and therefore what the list shows. */
+  /** Legacy professional ordering signal. Never present as a wealth ranking. */
   nearbyRankScore: number | null;
   scoreStatus: string | null;
   /**
@@ -391,8 +392,6 @@ export class NwsNearbyService {
       headline: opts.record.headline,
       organization: opts.record.organization,
       lane: opts.record.lane,
-      globalNws: opts.record.globalNws,
-      nearbyRankScore: opts.record.nearbyRankScore,
       confidenceGrade: opts.record.confidence.grade,
       locationLabel: opts.record.publicLocation.label,
       modelVersion: opts.record.modelVersion,
