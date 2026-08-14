@@ -27,6 +27,7 @@ const navigation = vi.hoisted(() => ({
 const locationMemory = vi.hoisted(() => ({
   readLastKnownFix: vi.fn(),
   rememberLastKnownFix: vi.fn(),
+  rememberLocationGrant: vi.fn(),
 }));
 
 vi.mock("@/lib/one-location/service", () => ({
@@ -36,6 +37,7 @@ vi.mock("@/lib/one-location/service", () => ({
 vi.mock("@/lib/one-location/location-grant-memory", () => ({
   readLastKnownFix: locationMemory.readLastKnownFix,
   rememberLastKnownFix: locationMemory.rememberLastKnownFix,
+  rememberLocationGrant: locationMemory.rememberLocationGrant,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -65,6 +67,7 @@ describe("NearbyCheckInSheet", () => {
     navigation.push.mockReset();
     locationMemory.readLastKnownFix.mockReset();
     locationMemory.rememberLastKnownFix.mockReset();
+    locationMemory.rememberLocationGrant.mockReset();
     // Default: nothing carried over, which is what every pre-existing test in
     // this file assumed before durable memory existed.
     locationMemory.readLastKnownFix.mockResolvedValue(null);
@@ -1510,6 +1513,45 @@ describe("NearbyCheckInSheet", () => {
       expect(locationMemory.readLastKnownFix).toHaveBeenCalledWith(
         expect.objectContaining({ userId: "user-9" }),
       );
+    });
+
+    it("records the account's location grant, not just the position", async () => {
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      await screen.findByRole("radio", { name: /Stanford University/ });
+      // This drawer talks to the device directly and is often the first place
+      // an account ever produces a coordinate. A live UAT run proved the sealed
+      // fix was being written here while the grant was not, because the grant
+      // was only recorded by the bus, which this surface never attaches.
+      await waitFor(() => {
+        expect(locationMemory.rememberLocationGrant).toHaveBeenCalledWith("user-1");
+      });
+    });
+
+    it("records no grant when the device never produces a fix", async () => {
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockRejectedValue(unavailable())}
+          onOpenChange={vi.fn()}
+        />,
+      );
+
+      await screen.findByTestId("nearby-location-fallback");
+      // A grant is a record that location genuinely worked for this account.
+      // A failed attempt is not that, and recording one would let the app claim
+      // a capability it has never actually observed.
+      expect(locationMemory.rememberLocationGrant).not.toHaveBeenCalled();
     });
 
     it("carries a successful fix forward for the next one", async () => {
