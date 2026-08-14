@@ -73,7 +73,8 @@ async def test_gemini_validation_proves_generation_quota(monkeypatch: pytest.Mon
     assert call.kwargs["model"] == "gemini-3.7-flash"
     assert call.kwargs["contents"] == "Reply OK."
     assert call.kwargs["config"].max_output_tokens == 4
-    assert call.kwargs["config"].thinking_config.thinking_level.value == "MINIMAL"
+    assert call.kwargs["config"].thinking_config.include_thoughts is False
+    assert getattr(call.kwargs["config"].thinking_config, "thinking_level", None) is None
     assert call.kwargs["config"].temperature is None
 
 
