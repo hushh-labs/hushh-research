@@ -1499,8 +1499,6 @@ function LocationDetailFlow({
                 reason={request.message ?? undefined}
                 onApprove={() => vm.onApprove(request)}
                 onDecline={() => vm.onDeny(request.id)}
-                approveBusy={vm.busy === "approve"}
-                declineBusy={vm.busy === "deny"}
               />
             ))}
           </div>

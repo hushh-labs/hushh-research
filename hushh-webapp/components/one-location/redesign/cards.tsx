@@ -10,7 +10,7 @@
  * No business logic lives here.
  */
 
-import { useId, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   Clock3,
@@ -195,8 +195,6 @@ export function RequestCard({
   approveLabel = "Approve",
   onApprove,
   onDecline,
-  approveBusy,
-  declineBusy,
 }: {
   name: string;
   promptLine: string;
@@ -204,9 +202,20 @@ export function RequestCard({
   approveLabel?: string;
   onApprove: () => void;
   onDecline: () => void;
-  approveBusy?: boolean;
-  declineBusy?: boolean;
 }) {
+  // Latch the decision on THIS card, the moment it is pressed.
+  //
+  // Two problems this solves. First, `approveBusy` is derived from one global
+  // busy value, so approving a single request put a spinner on EVERY card in
+  // the list. Second, that spinner was held across three sequential server
+  // calls — approve, publish the encrypted point, reload state — none of which
+  // the person is waiting to see. They pressed Approve; the answer is "yes".
+  //
+  // So the card answers immediately and the work continues behind it. The same
+  // latch blocks a second press, which is what makes the optimism safe.
+  const [decision, setDecision] = useState<"approved" | "declined" | null>(null);
+  const decided = decision !== null;
+
   return (
     <div className={cn(SUBCARD_SURFACE, "p-4")}>
       <div className="flex items-center gap-3">
@@ -227,22 +236,42 @@ export function RequestCard({
           {reason}
         </p>
       ) : null}
-      <div className="mt-3.5 flex gap-2.5">
-        <Button
-          onClick={onApprove}
-          isLoading={approveBusy}
-          className="h-11 flex-1 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+      {decided ? (
+        <p
+          role="status"
+          className="mt-3.5 flex h-11 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-success)]/12 text-sm font-semibold text-[color:var(--app-success)]"
         >
-          {approveLabel}
-        </Button>
-        <Button
-          onClick={onDecline}
-          isLoading={declineBusy}
-          className="h-11 flex-1 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-sm font-semibold text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]/80 dark:bg-white/10"
-        >
-          Decline
-        </Button>
-      </div>
+          <ShieldCheck className="h-[17px] w-[17px]" aria-hidden />
+          {decision === "approved" ? "Approved" : "Declined"}
+        </p>
+      ) : (
+        <div className="mt-3.5 flex gap-2.5">
+          <Button
+            onClick={() => {
+              if (decided) return;
+              setDecision("approved");
+              onApprove();
+            }}
+            disabled={decided}
+            // Deliberately not `isLoading`: the card has already answered. A
+            // spinner here would reintroduce the wait it was pressed to remove.
+            className="h-11 flex-1 rounded-full bg-[color:var(--app-accent)] text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+          >
+            {approveLabel}
+          </Button>
+          <Button
+            onClick={() => {
+              if (decided) return;
+              setDecision("declined");
+              onDecline();
+            }}
+            disabled={decided}
+            className="h-11 flex-1 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-sm font-semibold text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]/80 dark:bg-white/10"
+          >
+            Decline
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
