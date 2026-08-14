@@ -103,10 +103,10 @@ describe("SaveLocationModal", () => {
     render(<SaveLocationModal {...baseProps} address="Bengaluru, India" />);
 
     expect(
-      screen.getByText(/stays encrypted in your vault/i),
+      screen.getByText(/Tag where you are/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/shared only when you approve location access/i),
+      screen.getByText(/stays encrypted in your vault/i),
     ).toBeInTheDocument();
   });
 
@@ -223,7 +223,7 @@ describe("SaveLocationModal", () => {
     ).toHaveFocus();
     expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110001");
     expect(
-      screen.getByText(/held for this session/i),
+      screen.getByText(/Saved after your vault is ready/i),
     ).toBeInTheDocument();
     // The detected address is shown, and the fields below were filled from
     // it -- here only the PIN, since "Kartavya Path" is a street rather than

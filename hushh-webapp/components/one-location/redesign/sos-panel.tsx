@@ -356,8 +356,7 @@ export function SosPanel({
             SMS · Save my Soul
           </h1>
           <p className="mx-auto mt-2 max-w-[310px] text-[15px] font-normal leading-[20px] text-white/70">
-            Press and hold. An SMS with your live location goes to your people —
-            even with no internet.
+            Hold to send your live location by SMS.
           </p>
         </header>
 
@@ -506,8 +505,7 @@ export function SosPanel({
                   : "Your location, with no message."}
               </p>
               <p className="mt-2 text-white/50">
-                The message cannot be changed while this alert is live. Cancel
-                it to send a different one.
+                Cancel to change it.
               </p>
             </div>
           ) : null}

@@ -1471,17 +1471,17 @@ const ONE_LOCATION_TRUST_CHIPS: {
   {
     icon: ShieldCheck,
     label: "End-to-end encrypted",
-    detail: "Only the people you pick can see it. We can't.",
+    detail: "Only picked people.",
   },
   {
     icon: Clock3,
     label: "Auto-expires",
-    detail: "Sharing stops on its own when the timer ends.",
+    detail: "Stops on its own.",
   },
   {
     icon: Hand,
     label: "Stop anytime",
-    detail: "One tap ends sharing instantly - no waiting.",
+    detail: "End it in one tap.",
   },
 ];
 
@@ -1492,18 +1492,18 @@ const ONE_LOCATION_FIRST_RUN_STEPS: {
 }[] = [
   {
     icon: UsersRound,
-    title: "Add the people you trust",
-    detail: "Pick from your One Network, or invite someone in a tap.",
+    title: "Pick people",
+    detail: "Choose or invite.",
   },
   {
     icon: Clock3,
     title: "Choose how long",
-    detail: "30 minutes to a day - it auto-stops when the timer ends.",
+    detail: "Auto-stops.",
   },
   {
     icon: Send,
     title: "Share or request",
-    detail: "Share your live location, or ask to see theirs once they approve.",
+    detail: "Share yours or ask.",
   },
 ];
 
@@ -1529,10 +1529,10 @@ function OneLocationFirstRunGuide({ onDismiss }: { onDismiss: () => void }) {
       </button>
       <div className="space-y-0.5 pr-8">
         <h3 className="text-[16px] font-semibold tracking-tight text-[#1c1c1e] dark:text-white">
-          New here? It takes 3 quick steps
+          3 quick steps
         </h3>
         <p className="text-[13px] leading-snug text-[#8e8e93] dark:text-white/55">
-          Location sharing is always your choice, and you stay in control.
+          You choose when sharing starts.
         </p>
       </div>
       <ol className="mt-3 grid min-w-0 gap-2 sm:grid-cols-3">
@@ -1703,16 +1703,14 @@ function readinessCopy(
   if (!permission) {
     return {
       title: "Checking location readiness",
-      description:
-        "One is checking whether this device can share your current location.",
+      description: "Checking this device.",
       tone: "checking",
     };
   }
   if (isLocationServicesDisabled(permission)) {
     return {
       title: "Turn on phone Location",
-      description:
-        "Your phone Location switch is off. Turn it on before sharing with your trusted circle.",
+      description: "Turn on Location before sharing.",
       tone: "blocked",
       actionLabel: "Open Location Settings",
     };
@@ -1720,8 +1718,7 @@ function readinessCopy(
   if (permission.state === "prompt") {
     return {
       title: "Allow location permission",
-      description:
-        "One will ask for foreground location access before your first encrypted share.",
+      description: "Allow access before sharing.",
       tone: "warning",
       actionLabel: "Allow Location",
     };
@@ -1733,8 +1730,7 @@ function readinessCopy(
   if (permission.state === "restricted" || (permission.state === "denied" && observedDenial)) {
     return {
       title: "Location permission blocked",
-      description:
-        "Allow location access from app settings before you share your location.",
+      description: "Allow access in Settings.",
       tone: "blocked",
       actionLabel: "Open Location Settings",
     };
@@ -1742,8 +1738,7 @@ function readinessCopy(
   if (permission.state === "denied") {
     return {
       title: "Allow location permission",
-      description:
-        "One will ask this device for location access the moment you share.",
+      description: "Allow access when prompted.",
       tone: "warning",
       actionLabel: "Allow Location",
     };
@@ -1751,8 +1746,7 @@ function readinessCopy(
   if (permission.state === "unavailable") {
     return {
       title: "Location unavailable",
-      description:
-        "This device cannot provide a fresh location right now. Check Location settings and try again.",
+      description: "Check Location settings and try again.",
       tone: "blocked",
       actionLabel: "Open Location Settings",
     };
@@ -1764,8 +1758,8 @@ function readinessCopy(
         : "Location ready",
     description:
       permission.precise === false
-        ? "Sharing can continue, but accuracy may be approximate on this device."
-        : "Foreground location is ready for private sharing.",
+        ? "Accuracy may be approximate."
+        : "Ready for sharing.",
     tone: permission.precise === false ? "warning" : "ready",
   };
 }
@@ -8500,7 +8494,7 @@ export function OneLocationAgentPageContent({
         } catch {
           if (!sessionIsCurrent()) return false;
           toast.error(
-            "We could not read your current location. Check permission and try again.",
+            "Check permission and try again.",
           );
           return false;
         }
@@ -9526,8 +9520,8 @@ export function OneLocationAgentPageContent({
                 />
                 <span className="min-w-0 flex-1">
                   {pendingOwnerRequests.length === 1
-                    ? "1 person is waiting for you to approve their location request."
-                    : `${pendingOwnerRequests.length} people are waiting for you to approve their location requests.`}
+                    ? "1 location request waiting."
+                    : `${pendingOwnerRequests.length} location requests waiting.`}
                 </span>
                 <span className="shrink-0 underline">Review</span>
               </button>
@@ -9821,7 +9815,7 @@ export function OneLocationAgentPageContent({
                         description={
                           recipients.length
                             ? "Try another name, role, or recommendation signal."
-                            : "Approval, professional, ready, and setup signals will appear as your One Network grows."
+                            : "Add people to start sharing."
                         }
                       />
                     )}
@@ -10612,7 +10606,7 @@ export function OneLocationAgentPageContent({
                       description={
                         unwatchedActiveReceivedGrantCount > 0
                           ? "Refresh to start watching a hidden share again, or ask them to re-share."
-                          : "When someone shares their live location with you, it appears here automatically - no need to open a notification."
+                          : "Shared locations appear here."
                       }
                     />
                   )}

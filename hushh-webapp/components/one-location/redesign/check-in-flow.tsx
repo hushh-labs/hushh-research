@@ -486,9 +486,7 @@ export function CheckInFlow({
               Nearby and private sharing are separate
             </p>
             <p className="mt-1 text-[15px] leading-[20px] text-[#8E8E93]">
-              Nearby people can see your name only. People you select below
-              receive your encrypted precise location for the duration you
-              choose.
+              Nearby sees your name only. Selected people get this share.
             </p>
           </div>
         </section>
@@ -706,8 +704,7 @@ export function CheckInFlow({
             {completedRecipientIds.length === 1 ? "person" : "people"} already
           </p>
           <p className="mt-1 text-[15px] leading-[20px] text-[#8E8E93]">
-            They keep the original encrypted location, duration, and message.
-            Any edits apply only to people who have not received this check-in.
+            Edits apply only to people still waiting.
           </p>
         </section>
       ) : null}
@@ -736,7 +733,7 @@ export function CheckInFlow({
       </div>
       <p className="mt-2 flex items-center gap-1.5 px-1 text-[15px] leading-[20px] text-[#8E8E93]">
         <Shield className="h-3 w-3 shrink-0" strokeWidth={1.5} />
-        Sharing stops automatically — no manual revoke needed.
+        Stops automatically.
       </p>
 
       {/* MESSAGE — encrypted with the reviewed point for selected recipients. */}
@@ -758,8 +755,8 @@ export function CheckInFlow({
       </div>
       <p className="mb-[18px] mt-2 px-1 text-[15px] leading-[20px] text-[#8E8E93]">
         {retryLocked
-          ? "Retry keeps the same duration, encrypted message, and reviewed location, and sends only to people who still failed."
-          : "This message is encrypted with your location. The notification only says that you shared a check-in."}
+          ? "Retry sends only to failed people."
+          : "Encrypted with your location."}
       </p>
       {retryLocked ? (
         <button

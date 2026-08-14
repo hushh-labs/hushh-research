@@ -1568,7 +1568,7 @@ export function LocationImmersiveMap({
       }
       if (preferences.presenceMode !== "foreground_private") {
         toast.message(
-          "Your location is visible only to you. Turn off Ghost Mode to appear to active private recipients.",
+          "Ghost Mode is on. Only you can see this.",
         );
         return;
       }
@@ -2071,8 +2071,8 @@ export function LocationImmersiveMap({
           </h1>
           <p className="relative max-w-sm text-sm text-muted-foreground">
             {unavailableReason === "maps-key"
-              ? "Your location is fine — this app build was packaged without its restricted Google Maps key, so the map cannot render. Nothing about your location was captured or shared."
-              : "The map renderer failed to load. Check your connection and try again — your location was not captured or shared."}
+              ? "Maps is not configured for this build."
+              : "Check your connection and try again."}
           </p>
         </div>
       ) : null}

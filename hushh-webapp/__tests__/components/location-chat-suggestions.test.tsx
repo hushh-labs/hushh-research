@@ -11,11 +11,11 @@ describe("SuggestionChips", () => {
     expect(LOCATION_SUGGESTION_CHIPS.map((c) => c.label)).toEqual([
       "Who can see me?",
       "Stop sharing with…",
-      "Ask someone to share",
+      "Request location",
       "Deny a request",
       "Share my location with…",
-      "Show me where someone is",
-      "Make a public link",
+      "Find someone",
+      "Create link",
     ]);
   });
 
