@@ -113,25 +113,17 @@ class AddSmsContactRequest(_CamelModel):
     recipient_user_id: str = Field(alias="recipientUserId", min_length=1, max_length=160)
 
 
-class SosEmailRequest(_CamelModel):
-    """Coordinates for the Save my Soul email, carried for one send only.
+class SosEmailRecipientsRequest(_CamelModel):
+    """Which contacts One may email for a Save my Soul alert.
 
-    They are in the request body because the server cannot read them anywhere
-    else: `one_location_envelopes` keeps coordinates inside the ciphertext by
-    design, so only the sender's client holds the plaintext. They are not
-    stored and not logged — see one_location_sos_email_service for the rules
-    that bound this.
-
-    `grantIds` is the authorization, not a hint: the service mails only the
-    recipients of live SOS grants the caller's own account just created.
+    `grantIds` is the authorization, not a hint: only the recipients of live
+    SOS grants the caller's own account just created are returned. No
+    coordinates here — the message is rendered and sent by One, and the server
+    never sees a plaintext location (`one_location_envelopes` keeps
+    coordinates inside the ciphertext).
     """
 
     grant_ids: list[str] = Field(alias="grantIds", min_length=1, max_length=20)
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
-    accuracy_m: float | None = Field(default=None, alias="accuracyM", ge=0, le=100_000)
-    note: str | None = Field(default=None, max_length=300)
-    emergency_number: str | None = Field(default=None, alias="emergencyNumber", max_length=16)
 
 
 class StoreEnvelopeRequest(_CamelModel):
@@ -445,37 +437,34 @@ def add_location_sms_contact(
         raise _handle_error(exc) from exc
 
 
-@router.post("/location/sos-email")
-def send_location_sos_email(
-    payload: SosEmailRequest,
+@router.post("/location/sos-email-recipients")
+def list_location_sos_email_recipients(
+    payload: SosEmailRecipientsRequest,
     response: Response,
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    """Second channel for a Save my Soul alert.
+    """Resolve who One may email for a Save my Soul alert.
 
-    The push notification is the first, and it reaches nobody when a contact
-    has notifications off or the app uninstalled. This mails the same alert so
-    it survives a closed app.
+    The push notification is the first channel and reaches nobody when a
+    contact has notifications off or the app uninstalled; email is the second.
+    One renders and sends that mail through `hushh-mail-api` — the same
+    service as every other product mail — so this endpoint only answers who is
+    reachable, and does so under the caller's own grants.
 
-    Never fails the caller: the alert itself has already gone out by the time
-    this is called, so a mail problem is reported as a count, not an error. An
+    Never fails the caller: the alert has already gone out by the time this is
+    called, so a resolution problem is an empty list, not an error. An
     exception here would make a successful emergency look like a failed one.
     """
-    # The body carries a live location; no cache, no store, anywhere.
+    # Contact addresses in the body; never cached, never stored.
     _set_private_no_store(response)
     try:
-        return _service().send_sos_emails(
+        return _service().list_sos_email_recipients(
             owner_user_id=_user_id(token_data),
             grant_ids=payload.grant_ids,
-            latitude=payload.latitude,
-            longitude=payload.longitude,
-            accuracy_m=payload.accuracy_m,
-            note=payload.note,
-            emergency_number=payload.emergency_number,
         )
     except Exception:
-        logger.warning("one.location.sos_email.route_failed", exc_info=False)
-        return {"emailed": 0, "attempted": 0, "results": [], "configured": False}
+        logger.warning("one.location.sos_email_recipients.route_failed", exc_info=False)
+        return {"ownerDisplayName": "", "openInOneUrl": "", "recipients": []}
 
 
 @router.delete("/location/sms-contacts/{recipient_user_id}")

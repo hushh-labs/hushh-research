@@ -196,6 +196,10 @@
       "file": "app/api/one/[...path]/route.ts"
     },
     {
+      "template": "/api/one/location/sos-email",
+      "file": "app/api/one/location/sos-email/route.ts"
+    },
+    {
       "template": "/api/pkm/{path*}",
       "file": "app/api/pkm/[...path]/route.ts"
     },
@@ -8514,5 +8518,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "0910bb37ea96d377f391d495c76effc016aecee8c4f06922de755bdb00ffd17b"
+  "content_sha256": "da51d36218e4f4627f8ead6ed7feabc4b6e0ea84bfc7a6f832c37782fbe4f37a"
 }
