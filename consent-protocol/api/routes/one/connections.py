@@ -58,7 +58,9 @@ class LinkCircleInviteBody(BaseModel):
 
 @router.get("/connections/directory")
 def connections_directory(
-    query: str = Query(default=""),
+    # Bounded like the information-scope search below it. A name is short; an
+    # unbounded query string is just an unbounded LIKE pattern to build.
+    query: str = Query(default="", max_length=160),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=50),
     firebase_uid: str = Depends(require_firebase_auth),

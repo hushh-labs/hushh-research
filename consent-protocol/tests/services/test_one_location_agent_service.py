@@ -2332,16 +2332,149 @@ def test_directory_candidate_search_filters_before_pagination(
     )
 
     assert result == {"items": [], "page": 3, "hasMore": False}
-    assert "LOWER(COALESCE(a.display_name, '')) LIKE '%' || :query || '%'" in service.sql
     assert "a.user_id, a.display_name, a.email" in service.sql
     assert "LIMIT :fetch_limit OFFSET :offset" in service.sql
     assert service.params == {
         "owner_user_id": "owner",
         "candidate_user_id": None,
         "query": "cara",
+        "name_prefix": "cara%",
+        "word_prefix": "% cara%",
         "fetch_limit": 21,
         "offset": 40,
     }
+    # The substring predicate is what made a single letter return an empty
+    # screen: it selected the page under one rule while the caller narrowed it
+    # under another. It must not come back.
+    assert "LIKE '%' || :query || '%'" not in service.sql
+
+
+def test_directory_search_matches_prefixes_not_substrings() -> None:
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="n", limit=8)
+
+    # Two tiers, both prefix-anchored: the name starts with the query, or one
+    # of its later words does. Typing "n" is an index request, and an index
+    # that also returns "Anand" because it contains an n is not an index.
+    assert service.params["name_prefix"] == "n%"
+    assert service.params["word_prefix"] == "% n%"
+    assert service.sql.count("LIKE :name_prefix ESCAPE '!'") == 2
+    assert "LIKE :word_prefix ESCAPE '!'" in service.sql
+
+
+def test_directory_search_ranks_name_prefix_above_word_prefix_then_alphabetically() -> None:
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="r")
+
+    # rsplit, not split: the recipient-key LEFT JOIN LATERAL carries its own
+    # ORDER BY, and asserting against that one would pass while saying nothing
+    # about how the directory is ranked.
+    ordering = service.sql.rsplit("ORDER BY", 1)[1].rsplit("LIMIT", 1)[0]
+    # Tier first, then A-Z. Ranking has to be inside the ORDER BY, because
+    # LIMIT/OFFSET is applied to whatever this clause decides -- a ranking
+    # applied to the page afterwards can only reshuffle rows that were already
+    # chosen wrongly.
+    assert "CASE" in ordering
+    assert "LIKE :name_prefix ESCAPE '!' THEN 0" in ordering
+    assert "ELSE 1" in ordering
+    assert "LOWER(COALESCE(NULLIF(BTRIM(a.display_name), '')" in ordering
+    # Deterministic tie-break, or OFFSET paging duplicates and skips rows.
+    assert ordering.strip().endswith("a.user_id")
+
+
+def test_directory_search_folds_separators_so_tiering_is_about_the_name() -> None:
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="r")
+
+    # " Nilesh" must not be demoted out of the first tier by a leading space,
+    # and "Abdul-Rashid" / "Abdul R." must still reach the second one.
+    assert (
+        service.sql.count(
+            "TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')"
+        )
+        == 3
+    )
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected_name_prefix"),
+    [
+        ("%", "!%%"),
+        ("_", "!_%"),
+        ("!", "!!%"),
+        ("50%_off", "50!%!_off%"),
+    ],
+)
+def test_directory_search_escapes_like_metacharacters(
+    typed: str, expected_name_prefix: str
+) -> None:
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query=typed)
+
+    # Unescaped, a typed "%" is a wildcard that matches the entire directory
+    # and "_" matches any single character. They are characters someone typed
+    # into a name box, not query syntax.
+    assert service.params["name_prefix"] == expected_name_prefix
+    assert service.params["word_prefix"] == f"% {expected_name_prefix}"
+
+
+def test_directory_search_preserves_sql_order_against_recommendation_ranking() -> None:
+    """The directory page keeps the order SQL gave it.
+
+    ``_apply_kai_circle_recommendations`` re-sorts by recommendation score for
+    the Location screen, where "who should I share with" is the question. Here
+    the question is "show me the N people, A-Z", and the rows have already been
+    ranked and cut by the statement above. Re-sorting the slice would reorder
+    rows *within* a page while the page boundaries stayed alphabetical.
+    """
+    captured: dict[str, object] = {}
+
+    class OrderProbe(RecipientDirectoryProbe):
+        def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
+            super()._execute_many(sql, params)
+            return [
+                {"user_id": "u-nilesh", "display_name": "Nilesh", "phone_verified": True},
+                {"user_id": "u-nirmal", "display_name": "Nirmal", "phone_verified": True},
+            ]
+
+        def _apply_kai_circle_recommendations(self, **kwargs: object) -> list[dict]:
+            captured.update(kwargs)
+            return list(kwargs["recipients"])  # type: ignore[arg-type]
+
+    service = OrderProbe()
+    result = service.search_directory_candidates(owner_user_id="owner", query="n", limit=8)
+
+    assert captured["preserve_order"] is True
+    assert [item["displayName"] for item in result["items"]] == ["Nilesh", "Nirmal"]
+
+
+def test_recommendations_preserve_order_only_when_asked() -> None:
+    service = OneLocationAgentService()
+    # Deliberately ordered so the two modes cannot agree: A-Z puts Abel first,
+    # score puts Zoe first (she is location-ready, he is not). A fixture where
+    # both orderings coincide would pass whether or not preserve_order is
+    # honoured, and prove nothing.
+    recipients = [
+        {"userId": "u-abel", "displayName": "Abel", "canReceiveLocation": False},
+        {"userId": "u-zoe", "displayName": "Zoe", "canReceiveLocation": True},
+    ]
+
+    preserved = service._apply_kai_circle_recommendations(
+        owner_user_id="owner",
+        recipients=[dict(r) for r in recipients],
+        preserve_order=True,
+    )
+    assert [r["displayName"] for r in preserved] == ["Abel", "Zoe"]
+    # Rank is still assigned, because the Location screen reads it.
+    assert [r["recommendationRank"] for r in preserved] == [1, 2]
+
+    # Default stays the score-ranked behaviour the Location screen depends on:
+    # a location-ready recipient outranks one that is not.
+    reranked = service._apply_kai_circle_recommendations(
+        owner_user_id="owner",
+        recipients=[dict(r) for r in recipients],
+    )
+    assert [r["displayName"] for r in reranked] == ["Zoe", "Abel"]
 
 
 def test_terminal_location_work_is_deleted_after_twelve_hour_retention() -> None:
