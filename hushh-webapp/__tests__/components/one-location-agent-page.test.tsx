@@ -3477,10 +3477,17 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    // The populated People tab exposes a compact "Share to contacts" action.
-    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    // Public links live on the Links tab. The People tab used to carry a
+    // duplicate "Share to contacts" that minted the same artifact; this is the
+    // one remaining path, and it must still create the invite.
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+    // Links hub CTA opens the flow; the flow's own CTA creates the invite.
+    // Both are labelled "Create link", so take the one on screen each time.
     fireEvent.click(
-      await screen.findByRole("button", { name: /Share to contacts/i }),
+      await screen.findByRole("button", { name: /^Create link$/i }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Create link$/i }),
     );
 
     await waitFor(() =>
@@ -3497,6 +3504,72 @@ describe("OneLocationAgentPage", () => {
     expect(JSON.stringify(mockTrackEvent.mock.calls)).not.toMatch(
       /8012|9911|latitude|longitude|28\.6139|77\.209/u,
     );
+  });
+
+  it("puts the search directly above the list it filters and drops the public-link CTA", async () => {
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await switchLocationTab("People", "Your circles");
+
+    const search = await screen.findByPlaceholderText("Search trusted people");
+    const person = await screen.findByText("Trusted B");
+
+    // The search input used to be separated from its own results by four
+    // buttons, which read as page search rather than list search. Nothing
+    // focusable may sit between the field and the list it filters.
+    expect(
+      search.compareDocumentPosition(person) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const between = Array.from(
+      document.querySelectorAll("button, a[href], input, textarea, select"),
+    ).filter(
+      (el) =>
+        el !== search &&
+        search.compareDocumentPosition(el) &
+          Node.DOCUMENT_POSITION_FOLLOWING &&
+        person.compareDocumentPosition(el) &
+          Node.DOCUMENT_POSITION_PRECEDING,
+    );
+    expect(between).toHaveLength(0);
+
+    // "Share to contacts" minted a PUBLIC link — the Links tab's artifact, not
+    // something that belongs beside named, trusted people.
+    expect(
+      screen.queryByRole("button", { name: /Share to contacts/i }),
+    ).toBeNull();
+    // The three that remain each carry a different weight, so the common one
+    // reads as the default rather than one of four equal choices.
+    expect(screen.getByRole("button", { name: /Add people/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Invite$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Sync contacts/i })).toBeTruthy();
+  });
+
+  it("offers Create and Join with code straight under the circles heading", async () => {
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await switchLocationTab("People", "Your circles");
+
+    const section = screen.getByTestId("one-location-named-circles");
+    const heading = within(section).getByRole("heading", {
+      name: "Your circles",
+    });
+    const create = within(section).getByRole("button", { name: /^Create$/i });
+    const join = within(section).getByRole("button", {
+      name: /Join with code/i,
+    });
+
+    // Structural, not "somewhere after": the heading block is the section's
+    // first child and the actions are its second, so the pair cannot drift back
+    // below the circle list — where a long list stranded them past a scroll,
+    // exactly when someone had enough circles to need them.
+    expect(section.children[0]).toContainElement(heading);
+    expect(section.children[1]).toContainElement(create);
+    expect(section.children[1]).toContainElement(join);
   });
 
   it("does not show owner-grant revoke actions in the compact mobile flow", async () => {
@@ -3609,9 +3682,12 @@ describe("OneLocationAgentPage", () => {
       screen.getByRole("button", { name: /^Invite$/i }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: /Sync contacts/i })).toBeTruthy();
+    // "Share to contacts" is deliberately absent: it minted a PUBLIC link,
+    // which is the Links tab's job, not a control belonging beside named
+    // trusted people.
     expect(
-      screen.getByRole("button", { name: /Share to contacts/i }),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: /Share to contacts/i }),
+    ).toBeNull();
     expect(screen.queryByText(/Request location/)).toBeNull();
     expect(
       screen.queryByText(/Private sharing starts after approval/i),

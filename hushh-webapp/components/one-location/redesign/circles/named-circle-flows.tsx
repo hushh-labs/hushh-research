@@ -185,15 +185,41 @@ export function CirclesSection({
 
   return (
     <div className="space-y-3" data-testid="one-location-named-circles">
-      <div className="flex items-center justify-between gap-3 px-1">
-        <div>
-          <h2 className={SECTION_TITLE}>
-            Your circles
-          </h2>
-          <p className={cn(MUTED_TEXT, "mt-1")}>
-            Family and friends you choose to group together.
-          </p>
-        </div>
+      <div className="px-1">
+        <h2 className={SECTION_TITLE}>
+          Your circles
+        </h2>
+        <p className={cn(MUTED_TEXT, "mt-1")}>
+          Family and friends you choose to group together.
+        </p>
+      </div>
+
+      {/* Directly under the heading rather than below the list: these two are
+          how the section is USED, and stranding them past a scrolling list of
+          circles hid them exactly when someone had enough circles to scroll.
+          Stacked on phones, natural width in a row once there is space — the
+          hub column is unbounded, so full-width pills would run the width of a
+          desktop window. */}
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap">
+        <Button
+          type="button"
+          onClick={onCreate}
+          data-voice-control-id="one-location-action-create-circle"
+          className="h-11 w-full rounded-full font-semibold sm:w-auto sm:px-6"
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Create
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onJoin}
+          data-voice-control-id="one-location-action-join-circle"
+          className="h-11 w-full rounded-full font-semibold sm:w-auto sm:px-6"
+        >
+          <KeyRound className="mr-2 h-4 w-4" />
+          Join with code
+        </Button>
       </div>
 
       {incomingInvitesError ? (
@@ -344,28 +370,6 @@ export function CirclesSection({
           description="Create one for family or friends, or join with a code."
         />
       )}
-
-      <div className="grid grid-cols-2 gap-2">
-        <Button
-          type="button"
-          onClick={onCreate}
-          data-voice-control-id="one-location-action-create-circle"
-          className="h-11 rounded-full font-semibold"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Create
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onJoin}
-          data-voice-control-id="one-location-action-join-circle"
-          className="h-11 rounded-full font-semibold"
-        >
-          <KeyRound className="mr-2 h-4 w-4" />
-          Join with code
-        </Button>
-      </div>
     </div>
   );
 }
