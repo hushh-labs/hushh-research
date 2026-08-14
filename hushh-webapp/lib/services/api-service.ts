@@ -262,6 +262,35 @@ function toStatusBucketFromStatus(
   return "network_error";
 }
 
+/** Bucketed so the Consent Center reports shape, never a per-user request count. */
+function consentPendingCountBucket(count: number): string {
+  if (count <= 0) return "0";
+  if (count === 1) return "1";
+  if (count <= 3) return "2_3";
+  if (count <= 10) return "4_10";
+  return "10_plus";
+}
+
+/**
+ * Reads how many consent requests came back, without disturbing the caller.
+ *
+ * The response body can only be read once, so this works on a clone: a
+ * tracking call must never change what the caller receives. Returns null when
+ * the shape is not what we expect, so a parsing surprise degrades to a missing
+ * dimension rather than to a thrown error on the consent path.
+ */
+async function readPendingConsentCount(
+  response: Response,
+): Promise<number | null> {
+  if (!response.ok) return null;
+  try {
+    const body = (await response.clone().json()) as { pending?: unknown };
+    return Array.isArray(body?.pending) ? body.pending.length : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resolve the client's IANA timezone (e.g. "America/New_York") so the backend
  * can pick a region-appropriate market exchange. Returns null when unavailable
@@ -2444,6 +2473,7 @@ export class ApiService {
         );
         trackEvent("consent_pending_loaded", {
           result: "success",
+          pending_count_bucket: consentPendingCountBucket(consents?.length ?? 0),
         });
         return response;
       } catch (e) {
@@ -2466,8 +2496,14 @@ export class ApiService {
         },
       },
     );
+    // Cloned so the count can be read without consuming the body the caller is
+    // about to read. A tracking call must never change what the caller receives.
+    const pendingCount = await readPendingConsentCount(response);
     trackEvent("consent_pending_loaded", {
       result: toResultFromStatus(response.status),
+      ...(pendingCount === null
+        ? {}
+        : { pending_count_bucket: consentPendingCountBucket(pendingCount) }),
     });
     return response;
   }

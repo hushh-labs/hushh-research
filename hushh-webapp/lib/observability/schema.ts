@@ -43,7 +43,7 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
   analysis_stream_terminal_decision: [...BASE_ALLOWED_KEYS, "result"],
   analysis_stream_aborted: [...BASE_ALLOWED_KEYS, "result", "reason"],
   analysis_stream_error: [...BASE_ALLOWED_KEYS, "result", "error_class"],
-  consent_pending_loaded: [...BASE_ALLOWED_KEYS, "result"],
+  consent_pending_loaded: [...BASE_ALLOWED_KEYS, "result", "pending_count_bucket"],
   consent_action_submitted: [...BASE_ALLOWED_KEYS, "action", "result"],
   consent_action_result: [...BASE_ALLOWED_KEYS, "action", "result", "status_bucket"],
   phone_verification_started: [...BASE_ALLOWED_KEYS, "action", "result"],

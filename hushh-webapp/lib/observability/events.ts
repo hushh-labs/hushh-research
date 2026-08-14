@@ -329,6 +329,17 @@ export interface EventPayloadMap {
   };
   consent_pending_loaded: {
     result: EventResult;
+    /**
+     * How many requests were waiting, bucketed.
+     *
+     * Without this the Consent Center is unfalsifiable. It loads 2,574 times
+     * for 85 people a month and `consent_action_submitted` has never once
+     * fired, and there is currently no way to tell whether that means people
+     * are ignoring decisions put in front of them or opening a screen that had
+     * nothing on it. Those two readings call for opposite work, and for a
+     * consent-first product it is the wrong question to be unable to answer.
+     */
+    pending_count_bucket?: string;
   };
   consent_action_submitted: {
     action: ConsentAction;
