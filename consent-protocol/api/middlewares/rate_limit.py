@@ -146,6 +146,13 @@ class RateLimits:
     # write hygiene rather than to protect a quota.
     RIA_NEARBY_SHORTLIST_WRITE = "30/minute"  # noqa: S105
 
+    # The v4 net-worth lookup. Tighter again than the directory read, for two
+    # reasons. Our registered consumer grant is 30 requests a minute for the
+    # whole product, not per advisor. And a coordinate lookup costs two upstream
+    # calls, because the consent receipt has to be minted before the search and
+    # is spent whether or not the search succeeds.
+    RIA_NEARBY_NETWORTH_READ = "10/minute"  # noqa: S105
+
     # Preference Subscription Fabric (PCHP RFC-002).
     # FABRIC_READ is the third-party-facing, monetizable subscriber read path;
     # it must be firmly bounded per principal so no brand can drain an owner's

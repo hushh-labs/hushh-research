@@ -39,6 +39,14 @@ def _routes() -> dict[str, set[str]]:
     return paths
 
 
+def _endpoint(path: str):
+    """The handler registered at one nearby path."""
+    for route in ria_routes.router.routes:
+        if getattr(route, "path", "") == path:
+            return route.endpoint
+    raise AssertionError(f"no route registered at {path}")
+
+
 # ------------------------------------------------------------ route surface
 
 
@@ -171,3 +179,75 @@ def test_account_deletion_already_covers_the_shortlist() -> None:
     account_service = (_REPO_ROOT / "hushh_mcp" / "services" / "account_service.py").read_text()
 
     assert "marketplace_investor_actions" in account_service
+
+
+# ------------------------------------------------------------- net worth route
+
+
+def test_networth_is_a_post_so_no_position_reaches_the_request_line() -> None:
+    paths = _routes()
+
+    assert "POST" in paths["/api/ria/nearby/networth"]
+    assert "GET" not in paths["/api/ria/nearby/networth"]
+
+
+def test_networth_is_gated_on_a_verified_ria() -> None:
+    """The advisor's identity is load-bearing here, not just a gate.
+
+    A coordinate lookup binds a consent receipt to a stable pseudonymous
+    subject derived from this value, so an unauthenticated caller could not be
+    given one even if the route allowed it.
+    """
+    endpoint = _endpoint("/api/ria/nearby/networth")
+    params = inspect.signature(endpoint).parameters
+
+    assert "firebase_uid" in params
+    assert params["firebase_uid"].default.dependency is ria_routes._require_ria_verified
+
+
+def test_networth_is_rate_limited_below_the_directory_read() -> None:
+    """Our grant upstream is per product, not per advisor, and a coordinate
+    lookup spends it twice — once to mint consent, once to search."""
+    from api.middlewares.rate_limit import RateLimits
+
+    networth = int(RateLimits.RIA_NEARBY_NETWORTH_READ.split("/")[0])
+    directory = int(RateLimits.RIA_NEARBY_DIRECTORY_READ.split("/")[0])
+
+    assert networth < directory
+
+
+def test_networth_failures_carry_their_own_discriminator() -> None:
+    """The three states a screen must tell apart differ in whether a retry helps.
+
+    The directory handler stamps one code on every failure, so a client can only
+    distinguish them by status. This path forwards the service's own code.
+    """
+    from hushh_mcp.services.nws_networth_service import NwsNetWorthError
+
+    unconfigured = ria_routes._handle_networth_error(
+        NwsNetWorthError("x", status_code=502, code="RIA_NETWORTH_NOT_CONFIGURED")
+    )
+    unavailable = ria_routes._handle_networth_error(
+        NwsNetWorthError("x", status_code=503, code="RIA_NETWORTH_SOURCE_UNAVAILABLE")
+    )
+
+    assert unconfigured.detail["code"] == "RIA_NETWORTH_NOT_CONFIGURED"
+    assert unavailable.detail["code"] == "RIA_NETWORTH_SOURCE_UNAVAILABLE"
+
+
+def test_networth_rate_limit_forwards_the_upstream_retry_hint() -> None:
+    from hushh_mcp.services.nws_networth_service import NwsNetWorthError
+
+    limited = ria_routes._handle_networth_error(
+        NwsNetWorthError("x", status_code=429, code="RIA_NETWORTH_BUSY", retry_after_seconds=30)
+    )
+
+    assert limited.headers["Retry-After"] == "30"
+
+
+def test_networth_request_rejects_a_non_us_postal_shape() -> None:
+    """The upstream accepts only a US ZIP; anything else spends a shared grant."""
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        ria_routes.RIANetWorthDiscoverRequest(postal_code="SW1A 1AA extra long")

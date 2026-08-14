@@ -35,6 +35,10 @@ import { Switch } from "@/components/ui/switch";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import {
+  readLastKnownFix,
+  rememberLastKnownFix,
+} from "@/lib/one-location/location-grant-memory";
 import { locationBlockReason } from "@/lib/one-location/location-readiness";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
@@ -102,6 +106,30 @@ type PointOrigin = "fresh" | "last-known";
  * plausibly has not moved. Past this we stop offering it as "where you are".
  */
 const LAST_KNOWN_POINT_MAX_AGE_MS = 10 * 60 * 1_000;
+
+/**
+ * The same idea, for a fix restored from a previous session rather than taken
+ * during this one.
+ *
+ * Deliberately longer. The in-session budget above governs a silent swap — the
+ * drawer keeps working and says little — so it has to be tight. A restored fix
+ * is always announced, always dated, and always requires the owner to choose a
+ * specific place, which the backend then plausibility-checks at check-in. The
+ * honest comparison is not "an hour-old fix versus a current one", it is "an
+ * hour-old fix, labelled, versus a dead end" — which is what a cold start with
+ * no GPS answer used to be.
+ */
+const RESTORED_POINT_MAX_AGE_MS = 60 * 60 * 1_000;
+
+/** "just now" / "about 20 minutes ago" — how old a restored fix is. */
+function restoredPointAgeLabel(capturedAt: string | null | undefined): string {
+  const capturedMs = Date.parse(capturedAt ?? "");
+  if (!Number.isFinite(capturedMs)) return "";
+  const ageMinutes = Math.round((Date.now() - capturedMs) / 60_000);
+  if (ageMinutes <= 1) return " from just now";
+  if (ageMinutes < 60) return ` from about ${ageMinutes} minutes ago`;
+  return " from about an hour ago";
+}
 
 export type NearbyCheckInPlaceFocus = {
   placeId: string;
@@ -571,30 +599,59 @@ export function NearbyCheckInSheet({
   /**
    * Fall back to the last good fix instead of emptying the drawer.
    *
-   * Returns true when a usable substitute point was adopted. A stale-but-recent
-   * position still lists the right venues, and the owner -- who can see which
-   * building they are in -- is a better judge of that than a receiver having a
-   * bad second. The backend still verifies plausibility at check-in.
+   * A stale-but-recent position still lists the right venues, and the owner --
+   * who can see which building they are in -- is a better judge of that than a
+   * receiver having a bad second. The backend still verifies plausibility at
+   * check-in.
+   *
+   * Two sources, in order of confidence: a fix taken during this session, then
+   * the sealed one carried over from the last. The second is why a cold start
+   * no longer dead-ends. Before it existed the fallback lived only in a ref, so
+   * the very first capture after a reload had nothing behind it -- and on any
+   * machine without a GPS radio that first capture routinely fails with
+   * `kCLErrorLocationUnknown`. A device that knew exactly where it was ten
+   * minutes ago showed "we couldn't get a location reading".
+   *
+   * Returns true when the caller must NOT write a location error -- either a
+   * point was adopted, or the request was superseded while reading storage and
+   * no longer owns the screen.
    */
   const adoptLastKnownPoint = useCallback(
-    (generation: number, expectedOwnerEpoch: number): boolean => {
-      const fallback = lastKnownPointRef.current;
-      if (!fallback) return false;
-      const capturedAt = Date.parse(fallback.capturedAt ?? "");
+    async (generation: number, expectedOwnerEpoch: number): Promise<boolean> => {
+      const superseded = () =>
+        ownerEpochRef.current !== expectedOwnerEpoch ||
+        requestGenerationRef.current !== generation;
+
+      const sessionFix = lastKnownPointRef.current;
+      const sessionFixAt = Date.parse(sessionFix?.capturedAt ?? "");
       if (
-        !Number.isFinite(capturedAt) ||
-        Date.now() - capturedAt > LAST_KNOWN_POINT_MAX_AGE_MS
+        sessionFix &&
+        Number.isFinite(sessionFixAt) &&
+        Date.now() - sessionFixAt <= LAST_KNOWN_POINT_MAX_AGE_MS
       ) {
-        return false;
+        setPoint(sessionFix);
+        setPointOrigin("last-known");
+        setLocationError(null);
+        setAccuracyNotice(null);
+        void loadPlaces(sessionFix, generation, expectedOwnerEpoch);
+        return true;
       }
-      setPoint(fallback);
+
+      const restored = await readLastKnownFix({
+        userId: ownerId,
+        maxAgeMs: RESTORED_POINT_MAX_AGE_MS,
+      }).catch(() => null);
+      if (superseded()) return true;
+      if (!restored) return false;
+
+      setPoint(restored);
       setPointOrigin("last-known");
       setLocationError(null);
       setAccuracyNotice(null);
-      void loadPlaces(fallback, generation, expectedOwnerEpoch);
+      void loadPlaces(restored, generation, expectedOwnerEpoch);
       return true;
     },
-    [loadPlaces],
+    [loadPlaces, ownerId],
   );
 
   const captureAndLoadPlaces = useCallback(
@@ -631,7 +688,7 @@ export function NearbyCheckInSheet({
         }
         if (permission?.state === "granted" && permission.precise === false) {
           setLocationRecovery(isNative() ? "app-settings" : null);
-          if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+          if (!(await adoptLastKnownPoint(generation, expectedOwnerEpoch))) {
             setPoint(null);
             setLocationError(
               "Precise location is off, so we can't see what's around you yet. Turn it on and we'll pick this up automatically.",
@@ -647,7 +704,7 @@ export function NearbyCheckInSheet({
         // being kept: the check-in sheet refused here before ever attempting.
         if (locationBlockReason(permission ?? null)) {
           setLocationRecovery(isNative() ? "app-settings" : null);
-          if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+          if (!(await adoptLastKnownPoint(generation, expectedOwnerEpoch))) {
             setPoint(null);
             setLocationError(
               isNative()
@@ -662,7 +719,7 @@ export function NearbyCheckInSheet({
           permission.locationServicesEnabled === false
         ) {
           setLocationRecovery(isNative() ? "location-settings" : null);
-          if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+          if (!(await adoptLastKnownPoint(generation, expectedOwnerEpoch))) {
             setPoint(null);
             setLocationError(
               isNative()
@@ -694,7 +751,7 @@ export function NearbyCheckInSheet({
             settledPermission.precise === false
           ) {
             setLocationRecovery(isNative() ? "app-settings" : null);
-            if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+            if (!(await adoptLastKnownPoint(generation, expectedOwnerEpoch))) {
               setPoint(null);
               setLocationError(
                 "Precise location is off, so we can't see what's around you yet. Turn it on and we'll pick this up automatically.",
@@ -708,7 +765,7 @@ export function NearbyCheckInSheet({
         }
         if (!hasCheckInAccuracy(nextPoint)) {
           setLocationRecovery(isNative() ? "app-settings" : null);
-          if (!adoptLastKnownPoint(generation, expectedOwnerEpoch)) {
+          if (!(await adoptLastKnownPoint(generation, expectedOwnerEpoch))) {
             setPoint(null);
             setLocationError(
               "We can't pin down where you are just yet. Stepping outside or near a window usually fixes it.",
@@ -725,6 +782,10 @@ export function NearbyCheckInSheet({
           isCoarseAccuracy(nextPoint) ? coarseAccuracyNotice(nextPoint) : null,
         );
         lastKnownPointRef.current = nextPoint;
+        // Carry it past this page. The next cold start reads this instead of
+        // starting from nothing, which is what turns a failed first GPS read
+        // from a dead end into a labelled fallback.
+        void rememberLastKnownFix({ userId: ownerId, point: nextPoint });
         setPointOrigin("fresh");
         setPoint(nextPoint);
         await loadPlaces(nextPoint, generation, expectedOwnerEpoch);
@@ -736,7 +797,7 @@ export function NearbyCheckInSheet({
           return;
         }
         setLocationRecovery(isNative() ? "app-settings" : null);
-        if (adoptLastKnownPoint(generation, expectedOwnerEpoch)) return;
+        if (await adoptLastKnownPoint(generation, expectedOwnerEpoch)) return;
         setPoint(null);
         setAutomaticPlaces([]);
         setSearchResults([]);
@@ -1662,7 +1723,8 @@ export function NearbyCheckInSheet({
                           aria-hidden="true"
                         />
                         <span>
-                          Showing places around your last known position — we
+                          Showing places around your last known position
+                          {restoredPointAgeLabel(point.capturedAt)} — we
                           couldn’t refresh it just now. Pick where you actually
                           are, or{" "}
                           <button

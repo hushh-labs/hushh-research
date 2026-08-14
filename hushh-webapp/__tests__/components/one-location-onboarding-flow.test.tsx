@@ -331,7 +331,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByText("SMS \u00b7 Save My Soul")).toBeTruthy();
     expect(screen.getByText("Sharing with Mom, Driver +1")).toBeTruthy();
     expect(screen.getByText("Checked in at Hotel Grand")).toBeTruthy();
-    expect(screen.getByText("SMS sent to 3 contacts")).toBeTruthy();
+    expect(screen.getByText("Alerted 3 contacts")).toBeTruthy();
 
     const smsCard = screen.getByTestId("location-use-case-sos");
     const smsCore = smsCard.querySelector("[data-one-sms-core]");

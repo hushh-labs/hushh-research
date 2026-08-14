@@ -82,7 +82,7 @@ import {
   TrustNoteCard,
   WarningCard,
 } from "./primitives";
-import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
+import { MUTED_TEXT, SECTION_TITLE, SUBCARD_SURFACE } from "./tokens";
 import {
   initialsFrom,
   RequestCard,
@@ -108,6 +108,7 @@ import { CheckInFlow } from "@/components/one-location/redesign/check-in-flow";
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { ROUTES } from "@/lib/navigation/routes";
+import { resolveSmsContactsBackAction } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
   CircleDetailFlow,
   CirclesSection,
@@ -278,7 +279,6 @@ export type LocationHubViewModel = {
   onRequestPermission: () => void;
   onOpenLocationSettings: () => void;
   onSyncContacts: () => void;
-  onShareToContacts: () => void;
   /** Legacy composer only: pre-flights device permission, then opens review. */
   onOpenShareReview: () => void;
   /**
@@ -468,7 +468,9 @@ const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
 export function resolveSmsContactsBackFlow(
   source: string | null | undefined,
 ): "sos" | "settings" {
-  return source === SOS_FLOW_SOURCE ? "sos" : "settings";
+  // Delegates so the rule has ONE implementation: the top bar is what actually
+  // performs this navigation now, and it resolves the target the same way.
+  return resolveSmsContactsBackAction(source);
 }
 
 const RETIRED_ACTIONS = new Set([
@@ -618,11 +620,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const nearbyPrivateCheckIn =
     searchParams.get(FLOW_ACTION_PARAM) === PRIVATE_CHECK_IN_ACTION &&
     searchParams.get(FLOW_SOURCE_PARAM) === NEARBY_CHECK_IN_SOURCE;
-  const smsContactsBackFlow = resolveSmsContactsBackFlow(
-    searchParams.get(FLOW_ACTION_PARAM) === FLOW_TO_ACTION["sms-contacts"]
-      ? searchParams.get(FLOW_SOURCE_PARAM)
-      : null,
-  );
   const nearbyReturnToken = searchParams.get(NEARBY_PRIVATE_RETURN_TOKEN_PARAM);
   const nearbyCheckInReturnHref =
     nearbyPrivateCheckIn && isNearbyPrivateReturnToken(nearbyReturnToken)
@@ -978,12 +975,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             circles={vm.circles}
             selectedUserIds={vm.smsContactUserIds}
             busyKey={vm.busy}
-            // Emergency contacts is opened from Settings and from SOS, so the
-            // back arrow follows whoever opened it rather than a fixed target.
-            // Sending someone from SOS back to Settings drops them out of the
-            // emergency flow they were in the middle of, which is the worst
-            // moment to make them find their way back.
-            onBack={() => openFlow(smsContactsBackFlow)}
+            // Back is the shell's, not this screen's. The top bar resolves the
+            // target from `?source=`, so opening contacts mid-SOS still returns
+            // to SOS rather than dropping the person into Settings.
             onAdd={vm.onAddSmsContact}
             onAddCircle={vm.onAddSmsCircle}
             onRemove={vm.onRemoveSmsContact}
@@ -1141,6 +1135,20 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     </div>
   );
 }
+
+/**
+ * People-tab action row: stacked on phones, an inline row from `sm` up.
+ *
+ * The hub column is unbounded, so `w-full` buttons grew to the width of a
+ * desktop window — three pills spanning 1200px read as bulk, not as choices.
+ * From `sm` they size to their own label and sit left-aligned, which is also
+ * what keeps the iOS build from looking like a stack of banners on iPad.
+ * `flex-wrap` means a long localized label moves to the next line instead of
+ * squeezing its neighbours.
+ */
+const PEOPLE_ACTION_ROW = "flex flex-col gap-2.5 sm:flex-row sm:flex-wrap";
+/** Full-bleed thumb target on phones; natural width once there is room. */
+const PEOPLE_ACTION_BUTTON = "h-11 w-full font-medium sm:w-auto sm:px-5";
 
 function LocationHubPanel({ children }: { children: ReactNode }) {
   return (
@@ -1776,48 +1784,41 @@ function PeopleHub({
           title="Connections"
           description="People ready for sharing."
         >
-          {/* Symmetric action layout with generous breathing room: a 2-col
-              primary row (Add / Invite) over a matching 2-col contact row
-              (Sync / Share), uniform h-12 buttons and gap-3.5 spacing. On
-              narrow phones the primary row collapses to one column. */}
-          <div className="space-y-3.5">
-            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-              <Button
-                onClick={onAddConnections}
-                data-voice-control-id="one-location-add-connections"
-                className="h-12 w-full font-medium"
-              >
-                <UsersRound className="mr-2 h-4 w-4" />
-                Add people
-              </Button>
-              <Button
-                variant="outline"
-                onClick={onInvite}
-                data-voice-control-id="one-location-action-invite"
-                className="h-12 w-full font-medium"
-              >
-                <UserPlus className="mr-2 h-4 w-4" />
-                Invite
-              </Button>
-            </div>
-            <div className="grid grid-cols-2 gap-3.5">
-              <Button
-                variant="outline"
-                onClick={vm.onSyncContacts}
-                isLoading={vm.busy === "contactSync"}
-                className="h-12 w-full font-medium"
-              >
-                Sync contacts
-              </Button>
-              <Button
-                variant="outline"
-                onClick={vm.onShareToContacts}
-                isLoading={vm.busy === "contactInvite"}
-                className="h-12 w-full font-medium"
-              >
-                Share to contacts
-              </Button>
-            </div>
+          {/* Identical set, order and weights to the populated tab, so the
+              screen does not rearrange itself the moment a first connection
+              lands. */}
+          <div className={PEOPLE_ACTION_ROW}>
+            <Button
+              onClick={onAddConnections}
+              data-voice-control-id="one-location-add-connections"
+              className={PEOPLE_ACTION_BUTTON}
+            >
+              <UsersRound className="mr-2 h-4 w-4" />
+              Add people
+            </Button>
+            <Button
+              variant="outline"
+              onClick={onInvite}
+              data-voice-control-id="one-location-action-invite"
+              className={cn(
+                PEOPLE_ACTION_BUTTON,
+                "border-[color:var(--app-accent)] text-[color:var(--app-accent)]",
+              )}
+            >
+              <UserPlus className="mr-2 h-4 w-4" />
+              Invite
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={vm.onSyncContacts}
+              isLoading={vm.busy === "contactSync"}
+              className={cn(
+                PEOPLE_ACTION_BUTTON,
+                "text-[color:var(--app-accent)] hover:text-[color:var(--app-accent)]",
+              )}
+            >
+              Sync contacts
+            </Button>
           </div>
         </SectionCard>
       </div>
@@ -1845,101 +1846,105 @@ function PeopleHub({
         onDismissFocusedInvite={onDismissFocusedInvite}
       />
 
-      <PersonSearchInput
-        value={vm.recipientSearch}
-        onChange={vm.setRecipientSearch}
-      />
-
-      {/* Compact circle-management actions. Invite adds people; "Sync contacts"
-          tags which existing connections are in your phone contacts. Symmetric
-          2-col rows with gap-3.5 and uniform h-12 buttons for breathing room. */}
-      <div className="space-y-3.5">
-        <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-          <Button
-            onClick={onAddConnections}
-            data-voice-control-id="one-location-add-connections"
-            className="h-12 w-full font-medium"
-          >
-            <UsersRound className="mr-2 h-4 w-4" />
-            Add people
-          </Button>
-          <Button
-            variant="outline"
-            onClick={onInvite}
-            data-voice-control-id="one-location-action-invite"
-            className="h-12 w-full font-medium border-[color:var(--app-accent)] text-[color:var(--app-accent)]"
-          >
-            <UserPlus className="mr-2 h-4 w-4" />
-            Invite
-          </Button>
-        </div>
-        <div className="grid grid-cols-2 gap-3.5">
-          <Button
-            variant="outline"
-            onClick={vm.onSyncContacts}
-            isLoading={vm.busy === "contactSync"}
-            className="h-12 w-full font-medium"
-          >
-            Sync contacts
-          </Button>
-          <Button
-            variant="outline"
-            onClick={vm.onShareToContacts}
-            isLoading={vm.busy === "contactInvite"}
-            className="h-12 w-full font-medium"
-          >
-            Share to contacts
-          </Button>
-        </div>
+      {/* Three actions, one weight each — filled, outlined, quiet — so the
+          common one is obvious and the rest do not compete. "Share to contacts"
+          used to sit here as a fourth; it minted a PUBLIC link, the same
+          artifact the Links tab creates and viewable by anyone holding the URL,
+          which is the opposite of what every other control on a tab about
+          named, trusted people does. Links owns it. */}
+      <div className={PEOPLE_ACTION_ROW}>
+        <Button
+          onClick={onAddConnections}
+          data-voice-control-id="one-location-add-connections"
+          className={PEOPLE_ACTION_BUTTON}
+        >
+          <UsersRound className="mr-2 h-4 w-4" />
+          Add people
+        </Button>
+        <Button
+          variant="outline"
+          onClick={onInvite}
+          data-voice-control-id="one-location-action-invite"
+          className={cn(
+            PEOPLE_ACTION_BUTTON,
+            "border-[color:var(--app-accent)] text-[color:var(--app-accent)]",
+          )}
+        >
+          <UserPlus className="mr-2 h-4 w-4" />
+          Invite
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={vm.onSyncContacts}
+          isLoading={vm.busy === "contactSync"}
+          className={cn(
+            PEOPLE_ACTION_BUTTON,
+            "text-[color:var(--app-accent)] hover:text-[color:var(--app-accent)]",
+          )}
+        >
+          Sync contacts
+        </Button>
       </div>
 
-      {filtered.length ? (
-        <div className={cn("max-h-[50vh] overflow-y-auto overflow-x-hidden", SUBCARD_SURFACE)}>
-          {filtered.map((r, i) => {
-            const grant = vm.activeOwnerGrants.find(
-              (g) => g.recipientUserId === r.userId,
-            );
-            const sharing = Boolean(grant);
-            const receiving = vm.receivedGrants.some(
-              (g) => g.ownerUserId === r.userId,
-            );
-            const ready = vm.isRecipientShareReady(r);
-            return (
-              <PersonRow
-                key={r.userId}
-                name={vm.recipientLabel(r)}
-                subtitle={vm.recipientSubtitle(r)}
-                active={sharing || receiving}
-                first={i === 0}
-                action={
-                  sharing && grant ? (
-                    <Button
-                      variant="outline"
-                      onClick={() => vm.onStopGrant(grant.id)}
-                      isLoading={vm.revokingGrantId === grant.id}
-                      className="h-9 rounded-full border-[color:var(--app-accent)] px-5 text-sm font-semibold text-[color:var(--app-accent)]"
-                    >
-                      Stop
-                    </Button>
-                  ) : ready ? (
-                    <Button
-                      onClick={() => onStartShare(r.userId)}
-                      className="h-9 rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-                    >
-                      Share
-                    </Button>
-                  ) : null
-                }
-              />
-            );
-          })}
-        </div>
-      ) : (
-        <EmptyState
-          title="No matching people"
-          description="Try a different name."
+      {/* Search now sits directly on top of the list it filters. It used to be
+          separated from its own results by four buttons, which read as page
+          search rather than list search. */}
+      <div className="space-y-3">
+        <h2 className={cn(SECTION_TITLE, "px-1")}>Connections</h2>
+
+        <PersonSearchInput
+          value={vm.recipientSearch}
+          onChange={vm.setRecipientSearch}
         />
-      )}
+
+        {filtered.length ? (
+          <div className={cn("max-h-[50vh] overflow-y-auto overflow-x-hidden", SUBCARD_SURFACE)}>
+            {filtered.map((r, i) => {
+              const grant = vm.activeOwnerGrants.find(
+                (g) => g.recipientUserId === r.userId,
+              );
+              const sharing = Boolean(grant);
+              const receiving = vm.receivedGrants.some(
+                (g) => g.ownerUserId === r.userId,
+              );
+              const ready = vm.isRecipientShareReady(r);
+              return (
+                <PersonRow
+                  key={r.userId}
+                  name={vm.recipientLabel(r)}
+                  subtitle={vm.recipientSubtitle(r)}
+                  active={sharing || receiving}
+                  first={i === 0}
+                  action={
+                    sharing && grant ? (
+                      <Button
+                        variant="outline"
+                        onClick={() => vm.onStopGrant(grant.id)}
+                        isLoading={vm.revokingGrantId === grant.id}
+                        className="h-9 rounded-full border-[color:var(--app-accent)] px-5 text-sm font-semibold text-[color:var(--app-accent)]"
+                      >
+                        Stop
+                      </Button>
+                    ) : ready ? (
+                      <Button
+                        onClick={() => onStartShare(r.userId)}
+                        className="h-9 rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+                      >
+                        Share
+                      </Button>
+                    ) : null
+                  }
+                />
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState
+            title="No matching people"
+            description="Try a different name."
+          />
+        )}
+      </div>
 
       {vm.requestedByMe.length ? (
         <SettingsGroup title="Requests sent" separatorInset>

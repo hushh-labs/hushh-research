@@ -186,6 +186,7 @@ import { buildOneLocationRequestMessage } from "@/lib/one-location/request-messa
 import {
   clearLocationWorkspaceMemory,
   readLocationWorkspaceMemory,
+  samePlainLocationPoint,
   writeLocationWorkspaceMemory,
   type LocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
@@ -2237,6 +2238,10 @@ export function OneLocationAgentPageContent({
     ) => {
       setLocationWorkspace((current) => {
         const next = updater(current);
+        // An updater that decided nothing changed hands back the same object.
+        // Honouring that is what lets React bail out instead of re-rendering
+        // this surface on every live poll.
+        if (next === current) return current;
         writeLocationWorkspaceMemory(auth.userId, next);
         return next;
       });
@@ -2288,17 +2293,20 @@ export function OneLocationAgentPageContent({
   const decryptedPoints = locationWorkspace.decryptedPoints;
   const setDecryptedPoints = useCallback(
     (next: SetStateAction<Record<string, PlainLocationPoint>>) => {
-      updateLocationWorkspace((current) => ({
-        ...current,
-        decryptedPoints:
+      updateLocationWorkspace((current) => {
+        const resolved =
           typeof next === "function"
             ? (
                 next as (
                   value: Record<string, PlainLocationPoint>,
                 ) => Record<string, PlainLocationPoint>
               )(current.decryptedPoints)
-            : next,
-      }));
+            : next;
+        // Propagate the updater's "nothing changed" verdict instead of
+        // allocating a fresh workspace around an unchanged map.
+        if (resolved === current.decryptedPoints) return current;
+        return { ...current, decryptedPoints: resolved };
+      });
     },
     [updateLocationWorkspace],
   );
@@ -3953,7 +3961,7 @@ export function OneLocationAgentPageContent({
         const point = await resolveSosLocation();
         if (!point) {
           toast.error(
-            "Couldn't get your location — SMS not sent. Check location permissions.",
+            "Couldn't get your location — alert not sent. Check location permissions.",
           );
           return;
         }
@@ -3982,13 +3990,13 @@ export function OneLocationAgentPageContent({
           );
         } else if (unreachable.length > 0) {
           toast.warning(
-            `SMS sent to ${reached} of ${readyRecipients.length} contacts. Couldn't alert ${formatNameList(unreachable)} — notifications are off on their end.`,
+            `Alerted ${reached} of ${readyRecipients.length} contacts. Couldn't reach ${formatNameList(unreachable)} — notifications are off on their end.`,
           );
         } else {
           toast.success(
             skipped > 0
-              ? `SMS sent to ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).`
-              : `SMS sent to ${readyRecipients.length} contact(s).`,
+              ? `Alerted ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).`
+              : `Alerted ${readyRecipients.length} contact(s).`,
           );
         }
         void refresh().catch(() => null);
@@ -4251,7 +4259,15 @@ export function OneLocationAgentPageContent({
             }
           },
         });
-        setDecryptedPoints((current) => ({ ...current, [grant.id]: point }));
+        // A stationary owner republishes the same point every heartbeat, so most
+        // ticks decrypt to something identical to what is already on screen.
+        // Writing it anyway would allocate a new workspace object and re-render
+        // this whole surface every few seconds for no visible change.
+        setDecryptedPoints((current) =>
+          samePlainLocationPoint(current[grant.id], point)
+            ? current
+            : { ...current, [grant.id]: point },
+        );
         // Recovered — clear any prior "ask them to share again" state.
         setGrantViewErrors((current) => {
           if (!(grant.id in current)) return current;
@@ -9296,7 +9312,6 @@ export function OneLocationAgentPageContent({
     onRequestPermission: () => void handleRequestLocationPermission(),
     onOpenLocationSettings: () => void handleOpenLocationSettings(),
     onSyncContacts: () => void handleSyncContactSignal(),
-    onShareToContacts: () => void handleShareContactInvite(),
     onOpenShareReview: () => void handleOpenShareReview(),
     onEnterShareConfirm: announceShareReviewOpened,
     onConfirmShare: () => void handleShare(),

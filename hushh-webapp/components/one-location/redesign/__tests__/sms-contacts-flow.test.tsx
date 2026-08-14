@@ -164,7 +164,7 @@ describe("SmsContactsFlow", () => {
     expect(screen.getByText("Remove Kushal?")).toBeInTheDocument();
   });
 
-  it("owns a full-screen settings canvas and a bottom-sheet confirmation", () => {
+  it("renders inside the shell and confirms removal in a bottom sheet", () => {
     render(
       <SmsContactsFlow
         {...baseProps}
@@ -172,11 +172,23 @@ describe("SmsContactsFlow", () => {
       />,
     );
 
-    expect(screen.getByTestId("sms-contacts-screen")).toHaveClass(
-      "fixed",
-      "inset-0",
-      "bg-background",
-    );
+    // It used to pin itself over the whole viewport, which hid the top bar's
+    // back control, "Location › SMS contacts" trail and profile avatar, and
+    // forced this screen to draw its own back arrow.
+    const screenEl = screen.getByTestId("sms-contacts-screen");
+    expect(screenEl.className).not.toMatch(/\bfixed\b/);
+    expect(screenEl.className).not.toMatch(/\binset-0\b/);
+    expect(screenEl.className).not.toMatch(/\bz-\[/);
+    expect(screenEl.className).not.toMatch(/100dvh/);
+
+    // Back belongs to the top bar; this screen exposes none of its own.
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+
+    // The title comes from the shared header primitive, matching its crumb.
+    expect(
+      screen.getByRole("heading", { level: 1, name: "SMS contacts" }),
+    ).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     expect(screen.getByRole("alertdialog")).toHaveClass(
       "!bottom-0",

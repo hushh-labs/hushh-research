@@ -63,11 +63,32 @@ function oneLocationActionLabel(action: string): string {
     "active-shares": "Active shares",
     "shared-with-me": "Shared with me",
     "needs-review": "Needs my review",
-    sos: "Safety",
+    // The crumb must match the on-screen title of the flow it names. The SOS
+    // screen's TaskFlowHeader reads "Save my Soul", so the crumb does too — a
+    // crumb saying "Safety" for a screen titled otherwise breaks the trail.
+    sos: "Save my Soul",
+    "sms-contacts": "SMS contacts",
     settings: "Settings",
     privacy: "Settings",
   };
   return labels[action] ?? titleizeSegment(action);
+}
+
+/**
+ * Which Location flow the SMS-contacts screen returns to.
+ *
+ * It is reachable from Settings AND from the middle of an SOS, so a fixed
+ * target is wrong: sending someone from SOS back to Settings drops them out of
+ * the emergency flow at the worst possible moment. The hub records the origin
+ * as `?source=sos` when it opens the screen; anything else (including an
+ * absent or unrecognised source) means Settings, where the other entry points
+ * live. This is the single implementation — `resolveSmsContactsBackFlow` in
+ * the Location hub delegates here so the two cannot drift.
+ */
+export function resolveSmsContactsBackAction(
+  source: string | null | undefined,
+): "sos" | "settings" {
+  return source === "sos" ? "sos" : "settings";
 }
 
 function profilePanelLabel(panel: ProfilePanel | null): string | null {
@@ -720,11 +741,14 @@ function resolveTopShellBreadcrumbInner(
       // from People returns to People — instead of always dropping to the
       // default "Now" tab. `openFlow` keeps the current `?view=` tab in the URL
       // when it appends `?action=`, so it is available here. SMS contacts is
-      // only ever reached from Settings, so it retraces to the Settings flow.
+      // reached from Settings AND from the middle of an SOS, so it retraces to
+      // whichever one opened it (see resolveSmsContactsBackAction).
       const hubView = String(searchParams?.get("view") || "").trim();
       const hubBackHref =
         action === "sms-contacts"
-          ? `${ROUTES.ONE_LOCATION}?action=settings`
+          ? `${ROUTES.ONE_LOCATION}?action=${resolveSmsContactsBackAction(
+              searchParams?.get("source"),
+            )}`
           : hubView
             ? `${ROUTES.ONE_LOCATION}?view=${encodeURIComponent(hubView)}`
             : ROUTES.ONE_LOCATION;

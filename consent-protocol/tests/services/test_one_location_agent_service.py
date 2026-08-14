@@ -3888,7 +3888,7 @@ def test_sms_grant_fails_closed_until_recipient_is_selected() -> None:
         envelope=encrypted_envelope("key-user_b", "ciphertext"),
     )
     assert len(service.notifications) == 1
-    assert service.notifications[0]["title"] == "SMS · Save my soul"
+    assert service.notifications[0]["title"] == "Save my Soul"
     assert service.notifications[0]["body"] == "User A: Come get me"
     assert service.notifications[0]["data"]["notification_profile"] == (
         "one_location_sms_emergency"

@@ -21,10 +21,7 @@ import { CacheProvider } from "@/lib/cache/cache-context";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
-import {
-  resolveAppRouteLayout,
-  shouldSuppressPersistentChromeForRouteState,
-} from "@/lib/navigation/app-route-layout";
+import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { AppTopShell } from "@/components/app-ui/top-app-bar";
 import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
@@ -124,12 +121,10 @@ function AppShellFrame({ children }: ProvidersProps) {
     [shellPathname],
   );
   const routeLayoutMode = routeLayout.mode;
-  const hidesPersistentChrome =
-    routeLayout.persistentChrome === "none" ||
-    shouldSuppressPersistentChromeForRouteState(
-      shellPathname,
-      searchParams?.get("action"),
-    );
+  // Chrome visibility is a property of the ROUTE, not of the `?action=` flow
+  // open inside it. Every Location task flow keeps the shell's back control,
+  // breadcrumb and avatar.
+  const hidesPersistentChrome = routeLayout.persistentChrome === "none";
   const topShellRouteProfile = useMemo(() => {
     const query = searchParams?.toString() ?? "";
     return resolveTopShellRouteProfile(
