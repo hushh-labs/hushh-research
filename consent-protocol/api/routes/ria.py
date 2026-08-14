@@ -23,6 +23,7 @@ from hushh_mcp.services.actor_identity_service import (
 )
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.nws_nearby_service import NwsNearbyError, NwsNearbyService
+from hushh_mcp.services.nws_networth_service import NwsNetWorthError, NwsNetWorthService
 from hushh_mcp.services.ria_claim_email_service import queue_claim_verification_email
 from hushh_mcp.services.ria_claim_service import (
     RIAClaimEmailError,
@@ -300,6 +301,25 @@ class RIANearbyShortlistRequest(BaseModel):
         return value
 
 
+class RIANetWorthDiscoverRequest(BaseModel):
+    """A US location to look up published net-worth estimates around.
+
+    Narrower than the directory request on purpose. The upstream accepts only a
+    US ZIP on the postal path and applies no trimming or case folding of its
+    own, and it takes exactly three result counts. Refusing anything else here
+    keeps a malformed request from spending the product's shared per-minute
+    grant, which a coordinate lookup spends twice.
+    """
+
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    postal_code: str | None = Field(default=None, min_length=5, max_length=10)
+    count: int = Field(default=100)
+    financial_mode: str = Field(default="estimated", min_length=1, max_length=32)
+    minimum_confidence: str = Field(default="C", min_length=1, max_length=1)
+    minimum_coverage: float = Field(default=0.55, ge=0.0, le=1.0)
+
+
 def _nearby_no_store(response: Response) -> None:
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["Pragma"] = "no-cache"
@@ -315,6 +335,25 @@ def _handle_nearby_error(exc: NwsNearbyError) -> HTTPException:
     return HTTPException(
         status_code=exc.status_code,
         detail={"code": "RIA_NEARBY_UNAVAILABLE", "message": str(exc)},
+        headers=headers,
+    )
+
+
+def _handle_networth_error(exc: NwsNetWorthError) -> HTTPException:
+    """Surface the net-worth failure with its own discriminator.
+
+    The directory handler stamps one code on every failure, so a client cannot
+    tell a rejected ZIP from a dead upstream without reading the status. This
+    path carries the service's own code instead, because the three states a
+    screen must distinguish — not configured, temporarily unavailable, and bad
+    input — all differ in whether retrying is worth anything.
+    """
+    headers = None
+    if exc.status_code == 429 and exc.retry_after_seconds:
+        headers = {"Retry-After": str(exc.retry_after_seconds)}
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": str(exc)},
         headers=headers,
     )
 
@@ -579,6 +618,46 @@ async def ria_nearby_shortlist_write(
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/nearby/networth")
+@limiter.limit(RateLimits.RIA_NEARBY_NETWORTH_READ)
+async def ria_nearby_networth_discover(
+    request: Request,
+    response: Response,
+    payload: RIANetWorthDiscoverRequest,
+    firebase_uid: str = Depends(_require_ria_verified),
+):
+    """Published net-worth estimates for people associated with a US location.
+
+    POST for the same reason the directory read is: a coordinate in a request
+    line is recorded verbatim by every access log it passes through.
+
+    Unlike the directory read, the advisor's identity matters here. A coordinate
+    lookup requires a consent receipt bound to a stable pseudonymous subject, so
+    the Firebase UID is used — never sent, only HMAC'd into an opaque actor the
+    upstream can bind a receipt to without learning who it is.
+
+    A covered location with no publishable estimate is a normal 200 with an
+    empty list. That is the common answer, not a failure: the geography index
+    spans the whole country while the reviewed financial roster does not, and
+    the two counts are returned separately so the screen can say so rather than
+    implying the search broke.
+    """
+    _nearby_no_store(response)
+    try:
+        return await NwsNetWorthService().discover(
+            firebase_uid=firebase_uid,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            postal_code=payload.postal_code,
+            count=payload.count,
+            financial_mode=payload.financial_mode,
+            minimum_confidence=payload.minimum_confidence,
+            minimum_coverage=payload.minimum_coverage,
+        )
+    except NwsNetWorthError as exc:
+        raise _handle_networth_error(exc) from exc
 
 
 @router.get("/nearby/shortlist")
