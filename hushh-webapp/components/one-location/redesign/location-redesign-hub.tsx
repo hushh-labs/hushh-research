@@ -47,6 +47,7 @@ import { requestRecipientStatus } from "@/lib/one-location/request-recipient-sta
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { LocationPermissionRecoveryCard } from "@/components/one-location/location-permission-recovery-card";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   RowDescription,
@@ -1077,6 +1078,20 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         titleRole="agent"
         actionsInlineMobile
         actions={<LocationHeaderActions vm={vm} />}
+      />
+
+      {/*
+        Directly under the header, above the tabs, because a blocked permission
+        is not a detail of one tab — it is the reason every Location feature
+        below is inert. It used to be announced only by the word "blocked" in
+        the header status and a toast that had already gone, which is how
+        someone ended up on this screen with nothing to act on.
+      */}
+      <LocationPermissionRecoveryCard
+        blocked={vm.locationBlocked}
+        busy={vm.locationAcquiring}
+        onRetry={vm.onShowMyLocation}
+        onOpenSettings={vm.onOpenLocationSettings}
       />
 
 
