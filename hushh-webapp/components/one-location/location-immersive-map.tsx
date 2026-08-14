@@ -54,6 +54,10 @@ import {
 } from "@/lib/one-location/maps-config";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 import {
+  LOCATION_COPY,
+  isLocationPermissionDeniedError,
+} from "@/lib/one-location/location-readiness";
+import {
   consumeNearbyPrivateReturn,
   NEARBY_PRIVATE_RESUME_PARAM,
 } from "@/lib/one-location/nearby-private-navigation";
@@ -1609,8 +1613,26 @@ export function LocationImmersiveMap({
   const locateMe = useCallback(async () => {
     if (!vaultOwnerToken) return;
     setBusy("locate");
+    // Getting a position and telling other people about it are two different
+    // jobs that used to share one catch, so a failed network call and a device
+    // that would not answer produced the same sentence: "we could not update
+    // your location". Only one of those is about location.
+    let point: PlainLocationPoint;
     try {
-      const point = await captureCurrentLocation();
+      point = await captureCurrentLocation();
+    } catch (error) {
+      // captureCurrentLocation now answers from the shared store when the
+      // device declines, so reaching here means there is genuinely nothing to
+      // centre on — worth saying, unlike a refresh that merely failed.
+      toast.error(
+        isLocationPermissionDeniedError(error)
+          ? LOCATION_COPY.denied
+          : LOCATION_COPY.noFix,
+      );
+      setBusy(null);
+      return;
+    }
+    try {
       await focusSelfPoint(point, { animate: true, select: true });
       if (demoMode) {
         toast.success("Centered on your device location.");
@@ -1661,7 +1683,9 @@ export function LocationImmersiveMap({
         "Your active private recipients can see this foreground update.",
       );
     } catch {
-      toast.error("We could not update your location.");
+      // The map has already moved to the new position; what failed is telling
+      // the people it is shared with.
+      toast.error("Couldn't send the update.");
     } finally {
       setBusy(null);
     }
