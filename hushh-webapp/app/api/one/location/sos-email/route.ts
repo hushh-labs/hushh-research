@@ -63,7 +63,12 @@ function noStore(body: unknown, status = 200) {
   });
 }
 
-const EMPTY = { emailed: 0, attempted: 0, configured: false };
+const EMPTY = {
+  emailed: 0,
+  attempted: 0,
+  configured: false,
+  withoutEmail: [] as string[],
+};
 
 function escapeHtml(value: string): string {
   return value
@@ -206,6 +211,7 @@ export async function POST(request: NextRequest) {
     ownerDisplayName?: string;
     openInOneUrl?: string;
     recipients?: Recipient[];
+    withoutEmail?: string[];
   };
   try {
     const upstream = await fetch(
@@ -226,10 +232,18 @@ export async function POST(request: NextRequest) {
     return noStore({ ...EMPTY, configured: true });
   }
 
+  // Contacts on this alert who have no address anywhere. Named so the sender
+  // can act on it, rather than being shown a bare "Emailed 0".
+  const withoutEmail = Array.isArray(resolved.withoutEmail)
+    ? resolved.withoutEmail.map((name) => String(name ?? "")).filter(Boolean)
+    : [];
+
   const recipients = Array.isArray(resolved.recipients)
     ? resolved.recipients
     : [];
-  if (!recipients.length) return noStore({ ...EMPTY, configured: true });
+  if (!recipients.length) {
+    return noStore({ ...EMPTY, configured: true, withoutEmail });
+  }
 
   const results = await Promise.all(
     recipients.map(async (recipient) => {
@@ -262,5 +276,6 @@ export async function POST(request: NextRequest) {
     emailed: results.filter(Boolean).length,
     attempted: results.length,
     configured: true,
+    withoutEmail,
   });
 }
