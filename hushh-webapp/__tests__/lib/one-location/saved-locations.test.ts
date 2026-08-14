@@ -448,7 +448,11 @@ describe("encrypted saved-locations PKM store", () => {
       code: "duplicate_saved_location",
       existingCategory: "home",
     });
-    expect(await loadSavedLocations(CONTEXT)).toEqual([concurrentlySavedHome]);
+    // Read normalizes the v2 fields onto a v1 entry, so it loads with the
+    // parts explicitly absent rather than undefined.
+    expect(await loadSavedLocations(CONTEXT)).toEqual([
+      { ...concurrentlySavedHome, addressBase: null, addressDetails: null },
+    ]);
   });
 
   it("uses the final retry when a concurrent duplicate is removed", async () => {
