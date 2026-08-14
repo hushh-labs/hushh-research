@@ -679,8 +679,8 @@ textarea {
   --ios-account-row-min-height: 58px;
   --ios-account-row-vertical-pad: 11px;
   --ios-account-separator-thickness: 0.5px;
-  --ios-account-section-header-bottom-gap: 8px;
-  --ios-account-section-gap: 18px;
+  --ios-account-section-header-bottom-gap: 10px;
+  --ios-account-section-gap: 24px;
   --ios-account-icon-tile-size: 34px;
   --ios-account-icon-tile-radius: 8px;
   --ios-account-icon-glyph-size: 20px;
@@ -1316,7 +1316,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-account-content
   .profile-account-reset-row
   [data-slot="settings-row-icon"] {
-  background: var(--app-warning) !important;
+  background: #b45309 !important;
 }
 
 .profile-account-content
@@ -1523,8 +1523,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-content {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-top: 14px;
+  gap: 22px;
+  margin-top: 18px;
   width: 100%;
 }
 
