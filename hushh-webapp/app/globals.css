@@ -1433,8 +1433,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-hero {
-  gap: 10px !important;
-  padding-top: 10px;
+  gap: 8px !important;
+  padding-top: 8px;
 }
 
 .profile-home-screen [data-profile-avatar-frame="true"] {
@@ -1502,10 +1502,10 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-meta {
   color: var(--ios-account-secondary-label) !important;
   font-family: var(--font-app-body);
-  font-size: var(--type-row-description-size) !important;
+  font-size: 13px !important;
   font-weight: 400;
   letter-spacing: 0 !important;
-  line-height: var(--type-row-description-line) !important;
+  line-height: 18px !important;
 }
 
 .profile-home-meta svg {
