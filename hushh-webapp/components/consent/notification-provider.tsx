@@ -418,6 +418,7 @@ function isOneLocationWorkflowNotificationType(
     value === "location_share_created" ||
     value === "location_access_approved" ||
     value === "location_share_revoked" ||
+    value === "location_share_shortened" ||
     value === "location_share_expired" ||
     value === "location_access_request" ||
     value === "location_access_denied" ||

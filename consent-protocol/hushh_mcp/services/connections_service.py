@@ -1582,26 +1582,14 @@ class ConnectionsService:
             except Exception:  # noqa: BLE001 - feed projection cannot roll back consent
                 logger.exception("connections.accepted_feed_projection_failed")
 
-        # Auto-share hook: a newly accepted connection makes both people
-        # mutually location-eligible. Honor each account persisted Auto-share
-        # flag. Best-effort, post-commit: the connection is already durable so
-        # an auto-share failure never undoes it. Gated per owner inside
-        # auto_start_share_for_new_peer, and only ever creates the
-        # metadata.source=auto_share grant a later toggle-off tears down.
-        try:
-            from hushh_mcp.services.one_location_agent_service import (
-                OneLocationAgentService,
-            )
-
-            location_service = OneLocationAgentService()
-            location_service.auto_start_share_for_new_peer(
-                owner_user_id=user_id, peer_user_id=requester
-            )
-            location_service.auto_start_share_for_new_peer(
-                owner_user_id=requester, peer_user_id=user_id
-            )
-        except Exception:  # noqa: BLE001 - auto-share cannot roll back the connection
-            logger.warning("connections.accepted_auto_share_failed", exc_info=True)
+        # Accepting a connection grants nothing on its own. Location sharing is
+        # opt-in and one-directional: it starts only when a person explicitly
+        # requests the other's location and that request is approved (see
+        # OneLocationAgentService.request_access / approve_request). A prior
+        # "auto-share on connect" hook lived here and silently granted both
+        # people mutual live location on every accepted connection with no
+        # request involved -- removed; see OneLocationAgentService.approve_request
+        # for the only path that may create a share grant.
         return {
             "status": "accepted",
             "requestId": req.get("id"),

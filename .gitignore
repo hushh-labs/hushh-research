@@ -184,4 +184,6 @@ ehthumbs_vista.db
 .backend-*.log
 .frontend-run.log
 .frontend-*.log
+.proxy-run.log
+.proxy-*.log
 *.log.cold.bak

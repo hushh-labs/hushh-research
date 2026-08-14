@@ -9,6 +9,8 @@ import {
 import { Children, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "@/lib/services/api-client";
+
 const {
   mockUseRequireAuth,
   mockUseVault,
@@ -36,6 +38,7 @@ const {
   mockStoreEnvelope,
   mockViewEnvelope,
   mockRevokeGrant,
+  mockShortenGrant,
   mockRequestAccess,
   mockCreatePublicInvite,
   mockCreateCircleInvite,
@@ -83,6 +86,7 @@ const {
   mockStoreEnvelope: vi.fn(),
   mockViewEnvelope: vi.fn(),
   mockRevokeGrant: vi.fn(),
+  mockShortenGrant: vi.fn(),
   mockRequestAccess: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
   mockCreateCircleInvite: vi.fn(),
@@ -277,6 +281,7 @@ vi.mock("@/lib/one-location/service", () => ({
       .mockResolvedValue({ background: "unavailable" }),
     viewEnvelope: mockViewEnvelope,
     revokeGrant: mockRevokeGrant,
+    shortenGrant: mockShortenGrant,
     requestAccess: mockRequestAccess,
     approveRequest: vi.fn(),
     denyRequest: vi.fn(),
@@ -982,6 +987,7 @@ describe("OneLocationAgentPage", () => {
       sourcePlatform: "web",
     });
     mockRevokeGrant.mockResolvedValue({});
+    mockShortenGrant.mockResolvedValue({});
     mockRequestAccess.mockResolvedValue({});
     mockCopyToClipboard.mockResolvedValue(true);
     mockCreatePublicInvite.mockResolvedValue({
@@ -2921,6 +2927,21 @@ describe("OneLocationAgentPage", () => {
         name: "Start Google Maps navigation to shared live location",
       }),
     ).toBeNull();
+
+    // A received share must be removable by the recipient, not just the
+    // owner: revoke is symmetric on the backend, but until now no control in
+    // "Shared with me" ever called it, so the only way off this list was
+    // waiting for expiry or asking the owner to stop it themselves.
+    const removeButton = screen.getByRole("button", {
+      name: "Remove Trusted A from Shared with me",
+    });
+    fireEvent.click(removeButton);
+    await waitFor(() =>
+      expect(mockRevokeGrant).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        grantId: "grant_stale",
+      }),
+    );
   });
 
   it("tracks public location link creation without analytics identity payloads", async () => {
@@ -3359,6 +3380,202 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getAllByText("Trusted B").length).toBeGreaterThan(0);
     expect(screen.queryByText("user_b")).toBeNull();
     expect(screen.queryByText("request_1")).toBeNull();
+  });
+
+  it("lets the requester delete a live (approved) request they sent", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      requests: [
+        {
+          id: "request_live",
+          ownerUserId: "user_b",
+          requesterUserId: "user_a",
+          status: "approved",
+          approvedGrantId: "grant_from_request_live",
+          requestedAt: "2026-05-20T07:30:00.000Z",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    expect(
+      await screen.findByRole("heading", { name: "Requests sent" }),
+    ).toBeTruthy();
+    // A live request shows a real Delete action, not a static "Active" label
+    // with no way off the list.
+    expect(screen.queryByText("Active")).toBeNull();
+    const deleteButton = screen.getByRole("button", { name: "Delete" });
+    fireEvent.click(deleteButton);
+    await waitFor(() =>
+      expect(mockRevokeGrant).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        grantId: "grant_from_request_live",
+      }),
+    );
+  });
+
+  it("shortens a live request's duration immediately, with no re-approval", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      requests: [
+        {
+          id: "request_live",
+          ownerUserId: "user_b",
+          requesterUserId: "user_a",
+          status: "approved",
+          approvedGrantId: "grant_from_request_live",
+          requestedAt: "2026-05-20T07:30:00.000Z",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    await screen.findByRole("heading", { name: "Requests sent" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(mockShortenGrant).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        grantId: "grant_from_request_live",
+        durationHours: 1,
+      }),
+    );
+    // Shortening never needs the owner's approval -- no new request goes out.
+    expect(mockRequestAccess).not.toHaveBeenCalled();
+  });
+
+  it("falls back to re-asking the owner when the new duration would extend access", async () => {
+    // shorten_grant's whole reason to exist is refusing to move expiry
+    // later. The UI has no idea what the current expiry is, so it always
+    // tries shorten first and lets this rejection decide whether a fresh,
+    // owner-approved request goes out instead.
+    mockShortenGrant.mockRejectedValueOnce(
+      new ApiError("shorten only", 422, {
+        code: "LOCATION_GRANT_SHORTEN_ONLY",
+      }),
+    );
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      requests: [
+        {
+          id: "request_live",
+          ownerUserId: "user_b",
+          requesterUserId: "user_a",
+          status: "approved",
+          approvedGrantId: "grant_from_request_live",
+          requestedAt: "2026-05-20T07:30:00.000Z",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    await screen.findByRole("heading", { name: "Requests sent" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(mockRequestAccess).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        ownerUserId: "user_b",
+        message: "Requesting more time.",
+      }),
+    );
+  });
+
+  it("removes an already-live person's access from the Ask flow's own list", async () => {
+    // Ask's person list already showed "Live" for someone sharing with you --
+    // it just gave you nothing to do about that but leave the screen and
+    // hunt through Shared with me / Requests sent instead.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [
+        {
+          id: "grant_live_ask",
+          ownerUserId: "user_b",
+          recipientUserId: "user_a",
+          ownerDisplayName: "Trusted B",
+          recipientKeyId: "key_a",
+          status: "active",
+          consentScope: "cap.location.live.view",
+          capabilityScopes: ["cap.location.live.view"],
+          durationHours: 1,
+          expiresAt: "2099-05-20T08:00:00.000Z",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Trusted B's access" }),
+    );
+    await waitFor(() =>
+      expect(mockRevokeGrant).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        grantId: "grant_live_ask",
+      }),
+    );
+  });
+
+  it("edits an already-live person's duration from the Ask flow's own list", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [
+        {
+          id: "grant_live_ask",
+          ownerUserId: "user_b",
+          recipientUserId: "user_a",
+          ownerDisplayName: "Trusted B",
+          recipientKeyId: "key_a",
+          status: "active",
+          consentScope: "cap.location.live.view",
+          capabilityScopes: ["cap.location.live.view"],
+          durationHours: 1,
+          expiresAt: "2099-05-20T08:00:00.000Z",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit access for Trusted B" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(mockShortenGrant).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        grantId: "grant_live_ask",
+        durationHours: 1,
+      }),
+    );
   });
 
   it("fans out approval-first requests to multiple selected owners without coordinates", async () => {

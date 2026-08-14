@@ -130,6 +130,10 @@ class ResolveAccessRequest(_CamelModel):
     duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=24)
 
 
+class ShortenGrantRequest(_CamelModel):
+    duration_hours: float = Field(alias="durationHours", gt=0, le=24)
+
+
 class ReferralRequest(_CamelModel):
     referred_user_id: str = Field(alias="referredUserId", min_length=1, max_length=160)
     message: str | None = Field(default=None, max_length=500)
@@ -1363,6 +1367,28 @@ def revoke_location_grant(
             "grant": _service().revoke_grant(
                 owner_user_id=_user_id(token_data),
                 grant_id=grant_id,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/grants/{grant_id}/shorten")
+def shorten_location_grant(
+    grant_id: _GrantId,
+    payload: ShortenGrantRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Bring a grant's expiry earlier. Either party may call this; the
+    service rejects any attempt to move the expiry later -- extending
+    access is the owner's consent to give again, via request_access, not a
+    duration either side can hand themselves through this route."""
+    try:
+        return {
+            "grant": _service().shorten_grant(
+                caller_user_id=_user_id(token_data),
+                grant_id=grant_id,
+                duration_hours=payload.duration_hours,
             )
         }
     except Exception as exc:

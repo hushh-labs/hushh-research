@@ -294,6 +294,17 @@ export type LocationHubViewModel = {
   onDeny: (requestId: string) => void;
   onViewGrant: (grant: OneLocationGrant) => void;
   onStopGrant: (grantId: string) => void;
+  /** Grant currently showing the inline duration editor, or null. */
+  editingGrantId: string | null;
+  onEditGrantStart: (grantId: string) => void;
+  onEditGrantCancel: () => void;
+  editGrantDurationHours: string;
+  setEditGrantDurationHours: (v: string) => void;
+  onEditGrantSave: (params: {
+    ownerUserId: string;
+    grantId: string;
+    ownerLabel: string;
+  }) => void;
   onCreatePublicInvite: () => void;
   onCopyPublicInvite: () => void;
   onSharePublicInvite: () => void;
@@ -1465,6 +1476,8 @@ function LocationDetailFlow({
                   onRecenter={
                     point ? () => recenterGrantViewport(grant.id) : undefined
                   }
+                  onRemove={() => vm.onStopGrant(grant.id)}
+                  removeBusy={vm.revokingGrantId === grant.id}
                   viewBusy={vm.busy === "view"}
                   message={
                     point?.checkIn?.message ??
@@ -1948,21 +1961,90 @@ function PeopleHub({
 
       {vm.requestedByMe.length ? (
         <SettingsGroup title="Requests sent" separatorInset>
-          {vm.requestedByMe.map((request) => (
-            <SettingsRow
-              key={request.id}
-              icon={Send}
-              iconTone="blue"
-              title={vm.requestOwnerLabel(request)}
-              description={vm.formatDateTime(request.requestedAt)}
-              trailing={
-                /active|approved|shared|granted/i.test(request.status)
-                  ? "Active"
-                  : "Pending"
-              }
-              density="compact"
-            />
-          ))}
+          {vm.requestedByMe.map((request) => {
+            const isLive = /active|approved|shared|granted/i.test(
+              request.status,
+            );
+            const grantId = request.approvedGrantId;
+            const canEdit = isLive && Boolean(grantId);
+            const isEditing = Boolean(grantId) && vm.editingGrantId === grantId;
+            const ownerLabel = vm.requestOwnerLabel(request);
+            return (
+              <div key={request.id}>
+                <SettingsRow
+                  icon={Send}
+                  iconTone="blue"
+                  title={ownerLabel}
+                  description={vm.formatDateTime(request.requestedAt)}
+                  trailing={
+                    canEdit && grantId ? (
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-9"
+                          onClick={() =>
+                            isEditing
+                              ? vm.onEditGrantCancel()
+                              : vm.onEditGrantStart(grantId)
+                          }
+                        >
+                          {isEditing ? "Cancel" : "Edit"}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-9 text-destructive"
+                          onClick={() => vm.onStopGrant(grantId)}
+                          disabled={vm.revokingGrantId === grantId}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    ) : isLive ? (
+                      "Active"
+                    ) : (
+                      "Pending"
+                    )
+                  }
+                  density="compact"
+                />
+                {isEditing && grantId ? (
+                  <div className="space-y-3 px-1 pb-3">
+                    <DurationSelector
+                      value={vm.editGrantDurationHours}
+                      onChange={vm.setEditGrantDurationHours}
+                      label="New duration"
+                      presentation="select"
+                    />
+                    {/* Framed as "new duration", not "shorten"/"extend": the
+                        person picks a duration like any other duration
+                        picker in this app. Whether it applies immediately
+                        or turns into a fresh request the owner has to
+                        approve is decided server-side by whether it's
+                        shorter or longer than what's left -- and either
+                        outcome is confirmed by the toast that follows. */}
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="h-9 flex-1 rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+                        onClick={() =>
+                          vm.onEditGrantSave({
+                            ownerUserId: request.ownerUserId,
+                            grantId,
+                            ownerLabel,
+                          })
+                        }
+                        isLoading={vm.revokingGrantId === grantId}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </SettingsGroup>
       ) : null}
     </div>
@@ -2609,10 +2691,22 @@ function AskFlow({
                 receivedGrants: vm.receivedGrants,
                 nowMs: statusNowMs,
               });
+              // A row already Live is the one place this list had no way off
+              // it: the person keeps showing up "already sharing" with
+              // nothing to do about that but wait it out or leave the screen
+              // entirely to find the Shared with me / Requests sent list
+              // that could end or shorten it.
+              const activeGrant = vm.receivedGrants.find(
+                (grant) =>
+                  grant.ownerUserId === r.userId && grant.status === "active",
+              );
+              const isEditingThis =
+                Boolean(activeGrant) && vm.editingGrantId === activeGrant?.id;
+              const recipientLabel = vm.recipientLabel(r);
               return (
                 <TrustedPersonCard
                   key={r.userId}
-                  name={vm.recipientLabel(r)}
+                  name={recipientLabel}
                   subtitle={status.subtitle}
                   tone={status.tone}
                   statusLabel={status.statusLabel}
@@ -2625,13 +2719,58 @@ function AskFlow({
                   }
                   actionAriaLabel={`${
                     selected ? "Deselect" : "Select"
-                  } ${vm.recipientLabel(r)} for location request`}
+                  } ${recipientLabel} for location request`}
                   onAction={
                     status.selectable
                       ? () => vm.toggleRequestOwner(r.userId, "ask_flow")
                       : undefined
                   }
                   selected={selected && status.selectable}
+                  onEdit={
+                    activeGrant
+                      ? () =>
+                          isEditingThis
+                            ? vm.onEditGrantCancel()
+                            : vm.onEditGrantStart(activeGrant.id)
+                      : undefined
+                  }
+                  editActive={isEditingThis}
+                  onRemove={
+                    activeGrant
+                      ? () => vm.onStopGrant(activeGrant.id)
+                      : undefined
+                  }
+                  removeBusy={
+                    activeGrant
+                      ? vm.revokingGrantId === activeGrant.id
+                      : false
+                  }
+                  expandedContent={
+                    isEditingThis && activeGrant ? (
+                      <>
+                        <DurationSelector
+                          value={vm.editGrantDurationHours}
+                          onChange={vm.setEditGrantDurationHours}
+                          label="New duration"
+                          presentation="select"
+                        />
+                        <Button
+                          size="sm"
+                          className="h-9 w-full rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+                          onClick={() =>
+                            vm.onEditGrantSave({
+                              ownerUserId: r.userId,
+                              grantId: activeGrant.id,
+                              ownerLabel: recipientLabel,
+                            })
+                          }
+                          isLoading={vm.revokingGrantId === activeGrant.id}
+                        >
+                          Save
+                        </Button>
+                      </>
+                    ) : undefined
+                  }
                 />
               );
             })}

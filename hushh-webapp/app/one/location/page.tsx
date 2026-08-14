@@ -1977,6 +1977,9 @@ export function OneLocationAgentPageContent({
   // Per-grant revoke tracking so "Stop sharing" only spins on the specific
   // active-share card the user tapped, not every active share at once.
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+  /** Which grant is showing the inline duration editor, wherever it's listed. */
+  const [editingGrantId, setEditingGrantId] = useState<string | null>(null);
+  const [editGrantDurationHours, setEditGrantDurationHours] = useState("1");
   // Opt-in: keep publishing location while the app is backgrounded (native only).
   const [backgroundShareEnabled, setBackgroundShareEnabled] = useState(false);
   // Monotonic counter bumped each time a share completes successfully, so the
@@ -4839,6 +4842,68 @@ export function OneLocationAgentPageContent({
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Could not revoke access.",
+        );
+      } finally {
+        setRevokingGrantId(null);
+      }
+    },
+    [refresh, vaultOwnerToken],
+  );
+
+  /**
+   * Edit a received grant's remaining time -- from any list that shows one
+   * (Ask's "already sharing" rows, Requests sent, Shared with me).
+   *
+   * Shortening is self-limiting -- the owner already agreed to be seen at
+   * least this long -- so it applies immediately. Extending is a different
+   * question: it grows how long the recipient can see the owner, and that
+   * is the owner's consent to give again. This tries shorten_grant first,
+   * and on the backend's explicit "that would extend it" rejection, falls
+   * back to a fresh request_access the owner has to approve like any other.
+   */
+  const handleEditGrantDuration = useCallback(
+    async (
+      params: { ownerUserId: string; grantId: string; ownerLabel: string },
+      durationHours: number,
+    ) => {
+      if (!vaultOwnerToken) return;
+      const { ownerUserId, grantId, ownerLabel } = params;
+      setRevokingGrantId(grantId);
+      try {
+        await OneLocationService.shortenGrant({
+          vaultOwnerToken,
+          grantId,
+          durationHours,
+        });
+        toast.success("Access shortened.");
+        setEditingGrantId(null);
+        void refresh().catch(() => null);
+        return;
+      } catch (error) {
+        if (apiErrorCode(error) !== "LOCATION_GRANT_SHORTEN_ONLY") {
+          toast.error(
+            error instanceof Error ? error.message : "Could not update access.",
+          );
+          setRevokingGrantId(null);
+          return;
+        }
+      }
+      // Extending needs the owner's approval again -- send a new request
+      // rather than silently lengthening the existing grant.
+      try {
+        await OneLocationService.requestAccess({
+          vaultOwnerToken,
+          ownerUserId,
+          message: "Requesting more time.",
+        });
+        toast.success(`Asked ${ownerLabel} for more time.`);
+        setEditingGrantId(null);
+        void refresh().catch(() => null);
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : `Could not ask ${ownerLabel} for more time.`,
         );
       } finally {
         setRevokingGrantId(null);
@@ -9320,6 +9385,16 @@ export function OneLocationAgentPageContent({
     onDeny: (requestId) => void handleDeny(requestId),
     onViewGrant: (grant) => void handleView(grant),
     onStopGrant: (grantId) => void handleRevoke(grantId),
+    editingGrantId,
+    onEditGrantStart: (grantId) => {
+      setEditGrantDurationHours("1");
+      setEditingGrantId(grantId);
+    },
+    onEditGrantCancel: () => setEditingGrantId(null),
+    editGrantDurationHours,
+    setEditGrantDurationHours,
+    onEditGrantSave: (params) =>
+      void handleEditGrantDuration(params, Number(editGrantDurationHours)),
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
     onCopyPublicInvite: () => void handleCopyPublicInvite(),
     onSharePublicInvite: () => void handleSharePublicInvite(),
