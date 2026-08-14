@@ -460,3 +460,55 @@ describe("national index", () => {
     );
   });
 });
+
+describe("score regime", () => {
+  async function openFirstRecord(over: Record<string, unknown>) {
+    mockDiscover.mockResolvedValue({
+      ...COVERED,
+      results: [record({ personId: "b1", displayName: "Builder One", ...over })],
+    });
+
+    render(<NearbyAroundYou />);
+    fireEvent.click(screen.getByRole("button", { name: /enter a place/i }));
+    fireEvent.change(screen.getByLabelText(/postcode/i), { target: { value: "94010" } });
+    fireEvent.change(screen.getByLabelText(/country/i), { target: { value: "US" } });
+    fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
+
+    await waitFor(() => expect(screen.getByText("Builder One")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Builder One"));
+  }
+
+  it("says what a nationally discovered score actually measured", async () => {
+    // Most of the weighting has nothing to read for these records, so they land
+    // far below a reviewed one. Unlabelled, that reads as a weaker person.
+    await openFirstRecord({ scoreKind: "PROFESSIONAL_NETWORK_PROVISIONAL" });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/From public registry role and recency only/i),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("stays silent for a reviewed record", async () => {
+    await openFirstRecord({ scoreKind: "REVIEWED_PUBLIC_ASSOCIATION" });
+
+    await waitFor(() =>
+      expect(screen.getByText(/Network strength, not net worth/i)).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/From public registry role and recency only/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("claims nothing when the service sends no regime", async () => {
+    await openFirstRecord({ scoreKind: null });
+
+    await waitFor(() =>
+      expect(screen.getByText(/Network strength, not net worth/i)).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/From public registry role and recency only/i),
+    ).not.toBeInTheDocument();
+  });
+});
