@@ -304,6 +304,20 @@ export function SosPanel({
     cancelHold();
   };
 
+  // Pointer capture (set on pointerdown, above) is what lets the hold survive
+  // the cursor drifting off the circular hitbox — pointerup/pointercancel are
+  // routed to this button regardless of where the pointer physically ends up.
+  // Some Chrome builds still fire `pointerleave` on boundary crossing even
+  // while capture is held, which cancelled a perfectly good hold the instant a
+  // mouse wobbled off the circle for a frame. Only treat leave as a real
+  // release when capture was never established (e.g. an unsupported pointer
+  // type), so the ring cannot be reset by anything short of an actual
+  // pointerup/pointercancel/blur.
+  const handlePointerLeave = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) return;
+    cancelHold();
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if ((event.key === " " || event.key === "Enter") && !event.repeat) {
       event.preventDefault();
@@ -469,7 +483,7 @@ export function SosPanel({
           <svg
             viewBox="0 0 344 344"
             aria-hidden
-            className="absolute inset-0 h-full w-full -rotate-90"
+            className="absolute inset-0 h-full w-full"
           >
             <circle
               cx="172"
@@ -480,16 +494,29 @@ export function SosPanel({
               strokeWidth="2"
               vectorEffect="non-scaling-stroke"
             />
-            <circle
-              cx="172"
-              cy="172"
-              r="168"
+            {/* Two half-arcs, both starting at the top and racing down to meet
+                at the bottom, so the hold reads as closing in from both sides
+                rather than one hand sweeping clockwise. Each half is exactly
+                RING_CIRCUMFERENCE / 2, so they always land together. */}
+            <path
+              d="M172,4 A168,168 0 0 1 172,340"
               fill="none"
               stroke="var(--app-destructive)"
               strokeWidth="3"
               strokeLinecap="round"
-              strokeDasharray={RING_CIRCUMFERENCE}
-              strokeDashoffset={RING_CIRCUMFERENCE * (1 - progress)}
+              strokeDasharray={RING_CIRCUMFERENCE / 2}
+              strokeDashoffset={(RING_CIRCUMFERENCE / 2) * (1 - progress)}
+              vectorEffect="non-scaling-stroke"
+              style={{ transition: "stroke-dashoffset 80ms linear" }}
+            />
+            <path
+              d="M172,4 A168,168 0 0 0 172,340"
+              fill="none"
+              stroke="var(--app-destructive)"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeDasharray={RING_CIRCUMFERENCE / 2}
+              strokeDashoffset={(RING_CIRCUMFERENCE / 2) * (1 - progress)}
               vectorEffect="non-scaling-stroke"
               style={{ transition: "stroke-dashoffset 80ms linear" }}
             />
@@ -520,7 +547,7 @@ export function SosPanel({
               onPointerDown={handlePointerDown}
               onPointerUp={handlePointerEnd}
               onPointerCancel={handlePointerEnd}
-              onPointerLeave={cancelHold}
+              onPointerLeave={handlePointerLeave}
               onKeyDown={handleKeyDown}
               onKeyUp={handleKeyUp}
               onContextMenu={(event) => event.preventDefault()}
@@ -759,34 +786,42 @@ export function SosPanel({
             <button
               type="button"
               onClick={onResolveEmergencyNumber}
-              disabled={
-                emergencyStatus === "idle" || emergencyStatus === "resolving"
-              }
+              // "resolving" is the only state that must stay inert -- it means
+              // a lookup is already in flight. "idle" (nothing looked up yet)
+              // and "unavailable" (a lookup failed) both stay tappable, since
+              // each needs the tap to be the thing that starts the next lookup.
+              disabled={emergencyStatus === "resolving"}
               aria-label={
                 emergencyStatus === "unavailable"
                   ? "Retry local emergency number"
-                  : "Finding local emergency number"
+                  : emergencyStatus === "resolving"
+                    ? "Finding local emergency number"
+                    : "Find local emergency number"
               }
               className="press-scale flex items-center gap-2.5 text-[color:var(--app-destructive)] transition-opacity hover:opacity-70 disabled:cursor-wait disabled:opacity-75"
             >
-              {emergencyStatus === "unavailable" ? (
-                <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
-              ) : (
+              {emergencyStatus === "resolving" ? (
                 <Loader2
                   className="h-[17px] w-[17px] animate-spin"
                   aria-hidden
                 />
+              ) : (
+                <Phone className="h-[17px] w-[17px] fill-current" aria-hidden />
               )}
               <span className="text-left leading-tight">
                 <span className="block text-[16px] font-medium tracking-[-0.3px] lg:text-[17px] lg:tracking-[-0.37px]">
                   {emergencyStatus === "unavailable"
                     ? "Retry local number"
-                    : "Finding local number"}
+                    : emergencyStatus === "resolving"
+                      ? "Finding local number"
+                      : "Find local number"}
                 </span>
                 <span className="block text-[12px] text-[color:var(--sos-label)]">
                   {emergencyStatus === "unavailable"
                     ? "Location unavailable"
-                    : "Using current location"}
+                    : emergencyStatus === "resolving"
+                      ? "Using current location"
+                      : "Tap to look up"}
                 </span>
               </span>
             </button>
