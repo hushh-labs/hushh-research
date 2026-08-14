@@ -4874,7 +4874,9 @@ class OneLocationAgentService:
                 )
         return envelope_payload
 
-    def view_latest_envelope(self, *, recipient_user_id: str, grant_id: str) -> dict[str, Any]:
+    def view_latest_envelope(
+        self, *, recipient_user_id: str, grant_id: str, allow_empty: bool = False
+    ) -> dict[str, Any]:
         self._expire_stale_grants(recipient_user_id)
         grant_row = self._execute_one(
             """
@@ -4923,6 +4925,18 @@ class OneLocationAgentService:
             {"recipient_user_id": recipient_user_id, "grant_id": grant_id},
         )
         if not row:
+            # "The share is live, the owner just hasn't published a point yet"
+            # is a normal state on the happy path — the recipient opens One the
+            # moment they are granted access, before the owner's first GPS fix
+            # lands. Callers that opt in get that as a success with a null
+            # envelope so it never surfaces as a failed request; callers that
+            # do not keep the original 404 contract they already branch on.
+            if allow_empty:
+                return {
+                    "grant": self._grant_payload(grant_row),
+                    "envelope": None,
+                    "status": "awaiting_first_publish",
+                }
             raise OneLocationAgentError(
                 "LOCATION_ENVELOPE_MISSING",
                 "The owner has not published an encrypted location envelope yet.",
@@ -4940,6 +4954,7 @@ class OneLocationAgentService:
         return {
             "grant": self._grant_payload(grant_row),
             "envelope": self._envelope_payload(row),
+            "status": "published",
         }
 
     def get_map_preferences(self, *, user_id: str) -> dict[str, Any]:

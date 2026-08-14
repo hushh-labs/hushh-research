@@ -647,6 +647,10 @@ def test_list_verified_recipients_sources_from_connections(
 
 
 class EnvelopeReadProbe(OneLocationAgentService):
+    #: When False the grant is live but no envelope row exists yet — the state a
+    #: recipient sits in between being granted access and the owner's first fix.
+    has_envelope = True
+
     def __init__(self) -> None:
         self.calls: list[str] = []
 
@@ -656,6 +660,8 @@ class EnvelopeReadProbe(OneLocationAgentService):
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
         self.calls.append(sql)
+        if "FROM one_location_envelopes" in sql and not self.has_envelope:
+            return None
         if "FROM one_location_share_grants g" in sql:
             return {
                 "id": "00000000-0000-0000-0000-000000000001",
@@ -698,8 +704,137 @@ def test_view_latest_envelope_returns_ciphertext_only_payload() -> None:
     assert "RETURNING\n              target_grant.id" in stale_cleanup_sql
     assert response["grant"]["recipientUserId"] == "user_b"
     assert response["envelope"]["ciphertext"] == "ciphertext-only"
+    assert response["status"] == "published"
     assert "latitude" not in json.dumps(response)
     assert "longitude" not in json.dumps(response)
+
+
+class _AwaitingFirstPublishProbe(EnvelopeReadProbe):
+    has_envelope = False
+
+
+def test_view_latest_envelope_without_allow_empty_keeps_legacy_404() -> None:
+    """Clients already in the field branch on this error code; it must not move."""
+
+    service = _AwaitingFirstPublishProbe()
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        service.view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+        )
+
+    assert excinfo.value.code == "LOCATION_ENVELOPE_MISSING"
+    assert excinfo.value.status_code == 404
+
+
+def test_view_latest_envelope_allow_empty_returns_awaiting_first_publish() -> None:
+    """A live grant with no point yet is a success, not a failed request.
+
+    The recipient almost always opens One before the owner's first GPS fix
+    lands. Reporting that as 404 made the browser log a failed request on every
+    poll for a state nothing had gone wrong in.
+    """
+
+    service = _AwaitingFirstPublishProbe()
+    response = service.view_latest_envelope(
+        recipient_user_id="user_b",
+        grant_id="00000000-0000-0000-0000-000000000001",
+        allow_empty=True,
+    )
+
+    assert response["envelope"] is None
+    assert response["status"] == "awaiting_first_publish"
+    # The grant itself still comes back so the recipient keeps the owner label
+    # and expiry on screen while waiting.
+    assert response["grant"]["recipientUserId"] == "user_b"
+    # Waiting must never leak coordinates, same as the published path.
+    assert "latitude" not in json.dumps(response)
+    assert "longitude" not in json.dumps(response)
+
+
+def test_view_latest_envelope_allow_empty_does_not_mask_a_missing_grant() -> None:
+    """allow_empty relaxes 'no point yet' only — never 'no such share'."""
+
+    class _NoGrantProbe(EnvelopeReadProbe):
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            self.calls.append(sql)
+            if "FROM one_location_share_grants g" in sql:
+                return None
+            return None
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        _NoGrantProbe().view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            allow_empty=True,
+        )
+
+    assert excinfo.value.code == "LOCATION_GRANT_NOT_FOUND"
+    assert excinfo.value.status_code == 404
+
+
+def test_view_latest_envelope_allow_empty_does_not_mask_a_revoked_grant() -> None:
+    """A revoked/expired share must still be rejected, not reported as waiting."""
+
+    class _RevokedGrantProbe(EnvelopeReadProbe):
+        has_envelope = False
+
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            row = super()._execute_one(sql, params)
+            if row and "FROM one_location_share_grants g" in sql:
+                return {**row, "status": "revoked"}
+            return row
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        _RevokedGrantProbe().view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            allow_empty=True,
+        )
+
+    assert excinfo.value.code == "LOCATION_GRANT_NOT_ACTIVE"
+    assert excinfo.value.status_code == 410
+
+
+def test_view_latest_envelope_allow_empty_does_not_mask_a_rotated_recipient_key() -> None:
+    """A key rotation still needs the 'ask them to share again' signal."""
+
+    class _RotatedKeyProbe(EnvelopeReadProbe):
+        has_envelope = False
+
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            row = super()._execute_one(sql, params)
+            if row and "FROM one_location_share_grants g" in sql:
+                return {**row, "recipient_key_active": False}
+            return row
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        _RotatedKeyProbe().view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            allow_empty=True,
+        )
+
+    assert excinfo.value.code == "LOCATION_GRANT_NOT_ACTIVE"
+    assert excinfo.value.status_code == 410
+
+
+def test_view_latest_envelope_awaiting_first_publish_records_no_view_event() -> None:
+    """No ciphertext was released, so the audit trail must not claim a view."""
+
+    service = _AwaitingFirstPublishProbe()
+    inserted: list[str] = []
+    service._insert_event = lambda **kwargs: inserted.append(  # type: ignore[method-assign]
+        str(kwargs.get("event_type"))
+    )
+
+    service.view_latest_envelope(
+        recipient_user_id="user_b",
+        grant_id="00000000-0000-0000-0000-000000000001",
+        allow_empty=True,
+    )
+
+    assert "location_share_viewed" not in inserted
 
 
 class FourUserMemoryService(OneLocationAgentService):

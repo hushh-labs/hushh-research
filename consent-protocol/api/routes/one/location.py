@@ -1388,12 +1388,22 @@ def store_location_envelope(
 @router.get("/location/grants/{grant_id}/envelope")
 def view_latest_location_envelope(
     grant_id: _GrantId,
+    allow_empty: bool = Query(
+        False,
+        description=(
+            "Treat 'grant is live but the owner has not published yet' as a "
+            "success (200 with envelope=null) instead of a 404. Opt-in so "
+            "already-shipped clients keep the legacy LOCATION_ENVELOPE_MISSING "
+            "error contract they branch on."
+        ),
+    ),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
         return _service().view_latest_envelope(
             recipient_user_id=_user_id(token_data),
             grant_id=grant_id,
+            allow_empty=allow_empty,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc

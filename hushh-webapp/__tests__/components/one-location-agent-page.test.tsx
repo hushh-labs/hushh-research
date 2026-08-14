@@ -245,6 +245,13 @@ vi.mock("@/lib/one-location/encryption", () => ({
   ensureLocationRecipientKey: mockEnsureKey,
   encryptLocationForRecipient: mockEncryptLocationForRecipient,
   decryptLocationEnvelope: mockDecryptLocationEnvelope,
+  // Mirrors the real export. The page reads this constant inside its view-error
+  // handler, so omitting it made every recipient-side failure path throw a
+  // vitest "no export is defined" error from inside the catch block — which
+  // Promise.allSettled then swallowed, hiding the whole branch from these tests.
+  RECIPIENT_KEY_UNAVAILABLE_MESSAGE:
+    "Recipient key unavailable for this location share.",
+  ensureVaultSyncedRecipientKey: vi.fn(async () => {}),
 }));
 
 vi.mock("@/lib/one-location/service", () => ({
@@ -2782,6 +2789,236 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
     expect(screen.queryByText("Activity history")).toBeNull();
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
+  });
+
+  /**
+   * Recipient-side polling. The page reads every visible received share on an
+   * interval so a shared dot moves in near real time. These cover the states
+   * that used to make that loop misbehave: a live share with nothing published
+   * yet (which the backend reported as 404 on every single tick), a share that
+   * keeps failing, and a read that never settles.
+   */
+  describe("received-share polling", () => {
+    const waitingGrant = {
+      id: "grant_waiting",
+      ownerUserId: "user_a",
+      recipientUserId: "user_b",
+      ownerDisplayName: "Trusted A",
+      recipientKeyId: "key_b",
+      status: "active",
+      consentScope: "cap.location.live.view",
+      capabilityScopes: ["cap.location.live.view"],
+      durationHours: 1,
+      expiresAt: "2099-05-20T08:00:00.000Z",
+      latestEnvelopeId: null,
+    };
+
+    const renderAsRecipient = async () => {
+      mockUseRequireAuth.mockReturnValue({
+        loading: false,
+        isAuthenticated: true,
+        userId: "user_b",
+        user: { uid: "user_b" },
+      });
+      window.localStorage.setItem(
+        "one_location_opened_grants_v1:user_b",
+        JSON.stringify(["grant_waiting"]),
+      );
+      window.localStorage.setItem("one_location_onboarding_v2:user_b", "1");
+      mockGetState.mockResolvedValue({
+        ...locationState(),
+        ownerGrants: [],
+        receivedGrants: [waitingGrant],
+      });
+
+      render(<OneLocationAgentPage />);
+      expect(
+        await screen.findByRole("heading", { name: "Location Agent" }),
+      ).toBeTruthy();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+      fireEvent.click(screen.getByRole("button", { name: /Shared with me/i }));
+      await waitFor(() => expect(mockViewEnvelope).toHaveBeenCalled());
+    };
+
+    it("treats a null envelope as a normal state, not a failure", async () => {
+      // The backend answers 200 with a null envelope (allow_empty) rather than
+      // 404 LOCATION_ENVELOPE_MISSING. Nothing failed, so nothing may be handed
+      // to the crypto layer and nothing may be shouted at the user.
+      mockViewEnvelope.mockResolvedValue({
+        grant: waitingGrant,
+        envelope: null,
+        status: "awaiting_first_publish",
+      });
+
+      await renderAsRecipient();
+
+      expect(mockDecryptLocationEnvelope).not.toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it("paces a legacy 404 as waiting, not as a failure", async () => {
+      // During a rollout the webapp can reach a Python service that predates
+      // allow_empty and still answers 404. That must map to the slow waiting
+      // cadence (30s), NOT the error backoff (10s after one failure) — the
+      // difference proves the legacy branch is still classified correctly.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        // Verbatim message from the pre-allow_empty backend. `apiErrorCode`
+        // only reads a real ApiError, so a legacy 404 surfaced through any
+        // other error shape is classified by this string — which is exactly the
+        // fallback path this test needs to hold.
+        mockViewEnvelope.mockRejectedValue(
+          new Error(
+            "The owner has not published an encrypted location envelope yet.",
+          ),
+        );
+
+        await renderAsRecipient();
+        const afterFirstRead = mockViewEnvelope.mock.calls.length;
+
+        // An error-classified grant would have retried by now; a waiting one
+        // must not.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(20_000);
+        });
+        expect(mockViewEnvelope).toHaveBeenCalledTimes(afterFirstRead);
+        expect(toast.error).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("drops a waiting share off the live cadence instead of asking every tick", async () => {
+      // The bug this fixes: 5s polling for an answer only the owner can change,
+      // which produced a request (and a console line) every tick, forever.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        mockViewEnvelope.mockResolvedValue({
+          grant: waitingGrant,
+          envelope: null,
+          status: "awaiting_first_publish",
+        });
+
+        await renderAsRecipient();
+        const afterFirstRead = mockViewEnvelope.mock.calls.length;
+
+        // Four live ticks pass. A waiting share must not be re-read on any of
+        // them; it is parked on the 30s heartbeat.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(20_000);
+        });
+        expect(mockViewEnvelope).toHaveBeenCalledTimes(afterFirstRead);
+
+        // Past the slow heartbeat it is asked exactly once more.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(15_000);
+        });
+        expect(mockViewEnvelope.mock.calls.length).toBe(afterFirstRead + 1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("backs a repeatedly failing share off exponentially", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        mockViewEnvelope.mockRejectedValue(new Error("backend unavailable"));
+
+        await renderAsRecipient();
+        const afterFirstRead = mockViewEnvelope.mock.calls.length;
+
+        // First failure parks the grant for 10s (5s * 2^1), so the 5s tick in
+        // between is skipped rather than retried at full rate.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(6_000);
+        });
+        expect(mockViewEnvelope).toHaveBeenCalledTimes(afterFirstRead);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(6_000);
+        });
+        expect(mockViewEnvelope.mock.calls.length).toBe(afterFirstRead + 1);
+
+        // Second failure doubles again to 20s: 12s of ticks buys no retry.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(12_000);
+        });
+        expect(mockViewEnvelope.mock.calls.length).toBe(afterFirstRead + 1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("returns a recovered share to the live cadence", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        mockViewEnvelope.mockRejectedValueOnce(new Error("transient"));
+        mockViewEnvelope.mockResolvedValue({
+          grant: waitingGrant,
+          envelope: {
+            recipientKeyId: "key_b",
+            algorithm: "ECDH-P256-AES256-GCM",
+            ciphertext: "ciphertext",
+            iv: "iv",
+            senderEphemeralPublicKeyJwk: {
+              kty: "EC",
+              crv: "P-256",
+              x: "x",
+              y: "y",
+            },
+            capturedAt: "2099-01-01T00:00:00.000Z",
+            sourcePlatform: "web",
+          },
+          status: "published",
+        });
+
+        await renderAsRecipient();
+
+        // Clear the one failure's backoff, then confirm the share is read on
+        // consecutive live ticks again — backoff must not be sticky.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(11_000);
+        });
+        const afterRecovery = mockViewEnvelope.mock.calls.length;
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5_500);
+        });
+        expect(mockViewEnvelope.mock.calls.length).toBeGreaterThan(
+          afterRecovery,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("recovers polling after a read that never settles", async () => {
+      // Without the watchdog the in-flight guard latches forever and live
+      // tracking dies silently for the rest of the session.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        mockViewEnvelope.mockImplementation(() => new Promise(() => {}));
+
+        await renderAsRecipient();
+        const wedged = mockViewEnvelope.mock.calls.length;
+
+        // Ticks during the watchdog window are correctly suppressed.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(20_000);
+        });
+        expect(mockViewEnvelope).toHaveBeenCalledTimes(wedged);
+
+        // Past the watchdog the guard is released and polling resumes.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(20_000);
+        });
+        expect(mockViewEnvelope.mock.calls.length).toBeGreaterThan(wedged);
+      } finally {
+        warn.mockRestore();
+        vi.useRealTimers();
+      }
+    });
   });
 
   it("warns the recipient when the decrypted location update is stale", async () => {
