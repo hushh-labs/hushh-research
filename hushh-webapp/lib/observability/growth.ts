@@ -258,7 +258,15 @@ export function captureGrowthAttribution(pathname: string): void {
   // First-touch wins: once a campaign is recorded it is never overwritten by a
   // later untagged visit, otherwise an internal navigation would relabel a
   // Reddit-sourced user as direct.
-  const alreadyAttributedToCampaign = Boolean(context.attribution?.utmSource);
+  // Any campaign field counts as first touch, not just utm_source. Keying on
+  // source alone meant a link tagged with only medium/campaign was wiped by the
+  // next navigation -- precisely the loss this persistence exists to prevent.
+  const alreadyAttributedToCampaign = Boolean(
+    context.attribution?.utmSource ||
+      context.attribution?.utmMedium ||
+      context.attribution?.utmCampaign ||
+      context.attribution?.utmContent,
+  );
 
   if (
     campaignTagged ||
@@ -385,13 +393,26 @@ export function trackInvestorActivationCompleted({
  * call is the first. Durable across reloads and across the auth gate, which an
  * in-memory dedupe window cannot be.
  */
-function claimOncePerUser(marker: string): boolean {
+function hasClaimedOncePerUser(marker: string): boolean {
+  return (readGrowthContext().emittedSteps || []).includes(marker);
+}
+
+/**
+ * Marks a once-per-user milestone as sent.
+ *
+ * Deliberately called *after* the event is handed to `trackEvent`, not before.
+ * `trackEvent` drops the event when observability is disabled or a sampling
+ * roll fails, and claiming first meant that single un-retryable roll burned the
+ * step permanently for that device -- so the funnel did not degrade to a clean
+ * sample, it silently lost individual steps and the step-to-step ratios stopped
+ * meaning anything.
+ */
+function markClaimedOncePerUser(marker: string): void {
   const context = readGrowthContext();
   const emitted = context.emittedSteps || [];
-  if (emitted.includes(marker)) return false;
+  if (emitted.includes(marker)) return;
   context.emittedSteps = [...emitted, marker];
   writeGrowthContext(context);
-  return true;
 }
 
 export function rememberLocationInviteSource(
@@ -418,7 +439,7 @@ export function trackLocationFunnelStepCompleted(
   step: GrowthLocationStep,
   options: { entrySurface?: GrowthEntrySurface; authMethod?: AuthMethod } = {}
 ): void {
-  if (!claimOncePerUser(`location:${step}`)) return;
+  if (hasClaimedOncePerUser(`location:${step}`)) return;
 
   const current = resolveJourneyContext("location");
   const resolvedEntrySurface =
@@ -434,7 +455,7 @@ export function trackLocationFunnelStepCompleted(
     authMethod: resolvedAuthMethod,
   });
 
-  trackEvent("growth_funnel_step_completed", {
+  const dispatched = trackEvent("growth_funnel_step_completed", {
     journey: "location",
     step,
     ...(resolvedEntrySurface ? { entry_surface: resolvedEntrySurface } : {}),
@@ -442,6 +463,9 @@ export function trackLocationFunnelStepCompleted(
     ...(current.inviteSource ? { invite_source: current.inviteSource } : {}),
     app_version: resolveClientVersion(),
   });
+  // Claimed only if it actually went out. A step dropped by sampling or a
+  // disabled kill-switch stays unclaimed so the next opportunity can send it.
+  if (dispatched) markClaimedOncePerUser(`location:${step}`);
 }
 
 /**
@@ -461,7 +485,7 @@ export function trackLocationActivationCompleted({
   recipientCountBucket?: string;
   shareDurationBucket?: string;
 }): void {
-  if (!claimOncePerUser("location:activated")) return;
+  if (hasClaimedOncePerUser("location:activated")) return;
 
   const current = resolveJourneyContext("location");
   const resolvedEntrySurface =
@@ -472,7 +496,7 @@ export function trackLocationActivationCompleted({
     );
   const resolvedAuthMethod = authMethod || current.authMethod;
 
-  trackEvent("one_location_activation_completed", {
+  const dispatched = trackEvent("one_location_activation_completed", {
     journey: "location",
     activation_path: activationPath,
     ...(resolvedEntrySurface ? { entry_surface: resolvedEntrySurface } : {}),
@@ -486,6 +510,7 @@ export function trackLocationActivationCompleted({
       : {}),
     app_version: resolveClientVersion(),
   });
+  if (dispatched) markClaimedOncePerUser("location:activated");
 }
 
 export function trackRiaActivationCompleted({

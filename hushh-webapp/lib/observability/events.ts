@@ -656,8 +656,15 @@ export interface EventPayloadMap {
     selected_count: number;
     /** People whose device was actually alerted. Zero means the alert failed. */
     reached_count: number;
-    /** Selected but not alertable — notifications off, or no push token. */
+    /** Selected but not alertable by push — notifications off, or no token. */
     unreachable_count: number;
+    /**
+     * Reached by the email fallback. Push and email are separate channels, and
+     * an alert where every push failed but inboxes received it is not an alert
+     * that reached nobody — recording it as one would send an investigation
+     * after the wrong channel.
+     */
+    emailed_count: number;
     /** Whether a message accompanied the alert. Never the message itself. */
     has_note: boolean;
   };

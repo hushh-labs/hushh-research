@@ -133,6 +133,7 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "selected_count",
     "reached_count",
     "unreachable_count",
+    "emailed_count",
     "has_note",
   ],
   api_request_completed: [

@@ -56,46 +56,79 @@ export async function resolveAnalyticsUserId(
   }
 }
 
-async function applyNativeUserId(userId: string | null): Promise<void> {
+/** Returns whether the id was actually applied, so a no-op is never memoized. */
+async function applyNativeUserId(userId: string | null): Promise<boolean> {
   try {
     const { FirebaseAnalytics } = await import("@capacitor-firebase/analytics");
     await FirebaseAnalytics.setUserId({ userId });
+    return true;
   } catch {
     // Analytics identity is never allowed to break a sign-in.
+    return false;
   }
 }
 
-function applyWebUserId(userId: string | null): void {
-  if (typeof window === "undefined" || typeof window.gtag !== "function") return;
+function applyWebUserId(userId: string | null): boolean {
+  if (typeof window === "undefined" || typeof window.gtag !== "function") {
+    // gtag is injected `afterInteractive`, so an auth state restored during
+    // hydration arrives before it exists. Reporting failure here is what lets
+    // the caller retry instead of memoizing a binding that never happened.
+    return false;
+  }
   const measurementId = resolveAnalyticsMeasurementId();
-  if (!measurementId) return;
+  if (!measurementId) return false;
 
   // `config` rather than `set` so the id binds to this measurement id only,
   // matching how the adapter scopes events with `send_to`.
-  (
-    window.gtag as unknown as (
-      command: string,
-      target: string,
-      params?: Record<string, unknown>
-    ) => void
-  )("config", measurementId, { user_id: userId ?? undefined });
+  //
+  // Guarded because this is third-party code called from the auth state
+  // handler. Analytics identity is never allowed to disturb a sign-in.
+  try {
+    (
+      window.gtag as unknown as (
+        command: string,
+        target: string,
+        params?: Record<string, unknown>
+      ) => void
+    )("config", measurementId, {
+      // `null`, not `undefined`: gtag drops undefined fields, so signing out
+      // with undefined would leave the previous account's id bound and
+      // attribute the next person's events to them. On a shared family device
+      // that is exactly the wrong outcome.
+      user_id: userId,
+      // The app bootstraps this measurement id with `send_page_view: false`
+      // (app/layout.tsx) because page views are emitted by the adapter. Every
+      // `config` re-applies gtag's default of true unless we repeat it, so
+      // omitting this would fire a spurious page view on every sign-in.
+      send_page_view: false,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Binds (or on sign-out, clears) the analytics identity on whichever surface
- * this build is running. Safe to call repeatedly; redundant applications are
- * skipped so an auth-state re-render does not thrash the GA4 config.
+ * this build is running.
+ *
+ * Safe to call repeatedly: a successful application is remembered so an
+ * auth-state re-render does not thrash the GA4 config. A failed one is
+ * deliberately not remembered, so the next auth event retries it.
  */
 export async function setObservabilityUserId(
   firebaseUid: string | null
 ): Promise<void> {
   const userId = firebaseUid ? await resolveAnalyticsUserId(firebaseUid) : null;
   if (userId === lastAppliedUserId) return;
-  lastAppliedUserId = userId;
 
-  if (Capacitor.isNativePlatform()) {
-    await applyNativeUserId(userId);
-    return;
-  }
-  applyWebUserId(userId);
+  const applied = Capacitor.isNativePlatform()
+    ? await applyNativeUserId(userId)
+    : applyWebUserId(userId);
+
+  // Only memoize what actually landed. Memoizing first meant a page where gtag
+  // had not yet loaded bound nothing and then short-circuited forever, which
+  // made cross-surface stitching -- the entire reason this file exists -- a
+  // no-op on web for anyone already signed in at load.
+  if (applied) lastAppliedUserId = userId;
 }

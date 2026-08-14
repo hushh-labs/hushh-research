@@ -118,6 +118,11 @@ export function isLocationMapDemoEnabled(
 export function isLocationMapDemoAvailable(): boolean {
   if (isNativeUiTestSession()) return true;
   if (resolveAppEnvironment() === "development") return true;
+  // The opt-in narrows who sees the fixture; this keeps the old hard floor
+  // underneath it. A production build must never show fabricated people no
+  // matter what a copied .env or an inherited build-args block sets, and
+  // defence in depth here costs nothing.
+  if (resolveAppEnvironment() === "production") return false;
   return (
     String(process.env.NEXT_PUBLIC_LOCATION_MAP_DEMO ?? "")
       .trim()

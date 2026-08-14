@@ -46,8 +46,16 @@ describe("location map demo fixture", () => {
       expect(isLocationMapDemoAvailable()).toBe(false);
 
       // Operators opt in explicitly, independent of which backend is targeted.
+      process.env.NEXT_PUBLIC_APP_ENV = "uat";
       process.env.NEXT_PUBLIC_LOCATION_MAP_DEMO = "true";
       expect(isLocationMapDemoAvailable()).toBe(true);
+
+      // ...but a production build refuses regardless of the flag. The opt-in
+      // narrows who sees the fixture; this floor means a copied .env or an
+      // inherited build-args block can never put fabricated people in front of
+      // real users.
+      process.env.NEXT_PUBLIC_APP_ENV = "production";
+      expect(isLocationMapDemoAvailable()).toBe(false);
       delete process.env.NEXT_PUBLIC_LOCATION_MAP_DEMO;
 
       // Local development keeps the fixture without any flag.

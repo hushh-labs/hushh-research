@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
+import { isPublicRoute } from "@/lib/navigation/routes";
 import {
   resolveGrowthJourneyForPath,
   trackLocationFunnelStepCompleted,
@@ -28,24 +29,30 @@ export function LocationFunnelObserver() {
   const pathname = usePathname();
   const { user, loading, phoneNumber } = useAuth();
 
-  const isLocationJourney =
-    resolveGrowthJourneyForPath(pathname ?? "") === "location";
+  const path = pathname ?? "";
+  const isLocationJourney = resolveGrowthJourneyForPath(path) === "location";
+  // Public location routes are viewable without an account by design, so an
+  // anonymous visitor there is not someone being sent to sign in.
+  const isPublic = isPublicRoute(path);
 
   useEffect(() => {
     if (!isLocationJourney || loading) return;
 
-    // Unauthenticated on a location route means the gate is about to send them
-    // to /login. Recording it here rather than at /login keeps the step tied to
-    // the location journey even when the redirect drops the intent.
     if (!user) {
-      trackLocationFunnelStepCompleted("auth_started");
+      // Only on a gated route, where the gate really is about to redirect.
+      // Firing on a public share link counted people who were never asked to
+      // sign in, and — because the step is claimed once per device — burned
+      // the marker so their real sign-in later would never be recorded.
+      if (!isPublic) {
+        trackLocationFunnelStepCompleted("auth_started");
+      }
       return;
     }
 
     if (phoneNumber) {
       trackLocationFunnelStepCompleted("phone_verified");
     }
-  }, [isLocationJourney, loading, phoneNumber, user]);
+  }, [isLocationJourney, isPublic, loading, phoneNumber, user]);
 
   return null;
 }
