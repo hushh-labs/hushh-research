@@ -42,7 +42,6 @@ import {
 } from "@/lib/one-location/location-workspace-memory";
 import { updateOneLocationControlState } from "@/lib/one-location/location-control-state";
 import {
-  DARK_MAP_STYLES,
   getBrowserMapsApiKey,
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
@@ -988,15 +987,19 @@ export function LocationImmersiveMap({
               ? 11
               : 2,
           disableDefaultUI: true,
-          // Open dark to match the mobile dark theme. Read the resolved theme
-          // from the <html> `dark` class that next-themes sets, so no
-          // camera-recreating hook dependency is introduced; a cloud-styled
-          // mapId can supersede this.
-          styles:
-            typeof document !== "undefined" &&
-            document.documentElement.classList.contains("dark")
-              ? DARK_MAP_STYLES
-              : undefined,
+          // `styles` is deliberately NOT passed.
+          //
+          // @capacitor/google-maps sets its own `mapId` because advanced
+          // markers require one, and Google ignores `styles` entirely whenever
+          // a mapId is present — logging "A Map's styles property cannot be
+          // set when a mapId is present" on every single map create. So this
+          // was never theming anything: it was dead config that produced a
+          // warning each time the map mounted, and made the console look like
+          // the map was failing when it was not.
+          //
+          // Restoring a dark map means styling the mapId in the Google Cloud
+          // console, which is where a mapId's appearance now lives. Passing
+          // DARK_MAP_STYLES here cannot do it.
         },
       });
       if (superseded()) {
