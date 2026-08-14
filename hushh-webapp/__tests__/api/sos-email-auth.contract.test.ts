@@ -61,6 +61,16 @@ describe("SOS email route — credential contract", () => {
     // correct, but this test should be revisited deliberately rather than by
     // accident.
     expect(SERVICE).toContain("jsonAuthHeaders(params.vaultOwnerToken)");
-    expect(SERVICE).toContain('"/api/one/location/sos-email"');
+  });
+
+  it("reaches the Next route by absolute URL on native, not the backend", () => {
+    // Every other call in service.ts goes to the Python backend, so a relative
+    // path is right. This one is a Next.js route — on iOS and Android a
+    // relative path resolves against the backend, which does not host it, and
+    // the alert's email leg would 404 on exactly the platforms an SOS is most
+    // likely sent from.
+    expect(SERVICE).toContain("nextRouteOrigin()}/api/one/location/sos-email");
+    expect(SERVICE).toContain("Capacitor.isNativePlatform()");
+    expect(SERVICE).toContain("resolveRuntimeFrontendUrl");
   });
 });
