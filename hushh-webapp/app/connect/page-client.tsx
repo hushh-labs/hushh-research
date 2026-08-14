@@ -25,6 +25,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -90,7 +100,7 @@ const CONNECT_INLINE_BUTTON_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
 
 /** Maximum number of connection requests the People bulk action can send. */
-const MAX_BULK_CONNECTION_REQUESTS = 5;
+const MAX_BULK_CONNECTION_REQUESTS = 10;
 
 /**
  * Bounds on resolving ONE spoken name against the directory.
@@ -255,8 +265,9 @@ export default function ConnectPageClient() {
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [isConnectingMultiple, setIsConnectingMultiple] = useState(false);
   const [batchConnectDraft, setBatchConnectDraft] = useState<{
-    people: DirectoryPerson[];
+    people: SelectedPerson[];
   } | null>(null);
+  const [isLimitAlertOpen, setIsLimitAlertOpen] = useState(false);
 
   const getIdToken = useCallback(
     async () => (user ? await user.getIdToken() : null),
@@ -1426,7 +1437,7 @@ export default function ConnectPageClient() {
                                 aria-describedby="connect-selection-limit"
                                 onCheckedChange={(checked) => {
                                   if (checked && selectedUserIds.size >= MAX_BULK_CONNECTION_REQUESTS) {
-                                    toast.error("You can only select up to 5 people at a time.");
+                                    setIsLimitAlertOpen(true);
                                     return;
                                   }
                                   setSelectedUserIds((current) => {
@@ -1554,7 +1565,13 @@ export default function ConnectPageClient() {
                       effect="fill"
                       disabled={isConnectingMultiple}
                       onClick={() => {
-                        const selectedPeople = people.filter((p) => selectedUserIds.has(p.userId));
+                        const selectedPeople = people
+                          .filter((p) => selectedUserIds.has(p.userId))
+                          .map((p) => ({
+                            userId: p.userId,
+                            displayName: p.displayName,
+                            email: p.email,
+                          }));
                         setBatchConnectDraft({ people: selectedPeople });
                       }}
                     >
@@ -1729,18 +1746,12 @@ export default function ConnectPageClient() {
               <SettingsGroup title={`Selected people (${batchConnectDraft.people.length})`} separatorInset>
                 {batchConnectDraft.people.map((person) => {
                   const title = person.displayName || person.email || person.userId;
-                  const description = getDirectoryPersonDescription(person);
                   return (
                     <SettingsRow
                       key={`batch-${person.userId}`}
                       icon={UserRound}
                       iconTone="blue"
                       title={<span className="block min-w-0 truncate">{title}</span>}
-                      description={
-                        description ? (
-                          <span className="block min-w-0 truncate">{description}</span>
-                        ) : undefined
-                      }
                       density="compact"
                       trailing={
                         <Button
@@ -1783,6 +1794,7 @@ export default function ConnectPageClient() {
               type="button"
               variant="none"
               effect="fade"
+              className="text-muted-foreground"
               disabled={isConnectingMultiple}
               onClick={() => setBatchConnectDraft(null)}
             >
@@ -1795,11 +1807,44 @@ export default function ConnectPageClient() {
               disabled={!batchConnectDraft || isConnectingMultiple}
               onClick={() => void handleConnectMultiple()}
             >
-              {isConnectingMultiple ? "Sending…" : "Send requests"}
+              {isConnectingMultiple ? "Sending." : "Accept"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={isLimitAlertOpen} onOpenChange={setIsLimitAlertOpen}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Limit reached</AlertDialogTitle>
+            <AlertDialogDescription>
+              You can connect up to {MAX_BULK_CONNECTION_REQUESTS} at a time.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel variant="none" className="text-muted-foreground font-normal">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="none"
+              className="text-[color:var(--app-primary-action)] font-medium"
+              onClick={() => {
+                const selectedPeople = people
+                  .filter((p) => selectedUserIds.has(p.userId))
+                  .map((p) => ({
+                    userId: p.userId,
+                    displayName: p.displayName,
+                    email: p.email,
+                  }));
+                if (selectedPeople.length === 0) return;
+                setBatchConnectDraft({ people: selectedPeople });
+              }}
+            >
+              Review
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={informationScopeDraft !== null}
