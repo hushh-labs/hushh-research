@@ -85,8 +85,6 @@ AUTO_SHARE_GRANT_SOURCE = "auto_share"
 AUTO_SHARE_DURATION_HOURS = 24.0
 
 
-
-
 def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
     try:
         value = int(os.getenv(name, str(default)))
@@ -3870,7 +3868,6 @@ class OneLocationAgentService:
         _key_writer_guarded: bool = False,
     ) -> dict[str, Any]:
         if owner_user_id == recipient_user_id:
-
             raise OneLocationAgentError(
                 "LOCATION_RECIPIENT_SELF",
                 "Choose a different verified recipient.",
@@ -4824,7 +4821,6 @@ class OneLocationAgentService:
             return True
         value = row.get("auto_share_enabled")
         return True if value is None else bool(value)
-
 
     def update_map_preferences(
         self,
@@ -6078,9 +6074,7 @@ class OneLocationAgentService:
             return None
         if not self.get_auto_share_enabled(user_id=owner_user_id):
             return None
-        if self._has_active_grant(
-            owner_user_id=owner_user_id, recipient_user_id=peer_user_id
-        ):
+        if self._has_active_grant(owner_user_id=owner_user_id, recipient_user_id=peer_user_id):
             return None
         return self._create_auto_share_grant(
             owner_user_id=owner_user_id, recipient_user_id=peer_user_id

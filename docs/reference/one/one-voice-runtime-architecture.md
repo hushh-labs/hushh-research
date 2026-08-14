@@ -197,12 +197,12 @@ catalog rather than a single blanket default:
 
 | Workload | Model | Reason |
 | --- | --- | --- |
-| One typed Agent Chat, semantic action selection, and agentic specialists | `gemini-3.6-flash` | GA Flash text/function head on the global Vertex endpoint |
+| One typed Agent Chat, semantic action selection, and agentic specialists | `gemini-3.7-flash` | GA Flash text/function head on the global Vertex endpoint |
 | Bounded summary reduction, receipt extraction, and runtime readiness probes | `gemini-3.1-flash-lite` | Lower-cost, lower-latency bounded work |
 | Agent Bar bidirectional speech | `gemini-live-2.5-flash-native-audio` | Current native-audio Live model; served from the configured Live region |
 
 Text models are explicitly marked `supports_native_realtime=false`; only the
-named Live model can acquire the realtime transport. Gemini 3.6 Flash is not a
+named Live model can acquire the realtime transport. Gemini 3.7 Flash is not a
 Live model and must never be substituted into the Agent Bar based on its name.
 The source catalog is [Google models](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/google-models).
 
@@ -210,7 +210,7 @@ The source catalog is [Google models](https://docs.cloud.google.com/gemini-enter
 
 - The browser decrypts the approved PKM projection only after vault unlock,
   keeps it in session memory, and passes the bounded turn context to One's
-  `gemini-3.6-flash` text head. One treats it as information, never as
+  `gemini-3.7-flash` text head. One treats it as information, never as
   instructions or exhaustive truth.
 - The identical bounded projection is available to the Finance specialist when
   relevant; omitted vault domains, credentials, exports, and CRM records cannot
