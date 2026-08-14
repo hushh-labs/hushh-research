@@ -550,11 +550,25 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     let headerRetryCount = 0;
     let lastScrollY: number | null = null;
     let topChromeProgress = 0;
+    let barRow: HTMLElement | null = null;
+    // Last values actually written to <html>. `--top-chrome-collapse-px` feeds
+    // `--top-shell-live-height` / `--top-shell-mask-solid-height`, which route
+    // content consumes for layout — so rewriting it invalidates layout for the
+    // whole document. Re-writing an unchanged value is pure thrash, and this
+    // runs on every scroll frame.
+    let lastWrittenProgress: string | null = null;
+    let lastWrittenCollapsePx: string | null = null;
     // Routes with no primary page header (e.g. an immersive full-bleed
     // layout) never satisfy this query, so retrying must stop eventually.
     // 10 tries (~1.5s) is generous for a late-mounting header while still
     // giving up cleanly for routes that will never have one.
     const MAX_HEADER_RETRIES = 10;
+    // Ceiling on how often a DOM mutation may re-measure the chrome. A live map
+    // mutates the DOM every frame, and measuring at that rate is what pinned the
+    // main thread; 250ms keeps reflow-driven title handoff correct at ~1/15th
+    // the cost, and is imperceptible for a change the user did not initiate.
+    const MUTATION_RECHECK_MS = 250;
+    let lastMutationCheckAt = 0;
 
     const updateHeaderVisibility = () => {
       const scrollY = scrollRoot?.scrollTop ?? window.scrollY ?? 0;
@@ -567,19 +581,23 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
               nextY: scrollY,
             });
       lastScrollY = scrollY;
-      const rowHeight =
-        document
-          .querySelector<HTMLElement>('[data-testid="top-app-bar-row"]')
-          ?.getBoundingClientRect().height ?? 0;
+      if (!barRow?.isConnected) {
+        barRow = document.querySelector<HTMLElement>(
+          '[data-testid="top-app-bar-row"]',
+        );
+      }
+      const rowHeight = barRow?.getBoundingClientRect().height ?? 0;
       const root = document.documentElement;
-      root.style.setProperty(
-        "--top-chrome-progress",
-        String(topChromeProgress),
-      );
-      root.style.setProperty(
-        "--top-chrome-collapse-px",
-        `${Math.max(0, rowHeight * topChromeProgress)}px`,
-      );
+      const nextProgress = String(topChromeProgress);
+      if (nextProgress !== lastWrittenProgress) {
+        lastWrittenProgress = nextProgress;
+        root.style.setProperty("--top-chrome-progress", nextProgress);
+      }
+      const nextCollapsePx = `${Math.max(0, rowHeight * topChromeProgress)}px`;
+      if (nextCollapsePx !== lastWrittenCollapsePx) {
+        lastWrittenCollapsePx = nextCollapsePx;
+        root.style.setProperty("--top-chrome-collapse-px", nextCollapsePx);
+      }
       const fullyCollapsed = topChromeProgress >= 0.999;
       setTopChromeFullyCollapsed((current) =>
         current === fullyCollapsed ? current : fullyCollapsed,
@@ -604,11 +622,51 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       updateHeaderVisibility();
     };
 
+    // Mutation-driven path ONLY. Its single job is to notice a primary page
+    // header that mounted late or was swapped — which is how a query-only flow
+    // switch behaves here: `/one/location?action=…` keeps the pathname, so the
+    // effect never re-runs when PageHeader is replaced by a flow's
+    // TaskFlowHeader.
+    //
+    // This must stay O(1) when nothing relevant changed. It used to run the
+    // full `refreshHeader()` on EVERY mutation under the scroll root, once per
+    // animation frame. On a surface that animates continuously — One Location
+    // with a live map, whose marker glide and Google's own tile/attribution
+    // updates mutate the DOM every frame — that was three document-wide
+    // `querySelector`s and three `getBoundingClientRect()` forced reflows per
+    // frame, each followed by a custom-property write on <html> that
+    // invalidates layout for everything consuming `--top-shell-live-height`.
+    // The main thread never got a clear slot, so a tap on the back arrow sat
+    // queued behind the thrash instead of navigating.
+    //
+    // A swap is recomputed at once. Otherwise content can still reflow the
+    // header out of view with no scroll and no resize, so that keeps being
+    // tracked — at a fixed low rate rather than once per animation frame.
+    // Re-querying is deliberately unbounded: a header appearing is itself a
+    // mutation, and this is the only thing that notices the hub's PageHeader
+    // returning when a flow closes. Because TaskFlowHeader does not mark itself
+    // primary, `header` is legitimately null for the whole life of a flow
+    // screen, so giving up on a retry budget would strand the hub with stale
+    // header tracking on return.
     const scheduleHeaderRefresh = () => {
       if (refreshFrame !== null) return;
       refreshFrame = window.requestAnimationFrame(() => {
         refreshFrame = null;
-        refreshHeader();
+        const previous = header;
+        if (!header?.isConnected) {
+          header = document.querySelector<HTMLElement>(
+            '[data-slot="page-header"][data-page-primary="true"]',
+          );
+        }
+        const now = Date.now();
+        // Recompute on any identity change, including present -> null, so
+        // `primaryHeaderOutOfView` cannot keep asserting a header that a flow
+        // switch just unmounted.
+        if (header === previous && now - lastMutationCheckAt < MUTATION_RECHECK_MS) {
+          return;
+        }
+        lastMutationCheckAt = now;
+        updateHeaderVisibility();
       });
     };
 

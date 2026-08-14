@@ -96,12 +96,26 @@ export function LiveMap({ point, className, viewportResetKey }: LiveMapProps) {
     });
     mapRef.current = map;
     markerRef.current = new google.maps.Marker({ map, position: target });
+    // Captured while the API is known to be present. Cleanup runs during
+    // unmount, and reaching for the global there would make teardown depend on
+    // a script that may already be gone — a throw in a cleanup function aborts
+    // React's unmount for the whole tree.
+    const mapsEvent = google.maps.event;
     // Created once per scheme; movement handled by the glide effect below.
     return () => {
       if (frameRef.current !== null) {
         cancelAnimationFrame(frameRef.current);
         frameRef.current = null;
       }
+      // Dropping the refs is not disposal. A Maps instance keeps its own
+      // listeners, tile requests and resize handlers alive, so an orphaned map
+      // goes on doing work — and on a theme flip the container div is re-keyed,
+      // which builds a second one on top of the first. Detach explicitly.
+      if (markerRef.current) {
+        markerRef.current.setMap(null);
+        mapsEvent?.clearInstanceListeners(markerRef.current);
+      }
+      mapsEvent?.clearInstanceListeners(map);
       mapRef.current = null;
       markerRef.current = null;
     };

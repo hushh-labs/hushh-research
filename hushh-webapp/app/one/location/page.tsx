@@ -186,6 +186,7 @@ import { buildOneLocationRequestMessage } from "@/lib/one-location/request-messa
 import {
   clearLocationWorkspaceMemory,
   readLocationWorkspaceMemory,
+  samePlainLocationPoint,
   writeLocationWorkspaceMemory,
   type LocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
@@ -2237,6 +2238,10 @@ export function OneLocationAgentPageContent({
     ) => {
       setLocationWorkspace((current) => {
         const next = updater(current);
+        // An updater that decided nothing changed hands back the same object.
+        // Honouring that is what lets React bail out instead of re-rendering
+        // this surface on every live poll.
+        if (next === current) return current;
         writeLocationWorkspaceMemory(auth.userId, next);
         return next;
       });
@@ -2288,17 +2293,20 @@ export function OneLocationAgentPageContent({
   const decryptedPoints = locationWorkspace.decryptedPoints;
   const setDecryptedPoints = useCallback(
     (next: SetStateAction<Record<string, PlainLocationPoint>>) => {
-      updateLocationWorkspace((current) => ({
-        ...current,
-        decryptedPoints:
+      updateLocationWorkspace((current) => {
+        const resolved =
           typeof next === "function"
             ? (
                 next as (
                   value: Record<string, PlainLocationPoint>,
                 ) => Record<string, PlainLocationPoint>
               )(current.decryptedPoints)
-            : next,
-      }));
+            : next;
+        // Propagate the updater's "nothing changed" verdict instead of
+        // allocating a fresh workspace around an unchanged map.
+        if (resolved === current.decryptedPoints) return current;
+        return { ...current, decryptedPoints: resolved };
+      });
     },
     [updateLocationWorkspace],
   );
@@ -4251,7 +4259,15 @@ export function OneLocationAgentPageContent({
             }
           },
         });
-        setDecryptedPoints((current) => ({ ...current, [grant.id]: point }));
+        // A stationary owner republishes the same point every heartbeat, so most
+        // ticks decrypt to something identical to what is already on screen.
+        // Writing it anyway would allocate a new workspace object and re-render
+        // this whole surface every few seconds for no visible change.
+        setDecryptedPoints((current) =>
+          samePlainLocationPoint(current[grant.id], point)
+            ? current
+            : { ...current, [grant.id]: point },
+        );
         // Recovered — clear any prior "ask them to share again" state.
         setGrantViewErrors((current) => {
           if (!(grant.id in current)) return current;
