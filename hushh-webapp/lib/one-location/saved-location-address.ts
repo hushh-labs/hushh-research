@@ -51,6 +51,49 @@ export function inferPostalCode(address: string | null | undefined): string {
   );
 }
 
+/** The part before the first comma, which is where a house number sits. */
+function firstAddressSegment(address: string | null | undefined): string {
+  return String(address || "").split(",")[0]?.trim() ?? "";
+}
+
+/**
+ * Pull a house/plot designator out of a formatted address, when there plainly
+ * is one -- "B-284/3, Rd Number 1, Chhatarpur, New Delhi 110074" opens with a
+ * house number, "Kartavya Path, New Delhi" does not.
+ *
+ * Deliberately narrow. It accepts a first segment with no spaces that contains
+ * a digit ("B-284/3", "42", "A-12"), or one that names itself ("Flat 4B",
+ * "Plot 22"). It will not take "12 MG Road", which is a street that happens to
+ * carry a number -- putting that in the House-flat box would be wrong, and a
+ * wrong prefill is worse than an empty one because people trust prefilled
+ * fields and stop reading them.
+ */
+export function inferHouseOrFlat(address: string | null | undefined): string {
+  const segment = firstAddressSegment(address);
+  if (!segment || segment.length > MAX_HOUSE_OR_FLAT_LENGTH) return "";
+  if (!/\d/.test(segment)) return "";
+  const namesItself =
+    /^(flat|plot|house|apartment|apt|no\.?|#|door|shop|unit|block)\b/i.test(
+      segment,
+    );
+  if (!namesItself && /\s/.test(segment)) return "";
+  return cleanText(segment, MAX_HOUSE_OR_FLAT_LENGTH);
+}
+
+/**
+ * The fields a detected address can fill on its own. Everything else on the
+ * form -- building colour, landmark -- is knowledge the address does not carry
+ * and only the person standing there has.
+ */
+export function inferSavedLocationAddressDetails(
+  address: string | null | undefined,
+): Pick<SavedLocationAddressDetails, "houseOrFlat" | "postalCode"> {
+  return {
+    houseOrFlat: inferHouseOrFlat(address),
+    postalCode: inferPostalCode(address),
+  };
+}
+
 /**
  * Accept the common global PIN/postal-code shapes without pretending that all
  * countries use India's six-digit format. The field remains human-editable.
@@ -90,8 +133,18 @@ export function buildSavedLocationAddress(
     String(mapAddress || ""),
     MAX_SAVED_ADDRESS_LENGTH,
   );
+  // The house number is now prefilled FROM the address, so on most saves it is
+  // the address's own opening segment coming back round. Prepending it would
+  // read "B-284/3, B-284/3, Rd Number 1, ...". Compared segment-to-segment, not
+  // as a prefix of the whole line, so a genuine "12" is not swallowed by a
+  // "1234 Main St" that merely starts with the same digits.
+  const houseOrFlatAlreadyLeads =
+    Boolean(normalized.houseOrFlat) &&
+    comparable(firstAddressSegment(baseAddress)) ===
+      comparable(normalized.houseOrFlat);
+
   const rawSegments = [
-    normalized.houseOrFlat,
+    houseOrFlatAlreadyLeads ? "" : normalized.houseOrFlat,
     buildingColorSegment(normalized.buildingColor),
     landmarkSegment(normalized.landmark),
     baseAddress,

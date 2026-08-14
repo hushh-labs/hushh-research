@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import type { SavedLocationCategory } from "@/lib/one-location/saved-locations";
 import {
   EMPTY_SAVED_LOCATION_ADDRESS_DETAILS,
-  inferPostalCode,
+  inferSavedLocationAddressDetails,
   isValidPostalCode,
   normalizeSavedLocationAddressDetails,
   type SavedLocationAddressDetails,
@@ -103,6 +103,27 @@ export type SaveLocationModalProps = {
 };
 
 type SaveLocationFlowStep = "summary" | "map" | "details";
+
+/**
+ * Fold what a detected address can tell us into the form, leaving anything the
+ * person typed alone.
+ *
+ * Defined outside the component and taking its "has been edited" flags as an
+ * argument so the rule reads as one thing rather than as three closures that
+ * each have to remember to check a ref.
+ */
+function detectedAddressDetails(
+  current: SavedLocationAddressDetails,
+  address: string | null,
+  edited: { houseOrFlat: boolean; postalCode: boolean },
+): SavedLocationAddressDetails {
+  const inferred = inferSavedLocationAddressDetails(address);
+  return {
+    ...current,
+    houseOrFlat: edited.houseOrFlat ? current.houseOrFlat : inferred.houseOrFlat,
+    postalCode: edited.postalCode ? current.postalCode : inferred.postalCode,
+  };
+}
 
 const CATEGORY_OPTIONS: {
   category: SavedLocationCategory;
@@ -194,16 +215,9 @@ export function SaveLocationModal({
   const [flowStep, setFlowStep] = useState<SaveLocationFlowStep>("summary");
   const [pickedAddress, setPickedAddress] = useState<string | null>(null);
   /**
-   * The Address field. Previously the reverse-geocoded address was shown in a
-   * read-only card and never reached an input, so nothing carried it and a
-   * wrong or partial result could not be corrected without moving the pin.
-   */
-  const [addressLine, setAddressLine] = useState("");
-  /**
-   * Ticked: the Address field mirrors whatever the pin resolves to, and keeps
-   * doing so as the pin moves. Unticked: the person owns the field and the pin
-   * stops overwriting it -- which is the only reason this is a checkbox rather
-   * than an always-on autofill.
+   * Ticked: the fields below are filled from whatever the pin resolves to, and
+   * keep following it as the pin moves. Unticked: they are cleared and left
+   * alone. Anything typed by hand wins either way -- see the edited refs.
    */
   const [useDetectedAddress, setUseDetectedAddress] = useState(true);
   const [addressDetails, setAddressDetails] =
@@ -223,7 +237,11 @@ export function SaveLocationModal({
   const postalCodeErrorId = useId();
   const mapTitleRef = useRef<HTMLHeadingElement | null>(null);
   const detailsTitleRef = useRef<HTMLHeadingElement | null>(null);
+  // A field the person has typed in is theirs. The pin may fill a blank field
+  // and refill it as it moves, but it must never overwrite an answer someone
+  // gave -- a prefill that fights the typing is worse than no prefill.
   const postalCodeEditedRef = useRef(false);
+  const houseOrFlatEditedRef = useRef(false);
 
   // Reset internal selection each time the modal (re)opens. When editing an
   // existing saved place, seed the category/label/detail fields from the
@@ -233,14 +251,15 @@ export function SaveLocationModal({
       // Treat provided initial details (edit mode) as already user-authored so
       // the inferred-postal effect does not clobber them.
       postalCodeEditedRef.current = Boolean(
-        initialDetails &&
-          (initialDetails.postalCode || initialDetails.houseOrFlat),
+        initialDetails && initialDetails.postalCode,
+      );
+      houseOrFlatEditedRef.current = Boolean(
+        initialDetails && initialDetails.houseOrFlat,
       );
       setCategory(initialCategory ?? null);
       setCustomLabel(initialCustomLabel ?? "");
       setEditingPlace(false);
       setPickedAddress(null);
-      setAddressLine((address && address.trim()) || "");
       setUseDetectedAddress(true);
       setAddressDetails(
         initialDetails
@@ -321,13 +340,16 @@ export function SaveLocationModal({
     if (!open) return;
     const next = (address && address.trim()) || null;
     if (next) setPickedAddress(next);
-    // Only while the box is ticked. Once someone has typed their own address,
-    // a later reverse-geocode must not silently replace it.
-    if (next && useDetectedAddress) setAddressLine(next);
+    if (!useDetectedAddress) return;
+    // Spread the detected address across the fields it can actually answer.
+    // It was previously only mined for a postal code, so a person looking at
+    // "B-284/3, Rd Number 1, ..." on screen still had to retype B-284/3 into
+    // the box directly underneath it.
     setAddressDetails((current) =>
-      postalCodeEditedRef.current
-        ? current
-        : { ...current, postalCode: inferPostalCode(next) },
+      detectedAddressDetails(current, next, {
+        houseOrFlat: houseOrFlatEditedRef.current,
+        postalCode: postalCodeEditedRef.current,
+      }),
     );
   }, [address, open, useDetectedAddress]);
 
@@ -344,7 +366,7 @@ export function SaveLocationModal({
 
   const normalizedAddressDetails =
     normalizeSavedLocationAddressDetails(addressDetails);
-  const trimmedAddressLine = addressLine.trim();
+  const detectedAddress = pickedAddress || resolvedAddress || "";
   const postalCodeInvalid =
     normalizedAddressDetails.postalCode.length > 0 &&
     !isValidPostalCode(normalizedAddressDetails.postalCode);
@@ -363,10 +385,14 @@ export function SaveLocationModal({
       ? null
       : category === null
         ? "Pick Home, Work or Other first."
-        : collectAddressDetails && trimmedAddressLine.length === 0
-          ? "Add an address, or tick the box to use the one we found."
+        : collectAddressDetails && detectedAddress.length === 0
+          ? "Pin a spot on the map first."
           : postalCodeInvalid
-            ? "Enter a valid PIN or postal code."
+            ? // Not the field's own wording. The invalid PIN already says
+              // "Enter a valid PIN or postal code." right next to itself, and
+              // the same sentence twice on one screen reads as a stutter
+              // rather than as two places worth looking.
+              "Check the PIN or postal code above."
             : null;
   const canSave =
     category !== null &&
@@ -396,13 +422,14 @@ export function SaveLocationModal({
   const handleConfirmMapPick = (picked: PickedLocation) => {
     onPickExactLocation?.(picked);
     setPickedAddress(picked.address);
-    if (useDetectedAddress && picked.address) setAddressLine(picked.address);
-    setAddressDetails((current) => ({
-      ...current,
-      postalCode: postalCodeEditedRef.current
-        ? current.postalCode
-        : inferPostalCode(picked.address),
-    }));
+    if (useDetectedAddress) {
+      setAddressDetails((current) =>
+        detectedAddressDetails(current, picked.address, {
+          houseOrFlat: houseOrFlatEditedRef.current,
+          postalCode: postalCodeEditedRef.current,
+        }),
+      );
+    }
     setFlowStep(collectAddressDetails ? "details" : "summary");
   };
 
@@ -420,7 +447,7 @@ export function SaveLocationModal({
         category,
         label ?? "",
         normalizedAddressDetails,
-        trimmedAddressLine || null,
+        detectedAddress || null,
       );
       return;
     }
@@ -432,6 +459,7 @@ export function SaveLocationModal({
     value: string,
   ) => {
     if (key === "postalCode") postalCodeEditedRef.current = true;
+    if (key === "houseOrFlat") houseOrFlatEditedRef.current = true;
     setAddressDetails((current) => ({ ...current, [key]: value }));
   };
 
@@ -540,16 +568,22 @@ export function SaveLocationModal({
               </p>
             </header>
 
-            {/* The pinned address is no longer repeated here -- it is in the
-                Address field below, where it can also be corrected. This row
-                is now only the way back to the map. */}
-            <div className="flex items-center gap-2.5 rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3">
-              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+            {/* The detected address, shown as the thing the fields below were
+                filled from. */}
+            <div className="flex items-start gap-2.5 rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3">
+              <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
                 <MapPin className="h-[17px] w-[17px]" strokeWidth={1.9} aria-hidden />
               </span>
-              <p className="min-w-0 flex-1 text-[15px] leading-5 text-foreground">
-                Pinned on the map
-              </p>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+                  Pinned location
+                </p>
+                <p className="mt-0.5 line-clamp-2 text-[15px] font-semibold leading-5 text-foreground">
+                  {loadingAddress
+                    ? "Finding your address…"
+                    : detectedAddress || "Your selected map point"}
+                </p>
+              </div>
               {canPickOnMap ? (
                 <button
                   type="button"
@@ -562,56 +596,36 @@ export function SaveLocationModal({
               ) : null}
             </div>
 
-            <div className="space-y-3.5">
-              <div>
-                <div className="mb-1.5 flex items-baseline justify-between gap-3">
-                  <label
-                    htmlFor="saved-location-address-line"
-                    className="block text-[13px] font-semibold leading-[18px] text-muted-foreground"
-                  >
-                    Address
-                  </label>
-                  <label className="flex cursor-pointer items-center gap-1.5 text-[13px] leading-[18px] text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={useDetectedAddress}
-                      onChange={(event) => {
-                        const next = event.target.checked;
-                        setUseDetectedAddress(next);
-                        // Ticking it again means "go back to the pin", so the
-                        // field is refilled here rather than only on the next
-                        // pin move -- otherwise the box would read as on while
-                        // the field still showed the edit it was meant to undo.
-                        if (next) {
-                          setAddressLine(pickedAddress || resolvedAddress || "");
-                        }
-                      }}
-                      disabled={interactionBusy}
-                      className="h-[15px] w-[15px] shrink-0 accent-[color:var(--app-accent)] disabled:opacity-45"
-                    />
-                    Use detected
-                  </label>
-                </div>
-                <textarea
-                  id="saved-location-address-line"
-                  value={addressLine}
-                  onChange={(event) => setAddressLine(event.target.value)}
-                  disabled={interactionBusy || useDetectedAddress}
-                  rows={2}
-                  maxLength={300}
-                  autoComplete={deferredUntilVault ? "off" : "street-address"}
-                  placeholder={
-                    loadingAddress
-                      ? "Finding your address…"
-                      : "Street, area, city"
-                  }
-                  className={cn(
-                    controlInputClassName,
-                    "h-auto resize-none py-3 leading-5",
-                  )}
-                />
-              </div>
+            {/* Ticked, the fields below are filled from that address and keep
+                following the pin. Unticked, they are cleared and left alone.
+                Anything typed by hand survives either way. */}
+            <label className="flex cursor-pointer items-center gap-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={useDetectedAddress}
+                onChange={(event) => {
+                  const next = event.target.checked;
+                  setUseDetectedAddress(next);
+                  // Both directions act now rather than at the next pin move,
+                  // so the box never reads as on while the fields disagree
+                  // with it. Unticking forgets that anything was typed, which
+                  // is what makes re-ticking a clean redo.
+                  houseOrFlatEditedRef.current = false;
+                  postalCodeEditedRef.current = false;
+                  setAddressDetails((current) =>
+                    detectedAddressDetails(current, next ? detectedAddress : null, {
+                      houseOrFlat: false,
+                      postalCode: false,
+                    }),
+                  );
+                }}
+                disabled={interactionBusy}
+                className="h-[15px] w-[15px] shrink-0 accent-[color:var(--app-accent)] disabled:opacity-45"
+              />
+              Fill the fields below from this address
+            </label>
 
+            <div className="space-y-3.5">
               <div>
                 <label
                   htmlFor="saved-location-house-or-flat"

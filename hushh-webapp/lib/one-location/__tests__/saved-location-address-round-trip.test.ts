@@ -81,6 +81,49 @@ describe("re-saving an edited place", () => {
     expect(corrected).not.toContain("Kartavya Path");
   });
 
+  it("does not repeat a house number that the address already opens with", () => {
+    // House-flat is now prefilled FROM the address, so on most saves it is the
+    // address's own first segment coming back round. Prepending it would read
+    // "B-284/3, B-284/3, Rd Number 1, ...".
+    const detected =
+      "B-284/3, Rd Number 1, Chhatarpur Enclave Phase 2, New Delhi, Delhi 110074, India";
+    const composed = buildSavedLocationAddress(detected, {
+      houseOrFlat: "B-284/3",
+      buildingColor: "",
+      landmark: "",
+      postalCode: "110074",
+    });
+
+    expect(composed).toBe(detected);
+    expect(composed?.match(/B-284\/3/g)).toHaveLength(1);
+  });
+
+  it("still prepends a house number the address does not already carry", () => {
+    // The other half of that rule: a flat the person typed themselves is not
+    // in the street address and must survive.
+    const composed = buildSavedLocationAddress(BASE, {
+      houseOrFlat: "Flat 9, Rear block",
+      buildingColor: "",
+      landmark: "",
+      postalCode: "",
+    });
+
+    expect(composed).toBe(`Flat 9, Rear block, ${BASE}`);
+  });
+
+  it("does not swallow a house number that merely shares its opening digits", () => {
+    // Compared segment-to-segment, not as a prefix of the whole line, so "12"
+    // is not eaten by a "1234 Main Street" that happens to start the same way.
+    const composed = buildSavedLocationAddress("1234 Main Street, Springfield", {
+      houseOrFlat: "12",
+      buildingColor: "",
+      landmark: "",
+      postalCode: "",
+    });
+
+    expect(composed).toBe("12, 1234 Main Street, Springfield");
+  });
+
   it("still saves something usable when only the address is given", () => {
     // House, flat and postal code no longer block a save, so composing with
     // empty details has to produce the address rather than nothing.

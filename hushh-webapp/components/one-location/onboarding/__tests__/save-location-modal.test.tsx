@@ -225,11 +225,12 @@ describe("SaveLocationModal", () => {
     expect(
       screen.getByText(/held for this session/i),
     ).toBeInTheDocument();
-    // The detected address lands in the Address field, where it can be
-    // corrected, instead of only being shown back as a read-only card.
-    expect(screen.getByLabelText("Address")).toHaveValue(
-      "Kartavya Path, New Delhi, Delhi 110001, India",
-    );
+    // The detected address is shown, and the fields below were filled from
+    // it -- here only the PIN, since "Kartavya Path" is a street rather than
+    // a house number.
+    expect(
+      screen.getByText("Kartavya Path, New Delhi, Delhi 110001, India"),
+    ).toBeInTheDocument();
 
     const saveButton = screen.getByRole("button", { name: "Save location" });
     // Still off, but now for the one reason that remains, and it says so.
@@ -357,7 +358,7 @@ describe("SaveLocationModal", () => {
     expect(baseProps.onSave).not.toHaveBeenCalled();
   });
 
-  it("saves with just an address, so the button is never dead with nothing to fix", () => {
+  it("saves with just a pinned address, so the button is never dead with nothing to fix", () => {
     // The gate used to require House, flat AND a valid postal code. On the
     // edit flow House, flat came back blank every time, so "Update location"
     // could not be pressed and nothing said why -- which is what "saving
@@ -376,6 +377,8 @@ describe("SaveLocationModal", () => {
     expect(saveButton).toBeEnabled();
     fireEvent.click(saveButton);
 
+    // "Kartavya Path" is a street, not a house number, so nothing is inferred
+    // into House-flat -- and the save still goes through.
     expect(baseProps.onSave).toHaveBeenCalledWith(
       "home",
       "",
@@ -396,89 +399,141 @@ describe("SaveLocationModal", () => {
     expect(
       screen.getByText("Pick Home, Work or Other first."),
     ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /use detected/i }));
-    fireEvent.change(screen.getByLabelText("Address"), {
-      target: { value: "   " },
-    });
-
-    expect(
-      screen.getByText("Add an address, or tick the box to use the one we found."),
-    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Save location" }),
     ).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
+      target: { value: "!" },
+    });
+
+    // Distinct from the field's own inline error, which says "Enter a valid
+    // PIN or postal code." right beside the input. Two places worth looking,
+    // not the same sentence twice.
+    expect(
+      screen.getByText("Check the PIN or postal code above."),
+    ).toBeInTheDocument();
   });
 
-  describe("the detected-address checkbox", () => {
-    it("fills the Address field from the pin while it is ticked", () => {
+  describe("filling the fields from the detected address", () => {
+    const HOUSE_NUMBER_ADDRESS =
+      "B-284/3, Rd Number 1, Chhatarpur Enclave Phase 2, New Delhi, Delhi 110074, India";
+
+    it("puts the house number and PIN into their own fields", () => {
+      // The address was on screen the whole time and only its postal code was
+      // ever mined, so a person looking at "B-284/3, ..." still had to retype
+      // B-284/3 into the box directly underneath it.
       render(
         <SaveLocationModal
           {...baseProps}
-          address="Kartavya Path, New Delhi, Delhi 110001, India"
+          address={HOUSE_NUMBER_ADDRESS}
           collectAddressDetails
         />,
       );
 
-      const checkbox = screen.getByRole("checkbox", { name: /use detected/i });
-      expect(checkbox).toBeChecked();
-      expect(screen.getByLabelText("Address")).toHaveValue(
-        "Kartavya Path, New Delhi, Delhi 110001, India",
+      expect(screen.getByLabelText(/House, flat, floor or block/)).toHaveValue(
+        "B-284/3",
       );
-      // Read-only while it follows the pin: an editable field that silently
-      // reverts on the next geocode is worse than one that says it is locked.
-      expect(screen.getByLabelText("Address")).toBeDisabled();
+      expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110074");
+      // And the address itself is still shown, as it was before.
+      expect(screen.getByText(HOUSE_NUMBER_ADDRESS)).toBeInTheDocument();
     });
 
-    it("hands the field over once unticked, and stops the pin overwriting it", () => {
+    it("leaves House-flat empty when the address opens with a street", () => {
+      // A wrong prefill is worse than an empty one: people trust prefilled
+      // fields and stop reading them. "12 MG Road" is a street that happens
+      // to carry a number, not somebody's flat.
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address="12 MG Road, Bengaluru, Karnataka 560001, India"
+          collectAddressDetails
+        />,
+      );
+
+      expect(screen.getByLabelText(/House, flat, floor or block/)).toHaveValue(
+        "",
+      );
+      expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("560001");
+    });
+
+    it("never overwrites a field the person typed in", () => {
       const { rerender } = render(
         <SaveLocationModal
           {...baseProps}
-          address="Kartavya Path, New Delhi, Delhi 110001, India"
+          address={HOUSE_NUMBER_ADDRESS}
           collectAddressDetails
         />,
       );
 
-      fireEvent.click(screen.getByRole("checkbox", { name: /use detected/i }));
-      fireEvent.change(screen.getByLabelText("Address"), {
-        target: { value: "Gate 3, Rear entrance, New Delhi" },
+      fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+        target: { value: "Flat 9, Rear block" },
       });
 
       // A later reverse-geocode arrives. It must not take the field back.
       rerender(
         <SaveLocationModal
           {...baseProps}
-          address="Somewhere Else Entirely, Delhi"
+          address="C-11/2, Somewhere Else, Delhi 110088, India"
           collectAddressDetails
         />,
       );
 
-      expect(screen.getByLabelText("Address")).toHaveValue(
-        "Gate 3, Rear entrance, New Delhi",
+      expect(screen.getByLabelText(/House, flat, floor or block/)).toHaveValue(
+        "Flat 9, Rear block",
       );
+      // The untouched field still follows the pin.
+      expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110088");
     });
 
-    it("restores the detected address when ticked again", () => {
+    it("clears the filled fields when unticked, and refills them when ticked again", () => {
       render(
         <SaveLocationModal
           {...baseProps}
-          address="Kartavya Path, New Delhi, Delhi 110001, India"
+          address={HOUSE_NUMBER_ADDRESS}
           collectAddressDetails
         />,
       );
 
-      const checkbox = screen.getByRole("checkbox", { name: /use detected/i });
-      fireEvent.click(checkbox);
-      fireEvent.change(screen.getByLabelText("Address"), {
-        target: { value: "Typed over it" },
+      const checkbox = screen.getByRole("checkbox", {
+        name: /fill the fields below/i,
       });
-      fireEvent.click(checkbox);
+      expect(checkbox).toBeChecked();
 
-      // Ticked but still showing the edit it was meant to undo would make the
-      // box a lie, so the field is refilled on the tick itself.
-      expect(screen.getByLabelText("Address")).toHaveValue(
-        "Kartavya Path, New Delhi, Delhi 110001, India",
+      fireEvent.click(checkbox);
+      expect(screen.getByLabelText(/House, flat, floor or block/)).toHaveValue(
+        "",
+      );
+      expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("");
+
+      fireEvent.click(checkbox);
+      expect(screen.getByLabelText(/House, flat, floor or block/)).toHaveValue(
+        "B-284/3",
+      );
+      expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("110074");
+    });
+
+    it("does not save the house number twice when it came from the address", () => {
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address={HOUSE_NUMBER_ADDRESS}
+          collectAddressDetails
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Home" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+
+      // The caller composes address + details. Both now carry B-284/3, so the
+      // composition has to recognise its own prefill rather than produce
+      // "B-284/3, B-284/3, Rd Number 1, ...".
+      expect(baseProps.onSave).toHaveBeenCalledWith(
+        "home",
+        "",
+        expect.objectContaining({ houseOrFlat: "B-284/3" }),
+        HOUSE_NUMBER_ADDRESS,
       );
     });
   });
