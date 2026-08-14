@@ -74,8 +74,8 @@ function PublicLocationMap({ point }: { point: PlainLocationPoint }) {
           allowFullScreen
           className="h-full w-full border-0"
         />
-        <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-[color:var(--app-success)] px-3 py-1.5 text-[12px] font-semibold leading-4 text-white backdrop-blur-xl">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
+        <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full bg-[color:var(--app-accent)]/80 px-3 py-1.5 text-[12px] font-semibold leading-4 text-white backdrop-blur-xl">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-sky-300" />
           Public location
         </div>
         <Button

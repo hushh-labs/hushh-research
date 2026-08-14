@@ -3059,7 +3059,7 @@ function ProfilePageContent() {
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={User}
-          iconTone="blue"
+          iconTone="gray"
           title="Display name"
           description={user.displayName || "Not available"}
         />
@@ -3105,7 +3105,7 @@ function ProfilePageContent() {
       <SettingsGroup title="Account actions">
         <SettingsRow
           icon={RefreshCw}
-          iconTone="orange"
+          iconTone="gray"
           className="profile-account-reset-row"
           title="Reset account"
           description={resetRowDescription}
@@ -3728,6 +3728,7 @@ function ProfilePageContent() {
       title: "Account",
       description: "Email, phone, and sign-in.",
       content: accountContent,
+      presentation: "account",
     });
     if (activeDetail === "phone") {
       profileStackEntries.push({
@@ -3986,17 +3987,17 @@ function ProfilePageContent() {
     <div className="profile-home-screen">
       <AppPageHeaderRegion>
         <header
-          className="profile-home-hero flex w-full min-w-0 flex-col items-center gap-2.5 px-0 text-center sm:px-6"
+          className="profile-home-hero flex w-full min-w-0 flex-col items-center gap-2 px-0 text-center sm:px-6"
           data-slot="page-header"
           data-page-primary="true"
         >
           <ProfileAvatarEditor />
-          <div className="profile-home-copy w-full min-w-0 max-w-full space-y-1.5">
+          <div className="profile-home-copy w-full min-w-0 max-w-full space-y-2">
             <h1 className="profile-home-name ui-text-identity-name [overflow-wrap:anywhere]">
               {user.displayName || "User"}
             </h1>
             <div
-              className="profile-home-meta flex w-full min-w-0 items-center justify-center gap-2 text-sm text-muted-foreground"
+              className="profile-home-meta flex w-full min-w-0 items-center justify-center gap-2 text-xs font-normal text-muted-foreground"
               title={provider.name}
             >
               <ProviderIcon providerId={provider.id} />
@@ -4014,7 +4015,7 @@ function ProfilePageContent() {
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
                 icon={UserRound}
-                iconTone="blue"
+                iconTone="gray"
                 title={PROFILE_LABELS.account}
                 chevron
                 density="compact"

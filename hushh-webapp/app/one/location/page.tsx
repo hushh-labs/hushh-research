@@ -316,6 +316,29 @@ const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
 // Recipients poll faster than the owner's publish heartbeat so the shared dot
 // stays fresh; the LiveMap marker interpolates between these reads.
 const LIVE_VIEW_REFRESH_INTERVAL_MS = 5_000;
+/**
+ * Cadence for a share that is live but has never published a point. There is
+ * nothing to stream yet — the owner's first GPS fix hasn't landed — so asking
+ * every 5s burns a request per grant per tick for an answer that cannot change
+ * until the owner acts. The grant row already carries the authoritative tag
+ * (`latestEnvelopeId`), so this path only exists to catch the first publish
+ * promptly when no push notification arrives to refresh state.
+ */
+const AWAITING_FIRST_PUBLISH_POLL_MS = 30_000;
+/**
+ * Per-grant backoff ceiling after consecutive failed reads. One share that is
+ * genuinely broken (pruned envelope, rotated key, backend degraded) must never
+ * keep hitting the backend at the live cadence — and must never slow down the
+ * healthy shares next to it, which is why backoff is tracked per grant.
+ */
+const LIVE_VIEW_BACKOFF_MAX_MS = 60_000;
+/**
+ * A sweep that never settles (hung fetch, throttled tab resumed mid-flight)
+ * would leave the in-flight guard latched and silently kill live tracking for
+ * the rest of the session. Past this age the guard is treated as stale and the
+ * next tick proceeds, so the poll can always recover itself.
+ */
+const LIVE_VIEW_INFLIGHT_WATCHDOG_MS = 30_000;
 const LIVE_LOCATION_STALE_THRESHOLD_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS * 3;
 const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
 // True live tracking: while a share is active and the app is foregrounded, the
@@ -926,6 +949,65 @@ function receivedGrantOwnerLabel(grant: OneLocationGrant): string {
     grant.ownerDisplayName || grant.recipientDisplayName,
     "A trusted person",
   );
+}
+
+/**
+ * Copy for a share that is genuinely live but has no point yet. Shared by the
+ * success path (backend answered `awaiting_first_publish`), the legacy 404 path,
+ * and the pre-flight skip driven by `grant.latestEnvelopeId`, so all three
+ * render byte-identical text — the state setters below compare by value to
+ * avoid re-rendering the map on every poll.
+ */
+function awaitingFirstPublishMessage(grant: OneLocationGrant): string {
+  return `${receivedGrantOwnerLabel(
+    grant,
+  )} is sharing, but hasn't sent a live location update yet. It will appear here automatically as soon as they move or open One.`;
+}
+
+/** Outcome of one recipient-side envelope read, used to pace the next poll. */
+type OneLocationViewOutcome = "published" | "awaiting" | "error" | "skipped";
+
+type OneLocationGrantPollEntry = {
+  /** Epoch ms before which this grant must not be read again. */
+  nextAttemptAt: number;
+  /** Consecutive failed reads; drives the exponential backoff. */
+  failures: number;
+};
+
+/**
+ * Pace the next recipient-side read of one share, per grant.
+ *
+ * - `published` — the dot is live and moving, so stay on the tick cadence. Zero
+ *   delay keeps the streaming path byte-for-byte as fast as it was.
+ * - `awaiting` / `skipped` — healthy share with nothing to send. Asking twelve
+ *   times a minute cannot change an answer that only the owner can change, so
+ *   drop to the slow heartbeat.
+ * - `error` — exponential backoff, capped. Tracked per grant so one broken share
+ *   can neither hammer the backend nor slow down the healthy shares beside it.
+ */
+function recordGrantPollOutcome(
+  schedule: Map<string, OneLocationGrantPollEntry>,
+  grantId: string,
+  outcome: OneLocationViewOutcome,
+  now: number,
+): OneLocationGrantPollEntry {
+  const previousFailures = schedule.get(grantId)?.failures ?? 0;
+  const failures = outcome === "error" ? previousFailures + 1 : 0;
+  let delayMs = 0;
+  if (outcome === "error") {
+    delayMs = Math.min(
+      LIVE_VIEW_REFRESH_INTERVAL_MS * 2 ** failures,
+      LIVE_VIEW_BACKOFF_MAX_MS,
+    );
+  } else if (outcome !== "published") {
+    delayMs = AWAITING_FIRST_PUBLISH_POLL_MS;
+  }
+  const entry: OneLocationGrantPollEntry = {
+    nextAttemptAt: now + delayMs,
+    failures,
+  };
+  schedule.set(grantId, entry);
+  return entry;
 }
 
 function requestLabel(request: OneLocationAccessRequest): string {
@@ -2343,6 +2425,22 @@ export function OneLocationAgentPageContent({
   const focusClearRef = useRef<number | null>(null);
   const livePublishInFlightRef = useRef(false);
   const liveViewInFlightRef = useRef(false);
+  /** When the in-flight sweep began, so a wedged sweep can be timed out. */
+  const liveViewStartedAtRef = useRef(0);
+  /** Identifies the sweep that currently owns the in-flight guard. */
+  const liveViewSweepIdRef = useRef(0);
+  /** Per-grant read pacing: see `recordGrantPollOutcome`. */
+  const grantPollScheduleRef = useRef<Map<string, OneLocationGrantPollEntry>>(
+    new Map(),
+  );
+  /** Latest-value refs so the recipient poll runs on one stable interval. */
+  const visibleReceivedGrantsRef = useRef<OneLocationGrant[]>([]);
+  const viewGrantEnvelopeRef = useRef<
+    (
+      grant: OneLocationGrant,
+      options?: { silent?: boolean; trigger?: OneLocationForegroundTrigger },
+    ) => Promise<OneLocationViewOutcome>
+  >(async () => "skipped");
   const suppressAutoRecipientSelectionRef = useRef(false);
   const shareReviewAttemptRef = useRef(0);
   const shareReviewPendingRef = useRef(false);
@@ -3914,33 +4012,11 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
-  // Warm the local emergency number from ANY location the app already has.
-  //
-  // Save My Soul used to start from nothing: open the screen, ask for a fix,
-  // then wait on a reverse-geocode, leaving "Finding local number" on the one
-  // control someone might need in seconds. Every other flow here — the map, a
-  // share, a check-in — already produces a fix, so the country can be settled
-  // long before the SOS screen is ever opened.
-  //
-  // Runs only when the answer would actually change: no fix, no token, or a fix
-  // still inside the radius the current number was confirmed at, and it does
-  // nothing. It never requests permission, so it cannot prompt on its own.
-  useEffect(() => {
-    if (!myLocationPoint || !vaultOwnerToken) return;
-    const alreadyCoversThisPoint =
-      sosEmergencyStatus === "resolved" &&
-      isWithinEmergencyTrustRadius(
-        sosEmergencyOriginRef.current,
-        myLocationPoint,
-      );
-    if (alreadyCoversThisPoint) return;
-    void resolveEmergencyInfoForPoint(myLocationPoint, { seedFromCache: true });
-  }, [
-    myLocationPoint,
-    resolveEmergencyInfoForPoint,
-    sosEmergencyStatus,
-    vaultOwnerToken,
-  ]);
+  // The local emergency number is looked up only when someone actually taps
+  // "Find local number" (resolveSosLocation, wired to onResolveEmergencyNumber
+  // below) or triggers Save My Soul. It used to also warm silently off any fix
+  // the app already had, which made the control read as permanently loading
+  // before anyone pressed it — the lookup must stay a deliberate, on-click act.
 
   const handleTriggerSos = useCallback(
     async (note?: string | null) => {
@@ -3987,19 +4063,48 @@ export function OneLocationAgentPageContent({
           .map((outcome) => outcome.displayName);
         const reached = readyRecipients.length - unreachable.length;
 
+        // Second channel. A push reaches nobody when notifications are off, so
+        // the same alert goes out by email — the one place a closed app cannot
+        // swallow it. Awaited (not fired and forgotten) so the message below
+        // can tell the sender what actually happened, which is the whole point
+        // of having a fallback. It never throws.
+        const mail = await OneLocationService.sendSosEmails({
+          vaultOwnerToken,
+          grantIds: incident.grantIds,
+          latitude: point.latitude,
+          longitude: point.longitude,
+          accuracyM: point.accuracyM ?? null,
+          note,
+          emergencyNumber: sosEmergency?.number ?? null,
+        });
+
+        // Only worth saying when it changes what the sender should do next:
+        // "nobody's phone lit up" reads very differently if two inboxes got it.
+        // And a contact with no address is named rather than skipped in
+        // silence — "Emailed 0" with no reason is what made a broken email
+        // channel look like a working one.
+        const mailNote =
+          (mail.emailed > 0 ? ` Emailed ${mail.emailed}.` : "") +
+          (mail.withoutEmail.length > 0
+            ? ` No email on file for ${formatNameList(mail.withoutEmail)}.`
+            : "");
+
         if (reached === 0) {
+          const stillNoOne = mail.emailed === 0;
           toast.error(
-            `Location shared, but no one was alerted — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off. Call emergency services if you need help now.`,
+            stillNoOne
+              ? `Location shared, but no one was alerted — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off. Call emergency services if you need help now.`
+              : `No phones lit up — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off.${mailNote} Call emergency services if you need help now.`,
           );
         } else if (unreachable.length > 0) {
           toast.warning(
-            `Alerted ${reached} of ${readyRecipients.length} contacts. Couldn't reach ${formatNameList(unreachable)} — notifications are off on their end.`,
+            `Alerted ${reached} of ${readyRecipients.length} contacts. Couldn't reach ${formatNameList(unreachable)} — notifications are off on their end.${mailNote}`,
           );
         } else {
           toast.success(
             skipped > 0
-              ? `Alerted ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).`
-              : `Alerted ${readyRecipients.length} contact(s).`,
+              ? `Alerted ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).${mailNote}`
+              : `Alerted ${readyRecipients.length} contact(s).${mailNote}`,
           );
         }
         void refresh().catch(() => null);
@@ -4023,6 +4128,9 @@ export function OneLocationAgentPageContent({
       smsActionRecipients,
       refresh,
       sosIncident,
+      // The local emergency number is read at send time so the email can tell
+      // the recipient which number to dial where the sender is.
+      sosEmergency?.number,
       vaultOwnerToken,
     ],
   );
@@ -4218,8 +4326,8 @@ export function OneLocationAgentPageContent({
     async (
       grant: OneLocationGrant,
       options?: { silent?: boolean; trigger?: OneLocationForegroundTrigger },
-    ) => {
-      if (!auth.userId || !vaultOwnerToken) return;
+    ): Promise<OneLocationViewOutcome> => {
+      if (!auth.userId || !vaultOwnerToken) return "skipped";
       const activeUserId = auth.userId;
       const silent = Boolean(options?.silent);
       const trigger =
@@ -4234,6 +4342,10 @@ export function OneLocationAgentPageContent({
               vaultOwnerToken,
               grantId: grant.id,
             });
+            // Live share, no point published yet. The backend reports this as a
+            // success (see `allow_empty` in OneLocationService.viewEnvelope), so
+            // there is nothing to decrypt and nothing has gone wrong.
+            if (!response.envelope) return null;
             try {
               return await decryptLocationEnvelope({
                 userId: activeUserId,
@@ -4262,6 +4374,19 @@ export function OneLocationAgentPageContent({
             }
           },
         });
+        if (!point) {
+          // Live share, first point not published yet. This is a success, not a
+          // failure: hold the calm waiting copy and let the caller drop this
+          // grant to the slow cadence until the owner actually publishes.
+          setGrantViewErrors((current) => {
+            const waiting = awaitingFirstPublishMessage(grant);
+            return current[grant.id] === waiting
+              ? current
+              : { ...current, [grant.id]: waiting };
+          });
+          if (!silent) toast.message(awaitingFirstPublishMessage(grant));
+          return "awaiting";
+        }
         // A stationary owner republishes the same point every heartbeat, so most
         // ticks decrypt to something identical to what is already on screen.
         // Writing it anyway would allocate a new workspace object and re-render
@@ -4278,18 +4403,16 @@ export function OneLocationAgentPageContent({
           delete next[grant.id];
           return next;
         });
+        return "published";
       } catch (error) {
         const keyUnavailable =
           error instanceof Error &&
           error.message === RECIPIENT_KEY_UNAVAILABLE_MESSAGE;
-        // The grant is active ("Live") but the owner has not published any
-        // encrypted point yet — e.g. they JUST started sharing, or haven't
-        // moved / re-opened One since. The backend returns a 404
-        // LOCATION_ENVELOPE_MISSING for this. It's a normal "not ready yet"
-        // state on the happy path, NOT a failure, so we must never surface the
-        // raw backend string ("The owner has not published an encrypted
-        // location envelope yet.") as a scary red error toast the moment the
-        // recipient lands on the page.
+        // Legacy shape of the same "not ready yet" state: a backend that predates
+        // `allow_empty` answers 404 LOCATION_ENVELOPE_MISSING instead of a 200
+        // with a null envelope. This branch must stay for as long as a client
+        // can reach an older backend — including the window during a rollout
+        // where the webapp ships ahead of the Python service.
         const envelopeMissing =
           !keyUnavailable &&
           (apiErrorCode(error) === "LOCATION_ENVELOPE_MISSING" ||
@@ -4319,13 +4442,13 @@ export function OneLocationAgentPageContent({
               grant,
             )}'s live location — the secure key changed. Ask them to share again.`,
           }));
-        } else if (envelopeMissing) {
+          return "error";
+        }
+        if (envelopeMissing) {
           // Calm, reassuring "waiting for their first update" state. The share
           // is genuinely active; the point simply hasn't arrived yet and will
           // appear automatically on the next poll once the owner publishes.
-          const waitingMessage = `${receivedGrantOwnerLabel(
-            grant,
-          )} is sharing, but hasn't sent a live location update yet. It will appear here automatically as soon as they move or open One.`;
+          const waitingMessage = awaitingFirstPublishMessage(grant);
           setGrantViewErrors((current) =>
             current[grant.id] === waitingMessage
               ? current
@@ -4336,7 +4459,9 @@ export function OneLocationAgentPageContent({
           if (!silent) {
             toast.message(waitingMessage);
           }
-        } else if (!silent) {
+          return "awaiting";
+        }
+        if (!silent) {
           toast.error(
             error instanceof Error
               ? error.message
@@ -4348,8 +4473,8 @@ export function OneLocationAgentPageContent({
             error,
           );
         }
+        return "error";
       } finally {
-
         if (!silent) setBusy(null);
       }
     },
@@ -4768,39 +4893,122 @@ export function OneLocationAgentPageContent({
     setMyLocationPoint,
   ]);
 
+  // Latest-value refs for the recipient poll below. The poll must survive on a
+  // single long-lived interval: keying its effect on the grant objects and the
+  // `viewGrantEnvelope` identity tore the timer down and rebuilt it on every
+  // render, and each rebuild fires an immediate sweep — so a render burst became
+  // a request burst at the backend (visible as clusters of back-to-back reads
+  // between the honest 5s ticks). These refs let the effect depend only on the
+  // grant id list, which changes when the set of shares genuinely changes.
   useEffect(() => {
-    if (!activeVisibleReceivedGrants.length) return;
-    if (busy && busy !== "load") return;
+    visibleReceivedGrantsRef.current = activeVisibleReceivedGrants;
+    viewGrantEnvelopeRef.current = viewGrantEnvelope;
+  });
+
+  const visibleReceivedGrantKey = useMemo(
+    () => activeVisibleReceivedGrants.map((grant) => grant.id).join(","),
+    [activeVisibleReceivedGrants],
+  );
+  const liveViewPollBlocked = Boolean(busy && busy !== "load");
+
+  useEffect(() => {
+    if (!visibleReceivedGrantKey) return;
+    if (liveViewPollBlocked) return;
 
     const refreshVisibleGrants = async () => {
-      if (liveViewInFlightRef.current) return;
+      const now = Date.now();
+      // Checked before the watchdog: a backgrounded tab is throttled by the
+      // browser, so an in-flight sweep sitting there is expected, not wedged.
       if (
         typeof document !== "undefined" &&
         document.visibilityState === "hidden"
       )
         return;
+      if (liveViewInFlightRef.current) {
+        // Normal overlap: the previous sweep is still running, skip this tick.
+        if (now - liveViewStartedAtRef.current < LIVE_VIEW_INFLIGHT_WATCHDOG_MS)
+          return;
+        // The previous sweep never settled. Without this escape the guard stays
+        // latched for the life of the page and live tracking dies silently, with
+        // the interval still firing into a permanent no-op.
+        console.warn(
+          "[OneLocationAgent] Live view sweep exceeded the watchdog; " +
+            "releasing the in-flight guard so polling can recover.",
+        );
+      }
+
+      const grants = visibleReceivedGrantsRef.current;
+      const schedule = grantPollScheduleRef.current;
+      // Only read shares whose next attempt is actually due. A share that has
+      // never published, or one that keeps failing, sits on a slower cadence
+      // than a share that is streaming a moving dot.
+      const due = grants.filter((grant) => {
+        const entry = schedule.get(grant.id);
+        return !entry || now >= entry.nextAttemptAt;
+      });
+      if (!due.length) return;
+
+      // Claim this sweep. If the watchdog above abandoned an earlier one, that
+      // earlier sweep may still resolve later — and it must not then clear a
+      // guard it no longer owns, which would let two sweeps run concurrently.
+      const sweepId = liveViewSweepIdRef.current + 1;
+      liveViewSweepIdRef.current = sweepId;
       liveViewInFlightRef.current = true;
+      liveViewStartedAtRef.current = now;
       try {
+        const view = viewGrantEnvelopeRef.current;
         await Promise.allSettled(
-          activeVisibleReceivedGrants.map((grant) =>
-            viewGrantEnvelope(grant, {
-              silent: true,
-              trigger: "foreground_interval",
-            }),
-          ),
+          due.map(async (grant) => {
+            // Deliberately NOT gated on `grant.latestEnvelopeId`. That column is
+            // a denormalised copy of "has this share ever published", and using
+            // it to skip the read would mean one missed write permanently hides
+            // a live dot — a far worse failure than an extra request. The
+            // cadence below is driven by the response itself, so it self-heals.
+            //
+            // Defensive: viewGrantEnvelope already resolves rather than rejects
+            // for every state it knows about, but a future throw inside it must
+            // degrade this grant to backoff — never take down the whole sweep.
+            let outcome: OneLocationViewOutcome = "error";
+            try {
+              outcome = await view(grant, {
+                silent: true,
+                trigger: "foreground_interval",
+              });
+            } catch (error) {
+              console.warn(
+                "[OneLocationAgent] Live view sweep entry failed:",
+                error,
+              );
+            }
+            recordGrantPollOutcome(schedule, grant.id, outcome, now);
+          }),
         );
       } finally {
-        liveViewInFlightRef.current = false;
+        if (liveViewSweepIdRef.current === sweepId) {
+          liveViewInFlightRef.current = false;
+        }
       }
     };
 
+    // Drop schedule entries for shares that are no longer on screen so a long
+    // session cannot accumulate state for revoked/expired grants.
+    const liveIds = new Set(visibleReceivedGrantKey.split(","));
+    for (const id of [...grantPollScheduleRef.current.keys()]) {
+      if (!liveIds.has(id)) grantPollScheduleRef.current.delete(id);
+    }
+
     void refreshVisibleGrants();
-    const interval = window.setInterval(
-      () => void refreshVisibleGrants(),
-      LIVE_VIEW_REFRESH_INTERVAL_MS,
-    );
+    const interval = window.setInterval(() => {
+      // A synchronous throw here would kill the interval for the rest of the
+      // session, so nothing is allowed to escape the tick.
+      try {
+        void refreshVisibleGrants();
+      } catch (error) {
+        console.warn("[OneLocationAgent] Live view tick failed:", error);
+      }
+    }, LIVE_VIEW_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(interval);
-  }, [activeVisibleReceivedGrants, busy, viewGrantEnvelope]);
+  }, [visibleReceivedGrantKey, liveViewPollBlocked, setGrantViewErrors]);
 
   // Keep native background publishing in sync with the opt-in toggle + grants.
   // Web returns { started:false } and this is a no-op there.

@@ -270,6 +270,19 @@ export function useLocationChat(params: {
           vaultOwnerToken,
           grantId,
         });
+        // Share is live but the owner hasn't published a point yet. Report the
+        // wait honestly instead of failing — nothing has gone wrong, and there
+        // is no ciphertext to decrypt.
+        if (!envelope) {
+          await report({
+            id: action.id,
+            type: action.type,
+            status: "completed",
+            detail:
+              "They're sharing, but haven't sent a live location update yet.",
+          });
+          return;
+        }
         try {
           const point = await decryptLocationEnvelope({ userId, envelope });
           setViewedPoint(point);
