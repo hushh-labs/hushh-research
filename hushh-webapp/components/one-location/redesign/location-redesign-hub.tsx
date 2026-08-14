@@ -82,7 +82,7 @@ import {
   TrustNoteCard,
   WarningCard,
 } from "./primitives";
-import { MUTED_TEXT, SECTION_TITLE, SUBCARD_SURFACE } from "./tokens";
+import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 import {
   initialsFrom,
   RequestCard,
@@ -127,6 +127,7 @@ import type {
 } from "@/lib/one-location/emergency-numbers";
 import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
 import { CIRCLE_JOIN_CODE_PARAM } from "@/lib/one-location/circle-join-url";
+import { useMediaQuery } from "@/lib/morphy-ux/use-media-query";
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
@@ -1136,19 +1137,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   );
 }
 
-/**
- * People-tab action row: stacked on phones, an inline row from `sm` up.
- *
- * The hub column is unbounded, so `w-full` buttons grew to the width of a
- * desktop window — three pills spanning 1200px read as bulk, not as choices.
- * From `sm` they size to their own label and sit left-aligned, which is also
- * what keeps the iOS build from looking like a stack of banners on iPad.
- * `flex-wrap` means a long localized label moves to the next line instead of
- * squeezing its neighbours.
- */
-const PEOPLE_ACTION_ROW = "flex flex-col gap-2.5 sm:flex-row sm:flex-wrap";
-/** Full-bleed thumb target on phones; natural width once there is room. */
-const PEOPLE_ACTION_BUTTON = "h-11 w-full font-medium sm:w-auto sm:px-5";
+/** Quiet text actions used by the reference-style People section headers. */
+const PEOPLE_HEADER_ACTION =
+  "relative !h-auto !min-h-0 !rounded-none !px-0 !py-0 text-[16px] font-normal leading-5 tracking-[-0.24px] after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] sm:text-[15px]";
+
+/** People-only grouped surface: compact geometry, shared semantic theme. */
+const PEOPLE_GROUP_SURFACE =
+  "max-h-[50vh] overflow-y-auto overflow-x-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]";
 
 function LocationHubPanel({ children }: { children: ReactNode }) {
   return (
@@ -1701,25 +1696,23 @@ function PersonRow({
   return (
     <div
       className={cn(
-        "flex min-h-[60px] items-center gap-3 p-3.5",
+        "flex min-h-[74px] items-center gap-3.5 px-[18px] py-2 transition-colors hover:bg-[color:var(--app-neutral-fill)] motion-reduce:transition-none sm:min-h-[76px] sm:gap-[18px] sm:px-6",
         !first && "border-t border-[color:var(--app-separator)]",
       )}
     >
       <div className="relative shrink-0">
-        <span
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-[color:var(--app-accent-surface)] text-[14px] font-semibold text-[color:var(--app-accent-deep)]"
-        >
+        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[color:var(--app-accent-surface)] text-[14px] font-semibold text-[color:var(--app-accent-deep)]">
           {personInitials(name)}
         </span>
         {active ? (
-          <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-[color:var(--app-success)] dark:border-[color:var(--app-card-surface-default-solid)]" />
+          <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-success)]" />
         ) : null}
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[17px] font-normal leading-[22px] text-foreground">
+      <div className="min-w-0 flex-1 sm:flex sm:items-baseline sm:gap-3">
+        <p className="truncate text-[17px] font-normal leading-[22px] tracking-[-0.37px] text-foreground">
           {name}
         </p>
-        <p className="truncate text-[15px] leading-5 text-muted-foreground">
+        <p className="truncate text-[14px] leading-[18px] tracking-[-0.22px] text-[color:var(--app-tertiary-label)]">
           {subtitle}
         </p>
       </div>
@@ -1751,16 +1744,38 @@ function PeopleHub({
 }) {
   const hasSearch = vm.recipientSearch.trim().length > 0;
   const filtered = vm.visibleRecipients;
-  // Show the people list whenever there's anyone to show — this includes
-  // contact-sync matches (which live in visibleRecipients, not `recipients`) —
-  // or while a search is active. Otherwise fall back to the invite-first empty
-  // state. (Gating on `recipients` alone hid freshly-synced contact matches.)
-  const showPeopleList = filtered.length > 0 || hasSearch;
+  const isDesktopPeopleLayout = useMediaQuery("(min-width: 640px)");
+  const addPeopleAction = (
+    <Button
+      type="button"
+      onClick={onAddConnections}
+      data-voice-control-id="one-location-add-connections"
+      className={cn(
+        "rounded-full font-semibold",
+        isDesktopPeopleLayout
+          ? "h-10 min-h-10 px-[22px] text-[15px]"
+          : "h-[54px] min-h-[54px] w-full px-6 text-[16px]",
+      )}
+    >
+      Add people
+    </Button>
+  );
+  const syncContactsAction = (
+    <Button
+      type="button"
+      variant="link"
+      size="sm"
+      onClick={vm.onSyncContacts}
+      isLoading={vm.busy === "contactSync"}
+      className={PEOPLE_HEADER_ACTION}
+    >
+      Sync contacts
+    </Button>
+  );
 
-  // No one to show yet: keep the invite-first empty state.
-  if (!showPeopleList) {
-    return (
-      <div className="space-y-5">
+  return (
+    <div className="pt-6 sm:pt-[52px]" data-testid="one-location-people-hub">
+      <div className="space-y-10 sm:space-y-[72px]">
         <CirclesSection
           circles={vm.circles}
           incomingInvites={vm.incomingCircleMemberInvites}
@@ -1780,191 +1795,160 @@ function PeopleHub({
           onDismissFocusedInvite={onDismissFocusedInvite}
         />
 
-        <SectionCard
-          title="Connections"
-          description="People ready for sharing."
-        >
-          {/* Identical set, order and weights to the populated tab, so the
-              screen does not rearrange itself the moment a first connection
-              lands. */}
-          <div className={PEOPLE_ACTION_ROW}>
-            <Button
-              onClick={onAddConnections}
-              data-voice-control-id="one-location-add-connections"
-              className={PEOPLE_ACTION_BUTTON}
+        <div className="space-y-10 sm:space-y-12">
+          <section
+            aria-labelledby="one-location-connections-heading"
+            className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 sm:gap-x-6"
+            data-testid="one-location-people-connections"
+          >
+            <h2
+              id="one-location-connections-heading"
+              className="col-start-1 row-start-1 text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-section-label)]"
             >
-              <UsersRound className="mr-2 h-4 w-4" />
-              Add people
-            </Button>
+              Connections
+            </h2>
+
+            {/* The reference omits Invite, but it remains a first-class action.
+                Keeping it quiet preserves the callback without recreating the
+                old banner-like action stack. */}
             <Button
-              variant="outline"
+              type="button"
+              variant="link"
+              size="sm"
               onClick={onInvite}
               data-voice-control-id="one-location-action-invite"
               className={cn(
-                PEOPLE_ACTION_BUTTON,
-                "border-[color:var(--app-accent)] text-[color:var(--app-accent)]",
+                PEOPLE_HEADER_ACTION,
+                "col-start-2 row-start-1 justify-self-end text-[color:var(--app-secondary-label)] hover:text-foreground",
               )}
             >
-              <UserPlus className="mr-2 h-4 w-4" />
               Invite
             </Button>
-            <Button
-              variant="ghost"
-              onClick={vm.onSyncContacts}
-              isLoading={vm.busy === "contactSync"}
+
+            <div className="col-start-3 row-start-1 justify-self-end">
+              {isDesktopPeopleLayout
+                ? addPeopleAction
+                : syncContactsAction}
+            </div>
+
+            <div
               className={cn(
-                PEOPLE_ACTION_BUTTON,
-                "text-[color:var(--app-accent)] hover:text-[color:var(--app-accent)]",
+                "col-span-3 row-start-2 mt-3 sm:mt-3.5",
+                "[&_input]:h-[46px] [&_input]:rounded-full [&_input]:border-0 [&_input]:bg-[color:var(--app-primary-surface)] [&_input]:pl-[46px] [&_input]:pr-[18px] [&_input]:text-[17px] [&_input]:leading-[22px] [&_input]:tracking-[-0.3px]",
+                "[&_svg]:left-[18px] [&_svg]:text-[color:var(--app-tertiary-label)]",
+                "sm:[&_input]:h-12 sm:[&_input]:rounded-[var(--app-radius-md)] sm:[&_input]:pl-12 sm:[&_input]:pr-5 sm:[&_input]:text-base sm:[&_svg]:left-5",
+              )}
+              data-testid="one-location-people-search"
+            >
+              <PersonSearchInput
+                value={vm.recipientSearch}
+                onChange={vm.setRecipientSearch}
+              />
+            </div>
+
+            <div className="col-span-3 row-start-3 mt-3 sm:mt-3.5">
+              {filtered.length ? (
+                <div
+                  className={PEOPLE_GROUP_SURFACE}
+                  data-testid="one-location-people-list"
+                >
+                  {filtered.map((r, i) => {
+                    const grant = vm.activeOwnerGrants.find(
+                      (g) => g.recipientUserId === r.userId,
+                    );
+                    const sharing = Boolean(grant);
+                    const receiving = vm.receivedGrants.some(
+                      (g) => g.ownerUserId === r.userId,
+                    );
+                    const ready = vm.isRecipientShareReady(r);
+                    const name = vm.recipientLabel(r);
+                    return (
+                      <PersonRow
+                        key={r.userId}
+                        name={name}
+                        subtitle={vm.recipientSubtitle(r)}
+                        active={sharing || receiving}
+                        first={i === 0}
+                        action={
+                          sharing && grant ? (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => vm.onStopGrant(grant.id)}
+                              isLoading={vm.revokingGrantId === grant.id}
+                              aria-label={`Stop sharing with ${name}`}
+                              className="relative h-9 min-h-9 rounded-full px-4 text-[15px] font-semibold after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] sm:px-5"
+                            >
+                              Stop
+                            </Button>
+                          ) : ready ? (
+                            <Button
+                              size="sm"
+                              onClick={() => onStartShare(r.userId)}
+                              aria-label={`Share with ${name}`}
+                              className="relative h-9 min-h-9 rounded-full bg-[color:var(--app-accent)] px-4 text-[15px] font-semibold text-[color:var(--app-accent-fg)] after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] hover:bg-[color:var(--app-accent-hover)] sm:px-5"
+                            >
+                              Share
+                            </Button>
+                          ) : null
+                        }
+                      />
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)]">
+                  <EmptyState
+                    title={
+                      hasSearch ? "No matching people" : "No connections yet"
+                    }
+                    description={
+                      hasSearch
+                        ? "Try a different name."
+                        : "Add people or send an invite to start sharing."
+                    }
+                  />
+                </div>
+              )}
+            </div>
+
+            <div
+              className={cn(
+                "col-span-3 col-start-1 row-start-4 mt-6",
+                isDesktopPeopleLayout ? "justify-self-center" : "w-full",
               )}
             >
-              Sync contacts
-            </Button>
-          </div>
-        </SectionCard>
-      </div>
-    );
-  }
+              {isDesktopPeopleLayout
+                ? syncContactsAction
+                : addPeopleAction}
+            </div>
+          </section>
 
-  return (
-    <div className="space-y-4">
-      <CirclesSection
-        circles={vm.circles}
-        incomingInvites={vm.incomingCircleMemberInvites}
-        incomingInvitesLoading={vm.incomingCircleMemberInvitesLoading}
-        incomingInvitesError={vm.incomingCircleMemberInvitesError}
-        focusedInviteId={focusedInviteId}
-        focusedInviteResolutionReady={
-          vm.incomingCircleMemberInviteFocusResolved
-        }
-        inviteBusy={vm.busy === "circleMemberInvite"}
-        onCreate={onCreateCircle}
-        onJoin={onJoinCircle}
-        onOpen={onOpenCircle}
-        onAcceptInvite={vm.onAcceptNamedCircleMemberInvite}
-        onDeclineInvite={vm.onDeclineNamedCircleMemberInvite}
-        onRetryInvites={vm.onRetryNamedCircleMemberInvites}
-        onDismissFocusedInvite={onDismissFocusedInvite}
-      />
-
-      {/* Three actions, one weight each — filled, outlined, quiet — so the
-          common one is obvious and the rest do not compete. "Share to contacts"
-          used to sit here as a fourth; it minted a PUBLIC link, the same
-          artifact the Links tab creates and viewable by anyone holding the URL,
-          which is the opposite of what every other control on a tab about
-          named, trusted people does. Links owns it. */}
-      <div className={PEOPLE_ACTION_ROW}>
-        <Button
-          onClick={onAddConnections}
-          data-voice-control-id="one-location-add-connections"
-          className={PEOPLE_ACTION_BUTTON}
-        >
-          <UsersRound className="mr-2 h-4 w-4" />
-          Add people
-        </Button>
-        <Button
-          variant="outline"
-          onClick={onInvite}
-          data-voice-control-id="one-location-action-invite"
-          className={cn(
-            PEOPLE_ACTION_BUTTON,
-            "border-[color:var(--app-accent)] text-[color:var(--app-accent)]",
-          )}
-        >
-          <UserPlus className="mr-2 h-4 w-4" />
-          Invite
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={vm.onSyncContacts}
-          isLoading={vm.busy === "contactSync"}
-          className={cn(
-            PEOPLE_ACTION_BUTTON,
-            "text-[color:var(--app-accent)] hover:text-[color:var(--app-accent)]",
-          )}
-        >
-          Sync contacts
-        </Button>
-      </div>
-
-      {/* Search now sits directly on top of the list it filters. It used to be
-          separated from its own results by four buttons, which read as page
-          search rather than list search. */}
-      <div className="space-y-3">
-        <h2 className={cn(SECTION_TITLE, "px-1")}>Connections</h2>
-
-        <PersonSearchInput
-          value={vm.recipientSearch}
-          onChange={vm.setRecipientSearch}
-        />
-
-        {filtered.length ? (
-          <div className={cn("max-h-[50vh] overflow-y-auto overflow-x-hidden", SUBCARD_SURFACE)}>
-            {filtered.map((r, i) => {
-              const grant = vm.activeOwnerGrants.find(
-                (g) => g.recipientUserId === r.userId,
-              );
-              const sharing = Boolean(grant);
-              const receiving = vm.receivedGrants.some(
-                (g) => g.ownerUserId === r.userId,
-              );
-              const ready = vm.isRecipientShareReady(r);
-              return (
-                <PersonRow
-                  key={r.userId}
-                  name={vm.recipientLabel(r)}
-                  subtitle={vm.recipientSubtitle(r)}
-                  active={sharing || receiving}
-                  first={i === 0}
-                  action={
-                    sharing && grant ? (
-                      <Button
-                        variant="outline"
-                        onClick={() => vm.onStopGrant(grant.id)}
-                        isLoading={vm.revokingGrantId === grant.id}
-                        className="h-9 rounded-full border-[color:var(--app-accent)] px-5 text-sm font-semibold text-[color:var(--app-accent)]"
-                      >
-                        Stop
-                      </Button>
-                    ) : ready ? (
-                      <Button
-                        onClick={() => onStartShare(r.userId)}
-                        className="h-9 rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
-                      >
-                        Share
-                      </Button>
-                    ) : null
+          {vm.requestedByMe.length ? (
+            <SettingsGroup
+              title="Requests sent"
+              separatorInset
+              shellClassName="[--settings-group-radius:var(--app-radius-md)] !rounded-[var(--app-radius-md)] !bg-[color:var(--app-primary-surface)] !shadow-[var(--app-card-shadow-standard)]"
+            >
+              {vm.requestedByMe.map((request) => (
+                <SettingsRow
+                  key={request.id}
+                  icon={Send}
+                  iconTone="blue"
+                  title={vm.requestOwnerLabel(request)}
+                  description={vm.formatDateTime(request.requestedAt)}
+                  trailing={
+                    /active|approved|shared|granted/i.test(request.status)
+                      ? "Active"
+                      : "Pending"
                   }
+                  density="compact"
                 />
-              );
-            })}
-          </div>
-        ) : (
-          <EmptyState
-            title="No matching people"
-            description="Try a different name."
-          />
-        )}
+              ))}
+            </SettingsGroup>
+          ) : null}
+        </div>
       </div>
-
-      {vm.requestedByMe.length ? (
-        <SettingsGroup title="Requests sent" separatorInset>
-          {vm.requestedByMe.map((request) => (
-            <SettingsRow
-              key={request.id}
-              icon={Send}
-              iconTone="blue"
-              title={vm.requestOwnerLabel(request)}
-              description={vm.formatDateTime(request.requestedAt)}
-              trailing={
-                /active|approved|shared|granted/i.test(request.status)
-                  ? "Active"
-                  : "Pending"
-              }
-              density="compact"
-            />
-          ))}
-        </SettingsGroup>
-      ) : null}
     </div>
   );
 }
