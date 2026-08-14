@@ -2424,6 +2424,8 @@ export function OneLocationAgentPageContent({
   const liveViewInFlightRef = useRef(false);
   /** When the in-flight sweep began, so a wedged sweep can be timed out. */
   const liveViewStartedAtRef = useRef(0);
+  /** Identifies the sweep that currently owns the in-flight guard. */
+  const liveViewSweepIdRef = useRef(0);
   /** Per-grant read pacing: see `recordGrantPollOutcome`. */
   const grantPollScheduleRef = useRef<Map<string, OneLocationGrantPollEntry>>(
     new Map(),
@@ -4912,6 +4914,13 @@ export function OneLocationAgentPageContent({
 
     const refreshVisibleGrants = async () => {
       const now = Date.now();
+      // Checked before the watchdog: a backgrounded tab is throttled by the
+      // browser, so an in-flight sweep sitting there is expected, not wedged.
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      )
+        return;
       if (liveViewInFlightRef.current) {
         // Normal overlap: the previous sweep is still running, skip this tick.
         if (now - liveViewStartedAtRef.current < LIVE_VIEW_INFLIGHT_WATCHDOG_MS)
@@ -4924,11 +4933,6 @@ export function OneLocationAgentPageContent({
             "releasing the in-flight guard so polling can recover.",
         );
       }
-      if (
-        typeof document !== "undefined" &&
-        document.visibilityState === "hidden"
-      )
-        return;
 
       const grants = visibleReceivedGrantsRef.current;
       const schedule = grantPollScheduleRef.current;
@@ -4941,6 +4945,11 @@ export function OneLocationAgentPageContent({
       });
       if (!due.length) return;
 
+      // Claim this sweep. If the watchdog above abandoned an earlier one, that
+      // earlier sweep may still resolve later — and it must not then clear a
+      // guard it no longer owns, which would let two sweeps run concurrently.
+      const sweepId = liveViewSweepIdRef.current + 1;
+      liveViewSweepIdRef.current = sweepId;
       liveViewInFlightRef.current = true;
       liveViewStartedAtRef.current = now;
       try {
@@ -4972,7 +4981,9 @@ export function OneLocationAgentPageContent({
           }),
         );
       } finally {
-        liveViewInFlightRef.current = false;
+        if (liveViewSweepIdRef.current === sweepId) {
+          liveViewInFlightRef.current = false;
+        }
       }
     };
 
