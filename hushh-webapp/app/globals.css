@@ -679,8 +679,8 @@ textarea {
   --ios-account-row-min-height: 58px;
   --ios-account-row-vertical-pad: 11px;
   --ios-account-separator-thickness: 0.5px;
-  --ios-account-section-header-bottom-gap: 8px;
-  --ios-account-section-gap: 18px;
+  --ios-account-section-header-bottom-gap: 4px;
+  --ios-account-section-gap: 12px;
   --ios-account-icon-tile-size: 34px;
   --ios-account-icon-tile-radius: 8px;
   --ios-account-icon-glyph-size: 20px;
@@ -1126,6 +1126,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   --settings-row-py: var(--ios-account-row-vertical-pad);
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 100%;
   gap: var(--ios-account-section-gap);
   margin-top: 0;
 }
@@ -1208,6 +1210,13 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-account-content [data-icon-tone="orange"],
 .profile-home-content [data-icon-tone="orange"] {
   background: var(--app-warning) !important;
+}
+
+[data-profile-stack-screen="account"] [data-icon-tone="indigo"],
+[data-profile-stack-screen="panel:account"] [data-icon-tone="indigo"],
+.profile-account-content [data-icon-tone="indigo"],
+.profile-home-content [data-icon-tone="indigo"] {
+  background: #5856d6 !important;
 }
 
 [data-profile-stack-screen="account"] [data-icon-tone="purple"],
@@ -1316,7 +1325,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-account-content
   .profile-account-reset-row
   [data-slot="settings-row-icon"] {
-  background: var(--app-warning) !important;
+  background: #3a3a3c !important;
+  color: #ffffff !important;
 }
 
 .profile-account-content
@@ -1433,8 +1443,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-hero {
-  gap: 10px !important;
-  padding-top: 10px;
+  gap: 8px !important;
+  padding-top: 8px;
 }
 
 .profile-home-screen [data-profile-avatar-frame="true"] {
@@ -1502,10 +1512,10 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-meta {
   color: var(--ios-account-secondary-label) !important;
   font-family: var(--font-app-body);
-  font-size: var(--type-row-description-size) !important;
+  font-size: 13px !important;
   font-weight: 400;
   letter-spacing: 0 !important;
-  line-height: var(--type-row-description-line) !important;
+  line-height: 18px !important;
 }
 
 .profile-home-meta svg {
@@ -1523,8 +1533,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-content {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-top: 14px;
+  gap: 12px;
+  margin-top: 0;
   width: 100%;
 }
 
@@ -1556,7 +1566,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 
 .profile-home-content [data-testid="settings-row"] {
   background: var(--ios-account-card-background);
-  min-height: 60px;
+  min-height: var(--ios-account-row-min-height);
 }
 
 .profile-home-content [data-testid="settings-row"]::after {
@@ -1637,38 +1647,19 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   color: var(--ios-account-secondary-label) !important;
 }
 
-body:has(.profile-home-screen) {
-  background: var(--ios-account-screen-background);
+html:has(.profile-home-screen),
+html:has(.profile-account-content),
+html:has([data-profile-stack="true"]),
+body:has(.profile-home-screen),
+body:has(.profile-account-content),
+body:has([data-profile-stack="true"]) {
+  background: var(--ios-account-screen-background) !important;
+  min-height: 100dvh;
 }
 
-body:has(.profile-home-screen) .foundation-public-ambient {
-  display: none;
-}
-
-@media (min-width: 768px) {
-  .profile-home-hero {
-    padding-top: 16px;
-  }
-
-  .profile-home-screen [data-profile-avatar-frame="true"] {
-    height: 112px !important;
-    width: 112px !important;
-  }
-
-  .profile-home-name {
-    font-size: 34px !important;
-  }
-
-  .profile-home-content {
-    margin-top: 18px;
-  }
-}
-
-body:has(.profile-account-content) {
-  background: var(--ios-account-screen-background);
-}
-
-body:has(.profile-account-content) .foundation-public-ambient {
+body:has(.profile-home-screen) .foundation-public-ambient,
+body:has(.profile-account-content) .foundation-public-ambient,
+body:has([data-profile-stack="true"]) .foundation-public-ambient {
   display: none;
 }
 
