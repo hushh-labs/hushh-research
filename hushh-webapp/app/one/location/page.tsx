@@ -7958,8 +7958,14 @@ export function OneLocationAgentPageContent({
         if (isStale()) return superseded;
         if (!result.ready || !result.point) {
           rollbackOptimisticOn();
+          // Say which of the two it was. "Needs device Location permission"
+          // was printed even when permission was fine and the device had
+          // simply not answered yet, which sent people to a settings screen
+          // with nothing to change on it.
           const message =
-            "Live location preview needs device Location permission.";
+            result.failure === "no-fix"
+              ? LOCATION_COPY.noFix
+              : LOCATION_COPY.denied;
           setMyLocationError(message);
           return { status: "blocked", summary: message };
         }
@@ -7972,7 +7978,11 @@ export function OneLocationAgentPageContent({
       } catch (error) {
         if (isStale()) return superseded;
         rollbackOptimisticOn();
-        const message = locationServicesErrorMessage(error);
+        // The gate already decided whether this was a refusal; asserting a
+        // cause from the error text guessed wrong on every timeout.
+        const message = isLocationPermissionDeniedError(error)
+          ? LOCATION_COPY.denied
+          : LOCATION_COPY.noFix;
         setMyLocationError(message);
         toast.error(message);
         return { status: "failed", summary: message };
