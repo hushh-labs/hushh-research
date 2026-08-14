@@ -45,7 +45,7 @@ import {
   TaskFlowHeader,
   TrustNoteCard,
 } from "@/components/one-location/redesign/primitives";
-import { MUTED_TEXT, SECTION_TITLE } from "@/components/one-location/redesign/tokens";
+import { MUTED_TEXT } from "@/components/one-location/redesign/tokens";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnection,
@@ -58,6 +58,12 @@ import type {
   OneLocationCircleSummary,
 } from "@/lib/one-location/types";
 import { cn } from "@/lib/utils";
+
+const CIRCLES_GROUP_SURFACE =
+  "[--settings-group-radius:var(--app-radius-md)] !rounded-[var(--app-radius-md)] !bg-[color:var(--app-primary-surface)] !shadow-[var(--app-card-shadow-standard)]";
+
+const CIRCLES_EMPTY_STATE_WRAPPER =
+  "[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)]";
 
 function circleInitials(value: string): string {
   return value
@@ -184,61 +190,58 @@ export function CirclesSection({
   };
 
   return (
-    <div className="space-y-3" data-testid="one-location-named-circles">
-      <div className="px-1">
-        <h2 className={SECTION_TITLE}>
-          Your circles
+    <div className="space-y-[14px]" data-testid="one-location-named-circles">
+      <div className="flex items-baseline justify-between gap-4">
+        <h2 className="text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
+          Circles
         </h2>
-        <p className={cn(MUTED_TEXT, "mt-1")}>
-          Family and friends you choose to group together.
-        </p>
-      </div>
 
-      {/* Directly under the heading rather than below the list: these two are
-          how the section is USED, and stranding them past a scrolling list of
-          circles hid them exactly when someone had enough circles to scroll.
-          Stacked on phones, natural width in a row once there is space — the
-          hub column is unbounded, so full-width pills would run the width of a
-          desktop window. */}
-      <div className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap">
-        <Button
-          type="button"
-          onClick={onCreate}
-          data-voice-control-id="one-location-action-create-circle"
-          className="h-11 w-full rounded-full font-semibold sm:w-auto sm:px-6"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Create
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onJoin}
-          data-voice-control-id="one-location-action-join-circle"
-          className="h-11 w-full rounded-full font-semibold sm:w-auto sm:px-6"
-        >
-          <KeyRound className="mr-2 h-4 w-4" />
-          Join with code
-        </Button>
+        {/* The static phone reference omits Join, but it remains a shipped
+            action. Both controls keep their handlers and voice IDs while the
+            quiet treatment matches the reference hierarchy. */}
+        <div className="flex flex-wrap items-baseline justify-end gap-x-4 gap-y-2 sm:gap-x-6">
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            onClick={onCreate}
+            data-voice-control-id="one-location-action-create-circle"
+            className="relative !h-auto !min-h-0 !rounded-none !px-0 !py-0 text-[16px] font-normal leading-5 tracking-[-0.24px] after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] sm:text-[15px]"
+          >
+            New circle
+          </Button>
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            onClick={onJoin}
+            data-voice-control-id="one-location-action-join-circle"
+            className="relative !h-auto !min-h-0 !rounded-none !px-0 !py-0 text-[16px] font-normal leading-5 tracking-[-0.24px] text-[color:var(--app-secondary-label)] after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] hover:text-foreground sm:text-[15px]"
+          >
+            Join with code
+          </Button>
+        </div>
       </div>
 
       {incomingInvitesError ? (
-        <EmptyState
-          title="Circle invitations unavailable"
-          description={incomingInvitesError}
-          action={
-            <Button
-              type="button"
-              variant="outline"
-              disabled={incomingInvitesLoading}
-              isLoading={incomingInvitesLoading}
-              onClick={onRetryInvites}
-              className="h-11 rounded-full px-5"
-            >
-              Retry
-            </Button>
-          }
-        />
+        <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
+          <EmptyState
+            title="Circle invitations unavailable"
+            description={incomingInvitesError}
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                disabled={incomingInvitesLoading}
+                isLoading={incomingInvitesLoading}
+                onClick={onRetryInvites}
+                className="h-11 rounded-full px-5"
+              >
+                Retry
+              </Button>
+            }
+          />
+        </div>
       ) : null}
 
       {incomingInvitesLoading &&
@@ -246,7 +249,7 @@ export function CirclesSection({
       !incomingInvitesError ? (
         <div
           role="status"
-          className="flex min-h-16 items-center justify-center gap-2 rounded-2xl bg-muted/35 text-sm text-muted-foreground"
+          className="flex min-h-16 items-center justify-center gap-2 rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] text-sm text-[color:var(--app-secondary-label)] shadow-[var(--app-card-shadow-standard)]"
         >
           <Loader2 className="h-5 w-5 animate-spin" />
           Checking Circle invitations…
@@ -257,6 +260,7 @@ export function CirclesSection({
         <SettingsGroup
           title="Circle invitations"
           description="Join first. Sharing stays private."
+          shellClassName={CIRCLES_GROUP_SURFACE}
           testId="one-location-circle-member-invites"
         >
           {incomingInvites.map((invite) => {
@@ -317,38 +321,35 @@ export function CirclesSection({
       !focusedInvite &&
       !incomingInvitesLoading &&
       !incomingInvitesError ? (
-        <EmptyState
-          title="Circle invitation no longer available"
-          description="It may have expired, been cancelled or already been answered."
-          action={
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onDismissFocusedInvite}
-              className="h-11 rounded-full px-5"
-            >
-              Dismiss
-            </Button>
-          }
-        />
+        <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
+          <EmptyState
+            title="Circle invitation no longer available"
+            description="It may have expired, been cancelled or already been answered."
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onDismissFocusedInvite}
+                className="h-11 rounded-full px-5"
+              >
+                Dismiss
+              </Button>
+            }
+          />
+        </div>
       ) : null}
 
       {circles.length ? (
-        <SettingsGroup separatorInset testId="one-location-circle-list">
+        <SettingsGroup
+          separatorInset
+          shellClassName={CIRCLES_GROUP_SURFACE}
+          testId="one-location-circle-list"
+        >
           {circles.map((circle) => (
             <SettingsRow
               key={circle.id}
               leading={
-                <span
-                  className={cn(
-                    "flex h-10 w-10 items-center justify-center rounded-xl",
-                    circle.kind === "family"
-                      ? "bg-violet-500/12 text-violet-700 dark:text-violet-200"
-                      : circle.kind === "friends"
-                        ? "bg-sky-500/12 text-sky-700 dark:text-sky-200"
-                        : "bg-emerald-500/12 text-emerald-700 dark:text-emerald-200",
-                  )}
-                >
+                <span className="flex h-11 w-11 items-center justify-center rounded-[12px] bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]">
                   <UsersRound className="h-5 w-5" />
                 </span>
               }
@@ -360,15 +361,23 @@ export function CirclesSection({
               trailing={circle.role === "owner" ? "Owner" : "Member"}
               chevron
               onClick={() => onOpen(circle.id)}
+              className={cn(
+                "[--settings-row-gap:16px] [--settings-row-px:20px] [--settings-row-py:20px] sm:[--settings-row-gap:18px] sm:[--settings-row-px:24px] sm:[--settings-row-py:22px]",
+                "[&>button]:min-h-[84px] sm:[&>button]:min-h-[92px]",
+                "[&_[data-slot=settings-row-title]]:!text-[18px] [&_[data-slot=settings-row-title]]:!font-semibold [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.35px] sm:[&_[data-slot=settings-row-title]]:!text-[19px] sm:[&_[data-slot=settings-row-title]]:!leading-6 sm:[&_[data-slot=settings-row-title]]:!tracking-[-0.4px]",
+                "[&_[data-slot=settings-row-description]]:!text-[14px] [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px] sm:[&_[data-slot=settings-row-description]]:!text-[15px] sm:[&_[data-slot=settings-row-description]]:!leading-5 sm:[&_[data-slot=settings-row-description]]:!tracking-[-0.24px]",
+              )}
               testId={`one-location-circle-${circle.id}`}
             />
           ))}
         </SettingsGroup>
       ) : (
-        <EmptyState
-          title="No circles yet"
-          description="Create one for family or friends, or join with a code."
-        />
+        <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
+          <EmptyState
+            title="No circles yet"
+            description="Create one for family or friends, or join with a code."
+          />
+        </div>
       )}
     </div>
   );
