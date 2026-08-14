@@ -125,6 +125,17 @@ export type NearbyRecord = {
   /** What the upstream ranks by, and therefore what the list shows. */
   nearbyRankScore: number | null;
   scoreStatus: string | null;
+  /**
+   * Which scoring regime produced the number above.
+   *
+   * A nationally discovered record is scored from public registry role and
+   * recency alone — its graph, track-record and capital components are
+   * structurally zero — so it lands far below a reviewed record. The two are
+   * not comparable, and without this the lower number reads as a weaker person
+   * rather than a thinner source.
+   */
+  scoreKind: string | null;
+  rankingBasis: string | null;
   confidence: { score: number | null; grade: ConfidenceGrade | null };
   publicLocation: {
     label: string | null;
@@ -180,8 +191,24 @@ export type NearbyAssociationContext = {
   definition: string | null;
 };
 
+/**
+ * Whether the list on screen is the whole list.
+ *
+ * The national index fans out across two independent public registries. When
+ * one is stale or unreachable the search still succeeds, returning whatever the
+ * other held — a shorter list that is indistinguishable from a complete one.
+ * Null means the service said nothing, which is unknown health, not good health.
+ */
+export type NearbySourceHealth = {
+  status: string;
+  queriedSourceCount: number;
+  successfulSources: string[];
+  degradedSources: string[];
+};
+
 export type NearbyDiscoverResult = {
   coverage: NearbyCoverage;
+  sourceHealth: NearbySourceHealth | null;
   snapshot: {
     scoreStatus: string | null;
     complete: boolean;

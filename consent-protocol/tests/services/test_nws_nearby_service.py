@@ -674,3 +674,114 @@ async def test_an_older_service_revision_omits_the_new_blocks_cleanly(monkeypatc
     # The parts that predate this release still work.
     assert result["coverage"]["status"] == "COVERED"
     assert result["results"][0]["scoreBreakdown"] is not None
+
+
+# ------------------------------------------------------- national index health
+
+
+@pytest.mark.asyncio
+async def test_a_degraded_source_is_visible_rather_than_a_shorter_list(monkeypatch):
+    """The national index fans out across two registries and answers either way.
+
+    When one is stale or down the upstream still returns 200 with whatever the
+    other found. That list is shorter than the truth and looks exactly like a
+    complete one, so the degradation has to reach the advisor deciding who to
+    approach in a city.
+    """
+    payload = json.loads(json.dumps(_COVERED))
+    payload["source_health"] = {
+        "status": "DEGRADED",
+        "mode": "LIVE_PUBLIC_SOURCE_SNAPSHOTS",
+        "queried_source_count": 2,
+        "successful_sources": ["SEC_SECTION16"],
+        "empty_sources": [],
+        "unavailable_sources": ["CMS_NPPES"],
+        "partial_sources": [],
+        "stale_sources": [],
+    }
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=payload))
+
+    health = (await service.discover(postal_code="98033"))["sourceHealth"]
+
+    assert health["status"] == "DEGRADED"
+    assert health["successfulSources"] == ["SEC_SECTION16"]
+    assert health["degradedSources"] == ["CMS_NPPES"]
+
+
+@pytest.mark.asyncio
+async def test_partial_and_stale_sources_land_in_one_degraded_list(monkeypatch):
+    """The distinction does not change what the advisor does about it."""
+    payload = json.loads(json.dumps(_COVERED))
+    payload["source_health"] = {
+        "status": "DEGRADED",
+        "queried_source_count": 2,
+        "successful_sources": [],
+        "unavailable_sources": [],
+        "partial_sources": ["SEC_SECTION16"],
+        "stale_sources": ["CMS_NPPES"],
+    }
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=payload))
+
+    health = (await service.discover(postal_code="98033"))["sourceHealth"]
+
+    assert sorted(health["degradedSources"]) == ["CMS_NPPES", "SEC_SECTION16"]
+
+
+@pytest.mark.asyncio
+async def test_a_healthy_index_reports_no_degradation(monkeypatch):
+    payload = json.loads(json.dumps(_COVERED))
+    payload["source_health"] = {
+        "status": "HEALTHY",
+        "queried_source_count": 2,
+        "successful_sources": ["CMS_NPPES", "SEC_SECTION16"],
+        "unavailable_sources": [],
+        "partial_sources": [],
+        "stale_sources": [],
+    }
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=payload))
+
+    health = (await service.discover(postal_code="98033"))["sourceHealth"]
+
+    assert health["status"] == "HEALTHY"
+    assert health["degradedSources"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_response_without_a_health_block_claims_nothing(monkeypatch):
+    """Absent health is unknown health, not good health."""
+    payload = json.loads(json.dumps(_COVERED))
+    payload.pop("source_health", None)
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=payload))
+
+    assert (await service.discover(postal_code="98033"))["sourceHealth"] is None
+
+
+@pytest.mark.asyncio
+async def test_the_scoring_regime_travels_with_the_score(monkeypatch):
+    """A nationally discovered record and a reviewed one are not comparable.
+
+    A national record is scored from registry role and freshness alone, with its
+    graph, track-record and capital components structurally zero, so it lands
+    near 20 while a reviewed record lands near 78. Shown side by side without
+    the regime, the lower number reads as a weaker person rather than a thinner
+    source.
+    """
+    payload = json.loads(json.dumps(_COVERED))
+    payload["results"][0]["score_kind"] = "PROFESSIONAL_NETWORK_PROVISIONAL"
+    payload["results"][0]["ranking_basis"] = "PROVISIONAL_NWS_MODEL"
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=payload))
+
+    row = (await service.discover(postal_code="98033"))["results"][0]
+
+    assert row["scoreKind"] == "PROFESSIONAL_NETWORK_PROVISIONAL"
+    assert row["rankingBasis"] == "PROVISIONAL_NWS_MODEL"
+
+
+@pytest.mark.asyncio
+async def test_a_record_without_a_regime_is_left_unlabelled(monkeypatch):
+    service = _service(monkeypatch, lambda request: httpx.Response(200, json=_COVERED))
+
+    row = (await service.discover(postal_code="98033"))["results"][0]
+
+    assert row["scoreKind"] is None
+    assert row["rankingBasis"] is None

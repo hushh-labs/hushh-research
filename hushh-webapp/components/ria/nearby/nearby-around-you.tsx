@@ -47,8 +47,21 @@ const VISIBLE_RECORDS = 5;
 const COVERAGE_COPY: Record<string, string> = {
   NO_APPROVED_MARKET_DATA: "No records here yet.",
   COUNTRY_CONTEXT_DOES_NOT_MATCH_APPROVED_MARKET: "That country doesn't match this area.",
-  POSTAL_CODE_NOT_IN_GEOGRAPHY_INDEX: "No postal map for this country yet.",
+  // Not "no map for this country": the US map is loaded, and thousands of real
+  // deliverable ZIPs — PO-box-only and point ZIPs among them — are simply not
+  // census areas. Blaming the country would send an advisor whose own mail ZIP
+  // is one of them looking for a fault that does not exist.
+  POSTAL_CODE_NOT_IN_GEOGRAPHY_INDEX: "That postcode isn't mapped.",
 };
+
+/**
+ * The national index labels itself, not the place.
+ *
+ * Every US postcode now resolves, and the market label that comes back with one
+ * is the name of the index rather than anywhere an advisor recognises. Their own
+ * search term is the more useful heading.
+ */
+const NATIONAL_MARKET_ID = "us-national-public-association";
 
 export function NearbyAroundYou() {
   const { user } = useAuth();
@@ -250,11 +263,15 @@ export function NearbyAroundYou() {
 
   const coverage = result?.coverage;
   const covered = coverage?.status === "COVERED";
-  const place = covered
-    ? (coverage?.marketLabel ?? "Covered")
-    : anchor.kind === "postal"
+  const degradedSources = result?.sourceHealth?.degradedSources ?? [];
+  const anchorLabel =
+    anchor.kind === "postal"
       ? `${anchor.postalCode} ${anchor.countryCode}`
       : `${anchor.latitude.toFixed(2)}, ${anchor.longitude.toFixed(2)}`;
+  const place =
+    covered && coverage?.marketId !== NATIONAL_MARKET_ID
+      ? (coverage?.marketLabel ?? "Covered")
+      : anchorLabel;
 
   return (
     <div className="flex flex-col gap-4">
@@ -367,6 +384,15 @@ export function NearbyAroundYou() {
             <p className={MUTED_TEXT}>
               Reviewed from {result.reviewScope.organizationAnchorCount ?? "several"}{" "}
               organisations — not a complete list.
+            </p>
+          ) : null}
+          {/* The national index answers even when one of its two registries is
+              stale or down, and a short list looks exactly like a complete one.
+              An advisor deciding who to approach in a city should know the
+              difference before they conclude a place is thin. */}
+          {degradedSources.length > 0 ? (
+            <p className={MUTED_TEXT}>
+              Partial — {degradedSources.length === 1 ? "a source is" : "sources are"} down.
             </p>
           ) : null}
         </div>

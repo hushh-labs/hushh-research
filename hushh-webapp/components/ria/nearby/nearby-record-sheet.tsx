@@ -87,8 +87,15 @@ export function NearbyRecordSheet({
             <p className={MUTED_TEXT}>Network strength, not net worth.</p>
             <p className={MUTED_TEXT}>
               Overall {formatScore(record.globalNws)} · Confidence{" "}
-              {record.confidence.grade ?? "—"} · Provisional
+              {record.confidence.grade ?? "—"}
             </p>
+            {/* A nationally discovered record scores far below a reviewed one
+                because most of the weighting has nothing to read, not because
+                the person is lesser. The word "provisional" on its own does not
+                carry that, so the regime says what it actually measured. */}
+            {record.scoreKind === "PROFESSIONAL_NETWORK_PROVISIONAL" ? (
+              <p className={MUTED_TEXT}>From public registry role and recency only.</p>
+            ) : null}
           </div>
         </div>
 
