@@ -32,6 +32,7 @@ import {
   rememberLastKnownFix,
   rememberLocationGrant,
 } from "@/lib/one-location/location-grant-memory";
+import { isLocationPermissionDeniedError } from "@/lib/one-location/location-readiness";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 
 export type LocationSnapshot = {
@@ -133,12 +134,19 @@ function emit(patch: Partial<LocationBusState>): void {
   for (const listener of [...listeners]) listener(state);
 }
 
+/**
+ * Did this failure come from a refused permission?
+ *
+ * Delegated rather than reimplemented. The local version matched
+ * `/denied|blocked/i`, and both native plugins reject a refusal with
+ * "Location permission was not granted." — which contains neither word and
+ * carries no custom `name`. So on iOS and Android a real denial read as a
+ * transient failure, and the degradation path below would have swallowed it:
+ * the owner would have been shown their last known position, indefinitely,
+ * instead of the one screen that can get them un-blocked.
+ */
 function isDeniedError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return (
-    error.name === "LocationPermissionDeniedError" ||
-    /denied|blocked/i.test(error.message)
-  );
+  return isLocationPermissionDeniedError(error);
 }
 
 function statusForPermission(
