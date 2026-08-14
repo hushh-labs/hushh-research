@@ -41,6 +41,8 @@ const QUICK_MESSAGES: readonly SmsQuickMessage[] = [
  * every breakpoint — the ring does not need a per-size copy of itself.
  */
 const RING_CIRCUMFERENCE = 1055.6;
+const RING_RADIUS = RING_CIRCUMFERENCE / (2 * Math.PI);
+const RING_CENTER = 172;
 
 type WindowsFallbackCopyStatus = "idle" | "copied" | "error";
 
@@ -178,6 +180,21 @@ export function SosPanel({
   // Editing is closed from the moment the alert is sent until it is cancelled.
   const messageLocked = active || busy;
 
+  // Endpoint of each half-arc, computed directly from `progress` rather than
+  // via stroke-dasharray/-dashoffset. The dash trick reliably anchors growth
+  // at the path's start when combined with a `<circle>` rotated -90deg (the
+  // standard recipe every tutorial uses), but that guarantee does not carry
+  // over to an explicit two-point `<path>` arc — it rendered growing from the
+  // BOTTOM (the arc's end point) instead of the top. Walking the angle by
+  // hand removes that ambiguity: at progress 0 the endpoint IS the top point
+  // (a zero-length arc, invisible), and at progress 1 it is exactly the
+  // bottom point, with nothing in between left to a dash/gap tiling.
+  const ringSweepAngle = progress * Math.PI;
+  const ringEndDx = RING_RADIUS * Math.sin(ringSweepAngle);
+  const ringEndY = RING_CENTER - RING_RADIUS * Math.cos(ringSweepAngle);
+  const ringRightArcD = `M${RING_CENTER},${RING_CENTER - RING_RADIUS} A${RING_RADIUS},${RING_RADIUS} 0 0 1 ${RING_CENTER + ringEndDx},${ringEndY}`;
+  const ringLeftArcD = `M${RING_CENTER},${RING_CENTER - RING_RADIUS} A${RING_RADIUS},${RING_RADIUS} 0 0 0 ${RING_CENTER - ringEndDx},${ringEndY}`;
+
   // The alert ending is the only thing that releases the record and the lock.
   // Cancelling is deliberately the single escape: an editable picker over a
   // live alert invites someone to believe they have changed a message that has
@@ -297,13 +314,6 @@ export function SosPanel({
     startHold();
   };
 
-  const handlePointerEnd = (event: PointerEvent<HTMLButtonElement>) => {
-    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    cancelHold();
-  };
-
   // Pointer capture (set on pointerdown, above) is what lets the hold survive
   // the cursor drifting off the circular hitbox — pointerup/pointercancel are
   // routed to this button regardless of where the pointer physically ends up.
@@ -315,6 +325,13 @@ export function SosPanel({
   // pointerup/pointercancel/blur.
   const handlePointerLeave = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) return;
+    cancelHold();
+  };
+
+  const handlePointerEnd = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
     cancelHold();
   };
 
@@ -496,29 +513,23 @@ export function SosPanel({
             />
             {/* Two half-arcs, both starting at the top and racing down to meet
                 at the bottom, so the hold reads as closing in from both sides
-                rather than one hand sweeping clockwise. Each half is exactly
-                RING_CIRCUMFERENCE / 2, so they always land together. */}
+                rather than one hand sweeping clockwise. Both endpoints derive
+                from the same `progress`, so they always land together. */}
             <path
-              d="M172,4 A168,168 0 0 1 172,340"
+              d={ringRightArcD}
               fill="none"
               stroke="var(--app-destructive)"
               strokeWidth="3"
               strokeLinecap="round"
-              strokeDasharray={RING_CIRCUMFERENCE / 2}
-              strokeDashoffset={(RING_CIRCUMFERENCE / 2) * (1 - progress)}
               vectorEffect="non-scaling-stroke"
-              style={{ transition: "stroke-dashoffset 80ms linear" }}
             />
             <path
-              d="M172,4 A168,168 0 0 0 172,340"
+              d={ringLeftArcD}
               fill="none"
               stroke="var(--app-destructive)"
               strokeWidth="3"
               strokeLinecap="round"
-              strokeDasharray={RING_CIRCUMFERENCE / 2}
-              strokeDashoffset={(RING_CIRCUMFERENCE / 2) * (1 - progress)}
               vectorEffect="non-scaling-stroke"
-              style={{ transition: "stroke-dashoffset 80ms linear" }}
             />
           </svg>
 
