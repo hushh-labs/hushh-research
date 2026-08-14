@@ -41,12 +41,42 @@ def is_gemini_flash_v3(model: str | None) -> bool:
     }
 
 
+def _sanitize_thinking_config_for_flash_v3(thinking_cfg: Any) -> Any:
+    if thinking_cfg is None:
+        return None
+    if isinstance(thinking_cfg, dict):
+        cleaned = {k: v for k, v in thinking_cfg.items() if k != "thinking_level" and v is not None}
+        return cleaned or None
+    if hasattr(thinking_cfg, "thinking_level"):
+        include_thoughts = getattr(thinking_cfg, "include_thoughts", None)
+        thinking_budget = getattr(thinking_cfg, "thinking_budget", None)
+        thinking_type = type(thinking_cfg)
+        kwargs_tc: dict[str, Any] = {}
+        if include_thoughts is not None:
+            kwargs_tc["include_thoughts"] = include_thoughts
+        if thinking_budget is not None:
+            kwargs_tc["thinking_budget"] = thinking_budget
+        if kwargs_tc:
+            try:
+                return thinking_type(**kwargs_tc)
+            except Exception:
+                return None
+        return None
+    return thinking_cfg
+
+
 def generation_config_kwargs(model: str | None, **kwargs: Any) -> dict[str, Any]:
     """Return provider-compatible kwargs without changing non-3.x flash callers."""
     result = {key: value for key, value in kwargs.items() if value is not None}
     if is_gemini_flash_v3(model):
         for field in _GEMINI_FLASH_UNSUPPORTED_FIELDS:
             result.pop(field, None)
+        if "thinking_config" in result:
+            sanitized = _sanitize_thinking_config_for_flash_v3(result["thinking_config"])
+            if sanitized is not None:
+                result["thinking_config"] = sanitized
+            else:
+                result.pop("thinking_config", None)
     return result
 
 
