@@ -116,8 +116,10 @@ Forbidden:
     generator only: it reads Foundation tokens from `app/globals.css` and uses
     a named `technical`, `partner`, or `founder` formatter profile. Light and
     dark wordmarks use the same `hu` ink and `ssh` foil tokens as the app;
-    Molten Gold is explicit. Protocol code blocks retain the Sublime Monokai
-    surface in every profile.
+    `molten-gold-light` and `molten-gold` are the explicit light and dark Gold
+    variants. Diagram labels inherit the profile's print-safe type scale, and
+    Mermaid is rendered locally to SVG before PDF generation. Protocol code
+    blocks retain the Sublime Monokai surface in every profile.
 6. Use the container tokens below instead of ad hoc `max-w-*` route wrappers:
    - `--app-shell-reading`
    - `--app-shell-standard`

@@ -16,6 +16,7 @@ export const PDF_FORMATTER_PROFILES = Object.freeze({
     sectionSize: "17px",
     sectionGap: "24px",
     codeSize: "9.6px",
+    diagramSize: "13px",
   }),
   partner: Object.freeze({
     id: "partner",
@@ -25,6 +26,7 @@ export const PDF_FORMATTER_PROFILES = Object.freeze({
     sectionSize: "18px",
     sectionGap: "26px",
     codeSize: "10px",
+    diagramSize: "13.5px",
   }),
   founder: Object.freeze({
     id: "founder",
@@ -34,10 +36,16 @@ export const PDF_FORMATTER_PROFILES = Object.freeze({
     sectionSize: "19px",
     sectionGap: "30px",
     codeSize: "10px",
+    diagramSize: "14px",
   }),
 });
 
-export const PDF_FORMATTER_THEMES = Object.freeze(["light", "dark", "molten-gold"]);
+export const PDF_FORMATTER_THEMES = Object.freeze([
+  "light",
+  "dark",
+  "molten-gold-light",
+  "molten-gold",
+]);
 
 const REQUIRED_FOUNDATION_TOKENS = [
   "--foundation-off",
@@ -78,7 +86,7 @@ export function resolvePdfFormatterProfile(profile = "technical") {
  * `hu` and the `ssh` foil follow the selected Foundation theme.
  */
 export function renderPdfHusshWordmark() {
-  return `<svg viewBox="73 8 460 146" role="img" aria-label="Hussh" preserveAspectRatio="xMinYMid meet">
+  return `<svg viewBox="60 -28 480 198" role="img" aria-label="Hussh" preserveAspectRatio="xMinYMid meet">
     <title>Hussh</title>
     <defs>
       <linearGradient id="hussh-pdf-wordmark-ssh" x1="0" y1="0" x2="1" y2="0">
@@ -106,7 +114,7 @@ export function createPdfDocumentFormatter({ theme, profile, foundation, accent 
   requireTokens(foundation, REQUIRED_FOUNDATION_TOKENS, "Morphy Foundation");
   requireTokens(accent, REQUIRED_ACCENT_TOKENS, "Morphy accent");
   const selectedProfile = resolvePdfFormatterProfile(profile);
-  const dark = theme !== "light";
+  const dark = theme === "dark" || theme === "molten-gold";
   const codePalette = dark
     ? {
         background: "#272822",
@@ -139,6 +147,7 @@ export function createPdfDocumentFormatter({ theme, profile, foundation, accent 
       --separator: ${foundation["--foundation-hairline"]};
       --separator-strong: ${accent["--app-accent-border"]};
       --accent: ${accent["--app-accent-deep"]};
+      --link: ${dark ? accent["--app-accent-bright"] : accent["--app-accent-deep"]};
       --accent-soft: ${accent["--app-accent-surface"]};
       --accent-surface: ${accent["--app-accent-surface"]};
       --blue: ${accent["--app-accent-bright"]};
@@ -153,6 +162,7 @@ export function createPdfDocumentFormatter({ theme, profile, foundation, accent 
       --pdf-section-size: ${selectedProfile.sectionSize};
       --pdf-section-gap: ${selectedProfile.sectionGap};
       --pdf-code-size: ${selectedProfile.codeSize};
+      --pdf-diagram-size: ${selectedProfile.diagramSize};
       /* Sublime-inspired light palette; Monokai remains canonical in dark themes. */
       --code-bg: ${codePalette.background};
       --code-border: ${codePalette.border};

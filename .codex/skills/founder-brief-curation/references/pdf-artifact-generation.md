@@ -16,11 +16,12 @@ Use this reference for generic Markdown/HTML/PDF report artifacts when no narrow
      --subtitle "Optional subtitle"
    ```
 
-   The renderer supports `--theme light` (default), `--theme dark`, and
-   `--theme molten-gold`. Use `molten-gold` for a dark editorial artifact that
-   should follow the live Morphy Molten Gold preference. Its accent values are
-   read from `hushh-webapp/app/globals.css`; do not recreate that palette with
-   local hex values or use gold as body-text decoration.
+   The renderer supports `--theme light` (default), `--theme dark`,
+   `--theme molten-gold-light`, and `--theme molten-gold`. Use
+   `molten-gold-light` for a paper-like light artifact with the live Morphy
+   Molten Gold accent; use `molten-gold` for the dark editorial counterpart.
+   Accent values are read from `hushh-webapp/app/globals.css`; do not recreate
+   that palette with local hex values or use gold as body-text decoration.
 
 2. Use the PR governance skill refresh command for the contributor dashboard:
 
@@ -40,7 +41,7 @@ Use this reference for generic Markdown/HTML/PDF report artifacts when no narrow
 2. Keep temporary source packets under `tmp/` and remove failed scratch files before finalizing unless the user asked to keep them.
 3. Do not include `/Users/...`, `file://`, HCT tokens, bearer tokens, developer tokens, secrets, private wiki body text, or prompt provenance in shareable artifacts.
 4. Mark current, future-state, and partner-confirmation-needed claims visibly in the source before rendering.
-5. For Mermaid diagrams, accept the renderer's fallback view unless the user specifically asks for pixel-rendered diagrams. Pixel-rendered Mermaid needs separate rendered-image verification.
+5. For Mermaid diagrams, follow `architecture-diagram-standard.md`. The renderer uses the pinned local Mermaid package to produce SVG in strict security mode; parsing or rendering failure must fail the artifact.
 
 ## Information Architecture And Density
 
@@ -66,9 +67,9 @@ Use this reference for generic Markdown/HTML/PDF report artifacts when no narrow
    implementation references, `partner` for integration guides, or `founder`
    for an editorial brief. Profiles may change density and hierarchy, never the
    Hussh brand grammar or the truth boundary.
-3. Select `light`, `dark`, or explicit `molten-gold` theme. Light and dark must
-   take `hu` ink and the `ssh` foil gradient from the app's Foundation tokens;
-   only the explicit gold theme may use the Molten Gold variant.
+3. Select `light`, `dark`, `molten-gold-light`, or `molten-gold`. Every theme
+   takes `hu` ink and the `ssh` foil gradient from Foundation tokens; only the
+   two explicit gold themes may use the Molten Gold accent family.
 4. Copyable code follows the selected document theme. Light PDFs use the
    Sublime-inspired light code surface with dark ink and accessible
    magenta/green/purple syntax tokens. Dark and Molten Gold PDFs use Sublime

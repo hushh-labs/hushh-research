@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
@@ -13,6 +14,8 @@ import {
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../../..");
+const require = createRequire(import.meta.url);
+const mermaidBrowserBundle = require.resolve("mermaid/dist/mermaid.min.js");
 
 function parseArgs(argv) {
   const args = {
@@ -92,7 +95,7 @@ Options:
   --html <path>       Optional HTML output path.
   --title <text>      Browser title and PDF header label.
   --subtitle <text>   Small header subtitle.
-  --theme <name>      Foundation theme: light (default), dark, or molten-gold.
+  --theme <name>      Foundation theme: light (default), dark, molten-gold-light, or molten-gold.
   --profile <name>    Formatter profile: technical (default), partner, or founder.
 `);
 }
@@ -219,6 +222,10 @@ function renderMermaidFallback(source) {
   </figure>`;
 }
 
+function renderMermaid(source) {
+  return `<figure class="diagram-render"><pre class="mermaid">${escapeHtml(source)}</pre></figure>`;
+}
+
 function renderMarkdown(markdown) {
   const lines = markdown.split(/\r?\n/);
   const html = [];
@@ -263,7 +270,7 @@ function renderMarkdown(markdown) {
     const source = codeLines.join("\n");
     const code = codeFence === "json" ? highlightJson(source) : escapeHtml(source);
     if (codeFence === "mermaid") {
-      html.push(renderMermaidFallback(source));
+      html.push(renderMermaid(source));
     } else {
       html.push(`<pre class="code-block code-block-${codeFence}"><code>${code}</code></pre>`);
     }
@@ -414,13 +421,13 @@ function readCssCustomProperties(block) {
 }
 
 function visibleTitle(title) {
-  const withoutBrand = title.replace(/^hussh\s+/i, "").trim();
+  const withoutBrand = title.replace(/^(hussh|hushh)\s+/i, "").trim();
   return withoutBrand || title;
 }
 
 async function resolveFormatter(theme, profile) {
   const globals = await readFile(path.join(repoRoot, "hushh-webapp/app/globals.css"), "utf8");
-  const useDarkFoundation = theme !== "light";
+  const useDarkFoundation = theme === "dark" || theme === "molten-gold";
   const foundation = useDarkFoundation
     ? {
         ...readCssCustomProperties(
@@ -431,8 +438,15 @@ async function resolveFormatter(theme, profile) {
         ),
       }
     : readCssCustomProperties(extractCssBlock(globals, ":root"));
-  const accent = theme === "molten-gold"
-    ? readCssCustomProperties(extractCssBlock(globals, 'html[data-accent="gold"].dark'))
+  const accent = theme === "molten-gold" || theme === "molten-gold-light"
+    ? readCssCustomProperties(
+        extractCssBlock(
+          globals,
+          theme === "molten-gold"
+            ? 'html[data-accent="gold"].dark'
+            : 'html[data-accent="gold"]',
+        ),
+      )
     : foundation;
 
   return createPdfDocumentFormatter({ theme, profile, foundation, accent });
@@ -480,14 +494,15 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, formatter 
 
       header {
         border-bottom: 2px solid var(--accent);
+        break-inside: avoid;
         margin-bottom: 18px;
         padding-bottom: 14px;
       }
 
       .brand {
-        height: 26px;
+        height: 30px;
         margin-bottom: 8px;
-        width: 82px;
+        width: 94px;
       }
 
       .brand svg {
@@ -562,8 +577,23 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, formatter 
         padding: 10px 12px;
       }
 
+      .badge {
+        display: inline-block;
+        background: var(--accent-surface);
+        border: 1px solid var(--separator-strong);
+        color: var(--accent);
+        border-radius: 4px;
+        padding: 1px 6px;
+        font-size: 8px;
+        font-weight: 700;
+        font-family: "JetBrains Mono", "SF Mono", monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+      }
+
       a {
-        color: var(--blue);
+        color: var(--link);
+        font-weight: 600;
         text-decoration: none;
       }
 
@@ -611,6 +641,49 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, formatter 
         padding: 12px;
       }
 
+      .diagram-render {
+        align-items: center;
+        background: var(--diagram-bg);
+        border: 1px solid var(--separator-strong);
+        border-radius: 14px;
+        break-inside: avoid;
+        display: flex;
+        justify-content: center;
+        margin: 10px 0 16px;
+        min-height: 120px;
+        overflow: hidden;
+        padding: 12px;
+        width: 100%;
+      }
+
+      .diagram-render .mermaid {
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+        margin: 0;
+        overflow: visible;
+        padding: 0;
+        width: 100%;
+      }
+
+      .diagram-render svg {
+        display: block;
+        height: auto;
+        margin: 0 auto;
+        max-height: 620px;
+        max-width: 100%;
+        width: 100%;
+      }
+
+      .diagram-render .nodeLabel,
+      .diagram-render .edgeLabel,
+      .diagram-render .label,
+      .diagram-render .messageText,
+      .diagram-render .actor {
+        font-size: var(--pdf-diagram-size) !important;
+        line-height: 1.3 !important;
+      }
+
       .diagram-nodes {
         display: grid;
         gap: 8px;
@@ -655,28 +728,44 @@ function buildHtml(markdown, { documentTitle, displayTitle, subtitle, formatter 
       }
 
       table {
-        border-collapse: collapse;
+        border-collapse: separate;
+        border-spacing: 0;
         break-inside: avoid;
-        font-size: 10px;
-        margin: 10px 0 16px;
+        font-size: 9.5px;
+        margin: 12px 0 18px;
         width: 100%;
+        border: 1px solid var(--separator-strong);
+        border-radius: 10px;
+        overflow: hidden;
+        background: var(--bg-secondary);
       }
 
       th {
-        background: var(--bg-secondary);
+        background: var(--bg-tertiary, var(--bg-secondary));
         border-bottom: 1px solid var(--separator-strong);
-        color: var(--fg);
+        color: var(--fg-secondary);
+        font-size: 8px;
         font-weight: 700;
-        padding: 7px 8px;
+        letter-spacing: 0.8px;
+        padding: 8px 10px;
         text-align: left;
-        vertical-align: top;
+        text-transform: uppercase;
+        vertical-align: middle;
       }
 
       td {
         border-bottom: 1px solid var(--separator);
-        color: var(--fg-secondary);
-        padding: 7px 8px;
-        vertical-align: top;
+        color: var(--fg);
+        padding: 8px 10px;
+        vertical-align: middle;
+      }
+
+      tr:last-child td {
+        border-bottom: none;
+      }
+
+      tr:nth-child(even) td {
+        background: var(--accent-surface);
       }
 
       td:first-child {
@@ -709,15 +798,56 @@ async function renderPdf({ input, output, html: htmlOutput, title, subtitle, the
   const formatter = await resolveFormatter(theme, profile);
   const displayTitle = visibleTitle(title);
   const html = buildHtml(markdown, { documentTitle: title, displayTitle, subtitle, formatter });
-  if (htmlOutput) {
-    await mkdir(path.dirname(htmlOutput), { recursive: true });
-    await writeFile(htmlOutput, html, "utf8");
-  }
-
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1240, height: 1754 } });
     await page.setContent(html, { waitUntil: "networkidle", timeout: 20000 });
+    const mermaidScript = await page.addScriptTag({ path: mermaidBrowserBundle });
+    await page.evaluate(async () => {
+      const styles = getComputedStyle(document.documentElement);
+      const color = (name) => styles.getPropertyValue(name).trim();
+      globalThis.mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "strict",
+        theme: "base",
+        themeVariables: {
+          background: color("--bg"),
+          primaryColor: color("--bg-secondary"),
+          primaryTextColor: color("--fg"),
+          primaryBorderColor: color("--accent"),
+          lineColor: color("--accent"),
+          secondaryColor: color("--accent-surface"),
+          secondaryTextColor: color("--fg"),
+          tertiaryColor: color("--bg-tertiary"),
+          tertiaryTextColor: color("--fg"),
+          noteBkgColor: color("--accent-surface"),
+          noteTextColor: color("--fg"),
+          actorBkg: color("--bg-secondary"),
+          actorBorder: color("--accent"),
+          actorTextColor: color("--fg"),
+          signalColor: color("--accent"),
+          signalTextColor: color("--fg"),
+          labelBoxBkgColor: color("--bg-secondary"),
+          labelBoxBorderColor: color("--separator-strong"),
+          labelTextColor: color("--fg"),
+          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "InterVariable", system-ui, sans-serif',
+          fontSize: color("--pdf-diagram-size"),
+        },
+        flowchart: { htmlLabels: true, useMaxWidth: true },
+        sequence: { useMaxWidth: true, wrap: true },
+      });
+      try {
+        await globalThis.mermaid.run({ nodes: document.querySelectorAll(".mermaid") });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : JSON.stringify(error);
+        throw new Error(`Mermaid render failed: ${message}`);
+      }
+    });
+    await mermaidScript.evaluate((node) => node.remove());
+    if (htmlOutput) {
+      await mkdir(path.dirname(htmlOutput), { recursive: true });
+      await writeFile(htmlOutput, await page.content(), "utf8");
+    }
     await page.waitForTimeout(1000);
     await mkdir(path.dirname(output), { recursive: true });
     await page.pdf({
