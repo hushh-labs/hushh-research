@@ -1798,7 +1798,7 @@ function PeopleHub({
         <div className="space-y-10 sm:space-y-12">
           <section
             aria-labelledby="one-location-connections-heading"
-            className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 sm:gap-x-6"
+            className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:gap-x-6"
             data-testid="one-location-people-connections"
           >
             <h2
@@ -1807,6 +1807,12 @@ function PeopleHub({
             >
               Connections
             </h2>
+
+            {isDesktopPeopleLayout ? (
+              <div className="col-start-2 row-start-1 justify-self-end">
+                {syncContactsAction}
+              </div>
+            ) : null}
 
             {/* The reference omits Invite, but it remains a first-class action.
                 Keeping it quiet preserves the callback without recreating the
@@ -1819,13 +1825,13 @@ function PeopleHub({
               data-voice-control-id="one-location-action-invite"
               className={cn(
                 PEOPLE_HEADER_ACTION,
-                "col-start-2 row-start-1 justify-self-end text-[color:var(--app-secondary-label)] hover:text-foreground",
+                "col-start-2 row-start-1 justify-self-end text-[color:var(--app-secondary-label)] hover:text-foreground sm:col-start-3",
               )}
             >
               Invite
             </Button>
 
-            <div className="col-start-3 row-start-1 justify-self-end">
+            <div className="col-start-3 row-start-1 justify-self-end sm:col-start-4">
               {isDesktopPeopleLayout
                 ? addPeopleAction
                 : syncContactsAction}
@@ -1833,7 +1839,7 @@ function PeopleHub({
 
             <div
               className={cn(
-                "col-span-3 row-start-2 mt-3 sm:mt-3.5",
+                "col-span-3 row-start-2 mt-3 sm:col-span-4 sm:mt-3.5",
                 "[&_input]:h-[46px] [&_input]:rounded-full [&_input]:border-0 [&_input]:bg-[color:var(--app-primary-surface)] [&_input]:pl-[46px] [&_input]:pr-[18px] [&_input]:text-[17px] [&_input]:leading-[22px] [&_input]:tracking-[-0.3px]",
                 "[&_svg]:left-[18px] [&_svg]:text-[color:var(--app-tertiary-label)]",
                 "sm:[&_input]:h-12 sm:[&_input]:rounded-[var(--app-radius-md)] sm:[&_input]:pl-12 sm:[&_input]:pr-5 sm:[&_input]:text-base sm:[&_svg]:left-5",
@@ -1846,7 +1852,7 @@ function PeopleHub({
               />
             </div>
 
-            <div className="col-span-3 row-start-3 mt-3 sm:mt-3.5">
+            <div className="col-span-3 row-start-3 mt-3 sm:col-span-4 sm:mt-3.5">
               {filtered.length ? (
                 <div
                   className={PEOPLE_GROUP_SURFACE}
@@ -1912,16 +1918,11 @@ function PeopleHub({
               )}
             </div>
 
-            <div
-              className={cn(
-                "col-span-3 col-start-1 row-start-4 mt-6",
-                isDesktopPeopleLayout ? "justify-self-center" : "w-full",
-              )}
-            >
-              {isDesktopPeopleLayout
-                ? syncContactsAction
-                : addPeopleAction}
-            </div>
+            {!isDesktopPeopleLayout ? (
+              <div className="col-span-3 col-start-1 row-start-4 mt-6 w-full">
+                {addPeopleAction}
+              </div>
+            ) : null}
           </section>
 
           {vm.requestedByMe.length ? (

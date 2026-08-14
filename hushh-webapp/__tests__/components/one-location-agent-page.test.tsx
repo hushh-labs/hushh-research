@@ -3589,17 +3589,21 @@ describe("OneLocationAgentPage", () => {
 
       const addPeople = screen.getByRole("button", { name: /Add people/i });
       const search = await screen.findByPlaceholderText("Search trusted people");
-      const person = await screen.findByText("Trusted B");
       const syncContacts = screen.getByRole("button", {
         name: /Sync contacts/i,
       });
+      const invite = screen.getByRole("button", { name: /^Invite$/i });
 
       expect(
-        addPeople.compareDocumentPosition(search) &
+        syncContacts.compareDocumentPosition(invite) &
           Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
       expect(
-        person.compareDocumentPosition(syncContacts) &
+        invite.compareDocumentPosition(addPeople) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        addPeople.compareDocumentPosition(search) &
           Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
     } finally {
