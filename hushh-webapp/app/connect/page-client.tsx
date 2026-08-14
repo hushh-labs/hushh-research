@@ -666,15 +666,16 @@ export default function ConnectPageClient() {
         .toLowerCase();
     // Strict prefix filter. The directory API matches a substring anywhere
     // (`LIKE '%q%'`), so typing "z" returned "Abdul Zalil" and "shankz".
-    // Constrain the rendered list to entries whose NAME (full or any word) or
-    // EMAIL local-part starts with the query, which is what the user expects
-    // from a name search. Applied on top of the server result, so it never
-    // fetches more; it only hides the substring-only matches.
+    // Constrain the rendered list to entries whose FIRST NAME or EMAIL
+    // local-part starts with the query -- matching on the last/middle name
+    // too (as an earlier version of this did) meant searching "r" surfaced
+    // "Abdul Rashid" and "Divya Rajendran" on their surnames, which reads as
+    // random to someone searching by first name. Applied on top of the
+    // server result, so it never fetches more; it only hides non-matches.
     const prefixMatches = (person: DirectoryPerson): boolean => {
       if (!q) return true;
       const name = nameOf(person);
       if (name.startsWith(q)) return true;
-      if (name.split(/\s+/).some((word) => word.startsWith(q))) return true;
       const email = (person.email || "").trim().toLowerCase();
       return email.startsWith(q) || email.split("@")[0]?.startsWith(q) === true;
     };
