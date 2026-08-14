@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   GoogleMap,
   LatLngBounds,
@@ -91,6 +98,12 @@ const MAP_ID = "one-location-private-map";
 // module for the full contract and its latency budget.
 
 const NEARBY_CHECK_IN_RADIUS_METERS = 500;
+// Matches the toggle button's own h-[4.5rem] when the tray is expanded.
+const TRAY_HEADER_HEIGHT_PX = 72;
+const TRAY_COLLAPSED_HEIGHT_PX = 56; // 3.5rem, the collapsed pill.
+// The scroll container's own pt-1 + pb-3, which sit outside the measured
+// content ref and so are not part of its offsetHeight.
+const TRAY_BODY_PADDING_PX = 16;
 const MAP_ACCENT_CONTROL_CLASSNAME =
   "!border-[var(--app-accent-border)] !bg-[var(--app-accent-surface)] !text-[var(--app-accent-deep)] hover:!bg-[var(--app-accent-surface-strong)] dark:!text-[var(--app-accent-bright)]";
 const MAP_ACCENT_ACTIVE_CLASSNAME =
@@ -339,6 +352,11 @@ export function LocationImmersiveMap({
   const mapRef = useRef<GoogleMap | null>(null);
   const topControlsRef = useRef<HTMLDivElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
+  // Measures the tray body's own natural (unclipped) height, so the sheet can
+  // size itself to its content instead of always claiming its viewport-derived
+  // maximum -- the cause of the dead space below the last row of buttons.
+  const trayContentRef = useRef<HTMLDivElement | null>(null);
+  const [trayContentHeight, setTrayContentHeight] = useState(0);
   const markerIdsRef = useRef<string[]>([]);
   const markerGenerationRef = useRef(0);
   const markerCommandRef = useRef<Promise<void>>(Promise.resolve());
@@ -1172,7 +1190,7 @@ export function LocationImmersiveMap({
     // expanded. Anchor the camera's bottom inset to the tray's stable bottom
     // edge plus its COLLAPSED footprint, never its live expanded height, so
     // toggling the tray open/closed never re-frames (zooms/pans) the map.
-    const COLLAPSED_TRAY_HEIGHT = 56; // 3.5rem, matches the collapsed tray
+    const COLLAPSED_TRAY_HEIGHT = TRAY_COLLAPSED_HEIGHT_PX;
     const publishPadding = () => {
       const top = topControlsRef.current?.getBoundingClientRect().bottom ?? 72;
       const trayRect = peopleTrayRef.current?.getBoundingClientRect();
@@ -1232,6 +1250,24 @@ export function LocationImmersiveMap({
       window.removeEventListener("resize", schedulePadding);
     };
   }, [mapReady, nearbyCheckInOpen]);
+
+  // The tray body's rendered box is height-clamped by its scroll container,
+  // so its own size never reflects how tall its content actually is. Track
+  // that instead, synchronously before paint so there is no grow-in flash,
+  // and again whenever content changes (chips added/removed, search
+  // narrows the list, nearby results arrive). The tray section itself only
+  // mounts once the renderer is ready, so the dependencies below -- its
+  // exact mount condition -- make sure this attaches once trayContentRef
+  // actually exists, not just once on the component's own first render.
+  useLayoutEffect(() => {
+    const el = trayContentRef.current;
+    if (!el) return;
+    const measure = () => setTrayContentHeight(el.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [rendererReady, status, isCheckInSurface]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1645,10 +1681,6 @@ export function LocationImmersiveMap({
   }, [nearbyAttendees, searchQuery]);
 
   const drawerEntryCount = markers.length + nearbyAttendees.length;
-  const hasVisibleTrayResults =
-    filteredPeople.length > 0 ||
-    filteredNearbyAttendees.length > 0 ||
-    selected !== null;
 
   // One number, one word for what it counts. The screen is already the map and
   // the tray is already the people, so "live locations on your map" spent five
@@ -2088,10 +2120,15 @@ export function LocationImmersiveMap({
             width: trayExpanded
               ? "min(34rem, calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)))"
               : "3.5rem",
+            // Fit the sheet to its content (header + measured body), not the
+            // viewport's full allowance -- that fixed allowance is what left
+            // a slab of dead space below the last row of buttons whenever
+            // the content was shorter than the available height. The
+            // viewport calc and 29.5rem figure now only cap it: a short list
+            // shrinks the sheet, a long one still stops short of the notch
+            // and scrolls internally.
             height: trayExpanded
-              ? hasVisibleTrayResults
-                ? "clamp(10rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 29.5rem)"
-                : "min(22rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)))"
+              ? `clamp(${TRAY_COLLAPSED_HEIGHT_PX}px, ${TRAY_HEADER_HEIGHT_PX + TRAY_BODY_PADDING_PX + trayContentHeight}px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))`
               : "3.5rem",
             borderRadius: trayExpanded ? "1.75rem" : "999px",
             transition: [
@@ -2221,6 +2258,9 @@ export function LocationImmersiveMap({
               className="h-full min-h-0 overflow-y-auto overscroll-contain px-3 pb-3 pt-1"
               data-testid="one-location-map-tray-scroll"
             >
+              {/* Unconstrained by the scroll container's fixed height above,
+                  so its offsetHeight is the content's true natural size. */}
+              <div ref={trayContentRef}>
               <label className="relative block">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <span className="sr-only">Find a person on Your Map</span>
@@ -2503,6 +2543,7 @@ export function LocationImmersiveMap({
                   Some locations didn&apos;t refresh.
                 </p>
               ) : null}
+              </div>
             </div>
           </div>
         </section>
