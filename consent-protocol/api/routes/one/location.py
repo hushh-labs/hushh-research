@@ -8,6 +8,7 @@ Path parameters (public_token, invite_id, grant_id) are bounded to 128 chars max
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 from datetime import datetime
 from typing import Annotated, Any
@@ -49,6 +50,8 @@ from hushh_mcp.services.one_location_nearby_presence_service import (
 )
 
 router = APIRouter(prefix="/api/one", tags=["One Location Agent"])
+
+logger = logging.getLogger(__name__)
 
 _PublicToken = Annotated[str, Path(min_length=1, max_length=128)]
 _InviteId = Annotated[str, Path(min_length=1, max_length=128)]
@@ -108,6 +111,27 @@ class CreateGrantWithEnvelopeRequest(CreateGrantRequest):
 
 class AddSmsContactRequest(_CamelModel):
     recipient_user_id: str = Field(alias="recipientUserId", min_length=1, max_length=160)
+
+
+class SosEmailRequest(_CamelModel):
+    """Coordinates for the Save my Soul email, carried for one send only.
+
+    They are in the request body because the server cannot read them anywhere
+    else: `one_location_envelopes` keeps coordinates inside the ciphertext by
+    design, so only the sender's client holds the plaintext. They are not
+    stored and not logged — see one_location_sos_email_service for the rules
+    that bound this.
+
+    `grantIds` is the authorization, not a hint: the service mails only the
+    recipients of live SOS grants the caller's own account just created.
+    """
+
+    grant_ids: list[str] = Field(alias="grantIds", min_length=1, max_length=20)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    accuracy_m: float | None = Field(default=None, alias="accuracyM", ge=0, le=100_000)
+    note: str | None = Field(default=None, max_length=300)
+    emergency_number: str | None = Field(default=None, alias="emergencyNumber", max_length=16)
 
 
 class StoreEnvelopeRequest(_CamelModel):
@@ -419,6 +443,39 @@ def add_location_sms_contact(
         }
     except Exception as exc:
         raise _handle_error(exc) from exc
+
+
+@router.post("/location/sos-email")
+def send_location_sos_email(
+    payload: SosEmailRequest,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Second channel for a Save my Soul alert.
+
+    The push notification is the first, and it reaches nobody when a contact
+    has notifications off or the app uninstalled. This mails the same alert so
+    it survives a closed app.
+
+    Never fails the caller: the alert itself has already gone out by the time
+    this is called, so a mail problem is reported as a count, not an error. An
+    exception here would make a successful emergency look like a failed one.
+    """
+    # The body carries a live location; no cache, no store, anywhere.
+    _set_private_no_store(response)
+    try:
+        return _service().send_sos_emails(
+            owner_user_id=_user_id(token_data),
+            grant_ids=payload.grant_ids,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            accuracy_m=payload.accuracy_m,
+            note=payload.note,
+            emergency_number=payload.emergency_number,
+        )
+    except Exception:
+        logger.warning("one.location.sos_email.route_failed", exc_info=False)
+        return {"emailed": 0, "attempted": 0, "results": [], "configured": False}
 
 
 @router.delete("/location/sms-contacts/{recipient_user_id}")
