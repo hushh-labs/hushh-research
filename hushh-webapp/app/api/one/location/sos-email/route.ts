@@ -39,7 +39,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
-import { validateFirebaseToken } from "@/lib/auth/validate";
 import { isMailConfigured, sendMail } from "@/lib/mail/mail-client";
 
 export const dynamic = "force-dynamic";
@@ -153,9 +152,21 @@ export function renderSosEmail(input: {
 }
 
 export async function POST(request: NextRequest) {
+  // The caller sends the SAME credential every other /api/one/location/* call
+  // sends: a VAULT_OWNER consent token, via jsonAuthHeaders() in
+  // lib/one-location/service.ts. This route used to run that through the
+  // Firebase ID-token validator, which cannot accept a consent token, so every
+  // real request was rejected 401 before reaching the backend — the SOS alert
+  // went out and the email leg never even tried.
+  //
+  // There is exactly one authority for this call and it is the backend:
+  // /api/one/location/sos-email-recipients validates the token with
+  // require_vault_owner_token AND checks the grants belong to that caller.
+  // Re-validating here with a different credential type was not defence in
+  // depth, it was a second, wrong opinion. The header is forwarded untouched
+  // and a non-2xx upstream means "no recipients".
   const authHeader = request.headers.get("authorization");
-  const auth = await validateFirebaseToken(authHeader);
-  if (!auth.valid) {
+  if (!authHeader) {
     return noStore({ error: "Unauthorized" }, 401);
   }
   if (!isMailConfigured()) {
