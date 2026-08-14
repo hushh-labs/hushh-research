@@ -869,6 +869,78 @@ export class OneLocationService {
   }
 
   /**
+   * Second channel for a Save my Soul alert: email the contacts of the grants
+   * this alert just created.
+   *
+   * The push notification is the first channel and it reaches nobody when a
+   * contact has notifications off or has uninstalled — an email survives both.
+   *
+   * The coordinates travel in this request because the server cannot read them
+   * anywhere else: location envelopes keep coordinates inside the ciphertext,
+   * so only this device holds the plaintext. They are used for one send and
+   * are not stored server-side.
+   *
+   * Resolves rather than throws on failure. It is called after the alert has
+   * already gone out, so a mail problem must never surface as a failed SOS.
+   */
+  static async sendSosEmails(params: {
+    vaultOwnerToken: string;
+    grantIds: string[];
+    latitude: number;
+    longitude: number;
+    accuracyM?: number | null;
+    note?: string | null;
+    emergencyNumber?: string | null;
+  }): Promise<{
+    emailed: number;
+    attempted: number;
+    configured: boolean;
+    /** Contacts on this alert with no email on file, by display name. */
+    withoutEmail: string[];
+  }> {
+    const fallback = {
+      emailed: 0,
+      attempted: 0,
+      configured: false,
+      withoutEmail: [] as string[],
+    };
+    if (!params.grantIds.length) return fallback;
+    try {
+      const response = await apiJson<{
+        emailed?: number;
+        attempted?: number;
+        configured?: boolean;
+        withoutEmail?: string[];
+      }>("/api/one/location/sos-email", {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          grantIds: params.grantIds,
+          latitude: params.latitude,
+          longitude: params.longitude,
+          ...(typeof params.accuracyM === "number"
+            ? { accuracyM: params.accuracyM }
+            : {}),
+          ...(params.note ? { note: params.note } : {}),
+          ...(params.emergencyNumber
+            ? { emergencyNumber: params.emergencyNumber }
+            : {}),
+        }),
+      });
+      return {
+        emailed: Number(response?.emailed ?? 0),
+        attempted: Number(response?.attempted ?? 0),
+        configured: response?.configured === true,
+        withoutEmail: Array.isArray(response?.withoutEmail)
+          ? response.withoutEmail.map(String).filter(Boolean)
+          : [],
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  /**
    * Create/replace a private share and persist its first encrypted point as one
    * idempotent backend mutation. Safe to retry with the same operation id.
    */

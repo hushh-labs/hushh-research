@@ -331,9 +331,20 @@ export default function ConnectPageClient() {
 
   // A new query, or a new page size, is a new result set: go back to page one
   // rather than asking for page 4 of something the reader has just redefined.
-  useEffect(() => {
+  //
+  // Adjusted during render rather than in an effect. As an effect this reset
+  // landed one render too late: the fetch below runs in the same commit and
+  // would already have requested page 3 of the new query, then re-run and
+  // request page 1 of it -- two round trips per keystroke for anyone who had
+  // paged, with the discarded one free to resolve last and paint a page the
+  // reader never asked for. React re-renders on a state change made during
+  // render before running effects, so the stale page is never requested.
+  const resultSetKey = `${pageSize}:${trimmedQuery}`;
+  const [renderedResultSetKey, setRenderedResultSetKey] = useState(resultSetKey);
+  if (renderedResultSetKey !== resultSetKey) {
+    setRenderedResultSetKey(resultSetKey);
     setCurrentPage(1);
-  }, [trimmedQuery, pageSize]);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -680,44 +691,34 @@ export default function ConnectPageClient() {
   // Present connections in a stable, predictable order: alphabetical by the
   // name the user sees (case-insensitive), falling back to the userId when a
   // display name is absent. Locale compare keeps accented names sensibly placed.
-  // Present the People directory in the same predictable order as connections:
-  // alphabetical (A-Z) by the visible name, case/accent-insensitive. When a
-  // search query is active, names that START with the query rank above inner
-  // matches (so "Ab" surfaces "Abdul" before "Zab…"), then A-Z within each
-  // group. The server can return directory rows in relevance/insertion order,
-  // which read as unsorted in the list; this makes the rendered order stable.
-  const sortedPeople = useMemo(() => {
-    const q = trimmedQuery.toLowerCase();
-    const nameOf = (person: DirectoryPerson) =>
-      (person.displayName || person.email || person.userId)
-        .trim()
-        .toLowerCase();
-    // Strict prefix filter. The directory API matches a substring anywhere
-    // (`LIKE '%q%'`), so typing "z" returned "Abdul Zalil" and "shankz".
-    // Constrain the rendered list to entries whose FIRST NAME or EMAIL
-    // local-part starts with the query -- matching on the last/middle name
-    // too (as an earlier version of this did) meant searching "r" surfaced
-    // "Abdul Rashid" and "Divya Rajendran" on their surnames, which reads as
-    // random to someone searching by first name. Applied on top of the
-    // server result, so it never fetches more; it only hides non-matches.
-    const prefixMatches = (person: DirectoryPerson): boolean => {
-      if (!q) return true;
-      const name = nameOf(person);
-      if (name.startsWith(q)) return true;
-      const email = (person.email || "").trim().toLowerCase();
-      return email.startsWith(q) || email.split("@")[0]?.startsWith(q) === true;
-    };
-    return [...people].filter(prefixMatches).sort((a, b) => {
-      const nameA = nameOf(a);
-      const nameB = nameOf(b);
-      if (q) {
-        const startsA = nameA.startsWith(q);
-        const startsB = nameB.startsWith(q);
-        if (startsA !== startsB) return startsA ? -1 : 1;
-      }
-      return nameA.localeCompare(nameB, undefined, { sensitivity: "base" });
-    });
-  }, [people, trimmedQuery]);
+  // The server owns matching, ranking and order; this renders the page it
+  // returned, unchanged.
+  //
+  // It used to re-filter here -- keep only rows whose name starts with the
+  // query -- on top of a server that matched any substring. Filtering AFTER
+  // the server has already applied LIMIT/OFFSET can only subtract from a page
+  // that was chosen by the wrong rule, and it did: typing "n" asked for 8
+  // rows, got the 8 alphabetically-first names merely CONTAINING an n (Anand,
+  // Ankit, Arun...), and hid every one of them. The list rendered empty while
+  // Nilesh and Nirmal sat pages deeper in a result set the reader could not
+  // walk to, and "Next" stayed lit because `hasMore` described the rows the
+  // server sent rather than the rows that survived. No amount of client
+  // cleverness fixes that; the query itself had to select the right page.
+  //
+  // Both tiers the filter used to approximate now live in the SQL, so "n"
+  // returns every N person A-Z and "rashid" still finds "Abdul Rashid",
+  // ranked below the first-name matches rather than mixed in with them.
+  //
+  // Re-sorting here would reintroduce the same class of bug in a quieter
+  // form: a client sort can only order the current page, so a name on page 2
+  // could sort ahead of one on page 1 and the A-Z index would be a lie at
+  // every boundary. One ordering, applied where the paging happens.
+  //
+  // `people` is therefore rendered directly, and there is deliberately no
+  // second derived list. The original bug needed two: the empty state counted
+  // one and the rows came from the other, so "8 rows, all hidden" was
+  // indistinguishable from "8 rows" to every guard on the screen. With one
+  // list there is nothing left to disagree.
 
   const sortedConnections = useMemo(
     () =>
@@ -1364,6 +1365,13 @@ export default function ConnectPageClient() {
                     tone="destructive"
                   />
                 ) : people.length === 0 ? (
+                  // Tested against the list that is actually rendered below,
+                  // never against the raw server page. Those were two
+                  // different lists once: the server returned 8 rows, a
+                  // client-side filter hid all 8, and this branch checked the
+                  // 8 -- so the "no one matches" row never appeared and the
+                  // section rendered as blank space under its own heading.
+                  // An empty result has to say so.
                   hasQuery ? (
                     <SettingsRow
                       title={`No one matches "${trimmedQuery}"`}
@@ -1380,7 +1388,7 @@ export default function ConnectPageClient() {
                     />
                   )
                 ) : (
-                  sortedPeople.map((person) => {
+                  people.map((person) => {
                     const cta = relationshipCta(person.relationship);
                     const title =
                       person.displayName || person.email || person.userId;

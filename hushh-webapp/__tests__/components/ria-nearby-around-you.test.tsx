@@ -462,6 +462,27 @@ describe("national index", () => {
 });
 
 describe("score regime", () => {
+  // Values taken from the two live markets: a registry-discovered record leaves
+  // the four graph-backed components at zero, a reviewed one populates them.
+  function breakdown(graphBacked: number) {
+    return {
+      components: [
+        { key: "graph_authority", label: "Graph authority", value: graphBacked, weight: 0.3, contribution: 0 },
+        { key: "institutional_influence", label: "Institutional influence", value: 0.746, weight: 0.2, contribution: 0.149 },
+        { key: "verified_track_record", label: "Verified track record", value: graphBacked, weight: 0.2, contribution: 0 },
+        { key: "capital_access", label: "Capital access", value: graphBacked, weight: 0.1, contribution: 0 },
+        { key: "evidence_confidence", label: "Evidence confidence", value: 0.81, weight: 0.08, contribution: 0.065 },
+        { key: "trusted_reach", label: "Trusted reach", value: graphBacked, weight: 0.07, contribution: 0 },
+        { key: "freshness", label: "Freshness", value: 0.98, weight: 0.05, contribution: 0.049 },
+      ],
+      evidenceCount: 5,
+      coverageMultiplier: 1,
+      integrityPenalty: 0,
+      localRelevance: 1,
+      method: "m",
+    };
+  }
+
   async function openFirstRecord(over: Record<string, unknown>) {
     mockDiscover.mockResolvedValue({
       ...COVERED,
@@ -478,10 +499,11 @@ describe("score regime", () => {
     fireEvent.click(screen.getByText("Builder One"));
   }
 
-  it("says what a nationally discovered score actually measured", async () => {
-    // Most of the weighting has nothing to read for these records, so they land
-    // far below a reviewed one. Unlabelled, that reads as a weaker person.
-    await openFirstRecord({ scoreKind: "PROFESSIONAL_NETWORK_PROVISIONAL" });
+  it("says what a registry-discovered score actually measured", async () => {
+    // Two thirds of the weighting has nothing to read for these records, so
+    // they land far below a reviewed one. Unlabelled, that reads as a weaker
+    // person rather than a thinner source.
+    await openFirstRecord({ scoreBreakdown: breakdown(0) });
 
     await waitFor(() =>
       expect(
@@ -490,8 +512,15 @@ describe("score regime", () => {
     );
   });
 
-  it("stays silent for a reviewed record", async () => {
-    await openFirstRecord({ scoreKind: "REVIEWED_PUBLIC_ASSOCIATION" });
+  it("stays silent for a reviewed record even though both call themselves provisional", async () => {
+    // The live service reports score_kind PROFESSIONAL_NETWORK_PROVISIONAL for
+    // reviewed and registry records alike, so the label cannot be the
+    // discriminator — claiming a reviewed record has no relationship evidence
+    // would be false.
+    await openFirstRecord({
+      scoreKind: "PROFESSIONAL_NETWORK_PROVISIONAL",
+      scoreBreakdown: breakdown(0.6788),
+    });
 
     await waitFor(() =>
       expect(screen.getByText(/Network strength, not net worth/i)).toBeInTheDocument(),
@@ -501,8 +530,8 @@ describe("score regime", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("claims nothing when the service sends no regime", async () => {
-    await openFirstRecord({ scoreKind: null });
+  it("claims nothing when there is no breakdown to read", async () => {
+    await openFirstRecord({ scoreBreakdown: null });
 
     await waitFor(() =>
       expect(screen.getByText(/Network strength, not net worth/i)).toBeInTheDocument(),

@@ -3984,19 +3984,48 @@ export function OneLocationAgentPageContent({
           .map((outcome) => outcome.displayName);
         const reached = readyRecipients.length - unreachable.length;
 
+        // Second channel. A push reaches nobody when notifications are off, so
+        // the same alert goes out by email — the one place a closed app cannot
+        // swallow it. Awaited (not fired and forgotten) so the message below
+        // can tell the sender what actually happened, which is the whole point
+        // of having a fallback. It never throws.
+        const mail = await OneLocationService.sendSosEmails({
+          vaultOwnerToken,
+          grantIds: incident.grantIds,
+          latitude: point.latitude,
+          longitude: point.longitude,
+          accuracyM: point.accuracyM ?? null,
+          note,
+          emergencyNumber: sosEmergency?.number ?? null,
+        });
+
+        // Only worth saying when it changes what the sender should do next:
+        // "nobody's phone lit up" reads very differently if two inboxes got it.
+        // And a contact with no address is named rather than skipped in
+        // silence — "Emailed 0" with no reason is what made a broken email
+        // channel look like a working one.
+        const mailNote =
+          (mail.emailed > 0 ? ` Emailed ${mail.emailed}.` : "") +
+          (mail.withoutEmail.length > 0
+            ? ` No email on file for ${formatNameList(mail.withoutEmail)}.`
+            : "");
+
         if (reached === 0) {
+          const stillNoOne = mail.emailed === 0;
           toast.error(
-            `Location shared, but no one was alerted — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off. Call emergency services if you need help now.`,
+            stillNoOne
+              ? `Location shared, but no one was alerted — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off. Call emergency services if you need help now.`
+              : `No phones lit up — ${formatNameList(unreachable)} ${unreachable.length === 1 ? "has" : "have"} notifications off.${mailNote} Call emergency services if you need help now.`,
           );
         } else if (unreachable.length > 0) {
           toast.warning(
-            `Alerted ${reached} of ${readyRecipients.length} contacts. Couldn't reach ${formatNameList(unreachable)} — notifications are off on their end.`,
+            `Alerted ${reached} of ${readyRecipients.length} contacts. Couldn't reach ${formatNameList(unreachable)} — notifications are off on their end.${mailNote}`,
           );
         } else {
           toast.success(
             skipped > 0
-              ? `Alerted ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).`
-              : `Alerted ${readyRecipients.length} contact(s).`,
+              ? `Alerted ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).${mailNote}`
+              : `Alerted ${readyRecipients.length} contact(s).${mailNote}`,
           );
         }
         void refresh().catch(() => null);
@@ -4020,6 +4049,9 @@ export function OneLocationAgentPageContent({
       smsActionRecipients,
       refresh,
       sosIncident,
+      // The local emergency number is read at send time so the email can tell
+      // the recipient which number to dial where the sender is.
+      sosEmergency?.number,
       vaultOwnerToken,
     ],
   );

@@ -27,7 +27,6 @@ import { Input } from "@/components/ui/input";
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -38,6 +37,7 @@ import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-
 import {
   readLastKnownFix,
   rememberLastKnownFix,
+  rememberLocationGrant,
 } from "@/lib/one-location/location-grant-memory";
 import { locationBlockReason } from "@/lib/one-location/location-readiness";
 import { OneLocationService } from "@/lib/one-location/service";
@@ -786,6 +786,13 @@ export function NearbyCheckInSheet({
         // starting from nothing, which is what turns a failed first GPS read
         // from a dead end into a labelled fallback.
         void rememberLastKnownFix({ userId: ownerId, point: nextPoint });
+        // The grant belongs next to the fix, not to whichever surface happens
+        // to run key bootstrap. This drawer reaches the device directly and is
+        // routinely the FIRST place an account ever produces a coordinate, so
+        // omitting it here left the account's own record of "location works for
+        // me" empty on the surface most likely to prove it. Verified against
+        // live UAT: the sealed fix was written and the grant was not.
+        rememberLocationGrant(ownerId);
         setPointOrigin("fresh");
         setPoint(nextPoint);
         await loadPlaces(nextPoint, generation, expectedOwnerEpoch);
@@ -977,10 +984,27 @@ export function NearbyCheckInSheet({
         requestGenerationRef.current += 1;
         searchGenerationRef.current += 1;
       });
-    const timer = window.setInterval(() => void poll(), 15_000);
+    // Poll on a timer ONLY while the drawer is actually on screen.
+    //
+    // The guard above is `state.presence`, not `open`, so this effect also runs
+    // for a checked-in owner who has the sheet mounted but closed — and the
+    // sheet is mounted by every map surface. At 15s that is 4 reads a minute
+    // each, against a server budget of 8 a minute for this route, keyed per
+    // ACCOUNT rather than per tab. Two mounted-but-closed sheets therefore
+    // spend the entire allowance on nobody looking at anything, and the hub's
+    // own presence read comes back 429. That is what put three
+    // "429 (Too Many Requests)" lines on the Location screen.
+    //
+    // Closed, the sheet still refreshes on the two events that actually matter
+    // — the tab becoming visible and the app returning to the foreground —
+    // which is where a stale presence would otherwise be noticed. Nothing is
+    // lost except requests nobody was waiting for.
+    const timer = open
+      ? window.setInterval(() => void poll(), 15_000)
+      : null;
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
-      window.clearInterval(timer);
+      if (timer !== null) window.clearInterval(timer);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       removeLifecycleListener();
     };
@@ -1476,22 +1500,12 @@ export function NearbyCheckInSheet({
         data-testid="one-location-nearby-check-in-sheet"
         data-one-location-nearby-check-in-sheet=""
       >
-        <SheetHeader className="border-b border-border/60 px-5 pb-4 text-left">
-          <div className="flex items-center gap-2 pr-10">
-            <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--app-accent-surface-strong)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]">
-              <UsersRound className="h-4 w-4" />
+        <SheetHeader className="gap-0 border-b border-border/60 px-5 py-4 text-left">
+          <div className="flex min-h-9 items-center gap-2 pr-10">
+            <SheetTitle className="text-[17px] leading-6">Check in</SheetTitle>
+            <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+              Preview
             </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <SheetTitle>Check in nearby</SheetTitle>
-                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                  Preview
-                </span>
-              </div>
-              <SheetDescription>
-                Choose a real place within 500 m of your current location.
-              </SheetDescription>
-            </div>
           </div>
         </SheetHeader>
 
@@ -1829,6 +1843,7 @@ export function NearbyCheckInSheet({
                             ),
                           ),
                         );
+                        const metadataLabel = metadata.join(" · ");
                         return (
                           <button
                             key={place.placeId}
@@ -1845,12 +1860,18 @@ export function NearbyCheckInSheet({
                           >
                             <MapPin className="h-4 w-4 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
                             <span className="min-w-0 flex-1">
-                              <span className="block break-words text-sm font-semibold leading-5">
+                              <span
+                                title={name}
+                                className="block truncate text-sm font-semibold leading-5"
+                              >
                                 {name}
                               </span>
                               {metadata.length ? (
-                                <span className="mt-0.5 block break-words text-xs leading-4 text-muted-foreground">
-                                  {metadata.join(" · ")}
+                                <span
+                                  title={metadataLabel}
+                                  className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground"
+                                >
+                                  {metadataLabel}
                                 </span>
                               ) : null}
                             </span>
@@ -1872,7 +1893,7 @@ export function NearbyCheckInSheet({
                             className="w-full text-muted-foreground"
                             onClick={() => setVisiblePlacesCount(places.length)}
                           >
-                            Show all places
+                            Show all {places.length} places
                           </Button>
                         </div>
                       ) : null}
@@ -1916,7 +1937,7 @@ export function NearbyCheckInSheet({
                           className="mt-3"
                           onClick={() => selectCategory("all")}
                         >
-                          Show all places
+                          Show all {automaticPlaces.length} places
                         </Button>
                       </div>
                     ) : null}

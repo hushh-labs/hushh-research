@@ -568,6 +568,75 @@ def test_search_directory_filters_by_query_against_display_name():
     assert [i["userId"] for i in out["items"]] == ["user-c"]
 
 
+def test_search_directory_fallback_matches_prefixes_and_ranks_them():
+    """The in-memory fallback answers the same question as the SQL path.
+
+    Typing one letter is an index request. A substring match answers a
+    different question -- "Anand" contains an n -- and the two paths disagreeing
+    would mean findability depended on which branch a deployment took.
+    """
+    svc = _svc()
+    svc._directory_lookup = lambda owner_user_id: [
+        {"userId": "u-anand", "displayName": "Anand"},  # contains n, starts with a
+        {"userId": "u-nirmal", "displayName": "Nirmal"},
+        {"userId": "u-abdul", "displayName": "Abdul Nasser"},  # second word starts with n
+        {"userId": "u-nilesh", "displayName": "Nilesh"},
+    ]
+    db = _RecordingDB([[], [], []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", query="n", page=1, limit=20)
+
+    # Anand is gone: it only ever matched as a substring. Name-prefix names
+    # come first and A-Z within the tier; the surname match ranks below them
+    # rather than being mixed in, which is what made the earlier version of
+    # this read as random.
+    assert [i["displayName"] for i in out["items"]] == ["Nilesh", "Nirmal", "Abdul Nasser"]
+
+
+def test_search_directory_fallback_folds_separators_like_the_sql_path():
+    svc = _svc()
+    svc._directory_lookup = lambda owner_user_id: [
+        {"userId": "u-hyphen", "displayName": "Abdul-Rashid"},
+        {"userId": "u-initial", "displayName": "Abdul R."},
+        {"userId": "u-spaced", "displayName": "  Rashid Ahmed"},
+    ]
+    db = _RecordingDB([[], [], []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", query="r", page=1, limit=20)
+
+    # "  Rashid Ahmed" is trimmed, so it earns the first tier rather than being
+    # demoted by a leading space. The hyphen and the full stop are separators,
+    # so both reach the second tier instead of hiding their second word.
+    #
+    # Asserted as tiers rather than one exact sequence on purpose: how "Abdul
+    # R." and "Abdul-Rashid" order against each other depends on whether
+    # punctuation is significant in the active collation, and pinning that here
+    # would be pinning the database's locale, not this code's behaviour.
+    found = [i["userId"] for i in out["items"]]
+    assert found[0] == "u-spaced"
+    assert sorted(found[1:]) == ["u-hyphen", "u-initial"]
+
+
+def test_search_directory_fallback_pages_the_ranked_list_not_the_raw_one():
+    svc = _svc()
+    svc._directory_lookup = lambda owner_user_id: [
+        {"userId": f"u-{name}", "displayName": name}
+        for name in ["Nolan", "Anand", "Nilesh", "Chandan", "Nirmal"]
+    ]
+    db = _RecordingDB([[], [], []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        first = svc.search_directory("user-a", query="n", page=1, limit=2)
+        second = svc.search_directory("user-a", query="n", page=2, limit=2)
+
+    # Ranking finishes before the slice, so page 1 holds the first two N names
+    # and page 2 continues the same list. Slicing first and ranking after is
+    # exactly the bug this replaced.
+    assert [i["displayName"] for i in first["items"]] == ["Nilesh", "Nirmal"]
+    assert first["hasMore"] is True
+    assert [i["displayName"] for i in second["items"]] == ["Nolan"]
+    assert second["hasMore"] is False
+
+
 def test_search_directory_delegates_pagination_to_eligible_directory_query():
     calls: list[tuple[str, dict[str, object]]] = []
 

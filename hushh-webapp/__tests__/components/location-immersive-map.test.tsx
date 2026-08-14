@@ -1181,6 +1181,66 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(navigationHarness.push).not.toHaveBeenCalled();
   });
 
+  it("keeps the dedicated Check in header controls and active-share meaning", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "source=map";
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [
+        {
+          id: "active-location-share",
+          ownerUserId: "test-user",
+          recipientUserId: "trusted-person",
+          recipientKeyId: "trusted-person-key",
+          status: "active",
+          consentScope: "location",
+          capabilityScopes: ["location.read"],
+          durationHours: 1,
+        },
+      ],
+    });
+
+    render(<LocationImmersiveMap surface="check-in" />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    const header = screen.getByRole("banner", {
+      name: "Check in map controls",
+    });
+    expect(header).toContainElement(
+      screen.getByTestId("one-location-map-close"),
+    );
+    expect(screen.getByTestId("one-location-map-close")).toHaveAccessibleName(
+      "Back to Location",
+    );
+    expect(
+      screen.getByTestId("one-location-map-nearby-check-in"),
+    ).toHaveAccessibleName("Check in nearby");
+    expect(screen.getByTestId("one-location-map-locate")).toHaveAccessibleName(
+      "Show my location",
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-map-sharing-status"),
+      ).toHaveTextContent("Sharing with 1");
+    });
+    expect(
+      screen.getByTestId("one-location-map-sharing-status"),
+    ).toHaveAttribute("role", "status");
+    expect(
+      screen.getByTestId("one-location-map-sharing-status"),
+    ).toHaveAccessibleName("You are sharing your location with 1 person");
+  });
+
   it("does not build a synthetic history boundary on the check-in route", async () => {
     // The sheet used to have no URL of its own, so it faked a history entry to
     // make Back close it. A real route already is one; re-creating the boundary
