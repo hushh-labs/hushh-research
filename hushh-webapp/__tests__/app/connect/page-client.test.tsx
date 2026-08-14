@@ -88,6 +88,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.listConnections.mockResolvedValue([]);
   mocks.listRequests.mockResolvedValue([]);
+  mocks.getScopeCatalog.mockResolvedValue({
+    counterpartUserId: "u0",
+    items: [],
+    offerableItems: [],
+  });
   mocks.searchDirectory.mockResolvedValue({
     items: EVERYONE.slice(0, 8),
     hasMore: true,
@@ -162,6 +167,7 @@ describe("Connect — People", () => {
     fireEvent.change(screen.getByLabelText("Search people"), {
       target: { value: "Person 9" },
     });
+    expect(screen.getByRole("button", { name: "Clear search" })).toBeTruthy();
 
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
     const searched = mocks.searchDirectory.mock.calls[1][0];
@@ -573,8 +579,8 @@ describe("Connect — People", () => {
     expect(await screen.findByText('No one matches "Nobody"')).toBeTruthy();
   });
 
-  it("caps bulk connection requests at 5 people", async () => {
-    const bulkPeople = Array.from({ length: 6 }, (_, index) =>
+  it("caps bulk connection requests at 8 people", async () => {
+    const bulkPeople = Array.from({ length: 9 }, (_, index) =>
       person(`bulk-${index}`, `Bulk person ${index}`),
     );
     mocks.searchDirectory.mockResolvedValue({
@@ -586,49 +592,52 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
     expect(await screen.findByText("Bulk person 0")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
 
-    for (let index = 0; index < 5; index += 1) {
+    expect(
+      screen.getByText("Pick up to 8 people. Send requests together."),
+    ).toBeTruthy();
+
+    for (let index = 0; index < 8; index += 1) {
       fireEvent.click(screen.getByLabelText(`Select Bulk person ${index}`));
     }
 
-    expect(screen.getByText("Connect selected (5/5)")).toBeTruthy();
+    expect(screen.getByText("Send requests (8/8)")).toBeTruthy();
     expect(
-      (screen.getByLabelText("Select Bulk person 5") as HTMLButtonElement)
+      (screen.getByLabelText("Select Bulk person 8") as HTMLButtonElement)
         .disabled,
     ).toBe(true);
 
     fireEvent.click(screen.getByLabelText("Select Bulk person 0"));
     expect(
-      (screen.getByLabelText("Select Bulk person 5") as HTMLButtonElement)
+      (screen.getByLabelText("Select Bulk person 8") as HTMLButtonElement)
         .disabled,
     ).toBe(false);
     fireEvent.click(screen.getByLabelText("Select Bulk person 0"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect selected (5/5)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send requests (8/8)" }));
+    expect(await screen.findByRole("heading", { name: "Send connection requests" })).toBeTruthy();
+    expect(screen.getByText("This only sends a connection request.")).toBeTruthy();
+    expect(screen.queryByText("Included now")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Send requests" }));
 
-    // Selecting opens the scope-review dialog; sending is a second, deliberate
-    // act. This test predated that dialog and stopped at the first click, so
-    // it had been asserting against a dispatch that no longer happened there.
-    fireEvent.click(await screen.findByRole("button", { name: "Send requests" }));
-
-    await waitFor(() => expect(mocks.sendRequest).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(mocks.sendRequest).toHaveBeenCalledTimes(8));
 
     expect(mocks.sendRequest).toHaveBeenCalledWith(
       expect.objectContaining({ addresseeUserId: "bulk-0" }),
     );
     expect(mocks.sendRequest).not.toHaveBeenCalledWith(
-      expect.objectContaining({ addresseeUserId: "bulk-5" }),
+      expect.objectContaining({ addresseeUserId: "bulk-8" }),
     );
-  });
+  }, 10_000);
 
   it("drops a selection that is no longer visible in the directory", async () => {
     render(<ConnectPageClient />);
     expect(await screen.findByText("Person 0")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
     fireEvent.click(screen.getByLabelText("Select Person 0"));
-    expect(screen.getByText("Connect selected (1/5)")).toBeTruthy();
+    expect(screen.getByText("Send requests (1/8)")).toBeTruthy();
 
     mocks.searchDirectory.mockResolvedValue({
       items: [person("u9", "Person 9")],
@@ -641,7 +650,7 @@ describe("Connect — People", () => {
 
     expect(await screen.findByText("Person 9")).toBeTruthy();
     await waitFor(() =>
-      expect(screen.queryByText("Connect selected (1/5)")).toBeNull(),
+      expect(screen.queryByText("Send requests (1/8)")).toBeNull(),
     );
   });
 
@@ -666,7 +675,7 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
     expect(await screen.findByText("Connected Carl")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select people" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
 
     // Eligible: a real, enabled checkbox.
     expect(
@@ -681,6 +690,22 @@ describe("Connect — People", () => {
     // Request already out: same treatment, its own reason.
     expect(screen.getByText("Requested")).toBeTruthy();
     expect(screen.queryByLabelText("Select Requested Rita")).toBeNull();
+  });
+
+  it("sends a one-person request directly when no optional offers are available", async () => {
+    render(<ConnectPageClient />);
+    expect(await screen.findByText("Person 0")).toBeTruthy();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Connect" })[0]!);
+
+    await waitFor(() => expect(mocks.sendRequest).toHaveBeenCalledTimes(1));
+    expect(mocks.sendRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ addresseeUserId: "u0" }),
+    );
+    expect(screen.queryByRole("heading", { name: "Send connection request" })).toBeNull();
+    expect(screen.queryByText("Included now")).toBeNull();
+    expect(screen.queryByText("Location & safety")).toBeNull();
+    expect(screen.queryByText("Finance & RIA")).toBeNull();
   });
 });
 

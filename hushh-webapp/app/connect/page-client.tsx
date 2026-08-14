@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Search as SearchIcon, UserRound, Users } from "lucide-react";
+import { Search as SearchIcon, UserRound, Users, X } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -90,7 +90,7 @@ const CONNECT_INLINE_BUTTON_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
 
 /** Maximum number of connection requests the People bulk action can send. */
-const MAX_BULK_CONNECTION_REQUESTS = 10;
+const MAX_BULK_CONNECTION_REQUESTS = 8;
 
 /**
  * Bounds on resolving ONE spoken name against the directory.
@@ -1264,13 +1264,13 @@ export default function ConnectPageClient() {
                   </span>
                   <Input
                     ref={searchInputRef}
-                    type="search"
+                    type="text"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="Search people by name"
                     aria-label="Search people"
                     data-voice-control-id="one-connect-search"
-                    className="h-10 pl-11"
+                    className="h-10 pl-11 pr-11"
                     enterKeyHint="search"
                     onKeyDown={(event) => {
                       // iOS soft-keyboard "return" must dismiss the keyboard;
@@ -1310,12 +1310,26 @@ export default function ConnectPageClient() {
                       );
                     }}
                   />
+                  {query ? (
+                    <button
+                      type="button"
+                      aria-label="Clear search"
+                      onClick={() => {
+                        setQuery("");
+                        searchInputRef.current?.focus();
+                      }}
+                      className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
+                    >
+                      <X className="h-5 w-5" strokeWidth={2.4} />
+                    </button>
+                  ) : null}
                 </div>
                 <Button
                   type="button"
                   variant="none"
                   effect="fill"
                   size="sm"
+                  className="h-10 min-h-10 shrink-0 rounded-full px-4 text-[15px] font-semibold leading-5"
                   disabled={loading || people.length === 0}
                   onClick={() => {
                     setIsSelectionMode((current) => !current);
@@ -1323,7 +1337,7 @@ export default function ConnectPageClient() {
                     setShowLimitBanner(false);
                   }}
                 >
-                  {isSelectionMode ? "Cancel selection" : "Select people"}
+                  {isSelectionMode ? "Cancel" : "Select multiple"}
                 </Button>
               </div>
               <SettingsGroup
@@ -1332,7 +1346,7 @@ export default function ConnectPageClient() {
                   isSelectionMode
                     ? (
                         <span id="connect-selection-limit">
-                          Select up to {MAX_BULK_CONNECTION_REQUESTS} people.
+                          Pick up to {MAX_BULK_CONNECTION_REQUESTS} people. Send requests together.
                         </span>
                       )
                     : hasQuery
@@ -1423,6 +1437,7 @@ export default function ConnectPageClient() {
                             ) : (
                               <Checkbox
                                 checked={isSelected}
+                                disabled={!isSelected && selectedUserIds.size >= MAX_BULK_CONNECTION_REQUESTS}
                                 // The default unchecked border (border-input)
                                 // reads as near-invisible on this row's light
                                 // background -- readers couldn't tell an
@@ -1434,6 +1449,9 @@ export default function ConnectPageClient() {
                                 aria-describedby="connect-selection-limit"
                                 onCheckedChange={(checked) => {
                                   if (checked && selectedUserIds.size >= MAX_BULK_CONNECTION_REQUESTS) {
+                                    toast.error(
+                                      `You can only select up to ${MAX_BULK_CONNECTION_REQUESTS} people at a time.`,
+                                    );
                                     setShowLimitBanner(true);
                                     return;
                                   }
@@ -1441,9 +1459,6 @@ export default function ConnectPageClient() {
                                     const next = new Set(current);
                                     if (checked) {
                                       next.add(person.userId);
-                                      if (next.size >= MAX_BULK_CONNECTION_REQUESTS) {
-                                        setShowLimitBanner(true);
-                                      }
                                     } else {
                                       next.delete(person.userId);
                                       if (next.size < MAX_BULK_CONNECTION_REQUESTS) {
@@ -1495,13 +1510,12 @@ export default function ConnectPageClient() {
                   })
                 )}
                 {people.length > 0 || currentPage > 1 ? (
-                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3">
-                    <div className="flex min-h-9 items-center gap-2.5">
+                  <div className="flex flex-col gap-3 border-t border-[color:var(--app-card-border-standard)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-h-9 flex-wrap items-center gap-2.5">
                       <span className="ui-text-helper-text tabular-nums text-[color:var(--app-secondary-label)]">
                         Page {currentPage}
                       </span>
-                    </div>
-                    <div className="flex items-center gap-2">
+                      <span className="h-1 w-1 rounded-full bg-[color:var(--app-tertiary-label)]" />
                       <span className="ui-text-helper-text text-[color:var(--app-secondary-label)]">
                         Per page
                       </span>
@@ -1526,7 +1540,7 @@ export default function ConnectPageClient() {
                       </Select>
                     </div>
                     <div
-                      className="flex min-h-9 items-center gap-2"
+                      className="flex min-h-9 items-center justify-end gap-2"
                       aria-live="polite"
                     >
                       <Button
@@ -1560,7 +1574,7 @@ export default function ConnectPageClient() {
                     </div>
                   </div>
                 ) : null}
-                {isSelectionMode && selectedUserIds.size > 0 && (
+                {isSelectionMode && selectedUserIds.size > 0 && batchConnectDraft === null && (
                   <div className="flex justify-center border-t border-[color:var(--app-card-border-standard)] px-3 py-4">
                     <Button
                       type="button"
@@ -1573,7 +1587,9 @@ export default function ConnectPageClient() {
                         setBatchConnectDraft({ people: selectedPeople });
                       }}
                     >
-                      {isConnectingMultiple ? "Sending…" : "Connect selected"}
+                      {isConnectingMultiple
+                        ? "Sending…"
+                        : `Send requests (${selectedUserIds.size}/${MAX_BULK_CONNECTION_REQUESTS})`}
                     </Button>
                   </div>
                 )}
@@ -1591,11 +1607,14 @@ export default function ConnectPageClient() {
           if (!open && busyId === null) setScopeDraft(null);
         }}
       >
-        <DialogContent showCloseButton={false} className="gap-5">
+        <DialogContent
+          showCloseButton={false}
+          className="gap-5 bg-[color:var(--app-card-surface-default-solid)]"
+        >
           <DialogHeader className="text-left">
-            <DialogTitle>Connection access</DialogTitle>
+            <DialogTitle>Send connection request</DialogTitle>
             <DialogDescription>
-              Choose what to request or offer.
+              Start safe. Add sharing only if you choose.
             </DialogDescription>
           </DialogHeader>
 
@@ -1603,7 +1622,8 @@ export default function ConnectPageClient() {
             <div className="space-y-4">
               {scopeDraft.catalog.items.length > 0 ? (
                 <SettingsGroup
-                  title={`Request from ${scopeDraft.person.displayName || "this person"}`}
+                  title="Ask from them"
+                  description="Optional. They can decline."
                   separatorInset
                 >
                   {scopeDraft.catalog.items.map((item) => (
@@ -1632,7 +1652,11 @@ export default function ConnectPageClient() {
                 </SettingsGroup>
               ) : null}
               {scopeDraft.catalog.offerableItems.length > 0 ? (
-                <SettingsGroup title="Offer to them" separatorInset>
+                <SettingsGroup
+                  title="Offer now"
+                  description="Optional. They approve before access."
+                  separatorInset
+                >
                   {scopeDraft.catalog.offerableItems.map((item) => (
                     <SettingsRow
                       key={`offer-${item.handle}`}
@@ -1660,27 +1684,19 @@ export default function ConnectPageClient() {
               ) : null}
               {scopeDraft.catalog.items.length === 0 &&
               scopeDraft.catalog.offerableItems.length === 0 ? (
-                <SettingsGroup
-                  title="No access yet"
-                  description="Send a connection request now."
-                  separatorInset
-                >
-                  <SettingsRow
-                    title="Connection only"
-                    description="No information access."
-                    density="compact"
-                    disabled
-                  />
-                </SettingsGroup>
+                <p className="ui-text-helper-text px-1 text-[color:var(--app-secondary-label)]">
+                  No sharing access is included.
+                </p>
               ) : null}
             </div>
           ) : null}
 
-          <DialogFooter>
+          <DialogFooter className="w-full flex-row items-center justify-between gap-3 sm:justify-between">
             <Button
               type="button"
               variant="none"
               effect="fade"
+              className="min-w-[96px]"
               disabled={busyId !== null}
               onClick={() => setScopeDraft(null)}
             >
@@ -1690,6 +1706,7 @@ export default function ConnectPageClient() {
               type="button"
               variant="blue"
               effect="fill"
+              className="min-w-[148px]"
               disabled={!scopeDraft || busyId === scopeDraft.person.userId}
               onClick={() => {
                 if (!scopeDraft) return;
@@ -1714,27 +1731,14 @@ export default function ConnectPageClient() {
           if (!open && !isConnectingMultiple) setBatchConnectDraft(null);
         }}
       >
-        <DialogContent className="gap-5 max-h-[85vh] flex flex-col overflow-hidden">
+        <DialogContent className="gap-5 max-h-[85vh] flex flex-col overflow-hidden bg-[color:var(--app-card-surface-default-solid)]">
           <div className="shrink-0 space-y-5">
             <DialogHeader className="text-left">
-              <DialogTitle>Review connection capabilities</DialogTitle>
+              <DialogTitle>Send connection requests</DialogTitle>
               <DialogDescription>
-                A connection never shares information by itself. Choose only the capabilities you want to request or offer; the other person can approve a subset or decline them all.
+                This only sends a connection request.
               </DialogDescription>
             </DialogHeader>
-
-            <SettingsGroup
-              title="No capabilities available yet"
-              description="You can still send a connection request. Capabilities appear here only when this relationship is eligible for them."
-              separatorInset
-            >
-              <SettingsRow
-                title="Connection only"
-                description="This request does not grant access to any information or Kai debate."
-                density="compact"
-                disabled
-              />
-            </SettingsGroup>
           </div>
 
           {batchConnectDraft ? (
@@ -1785,12 +1789,12 @@ export default function ConnectPageClient() {
             </div>
           ) : null}
 
-          <DialogFooter className="shrink-0">
+          <DialogFooter className="shrink-0 w-full flex-row items-center justify-between gap-3 sm:justify-between">
             <Button
               type="button"
               variant="none"
               effect="fade"
-              className="text-muted-foreground"
+              className="min-w-[96px]"
               disabled={isConnectingMultiple}
               onClick={() => setBatchConnectDraft(null)}
             >
@@ -1800,10 +1804,11 @@ export default function ConnectPageClient() {
               type="button"
               variant="blue"
               effect="fill"
+              className="min-w-[148px]"
               disabled={!batchConnectDraft || isConnectingMultiple}
               onClick={() => void handleConnectMultiple()}
             >
-              {isConnectingMultiple ? "Sending." : "Accept"}
+              {isConnectingMultiple ? "Sending…" : "Send requests"}
             </Button>
           </DialogFooter>
         </DialogContent>
