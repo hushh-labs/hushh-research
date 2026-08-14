@@ -2116,6 +2116,18 @@ class FourUserMemoryService(OneLocationAgentService):
                 grant["revoked_at"] = datetime.now(timezone.utc)
                 return grant
             return None
+        if "SET expires_at = :new_expires_at" in sql:
+            grant = self.grants.get(params["grant_id"])
+            if (
+                grant
+                and params["owner_user_id"]
+                in {grant["owner_user_id"], grant["recipient_user_id"]}
+                and grant["status"] == "active"
+            ):
+                grant["expires_at"] = params["new_expires_at"]
+                grant["updated_at"] = datetime.now(timezone.utc)
+                return grant
+            return None
         if "INSERT INTO trusted_connections" in sql:
             existing = next(
                 (
@@ -2976,6 +2988,83 @@ def test_location_grant_recipient_can_mark_share_revoked() -> None:
 
     already_revoked = service.revoke_grant(owner_user_id="user_b", grant_id=grant["id"])
     assert already_revoked["status"] == "revoked"
+
+
+def test_shorten_grant_lets_either_party_bring_expiry_earlier() -> None:
+    service = FourUserMemoryService()
+    for user_id in ("user_a", "user_b", "user_c"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=20,
+    )
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    with pytest.raises(OneLocationAgentError) as unrelated:
+        service.shorten_grant(
+            caller_user_id="user_c", grant_id=grant["id"], duration_hours=1
+        )
+    assert unrelated.value.code == "LOCATION_GRANT_NOT_FOUND"
+
+    # The recipient gives back time early -- self-limiting, needs no
+    # approval from the owner.
+    shortened = service.shorten_grant(
+        caller_user_id="user_b", grant_id=grant["id"], duration_hours=1
+    )
+    assert shortened["status"] == "active"
+    new_expires_at = service.grants[grant["id"]]["expires_at"]
+    assert new_expires_at < original_expires_at
+    shorten_events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_shortened"
+    ]
+    assert shorten_events[-1]["actor_user_id"] == "user_b"
+    assert shorten_events[-1]["metadata"]["reason"] == "recipient_shorten"
+    assert service.notifications[-1]["user_id"] == "user_a"
+
+    # The owner may also shorten their own exposure further.
+    service.shorten_grant(caller_user_id="user_a", grant_id=grant["id"], duration_hours=0.1)
+    assert service.grants[grant["id"]]["expires_at"] < new_expires_at
+
+
+def test_shorten_grant_rejects_any_attempt_to_extend() -> None:
+    """The one thing shorten_grant must never do: move expiry later.
+
+    That would let a recipient keep watching an owner longer than the
+    owner ever agreed to -- exactly the class of unconsented-access bug
+    this endpoint exists to avoid. Extending only ever happens through a
+    fresh request_access the owner approves.
+    """
+    service = FourUserMemoryService()
+    for user_id in ("user_a", "user_b"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    with pytest.raises(OneLocationAgentError) as extend_attempt:
+        service.shorten_grant(
+            caller_user_id="user_b", grant_id=grant["id"], duration_hours=24
+        )
+    assert extend_attempt.value.code == "LOCATION_GRANT_SHORTEN_ONLY"
+    assert service.grants[grant["id"]]["expires_at"] == original_expires_at
 
 
 def test_location_request_creation_does_not_require_requester_key_material() -> None:

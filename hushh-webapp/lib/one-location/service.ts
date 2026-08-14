@@ -1322,6 +1322,30 @@ export class OneLocationService {
     return response.grant;
   }
 
+  /**
+   * Bring a grant's expiry earlier. Either the owner or the recipient may
+   * call this -- shortening only ever reduces exposure, so it needs no
+   * fresh consent from the other side. The backend rejects any duration
+   * that would move the expiry later; extending access is the owner's
+   * consent to give again, via `requestAccess`, not something either side
+   * can grant themselves through this call.
+   */
+  static async shortenGrant(params: {
+    vaultOwnerToken: string;
+    grantId: string;
+    durationHours: number;
+  }): Promise<OneLocationGrant> {
+    const response = await apiJson<{ grant: OneLocationGrant }>(
+      `/api/one/location/grants/${encodeURIComponent(params.grantId)}/shorten`,
+      {
+        method: "PATCH",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ durationHours: params.durationHours }),
+      },
+    );
+    return response.grant;
+  }
+
   static async requestAccess(params: {
     vaultOwnerToken: string;
     ownerUserId: string;

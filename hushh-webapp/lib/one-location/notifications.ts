@@ -35,6 +35,7 @@ export type OneLocationWorkflowNotificationType =
   | "location_share_created"
   | "location_access_approved"
   | "location_share_revoked"
+  | "location_share_shortened"
   | "location_share_expired"
   | "location_access_request"
   | "location_access_denied"
@@ -67,6 +68,10 @@ const WORKFLOW_COPY: Record<
   location_share_revoked: {
     title: "Location access removed",
     fallbackDescription: "Location access from a trusted person was removed.",
+  },
+  location_share_shortened: {
+    title: "Location access shortened",
+    fallbackDescription: "A location share's remaining time was shortened.",
   },
   location_share_expired: {
     title: "Location access expired",
@@ -422,6 +427,7 @@ export function oneLocationSectionForWorkflowNotificationType(
     case "location_share_created":
     case "location_access_approved":
     case "location_share_revoked":
+    case "location_share_shortened":
     case "location_share_expired":
       return "shared";
     case "location_access_request":
@@ -594,6 +600,11 @@ export function locationWorkflowNotificationCopy(params: {
       return {
         title: copy.title,
         description: `${ownerLabel} removed your location access.`,
+      };
+    case "location_share_shortened":
+      return {
+        title: copy.title,
+        description: `${ownerLabel} shortened your location access.`,
       };
     case "location_share_expired":
       return {

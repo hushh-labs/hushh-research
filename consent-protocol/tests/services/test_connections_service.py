@@ -347,6 +347,42 @@ def test_accept_creates_connection_and_two_trusted_edges():
     # Two trusted_connections INSERTs happened.
     trusted_inserts = [c for c in db.calls if "INSERT INTO trusted_connections" in c[0]]
     assert len(trusted_inserts) == 2
+    # Regression guard: accepting a connection must never touch location
+    # sharing on its own. A newly accepted connection used to silently
+    # fan out a bidirectional live-location grant to both people with no
+    # request involved (auto_start_share_for_new_peer, removed). Location
+    # sharing may only ever be created by an explicit
+    # OneLocationAgentService.approve_request call against a real,
+    # explicit OneLocationAccessRequest.
+    assert not any("one_location_share_grants" in c[0] for c in db.calls)
+    assert not any("one_location_map_preferences" in c[0] for c in db.calls)
+
+
+def test_accept_request_never_imports_or_calls_location_service():
+    """Structural guard against re-wiring auto-share into accept_request.
+
+    This is what actually broke: a prior commit imported
+    OneLocationAgentService inside accept_request and called
+    auto_start_share_for_new_peer as a bidirectional post-commit side
+    effect, with no explicit location request anywhere in the path. Assert
+    directly on the source so a future edit that reintroduces an import of
+    or a call into the location service from here fails loudly instead of
+    silently. (Comments in accept_request are allowed to *mention*
+    OneLocationAgentService.approve_request as a pointer for readers --
+    only real imports/calls are checked here.)
+    """
+    import inspect
+
+    from hushh_mcp.services.connections_service import ConnectionsService
+
+    lines = inspect.getsource(ConnectionsService.accept_request).splitlines()
+    code_only = "\n".join(
+        line for line in lines if not line.strip().startswith("#")
+    )
+    assert "one_location_agent_service" not in code_only.lower()
+    assert "OneLocationAgentService" not in code_only
+    assert "auto_start_share_for_new_peer" not in code_only
+    assert "auto_share" not in code_only.lower()
 
 
 def test_accept_rejected_when_not_addressee():
