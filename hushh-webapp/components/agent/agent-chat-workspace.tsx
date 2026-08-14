@@ -173,6 +173,10 @@ type AgentMessage = {
   status?: "streaming" | "done" | "error";
   ephemeral?: boolean;
   kind?: "selection";
+  // Calendar proposal status is already a bounded confirmation/result. Keep
+  // that one message on the regular assistant surface instead of wrapping it
+  // in the generic turn stream panel.
+  renderAsPlainAssistantMessage?: boolean;
   specialistDirective?: SpecialistDirectiveEvent | null;
   streamEvents?: AgentVisibleStreamEvent[];
   thought?: string;
@@ -845,16 +849,18 @@ function AgentBubble({
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
   const streamEvents = message.streamEvents ?? [];
-  // The stream panel owns its own response card. Plain assistant completions
-  // (for example, "Scheduled Client call.") therefore stay on the normal
-  // single-bubble path rather than rendering as a card inside another card.
-  const hasSupportingTurnContext =
+  // Preserve the normal turn stream panel for every assistant response so
+  // Working Notes and Sources remain available. Calendar proposal status is
+  // the narrow exception: it has its own explicit confirmation lifecycle.
+  const hasStreamContent =
     streamEvents.length > 0 ||
     Boolean(message.thought?.trim()) ||
-    Boolean(message.sources?.length);
+    Boolean(message.sources?.length) ||
+    Boolean(message.text.trim());
   const shouldRenderStreamPanel =
     !isUser &&
-    hasSupportingTurnContext;
+    hasStreamContent &&
+    !message.renderAsPlainAssistantMessage;
   const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming);
   const assistantText = isUser ? message.text : animated.displayedText;
   const consentActionsPayload = !isUser
@@ -3659,6 +3665,7 @@ export function AgentChatWorkspace({
       text: "Scheduling…",
       timestamp: formatNow(),
       status: "streaming",
+      renderAsPlainAssistantMessage: true,
     });
     setPendingSpecialistDirective(null);
     setSpecialistBusy(true);

@@ -70,11 +70,12 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("Writing in expanded composer");
   });
 
-  it("uses the nested stream response surface only when a turn has supporting context", () => {
+  it("keeps stream panels for normal assistant turns and bypasses them only for calendar status", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 
-    expect(workspace).toContain("const hasSupportingTurnContext =");
-    expect(workspace).toContain("Boolean(message.sources?.length);");
-    expect(workspace).not.toContain("Boolean(message.text.trim());\n  const shouldRenderStreamPanel");
+    expect(workspace).toContain("const hasStreamContent =");
+    expect(workspace).toContain("Boolean(message.text.trim());");
+    expect(workspace).toContain("!message.renderAsPlainAssistantMessage;");
+    expect(workspace).toContain("renderAsPlainAssistantMessage: true,");
   });
 });
