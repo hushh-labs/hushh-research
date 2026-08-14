@@ -27,6 +27,54 @@ _ALIAS_CODE_PATTERN = re.compile(r"\s+")
 _ALIAS_VERIFICATION_TTL_SECONDS = 15 * 60
 
 
+def resolve_firebase_email(user_record: Any) -> str | None:
+    """The best email Firebase knows for this account.
+
+    The identity shadow used to read `user_record.email` and nothing else, so
+    an account whose top-level email was empty was cached with no address at
+    all. That is not an edge case here: people sign in with Google, with Apple,
+    and with a phone number, and only the first reliably populates the
+    top-level field.
+
+    - Apple, especially with Hide My Email, frequently leaves the top-level
+      email empty while the provider entry carries the relay address.
+    - A phone-first account that later links Google has the address on the
+      provider entry before the top-level field catches up.
+
+    Every downstream feature that needs to reach someone by email inherited
+    that blank -- including the Save my Soul alert, which silently skipped any
+    contact with no address and reported "Emailed 0" without saying why.
+
+    Order: the top-level field, then Google, then Apple, then any provider that
+    has one. Providers are only consulted when the field above is empty, so a
+    verified top-level address always wins.
+
+    Returns None when the account genuinely has no email anywhere -- a
+    phone-only signup. That case is real and cannot be papered over; the caller
+    has to handle "this person is not reachable by mail".
+    """
+    direct = str(getattr(user_record, "email", "") or "").strip()
+    if direct:
+        return direct
+
+    providers = getattr(user_record, "provider_data", None) or []
+    by_provider: dict[str, str] = {}
+    for entry in providers:
+        email = str(getattr(entry, "email", "") or "").strip()
+        if not email or "@" not in email:
+            continue
+        provider_id = str(getattr(entry, "provider_id", "") or "").strip().lower()
+        by_provider.setdefault(provider_id, email)
+
+    for provider_id in ("google.com", "apple.com"):
+        if by_provider.get(provider_id):
+            return by_provider[provider_id]
+
+    for email in by_provider.values():
+        return email
+    return None
+
+
 class ActorIdentityAliasError(RuntimeError):
     def __init__(
         self,
@@ -1110,7 +1158,7 @@ class ActorIdentityService:
         updated = await self.upsert_identity(
             user_id=normalized_user_id,
             display_name=getattr(user_record, "display_name", None),
-            email=getattr(user_record, "email", None),
+            email=resolve_firebase_email(user_record),
             phone_number=firebase_phone_number,
             photo_url=getattr(user_record, "photo_url", None),
             email_verified=getattr(user_record, "email_verified", None),

@@ -4001,7 +4001,14 @@ export function OneLocationAgentPageContent({
 
         // Only worth saying when it changes what the sender should do next:
         // "nobody's phone lit up" reads very differently if two inboxes got it.
-        const mailNote = mail.emailed > 0 ? ` Emailed ${mail.emailed}.` : "";
+        // And a contact with no address is named rather than skipped in
+        // silence — "Emailed 0" with no reason is what made a broken email
+        // channel look like a working one.
+        const mailNote =
+          (mail.emailed > 0 ? ` Emailed ${mail.emailed}.` : "") +
+          (mail.withoutEmail.length > 0
+            ? ` No email on file for ${formatNameList(mail.withoutEmail)}.`
+            : "");
 
         if (reached === 0) {
           const stillNoOne = mail.emailed === 0;

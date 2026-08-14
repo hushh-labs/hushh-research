@@ -1005,8 +1005,28 @@ class OneLocationAgentService:
         selected = select_emailable_recipients(
             rows, owner_user_id=owner_user_id, now_epoch_seconds=now_epoch
         )
+
+        # Who this alert could NOT reach by mail, and why. Skipping them
+        # silently is what made a broken email channel look like a working one:
+        # the sender saw "Emailed 0" with nothing to act on. A phone-only
+        # contact has no address anywhere, and the only fix is for them to add
+        # one -- which the sender can only ask for if they are told.
+        emailable_ids = {str(row.get("recipient_user_id") or "") for row in selected}
+        without_email = [
+            str(row.get("recipient_display_name") or "").strip() or "A contact"
+            for row in rows
+            if str(row.get("recipient_user_id") or "") not in emailable_ids
+            and str(row.get("share_kind") or "") == "sos"
+            and "@" not in str(row.get("recipient_email") or "")
+        ]
+
         if not selected:
-            return {"ownerDisplayName": "", "openInOneUrl": "", "recipients": []}
+            return {
+                "ownerDisplayName": "",
+                "openInOneUrl": "",
+                "recipients": [],
+                "withoutEmail": without_email,
+            }
 
         owner_label = _identity_notification_label(self._identity_row(owner_user_id))
         return {
@@ -1025,6 +1045,7 @@ class OneLocationAgentService:
                 }
                 for row in selected
             ],
+            "withoutEmail": without_email,
         }
 
     def _identity_row(self, user_id: str) -> dict[str, Any] | None:

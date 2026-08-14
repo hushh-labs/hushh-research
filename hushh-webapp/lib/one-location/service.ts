@@ -891,14 +891,26 @@ export class OneLocationService {
     accuracyM?: number | null;
     note?: string | null;
     emergencyNumber?: string | null;
-  }): Promise<{ emailed: number; attempted: number; configured: boolean }> {
-    const fallback = { emailed: 0, attempted: 0, configured: false };
+  }): Promise<{
+    emailed: number;
+    attempted: number;
+    configured: boolean;
+    /** Contacts on this alert with no email on file, by display name. */
+    withoutEmail: string[];
+  }> {
+    const fallback = {
+      emailed: 0,
+      attempted: 0,
+      configured: false,
+      withoutEmail: [] as string[],
+    };
     if (!params.grantIds.length) return fallback;
     try {
       const response = await apiJson<{
         emailed?: number;
         attempted?: number;
         configured?: boolean;
+        withoutEmail?: string[];
       }>("/api/one/location/sos-email", {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
@@ -919,6 +931,9 @@ export class OneLocationService {
         emailed: Number(response?.emailed ?? 0),
         attempted: Number(response?.attempted ?? 0),
         configured: response?.configured === true,
+        withoutEmail: Array.isArray(response?.withoutEmail)
+          ? response.withoutEmail.map(String).filter(Boolean)
+          : [],
       };
     } catch {
       return fallback;
