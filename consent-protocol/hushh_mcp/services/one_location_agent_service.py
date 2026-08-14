@@ -964,7 +964,6 @@ class OneLocationAgentService:
         accuracy_m: float | None,
         note: str | None,
         emergency_number: str | None,
-        frontend_origin: str | None = None,
     ) -> dict[str, Any]:
         """Mail a Save my Soul alert to the contacts of the given SOS grants.
 
@@ -1027,8 +1026,12 @@ class OneLocationAgentService:
         owner_identity = self._identity_row(owner_user_id)
         owner_label = _identity_notification_label(owner_identity)
         sent_at_label = datetime.now(timezone.utc).strftime("%H:%M UTC on %d %b %Y")
-        origin = (frontend_origin or os.getenv("APP_FRONTEND_ORIGIN") or "").rstrip("/")
-        open_in_one_url = f"{origin}/one/location?section=shared" if origin else "/one/location"
+        # Same builder the push notification uses, so the email link and the
+        # notification link always point at the same place and the frontend
+        # origin is resolved exactly one way. Reading APP_FRONTEND_ORIGIN
+        # directly here violated the runtime-config contract, which is right:
+        # a canonical key deserves a single reader.
+        open_in_one_url = _one_location_url(section="shared")
 
         try:
             session = service._build_authorized_session()
