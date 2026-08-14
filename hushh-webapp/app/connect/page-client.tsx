@@ -1472,7 +1472,7 @@ export default function ConnectPageClient() {
                               disabled={cta.disabled || busyId === person.userId}
                               onClick={() => void handleConnect(person)}
                             >
-                              {busyId === person.userId ? "Sending…" : cta.label}
+                              {busyId === person.userId ? "Sending..." : cta.label}
                             </Button>
                           )
                         }

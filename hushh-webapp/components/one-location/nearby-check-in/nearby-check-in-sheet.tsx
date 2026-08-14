@@ -1808,9 +1808,9 @@ export function NearbyCheckInSheet({
                             variant="ghost"
                             size="sm"
                             className="w-full text-muted-foreground"
-                            onClick={() => setVisiblePlacesCount((c) => c + 3)}
+                            onClick={() => setVisiblePlacesCount(places.length)}
                           >
-                            More places
+                            Show all places
                           </Button>
                         </div>
                       ) : null}
