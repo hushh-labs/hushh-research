@@ -23,7 +23,6 @@ import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 
 /** Mirrors the existing page DURATION_OPTIONS so the Select/menu values stay identical. */
 export const REDESIGN_DURATION_OPTIONS: { value: string; label: string }[] = [
-  { value: "0.25", label: "15 min" },
   { value: "0.5", label: "30 min" },
   { value: "1", label: "1 hour" },
   { value: "4", label: "4 hours" },

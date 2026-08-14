@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isCircleSelectionFullySelected,
   mergeRecipientsByUserId,
   resolveCircleRecipientSelection,
 } from "@/lib/one-location/circle-recipient-selection";
@@ -59,6 +60,56 @@ function circle(): OneLocationCircleDetail {
     ],
   };
 }
+
+describe("isCircleSelectionFullySelected", () => {
+  const selection = () =>
+    resolveCircleRecipientSelection({
+      circle: {
+        ...circle(),
+        members: [
+          ...circle().members!,
+          {
+            userId: "second-ready",
+            displayName: "Second Ready",
+            role: "member",
+            phoneVerified: true,
+            secureLocationReady: true,
+            canReceiveLocation: true,
+            keyId: "second-key",
+            publicKeyJwk: { kty: "EC" },
+          },
+        ],
+      },
+      currentUserId: "owner",
+    });
+
+  it("holds only while every ready Circle member is still selected", () => {
+    const resolved = selection();
+    // Location sharing does not require phone verification, so "no-phone" is
+    // part of the roster the Circle row claims to have selected.
+    const readyIds = resolved.ready.map((target) => target.recipient.userId);
+    expect(readyIds).toEqual(["ready", "no-phone", "second-ready"]);
+
+    expect(isCircleSelectionFullySelected(resolved, readyIds)).toBe(true);
+    // Extra hand-picked people outside the Circle do not break it.
+    expect(
+      isCircleSelectionFullySelected(resolved, [...readyIds, "outsider"]),
+    ).toBe(true);
+    // Deselecting one member below means this is no longer "the Circle".
+    expect(
+      isCircleSelectionFullySelected(resolved, readyIds.slice(0, -1)),
+    ).toBe(false);
+    expect(isCircleSelectionFullySelected(resolved, ["ready"])).toBe(false);
+    expect(isCircleSelectionFullySelected(resolved, [])).toBe(false);
+  });
+
+  it("is false without a selection, and for a Circle with nobody ready", () => {
+    expect(isCircleSelectionFullySelected(null, ["ready"])).toBe(false);
+    expect(
+      isCircleSelectionFullySelected({ ...selection(), ready: [] }, []),
+    ).toBe(false);
+  });
+});
 
 describe("resolveCircleRecipientSelection", () => {
   it("returns a current ready snapshot and preserves exact Circle provenance", () => {

@@ -165,7 +165,6 @@ const DURATION_OPTIONS = [
   { value: "2160", label: "90 days" },
 ];
 const LOCATION_DURATION_OPTIONS = [
-  { value: "0.25", label: "15 min" },
   { value: "0.5", label: "30 min" },
   { value: "1", label: "1 hour" },
   { value: "4", label: "4 hours" },

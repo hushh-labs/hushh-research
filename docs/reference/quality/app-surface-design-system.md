@@ -127,6 +127,23 @@ Rules:
 9. Email Helper draft previews must not expose raw information structure terms such as `changes`, `entities`, hashes, provenance, parser metadata, or internal ids. Use readable sections, facts, and tables from the approved render model.
 10. Dense email tables, especially portfolios and holdings, should remain complete and readable on mobile through horizontal scrolling. Do not force all table columns to fit the viewport when that creates overlap.
 
+## Concise Product Copy Contract
+
+Signed-in product UI should feel minimal, calm, and easy to understand in a few seconds.
+
+Rules:
+
+1. Headlines should usually be 2-6 words.
+2. Supporting text is optional. When present, keep it to one short sentence that helps the next action.
+3. Button labels should usually be 1-3 words.
+4. Do not repeat the same idea in the title, subtitle, row body, and button.
+5. Do not explain what a visible control already communicates.
+6. Prefer `View details`, `Request sent`, `Profile updated`, and similarly direct phrases over procedural copy.
+7. Empty states should name what happens next, not describe the full system.
+8. Use whitespace for hierarchy. Do not fill quiet space with helper text, badges, chips, or extra cards.
+9. Preserve required compliance, consent, security, and destructive-action warnings, but write them as short user-facing decisions.
+10. Every shared component should render concise copy by default so route screens do not solve clarity with local typography overrides.
+
 ## Shell Contract
 
 1. The top shell is the single authority for header clearance.

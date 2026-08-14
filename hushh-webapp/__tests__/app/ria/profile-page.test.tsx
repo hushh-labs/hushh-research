@@ -26,6 +26,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("lucide-react", () => ({
+  AlertTriangle: () => <span />,
   ArrowRight: () => <span />,
   CheckCircle2: () => <span />,
   ClipboardCheck: () => <span />,
@@ -298,6 +299,16 @@ describe("RiaProfileSection manage actions", () => {
       expect(screen.getByTestId("delete-dialog")).toBeTruthy(),
     );
 
+    // The destructive action is gated behind a typed confirmation: tapping it
+    // before the word is entered must do nothing at all.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("delete-confirm"));
+    });
+    expect(mocks.riaService.deleteProfile).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByTestId("ria-delete-confirm-input"), {
+      target: { value: "DELETE" },
+    });
     await act(async () => {
       fireEvent.click(screen.getByTestId("delete-confirm"));
     });

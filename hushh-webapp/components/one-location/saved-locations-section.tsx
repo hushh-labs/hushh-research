@@ -236,7 +236,11 @@ export function SavedLocationsSection() {
     captureRequestIdRef.current = captureRequestId;
     const session = { userId, vaultKey, vaultOwnerToken };
     try {
-      const point = await OneLocationService.captureCurrentPosition();
+      // Saving a place records where the user is standing right now — a fix
+      // from the last few seconds says the same thing and costs nothing.
+      const point = await OneLocationService.captureCurrentPosition({
+        fresh: true,
+      });
       if (
         captureRequestIdRef.current !== captureRequestId ||
         !isCurrentVaultSession(session) ||
@@ -499,10 +503,12 @@ export function SavedLocationsSection() {
     setSaveLocationAddressLoading(false);
   }, []);
 
-  // "Locate me" inside the map picker — re-center on a fresh GPS fix.
+  // "Locate me" inside the map picker — re-centre on a current fix.
   const locateMeForSavedLocation = useCallback(async () => {
     try {
-      const point = await OneLocationService.captureCurrentPosition();
+      const point = await OneLocationService.captureCurrentPosition({
+        fresh: true,
+      });
       return { latitude: point.latitude, longitude: point.longitude };
     } catch {
       return null;

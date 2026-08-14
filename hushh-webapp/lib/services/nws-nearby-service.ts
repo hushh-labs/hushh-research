@@ -57,6 +57,62 @@ export type NearbyCoverage = {
   complete: boolean;
 };
 
+/**
+ * How the score was reached, published by the scoring service itself.
+ *
+ * Weights come from upstream rather than being restated here. An explanation
+ * that carries its own copy of the weighting goes stale the first time the
+ * model is re-weighted, and nothing fails to say so.
+ */
+export type ScoreComponent = {
+  key: string;
+  label: string | null;
+  /** 0–1. */
+  value: number | null;
+  /** Share of the score this component can contribute. */
+  weight: number | null;
+  /** weight × value. */
+  contribution: number | null;
+};
+
+export type ScoreBreakdown = {
+  components: ScoreComponent[];
+  /** How many pieces of evidence back the profile. Thin evidence is held back. */
+  evidenceCount: number | null;
+  /** Scales the weighted sum up toward 1.0 as evidence accumulates. */
+  coverageMultiplier: number | null;
+  /** Discount for promotional, self-published, or single-source evidence. */
+  integrityPenalty: number | null;
+  /** Association strength to the queried place; the 10% term in the nearby rank. */
+  localRelevance: number | null;
+  method: string | null;
+};
+
+/**
+ * How well-sourced a record is, from the reviewed release.
+ *
+ * Two links from the same organisation are not two independent confirmations.
+ * The release reports that per record, which is the difference between a claim
+ * an advisor can act on and one they should check first.
+ */
+export type NearbyEvidence = {
+  citationCount: number | null;
+  /** Distinct publishing organisations behind those citations. */
+  sourceFamilyCount: number | null;
+  factCount: number | null;
+  independentSourceFamilies: boolean;
+  reviewFlags: string[];
+};
+
+export type NearbySource = {
+  publisher: string | null;
+  title: string | null;
+  url: string | null;
+  /** What this citation establishes: identity, current role, association. */
+  factTypes: string[];
+  retrievedAt: string | null;
+};
+
 export type NearbyRecord = {
   rank: number | null;
   personId: string;
@@ -78,12 +134,50 @@ export type NearbyRecord = {
     distanceBand: string | null;
     note: string | null;
   };
+  /** Null when the scoring service did not publish its working for this record. */
+  scoreBreakdown: ScoreBreakdown | null;
   reasons: string[];
   warnings: string[];
   tags: string[];
   revalidationRequired: boolean;
-  sources: { publisher: string | null; title: string | null; url: string | null }[];
+  /** Null on a service revision that predates the reviewed release. */
+  evidence: NearbyEvidence | null;
+  associationContext: NearbyAssociationContext | null;
+  sources: NearbySource[];
   modelVersion: string | null;
+};
+
+/** Which reviewed release answered, so an advisor can cite what they saw. */
+export type NearbyRelease = {
+  releaseId: string;
+  sourceRetrievedAt: string | null;
+  sourcePolicyVersion: string | null;
+};
+
+/** How much of the market has been reviewed. 60 records is not a census. */
+export type NearbyReviewScope = {
+  organizationAnchorCount: number | null;
+  marketCensusComplete: boolean;
+};
+
+/**
+ * The service's own statement that none of this is about money.
+ *
+ * This surface renders a component literally named "capital access" to
+ * advisers whose job is judging whether someone can invest. That is the one
+ * reading the product must not invite, so the sentence that prevents it is
+ * carried and shown next to the number.
+ */
+export type NearbyFinancialContext = {
+  status: string;
+  capitalAccessNote: string | null;
+  notUsedForRanking: string[];
+};
+
+/** What "in this market" means for one person — never where they live. */
+export type NearbyAssociationContext = {
+  category: string;
+  definition: string | null;
 };
 
 export type NearbyDiscoverResult = {
@@ -101,6 +195,9 @@ export type NearbyDiscoverResult = {
     searchPerformed: boolean;
     effectiveRadiusKm: number | null;
   };
+  release: NearbyRelease | null;
+  reviewScope: NearbyReviewScope | null;
+  financialContext: NearbyFinancialContext | null;
   scoreDefinition: string | null;
   results: NearbyRecord[];
 };
@@ -295,6 +392,44 @@ export function availableTags(records: NearbyRecord[]): string[] {
     for (const tag of record.tags) seen.add(tag);
   }
   return [...seen].sort();
+}
+
+/** Plain wording for how a person is associated with the queried market. */
+export const ASSOCIATION_CATEGORY_LABELS: Record<string, string> = {
+  BASED_HERE: "Based here",
+  WORKS_HERE: "Works here",
+  SERVES_HERE: "Serves here",
+};
+
+export function associationCategoryLabel(key: string): string {
+  return (
+    ASSOCIATION_CATEGORY_LABELS[key] ??
+    key.charAt(0) + key.slice(1).toLowerCase().replace(/_/g, " ")
+  );
+}
+
+/** Plain names for what a citation proves. */
+export const FACT_TYPE_LABELS: Record<string, string> = {
+  identity: "Identity",
+  current_role: "Current role",
+  organization_identity: "Organisation",
+  public_association: "Association",
+};
+
+export function factTypeLabel(key: string): string {
+  return FACT_TYPE_LABELS[key] ?? key.replace(/_/g, " ");
+}
+
+/** Confidence grades that actually have records behind them.
+ *
+ * The reviewed release grades every record B, so offering A returns an empty
+ * screen — the same dead-option trap the empty lane chips had. */
+export function availableGrades(records: NearbyRecord[]): Set<ConfidenceGrade> {
+  const grades = new Set<ConfidenceGrade>();
+  for (const record of records) {
+    if (record.confidence.grade) grades.add(record.confidence.grade);
+  }
+  return grades;
 }
 
 /** Score to one decimal. The approved range spans ~16 points, so a bar would be noise. */

@@ -6907,12 +6907,11 @@
         "required_inputs": [
           {
             "name": "duration_hours",
-            "prompt": "For how long? You can say 15 minutes, 30 minutes, 1 hour, 4 hours or 24 hours.",
+            "prompt": "For how long? You can say 30 minutes, 1 hour, 4 hours or 24 hours.",
             "required": false,
             "slot": "duration_hours",
             "resolver": "location_share_duration",
             "options": [
-              "0.25",
               "0.5",
               "1",
               "4",

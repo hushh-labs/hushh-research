@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
   ArrowRight,
   CheckCircle2,
   ClipboardCheck,
@@ -704,6 +705,10 @@ export function RiaProfileSection({
   const [draft, setDraft] = useState<RiaOnboardingDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Typed confirmation for the destructive delete. Deleting the profile revokes
+  // every client's consent, so the action stays inert until the word is typed
+  // exactly — a mis-tap on the dialog cannot destroy the practice.
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
 
   // License-refresh ("Update license data") — folded in from the old /one/profile
@@ -932,8 +937,15 @@ export function RiaProfileSection({
     status?.display_name ||
     "Official regulator record";
 
+  // Exact, case-insensitive match on the trimmed value: "delete" and " DELETE "
+  // both count, "delete my profile" does not.
+  const deleteConfirmSatisfied =
+    deleteConfirmText.trim().toUpperCase() === "DELETE";
+
   const handleDeleteProfile = useCallback(async () => {
-    if (!user || deleting) return;
+    // The typed confirmation is re-checked here, not just on the button, so no
+    // caller can reach the destructive call without it.
+    if (!user || deleting || !deleteConfirmSatisfied) return;
     setDeleting(true);
     try {
       const idToken = await user.getIdToken();
@@ -962,10 +974,25 @@ export function RiaProfileSection({
         description:
           error instanceof Error ? error.message : "Please try again.",
       });
-    } finally {
+      // Reset ONLY on failure, where the user stays on this screen and must be
+      // able to retry. On success `deleting` deliberately stays true until the
+      // navigation above unmounts this component: it is the single guard that
+      // suppresses both the "no profile → onboarding" redirect effect and the
+      // `pendingOnboardingRedirect` skeleton. Clearing it in a `finally` fired
+      // before the async router.replace landed, which let the redirect effect
+      // hijack the trip to One home and stranded the screen on a permanent
+      // "Loading profile..." (redirectSettled can never flip on that second
+      // pass, because the effect returns early on its one-attempt ref).
       setDeleting(false);
     }
-  }, [deleting, refresh, router, switchPersona, user]);
+  }, [
+    deleteConfirmSatisfied,
+    deleting,
+    refresh,
+    router,
+    switchPersona,
+    user,
+  ]);
 
   const isBooting = (personaLoading || personaRefreshing || loading) && !status;
 
@@ -993,7 +1020,7 @@ export function RiaProfileSection({
     return (
       <RiaCompatibilityState
         title="RIA profile is waiting on the IAM rollout"
-        description="This environment needs the IAM schema before your advisor profile can load."
+        description="IAM setup is required here."
       />
     );
   }
@@ -1083,7 +1110,7 @@ export function RiaProfileSection({
           icon={ClipboardCheck}
           iconTone="blue"
           title="Update license data"
-          description="Refresh official regulator fields (CRD, regulator). Your bio, services, fees, and contact details stay unchanged."
+          description="Refresh regulator fields."
           onClick={openLicenseRefresh}
           chevron
           testId="ria-profile-update-license"
@@ -1091,7 +1118,7 @@ export function RiaProfileSection({
         <SettingsRow
           icon={RotateCcw}
           title="Re-initiate onboarding"
-          description="Run the 5-step setup wizard again. Your profile goes to pending until re-verified; clients stay connected."
+          description="Run setup again."
           onClick={handleReinitiate}
           chevron
           testId="ria-profile-reinitiate"
@@ -1100,8 +1127,11 @@ export function RiaProfileSection({
           icon={Trash2}
           tone="destructive"
           title="Delete RIA profile"
-          description="Remove your RIA profile and disconnect any clients. Your One account stays."
-          onClick={() => setShowDeleteConfirm(true)}
+          description="Remove profile. One stays."
+          onClick={() => {
+            setDeleteConfirmText("");
+            setShowDeleteConfirm(true);
+          }}
           disabled={deleting}
           testId="ria-profile-delete"
         />
@@ -1225,27 +1255,69 @@ export function RiaProfileSection({
       <AlertDialog
         open={showDeleteConfirm}
         onOpenChange={(open) => {
-          if (!deleting) setShowDeleteConfirm(open);
+          if (deleting) return;
+          setShowDeleteConfirm(open);
+          // Never carry a satisfied confirmation across opens: reopening the
+          // dialog must start inert again.
+          if (!open) setDeleteConfirmText("");
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete your RIA profile?</AlertDialogTitle>
+            <AlertDialogTitle className="app-critical-title flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              Delete your RIA profile?
+            </AlertDialogTitle>
             <AlertDialogDescription>
               This removes your RIA advisor profile and automatically disconnects
               any active clients (their consent is revoked). Your One account and
               investor information is not affected. This can&apos;t be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          <div className="space-y-2">
+            <label
+              htmlFor="ria-delete-confirm"
+              className="block text-sm text-muted-foreground"
+            >
+              Type <span className="font-semibold text-foreground">DELETE</span>{" "}
+              to confirm.
+            </label>
+            <Input
+              id="ria-delete-confirm"
+              value={deleteConfirmText}
+              onChange={(event) => setDeleteConfirmText(event.target.value)}
+              disabled={deleting}
+              placeholder="DELETE"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              aria-describedby="ria-delete-confirm-hint"
+              data-testid="ria-delete-confirm-input"
+            />
+            <p
+              id="ria-delete-confirm-hint"
+              className="text-xs text-muted-foreground"
+            >
+              {deleteConfirmSatisfied
+                ? "Confirmed — the delete button is now enabled."
+                : "The delete button stays disabled until this matches."}
+            </p>
+          </div>
+
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              disabled={deleting}
+              disabled={deleting || !deleteConfirmSatisfied}
               onClick={(event) => {
                 event.preventDefault();
-                if (!deleting) void handleDeleteProfile();
+                if (!deleting && deleteConfirmSatisfied) {
+                  void handleDeleteProfile();
+                }
               }}
+              data-testid="ria-delete-confirm-action"
             >
               {deleting ? "Deleting..." : "Delete profile"}
             </AlertDialogAction>

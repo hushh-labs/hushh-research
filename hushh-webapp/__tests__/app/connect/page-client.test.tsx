@@ -110,7 +110,7 @@ describe("Connect — People", () => {
 
     expect(
       await screen.findByText(
-        "A few people on Hussh. Search by name to find someone specific.",
+        "Search by name.",
       ),
     ).toBeTruthy();
     expect(screen.getByText("Person 0")).toBeTruthy();
@@ -124,7 +124,7 @@ describe("Connect — People", () => {
 
     expect(
       await screen.findByText(
-        "A few people on Hussh. Search by name to find someone specific.",
+        "Search by name.",
       ),
     ).toBeTruthy();
     expect(screen.getByText("Page 1")).toBeTruthy();
@@ -176,11 +176,33 @@ describe("Connect — People", () => {
     await waitFor(() =>
       expect(
         screen.queryByText(
-          "A few people on Hussh. Search by name to find someone specific.",
+          "Search by name.",
         ),
       ).toBeNull(),
     );
     expect(await screen.findByText("Page 1")).toBeTruthy();
+  });
+
+  it("matches the first name, not the surname, when filtering search results", async () => {
+    // The directory API matches a substring anywhere in the name, so a
+    // search for "R" server-side returns both people below -- one whose
+    // surname happens to start with R, one whose first name does. The
+    // client-side filter must keep only the first-name match.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [person("u1", "Abdul Rashid"), person("u2", "Rashid Ahmed")],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "R" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+
+    expect(await screen.findByText("Rashid Ahmed")).toBeTruthy();
+    expect(screen.queryByText("Abdul Rashid")).toBeNull();
   });
 
   it("runs a spoken name through the governed Connect search handler", async () => {
@@ -451,7 +473,7 @@ describe("Connect — People", () => {
       fireEvent.click(screen.getByLabelText(`Select Bulk person ${index}`));
     }
 
-    expect(screen.getByText("Connect to Selected (20/20)")).toBeTruthy();
+    expect(screen.getByText("Connect selected (20/20)")).toBeTruthy();
     expect(
       (screen.getByLabelText("Select Bulk person 20") as HTMLButtonElement)
         .disabled,
@@ -464,7 +486,7 @@ describe("Connect — People", () => {
     ).toBe(false);
     fireEvent.click(screen.getByLabelText("Select Bulk person 0"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect to Selected (20/20)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect selected (20/20)" }));
 
     await waitFor(() => expect(mocks.sendRequest).toHaveBeenCalledTimes(20));
 
@@ -482,7 +504,7 @@ describe("Connect — People", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Select people" }));
     fireEvent.click(screen.getByLabelText("Select Person 0"));
-    expect(screen.getByText("Connect to Selected (1/20)")).toBeTruthy();
+    expect(screen.getByText("Connect selected (1/20)")).toBeTruthy();
 
     mocks.searchDirectory.mockResolvedValue({
       items: [person("u9", "Person 9")],
@@ -495,8 +517,46 @@ describe("Connect — People", () => {
 
     expect(await screen.findByText("Person 9")).toBeTruthy();
     await waitFor(() =>
-      expect(screen.queryByText("Connect to Selected (1/20)")).toBeNull(),
+      expect(screen.queryByText("Connect selected (1/20)")).toBeNull(),
     );
+  });
+
+  it("says why an ineligible person's checkbox can't be checked, instead of a mute disabled box", async () => {
+    // The reported bug: a few rows in selection mode showed a disabled
+    // checkbox and nothing else, so clicking looked like it "did nothing"
+    // with no way to tell an already-connected person from a bug. A row
+    // that isn't a real choice now carries no checkbox at all -- just its
+    // reason, in place of one.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [
+        { ...person("u1", "Connected Carl"), relationship: "connected" as const },
+        {
+          ...person("u2", "Requested Rita"),
+          relationship: "pending_outgoing" as const,
+        },
+        person("u3", "Selectable Sam"),
+      ],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    expect(await screen.findByText("Connected Carl")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select people" }));
+
+    // Eligible: a real, enabled checkbox.
+    expect(
+      (screen.getByLabelText("Select Selectable Sam") as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    // Already connected: no checkbox to click -- its reason stands in for one.
+    expect(screen.getByText("Connected")).toBeTruthy();
+    expect(screen.queryByLabelText("Select Connected Carl")).toBeNull();
+
+    // Request already out: same treatment, its own reason.
+    expect(screen.getByText("Requested")).toBeTruthy();
+    expect(screen.queryByLabelText("Select Requested Rita")).toBeNull();
   });
 });
 

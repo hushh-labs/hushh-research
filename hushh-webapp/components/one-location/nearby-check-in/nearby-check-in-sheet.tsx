@@ -370,7 +370,10 @@ export function NearbyCheckInSheet({
   open: boolean;
   ownerId: string | null;
   vaultOwnerToken: string | null;
-  captureCurrentPosition: () => Promise<PlainLocationPoint>;
+  captureCurrentPosition: (options?: {
+    maxAgeMs?: number;
+    fresh?: boolean;
+  }) => Promise<PlainLocationPoint>;
   onOpenChange: (open: boolean) => void;
   onStateChange?: (state: OneLocationNearbyPresenceState) => void;
   /** Transient renderer hint; never persisted or published. */
@@ -429,6 +432,7 @@ export function NearbyCheckInSheet({
   );
   const [placesError, setPlacesError] = useState<string | null>(null);
   const [accuracyNotice, setAccuracyNotice] = useState<string | null>(null);
+  const [visiblePlacesCount, setVisiblePlacesCount] = useState(3);
 
   const typedSearchActive = search.trim().length >= 2;
 
@@ -770,6 +774,7 @@ export function NearbyCheckInSheet({
       setSearchResults([]);
       setSearching(false);
       setPlacesError(null);
+      setVisiblePlacesCount(5);
       searchGenerationRef.current += 1;
     },
     [],
@@ -798,6 +803,7 @@ export function NearbyCheckInSheet({
     setConsentAccepted(false);
     setAllowConnectionRequests(false);
     setDurationMinutes(60);
+    setVisiblePlacesCount(3);
     setBusy(null);
     setLocationError(null);
     setLocationRecovery(null);
@@ -831,6 +837,7 @@ export function NearbyCheckInSheet({
     setConsentAccepted(false);
     setAllowConnectionRequests(false);
     setDurationMinutes(60);
+    setVisiblePlacesCount(3);
     setLocationError(null);
     setLocationRecovery(null);
     setPresenceLoadError(null);
@@ -838,8 +845,7 @@ export function NearbyCheckInSheet({
     void loadPresence(!open, expectedOwnerEpoch).then((next) => {
       if (
         !open ||
-        next === null ||
-        next.presence ||
+        next?.presence ||
         ownerEpochRef.current !== expectedOwnerEpoch
       ) {
         return;
@@ -1170,8 +1176,10 @@ export function NearbyCheckInSheet({
     let confirmationPoint: PlainLocationPoint | null = null;
     try {
       // The persisted radius anchor must describe where the owner confirms the
-      // check-in, not the earlier point used to load place suggestions.
-      const freshPoint = await captureCurrentPosition();
+      // check-in, not the earlier point used to load place suggestions — but a
+      // fix from a few seconds ago describes the same spot, so the tight window
+      // keeps the anchor honest without paying a full acquisition on the press.
+      const freshPoint = await captureCurrentPosition({ fresh: true });
       confirmationPoint = freshPoint;
       if (
         ownerEpochRef.current !== expectedOwnerEpoch ||
@@ -1702,7 +1710,14 @@ export function NearbyCheckInSheet({
                     </label>
 
                     <div
-                      className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                      className={cn(
+                        "mt-3 flex gap-2 overflow-x-auto pb-1",
+                        "[scrollbar-width:none] hover:[scrollbar-width:thin]",
+                        "[&::-webkit-scrollbar]:hidden hover:[&::-webkit-scrollbar]:block",
+                        "[&::-webkit-scrollbar]:h-1.5",
+                        "[&::-webkit-scrollbar-track]:bg-transparent",
+                        "[&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/30"
+                      )}
                       aria-label="Nearby place categories"
                     >
                       {typedSearchActive ? (
@@ -1733,11 +1748,14 @@ export function NearbyCheckInSheet({
                     </div>
 
                     <div
-                      className="mt-3 space-y-2"
+                      className={cn(
+                        "mt-3 space-y-2",
+                        visiblePlacesCount > 3 && "max-h-[35vh] overflow-y-auto pr-2"
+                      )}
                       role="radiogroup"
                       aria-label="Nearby places"
                     >
-                      {places.map((place) => {
+                      {places.slice(0, visiblePlacesCount).map((place) => {
                         const selected = place.placeId === selectedPlaceId;
                         const name = place.name?.trim() || place.text;
                         const metadata = Array.from(
@@ -1781,6 +1799,19 @@ export function NearbyCheckInSheet({
                           </button>
                         );
                       })}
+                      {places.length > visiblePlacesCount ? (
+                        <div className="pt-1 pb-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="w-full text-muted-foreground"
+                            onClick={() => setVisiblePlacesCount((c) => c + 3)}
+                          >
+                            Load more places
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
                     {/*
                       The owner's point and their venue are two different places

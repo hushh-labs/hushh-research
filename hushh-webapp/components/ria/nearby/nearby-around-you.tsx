@@ -29,6 +29,7 @@ import { MUTED_TEXT, SUBCARD_SURFACE } from "@/lib/morphy-ux/tokens/surfaces";
 import {
   DEFAULT_NEARBY_FILTERS,
   NwsNearbyService,
+  availableGrades,
   availableTags,
   formatScore,
   laneCounts as computeLaneCounts,
@@ -38,6 +39,9 @@ import {
   type NearbyRecord,
 } from "@/lib/services/nws-nearby-service";
 import { cn } from "@/lib/utils";
+
+/** Enough to judge a place at a glance; the ranking decides which five. */
+const VISIBLE_RECORDS = 5;
 
 /** One line per state. The reason code decides which; the advisor reads six words. */
 const COVERAGE_COPY: Record<string, string> = {
@@ -58,6 +62,7 @@ export function NearbyAroundYou() {
   const [selected, setSelected] = useState<NearbyRecord | null>(null);
   const [shortlisted, setShortlisted] = useState<Set<string>>(new Set());
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const requestSeq = useRef(0);
   // Read at fetch time rather than depended on, so a lane change — which must
@@ -152,10 +157,26 @@ export function NearbyAroundYou() {
   const all = useMemo(() => result?.results ?? [], [result?.results]);
   const laneCounts = useMemo(() => computeLaneCounts(all), [all]);
   const tags = useMemo(() => availableTags(all), [all]);
+  const grades = useMemo(() => availableGrades(all), [all]);
   const records = useMemo(() => {
     const lane = filters.lanes[0];
     return lane ? all.filter((r) => r.lane === lane) : all;
   }, [all, filters.lanes]);
+
+  // The service answers with everything it has. Rendering all of it turns a
+  // ranked shortlist into a scroll, and the ranking is the product — the top
+  // few are the ones worth an advisor's attention. The rest stay one tap away.
+  const visible = useMemo(
+    () => (expanded ? records : records.slice(0, VISIBLE_RECORDS)),
+    [records, expanded],
+  );
+  const hidden = records.length - visible.length;
+
+  // Collapse again whenever the result set changes underneath, so a filter
+  // change never lands the advisor halfway down an expanded list.
+  useEffect(() => {
+    setExpanded(false);
+  }, [anchor, filters.lanes, filters.tag]);
 
   const handleShortlist = useCallback(
     async (record: NearbyRecord) => {
@@ -242,7 +263,11 @@ export function NearbyAroundYou() {
           <div className="min-w-0">
             <p className="truncate type-headline">{place}</p>
             {covered ? (
-              <p className={MUTED_TEXT}>{records.length} public records</p>
+              <p className={MUTED_TEXT}>
+                {hidden > 0
+                  ? `Top ${visible.length} of ${records.length}`
+                  : `${records.length} public ${records.length === 1 ? "record" : "records"}`}
+              </p>
             ) : null}
           </div>
           <Button
@@ -263,6 +288,7 @@ export function NearbyAroundYou() {
               onChange={setFilters}
               laneCounts={laneCounts}
               tags={tags}
+              grades={grades}
               disabled={loading}
             />
           </div>
@@ -293,7 +319,7 @@ export function NearbyAroundYou() {
         />
       ) : (
         <SettingsGroup separatorInset>
-          {records.map((record) => (
+          {visible.map((record) => (
             <SettingsRow
               key={record.personId}
               icon={UserRound}
@@ -319,13 +345,31 @@ export function NearbyAroundYou() {
               }
             />
           ))}
+          {hidden > 0 ? (
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="w-full px-4 py-3 text-left type-footnote text-[color:var(--app-accent-fg)]"
+            >
+              Show {hidden} more
+            </button>
+          ) : null}
         </SettingsGroup>
       )}
 
       {covered && records.length > 0 ? (
-        <p className={cn(MUTED_TEXT, "px-1")}>
-          Public work associations. Not homes, not net worth.
-        </p>
+        <div className="flex flex-col gap-0.5 px-1">
+          <p className={MUTED_TEXT}>Public work associations. Not homes, not net worth.</p>
+          {/* Sixty records in one postcode reads like everyone there. It is a
+              reviewed set from a stated number of organisations, and saying so
+              is the difference between a shortlist and a false census. */}
+          {result?.reviewScope && !result.reviewScope.marketCensusComplete ? (
+            <p className={MUTED_TEXT}>
+              Reviewed from {result.reviewScope.organizationAnchorCount ?? "several"}{" "}
+              organisations — not a complete list.
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       <NearbyRecordSheet
@@ -333,6 +377,7 @@ export function NearbyAroundYou() {
         open={Boolean(selected)}
         onOpenChange={(next) => !next && setSelected(null)}
         onShortlist={handleShortlist}
+        capitalAccessNote={result?.financialContext?.capitalAccessNote}
         shortlisted={selected ? shortlisted.has(selected.personId) : false}
       />
       {picker}
