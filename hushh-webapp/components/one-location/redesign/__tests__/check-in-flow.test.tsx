@@ -118,7 +118,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
 
     expect(
       screen.getByTestId("nearby-private-share-disclosure"),
-    ).toHaveTextContent(/Nearby people can see your name only/i);
+    ).toHaveTextContent(/Nearby sees your name only/i);
     expect(
       screen.getByRole("button", { name: "Select who should know" }),
     ).toBeDisabled();
@@ -158,12 +158,12 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
       screen.getByPlaceholderText("I've checked in here, let's catch up"),
     ).toBeDisabled();
     expect(
-      screen.getByText(/sends only to people who still failed/i),
+      screen.getByText(/Retry sends only to failed people/i),
     ).toBeInTheDocument();
     expect(
       screen.getByTestId("private-check-in-partial-success"),
     ).toHaveTextContent(
-      /They keep the original encrypted location, duration, and message/i,
+      /Edits apply only to people still waiting/i,
     );
     fireEvent.click(retry);
 
@@ -247,7 +247,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     ).toBeEnabled();
     expect(
       screen.getByTestId("private-check-in-partial-success"),
-    ).toHaveTextContent(/Any edits apply only to people/i);
+    ).toHaveTextContent(/Edits apply only to people still waiting/i);
   });
 
   it("requires a new confirmation when a failed recipient rotates keys", async () => {

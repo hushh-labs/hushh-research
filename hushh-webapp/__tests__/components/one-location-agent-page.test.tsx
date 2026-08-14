@@ -1109,7 +1109,6 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByRole("button", { name: "Refresh location" }),
     ).toBeNull();
-    expect(screen.queryByText(/Ask someone to share/)).toBeNull();
 
     const heading = screen.getByRole("heading", { name: "Location Agent" });
     const headerRow = heading.closest('[data-slot="page-header-row"]');
@@ -1186,21 +1185,23 @@ describe("OneLocationAgentPage", () => {
     const pauseSwitch = await screen.findByRole("switch", {
       name: "Pause my location",
     });
-    const autoShareSwitch = screen.getByRole("switch", {
-      name: "Auto-share my location",
+    const autoApproveSwitch = screen.getByRole("switch", {
+      name: "Auto-approve requests",
     });
     expect(pauseSwitch).toHaveAttribute("aria-checked", "false");
-    expect(autoShareSwitch).toHaveAttribute("aria-checked", "true");
+    // Off until asked for: approving a location request is consent, and a
+    // default may not give it.
+    expect(autoApproveSwitch).toHaveAttribute("aria-checked", "false");
 
-    fireEvent.click(autoShareSwitch);
-    expect(autoShareSwitch).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(autoApproveSwitch);
+    expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
 
     fireEvent.click(pauseSwitch);
     await waitFor(() => expect(mockCheckoutNearby).toHaveBeenCalled());
     await waitFor(() =>
       expect(pauseSwitch).toHaveAttribute("aria-checked", "true"),
     );
-    expect(autoShareSwitch).toHaveAttribute("aria-checked", "false");
+    expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
 
     mockCaptureCurrentPosition.mockClear();
     fireEvent.click(pauseSwitch);
@@ -1208,7 +1209,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() =>
       expect(pauseSwitch).toHaveAttribute("aria-checked", "false"),
     );
-    expect(autoShareSwitch).toHaveAttribute("aria-checked", "false");
+    expect(autoApproveSwitch).toHaveAttribute("aria-checked", "true");
   });
 
   it("does not claim Location is paused when Nearby checkout fails", async () => {
@@ -2131,7 +2132,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockReverseGeocode).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -2221,7 +2222,7 @@ describe("OneLocationAgentPage", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
       target: { value: "Second user's home" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -2401,7 +2402,7 @@ describe("OneLocationAgentPage", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -2462,7 +2463,7 @@ describe("OneLocationAgentPage", () => {
       await screen.findByRole("button", { name: "Try again" }),
     ).toBeEnabled();
     expect(toast.error).toHaveBeenCalledWith(
-      "We could not read your current location. Check permission and try again.",
+      "Check permission and try again.",
     );
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
 
@@ -2599,7 +2600,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText("House, flat, floor or block"), {
+    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
       target: { value: "Tower 2, Floor 4" },
     });
     fireEvent.change(screen.getByLabelText(/Building colour/), {
@@ -2672,7 +2673,7 @@ describe("OneLocationAgentPage", () => {
     // Populated People tab: no "Trusted Circle" heading — search + person cards shown.
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(await screen.findByText("Trusted B")).toBeTruthy();
-    expect(screen.queryByText(/Ask someone to share/)).toBeNull();
+    expect(screen.queryByText(/Request location/)).toBeNull();
     expect(screen.getByText("TB").className).toContain(
       "bg-[color:var(--app-accent-surface)]",
     );
@@ -3599,7 +3600,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await switchLocationTab("People", "Your circles");
     // Empty state keeps connection management and invite/sync/share actions.
-    // "Ask someone to share" is populated-state-only, and the redundant
+    // Request-location affordances are populated-state-only, and the redundant
     // approval explainer must not add another card below these actions.
     expect(
       screen.getByRole("button", { name: /Add people/i }),
@@ -3611,7 +3612,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("button", { name: /Share to contacts/i }),
     ).toBeTruthy();
-    expect(screen.queryByText(/Ask someone to share/)).toBeNull();
+    expect(screen.queryByText(/Request location/)).toBeNull();
     expect(
       screen.queryByText(/Private sharing starts after approval/i),
     ).toBeNull();

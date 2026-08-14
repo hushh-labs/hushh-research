@@ -280,6 +280,7 @@ import { buildBackgroundShareSession } from "@/lib/one-location/background-share
 import { syncBackgroundShare } from "@/lib/one-location/background-share-runtime";
 import { BackgroundShareToggle } from "@/app/one/location/background-share-toggle";
 import { locationPreviewFreshness } from "@/lib/one-location/freshness";
+import { selectAutoApprovableRequests } from "@/lib/one-location/auto-approve-requests";
 import { shouldStreamSelfPreview } from "@/lib/one-location/self-preview";
 import {
   DRIVE_ETA_MIN_RECOMPUTE_INTERVAL_MS,
@@ -1470,17 +1471,17 @@ const ONE_LOCATION_TRUST_CHIPS: {
   {
     icon: ShieldCheck,
     label: "End-to-end encrypted",
-    detail: "Only the people you pick can see it. We can't.",
+    detail: "Only picked people.",
   },
   {
     icon: Clock3,
     label: "Auto-expires",
-    detail: "Sharing stops on its own when the timer ends.",
+    detail: "Stops on its own.",
   },
   {
     icon: Hand,
     label: "Stop anytime",
-    detail: "One tap ends sharing instantly - no waiting.",
+    detail: "End it in one tap.",
   },
 ];
 
@@ -1491,18 +1492,18 @@ const ONE_LOCATION_FIRST_RUN_STEPS: {
 }[] = [
   {
     icon: UsersRound,
-    title: "Add the people you trust",
-    detail: "Pick from your One Network, or invite someone in a tap.",
+    title: "Pick people",
+    detail: "Choose or invite.",
   },
   {
     icon: Clock3,
     title: "Choose how long",
-    detail: "30 minutes to a day - it auto-stops when the timer ends.",
+    detail: "Auto-stops.",
   },
   {
     icon: Send,
     title: "Share or request",
-    detail: "Share your live location, or ask to see theirs once they approve.",
+    detail: "Share yours or ask.",
   },
 ];
 
@@ -1528,10 +1529,10 @@ function OneLocationFirstRunGuide({ onDismiss }: { onDismiss: () => void }) {
       </button>
       <div className="space-y-0.5 pr-8">
         <h3 className="text-[16px] font-semibold tracking-tight text-[#1c1c1e] dark:text-white">
-          New here? It takes 3 quick steps
+          3 quick steps
         </h3>
         <p className="text-[13px] leading-snug text-[#8e8e93] dark:text-white/55">
-          Location sharing is always your choice, and you stay in control.
+          You choose when sharing starts.
         </p>
       </div>
       <ol className="mt-3 grid min-w-0 gap-2 sm:grid-cols-3">
@@ -1702,16 +1703,14 @@ function readinessCopy(
   if (!permission) {
     return {
       title: "Checking location readiness",
-      description:
-        "One is checking whether this device can share your current location.",
+      description: "Checking this device.",
       tone: "checking",
     };
   }
   if (isLocationServicesDisabled(permission)) {
     return {
       title: "Turn on phone Location",
-      description:
-        "Your phone Location switch is off. Turn it on before sharing with your trusted circle.",
+      description: "Turn on Location before sharing.",
       tone: "blocked",
       actionLabel: "Open Location Settings",
     };
@@ -1719,8 +1718,7 @@ function readinessCopy(
   if (permission.state === "prompt") {
     return {
       title: "Allow location permission",
-      description:
-        "One will ask for foreground location access before your first encrypted share.",
+      description: "Allow access before sharing.",
       tone: "warning",
       actionLabel: "Allow Location",
     };
@@ -1732,8 +1730,7 @@ function readinessCopy(
   if (permission.state === "restricted" || (permission.state === "denied" && observedDenial)) {
     return {
       title: "Location permission blocked",
-      description:
-        "Allow location access from app settings before you share your location.",
+      description: "Allow access in Settings.",
       tone: "blocked",
       actionLabel: "Open Location Settings",
     };
@@ -1741,8 +1738,7 @@ function readinessCopy(
   if (permission.state === "denied") {
     return {
       title: "Allow location permission",
-      description:
-        "One will ask this device for location access the moment you share.",
+      description: "Allow access when prompted.",
       tone: "warning",
       actionLabel: "Allow Location",
     };
@@ -1750,8 +1746,7 @@ function readinessCopy(
   if (permission.state === "unavailable") {
     return {
       title: "Location unavailable",
-      description:
-        "This device cannot provide a fresh location right now. Check Location settings and try again.",
+      description: "Check Location settings and try again.",
       tone: "blocked",
       actionLabel: "Open Location Settings",
     };
@@ -1763,8 +1758,8 @@ function readinessCopy(
         : "Location ready",
     description:
       permission.precise === false
-        ? "Sharing can continue, but accuracy may be approximate on this device."
-        : "Foreground location is ready for private sharing.",
+        ? "Accuracy may be approximate."
+        : "Ready for sharing.",
     tone: permission.precise === false ? "warning" : "ready",
   };
 }
@@ -2164,13 +2159,19 @@ export function OneLocationAgentPageContent({
       readLocationWorkspaceMemory(auth.userId),
     );
   const locationControl = useOneLocationControlState(auth.userId);
-  const automaticPrivatePublishingAllowedRef = useRef(
-    !locationControl.paused && locationControl.autoShareEnabled,
-  );
+  // Synchronous mirror of "this device may publish right now", read inside the
+  // async publish loops between awaits so a pause takes effect immediately
+  // rather than at the next render.
+  //
+  // Pause is the only preference here. Live updates used to also require the
+  // "Auto-share" toggle, which meant switching that off silently froze every
+  // share the recipients were already relying on. Auto-share is now what its
+  // name says -- auto-approving incoming requests -- and an approved, unexpired
+  // grant keeps updating until it is paused, revoked, or expires.
+  const automaticPrivatePublishingAllowedRef = useRef(!locationControl.paused);
   useEffect(() => {
-    automaticPrivatePublishingAllowedRef.current =
-      !locationControl.paused && locationControl.autoShareEnabled;
-  }, [locationControl.autoShareEnabled, locationControl.paused]);
+    automaticPrivatePublishingAllowedRef.current = !locationControl.paused;
+  }, [locationControl.paused]);
   // Monotonic claim on the Location on/off control. Every tap takes the next
   // number; work started by an earlier tap must not write its result once a
   // newer one exists. Without it, "on" (device fix still in flight) followed by
@@ -2261,8 +2262,7 @@ export function OneLocationAgentPageContent({
   );
   const activateMyLocation = useCallback(
     (point: PlainLocationPoint) => {
-      automaticPrivatePublishingAllowedRef.current =
-        locationControl.autoShareEnabled;
+      automaticPrivatePublishingAllowedRef.current = true;
       updateLocationWorkspace((current) => ({
         ...current,
         myLocationPoint: point,
@@ -2273,7 +2273,7 @@ export function OneLocationAgentPageContent({
         selfPreviewEnabled: true,
       }));
     },
-    [auth.userId, locationControl.autoShareEnabled, updateLocationWorkspace],
+    [auth.userId, updateLocationWorkspace],
   );
   const clearMyLocationPreview = useCallback(() => {
     updateLocationWorkspace((current) => ({
@@ -2566,7 +2566,7 @@ export function OneLocationAgentPageContent({
     !locationControl.paused &&
     (locationControl.selfPreviewEnabled ||
       locationControl.nearbyPresenceActive ||
-      (locationControl.autoShareEnabled && activeOwnerGrants.length > 0));
+      activeOwnerGrants.length > 0);
   // "Location limited" is a signal-quality badge, not an admission gate, so it
   // tracks the coarse threshold rather than the hard check-in ceiling. Those two
   // are now far apart: a 1 km browser fix is genuinely limited but still
@@ -4445,7 +4445,6 @@ export function OneLocationAgentPageContent({
   useEffect(() => {
     if (!vaultOwnerToken || !activeOwnerGrants.length) return;
     if (locationControl.paused) return;
-    if (!locationControl.autoShareEnabled) return;
     if (busy && busy !== "load") return;
     if (
       permission?.state === "denied" ||
@@ -4529,7 +4528,6 @@ export function OneLocationAgentPageContent({
   }, [
     activeOwnerGrants,
     busy,
-    locationControl.autoShareEnabled,
     locationControl.paused,
     permission?.state,
     publishEnvelopeWithRetry,
@@ -4550,7 +4548,6 @@ export function OneLocationAgentPageContent({
     if (typeof window === "undefined") return;
     if (!vaultOwnerToken || !activeOwnerGrants.length) return;
     if (locationControl.paused) return;
-    if (!locationControl.autoShareEnabled) return;
     if (
       permission?.state === "denied" ||
       permission?.state === "restricted" ||
@@ -4663,7 +4660,6 @@ export function OneLocationAgentPageContent({
     };
   }, [
     activeOwnerGrants,
-    locationControl.autoShareEnabled,
     locationControl.paused,
     permission?.state,
     publishEnvelopeWithRetry,
@@ -4685,9 +4681,7 @@ export function OneLocationAgentPageContent({
       !shouldStreamSelfPreview({
         streaming:
           locationControl.selfPreviewEnabled && !locationControl.paused,
-        activeGrantCount: locationControl.autoShareEnabled
-          ? activeOwnerGrants.length
-          : 0,
+        activeGrantCount: activeOwnerGrants.length,
         permissionState: permission?.state,
       })
     ) {
@@ -4748,7 +4742,6 @@ export function OneLocationAgentPageContent({
       }
     };
   }, [
-    locationControl.autoShareEnabled,
     locationControl.paused,
     locationControl.selfPreviewEnabled,
     activeOwnerGrants.length,
@@ -4803,10 +4796,7 @@ export function OneLocationAgentPageContent({
       minIntervalMs: LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS,
     });
     void syncBackgroundShare({
-      enabled:
-        backgroundShareEnabled &&
-        locationControl.autoShareEnabled &&
-        !locationControl.paused,
+      enabled: backgroundShareEnabled && !locationControl.paused,
       session,
     });
     return () => {
@@ -4815,7 +4805,6 @@ export function OneLocationAgentPageContent({
   }, [
     backgroundShareEnabled,
     activeOwnerGrants,
-    locationControl.autoShareEnabled,
     locationControl.paused,
     recipients,
     vaultOwnerToken,
@@ -6229,19 +6218,34 @@ export function OneLocationAgentPageContent({
     [refresh, vaultOwnerToken],
   );
 
-  const handleApprove = useCallback(
-    async (request: OneLocationAccessRequest) => {
-      if (!vaultOwnerToken) return;
+  /**
+   * Approve one incoming request: grant, then publish the first encrypted
+   * point to the person who asked.
+   *
+   * Shared by the Approve button and by auto-approve, so both take exactly the
+   * same path -- the automatic one differs only in what it says afterwards and
+   * in not claiming the screen's `busy` slot, which belongs to whatever the
+   * person is doing with their hands.
+   */
+  const approveAccessRequest = useCallback(
+    async (
+      request: OneLocationAccessRequest,
+      options?: { automatic?: boolean },
+    ): Promise<boolean> => {
+      if (!vaultOwnerToken) return false;
+      const automatic = options?.automatic === true;
       const requester = recipients.find(
         (recipient) => recipient.userId === request.requesterUserId,
       );
       if (!requester?.keyId || !requester.publicKeyJwk) {
-        toast.error(
-          "They need to open Location once before approval can finish.",
-        );
-        return;
+        if (!automatic) {
+          toast.error(
+            "They need to open Location once before approval can finish.",
+          );
+        }
+        return false;
       }
-      setBusy("approve");
+      if (!automatic) setBusy("approve");
       try {
         const response = await OneLocationService.approveRequest({
           vaultOwnerToken,
@@ -6249,14 +6253,30 @@ export function OneLocationAgentPageContent({
           durationHours: Number(durationHours),
         });
         await publishEnvelopeWithRetry(response.grant, requester, "manual");
-        toast.success("Request approved and encrypted update published.");
+        // Name the person. An automatic approval is still a share starting
+        // without a tap, so it has to be legible as it happens rather than
+        // discoverable later in a list.
+        toast.success(
+          automatic
+            ? `Shared with ${recipientLabel(requester)} automatically.`
+            : "Request approved and encrypted update published.",
+        );
+        // Non-blocking, per the latency fix on main: the approval is already
+        // done and published, and holding the button through a full state
+        // reload only makes it feel slower than it is.
         void refresh().catch(() => null);
+        return true;
       } catch (error) {
         toast.error(
-          error instanceof Error ? error.message : "Could not approve request.",
+          error instanceof Error
+            ? error.message
+            : automatic
+              ? `Could not approve ${recipientLabel(requester)}'s request automatically.`
+              : "Could not approve request.",
         );
+        return false;
       } finally {
-        setBusy(null);
+        if (!automatic) setBusy(null);
       }
     },
     [
@@ -6267,6 +6287,58 @@ export function OneLocationAgentPageContent({
       vaultOwnerToken,
     ],
   );
+
+  const handleApprove = useCallback(
+    async (request: OneLocationAccessRequest) => {
+      await approveAccessRequest(request);
+    },
+    [approveAccessRequest],
+  );
+
+  /**
+   * Requests this device has already put through auto-approve, so a failure
+   * (or the refresh that follows a success) cannot start the same approval a
+   * second time. Attempted, not succeeded: a request that failed once will
+   * keep failing, and retrying it on every state change would spam the person
+   * with the same error until they gave up on the screen.
+   */
+  const autoApprovedRequestIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    // A different account carries different standing permission.
+    autoApprovedRequestIdsRef.current = new Set();
+  }, [auth.userId]);
+
+  useEffect(() => {
+    // Approving needs vault authority anyway, so a locked vault is not a
+    // separate policy decision -- it simply cannot proceed.
+    if (!vaultOwnerToken) return;
+    const approvable = selectAutoApprovableRequests({
+      pendingRequests: pendingOwnerRequests,
+      enabled: locationControl.autoApproveRequestsEnabled,
+      enabledAt: locationControl.autoApproveEnabledAt,
+      paused: locationControl.paused,
+      alreadyAttemptedIds: autoApprovedRequestIdsRef.current,
+    });
+    if (approvable.length === 0) return;
+
+    for (const request of approvable) {
+      autoApprovedRequestIdsRef.current.add(request.id);
+    }
+    void (async () => {
+      // Sequential: each approval ends in a refresh, and running them together
+      // would have several overlapping refreshes racing to write the same state.
+      for (const request of approvable) {
+        await approveAccessRequest(request, { automatic: true });
+      }
+    })();
+  }, [
+    approveAccessRequest,
+    locationControl.autoApproveEnabledAt,
+    locationControl.autoApproveRequestsEnabled,
+    locationControl.paused,
+    pendingOwnerRequests,
+    vaultOwnerToken,
+  ]);
 
   const handleDeny = useCallback(
     async (requestId: string) => {
@@ -7380,7 +7452,7 @@ export function OneLocationAgentPageContent({
       const previous = locationControl;
       const applyOptimisticOn = () => {
         if (platformRefuses) return;
-        automaticPrivatePublishingAllowedRef.current = previous.autoShareEnabled;
+        automaticPrivatePublishingAllowedRef.current = true;
         updateOneLocationControlState(auth.userId, (current) => ({
           ...current,
           paused: false,
@@ -7389,8 +7461,7 @@ export function OneLocationAgentPageContent({
       };
       const rollbackOptimisticOn = () => {
         if (platformRefuses) return;
-        automaticPrivatePublishingAllowedRef.current =
-          !previous.paused && previous.autoShareEnabled;
+        automaticPrivatePublishingAllowedRef.current = !previous.paused;
         updateOneLocationControlState(auth.userId, (current) => ({
           ...current,
           paused: previous.paused,
@@ -7911,21 +7982,21 @@ export function OneLocationAgentPageContent({
     const spoken = String(slots?.enabled ?? "").trim().toLowerCase();
     const turnOn = ["on", "true", "yes", "enable", "enabled", "resume"].includes(spoken);
     const turnOff = ["off", "false", "no", "disable", "disabled", "stop"].includes(spoken);
-    // Never guess a disclosure setting. An unrecognised word here would
-    // otherwise fall to a default, and one of the two defaults silently starts
-    // sending live updates to every approved share.
+    // Never guess a consent setting. An unrecognised word here would otherwise
+    // fall to a default, and one of the two defaults hands out standing
+    // permission to approve people without being asked.
     if (!turnOn && !turnOff) {
       return {
         status: "blocked" as const,
-        summary: "Say whether automatic sharing should be on or off.",
+        summary: "Say whether automatic approval should be on or off.",
       };
     }
-    handleAutoShareChange(turnOn);
+    handleAutoApproveChange(turnOn);
     return {
       status: "succeeded" as const,
       summary: turnOn
-        ? "Automatic sharing is on. Approved shares will now receive live updates."
-        : "Automatic sharing is off. Shares will only update when you explicitly share.",
+        ? "Automatic approval is on. New location requests will be approved without asking you."
+        : "Automatic approval is off. You will be asked about each location request.",
     };
   });
 
@@ -8248,22 +8319,24 @@ export function OneLocationAgentPageContent({
     },
   );
 
-  const handleAutoShareChange = useCallback(
+  const handleAutoApproveChange = useCallback(
     (enabled: boolean) => {
-      automaticPrivatePublishingAllowedRef.current =
-        enabled && !locationControl.paused;
       updateOneLocationControlState(auth.userId, (current) => ({
         ...current,
-        autoShareEnabled: enabled,
+        autoApproveRequestsEnabled: enabled,
       }));
-      if (!enabled) setBackgroundShareEnabled(false);
+      // Say what it does NOT cover. Someone switching this on while people are
+      // already waiting will otherwise read the empty approvals list they were
+      // expecting, find it unchanged, and conclude the switch is broken.
       toast.success(
         enabled
-          ? "Approved shares will receive live updates."
-          : "Approved shares will update only when you explicitly share.",
+          ? pendingOwnerRequests.length
+            ? "New location requests will be approved automatically. The ones already waiting are still yours to answer."
+            : "New location requests will be approved automatically."
+          : "You will be asked about each location request again.",
       );
     },
-    [auth.userId, locationControl.paused],
+    [auth.userId, pendingOwnerRequests.length],
   );
 
   const markLocationOnboardingSeen = useCallback(() => {
@@ -8421,7 +8494,7 @@ export function OneLocationAgentPageContent({
         } catch {
           if (!sessionIsCurrent()) return false;
           toast.error(
-            "We could not read your current location. Check permission and try again.",
+            "Check permission and try again.",
           );
           return false;
         }
@@ -9155,7 +9228,7 @@ export function OneLocationAgentPageContent({
         hasFix: Boolean(myLocationPoint),
         observedDenial: locationDenialObserved,
       }) === "blocked",
-    autoShareEnabled: locationControl.autoShareEnabled,
+    autoApproveRequestsEnabled: locationControl.autoApproveRequestsEnabled,
     mapPresenceEnabled,
     onMapPresenceChange: handleMapPresenceChange,
     locationPaused: locationControl.paused,
@@ -9219,7 +9292,7 @@ export function OneLocationAgentPageContent({
     onShowMyLocation: () => void handleShowMyLiveLocation(),
     onHideMyLocation: () => void handleHideMyLiveLocation(),
     onResumeMyLocation: handleResumeMyLocation,
-    onAutoShareChange: handleAutoShareChange,
+    onAutoApproveRequestsChange: handleAutoApproveChange,
     onRequestPermission: () => void handleRequestLocationPermission(),
     onOpenLocationSettings: () => void handleOpenLocationSettings(),
     onSyncContacts: () => void handleSyncContactSignal(),
@@ -9447,8 +9520,8 @@ export function OneLocationAgentPageContent({
                 />
                 <span className="min-w-0 flex-1">
                   {pendingOwnerRequests.length === 1
-                    ? "1 person is waiting for you to approve their location request."
-                    : `${pendingOwnerRequests.length} people are waiting for you to approve their location requests.`}
+                    ? "1 location request waiting."
+                    : `${pendingOwnerRequests.length} location requests waiting.`}
                 </span>
                 <span className="shrink-0 underline">Review</span>
               </button>
@@ -9742,7 +9815,7 @@ export function OneLocationAgentPageContent({
                         description={
                           recipients.length
                             ? "Try another name, role, or recommendation signal."
-                            : "Approval, professional, ready, and setup signals will appear as your One Network grows."
+                            : "Add people to start sharing."
                         }
                       />
                     )}
@@ -10533,7 +10606,7 @@ export function OneLocationAgentPageContent({
                       description={
                         unwatchedActiveReceivedGrantCount > 0
                           ? "Refresh to start watching a hidden share again, or ask them to re-share."
-                          : "When someone shares their live location with you, it appears here automatically - no need to open a notification."
+                          : "Shared locations appear here."
                       }
                     />
                   )}

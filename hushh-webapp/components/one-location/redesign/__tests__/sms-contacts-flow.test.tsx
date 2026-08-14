@@ -115,7 +115,7 @@ describe("SmsContactsFlow", () => {
 
     expect(onAddCircle).toHaveBeenCalledWith("circle-1");
     expect(
-      screen.getByText(/never added to SMS automatically/i),
+      screen.getByText(/Adds current ready members only/i),
     ).toBeInTheDocument();
   });
 
@@ -135,9 +135,7 @@ describe("SmsContactsFlow", () => {
     const title = screen.getByRole("heading", { name: /Remove Kushal\?/i });
     expect(title.querySelector("span")).toHaveClass("text-foreground");
     expect(
-      screen.getByText(
-        "They'll no longer be alerted with your live location when you trigger SMS.",
-      ),
+      screen.getByText("They won't receive SMS alerts."),
     ).toHaveClass("!text-muted-foreground");
 
     const removeButtons = screen.getAllByRole("button", {
