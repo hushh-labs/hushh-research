@@ -25,16 +25,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -1394,8 +1384,6 @@ export default function ConnectPageClient() {
                       person.displayName || person.email || person.userId;
                     const description = getDirectoryPersonDescription(person);
                     const isSelected = selectedUserIds.has(person.userId);
-                    const selectionLimitReached =
-                      selectedUserIds.size >= MAX_BULK_CONNECTION_REQUESTS;
                     return (
                       <SettingsRow
                         key={person.userId}
