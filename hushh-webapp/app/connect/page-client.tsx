@@ -90,7 +90,7 @@ const CONNECT_INLINE_BUTTON_CLASSNAME =
   "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
 
 /** Maximum number of connection requests the People bulk action can send. */
-const MAX_BULK_CONNECTION_REQUESTS = 20;
+const MAX_BULK_CONNECTION_REQUESTS = 5;
 
 /**
  * Bounds on resolving ONE spoken name against the directory.
@@ -254,6 +254,9 @@ export default function ConnectPageClient() {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [isConnectingMultiple, setIsConnectingMultiple] = useState(false);
+  const [batchConnectDraft, setBatchConnectDraft] = useState<{
+    people: DirectoryPerson[];
+  } | null>(null);
 
   const getIdToken = useCallback(
     async () => (user ? await user.getIdToken() : null),
@@ -557,8 +560,8 @@ export default function ConnectPageClient() {
   );
 
   const handleConnectMultiple = useCallback(async () => {
-    if (!user || selectedUserIds.size === 0) return;
-    const selectedPeople = people.filter((p) => selectedUserIds.has(p.userId));
+    if (!user || !batchConnectDraft || batchConnectDraft.people.length === 0) return;
+    const selectedPeople = batchConnectDraft.people;
 
     // Keep the dispatch boundary bounded even if selection state is restored or
     // changed outside the row controls.
@@ -573,8 +576,10 @@ export default function ConnectPageClient() {
     
     try {
       const idToken = await user.getIdToken();
-      for (const person of selectedPeople) {
-        if (person.relationship === "none") {
+      
+      const requestPromises = selectedPeople
+        .filter((person) => person.relationship === "none")
+        .map(async (person) => {
           try {
             const request = await ConnectionsService.sendRequest({
               idToken,
@@ -582,15 +587,23 @@ export default function ConnectPageClient() {
               requestedScopeHandles: [],
               offeredScopeHandles: [],
             });
-            setOutgoingRequestIds((current) => ({
-              ...current,
-              [person.userId]: request.id,
-            }));
-            successfulUserIds.add(person.userId);
-            successCount++;
+            return { success: true, person, request } as const;
           } catch (_err) {
             console.error(`Failed to send request to ${person.userId}`, _err);
+            return { success: false, person } as const;
           }
+        });
+
+      const results = await Promise.all(requestPromises);
+
+      for (const result of results) {
+        if (result.success) {
+          setOutgoingRequestIds((current) => ({
+            ...current,
+            [result.person.userId]: result.request.id,
+          }));
+          successfulUserIds.add(result.person.userId);
+          successCount++;
         }
       }
       
@@ -614,8 +627,9 @@ export default function ConnectPageClient() {
       setIsConnectingMultiple(false);
       setIsSelectionMode(false);
       setSelectedUserIds(new Set());
+      setBatchConnectDraft(null);
     }
-  }, [user, selectedUserIds, people]);
+  }, [user, batchConnectDraft]);
 
   const cancelConnectionRequest = useCallback(
     async (person: DirectoryPerson) => {
@@ -1411,12 +1425,13 @@ export default function ConnectPageClient() {
                                 className="border-2 border-foreground/50"
                                 aria-describedby="connect-selection-limit"
                                 onCheckedChange={(checked) => {
+                                  if (checked && selectedUserIds.size >= MAX_BULK_CONNECTION_REQUESTS) {
+                                    toast.error("You can only select up to 5 people at a time.");
+                                    return;
+                                  }
                                   setSelectedUserIds((current) => {
                                     const next = new Set(current);
                                     if (checked) {
-                                      if (next.size >= MAX_BULK_CONNECTION_REQUESTS) {
-                                        return current;
-                                      }
                                       next.add(person.userId);
                                     } else {
                                       next.delete(person.userId);
@@ -1538,7 +1553,10 @@ export default function ConnectPageClient() {
                       variant="blue"
                       effect="fill"
                       disabled={isConnectingMultiple}
-                      onClick={() => void handleConnectMultiple()}
+                      onClick={() => {
+                        const selectedPeople = people.filter((p) => selectedUserIds.has(p.userId));
+                        setBatchConnectDraft({ people: selectedPeople });
+                      }}
                     >
                       {isConnectingMultiple
                         ? "Sending…"
@@ -1672,6 +1690,112 @@ export default function ConnectPageClient() {
               {scopeDraft && busyId === scopeDraft.person.userId
                 ? "Sending…"
                 : "Send request"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={batchConnectDraft !== null}
+        onOpenChange={(open) => {
+          if (!open && !isConnectingMultiple) setBatchConnectDraft(null);
+        }}
+      >
+        <DialogContent className="gap-5 max-h-[85vh] flex flex-col overflow-hidden">
+          <div className="shrink-0 space-y-5">
+            <DialogHeader className="text-left">
+              <DialogTitle>Review connection capabilities</DialogTitle>
+              <DialogDescription>
+                A connection never shares information by itself. Choose only the capabilities you want to request or offer; the other person can approve a subset or decline them all.
+              </DialogDescription>
+            </DialogHeader>
+
+            <SettingsGroup
+              title="No capabilities available yet"
+              description="You can still send a connection request. Capabilities appear here only when this relationship is eligible for them."
+              separatorInset
+            >
+              <SettingsRow
+                title="Connection only"
+                description="This request does not grant access to any information or Kai debate."
+                density="compact"
+                disabled
+              />
+            </SettingsGroup>
+          </div>
+
+          {batchConnectDraft ? (
+            <div className="space-y-4 overflow-y-auto min-h-0 flex-1 px-1 pb-2">
+              <SettingsGroup title={`Selected people (${batchConnectDraft.people.length})`} separatorInset>
+                {batchConnectDraft.people.map((person) => {
+                  const title = person.displayName || person.email || person.userId;
+                  const description = getDirectoryPersonDescription(person);
+                  return (
+                    <SettingsRow
+                      key={`batch-${person.userId}`}
+                      icon={UserRound}
+                      iconTone="blue"
+                      title={<span className="block min-w-0 truncate">{title}</span>}
+                      description={
+                        description ? (
+                          <span className="block min-w-0 truncate">{description}</span>
+                        ) : undefined
+                      }
+                      density="compact"
+                      trailing={
+                        <Button
+                          type="button"
+                          variant="none"
+                          effect="fade"
+                          size="sm"
+                          disabled={isConnectingMultiple}
+                          onClick={() => {
+                            setBatchConnectDraft((current) => {
+                              if (!current) return current;
+                              const updated = current.people.filter(p => p.userId !== person.userId);
+                              if (updated.length === 0) {
+                                return null;
+                              }
+                              return { people: updated };
+                            });
+                            // Keep the underlying selection synchronized so the UI
+                            // doesn't show them checked if the dialog is closed.
+                            setSelectedUserIds((current) => {
+                              const next = new Set(current);
+                              next.delete(person.userId);
+                              return next;
+                            });
+                          }}
+                          className="h-8 rounded-[10px] px-3 text-[13px] font-medium text-muted-foreground hover:text-destructive"
+                        >
+                          Remove
+                        </Button>
+                      }
+                    />
+                  );
+                })}
+              </SettingsGroup>
+            </div>
+          ) : null}
+
+          <DialogFooter className="shrink-0">
+            <Button
+              type="button"
+              variant="none"
+              effect="fade"
+              disabled={isConnectingMultiple}
+              onClick={() => setBatchConnectDraft(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="blue"
+              effect="fill"
+              disabled={!batchConnectDraft || isConnectingMultiple}
+              onClick={() => void handleConnectMultiple()}
+            >
+              {isConnectingMultiple ? "Sending…" : "Send requests"}
             </Button>
           </DialogFooter>
         </DialogContent>
