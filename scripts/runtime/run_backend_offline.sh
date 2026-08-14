@@ -73,13 +73,9 @@ fi
 
 # Check backend virtualenv
 BACKEND_VENV_PYTHON="$CONSENT_DIR/.venv/bin/python"
-if [ ! -x "$BACKEND_VENV_PYTHON" ] && [ ! -f "$BACKEND_VENV_PYTHON" ]; then
-  if [ -x "$CONSENT_DIR/.venv/Scripts/python.exe" ] || [ -f "$CONSENT_DIR/.venv/Scripts/python.exe" ]; then
-    BACKEND_VENV_PYTHON="$CONSENT_DIR/.venv/Scripts/python.exe"
-  else
-    die "Missing backend virtualenv: $BACKEND_VENV_PYTHON"
-    echo "Run: cd consent-protocol && python3 -m venv .venv && pip install -r requirements.txt"
-  fi
+if [ ! -x "$BACKEND_VENV_PYTHON" ]; then
+  die "Missing backend virtualenv: $BACKEND_VENV_PYTHON"
+  echo "Run: cd consent-protocol && python3 -m venv .venv && pip install -r requirements.txt"
 fi
 
 # ── Stop existing backend on :8000 ───────────────────────────────────────────
