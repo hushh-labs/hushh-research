@@ -4,11 +4,18 @@ import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { buildPersonalKnowledgeModelStructureArtifacts } from "@/lib/personal-knowledge-model/manifest";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { haversineMeters } from "@/lib/one-location/marker-interpolation";
+import {
+  normalizeSavedLocationAddressDetails,
+  type SavedLocationAddressDetails,
+} from "@/lib/one-location/saved-location-address";
 
 export const LOCATION_PKM_DOMAIN = "location";
 
 const SAVED_PLACES_KEY = "saved_places";
-const SAVED_PLACES_SCHEMA_VERSION = 1;
+// v2 adds addressBase + addressDetails. v1 entries stay valid and readable --
+// both fields are optional, and a place saved before this simply has no parts
+// recorded, which the edit flow handles by treating its address as the base.
+const SAVED_PLACES_SCHEMA_VERSION = 2;
 const MAX_LABEL_LENGTH = 40;
 const MAX_ADDRESS_LENGTH = 300;
 export const SAVED_LOCATION_DUPLICATE_RADIUS_METERS = 25;
@@ -27,7 +34,24 @@ export type SavedLocation = {
   label: string;
   latitude: number;
   longitude: number;
+  /** The composed, human-readable line. What every reader displays. */
   address?: string | null;
+  /**
+   * The street address on its own, before the entrance details were folded in.
+   *
+   * Kept so an edit can rebuild `address` from its parts instead of composing
+   * on top of the previous composition. Without it, saving an edit prepended
+   * the entrance details to a string that already began with them -- "Flat 5C,
+   * Flat 4B, Blue gate building, ..." -- growing until it hit the 300-character
+   * ceiling and was truncated.
+   */
+  addressBase?: string | null;
+  /**
+   * The entrance details as the owner entered them, so re-opening a saved
+   * place shows what they typed rather than empty fields it then refuses to
+   * save without.
+   */
+  addressDetails?: SavedLocationAddressDetails | null;
   savedAt: string;
 };
 
@@ -60,6 +84,32 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+/**
+ * Read back the entrance details, tolerating anything. A malformed or missing
+ * block means "no parts recorded", never a rejected saved place: losing a
+ * person's Home over an unexpected field would be far worse than showing its
+ * detail fields empty.
+ */
+function sanitizeAddressDetails(
+  value: unknown,
+): SavedLocationAddressDetails | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const details = normalizeSavedLocationAddressDetails({
+    houseOrFlat: typeof raw.houseOrFlat === "string" ? raw.houseOrFlat : "",
+    buildingColor:
+      typeof raw.buildingColor === "string" ? raw.buildingColor : "",
+    landmark: typeof raw.landmark === "string" ? raw.landmark : "",
+    postalCode: typeof raw.postalCode === "string" ? raw.postalCode : "",
+  });
+  const hasAnything =
+    details.houseOrFlat ||
+    details.buildingColor ||
+    details.landmark ||
+    details.postalCode;
+  return hasAnything ? details : null;
 }
 
 function isValidLocation(value: unknown): value is SavedLocation {
@@ -95,7 +145,12 @@ function locationsFromDomain(
   const savedPlaces = asRecord(domainData?.[SAVED_PLACES_KEY]);
   const locations = savedPlaces.locations;
   if (!Array.isArray(locations)) return [];
-  return locations.filter(isValidLocation);
+  return locations.filter(isValidLocation).map((location) => ({
+    ...location,
+    addressBase:
+      typeof location.addressBase === "string" ? location.addressBase : null,
+    addressDetails: sanitizeAddressDetails(location.addressDetails),
+  }));
 }
 
 function requireUnlockedVault(
@@ -277,6 +332,9 @@ export async function addSavedLocation(params: {
     latitude: number;
     longitude: number;
     address?: string | null;
+    /** The street address alone, so a later edit rebuilds rather than re-composes. */
+    addressBase?: string | null;
+    addressDetails?: SavedLocationAddressDetails | null;
   };
 }): Promise<SavedLocation[]> {
   const { input } = params;
@@ -301,6 +359,10 @@ export async function addSavedLocation(params: {
     latitude: input.latitude,
     longitude: input.longitude,
     address: cleanText(input.address, MAX_ADDRESS_LENGTH),
+    addressBase: cleanText(input.addressBase, MAX_ADDRESS_LENGTH),
+    addressDetails: input.addressDetails
+      ? sanitizeAddressDetails(input.addressDetails)
+      : null,
     savedAt: new Date().toISOString(),
   };
 
@@ -348,6 +410,9 @@ export async function updateSavedLocation(params: {
     latitude: number;
     longitude: number;
     address?: string | null;
+    /** The street address alone, so a later edit rebuilds rather than re-composes. */
+    addressBase?: string | null;
+    addressDetails?: SavedLocationAddressDetails | null;
   };
 }): Promise<SavedLocation[]> {
   const { id, input } = params;
@@ -381,6 +446,10 @@ export async function updateSavedLocation(params: {
     latitude: input.latitude,
     longitude: input.longitude,
     address: cleanText(input.address, MAX_ADDRESS_LENGTH),
+    addressBase: cleanText(input.addressBase, MAX_ADDRESS_LENGTH),
+    addressDetails: input.addressDetails
+      ? sanitizeAddressDetails(input.addressDetails)
+      : null,
     savedAt: new Date().toISOString(),
   };
 
