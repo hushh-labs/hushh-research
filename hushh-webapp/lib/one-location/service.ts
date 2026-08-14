@@ -1,6 +1,10 @@
 import { Capacitor } from "@capacitor/core";
 
 import { HushhLocation } from "@/lib/capacitor";
+import {
+  LocationBus,
+  type LocationSnapshot,
+} from "@/lib/one-location/location-bus";
 import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import {
   ApiError,
@@ -123,11 +127,55 @@ export const CAPTURE_DEFAULT_MAX_AGE_MS = 20_000;
  */
 export const CAPTURE_FRESH_MAX_AGE_MS = 5_000;
 
-/** The most recent fix, reused inside CAPTURE_DEFAULT_MAX_AGE_MS. */
-let lastCapturedPoint: PlainLocationPoint | null = null;
+/**
+ * How old a fix may be and still be served after the device failed to produce
+ * a new one.
+ *
+ * A different question from the caller's `maxAgeMs`, which asks "may I skip
+ * the GPS?" — five or twenty seconds is right for that, and using it here
+ * would make this fallback fire essentially never, which is the bug. This asks
+ * "the device just failed and I am holding a position: is it still an honest
+ * answer to where you are?" Ten minutes is the budget this codebase already
+ * chose for exactly that question, in the nearby check-in sheet.
+ */
+export const CAPTURE_STALE_FALLBACK_MAX_AGE_MS = 10 * 60 * 1_000;
 
-/** In-flight capture, shared so N simultaneous callers cause one GPS read. */
-let pendingCapture: Promise<PlainLocationPoint> | null = null;
+function resolveSourcePlatform(): PlainLocationPoint["sourcePlatform"] {
+  const platform = Capacitor.getPlatform();
+  if (platform === "ios" || platform === "android") return platform;
+  return "web";
+}
+
+/**
+ * A bus snapshot as the point every caller here expects.
+ *
+ * `sourcePlatform` falls back to the running platform only when the snapshot
+ * does not carry one — a floor, not a guess that overrides the truth. The
+ * field is sealed into the envelope and rendered to the recipient, so it must
+ * never be absent.
+ */
+function toPlainPoint(snapshot: LocationSnapshot): PlainLocationPoint {
+  return {
+    latitude: snapshot.latitude,
+    longitude: snapshot.longitude,
+    accuracyM: snapshot.accuracyM ?? null,
+    capturedAt: snapshot.capturedAt,
+    sourcePlatform: snapshot.sourcePlatform ?? resolveSourcePlatform(),
+  };
+}
+
+function withinAge(capturedAt: string, maxAgeMs: number): boolean {
+  const capturedMs = Date.parse(capturedAt);
+  if (!Number.isFinite(capturedMs)) return false;
+  const age = Date.now() - capturedMs;
+  return age >= 0 && age <= maxAgeMs;
+}
+
+function captureFailure(state: { error: string | null }): Error {
+  const original = LocationBus.getLastCaptureError();
+  if (original instanceof Error) return original;
+  return new Error(state.error ?? "Could not get your location.");
+}
 
 export class OneLocationService {
   static async getPermissionState() {
@@ -151,21 +199,25 @@ export class OneLocationService {
   }
 
   /**
-   * The account's current position, held briefly and shared between callers.
+   * The account's current position, from the one store that holds it.
    *
-   * Every control on this surface used to reach the device directly, so one
-   * share wizard paid for a full GPS acquisition per step and each one cost
-   * seconds. Two guards remove that without ever serving a position stale
-   * enough to be wrong:
+   * This used to keep its own cache — a fix and an in-flight promise, twenty
+   * seconds of reuse — parallel to and unaware of `LocationBus`. Two stores
+   * for one question, and the whole One Location surface was on this one,
+   * which had none of the bus's resilience: no memory across a reload, and no
+   * answer at all when the device declined to produce a fix. Every caller here
+   * inherited that. The heartbeat published the result once every twenty
+   * seconds: "Could not get your location", while a movement watch two effects
+   * away was delivering fixes the entire time.
    *
-   * - a fix younger than `maxAgeMs` is reused instead of re-acquired;
-   * - concurrent callers share ONE in-flight acquisition rather than each
-   *   starting their own — sharing with N people used to mean N simultaneous
-   *   GPS reads, which is slower than one read for every one of them.
+   * Delegating gets all of it at once — coalescing, the restored fix from the
+   * previous session, and the distinction between a device that refused and a
+   * device that merely did not answer this time.
    *
-   * Pass `maxAgeMs: 0` to force a genuinely new fix. The live-share publisher
-   * does exactly that: a recipient watching someone move must never be handed
-   * a cached point, or the share looks paused.
+   * `maxAgeMs` is forwarded rather than left to the bus's own default: the bus
+   * allows two minutes, and the backend rejects a point older than sixty
+   * seconds between capture and confirmation, so a share built on the bus
+   * default would fail for a reason the owner cannot see.
    */
   static async captureCurrentPosition(options?: {
     maxAgeMs?: number;
@@ -185,44 +237,42 @@ export class OneLocationService {
       options?.maxAgeMs ??
       (options?.fresh ? CAPTURE_FRESH_MAX_AGE_MS : CAPTURE_DEFAULT_MAX_AGE_MS);
 
-    if (lastCapturedPoint && maxAgeMs > 0) {
-      const capturedMs = Date.parse(lastCapturedPoint.capturedAt);
-      if (Number.isFinite(capturedMs) && Date.now() - capturedMs <= maxAgeMs) {
-        return lastCapturedPoint;
-      }
+    const snapshot = await LocationBus.ensure({ maxAgeMs });
+    // Read the state AFTER the await, never a copy taken before it: a watch
+    // fix can land while this call is in flight, and the newer answer is the
+    // right one to serve.
+    const state = LocationBus.getState();
+
+    if (snapshot && state.status === "ready") return toPlainPoint(snapshot);
+
+    // The device failed and we are holding a position. A failed refresh is not
+    // a location we do not have, and until now the two were indistinguishable
+    // to every caller on this surface — which is what put "turn on location"
+    // in front of people whose location was perfectly well known.
+    if (snapshot && withinAge(snapshot.capturedAt, CAPTURE_STALE_FALLBACK_MAX_AGE_MS)) {
+      return toPlainPoint(snapshot);
     }
 
-    // An acquisition already running is fresher than anything we could start
-    // now, so every caller joins it — including one that asked for maxAgeMs: 0.
-    if (pendingCapture) return pendingCapture;
-
-    pendingCapture = HushhLocation.getCurrentPosition({
-      enableHighAccuracy: true,
-      timeoutMs: 15_000,
-    })
-      .then((point) => {
-        lastCapturedPoint = point;
-        return point;
-      })
-      .finally(() => {
-        pendingCapture = null;
-      });
-
-    return pendingCapture;
+    // Two things still throw, and both are dead ends the owner has to see: a
+    // platform that refused (the bus returns null on a denial even while
+    // holding a fix, so this is reached), and having no position at all.
+    throw captureFailure(state);
   }
 
   /**
-   * Drop the reusable fix. Call when the device may have moved without us —
-   * a permission change, or the app returning from background.
+   * Declare the held fix untrustworthy. Call when the device may have moved
+   * without us — a permission change, or the app returning from background.
+   *
+   * The position stays on screen; only its right to satisfy the next call
+   * without re-reading the device is revoked.
    */
   static invalidateCapturedPosition(): void {
-    lastCapturedPoint = null;
+    LocationBus.invalidate();
   }
 
   /** Test seam. Never call from app code. */
   static __resetCaptureCacheForTests(): void {
-    lastCapturedPoint = null;
-    pendingCapture = null;
+    LocationBus.__resetForTests();
   }
 
   /**
