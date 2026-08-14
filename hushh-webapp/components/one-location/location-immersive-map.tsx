@@ -337,7 +337,7 @@ export function LocationImmersiveMap({
   const initialDemoMode = isLocationMapDemoEnabled(searchParams.get("demo"));
   const mapElement = useRef<HTMLElement | null>(null);
   const mapRef = useRef<GoogleMap | null>(null);
-  const topControlsRef = useRef<HTMLDivElement | null>(null);
+  const topControlsRef = useRef<HTMLElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
   const markerIdsRef = useRef<string[]>([]);
   const markerGenerationRef = useRef(0);
@@ -1849,8 +1849,11 @@ export function LocationImmersiveMap({
           closing ? "pointer-events-none" : ""
         }`}
       />
-      <div
+      <header
         ref={topControlsRef}
+        aria-label={
+          isCheckInSurface ? "Check in map controls" : "Location map controls"
+        }
         // z-30 (above the z-20 map loading/error overlay and people tray): at
         // equal z-index the later-in-DOM full-screen overlay painted on top of
         // the close X and could swallow the tap that dismisses the map. Keeping
@@ -1902,6 +1905,8 @@ export function LocationImmersiveMap({
             aria-label={`You are sharing your location with ${activeShareCount} ${
               activeShareCount === 1 ? "person" : "people"
             }`}
+            role="status"
+            aria-live="polite"
             className="pointer-events-none hidden min-w-0 shrink items-center gap-1.5 truncate rounded-full border border-[var(--app-accent-border)] bg-background/85 px-3 py-1.5 text-[12px] font-semibold text-[var(--app-accent-deep)] shadow-lg backdrop-blur-md md:flex dark:text-[var(--app-accent-bright)]"
           >
             <span
@@ -1932,7 +1937,7 @@ export function LocationImmersiveMap({
             )}
           </ShellActionSurface>
         ) : null}
-      </div>
+      </header>
       {/*
         Two pins on one map need naming, or the owner cannot tell which is
         "me" and which is "the place I'm checking in to" -- and those are
