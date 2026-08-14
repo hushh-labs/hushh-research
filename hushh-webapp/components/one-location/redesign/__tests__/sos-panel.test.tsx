@@ -164,14 +164,15 @@ describe("SosPanel", () => {
     try {
       render(<SosPanel {...baseProps} />);
 
-      // Header grammar shared with every other Location task flow: the route
-      // name is the eyebrow, the screen name is the <h1>.
-      expect(screen.getByText("Location")).toBeInTheDocument();
+      // Header grammar shared with every other Location task flow: the <h1>
+      // repeats the last breadcrumb crumb, and the top bar owns the trail.
       expect(
-        screen.getByRole("heading", { level: 1, name: "SOS" }),
+        screen.getByRole("heading", { level: 1, name: "Save my Soul" }),
       ).toBeInTheDocument();
       expect(
-        screen.getByText("Hold to send your live location by SMS."),
+        screen.getByText(
+          "Hold to send your live location by SMS — even with no internet.",
+        ),
       ).toBeInTheDocument();
       expect(screen.getByText(/SMS goes to Carol/)).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /call 112/i })).toHaveAttribute(
@@ -280,7 +281,9 @@ describe("SosPanel", () => {
     });
 
     // The ring must be back to its resting label, not a stuck countdown.
-    expect(hold).toHaveTextContent("Hold 2 s");
+    expect(screen.getByTestId("sos-status-label")).toHaveTextContent(
+      "Hold to send location",
+    );
 
     fireEvent.pointerDown(hold, { button: 0, pointerId: 2 });
     act(() => vi.advanceTimersByTime(2_000));
@@ -293,8 +296,7 @@ describe("SosPanel", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Short text message" }));
-    fireEvent.change(screen.getByLabelText("Short text message"), {
+    fireEvent.change(screen.getByLabelText("Add a message"), {
       target: { value: "Emergency" },
     });
     fireEvent.click(screen.getByTestId("sos-send-custom-message"));
@@ -307,12 +309,11 @@ describe("SosPanel", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Short text message" }));
     const send = screen.getByTestId("sos-send-custom-message");
     expect(send).toBeDisabled();
 
     // Whitespace alone is not a message.
-    fireEvent.change(screen.getByLabelText("Short text message"), {
+    fireEvent.change(screen.getByLabelText("Add a message"), {
       target: { value: "   " },
     });
     expect(send).toBeDisabled();
@@ -321,7 +322,7 @@ describe("SosPanel", () => {
     expect(onTrigger).not.toHaveBeenCalled();
   });
 
-  it("passes the selected fixed message and exposes Edit and Cancel", () => {
+  it("passes the selected fixed message and exposes Contacts and Cancel", () => {
     const onTrigger = vi.fn();
     const onClose = vi.fn();
     const onEditContacts = vi.fn();
@@ -342,32 +343,25 @@ describe("SosPanel", () => {
     act(() => vi.advanceTimersByTime(2_000));
     expect(onTrigger).toHaveBeenCalledWith("I'm not safe");
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit SMS contacts" }));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onEditContacts).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("opens a 140-character short-message composer and fails closed above the limit", () => {
+  it("counts the message to 140 characters and fails closed above the limit", () => {
     render(<SosPanel {...baseProps} />);
 
-    expect(
-      screen.getByRole("button", { name: "Short text message" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("textbox", { name: "Short text message" }),
-    ).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Short text message" }));
-    const composer = screen.getByRole("textbox", {
-      name: "Short text message",
-    });
+    // The design keeps one always-visible field; there is no separate
+    // "write a message" toggle to open first.
+    const composer = screen.getByRole("textbox", { name: "Add a message" });
     const hold = screen.getByRole("button", {
       name: /press and hold for two seconds/i,
     });
 
+    // An empty field is a valid alert: the payload is the location.
     expect(screen.getByText("0/140")).toBeInTheDocument();
-    expect(hold).toBeDisabled();
+    expect(hold).toBeEnabled();
 
     fireEvent.change(composer, { target: { value: "a".repeat(140) } });
     expect(screen.getByText("140/140")).toBeInTheDocument();
@@ -381,10 +375,9 @@ describe("SosPanel", () => {
     );
     expect(hold).toBeDisabled();
 
+    // Picking a preset replaces the over-length text, which clears the block.
     fireEvent.click(screen.getByRole("button", { name: "Come get me" }));
-    expect(
-      screen.queryByRole("textbox", { name: "Short text message" }),
-    ).toBeNull();
+    expect(composer).toHaveValue("Come get me");
     expect(hold).toBeEnabled();
   });
 
@@ -392,11 +385,9 @@ describe("SosPanel", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Short text message" }));
-    fireEvent.change(
-      screen.getByRole("textbox", { name: "Short text message" }),
-      { target: { value: "  Meet me by the north entrance.  " } },
-    );
+    fireEvent.change(screen.getByRole("textbox", { name: "Add a message" }), {
+      target: { value: "  Meet me by the north entrance.  " },
+    });
 
     const hold = screen.getByRole("button", {
       name: /press and hold for two seconds/i,
@@ -437,45 +428,53 @@ describe("SosPanel", () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 
-  it("shows 'Cancel the alert' only while a session is active and calls onStopSos", () => {
+  it("shows 'Stop sharing' only while a session is active and calls onStopSos", () => {
     const onStopSos = vi.fn();
     const { rerender } = render(
       <SosPanel {...baseProps} active={false} onStopSos={onStopSos} />,
     );
-    // Idle state: no cancel affordance, core reads "SMS".
+    // Idle: no stop affordance, the core is the pressable SOS control.
     expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
-    expect(screen.getByText("SMS")).toBeInTheDocument();
+    expect(screen.getByText("SOS")).toBeInTheDocument();
+    expect(screen.queryByTestId("sos-sent-face")).toBeNull();
 
-    // Active ("SENT · Live now") state: the cancel button appears.
+    // Live: the core becomes a receipt and the stop button appears.
     rerender(<SosPanel {...baseProps} active onStopSos={onStopSos} />);
+    expect(screen.getByTestId("sos-sent-face")).toBeInTheDocument();
     expect(screen.getByText("SENT")).toBeInTheDocument();
-    expect(screen.getByText("Live now")).toBeInTheDocument();
+    expect(screen.getByTestId("sos-status-label")).toHaveTextContent(
+      "Live location",
+    );
+    expect(screen.getByText("Live")).toBeInTheDocument();
     const cancel = screen.getByRole("button", {
       name: "Cancel the alert and stop sharing your location",
     });
-    expect(cancel).toHaveTextContent("Cancel the alert");
+    expect(cancel).toHaveTextContent("Stop sharing");
     fireEvent.click(cancel);
     expect(onStopSos).toHaveBeenCalledTimes(1);
   });
 
-  it("disables 'Cancel the alert' and shows a spinner while stopping", () => {
+  it("disables 'Stop sharing' and shows a spinner while stopping", () => {
     const onStopSos = vi.fn();
     render(<SosPanel {...baseProps} active stopBusy onStopSos={onStopSos} />);
     const cancel = screen.getByTestId("sos-cancel-alert");
     expect(cancel).toBeDisabled();
-    expect(cancel).toHaveTextContent("Cancelling…");
+    expect(cancel).toHaveTextContent("Stopping…");
     fireEvent.click(cancel);
     expect(onStopSos).not.toHaveBeenCalled();
   });
 
-  it("resets the core to 'SMS' once the session is no longer active (external revoke sync)", () => {
+  it("returns the core to SOS once the session is no longer active (external revoke sync)", () => {
     const { rerender } = render(<SosPanel {...baseProps} active />);
-    expect(screen.getByText("SENT")).toBeInTheDocument();
+    expect(screen.getByTestId("sos-sent-face")).toBeInTheDocument();
     // Simulate the incident being cleared elsewhere (e.g. Active shares → Stop),
     // which flips `active` back to false and must reset the SMS screen.
     rerender(<SosPanel {...baseProps} active={false} />);
-    expect(screen.getByText("SMS")).toBeInTheDocument();
-    expect(screen.queryByText("Live now")).toBeNull();
+    expect(screen.getByText("SOS")).toBeInTheDocument();
+    expect(screen.queryByTestId("sos-sent-face")).toBeNull();
+    expect(screen.getByTestId("sos-status-label")).toHaveTextContent(
+      "Hold to send location",
+    );
     expect(screen.queryByTestId("sos-cancel-alert")).toBeNull();
   });
 
@@ -503,12 +502,20 @@ describe("SosPanel — shell header contract", () => {
     expect(screenEl.className).not.toMatch(/\b(min-)?h-\[100dvh\]/);
   });
 
-  it("uses the Location eyebrow + screen title used by the other flows", () => {
+  it("titles the screen with the same words as its breadcrumb crumb", () => {
     render(<SosPanel {...baseProps} />);
 
-    const heading = screen.getByRole("heading", { level: 1, name: "SOS" });
-    expect(heading).toBeInTheDocument();
-    expect(screen.getByText("Location")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Save my Soul" }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the design's Contacts action reachable from the header row", () => {
+    const onEditContacts = vi.fn();
+    render(<SosPanel {...baseProps} onEditContacts={onEditContacts} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit SMS contacts" }));
+    expect(onEditContacts).toHaveBeenCalledTimes(1);
   });
 
   it("exposes no in-content back control — the top bar owns back", () => {
@@ -536,13 +543,13 @@ describe("SosPanel — no editing while the alert is live", () => {
   it("closes every way of editing the message while the alert is live", () => {
     render(<SosPanel {...baseProps} active />);
 
-    // The three ways in: two presets and the custom toggle. Cancel is the only
-    // escape, so none of these may respond while an alert is out.
+    // The ways in: the two presets and the message field. Stopping the alert is
+    // the only escape, so none of these may respond while an alert is out.
     expect(screen.getByRole("button", { name: "Come get me" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "I'm not safe" })).toBeDisabled();
     expect(
-      screen.getByRole("button", { name: "Short text message" }),
-    ).toBeDisabled();
+      screen.getByRole("textbox", { name: "Add a message" }),
+    ).toHaveAttribute("readonly");
     expect(screen.getByTestId("sos-cancel-alert")).toBeTruthy();
   });
 

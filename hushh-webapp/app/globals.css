@@ -4908,6 +4908,46 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 /* ---------------------------------------------------------------------------
+ * One Location · SOS surface tokens
+ *
+ * The SOS screen's own palette, transcribed from the Save my Soul design. The
+ * design is authored on a near-black canvas, so the dark values below ARE the
+ * design; the light values are the same relationships inverted, so the screen
+ * stays legible for a light-theme user instead of rendering white-on-white.
+ * The component consumes only these names — never a raw hex.
+ * ------------------------------------------------------------------------- */
+:root {
+  --sos-core-from: #ff4c42;
+  --sos-core-to: #e42d24;
+  /* Space-separated channels so the component can vary alpha per layer. */
+  --sos-glow-rgb: 255 59 48;
+  --sos-ring-track: rgba(0, 0, 0, 0.12);
+  --sos-control-surface: rgba(0, 0, 0, 0.05);
+  --sos-control-surface-hover: rgba(0, 0, 0, 0.08);
+  --sos-control-surface-active: rgba(0, 0, 0, 0.12);
+  --sos-control-text: rgba(0, 0, 0, 0.82);
+  --sos-label: rgba(0, 0, 0, 0.45);
+  --sos-placeholder: rgba(0, 0, 0, 0.3);
+  --sos-live-face: #f2f2f7;
+  --sos-live-face-ring: rgba(0, 0, 0, 0.08);
+}
+
+.dark {
+  --sos-core-from: #ff4c42;
+  --sos-core-to: #e42d24;
+  --sos-glow-rgb: 255 59 48;
+  --sos-ring-track: rgba(255, 255, 255, 0.09);
+  --sos-control-surface: rgba(255, 255, 255, 0.06);
+  --sos-control-surface-hover: rgba(255, 255, 255, 0.1);
+  --sos-control-surface-active: rgba(255, 255, 255, 0.14);
+  --sos-control-text: rgba(255, 255, 255, 0.82);
+  --sos-label: rgba(255, 255, 255, 0.45);
+  --sos-placeholder: rgba(255, 255, 255, 0.3);
+  --sos-live-face: #141416;
+  --sos-live-face-ring: rgba(255, 255, 255, 0.08);
+}
+
+/* ---------------------------------------------------------------------------
  * One Location · SOS radar
  *
  * The alarm rings and the breathing core of the SOS hold control. These used to
@@ -4938,6 +4978,19 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   }
   50% {
     transform: scale(1.045);
+  }
+}
+
+/* The two expanding outlines around the live "alert sent" face. */
+@keyframes sosHalo {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.4;
+  }
+  70%,
+  100% {
+    transform: scale(1.34);
+    opacity: 0;
   }
 }
 

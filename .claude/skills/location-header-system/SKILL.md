@@ -101,8 +101,33 @@ component could not know about:
 
 Renders as `One › Location › SOS` in the bar, and `Location` / **SOS** in the content.
 
+The eyebrow is optional — Shared with me, Active shares and Save my Soul ship without
+one. **The title matching the last crumb is not optional.** That agreement is what makes
+the trail and the screen read as the same place.
+
 Never write a route-local `<h1>`. `TaskFlowHeader` owns the `<h1>` and applies
 `SCREEN_TITLE` / `EYEBROW` from `lib/morphy-ux/tokens/surfaces.ts`.
+
+### 3a. Importing a Claude Design screen
+
+When a flow's body comes from a Claude Design file, the design's own header row is
+**not** part of what you implement — the shell already draws back, trail and avatar.
+Map it instead:
+
+| In the design | Where it goes here |
+|---|---|
+| the screen's title text | `TaskFlowHeader title` (and the crumb) |
+| top-right actions (`+ Contacts`, `Cancel`) | a right-aligned row under the header |
+| its `<body>` background | delete it; the shell owns the canvas |
+| Inter / Geist / any bundled family | delete it; inherit `--font-app-*` (SF stack) |
+| literal hexes and rgba values | promote to `--<screen>-*` tokens in `globals.css`, declared under **both** `:root` and `.dark` |
+| `@keyframes` in a `<style>` block | `app/globals.css`, with a reduced-motion guard |
+
+The design is authored at one width on a near-black canvas. Its values are therefore the
+**dark** half of your token pair; you still owe the light half, or the screen is blind
+in light theme. And size the artwork off one source — the SOS ring scales through a
+single `viewBox` with `vector-effect="non-scaling-stroke"` rather than carrying a
+second hardcoded copy per breakpoint, which is how mobile and desktop drift apart.
 
 ### 4. Adding a flow means editing two files, not one
 
@@ -130,7 +155,7 @@ Audited at PR #5251. Fix drift when you touch a row, don't leave it.
 |---|---|---|---|---|
 | `/one/location` (hub) | Location | Location Agent | — | Hub, uses `PageHeader` — not a flow |
 | `?action=settings` | Settings | Settings | `Location` | ✅ **reference implementation** |
-| `?action=sos` | SOS | SOS | `Location` | ✅ fixed in #5251 |
+| `?action=sos` | Save my Soul | Save my Soul | *none* | ✅ fixed in #5251 |
 | `?action=shared-with-me` | Shared with me | Shared with me | *none* | ⚠️ title matches crumb; eyebrow missing |
 | `?action=active-shares` | Active shares | Active shares | *none* | ⚠️ same |
 | `?action=needs-review` | Needs my review | Needs my review | *none* | ⚠️ same |
