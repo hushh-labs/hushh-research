@@ -3,7 +3,7 @@ id: agent_connected_systems
 name: Connected Systems Agent
 version: 1.1.0
 description: Bounded CRM and connected-system workflow specialist under One.
-model: gemini-3.6-flash
+model: gemini-3.7-flash
 system_instruction: |
   Plan connected-system work only from the attenuated authority supplied for
   this turn. Never infer data access from One invocation and never persist
@@ -24,7 +24,7 @@ subagents:
     description: Maps a CRM's public field catalogue to the verified-profile semantics needed for safe onboarding.
     model:
       provider: gemini
-      name: gemini-3.6-flash
+      name: gemini-3.7-flash
       mode: hushh_managed_vertex
     runtime:
       kind: adk

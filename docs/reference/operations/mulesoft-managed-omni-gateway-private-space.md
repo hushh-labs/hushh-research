@@ -70,7 +70,7 @@ update/delete success result through an explicit `isError: false` transport
 policy plus a post-mutation readback.
 
 Hussh maps the public field catalogue with the manifest-owned
-`crm_schema_mapper` child using Hussh-managed Vertex `gemini-3.6-flash`. It
+`crm_schema_mapper` child using Hussh-managed Vertex `gemini-3.7-flash`. It
 receives only object and field metadata, not CRM records, verified profile
 values, identifiers, credentials, consent material, or vault material. Its
 validated result is cached by schema fingerprint for 24 hours. A mapping failure

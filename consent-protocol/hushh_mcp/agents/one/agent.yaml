@@ -10,7 +10,7 @@ owner: backend
 parent: null
 model:
   provider: gemini
-  name: gemini-3.6-flash
+  name: gemini-3.7-flash
   mode: hushh_managed_vertex
   credential_ref: null
 credential_policy:
@@ -80,6 +80,6 @@ capabilities:
     - agent_calendar
     - agent_connected_systems
   heads:
-    text: gemini-3.6-flash
-    specialist_text: gemini-3.6-flash
+    text: gemini-3.7-flash
+    specialist_text: gemini-3.7-flash
     live: gemini-live-2.5-flash-native-audio

@@ -224,14 +224,14 @@ The `RenaissanceService` provides lookup methods used by the losers analysis end
 
 | Parameter          | Value                      |
 | ------------------ | -------------------------- |
-| Model              | `gemini-3.6-flash`          |
+| Model              | `gemini-3.7-flash`          |
 | SDK                | `google.genai` (new SDK)   |
 | Thinking Mode      | MEDIUM                     |
 | Hosted auth        | Vertex workload ADC through the Cloud Run service identity |
 | Streaming          | Token-by-token via `stream_gemini_response` |
 
 The text client uses the global Vertex endpoint, omits legacy sampling controls
-for Gemini 3.6, and records response-chunk count, first-visible-response
+for Gemini 3.7, and records response-chunk count, first-visible-response
 latency, total latency, and attempt count in sanitized logs. The canonical SSE
 envelope remains unchanged.
 
