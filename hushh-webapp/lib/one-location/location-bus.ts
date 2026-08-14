@@ -40,6 +40,17 @@ export type LocationSnapshot = {
   longitude: number;
   accuracyM: number | null;
   capturedAt: string;
+  /**
+   * Which platform produced the fix.
+   *
+   * Carried on the snapshot rather than re-derived by whoever needs it,
+   * because the snapshot is written from four places — a capture, a watch
+   * fix, a restore, and the held fix returned by a failed refresh — and only
+   * the snapshot itself is right on all four. It is required on
+   * `PlainLocationPoint`, sealed into the envelope, and shown to the
+   * recipient, so a caller that guesses "web" relabels every iPhone share.
+   */
+  sourcePlatform?: PlainLocationPoint["sourcePlatform"] | null;
 };
 
 export type LocationPermission = HushhLocationPermissionState["state"];
@@ -169,12 +180,15 @@ function toSnapshot(point: {
   longitude: number;
   accuracyM: number | null;
   capturedAt: string;
+  sourcePlatform?: string | null;
 }): LocationSnapshot {
   return {
     latitude: point.latitude,
     longitude: point.longitude,
     accuracyM: point.accuracyM ?? null,
     capturedAt: point.capturedAt,
+    sourcePlatform:
+      (point.sourcePlatform as PlainLocationPoint["sourcePlatform"]) ?? null,
   };
 }
 
@@ -286,6 +300,7 @@ async function hydrateFromMemory(userId: string): Promise<void> {
       longitude: point.longitude,
       accuracyM: point.accuracyM ?? null,
       capturedAt: point.capturedAt,
+      sourcePlatform: point.sourcePlatform,
     }),
     snapshotOrigin: "restored",
     // A restored fix answers "where were you", not "did this attempt work", so
@@ -389,7 +404,10 @@ export const LocationBus = {
     // of the point of this change. Keep it, and write it through.
     if (!switchingAccounts && state.snapshotOrigin === "fresh" && state.snapshot) {
       lastPersistedAtMs = 0;
-      recordFix({ ...state.snapshot, sourcePlatform: "web" });
+      // The snapshot knows which platform produced it. Hardcoding "web" here
+      // persisted every first-attach fix on an iPhone as a web fix, and that
+      // label is what the recipient is shown.
+      recordFix(state.snapshot);
       return;
     }
 
