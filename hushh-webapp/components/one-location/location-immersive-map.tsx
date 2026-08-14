@@ -98,16 +98,12 @@ const MAP_ID = "one-location-private-map";
 // module for the full contract and its latency budget.
 
 const NEARBY_CHECK_IN_RADIUS_METERS = 500;
-// Matches the toggle button's own h-[4.5rem] when the tray is expanded.
-const TRAY_HEADER_HEIGHT_PX = 72;
 const TRAY_COLLAPSED_HEIGHT_PX = 56; // 3.5rem, the collapsed pill.
-// The scroll container's own pt-1 + pb-3, which sit outside the measured
-// content ref and so are not part of its offsetHeight.
-const TRAY_BODY_PADDING_PX = 16;
 // The section's own `border` (1px top + 1px bottom) is border-box, so it
-// eats into the content area other than shrink it away from the header and
-// scroll container. Leaving it out of the sum shorted the sheet by 2px --
-// invisible as blank space, but enough to force a permanent 2px scrollbar.
+// eats into the content area rather than shrink it away from the header and
+// scroll container. It is the one piece of the sheet's height that isn't a
+// measured DOM element, so it stays a literal constant -- everything else
+// below is read from the real, rendered header and body instead of guessed.
 const TRAY_BORDER_HEIGHT_PX = 2;
 const MAP_ACCENT_CONTROL_CLASSNAME =
   "!border-[var(--app-accent-border)] !bg-[var(--app-accent-surface)] !text-[var(--app-accent-deep)] hover:!bg-[var(--app-accent-surface-strong)] dark:!text-[var(--app-accent-bright)]";
@@ -357,10 +353,14 @@ export function LocationImmersiveMap({
   const mapRef = useRef<GoogleMap | null>(null);
   const topControlsRef = useRef<HTMLDivElement | null>(null);
   const peopleTrayRef = useRef<HTMLElement | null>(null);
-  // Measures the tray body's own natural (unclipped) height, so the sheet can
-  // size itself to its content instead of always claiming its viewport-derived
-  // maximum -- the cause of the dead space below the last row of buttons.
+  // Measures the tray's real rendered pieces -- the toggle header and the
+  // body's natural (unclipped) content -- so the sheet can size itself to
+  // its content instead of a hand-computed guess at their heights (a guess
+  // that was previously off by the section's own border-width). Reading the
+  // DOM directly here means there is nothing left to keep in sync by hand.
+  const trayHeaderRef = useRef<HTMLButtonElement | null>(null);
   const trayContentRef = useRef<HTMLDivElement | null>(null);
+  const [trayHeaderHeight, setTrayHeaderHeight] = useState(0);
   const [trayContentHeight, setTrayContentHeight] = useState(0);
   const markerIdsRef = useRef<string[]>([]);
   const markerGenerationRef = useRef(0);
@@ -1258,19 +1258,25 @@ export function LocationImmersiveMap({
 
   // The tray body's rendered box is height-clamped by its scroll container,
   // so its own size never reflects how tall its content actually is. Track
-  // that instead, synchronously before paint so there is no grow-in flash,
-  // and again whenever content changes (chips added/removed, search
-  // narrows the list, nearby results arrive). The tray section itself only
-  // mounts once the renderer is ready, so the dependencies below -- its
-  // exact mount condition -- make sure this attaches once trayContentRef
-  // actually exists, not just once on the component's own first render.
+  // the header and the body's content directly instead, synchronously
+  // before paint so there is no grow-in flash, and again whenever either
+  // changes size (chips added/removed, search narrows the list, nearby
+  // results arrive). The tray section itself only mounts once the renderer
+  // is ready, so the dependencies below -- its exact mount condition --
+  // make sure this attaches once the refs actually exist, not just once on
+  // the component's own first render.
   useLayoutEffect(() => {
-    const el = trayContentRef.current;
-    if (!el) return;
-    const measure = () => setTrayContentHeight(el.offsetHeight);
+    const header = trayHeaderRef.current;
+    const content = trayContentRef.current;
+    if (!header || !content) return;
+    const measure = () => {
+      setTrayHeaderHeight(header.offsetHeight);
+      setTrayContentHeight(content.offsetHeight);
+    };
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(el);
+    observer.observe(header);
+    observer.observe(content);
     return () => observer.disconnect();
   }, [rendererReady, status, isCheckInSurface]);
 
@@ -2133,7 +2139,7 @@ export function LocationImmersiveMap({
             // shrinks the sheet, a long one still stops short of the notch
             // and scrolls internally.
             height: trayExpanded
-              ? `clamp(${TRAY_COLLAPSED_HEIGHT_PX}px, ${TRAY_HEADER_HEIGHT_PX + TRAY_BODY_PADDING_PX + TRAY_BORDER_HEIGHT_PX + trayContentHeight}px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))`
+              ? `clamp(${TRAY_COLLAPSED_HEIGHT_PX}px, ${trayHeaderHeight + trayContentHeight + TRAY_BORDER_HEIGHT_PX}px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))`
               : "3.5rem",
             borderRadius: trayExpanded ? "1.75rem" : "999px",
             transition: [
@@ -2146,6 +2152,7 @@ export function LocationImmersiveMap({
           }}
         >
           <button
+            ref={trayHeaderRef}
             type="button"
             className={`group relative flex w-full shrink-0 touch-manipulation items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70 motion-reduce:transition-none ${
               trayExpanded
@@ -2260,12 +2267,13 @@ export function LocationImmersiveMap({
             inert={!trayExpanded}
           >
             <div
-              className="h-full min-h-0 overflow-y-auto overscroll-contain px-3 pb-3 pt-1"
+              className="h-full min-h-0 overflow-y-auto overscroll-contain"
               data-testid="one-location-map-tray-scroll"
             >
               {/* Unconstrained by the scroll container's fixed height above,
-                  so its offsetHeight is the content's true natural size. */}
-              <div ref={trayContentRef}>
+                  so its offsetHeight is the content's true natural size,
+                  padding included since that padding lives here now. */}
+              <div ref={trayContentRef} className="px-3 pb-3 pt-1">
               <label className="relative block">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <span className="sr-only">Find a person on Your Map</span>

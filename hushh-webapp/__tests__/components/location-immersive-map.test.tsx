@@ -288,18 +288,24 @@ import { __resetNativeMapLifecycleForTests } from "@/lib/one-location/native-map
 const DEFAULT_PLACE_FOCUS = { ...experienceHarness.placeFocus };
 
 // jsdom never lays out elements, so the tray's content-measurement effect
-// (offsetHeight) would always read 0. Stub a representative populated-tray
-// height by default; individual tests override it to prove the sheet's
-// height tracks whatever content is actually rendered.
+// (offsetHeight) would always read 0. Stub a representative expanded-header
+// height and a representative populated-tray body height by default;
+// individual tests override the body height to prove the sheet's height
+// tracks whatever content is actually rendered. The header is a <button>
+// and the body a <div>, which is all the stub needs to tell them apart.
+let trayHeaderHeightStub = 72;
 let trayContentHeightStub = 260;
 Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
   configurable: true,
   get() {
-    return trayContentHeightStub;
+    return this.tagName === "BUTTON"
+      ? trayHeaderHeightStub
+      : trayContentHeightStub;
   },
 });
 
 beforeEach(() => {
+  trayHeaderHeightStub = 72;
   trayContentHeightStub = 260;
   // Lanes are module state: without this a superseded claim or a queued
   // teardown from an earlier case leaks into the next one.
@@ -477,7 +483,7 @@ describe("LocationImmersiveMap demo experience", () => {
       width:
         "min(34rem, calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)))",
       height:
-        "clamp(56px, 350px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))",
+        "clamp(56px, 334px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))",
       borderRadius: "1.75rem",
     });
     expect(screen.getByTestId("one-location-map-tray-body")).toHaveClass(
@@ -578,13 +584,13 @@ describe("LocationImmersiveMap demo experience", () => {
       expect(trayToggle).toHaveAttribute("aria-expanded", "true");
       expect(screen.getByTestId("one-location-map-people-tray")).toHaveStyle({
         height:
-          "clamp(56px, 186px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))",
+          "clamp(56px, 170px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))",
       });
       // Shorter content, shorter sheet -- not the fixed viewport-derived
       // allowance the populated-tray case reaches for.
       expect(
         screen.getByTestId("one-location-map-people-tray"),
-      ).not.toHaveStyle({ height: "350px" });
+      ).not.toHaveStyle({ height: "334px" });
     });
   });
 
