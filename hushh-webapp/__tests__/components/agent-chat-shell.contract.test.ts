@@ -27,7 +27,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("ShellActionSurface");
     expect(workspace).toContain('"motion-step-enter flex w-full"');
     expect(workspace).not.toContain("animate-in fade-in slide-in-from-bottom-1");
-    expect(workspace).toContain("rounded-[var(--app-radius-pill)]");
+    expect(workspace).toContain('className="flex min-h-16 items-end gap-2 rounded-2xl');
     expect(history).toContain("bg-foreground/[0.025]");
   });
 
@@ -50,7 +50,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("streamAbortControllerRef.current?.abort();\n    streamAbortControllerRef.current = streamAbortController");
   });
 
-  it("keeps compact composer text inside its pill-safe inset and opens a separate long-form editor", () => {
+  it("keeps compact composer controls inside a rectangular editor and opens a separate long-form editor", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 
     expect(workspace).toContain("agent-chat-composer-expand");
@@ -59,7 +59,8 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("overflow-y-auto");
     expect(workspace).toContain("px-7 py-3 pr-14");
     expect(workspace).toContain("sm:px-8 sm:pr-14");
-    expect(workspace).toContain("rounded-[var(--app-radius-pill)]");
+    expect(workspace).toContain("rounded-2xl border border-border/70 bg-foreground/[0.04]");
+    expect(workspace).toContain('className="flex shrink-0 self-end items-center gap-2"');
     expect(workspace).toContain("max-h-28");
     expect(workspace).toContain("sm:max-h-36");
     expect(workspace).toContain("h-[min(38dvh,18rem)]");
@@ -67,5 +68,13 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("composerLong ?");
     expect(workspace).not.toContain("Expanded message</span>");
     expect(workspace).not.toContain("Writing in expanded composer");
+  });
+
+  it("uses the nested stream response surface only when a turn has supporting context", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+
+    expect(workspace).toContain("const hasSupportingTurnContext =");
+    expect(workspace).toContain("Boolean(message.sources?.length);");
+    expect(workspace).not.toContain("Boolean(message.text.trim());\n  const shouldRenderStreamPanel");
   });
 });

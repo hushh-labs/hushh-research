@@ -845,14 +845,16 @@ function AgentBubble({
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
   const streamEvents = message.streamEvents ?? [];
-  const hasStreamContent =
+  // The stream panel owns its own response card. Plain assistant completions
+  // (for example, "Scheduled Client call.") therefore stay on the normal
+  // single-bubble path rather than rendering as a card inside another card.
+  const hasSupportingTurnContext =
     streamEvents.length > 0 ||
     Boolean(message.thought?.trim()) ||
-    Boolean(message.sources?.length) ||
-    Boolean(message.text.trim());
+    Boolean(message.sources?.length);
   const shouldRenderStreamPanel =
     !isUser &&
-    hasStreamContent;
+    hasSupportingTurnContext;
   const animated = useAnimatedAssistantText(message.text, !isUser && isStreaming);
   const assistantText = isUser ? message.text : animated.displayedText;
   const consentActionsPayload = !isUser
@@ -3918,7 +3920,7 @@ export function AgentChatWorkspace({
       <Button
         type="submit"
         size="icon"
-        className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:rounded-full max-sm:enabled:bg-[color:var(--app-accent)] max-sm:enabled:text-[color:var(--app-accent-fg)] max-sm:enabled:shadow-[var(--app-accent-ring)] max-sm:enabled:hover:bg-[color:var(--app-accent-hover)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500 dark:max-sm:enabled:bg-[color:var(--app-accent)] dark:max-sm:enabled:text-[color:var(--app-accent-fg)]"
+        className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:enabled:bg-[color:var(--app-accent)] max-sm:enabled:text-[color:var(--app-accent-fg)] max-sm:enabled:shadow-[var(--app-accent-ring)] max-sm:enabled:hover:bg-[color:var(--app-accent-hover)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500 dark:max-sm:enabled:bg-[color:var(--app-accent)] dark:max-sm:enabled:text-[color:var(--app-accent-fg)]"
         disabled={!canSend}
         aria-label="Send message"
       >
@@ -4816,7 +4818,7 @@ export function AgentChatWorkspace({
                   {!composerExpanded ? (
                     <div
                       data-testid="agent-chat-composer"
-                      className="flex min-h-16 items-end gap-2 rounded-[var(--app-radius-pill)] border border-border/70 bg-foreground/[0.04] px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[color:var(--app-accent)] max-sm:focus-within:ring-[color:var(--app-accent-ring)]"
+                      className="flex min-h-16 items-end gap-2 rounded-2xl border border-border/70 bg-foreground/[0.04] px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[color:var(--app-accent)] max-sm:focus-within:ring-[color:var(--app-accent-ring)]"
                     >
                       <div className="relative min-w-0 flex-1 self-stretch">
                         <textarea
@@ -4854,7 +4856,9 @@ export function AgentChatWorkspace({
                           </Button>
                         ) : null}
                       </div>
-                      {composerActionRail}
+                      <div className="flex shrink-0 self-end items-center gap-2">
+                        {composerActionRail}
+                      </div>
                     </div>
                   ) : null}
                 </>
