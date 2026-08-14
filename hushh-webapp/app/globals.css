@@ -4907,6 +4907,50 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   animation: stage-pulse 1.5s ease-in-out infinite;
 }
 
+/* ---------------------------------------------------------------------------
+ * One Location · SOS radar
+ *
+ * The alarm rings and the breathing core of the SOS hold control. These used to
+ * live in an inline <style> block inside sos-panel.tsx, which made the SOS
+ * screen the only surface in the app running its own motion engine (see the
+ * "one driver per concern" rule in lib/morphy-ux/README.md). They are declared
+ * here so the SOS screen shares the app's single motion source, and so the
+ * reduced-motion guard below cannot be forgotten by a future edit.
+ * ------------------------------------------------------------------------- */
+@keyframes sosRadarPulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  80% {
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.62);
+    opacity: 0;
+  }
+}
+
+@keyframes sosCorePulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.045);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-sos-pulse] {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+  [data-sos-core] {
+    animation: none !important;
+  }
+}
+
 /* Ensure spinner utilities always rotate in runtime (vault/auth/load states). */
 @keyframes hushh-spin-fallback {
   to {

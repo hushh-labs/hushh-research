@@ -9,10 +9,12 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import { ChevronLeft, Loader2, Phone, SendHorizontal } from "lucide-react";
+import { Loader2, Phone, SendHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
+import { TaskFlowHeader } from "./primitives";
+import { SUBCARD_SURFACE } from "./tokens";
 import type { OneLocationRecipient } from "@/lib/one-location/types";
 import type {
   EmergencyInfo,
@@ -26,12 +28,10 @@ type SmsMessageSelection = SmsQuickMessage | "custom" | null;
 
 type WindowsFallbackCopyStatus = "idle" | "copied" | "error";
 
-export function isWindowsDesktopEmCallUnsupported(
-  options?: {
-    userAgent?: string;
-    platform?: string;
-  },
-) {
+export function isWindowsDesktopEmCallUnsupported(options?: {
+  userAgent?: string;
+  platform?: string;
+}) {
   const userAgent = (options?.userAgent ?? navigator.userAgent).toLowerCase();
   const platform = (options?.platform ?? navigator.platform).toLowerCase();
   const isWindows =
@@ -74,7 +74,6 @@ export type SosPanelProps = {
   onResolveEmergencyNumber: () => void;
 };
 
-
 function firstNameOf(label: string): string {
   return label.trim().split(/\s+/)[0] || label.trim();
 }
@@ -102,7 +101,6 @@ export function SosPanel({
   emergencyStatus,
   onResolveEmergencyNumber,
 }: SosPanelProps) {
-
   const [messageSelection, setMessageSelection] =
     useState<SmsMessageSelection>(null);
   const [customMessage, setCustomMessage] = useState("");
@@ -158,13 +156,13 @@ export function SosPanel({
   // Full guard used by the hold-completion path so a hold can never actually
   // send an SMS while there are no ready recipients.
   const disabled = hardDisabled || noReadyRecipients;
-  const shouldFallbackWindowsEmergencyCall = isWindowsDesktopEmCallUnsupported();
+  const shouldFallbackWindowsEmergencyCall =
+    isWindowsDesktopEmCallUnsupported();
   // Radar pulse is active the moment the user starts pressing, and keeps
   // emanating continuously while the SMS is sending and after it goes live.
   const showPulse = active || busy || progress > 0;
   // Editing is closed from the moment the alert is sent until it is cancelled.
   const messageLocked = active || busy;
-
 
   // The alert ending is the only thing that releases the record and the lock.
   // Cancelling is deliberately the single escape: an editable picker over a
@@ -336,39 +334,30 @@ export function SosPanel({
   }, [emergency?.number]);
 
   return (
-    <section
-      className="fixed inset-0 z-[540] h-[100dvh] min-h-[100dvh] overflow-y-auto overscroll-none bg-black text-white"
-      data-ambient-chrome-ignore
-      data-testid="sms-safety-screen"
-    >
-      <div className="mx-auto flex min-h-[100dvh] w-full max-w-[407px] flex-col px-6 pb-[max(21px,env(safe-area-inset-bottom))] pt-[max(44px,env(safe-area-inset-top))] lg:max-w-[520px]">
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Back to Location"
-          className="press-scale flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white"
-        >
-          <ChevronLeft className="h-6 w-6" strokeWidth={2} />
-        </button>
+    // SOS is a Location task flow, not a separate app. It renders INSIDE the
+    // signed-in shell like every other `?action=…` flow (Settings, Check-In,
+    // Shared with me), so the top bar keeps showing the single back control and
+    // the "One › Location › SOS" breadcrumb. It used to escape the shell as a
+    // pinned full-viewport black overlay, which is what removed the breadcrumb
+    // and forced a second, in-content back button onto the screen.
+    <section data-testid="sms-safety-screen">
+      {/* Same header grammar as the Location Settings flow: the route name is
+          the eyebrow, the screen name is the title. Back lives in the top bar
+          only — never a second arrow in the content. */}
+      <TaskFlowHeader
+        eyebrow="Location"
+        title="SOS"
+        description="Hold to send your live location by SMS."
+      />
 
-        <header className="mt-4 px-3 text-center">
-          <h1 className="whitespace-nowrap !text-[28px] !font-bold !leading-[34px] !tracking-normal">
-            SMS · Save my Soul
-          </h1>
-          <p className="mx-auto mt-2 max-w-[310px] text-[15px] font-normal leading-[20px] text-white/70">
-            Hold to send your live location by SMS.
-          </p>
-        </header>
-
-        {/* The emergency action is one centered stack: title/subtitle, then the
-            hold button immediately beneath it, then the message and recovery
-            controls. Keeping this single column prevents the SMS action from
-            reading like a separate desktop panel. */}
-        <div className="flex flex-col items-center gap-4 pt-5">
-          <div className="flex items-center justify-center">
-            <div className="relative flex h-[204px] w-[204px] items-center justify-center">
-            <span className="absolute inset-0 rounded-full border border-white/10" />
-            <span className="absolute inset-[24px] rounded-full border border-white/15" />
+      {/* The emergency action is one centered stack: the hold control, then the
+          message and recovery controls beneath it. Keeping this single column
+          prevents the SMS action from reading like a separate desktop panel. */}
+      <div className="mt-6 flex flex-col items-center gap-4">
+        <div className="flex items-center justify-center">
+          <div className="relative flex h-[204px] w-[204px] items-center justify-center">
+            <span className="absolute inset-0 rounded-full border border-border" />
+            <span className="absolute inset-[24px] rounded-full border border-border" />
 
             {/* Radar / alarm rings that emanate continuously from the red core
                 while the SMS is being held, sent, and after it goes live. */}
@@ -411,10 +400,12 @@ export function SosPanel({
               onKeyDown={handleKeyDown}
               onKeyUp={handleKeyUp}
               onContextMenu={(event) => event.preventDefault()}
+              data-sos-core={active || busy ? "" : undefined}
               className={cn(
-                "relative z-10 flex h-[128px] w-[128px] touch-none select-none flex-col items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black",
+                "relative z-10 flex h-[128px] w-[128px] touch-none select-none flex-col items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-white outline-none transition-transform focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background",
                 progress > 0 && progress < 1 && "scale-[1.035]",
-                (active || busy) && "[animation:sosCorePulse_2.2s_ease-in-out_infinite]",
+                (active || busy) &&
+                  "[animation:sosCorePulse_2.2s_ease-in-out_infinite]",
                 disabled && "cursor-not-allowed",
               )}
               style={{
@@ -437,24 +428,12 @@ export function SosPanel({
                       : "Hold 2 s"}
               </span>
             </button>
-            </div>
           </div>
+        </div>
 
-        <style>{`
-          @keyframes sosRadarPulse {
-            0% { transform: scale(1); opacity: 0.55; }
-            80% { opacity: 0; }
-            100% { transform: scale(1.62); opacity: 0; }
-          }
-          @keyframes sosCorePulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.045); }
-          }
-          @media (prefers-reduced-motion: reduce) {
-            [data-sos-pulse] { animation: none !important; opacity: 0 !important; }
-          }
-        `}</style>
-
+        {/* `sosRadarPulse` / `sosCorePulse` and their reduced-motion guard live
+            in app/globals.css with the rest of the app's motion, never in a
+            style island declared by this component. */}
 
         <div className="w-full max-w-[360px]">
           {/* While an SMS/SOS session is live, the primary action becomes
@@ -468,7 +447,7 @@ export function SosPanel({
               disabled={stopBusy}
               aria-label="Cancel the alert and stop sharing your location"
               data-testid="sos-cancel-alert"
-              className="press-scale mb-4 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-white text-[15px] font-semibold text-[#d70015] shadow-sm disabled:opacity-60"
+              className="press-scale mb-4 flex h-12 w-full items-center justify-center gap-2 rounded-full border border-[color:var(--app-destructive)] bg-[color:var(--app-card-surface-default-solid)] text-[15px] font-semibold text-[color:var(--app-destructive)] disabled:opacity-60"
             >
               {stopBusy ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -477,7 +456,7 @@ export function SosPanel({
             </button>
           ) : null}
 
-          <p className="truncate px-2 text-center text-[13px] text-white/70">
+          <p className="truncate px-2 text-center text-[13px] text-muted-foreground">
             {names ? `SMS goes to ${names}` : "No SMS contacts selected"} ·{" "}
             <button
               type="button"
@@ -496,15 +475,18 @@ export function SosPanel({
             <div
               role="status"
               data-testid="sos-sent-message"
-              className="mt-3 rounded-2xl border border-white/10 bg-white/[0.06] p-3 text-[13px] leading-relaxed text-white"
+              className={cn(
+                SUBCARD_SURFACE,
+                "mt-3 p-3 text-[13px] leading-relaxed text-foreground",
+              )}
             >
               <p className="font-semibold">{busy ? "Sending" : "Sent"}</p>
-              <p className="mt-1 text-white/70">
+              <p className="mt-1 text-muted-foreground">
                 {sentMessage
                   ? `“${sentMessage}”`
                   : "Your location, with no message."}
               </p>
-              <p className="mt-2 text-white/50">
+              <p className="mt-2 text-muted-foreground/70">
                 Cancel to change it.
               </p>
             </div>
@@ -525,8 +507,8 @@ export function SosPanel({
                 className={cn(
                   "press-scale h-11 rounded-full border text-[15px] font-semibold leading-5",
                   messageSelection === option
-                    ? "border-white bg-white text-black"
-                    : "border-white/5 bg-[#1c1c1e] text-white",
+                    ? "border-foreground bg-foreground text-background"
+                    : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-foreground",
                   messageLocked && "cursor-not-allowed opacity-50",
                 )}
               >
@@ -545,8 +527,8 @@ export function SosPanel({
               className={cn(
                 "press-scale col-span-2 h-11 rounded-full border text-[15px] font-semibold leading-5",
                 messageSelection === "custom"
-                  ? "border-white bg-white text-black"
-                  : "border-white/5 bg-[#1c1c1e] text-white",
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-foreground",
                 messageLocked && "cursor-not-allowed opacity-50",
               )}
             >
@@ -576,10 +558,10 @@ export function SosPanel({
                   className={cn(
                     // pr-14 reserves the send button's column so typed text
                     // never runs underneath it.
-                    "min-h-[72px] w-full resize-none rounded-2xl border bg-[#1c1c1e] py-3 pl-3.5 pr-14 text-[17px] leading-[22px] text-white outline-none placeholder:text-white/40 focus:border-white/55",
+                    "min-h-[72px] w-full resize-none rounded-2xl border bg-[color:var(--app-card-surface-compact)] py-3 pl-3.5 pr-14 text-[17px] leading-[22px] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring",
                     customMessageLimitExceeded
                       ? "border-[color:var(--app-destructive)]"
-                      : "border-white/10",
+                      : "border-border",
                     messageLocked && "cursor-not-allowed opacity-60",
                   )}
                 />
@@ -595,14 +577,17 @@ export function SosPanel({
                   className={cn(
                     "press-scale absolute bottom-2.5 right-2.5 flex h-10 w-10 items-center justify-center rounded-full transition-colors",
                     hardDisabled || !selectedMessage
-                      ? "bg-white/10 text-white/35"
+                      ? "bg-muted text-muted-foreground/50"
                       : "bg-[color:var(--app-destructive)] text-white",
                   )}
                 >
                   {busy ? (
                     <Loader2 className="h-[18px] w-[18px] animate-spin" />
                   ) : (
-                    <SendHorizontal className="h-[18px] w-[18px]" strokeWidth={2} />
+                    <SendHorizontal
+                      className="h-[18px] w-[18px]"
+                      strokeWidth={2}
+                    />
                   )}
                 </button>
               </div>
@@ -612,7 +597,7 @@ export function SosPanel({
                   "mt-1 text-right text-[12px]",
                   customMessageLimitExceeded
                     ? "text-[color:var(--app-destructive)]"
-                    : "text-white/55",
+                    : "text-muted-foreground",
                 )}
               >
                 {customMessageLength}/{ONE_LOCATION_SHARE_NOTE_MAX_LENGTH}
@@ -703,16 +688,14 @@ export function SosPanel({
               </button>
             )}
 
-
             <button
               type="button"
               onClick={onClose}
-              className="press-scale h-12 rounded-full border border-white/55 text-[15px] font-semibold text-white"
+              className="press-scale h-12 rounded-full border border-border text-[15px] font-semibold text-foreground"
             >
               Cancel
             </button>
           </div>
-        </div>
         </div>
       </div>
     </section>
