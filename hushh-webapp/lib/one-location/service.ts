@@ -171,6 +171,10 @@ function withinAge(capturedAt: string, maxAgeMs: number): boolean {
   return age >= 0 && age <= maxAgeMs;
 }
 
+/** Live bus-backed watches, keyed by the id handed to the caller. */
+const busWatches = new Map<string, () => void>();
+let busWatchSeq = 0;
+
 function captureFailure(state: { error: string | null }): Error {
   const original = LocationBus.getLastCaptureError();
   if (original instanceof Error) return original;
@@ -280,24 +284,55 @@ export class OneLocationService {
    * time the device reports a new fix (as the user moves), powering true live
    * location instead of a fixed-interval re-fetch. Returns a watch id; pass it
    * to `clearLocationWatch` to stop. Foreground-only.
+   *
+   * Backed by the bus's refcounted watch rather than a device subscription of
+   * its own. The Location page starts two of these — one to publish movement,
+   * one to draw the owner's own marker — and each used to open a separate OS
+   * watch. On iOS that matters beyond battery: the plugin holds exactly one
+   * pending location call, and a second request rejects the first with "A
+   * newer location request replaced this request", which arrived in the
+   * publisher's catch as a location failure.
+   *
+   * Adapting here rather than at the two call sites means any other caller
+   * that appears also feeds the shared store instead of competing with it.
    */
   static async watchCurrentPosition(
     onPoint: (point: PlainLocationPoint) => void,
     onError?: (error: { message: string; code?: number }) => void,
   ): Promise<string> {
-    return HushhLocation.watchPosition(
-      { enableHighAccuracy: true, timeoutMs: 20_000 },
-      (point, error) => {
-        if (point) {
-          onPoint(point);
-          return;
-        }
-        if (error && onError) onError(error);
-      },
-    );
+    const stop = await LocationBus.watch();
+    const id = `bus:${++busWatchSeq}`;
+    let lastSeenAt: string | null = null;
+
+    const unsubscribe = LocationBus.subscribe((state) => {
+      if (state.snapshot && state.snapshotOrigin === "fresh") {
+        // subscribe() fires on every emit, including a permission-only one.
+        // Without this the same coordinate would be re-delivered as movement.
+        if (state.snapshot.capturedAt === lastSeenAt) return;
+        lastSeenAt = state.snapshot.capturedAt;
+        onPoint(toPlainPoint(state.snapshot));
+        return;
+      }
+      if (state.status === "denied" && onError) {
+        onError({ message: state.error ?? "Location is off.", code: 1 });
+      }
+    });
+
+    busWatches.set(id, () => {
+      unsubscribe();
+      stop();
+    });
+    return id;
   }
 
   static async clearLocationWatch(id: string): Promise<void> {
+    const release = busWatches.get(id);
+    if (release) {
+      busWatches.delete(id);
+      release();
+      return;
+    }
+    // A raw plugin id from a watch started before this adapter existed.
     if (!id) return;
     return HushhLocation.clearWatch({ id });
   }

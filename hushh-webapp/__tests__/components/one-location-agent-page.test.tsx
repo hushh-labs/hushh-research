@@ -23,6 +23,8 @@ const {
   mockOpenLocationSettings,
   mockOpenAppSettings,
   mockCaptureCurrentPosition,
+  mockBusGetState,
+  mockBusEnsure,
   mockReverseGeocode,
   mockPlacesAutocomplete,
   mockPlaceDetails,
@@ -71,6 +73,8 @@ const {
   mockOpenLocationSettings: vi.fn(),
   mockOpenAppSettings: vi.fn(),
   mockCaptureCurrentPosition: vi.fn(),
+  mockBusGetState: vi.fn(),
+  mockBusEnsure: vi.fn(),
   mockReverseGeocode: vi.fn(),
   mockPlacesAutocomplete: vi.fn(),
   mockPlaceDetails: vi.fn(),
@@ -256,6 +260,26 @@ vi.mock("@/lib/one-location/encryption", () => ({
   RECIPIENT_KEY_UNAVAILABLE_MESSAGE:
     "Recipient key unavailable for this location share.",
   ensureVaultSyncedRecipientKey: vi.fn(async () => {}),
+}));
+
+// The live publisher reads the shared position store rather than reaching the
+// device itself, so the store is what these tests have to stand up. Left
+// permanently "ready" with a fix measured now: that is the state a session with
+// a running movement watch is in, and it is the precondition for every publish
+// assertion below.
+vi.mock("@/lib/one-location/location-bus", () => ({
+  LocationBus: {
+    getState: mockBusGetState,
+    ensure: mockBusEnsure,
+    subscribe: vi.fn(() => () => {}),
+    watch: vi.fn().mockResolvedValue(() => {}),
+    attachUser: vi.fn().mockResolvedValue(undefined),
+    syncPermission: vi.fn().mockResolvedValue("granted"),
+    request: vi.fn(),
+    invalidate: vi.fn(),
+    getLastCaptureError: vi.fn(() => null),
+    __resetForTests: vi.fn(),
+  },
 }));
 
 vi.mock("@/lib/one-location/service", () => ({
@@ -811,6 +835,23 @@ async function openTemporaryLinkFlow() {
 describe("OneLocationAgentPage", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    // The shared store, holding a fix measured now — what a session with a
+    // live movement watch looks like, and the precondition for the publisher.
+    const busSnapshot = {
+      latitude: 28.6139,
+      longitude: 77.209,
+      accuracyM: 12,
+      capturedAt: new Date().toISOString(),
+      sourcePlatform: "web" as const,
+    };
+    mockBusGetState.mockReturnValue({
+      status: "ready",
+      permission: "granted",
+      snapshot: busSnapshot,
+      snapshotOrigin: "fresh",
+      error: null,
+    });
+    mockBusEnsure.mockResolvedValue(busSnapshot);
     Element.prototype.scrollIntoView = vi.fn();
     window.localStorage.clear();
     // Most page-flow tests are not about the optional saved-place prompt.

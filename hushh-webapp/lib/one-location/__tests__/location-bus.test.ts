@@ -171,6 +171,17 @@ describe("LocationBus.watch", () => {
     expect(mockLocation.clearWatch).toHaveBeenCalledWith({ id: "watch-1" });
   });
 
+  it("starts one watch even when both surfaces mount in the same tick", async () => {
+    // The Location page starts two watches — one to publish movement, one to
+    // draw the owner's own marker — and they mount together. Sequential
+    // subscribers are caught by the watchId guard; simultaneous ones are only
+    // caught by the in-flight guard, so this is the case the test above
+    // cannot see.
+    await Promise.all([LocationBus.watch(), LocationBus.watch()]);
+
+    expect(mockLocation.watchPosition).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores a repeated stop from the same subscriber", async () => {
     const stopA = await LocationBus.watch();
     const stopB = await LocationBus.watch();
