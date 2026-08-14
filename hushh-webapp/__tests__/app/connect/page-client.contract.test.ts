@@ -31,8 +31,8 @@ describe("Connect canonical surface contract", () => {
       "utf8",
     );
 
-    expect(source).toContain("Review connection capabilities");
-    expect(source).toContain("No capabilities available yet");
+    expect(source).toContain("Connection access");
+    expect(source).toContain("No access yet");
     expect(source).toContain("requestedHandles: []");
     expect(source).not.toContain(
       "if (catalog.items.length === 0 && catalog.offerableItems.length === 0)",

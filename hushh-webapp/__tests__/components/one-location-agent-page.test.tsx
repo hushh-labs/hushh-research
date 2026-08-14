@@ -341,6 +341,14 @@ vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({
 }));
 
 vi.mock("@/lib/one-location/contact-signals", () => ({
+  OneLocationContactSyncError: class OneLocationContactSyncError extends Error {
+    failure: unknown;
+
+    constructor(failure: unknown) {
+      super("Contact sync failed");
+      this.failure = failure;
+    }
+  },
   syncOneLocationContactSignals: mockSyncOneLocationContactSignals,
 }));
 
@@ -772,16 +780,16 @@ async function openShareConfirmStep() {
 }
 
 async function openAskFlow() {
-  fireEvent.click(screen.getByRole("button", { name: /Request Location/i }));
+  fireEvent.click(screen.getByRole("button", { name: /Request location/i }));
   expect(
-    await screen.findByRole("heading", { name: "Make it comfortable" }),
+    await screen.findByRole("heading", { name: "Ask clearly" }),
   ).toBeTruthy();
 }
 
 async function openTemporaryLinkFlow() {
   fireEvent.click(screen.getByRole("button", { name: "Links" }));
   fireEvent.click(
-    await screen.findByRole("button", { name: /Create a new link/i }),
+    await screen.findByRole("button", { name: /Create link/i }),
   );
   expect(
     await screen.findByRole("heading", { name: "Share outside your Circle" }),
@@ -2748,11 +2756,11 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByRole("heading", { name: "Pending invites" }),
     ).toBeNull();
-    // Links tab: "Active links" list + a single "Create a new link" CTA. The
+    // Links tab: "Active links" list + a single "Create link" CTA. The
     // mock has no active links, so the empty state shows.
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
     expect(
-      await screen.findByRole("button", { name: /Create a new link/i }),
+      await screen.findByRole("button", { name: /Create link/i }),
     ).toBeTruthy();
     expect(screen.getByText("Active links")).toBeTruthy();
     expect(screen.getByText("No active links")).toBeTruthy();
@@ -3320,9 +3328,7 @@ describe("OneLocationAgentPage", () => {
       }),
     );
     await waitFor(() =>
-      expect(
-        screen.getByRole("heading", { name: "Location Agent" }),
-      ).toBeTruthy(),
+      expect(screen.getByRole("status")).toHaveTextContent("Request sent."),
     );
   });
 
@@ -3439,7 +3445,7 @@ describe("OneLocationAgentPage", () => {
     // The populated People tab exposes a compact "Sync contacts" circle action.
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(
-      await screen.findByRole("button", { name: /Add Connections/i }),
+      await screen.findByRole("button", { name: /Add people/i }),
     ).toBeTruthy();
     fireEvent.click(
       await screen.findByRole("button", { name: /Sync contacts/i }),
@@ -3596,10 +3602,10 @@ describe("OneLocationAgentPage", () => {
     // "Ask someone to share" is populated-state-only, and the redundant
     // approval explainer must not add another card below these actions.
     expect(
-      screen.getByRole("button", { name: /Add Connections/i }),
+      screen.getByRole("button", { name: /Add people/i }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /Invite trusted person/i }),
+      screen.getByRole("button", { name: /^Invite$/i }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: /Sync contacts/i })).toBeTruthy();
     expect(
@@ -3611,12 +3617,12 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
 
     mockRouterPush.mockClear();
-    fireEvent.click(screen.getByRole("button", { name: /Add Connections/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Add people/i }));
     expect(mockRouterPush).toHaveBeenCalledWith("/one/connect");
 
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
     expect(
-      await screen.findByRole("button", { name: /Create a new link/i }),
+      await screen.findByRole("button", { name: /Create link/i }),
     ).toBeTruthy();
   });
 

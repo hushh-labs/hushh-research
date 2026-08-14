@@ -230,7 +230,7 @@ export function CirclesSection({
       {incomingInvites.length ? (
         <SettingsGroup
           title="Circle invitations"
-          description="Joining connects you with current and future Circle members. Location and SMS stay private until you choose to share."
+          description="Join first. Sharing stays private."
           testId="one-location-circle-member-invites"
         >
           {incomingInvites.map((invite) => {
@@ -418,7 +418,7 @@ export function CreateCircleFlow({
       <TaskFlowHeader
         eyebrow="People"
         title="Create a circle"
-        description="Give this group a name. People join only by accepting an invitation or entering its code."
+        description="Name the group."
       />
 
       <label className="block space-y-2">
@@ -457,7 +457,7 @@ export function CreateCircleFlow({
 
       <TrustNoteCard
         title="Connected, still private"
-        description="Circle members become connections with current and future members. Location and SMS stay private until each person chooses to share."
+        description="Members connect. Sharing stays explicit."
       />
 
       <Button
@@ -619,7 +619,7 @@ export function JoinCircleFlow({
 
       <TrustNoteCard
         title="No request wait"
-        description="A valid code is your consent to join and connect with the Circle. Location access remains explicit, time-limited and revocable."
+        description="Join the Circle. Location stays explicit."
       />
     </div>
   );
@@ -1485,7 +1485,7 @@ export function CircleDetailFlow({
 
           <SettingsGroup
             title="Members"
-            description="Members are connected through this Circle. Location and SMS sharing remain explicit."
+            description="Members connect through this Circle."
             testId="one-location-circle-members"
           >
             {members.map((member) => (
@@ -1507,7 +1507,7 @@ export function CircleDetailFlow({
 
           <TrustNoteCard
             title="Connected does not mean visible"
-            description="Circle membership is not live-view permission. Every location recipient still needs a separate encrypted, time-limited grant."
+            description="Live access still needs approval."
           />
 
           {isOwner ? (

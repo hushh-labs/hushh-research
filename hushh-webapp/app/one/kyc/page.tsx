@@ -1838,7 +1838,7 @@ export function OneKycWorkspace({
         <PageHeader
           eyebrow="One"
           title="KYC"
-          description="Review requests for personal information, choose what to share, and approve each response."
+          description="Review and approve each request."
           icon={ShieldCheck}
           accent="neutral"
           actions={
@@ -1876,11 +1876,11 @@ export function OneKycWorkspace({
 
         <div className="w-full">
           {(!vaultKey || !vaultOwnerToken) ? (
-            <SettingsGroup title="Vault required" description="You must have a Vault set up to use KYC review.">
+            <SettingsGroup title="Vault required" description="Set up your vault to use KYC.">
               <SettingsRow
                 icon={AlertTriangle}
                 title="Vault missing"
-                description="We couldn't save settings to your vault because it isn't set up yet. Please complete the setup in Onboarding or Settings to use this feature."
+                description="Set up your vault first."
               />
             </SettingsGroup>
           ) : (
@@ -1890,7 +1890,7 @@ export function OneKycWorkspace({
                   <SettingsRow
                     icon={AlertTriangle}
                     title="Unsupported Account"
-                    description="Your primary account uses an Apple Private Relay ID. Request review is not supported for proxy addresses."
+                    description="Private Relay addresses are not supported."
                   />
                 ) : showInitialLoading ? (
                 <SettingsRow
@@ -1906,7 +1906,7 @@ export function OneKycWorkspace({
                 <SettingsRow
                   icon={Inbox}
                   title="No matched requests"
-                  description="New requests appear here after One matches them to one of your verified addresses."
+                  description="Matched requests appear here."
                 />
               ) : (
                 workflows.map((workflow) => (
@@ -2051,7 +2051,7 @@ export function OneKycWorkspace({
                   <SettingsRow
                     icon={AlertTriangle}
                     title="Sync required"
-                    description="Unlock completed. Sync this request so One can prepare access safely from your device."
+                    description="Sync to prepare access."
                   />
                 </SettingsGroup>
               ) : null}
@@ -2329,7 +2329,7 @@ export function OneKycWorkspace({
                   <SettingsRow
                     icon={AlertTriangle}
                     title="Additional details needed"
-                    description="One needs additional approved details before it can prepare a complete reply."
+                    description="Approve more details to continue."
                   />
                 </SettingsGroup>
               ) : null}

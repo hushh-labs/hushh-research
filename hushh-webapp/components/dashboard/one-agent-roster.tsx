@@ -484,7 +484,7 @@ function AgentGridItem({
         // consistent gaps keep every cell's icon/title/KPI on the same
         // baseline across columns. Colors are unchanged (the tone logic in
         // AgentMetric still drives them).
-        "group relative flex min-h-[9.5rem] min-w-0 w-full flex-col items-center justify-start gap-2.5 overflow-hidden rounded-[16px] px-2 py-3.5 text-center",
+        "group relative flex min-h-[7rem] min-w-0 w-full flex-col items-center justify-start gap-2 overflow-hidden rounded-[16px] px-2 py-3 text-center",
         "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[color:var(--app-card-surface-compact)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-inset active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
         className,
@@ -503,7 +503,7 @@ function AgentGridItem({
       />
       <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-1 text-center">
         <span
-          className="block w-full truncate text-center text-[16px] font-semibold leading-5 tracking-[-0.01em] text-[#1D1D1F] dark:text-[#F5F5F7]"
+          className="block w-full truncate text-center text-[15px] font-semibold leading-5 tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
           data-ui-role="body-strong"
         >
           {mode.title}
@@ -523,7 +523,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
       title={mode.description}
       data-testid={`one-agent-list-row-${mode.id}`}
       className={cn(
-        "group/agent-row relative grid min-h-[60px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(92px,auto)_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
+        "group/agent-row relative grid min-h-[58px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(84px,auto)_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
         "transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
         "hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
@@ -689,11 +689,11 @@ export function OneAgentRoster({
         {view === "grid" ? (
           <div
             data-testid="one-agents-grid"
-            className="rounded-[var(--app-card-radius-standard,24px)] bg-white p-2 shadow-[var(--app-card-shadow-standard)] dark:bg-[#1C1C1E]"
+            className="rounded-[20px] bg-white p-2 shadow-[var(--app-card-shadow-standard)] dark:bg-[#1C1C1E]"
           >
             <div
               data-agent-roster-layout="grouped-icon-grid"
-              className="grid w-full grid-cols-[repeat(3,minmax(96px,1fr))] justify-center gap-x-2 gap-y-2 min-[430px]:grid-cols-[repeat(3,minmax(108px,1fr))] sm:grid-cols-[repeat(4,minmax(112px,1fr))] sm:gap-x-2.5 sm:gap-y-3"
+              className="grid w-full grid-cols-[repeat(3,minmax(92px,1fr))] justify-center gap-x-1.5 gap-y-1.5 min-[430px]:grid-cols-[repeat(3,minmax(104px,1fr))] sm:grid-cols-[repeat(4,minmax(108px,1fr))] sm:gap-x-2 sm:gap-y-2"
             >
               {visibleModes.map((mode) => (
                 <AgentGridItem key={mode.id} mode={mode} />
@@ -703,7 +703,7 @@ export function OneAgentRoster({
         ) : (
           <div
             data-testid="one-agents-list"
-            className="group/agent-list overflow-hidden rounded-[var(--app-card-radius-standard,24px)] bg-white shadow-[var(--app-card-shadow-standard)] dark:bg-[#1C1C1E]"
+            className="group/agent-list overflow-hidden rounded-[20px] bg-white shadow-[var(--app-card-shadow-standard)] dark:bg-[#1C1C1E]"
           >
             {visibleModes.map((mode) => (
               <AgentListRow key={mode.id} mode={mode} />
