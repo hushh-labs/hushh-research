@@ -147,6 +147,27 @@ describe("attaching an account", () => {
     expect(LocationBus.getState().snapshotOrigin).toBeNull();
   });
 
+  it("keeps a fix captured before the account was attached", async () => {
+    // Key bootstrap is async, so a surface can resolve a position before
+    // `attachUser` runs. Clearing on first attach would throw that live fix
+    // away and restore an older stored one in its place.
+    await LocationBus.ensure();
+    expect(LocationBus.getState().snapshot?.latitude).toBe(FRESH_POINT.latitude);
+    mockMemory.readLastKnownFix.mockResolvedValue(RESTORED_POINT);
+
+    await LocationBus.attachUser(USER);
+
+    const state = LocationBus.getState();
+    expect(state.snapshot?.latitude).toBe(FRESH_POINT.latitude);
+    expect(state.snapshotOrigin).toBe("fresh");
+    expect(state.status).toBe("ready");
+    // And it is written through, so it is not lost if the page reloads before
+    // the next capture.
+    expect(mockMemory.rememberLastKnownFix).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: USER }),
+    );
+  });
+
   it("stores nothing while no account is attached", async () => {
     await LocationBus.ensure();
 

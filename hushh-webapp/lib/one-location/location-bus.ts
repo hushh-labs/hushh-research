@@ -362,11 +362,28 @@ export const LocationBus = {
       await pendingHydration?.catch(() => undefined);
       return;
     }
+    const switchingAccounts = attachedUserId !== null;
     attachedUserId = next;
     pendingHydration = null;
-    state = { ...INITIAL_STATE };
-    for (const listener of [...listeners]) listener(state);
+
+    if (switchingAccounts) {
+      // One person's coordinate must never appear under another person's
+      // session, however briefly.
+      state = { ...INITIAL_STATE };
+      for (const listener of [...listeners]) listener(state);
+    }
     if (!next) return;
+
+    // The very first attach is different: nothing was ever attributed to
+    // anyone else, and a surface may already have captured a fix while key
+    // bootstrap was still running. Clearing here would throw away a live
+    // position and replace it with an older stored one — the exact inversion
+    // of the point of this change. Keep it, and write it through.
+    if (!switchingAccounts && state.snapshotOrigin === "fresh" && state.snapshot) {
+      lastPersistedAtMs = 0;
+      recordFix({ ...state.snapshot, sourcePlatform: "web" });
+      return;
+    }
 
     pendingHydration = hydrateFromMemory(next)
       .catch(() => undefined)
