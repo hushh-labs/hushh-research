@@ -818,7 +818,7 @@ function SaveMySoulFeatureCard() {
         </div>
       </div>
       <FeatureStatusRow className="px-3">
-        SMS sent to 3 contacts
+        Alerted 3 contacts
       </FeatureStatusRow>
     </article>
   );

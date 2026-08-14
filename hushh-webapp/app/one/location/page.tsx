@@ -3953,7 +3953,7 @@ export function OneLocationAgentPageContent({
         const point = await resolveSosLocation();
         if (!point) {
           toast.error(
-            "Couldn't get your location — SMS not sent. Check location permissions.",
+            "Couldn't get your location — alert not sent. Check location permissions.",
           );
           return;
         }
@@ -3982,13 +3982,13 @@ export function OneLocationAgentPageContent({
           );
         } else if (unreachable.length > 0) {
           toast.warning(
-            `SMS sent to ${reached} of ${readyRecipients.length} contacts. Couldn't alert ${formatNameList(unreachable)} — notifications are off on their end.`,
+            `Alerted ${reached} of ${readyRecipients.length} contacts. Couldn't reach ${formatNameList(unreachable)} — notifications are off on their end.`,
           );
         } else {
           toast.success(
             skipped > 0
-              ? `SMS sent to ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).`
-              : `SMS sent to ${readyRecipients.length} contact(s).`,
+              ? `Alerted ${readyRecipients.length} of ${totalSelected} contacts (${skipped} not ready).`
+              : `Alerted ${readyRecipients.length} contact(s).`,
           );
         }
         void refresh().catch(() => null);

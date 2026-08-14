@@ -373,7 +373,12 @@ export function SosPanel({
           the heading are the same words. Back lives in the top bar only. */}
       <TaskFlowHeader
         title="Save my Soul"
-        description="Hold to send your live location by SMS — even with no internet."
+        // Says what the alert ACTUALLY does. It previously promised text-message
+        // delivery that works offline; neither is true — this flow creates a
+        // location grant and fires one push, and it needs the network. Someone
+        // can hold this button instead of calling for help, so the promise has
+        // to be the truth.
+        description="Hold to alert your emergency contacts and give them your live location."
       />
 
       {/* The design's top-right actions. The screen's own title moved into the
@@ -555,7 +560,7 @@ export function SosPanel({
             emergency message to an audience you cannot see is not a thing to
             ask anyone to do. */}
         <p className="mt-2 max-w-full truncate px-2 text-center text-[13px] text-[color:var(--sos-label)]">
-          {names ? `SMS goes to ${names}` : "No SMS contacts selected"}
+          {names ? `Alerts ${names}` : "No emergency contacts selected"}
         </p>
 
         <div className="mt-9 flex w-full max-w-[520px] flex-col gap-2.5 lg:mt-[52px] lg:gap-3">
