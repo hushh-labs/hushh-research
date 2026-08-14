@@ -217,10 +217,10 @@ export function ProfileStackNavigator({
                     scrollRegionRefs.current[index] = node;
                   }}
                   data-profile-stack-scroll="true"
-                  className="flex-1 overflow-y-auto overflow-x-hidden"
+                  className="flex flex-1 flex-col overflow-y-auto overflow-x-hidden min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))]"
                 >
                   <div
-                    className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-[var(--app-bottom-content-clearance)] pt-3"
+                    className="mx-auto flex w-full max-w-[720px] flex-1 flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-[var(--app-bottom-content-clearance)] pt-3"
                     data-profile-stack-content="true"
                   >
                     <SettingsPresentationProvider

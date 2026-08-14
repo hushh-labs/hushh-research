@@ -1210,6 +1210,13 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   background: var(--app-warning) !important;
 }
 
+[data-profile-stack-screen="account"] [data-icon-tone="indigo"],
+[data-profile-stack-screen="panel:account"] [data-icon-tone="indigo"],
+.profile-account-content [data-icon-tone="indigo"],
+.profile-home-content [data-icon-tone="indigo"] {
+  background: #5856d6 !important;
+}
+
 [data-profile-stack-screen="account"] [data-icon-tone="purple"],
 [data-profile-stack-screen="panel:account"] [data-icon-tone="purple"],
 .profile-account-content [data-icon-tone="purple"],
@@ -1316,7 +1323,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-account-content
   .profile-account-reset-row
   [data-slot="settings-row-icon"] {
-  background: #b45309 !important;
+  background: #5856d6 !important;
 }
 
 .profile-account-content

@@ -3105,7 +3105,7 @@ function ProfilePageContent() {
       <SettingsGroup title="Account actions">
         <SettingsRow
           icon={RefreshCw}
-          iconTone="orange"
+          iconTone="indigo"
           className="profile-account-reset-row"
           title="Reset account"
           description={resetRowDescription}
