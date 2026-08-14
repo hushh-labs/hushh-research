@@ -156,3 +156,105 @@ export function locationStatusLabel(params: {
   if (params.accuracyLimited) return "Location limited";
   return "Location on";
 }
+
+/**
+ * How old a position may be and still be offered as "where you are".
+ *
+ * An hour, matching the budget the nearby drawer already chose for a restored
+ * fix. Long, deliberately: the alternative on a device that has stopped
+ * answering is not a fresher position, it is no position at all.
+ */
+export const USABLE_FIX_MAX_AGE_MS = 60 * 60 * 1_000;
+
+/** Below this a position needs no "last known" qualifier. */
+export const FRESH_FIX_MAX_AGE_MS = 2 * 60 * 1_000;
+
+/** What went wrong, in the only three kinds a surface has to tell apart. */
+export type LocationFailure =
+  /** The platform refused, proven by attempting. Settings is the way out. */
+  | "denied"
+  /** The device or its policy forbids an attempt. Settings, or nothing. */
+  | "blocked"
+  /** Nothing refused us; we simply have no position. Retry is the way out. */
+  | "no-fix";
+
+/**
+ * Should this failure be put in front of the owner?
+ *
+ * One rule, applied everywhere: **an error is shown only when the app has no
+ * usable position AND the owner can do something about it.**
+ *
+ * What that replaces is a surface that toasted on every capture failure,
+ * including the ones where a perfectly good position was already on screen. A
+ * failed refresh is not a location we do not have, and the two used to look
+ * identical — which is how "turn on location" ended up in front of people
+ * whose location was working.
+ *
+ * `blocksUserIntent` is the difference between a tap and a warm-up. A person
+ * who pressed Send and did not get a message needs to know why. A screen that
+ * quietly refreshed a position in the background does not get to interrupt
+ * them about it.
+ */
+export function shouldSurfaceLocationError(params: {
+  hasUsableFix: boolean;
+  observedDenial: boolean;
+  blockReason: LocationBlockReason | null;
+  blocksUserIntent: boolean;
+}): boolean {
+  // Actionable regardless of what we are holding: the owner is cut off from
+  // every future fix until they change a setting, and only saying so gets them
+  // there.
+  if (params.observedDenial) return true;
+  if (params.blockReason) return true;
+  if (params.hasUsableFix) return false;
+  return params.blocksUserIntent;
+}
+
+/** Is this position recent enough to present as where the owner is? */
+export function isUsableFixAge(
+  capturedAt: string | null | undefined,
+  maxAgeMs: number = USABLE_FIX_MAX_AGE_MS,
+): boolean {
+  if (!capturedAt) return false;
+  const capturedMs = Date.parse(capturedAt);
+  if (!Number.isFinite(capturedMs)) return false;
+  const age = Date.now() - capturedMs;
+  // A timestamp from the future is a clock change, not a fresh fix.
+  return age >= 0 && age <= maxAgeMs;
+}
+
+/**
+ * " · 20 min ago", or "" for a position recent enough to need no qualifier.
+ *
+ * A position the app is unsure about should say so in three words, not be
+ * replaced by an error. Empty for a fresh fix so the common case stays silent.
+ */
+export function fixAgeLabel(capturedAt: string | null | undefined): string {
+  if (!capturedAt) return "";
+  const capturedMs = Date.parse(capturedAt);
+  if (!Number.isFinite(capturedMs)) return "";
+  const ageMs = Date.now() - capturedMs;
+  if (ageMs < 0 || ageMs <= FRESH_FIX_MAX_AGE_MS) return "";
+  const minutes = Math.round(ageMs / 60_000);
+  if (minutes < 60) return ` · ${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  return hours === 1 ? " · 1 hr ago" : ` · ${hours} hr ago`;
+}
+
+/**
+ * The one location vocabulary.
+ *
+ * There were four — the web plugin, the bus, the Location page, and the
+ * nearby sheet each had their own — so the same failure reached the owner in
+ * four different sentences depending on which button they had pressed. These
+ * are short on purpose: the recovery card already carries the instructions,
+ * and a message that repeats them is a message people stop reading.
+ */
+export const LOCATION_COPY = {
+  /** The only message that earns a Settings button. */
+  denied: "Location is off for Hussh.",
+  /** Nothing refused us; there is simply no fix yet. */
+  noFix: "Couldn't find you. Try again.",
+  finding: "Finding you…",
+  lastKnown: (age: string) => `Last known${age}.`,
+} as const;

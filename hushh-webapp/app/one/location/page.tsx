@@ -165,9 +165,13 @@ import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import {
   LOCATION_BLOCK_MESSAGE,
+  LOCATION_COPY,
+  type LocationFailure,
   isLocationPermissionDeniedError,
+  isUsableFixAge,
   locationBlockReason,
   locationReadiness as resolveLocationReadiness,
+  shouldSurfaceLocationError,
 } from "@/lib/one-location/location-readiness";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
@@ -3191,9 +3195,69 @@ export function OneLocationAgentPageContent({
        * on/off control passes this; every other caller keeps today's behaviour.
        */
       isStale?: () => boolean;
-    }): Promise<{ ready: boolean; point?: PlainLocationPoint }> => {
+      /**
+       * Whether this gate may speak.
+       *
+       * False for a caller that prints its own message — nine of them do, and
+       * a shared toast on top meant one failure produced two. Also false for
+       * anything the owner did not ask for: a screen warming a position in the
+       * background does not get to interrupt them about it.
+       */
+      announce?: boolean;
+      /**
+       * Refuse a held position; only a fix measured now will do.
+       *
+       * For the small set of callers where degrading would be a lie rather
+       * than a courtesy. Un-pausing is one: pause is a privacy control, and
+       * resuming a share on a remembered coordinate would start telling people
+       * the owner is somewhere they have left. The live publisher and the
+       * check-in confirmation draw the same line for the same reason.
+       */
+      requireMeasurement?: boolean;
+    }): Promise<{
+      ready: boolean;
+      point?: PlainLocationPoint;
+      origin?: "fresh" | "restored";
+      failure?: LocationFailure;
+    }> => {
       const shouldCapturePoint = Boolean(options?.capturePoint);
       const shouldOpenSettings = options?.autoOpenSettings !== false;
+      const announce = options?.announce !== false;
+
+      const heldFix = (): PlainLocationPoint | null => {
+        const bus = LocationBus.getState();
+        if (!bus.snapshot) return null;
+        if (!isUsableFixAge(bus.snapshot.capturedAt)) return null;
+        return {
+          latitude: bus.snapshot.latitude,
+          longitude: bus.snapshot.longitude,
+          accuracyM: bus.snapshot.accuracyM ?? null,
+          capturedAt: bus.snapshot.capturedAt,
+          sourcePlatform: bus.snapshot.sourcePlatform ?? "web",
+        };
+      };
+
+      // Nothing to do but hand back what we already have.
+      //
+      // A caller that does not need a new measurement, on a session that is
+      // holding a usable position, used to pay for a permission read and a
+      // device round trip anyway — and could be toasted at for the privilege.
+      // On Safari, where the permission value is unreadable, it took that path
+      // every single time.
+      if (!shouldCapturePoint && !observedLocationDenialRef.current) {
+        const held = heldFix();
+        if (held) {
+          return {
+            ready: true,
+            point: held,
+            origin:
+              LocationBus.getState().snapshotOrigin === "fresh"
+                ? "fresh"
+                : "restored",
+          };
+        }
+      }
+
       const currentPermission = await refreshLocationPermission();
 
       // Only two things stop us before we have tried, and neither can be fixed
@@ -3207,11 +3271,11 @@ export function OneLocationAgentPageContent({
       // attempt, and let a real PERMISSION_DENIED be the thing that blocks.
       const blockReason = locationBlockReason(currentPermission);
       if (blockReason) {
-        toast.error(LOCATION_BLOCK_MESSAGE[blockReason]);
-        if (shouldOpenSettings) {
+        if (announce) toast.error(LOCATION_BLOCK_MESSAGE[blockReason]);
+        if (shouldOpenSettings && announce) {
           await OneLocationService.openLocationSettings().catch(() => null);
         }
-        return { ready: false };
+        return { ready: false, failure: "blocked" };
       }
 
       if (
@@ -3252,7 +3316,14 @@ export function OneLocationAgentPageContent({
         // so a later step in the same flow can use it instead of paying for a
         // second acquisition. `shouldCapturePoint` still governs the SIDE
         // EFFECT (activateMyLocation) above — only the return widens.
-        return { ready: true, point };
+        return {
+          ready: true,
+          point,
+          origin:
+            LocationBus.getState().snapshotOrigin === "restored"
+              ? "restored"
+              : "fresh",
+        };
       } catch (error) {
         const nextPermission =
           await OneLocationService.getPermissionState().catch(() => null);
@@ -3264,17 +3335,45 @@ export function OneLocationAgentPageContent({
         const denied = isLocationPermissionDeniedError(error);
         observedLocationDenialRef.current = denied;
         setLocationDenialObserved(denied);
-        const message = locationServicesErrorMessage(error);
-        toast.error(message);
+
+        // Not a refusal, and we are holding a position. Use it and say
+        // nothing: this is the case that produced most of the noise, because
+        // a device that declines one reading is routine and the owner has
+        // nothing to do about it.
+        const held =
+          denied || options?.requireMeasurement ? null : heldFix();
+        if (held) {
+          if (shouldCapturePoint && !options?.isStale?.()) {
+            activateMyLocation(held);
+          }
+          return { ready: true, point: held, origin: "restored" };
+        }
+
+        const failure: LocationFailure = denied
+          ? "denied"
+          : isLocationServicesDisabled(nextPermission)
+            ? "blocked"
+            : "no-fix";
         if (
-          shouldOpenSettings &&
-          (denied ||
-            isLocationServicesDisabled(nextPermission) ||
-            message.toLowerCase().includes("turn on location"))
+          shouldSurfaceLocationError({
+            hasUsableFix: false,
+            observedDenial: denied,
+            blockReason: locationBlockReason(nextPermission),
+            blocksUserIntent: announce,
+          })
         ) {
+          toast.error(
+            failure === "no-fix" ? LOCATION_COPY.noFix : LOCATION_COPY.denied,
+          );
+        }
+        // Settings only for something Settings can fix. The old trigger also
+        // fired on any message containing "turn on location" — which the web
+        // plugin puts on a TIMEOUT, so a laptop with no GPS radio was thrown
+        // at a settings pane it does not have.
+        if (shouldOpenSettings && announce && failure !== "no-fix") {
           await OneLocationService.openLocationSettings().catch(() => null);
         }
-        return { ready: false };
+        return { ready: false, failure };
       }
     },
     [activateMyLocation, refreshLocationPermission],
@@ -4000,6 +4099,11 @@ export function OneLocationAgentPageContent({
         const result = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: false,
+          // This runs when Save my Soul is merely OPENED. Nobody has asked for
+          // anything yet, so a failure here has nothing to tell them — and on
+          // a promptable browser a toast plus a settings pane for opening a
+          // panel is how "it keeps asking me again" happens.
+          announce: false,
         });
         if (!result.ready || !result.point) {
           setSosEmergencyStatus((current) =>
@@ -4113,6 +4217,11 @@ export function OneLocationAgentPageContent({
           latitude: point.latitude,
           longitude: point.longitude,
           accuracyM: point.accuracyM ?? null,
+          // Save my Soul sends the last known position rather than nothing
+          // when the device will not produce a new one — the right call in an
+          // emergency, but only if the person reading it is told how old it
+          // is. The email stamps anything older than a couple of minutes.
+          capturedAt: point.capturedAt,
           note,
           emergencyNumber: sosEmergency?.number ?? null,
         });
@@ -4333,6 +4442,8 @@ export function OneLocationAgentPageContent({
         const readiness = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: true,
+          // Prints its own message below.
+          announce: false,
         });
         if (!readiness.ready || !readiness.point) {
           return;
@@ -6956,6 +7067,8 @@ export function OneLocationAgentPageContent({
         const readiness = await ensureForegroundLocationReady({
           capturePoint: false,
           autoOpenSettings: true,
+          // Prints its own message below.
+          announce: false,
         });
         // The location shown on the consent screen is the only point this
         // operation may encrypt; permission is rechecked without recapturing.
@@ -7130,6 +7243,8 @@ export function OneLocationAgentPageContent({
         const readiness = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: true,
+          // Prints its own message below.
+          announce: false,
         });
         if (!readiness.ready || !readiness.point) {
           toast.error("Couldn't get your location — drive not shared.");
@@ -7310,6 +7425,8 @@ export function OneLocationAgentPageContent({
           const readiness = await ensureForegroundLocationReady({
             capturePoint: true,
             autoOpenSettings: true,
+            // Prints its own message below.
+            announce: false,
           });
           if (!readiness.ready || !readiness.point) {
             toast.error(
@@ -7415,6 +7532,8 @@ export function OneLocationAgentPageContent({
         const readiness = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: true,
+          // Prints its own message below.
+          announce: false,
         });
         if (!readiness.ready || !readiness.point) {
           toast.error(
@@ -7580,6 +7699,9 @@ export function OneLocationAgentPageContent({
     const readiness = await ensureForegroundLocationReady({
       capturePoint: false,
       autoOpenSettings: true,
+      // Opening the review screen is not the owner asking for a fix. Failing
+      // here used to toast before the screen they pressed had even appeared.
+      announce: false,
     });
     if (shareReviewAttemptRef.current !== attemptId) return;
     shareReviewPendingRef.current = false;
@@ -7823,6 +7945,12 @@ export function OneLocationAgentPageContent({
           capturePoint: true,
           autoOpenSettings: true,
           isStale,
+          // Renders its outcome inline on the switch itself.
+          announce: false,
+          // Turning location on must not succeed on a remembered position:
+          // pause is a privacy control, and resuming a share on a coordinate
+          // the owner has left starts telling people something untrue.
+          requireMeasurement: true,
         });
         // A newer tap owns the control now. Reporting this one's outcome would
         // describe a state the person has already moved on from, and rolling

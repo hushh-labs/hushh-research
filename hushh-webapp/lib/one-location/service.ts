@@ -986,6 +986,14 @@ export class OneLocationService {
     latitude: number;
     longitude: number;
     accuracyM?: number | null;
+    /**
+     * When the position was measured. Save my Soul sends the last known
+     * position rather than nothing when the device will not produce a new one,
+     * so the email has to be able to say how old it is — an unstamped
+     * twenty-minute-old coordinate presented as "now" sends help confidently
+     * to the wrong place.
+     */
+    capturedAt?: string | null;
     note?: string | null;
     emergencyNumber?: string | null;
   }): Promise<{
@@ -1024,6 +1032,7 @@ export class OneLocationService {
           ...(typeof params.accuracyM === "number"
             ? { accuracyM: params.accuracyM }
             : {}),
+          ...(params.capturedAt ? { capturedAt: params.capturedAt } : {}),
           ...(params.note ? { note: params.note } : {}),
           ...(params.emergencyNumber
             ? { emergencyNumber: params.emergencyNumber }
