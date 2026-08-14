@@ -21,6 +21,11 @@ const point: PlainLocationPoint = {
   sourcePlatform: "web",
 };
 
+// `google.maps.event` is real API surface: cleanup detaches the marker and
+// clears listeners on both instances, because dropping a ref does not stop a
+// Maps instance from running. A mock without it passes only by omission.
+const mapsEvent = () => ({ clearInstanceListeners: vi.fn() });
+
 afterEach(() => {
   mockStatus.current = "loading";
   // @ts-expect-error test cleanup
@@ -60,13 +65,13 @@ describe("LiveMap", () => {
   it("creates an interactive map + marker when ready", () => {
     // vitest 4.x requires non-arrow implementations for mocks called with `new`.
     const Marker = vi.fn(function () {
-      return { getPosition: () => null, setPosition: vi.fn() };
+      return { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn() };
     });
     const Map = vi.fn(function () {
       return { panTo: vi.fn() };
     });
     // @ts-expect-error test global
-    globalThis.google = { maps: { Map, Marker } };
+    globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
     mockStatus.current = "ready";
 
     render(<LiveMap point={point} />);
@@ -78,13 +83,13 @@ describe("LiveMap", () => {
 
   it("constructs a quiet preview map with the app theme's color scheme", () => {
     const Marker = vi.fn(function () {
-      return { getPosition: () => null, setPosition: vi.fn() };
+      return { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn() };
     });
     const Map = vi.fn(function () {
       return { panTo: vi.fn() };
     });
     // @ts-expect-error test global
-    globalThis.google = { maps: { Map, Marker } };
+    globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
     mockStatus.current = "ready";
     mockTheme.current = "dark";
 
@@ -118,13 +123,14 @@ describe("LiveMap", () => {
           lng: () => point.longitude,
         }),
         setPosition: markerSetPosition,
+        setMap: vi.fn(),
       };
     });
     const Map = vi.fn(function () {
       return { panTo: mapPanTo, setZoom: mapSetZoom };
     });
     // @ts-expect-error test global
-    globalThis.google = { maps: { Map, Marker } };
+    globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
     mockStatus.current = "ready";
 
     const { rerender } = render(
@@ -187,6 +193,7 @@ describe("LiveMap", () => {
                 }
               : null,
           setPosition: markerSetPositionSpy,
+          setMap: vi.fn(),
         };
       });
 
@@ -195,7 +202,7 @@ describe("LiveMap", () => {
       });
 
       // @ts-expect-error test global
-      globalThis.google = { maps: { Map, Marker } };
+      globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
       mockStatus.current = "ready";
 
       // Fix performance.now() so `start` is always 0 for deterministic t calculation.
