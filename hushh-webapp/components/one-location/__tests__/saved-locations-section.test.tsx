@@ -297,7 +297,7 @@ describe("SavedLocationsSection", () => {
   it("captures, resolves, and saves a new place through encrypted PKM", async () => {
     mocks.loadSavedLocations.mockResolvedValueOnce([]);
     render(<SavedLocationsSection />);
-    await screen.findByText(/no saved places yet/i);
+    await screen.findByText(/no places yet/i);
 
     fireEvent.click(screen.getByRole("button", { name: /add place/i }));
     expect(
@@ -391,7 +391,7 @@ describe("SavedLocationsSection", () => {
       ),
     );
     render(<SavedLocationsSection />);
-    await screen.findByText(/no saved places yet/i);
+    await screen.findByText(/no places yet/i);
 
     fireEvent.click(screen.getByRole("button", { name: /add place/i }));
     await screen.findByRole("dialog", {

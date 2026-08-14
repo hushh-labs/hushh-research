@@ -10,8 +10,6 @@
  */
 
 import type { ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
-
 import {
   RowDescription,
   RowLabel,
@@ -25,26 +23,21 @@ export type QuickActionTone = "green" | "red" | "blue" | "violet" | "slate";
  * Per-tone semantic icon palette. The tile owns service/action color; labels
  * stay neutral through the shared typography roles.
  */
-const TONE_STYLES: Record<QuickActionTone, { tile: string; icon: string }> = {
+const TONE_STYLES: Record<QuickActionTone, { icon: string }> = {
   green: {
-    tile: "bg-[rgba(52,199,89,0.12)]",
-    icon: "text-[#34C759]",
+    icon: "text-[color:var(--app-secondary-label)]",
   },
   red: {
-    tile: "bg-[rgba(255,59,48,0.12)]",
-    icon: "text-[#FF3B30]",
+    icon: "text-[color:var(--app-destructive)]",
   },
   blue: {
-    tile: "bg-[color:var(--app-accent-surface)]",
-    icon: "text-[color:var(--app-accent-deep)]",
+    icon: "text-[color:var(--app-accent)]",
   },
   violet: {
-    tile: "bg-[color:var(--app-accent-surface)]",
-    icon: "text-[color:var(--app-accent-deep)]",
+    icon: "text-[color:var(--app-purple)]",
   },
   slate: {
-    tile: "bg-[#E5E5EA]",
-    icon: "text-[#6E6E73]",
+    icon: "text-[color:var(--app-secondary-label)]",
   },
 };
 
@@ -88,32 +81,23 @@ export function QuickActionCard({
       aria-disabled={!interactive}
       data-voice-control-id={controlId}
       className={cn(
-        "group flex min-h-[112px] w-full min-w-0 flex-col gap-2.5 rounded-[18px] border border-[rgba(60,60,67,0.10)] bg-white p-3.5 text-left shadow-none transition-colors duration-150 dark:border-white/10 dark:bg-[color:var(--app-card-surface-default-solid)]",
+        "group flex min-h-[140px] w-full min-w-0 flex-col gap-4 rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] p-5 text-left shadow-[var(--app-card-shadow-standard)] transition-[background-color,transform] duration-200 motion-reduce:transition-none sm:min-h-[132px] sm:p-[22px]",
         interactive
-          ? "cursor-pointer active:bg-[rgba(120,120,128,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          ? "cursor-pointer hover:bg-[color:var(--app-neutral-fill)] active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           : "cursor-not-allowed",
       )}
     >
-      <div className="flex w-full items-start justify-between gap-2">
-        <span
-          className={cn(
-            "flex h-9 w-9 items-center justify-center rounded-[9px] [&_svg]:h-[18px] [&_svg]:w-[18px] [&_svg]:stroke-[1.8]",
-            palette.tile,
-            palette.icon,
-          )}
-        >
+      <div className="flex w-full items-start">
+        <span className={cn("flex h-6 w-6 items-center justify-center [&_svg]:h-5 [&_svg]:w-5", palette.icon)}>
           {icon}
-        </span>
-        <span className="flex h-6 w-6 shrink-0 items-center justify-end">
-          <ChevronRight className="h-3.5 w-3.5 text-[#C7C7CC] [stroke-width:1.8]" />
         </span>
       </div>
 
       <div className="mt-auto w-full min-w-0">
-        <RowLabel as="p" className="truncate !font-medium">
+        <RowLabel as="p" className="text-[18px] font-semibold leading-[23px] tracking-[-0.35px] sm:text-[19px] sm:leading-6 sm:tracking-[-0.4px]">
           {title}
         </RowLabel>
-        <RowDescription as="span" className="mt-1 block truncate">
+        <RowDescription as="span" className="mt-0.5 block text-[14px] leading-[19px] sm:mt-1 sm:text-[15px] sm:leading-5">
           {subtitle}
         </RowDescription>
       </div>
@@ -128,20 +112,24 @@ export function QuickActionsSection({
   columns = 3,
   className,
 }: {
-  title?: string;
+  title?: ReactNode;
   children: ReactNode;
   columns?: 2 | 3;
   className?: string;
 }) {
   return (
-    <section className={cn("space-y-3", className)}>
-      <div className="flex items-center px-1">
-        <SectionTitle>{title}</SectionTitle>
-      </div>
+    <section className={cn(title ? "space-y-3" : "space-y-0", className)}>
+      {title ? (
+        <div className="flex items-center px-1">
+          <SectionTitle>{title}</SectionTitle>
+        </div>
+      ) : null}
       <div
         className={cn(
-          "grid auto-rows-fr gap-3",
-          columns === 2 ? "grid-cols-2" : "grid-cols-3",
+          "grid auto-rows-fr gap-3.5 sm:gap-4",
+          columns === 2
+            ? "grid-cols-2 max-[359px]:grid-cols-1"
+            : "grid-cols-3 max-[359px]:grid-cols-1",
         )}
       >
         {children}

@@ -36,9 +36,9 @@ describe("One Location settings placement", () => {
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
 
     expect(nowSource).toContain('testId="one-location-request-row"');
-    expect(nowSource).toContain('title="Request Location"');
+    expect(nowSource).toContain('title="Request location"');
 
-    const requestIndex = nowSource.indexOf('title="Request Location"');
+    const requestIndex = nowSource.indexOf('title="Request location"');
     const settingsIndex = nowSource.indexOf('title="Settings"');
     expect(requestIndex).toBeGreaterThan(-1);
     expect(settingsIndex).toBeGreaterThan(requestIndex);
@@ -49,30 +49,20 @@ describe("One Location settings placement", () => {
     expect(HUB_SOURCE).toContain('onRequestLocation={() => openFlow("ask")}');
   });
 
-  it("gives Request Location an icon distinct from Share location", () => {
-    // These two rows are opposites -- give a location out, ask for one in --
-    // and sit three apart in the same list. `Send` was used first and reads as
-    // the same paper-plane silhouette as `Navigation` at row size, so the pair
-    // looked like one repeated icon.
+  it("keeps the reference navigation group quiet and iconless", () => {
+    // The reference groups the six navigation rows as plain text. Share stays
+    // a standalone primary action, so no repeated glyph competes with the row
+    // labels or makes Request location look like the outbound action.
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
+    const groupStart = nowSource.indexOf('data-testid="one-location-now-primary"');
+    const groupEnd = nowSource.indexOf("</section>", groupStart);
+    const groupSource = nowSource.slice(groupStart, groupEnd);
 
-    const iconFor = (title: string) => {
-      const titleIndex = nowSource.indexOf(`title="${title}"`);
-      expect(titleIndex).toBeGreaterThan(-1);
-      const rowStart = nowSource.lastIndexOf("<SettingsRow", titleIndex);
-      return /icon=\{(\w+)\}/.exec(nowSource.slice(rowStart, titleIndex))?.[1];
-    };
-
-    const requestIcon = iconFor("Request Location");
-    const shareIcon = iconFor("Share location");
-
-    expect(requestIcon).toBeTruthy();
-    expect(shareIcon).toBeTruthy();
-    expect(requestIcon).not.toBe(shareIcon);
-    // Both plane glyphs are interchangeable at this size; neither belongs here.
-    expect(["Send", "Navigation"]).not.toContain(requestIcon);
+    expect(groupSource).toContain('title="Request location"');
+    expect(groupSource).toContain('title="Settings"');
+    expect(groupSource).not.toContain("icon={");
   });
 
   it("owns Saved Locations and does not duplicate it in Profile preferences", () => {

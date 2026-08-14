@@ -1125,9 +1125,9 @@ describe("OneLocationAgentPage", () => {
       screen.queryByRole("heading", { name: "Proximity alerts" }),
     ).toBeNull();
     expect(screen.queryByText("Advisor meetup")).toBeNull();
-    // Now is intentionally compact: capture happens only from Your Map's
+    // Now is intentionally compact: capture happens only from Your map's
     // explicit Locate me control, never from a dashboard toggle.
-    expect(screen.getByRole("button", { name: "Your Map" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Your map" })).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /^Share location$/i }),
     ).toBeTruthy();
@@ -1242,6 +1242,12 @@ describe("OneLocationAgentPage", () => {
     const autoApproveSwitch = screen.getByRole("switch", {
       name: "Auto-approve requests",
     });
+    expect(
+      screen.getByText(/Showing on their map lets people you share with watch you move/i),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Pausing stops new updates and checks you out of Nearby/i),
+    ).toBeVisible();
     expect(pauseSwitch).toHaveAttribute("aria-checked", "false");
     // Off until asked for: approving a location request is consent, and a
     // default may not give it.
@@ -1618,7 +1624,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Who can see you?" }),
     ).toBeTruthy();
-    expect(screen.getByPlaceholderText("Search trusted people")).toHaveValue(
+    expect(screen.getByPlaceholderText("Search")).toHaveValue(
       "",
     );
     expect(
@@ -1641,7 +1647,7 @@ describe("OneLocationAgentPage", () => {
     mockUseSearchParams.mockReturnValue(shareParams);
     rerender(<OneLocationAgentPage />);
 
-    fireEvent.change(screen.getByPlaceholderText("Search trusted people"), {
+    fireEvent.change(screen.getByPlaceholderText("Search"), {
       target: { value: "Trusted" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -1704,7 +1710,7 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("heading", { name: "Who can see you?" }),
     ).toBeTruthy();
-    expect(screen.getByPlaceholderText("Search trusted people")).toHaveValue(
+    expect(screen.getByPlaceholderText("Search")).toHaveValue(
       "",
     );
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
@@ -1793,7 +1799,7 @@ describe("OneLocationAgentPage", () => {
     mockCaptureCurrentPosition.mockClear();
     const envelopeWritesBeforeOpen = mockStoreEnvelope.mock.calls.length;
 
-    fireEvent.click(screen.getByRole("button", { name: /SMS.*Save my soul/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Save my Soul.*Emergency SMS/i }));
 
     expect(
       await screen.findByRole("heading", { name: "Save my Soul", level: 1 }),
@@ -1835,7 +1841,7 @@ describe("OneLocationAgentPage", () => {
         }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /SMS.*Save my soul/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Save my Soul.*Emergency SMS/i }));
 
     expect(
       await screen.findByRole("button", {
@@ -2742,7 +2748,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Now" }));
     expect(screen.getByRole("button", { name: /Active shares/i })).toBeTruthy();
     await openSharePersonStep();
-    fireEvent.change(screen.getByPlaceholderText("Search trusted people"), {
+    fireEvent.change(screen.getByPlaceholderText("Search"), {
       target: { value: "advisor" },
     });
 
@@ -2814,14 +2820,14 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByRole("heading", { name: "Pending invites" }),
     ).toBeNull();
-    // Links tab: "Active links" list + a single "Create link" CTA. The
+    // Links tab: reference-style empty card + a single "Create link" CTA. The
     // mock has no active links, so the empty state shows.
     fireEvent.click(screen.getByRole("button", { name: "Links" }));
     expect(
       await screen.findByRole("button", { name: /Create link/i }),
     ).toBeTruthy();
-    expect(screen.getByText("Active links")).toBeTruthy();
-    expect(screen.getByText("No active links")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Links" })).toBeTruthy();
+    expect(screen.getByText("No links yet")).toBeTruthy();
     expect(screen.queryByText("Public link responses")).toBeNull();
     expect(screen.queryByText(/Share a public location link/i)).toBeNull();
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
@@ -3141,7 +3147,7 @@ describe("OneLocationAgentPage", () => {
 
     expect(screen.getByText("Active")).toBeTruthy();
     expect(screen.getByText(/^Access until /)).toBeTruthy();
-    expect(screen.queryByText(/^Live$/)).toBeNull();
+    expect(screen.queryByText("Access active")).toBeNull();
     expect(screen.queryByText(/^Live until /)).toBeNull();
 
     const mapPreview = screen.getByTitle("Live location map preview");

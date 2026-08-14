@@ -8,7 +8,6 @@ import {
   Loader2,
   MapPin,
   Pencil,
-  Plus,
   RefreshCw,
   ShieldCheck,
   Trash2,
@@ -45,7 +44,6 @@ import type { PlainLocationPoint } from "@/lib/one-location/types";
 import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
-import { SUBCARD_SURFACE } from "@/components/one-location/redesign/tokens";
 
 function CategoryIcon({ category }: { category: SavedLocationCategory }) {
   const Icon =
@@ -571,26 +569,24 @@ export function SavedLocationsSection() {
         className="w-full min-w-0"
         data-testid="settings-saved-locations"
       >
-        <div className="mb-2.5 flex items-center justify-between gap-3 px-1">
-          <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
-            Saved Locations
+        <div className="mb-3.5 flex min-h-11 items-center justify-between gap-3 px-[2px]">
+          <p className="text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
+            Places
           </p>
           <button
             type="button"
             onClick={() => void handleAdd()}
             disabled={!hasVaultAccess || locationControl.paused || capturing}
-            className="press-scale inline-flex h-8 items-center gap-1.5 rounded-full bg-[color:var(--app-accent)]/12 px-3 text-[13px] font-semibold text-[color:var(--app-accent)] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
+            className="press-scale -mr-3 inline-flex h-11 items-center gap-1.5 rounded-full px-3 text-[15px] font-normal text-[color:var(--app-accent)] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
           >
             {capturing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-            ) : (
-              <Plus className="h-3.5 w-3.5" aria-hidden />
-            )}
+            ) : null}
             Add place
           </button>
         </div>
 
-        <div className={cn("overflow-hidden", SUBCARD_SURFACE)}>
+        <div className="overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]">
           {!hasVaultAccess ? (
             <div className="flex min-h-[60px] items-center gap-3.5 p-3.5">
               <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]">
@@ -628,15 +624,12 @@ export function SavedLocationsSection() {
               </button>
             </div>
           ) : locations.length === 0 ? (
-            <div className="flex min-h-[60px] items-center gap-3.5 p-3.5">
-              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]">
-                <MapPin className="h-[17px] w-[17px]" aria-hidden="true" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[17px] font-normal leading-[22px] text-foreground">
-                  No saved places yet
+            <div className="flex min-h-[110px] items-center justify-center p-5 text-center sm:min-h-[119px]">
+              <div>
+                <p className="text-[17px] font-semibold leading-[22px] tracking-[-0.3px] text-[color:var(--app-secondary-label)]">
+                  No places yet
                 </p>
-                <p className="mt-0.5 text-[15px] leading-5 text-muted-foreground">
+                <p className="sr-only">
                   Add Home, Work, or another place to see it here.
                 </p>
               </div>
@@ -745,7 +738,8 @@ export function SavedLocationsSection() {
           )}
         </div>
         {hasVaultAccess ? (
-          <p className="mt-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
+          <p className="mt-3 flex items-center gap-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
+            <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
             {locationControl.paused
               ? "Resume Location to save another place."
               : "Encrypted in your vault."}

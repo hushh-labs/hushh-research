@@ -379,9 +379,9 @@ export function SharedWithMeCard({
   };
 
   return (
-    <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
-      <div className="flex items-start gap-3">
-        <Avatar initials={initialsFrom(name)} />
+    <div className="overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]">
+      <div className="flex min-h-[84px] items-start gap-3 px-[18px] pt-[18px] sm:min-h-[92px] sm:px-6 sm:pt-[22px]">
+        <Avatar initials={initialsFrom(name)} size={40} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-semibold text-foreground">
             {name}
@@ -431,36 +431,46 @@ export function SharedWithMeCard({
           ) : null}
         </div>
       </div>
-      {address || addressLoading || coordinatesFallback ? (
-        <div className="flex items-start gap-1.5">
-          <MapPin
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground"
-            aria-hidden="true"
-          />
-          {addressLoading && !address ? (
-            <span
-              className="mt-0.5 h-3.5 w-40 max-w-full animate-pulse rounded bg-muted"
-              aria-hidden="true"
-            />
-          ) : (
-            <p className={cn(MUTED_TEXT, "min-w-0 break-words text-sm")}>
-              {address ?? coordinatesFallback}
-            </p>
-          )}
-        </div>
-      ) : null}
-      <div id={previewRegionId} hidden={!isPreviewExpanded}>
+      <div
+        id={previewRegionId}
+        hidden={!isPreviewExpanded}
+        className="min-h-[200px] overflow-hidden bg-[color:var(--app-neutral-fill)] [&>*]:min-h-[200px] sm:min-h-[240px] sm:[&>*]:min-h-[240px]"
+      >
         {children}
       </div>
       {message ? (
-        <p className={cn(MUTED_TEXT, "text-sm")}>{message}</p>
+        <p className={cn(MUTED_TEXT, "px-[18px] pt-4 text-sm sm:px-6")}>{message}</p>
       ) : null}
-      <div className={cn("grid gap-2", onRemove ? "grid-cols-2" : "grid-cols-1")}>
+      <div className="grid grid-cols-1 gap-3 px-[18px] pb-[18px] pt-4 sm:px-6 sm:pb-6">
+        {address || addressLoading || coordinatesFallback ? (
+          <div className="flex min-w-0 items-start gap-1.5">
+            <MapPin
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+            {addressLoading && !address ? (
+              <span
+                className="mt-0.5 h-3.5 w-40 max-w-full animate-pulse rounded bg-muted motion-reduce:animate-none"
+                aria-hidden="true"
+              />
+            ) : (
+              <p className={cn(MUTED_TEXT, "min-w-0 break-words text-sm")}>
+                {address ?? coordinatesFallback}
+              </p>
+            )}
+          </div>
+        ) : null}
+        <div
+          className={cn(
+            "grid gap-2",
+            onRemove ? "grid-cols-2" : "grid-cols-1",
+          )}
+        >
         {canOpenMap ? (
           <Button
             asChild
             size="sm"
-            className="h-9 rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+            className="h-[52px] rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
           >
             <a
               href={mapHref}
@@ -477,7 +487,7 @@ export function SharedWithMeCard({
             size="sm"
             onClick={onView}
             isLoading={viewBusy}
-            className="h-9 rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+            className="h-[52px] rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
           >
             <MapPin className="mr-1.5 h-3.5 w-3.5" />
             View location
@@ -495,6 +505,7 @@ export function SharedWithMeCard({
             Remove
           </Button>
         ) : null}
+        </div>
       </div>
     </div>
   );

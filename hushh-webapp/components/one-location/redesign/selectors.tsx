@@ -284,15 +284,20 @@ export function PersonSearchInput({
   onChange,
   placeholder = "Search trusted people",
   voiceControlId,
+  className,
+  containerClassName,
 }: {
   value: string;
   onChange: (next: string) => void;
   placeholder?: string;
   /** Anchors a contract action to this field so voice offers it only here. */
   voiceControlId?: string;
+  /** Bounded presentation override for reference-specific task flows. */
+  className?: string;
+  containerClassName?: string;
 }) {
   return (
-    <div className="relative">
+    <div className={cn("relative", containerClassName)}>
       <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       <input
         type="text"
@@ -301,7 +306,10 @@ export function PersonSearchInput({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         data-voice-control-id={voiceControlId}
-        className="h-11 w-full rounded-[14px] border border-border/70 bg-background pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+        className={cn(
+          "h-11 w-full rounded-[14px] border border-border/70 bg-background pl-10 pr-4 text-base text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-[color:var(--app-accent-ring)]",
+          className,
+        )}
       />
     </div>
   );
