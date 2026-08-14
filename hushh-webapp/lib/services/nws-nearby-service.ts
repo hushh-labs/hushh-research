@@ -75,6 +75,40 @@ export type ScoreComponent = {
   contribution: number | null;
 };
 
+/**
+ * The four components that need a real relationship graph behind them. Together
+ * they carry 67% of the score's weight.
+ *
+ * A record discovered from a public registry has no graph to read, so all four
+ * come back at zero and the score is carried entirely by institutional role,
+ * evidence quality and recency. A reviewed record populates all of them.
+ */
+const GRAPH_BACKED_COMPONENTS = [
+  "graph_authority",
+  "verified_track_record",
+  "capital_access",
+  "trusted_reach",
+] as const;
+
+/**
+ * Whether this score was produced without any relationship evidence.
+ *
+ * Deliberately derived from the record's own components rather than from
+ * `scoreKind`: the service reports `PROFESSIONAL_NETWORK_PROVISIONAL` for
+ * reviewed and registry-discovered records alike, so that field does not
+ * discriminate. Reading the components keeps the claim true if a future
+ * registry record does arrive with a graph behind it.
+ */
+export function isRegistryOnlyScore(record: NearbyRecord): boolean {
+  const components = record.scoreBreakdown?.components;
+  if (!components?.length) return false;
+  const graphBacked = components.filter((component) =>
+    (GRAPH_BACKED_COMPONENTS as readonly string[]).includes(component.key),
+  );
+  if (graphBacked.length !== GRAPH_BACKED_COMPONENTS.length) return false;
+  return graphBacked.every((component) => !component.value);
+}
+
 export type ScoreBreakdown = {
   components: ScoreComponent[];
   /** How many pieces of evidence back the profile. Thin evidence is held back. */
@@ -126,13 +160,12 @@ export type NearbyRecord = {
   nearbyRankScore: number | null;
   scoreStatus: string | null;
   /**
-   * Which scoring regime produced the number above.
+   * The service's own label for the scoring regime.
    *
-   * A nationally discovered record is scored from public registry role and
-   * recency alone — its graph, track-record and capital components are
-   * structurally zero — so it lands far below a reviewed record. The two are
-   * not comparable, and without this the lower number reads as a weaker person
-   * rather than a thinner source.
+   * Informational only. It reads `PROFESSIONAL_NETWORK_PROVISIONAL` for
+   * registry-discovered and reviewed records alike, so it cannot be used to
+   * tell a thin score from a full one — use {@link isRegistryOnlyScore}, which
+   * reads the components instead.
    */
   scoreKind: string | null;
   rankingBasis: string | null;
