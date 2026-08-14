@@ -21,12 +21,16 @@ import {
   KeyRound,
   LogIn,
   Menu,
+  Maximize2,
   Mic,
+  Minimize2,
   Minus,
+  Pencil,
   RotateCcw,
   Send,
   ThumbsDown,
   ThumbsUp,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -150,9 +154,13 @@ import {
 } from "@/lib/agent/one-conversation-session";
 import {
   dedupeAdjacentAgentMessages,
-  releaseAgentTurnSubmitLock,
-  tryAcquireAgentTurnSubmitLock,
 } from "@/lib/agent/agent-chat-turn-safety";
+import {
+  editQueuedAgentPrompt,
+  removeQueuedAgentPrompt,
+  SerialAgentOperationQueue,
+  type QueuedAgentPrompt,
+} from "@/lib/agent/agent-chat-prompt-queue";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
@@ -178,6 +186,12 @@ type AgentDebugEvent = {
   timestamp: string;
   event: string;
   payload: unknown;
+};
+
+type QueuedWorkspaceOperation = {
+  id: string;
+  prompt?: QueuedAgentPrompt;
+  run: () => Promise<void>;
 };
 
 function upsertVisibleStreamEvent(
@@ -1155,6 +1169,11 @@ export function AgentChatWorkspace({
   // (background-task tracking and its local voice state) below.
   const sharedRuntime = useAgentRuntimeStateOptional();
   const [input, setInput] = useState("");
+  const [composerExpanded, setComposerExpanded] = useState(false);
+  const [composerLong, setComposerLong] = useState(false);
+  const [queuedPrompts, setQueuedPrompts] = useState<QueuedAgentPrompt[]>([]);
+  const [editingQueuedPromptId, setEditingQueuedPromptId] = useState<string | null>(null);
+  const [editingQueuedPromptText, setEditingQueuedPromptText] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
 
   // The person's own pod, when they have one. Follows the same status endpoint the
@@ -1218,12 +1237,18 @@ export function AgentChatWorkspace({
   const historyRestoreEpochRef = useRef(0);
   const skipInitialHistoryLoadRef = useRef(false);
   const streamAbortControllerRef = useRef<AbortController | null>(null);
-  const agentTurnSubmitLockRef = useRef(false);
+  const conversationIdRef = useRef<string | null>(null);
+  const operationQueueRef = useRef(new SerialAgentOperationQueue<QueuedWorkspaceOperation>());
+  const calendarActionIdsRef = useRef<Set<string>>(new Set());
   const savingPkmReviewIdsRef = useRef<Set<string>>(new Set());
   const handoffPromptSubmitRef = useRef<((prompt: string) => Promise<void>) | null>(null);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
   const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
+  const updateConversationId = useCallback((nextConversationId: string | null) => {
+    conversationIdRef.current = nextConversationId;
+    setConversationId(nextConversationId);
+  }, []);
   const oneLocationConsentActions = useOneLocationConsentActions({
     userId: user?.uid,
     onActionComplete: () => {
@@ -1455,10 +1480,8 @@ export function AgentChatWorkspace({
   // full agent, otherwise it runs the pre-vault informational tier. Voice and
   // vault-backed tools stay gated separately by hasChatAccess.
   const canSend =
-    !isChatLoading &&
     !isLoadingHistory &&
     !isVoiceConnecting &&
-    !isStreaming &&
     !voiceActive &&
     input.trim().length > 0;
   const canToggleVoice =
@@ -1469,7 +1492,9 @@ export function AgentChatWorkspace({
     isToolWorking ||
     isVoiceConnecting ||
     isStreaming ||
-    voiceActive;
+    voiceActive ||
+    specialistBusy ||
+    queuedPrompts.length > 0;
   const statusText = useMemo(
     () => {
       if (authLoading) return "Checking access";
@@ -1488,6 +1513,7 @@ export function AgentChatWorkspace({
       if (isVoiceConnecting) return "Voice connecting";
       if (isToolWorking) return "Working";
       if (isPkmMemoryWorking) return "Saving memory";
+      if (queuedPrompts.length > 0) return `${queuedPrompts.length} queued`;
       if (isChatLoading) return "Thinking";
       if (isStreaming) return "Streaming";
       return "Ready";
@@ -1503,6 +1529,7 @@ export function AgentChatWorkspace({
       isStreaming,
       isVoiceConnecting,
       isVaultUnlocked,
+      queuedPrompts.length,
       tokenIsFresh,
       user?.uid,
       vaultOwnerToken,
@@ -1519,8 +1546,22 @@ export function AgentChatWorkspace({
     const textarea = composerTextareaRef.current;
     if (!textarea || voiceActive) return;
     textarea.style.height = "0px";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
-  }, [input, voiceActive]);
+    const nextHeight = textarea.scrollHeight;
+    // `scrollHeight` includes soft-wrapped text, which is the visual behavior
+    // people notice. Reveal the larger editor after roughly four rendered rows.
+    const long = input.trim().length > 0 && nextHeight > 96;
+    setComposerLong(long);
+    if (!long) setComposerExpanded(false);
+    // The expanded writing surface owns its fixed, spacious height. The compact
+    // pill grows only to its CSS ceiling and then scrolls internally.
+    textarea.style.height = composerExpanded ? "" : `${nextHeight}px`;
+  }, [composerExpanded, input, voiceActive]);
+
+  useEffect(() => {
+    if (!composerExpanded) return;
+    const frame = window.requestAnimationFrame(() => composerTextareaRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [composerExpanded]);
 
   useEffect(() => {
     if (!isHistoryDrawerOpen) return;
@@ -1616,7 +1657,7 @@ export function AgentChatWorkspace({
     setActivePkmToolCount(0);
     setPkmReviews([]);
     setPkmActivity([]);
-    setConversationId(null);
+    updateConversationId(null);
     setConversations([]);
     setHistoryActionPendingId(null);
     setMessages([createGreetingMessage()]);
@@ -1625,19 +1666,23 @@ export function AgentChatWorkspace({
     setPendingSpecialistDirective(null);
     setSpecialistBusy(false);
     setSpecialistBusyItemId(null);
-    releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
+    operationQueueRef.current.replace([]);
+    calendarActionIdsRef.current.clear();
+    setQueuedPrompts([]);
+    setEditingQueuedPromptId(null);
+    setEditingQueuedPromptText("");
     historyLoadKeyRef.current = null;
     historyRestoreEpochRef.current += 1;
     skipInitialHistoryLoadRef.current = false;
     latestVisibleTurnIdRef.current = null;
     inlineConsentRequestIdsRef.current.clear();
-  }, [abortAgentTurnWork, user?.uid, isVaultUnlocked]);
+  }, [abortAgentTurnWork, isVaultUnlocked, updateConversationId, user?.uid]);
 
   const handleCreateNewChat = useCallback(() => {
     abortAgentTurnWork();
     historyRestoreEpochRef.current += 1;
     latestVisibleTurnIdRef.current = null;
-    setConversationId(null);
+    updateConversationId(null);
     setMessages([createGreetingMessage()]);
     setInput("");
     setIsLoadingHistory(false);
@@ -1647,8 +1692,13 @@ export function AgentChatWorkspace({
     setAppActionBusy(false);
     setPendingSpecialistDirective(null);
     setSpecialistBusy(false);
+    operationQueueRef.current.replace([]);
+    calendarActionIdsRef.current.clear();
+    setQueuedPrompts([]);
+    setEditingQueuedPromptId(null);
+    setEditingQueuedPromptText("");
     setWelcomePromptSetIndex((current) => getWelcomePromptSetIndex(current));
-  }, [abortAgentTurnWork]);
+  }, [abortAgentTurnWork, updateConversationId]);
 
   const updateMessage = (
     messageId: string,
@@ -1871,14 +1921,14 @@ export function AgentChatWorkspace({
       if (cancelled || restoreEpoch !== historyRestoreEpochRef.current) return;
       setConversations(snapshot.conversations);
       if (!snapshot.latestConversationId) {
-        setConversationId(null);
+        updateConversationId(null);
         setMessages([createGreetingMessage()]);
         return;
       }
       const restored = snapshot.latestMessages
         .map(storedMessageToAgentMessage)
         .filter((message): message is AgentMessage => Boolean(message));
-      setConversationId(snapshot.latestConversationId);
+      updateConversationId(snapshot.latestConversationId);
       setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
     };
 
@@ -1915,7 +1965,7 @@ export function AgentChatWorkspace({
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [hasChatAccess, user?.uid, vaultOwnerToken]);
+  }, [hasChatAccess, updateConversationId, user?.uid, vaultOwnerToken]);
 
   const restoreConversationMessages = useCallback(
     async (nextConversationId: string, token: string) => {
@@ -1929,14 +1979,14 @@ export function AgentChatWorkspace({
         .map(storedMessageToAgentMessage)
         .filter((message): message is AgentMessage => Boolean(message));
       latestVisibleTurnIdRef.current = null;
-      setConversationId(nextConversationId);
+      updateConversationId(nextConversationId);
       setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
       setPkmActivity([]);
       setPkmReviews([]);
       setPendingSpecialistDirective(null);
       setSpecialistBusy(false);
     },
-    [user?.uid]
+    [updateConversationId, user?.uid]
   );
 
   const loadConversationList = useCallback(async (force = false) => {
@@ -2816,9 +2866,6 @@ export function AgentChatWorkspace({
       }
       return [...current, ...(appendUserMessage ? [userMessage] : []), assistantMessage];
     });
-    if (options.source === "typed" && appendUserMessage) {
-      setInput("");
-    }
     latestVisibleTurnIdRef.current = debugTurnId;
     setPkmActivity([]);
     setIsChatLoading(true);
@@ -2842,7 +2889,6 @@ export function AgentChatWorkspace({
     }
 
     const streamAbortController = new AbortController();
-    streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = streamAbortController;
     let specialistDirectiveReceived = false;
     const pkmContextStartedAt = performance.now();
@@ -2949,7 +2995,7 @@ export function AgentChatWorkspace({
         podState: podAddress.state,
         userId,
         message: text,
-        conversationId,
+        conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
         screenContext: buildOneVoiceStructuredScreenContext({
@@ -2967,7 +3013,7 @@ export function AgentChatWorkspace({
           onStart: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             if (nextConversationId) {
-              setConversationId(nextConversationId);
+              updateConversationId(nextConversationId);
             }
           },
           onToolStart: (toolEvent) => {
@@ -3039,7 +3085,7 @@ export function AgentChatWorkspace({
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
             if (nextConversationId) {
-              setConversationId(nextConversationId);
+              updateConversationId(nextConversationId);
             }
             updateMessage(assistantMessageId, (message) => ({
               ...message,
@@ -3069,7 +3115,7 @@ export function AgentChatWorkspace({
       }
       flushAssistantDelta();
       if (streamResult.conversationId) {
-        setConversationId(streamResult.conversationId);
+        updateConversationId(streamResult.conversationId);
       }
       updateMessage(assistantMessageId, (message) => {
         if (message.status === "error") return message;
@@ -3180,7 +3226,6 @@ export function AgentChatWorkspace({
     setIsStreaming(true);
 
     const streamAbortController = new AbortController();
-    streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = streamAbortController;
 
     try {
@@ -3197,7 +3242,7 @@ export function AgentChatWorkspace({
         podState: podAddress.state,
         userId,
         message: "",
-        conversationId,
+        conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         delegateResult: result,
         screenContext: buildOneVoiceStructuredScreenContext({
@@ -3220,7 +3265,7 @@ export function AgentChatWorkspace({
         handlers: {
           onStart: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
-            if (nextConversationId) setConversationId(nextConversationId);
+            if (nextConversationId) updateConversationId(nextConversationId);
           },
           onToken: (delta) => {
             if (streamAbortController.signal.aborted) return;
@@ -3267,7 +3312,7 @@ export function AgentChatWorkspace({
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
-            if (nextConversationId) setConversationId(nextConversationId);
+            if (nextConversationId) updateConversationId(nextConversationId);
             updateMessage(assistantMessageId, (message) => ({
               ...message,
               status: "done",
@@ -3301,7 +3346,7 @@ export function AgentChatWorkspace({
       }
       flushAssistantDelta();
       if (streamResult.conversationId) {
-        setConversationId(streamResult.conversationId);
+        updateConversationId(streamResult.conversationId);
       }
       updateMessage(assistantMessageId, (message) => {
         if (message.status === "error") return message;
@@ -3355,7 +3400,7 @@ export function AgentChatWorkspace({
    */
   const runIntroTurn = async (textInput: string) => {
     const text = textInput.trim();
-    if (!text || isChatLoading || isStreaming) return;
+    if (!text) return;
 
     const turnId = Date.now();
     const assistantMessageId = `msg-${turnId}-assistant`;
@@ -3405,12 +3450,10 @@ export function AgentChatWorkspace({
       status: "streaming",
     };
     setMessages((current) => [...current, userMessage, assistantMessage]);
-    setInput("");
     setIsChatLoading(true);
     setIsStreaming(true);
 
     const streamAbortController = new AbortController();
-    streamAbortControllerRef.current?.abort();
     streamAbortControllerRef.current = streamAbortController;
 
     const stageIntroNavigation = (toolEvent: AgentChatToolEvent) => {
@@ -3539,49 +3582,158 @@ export function AgentChatWorkspace({
     }
   };
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const text = input.trim();
-    if (!text || isChatLoading || isStreaming) return;
-    if (!tryAcquireAgentTurnSubmitLock(agentTurnSubmitLockRef)) return;
-    if (hasChatAccess) {
-      try {
-        await runAgentTurn(text, { source: "typed" });
-      } finally {
-        releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
-      }
-      return;
-    }
-    // Pre-vault / anonymous: single bar degrades to the informational tier.
-    try {
-      await runIntroTurn(text);
-    } finally {
-      releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
+  const syncQueuedPrompts = () => {
+    setQueuedPrompts(
+      operationQueueRef.current
+        .snapshot()
+        .flatMap((operation) => (operation.prompt ? [operation.prompt] : [])),
+    );
+  };
+
+  const drainOperationQueue = async () => {
+    await operationQueueRef.current.drain(async (operation) => {
+      syncQueuedPrompts();
+      await operation.run();
+    });
+  };
+
+  const enqueueWorkspaceOperation = (operation: QueuedWorkspaceOperation) => {
+    operationQueueRef.current.enqueue(operation);
+    syncQueuedPrompts();
+    void drainOperationQueue();
+  };
+
+  const enqueuePrompt = (textInput: string) => {
+    const text = textInput.trim();
+    if (!text) return;
+    const prompt: QueuedAgentPrompt = {
+      id: crypto.randomUUID(),
+      text,
+      createdAtMs: Date.now(),
+    };
+    const operation: QueuedWorkspaceOperation = {
+      id: prompt.id,
+      prompt,
+      run: async () => {
+        if (hasChatAccess) {
+          await runAgentTurn(operation.prompt?.text ?? "", { source: "typed" });
+          return;
+        }
+        await runIntroTurn(operation.prompt?.text ?? "");
+      },
+    };
+    enqueueWorkspaceOperation(operation);
+  };
+
+  const editQueuedPrompt = (id: string, textInput: string) => {
+    const text = textInput.trim();
+    if (!text) return;
+    operationQueueRef.current.replace(operationQueueRef.current.snapshot().map((operation) =>
+      operation.prompt?.id === id
+        ? { ...operation, prompt: { ...operation.prompt, text } }
+        : operation,
+    ));
+    setQueuedPrompts((current) => editQueuedAgentPrompt(current, id, text));
+    setEditingQueuedPromptId(null);
+    setEditingQueuedPromptText("");
+  };
+
+  const removeQueuedPrompt = (id: string) => {
+    operationQueueRef.current.replace(operationQueueRef.current.snapshot().filter(
+      (operation) => operation.prompt?.id !== id,
+    ));
+    setQueuedPrompts((current) => removeQueuedAgentPrompt(current, id));
+    if (editingQueuedPromptId === id) {
+      setEditingQueuedPromptId(null);
+      setEditingQueuedPromptText("");
     }
   };
 
+  const enqueueCalendarDirective = (
+    directive: SpecialistDirectiveEvent,
+    token: string,
+    userId: string,
+  ) => {
+    const payload = directive.directive.payload as Record<string, unknown>;
+    const actionKey = String(payload.proposalId ?? payload.id ?? directive.message);
+    if (calendarActionIdsRef.current.has(actionKey)) return;
+    calendarActionIdsRef.current.add(actionKey);
+    const label = String(payload.confirmLabel ?? "Confirm");
+    const resultMessageId = `msg-${crypto.randomUUID()}-calendar-result`;
+
+    appendMessage({
+      id: `msg-${crypto.randomUUID()}-calendar-confirm`,
+      role: "user",
+      text: label,
+      timestamp: formatNow(),
+      status: "done",
+      kind: "selection",
+    });
+    appendMessage({
+      id: resultMessageId,
+      role: "assistant",
+      text: "Scheduling…",
+      timestamp: formatNow(),
+      status: "streaming",
+    });
+    setPendingSpecialistDirective(null);
+    setSpecialistBusy(true);
+
+    enqueueWorkspaceOperation({
+      id: `calendar-${actionKey}`,
+      run: async () => {
+        try {
+          const result = await runCalendarDirective(directive.directive, token, userId);
+          updateMessage(resultMessageId, (message) => ({
+            ...message,
+            text: result.detail || "Calendar updated.",
+            status: "done",
+          }));
+        } catch (error) {
+          updateMessage(resultMessageId, (message) => ({
+            ...message,
+            text:
+              error instanceof Error
+                ? error.message
+                : "The Calendar change could not be completed.",
+            status: "error",
+          }));
+        } finally {
+          calendarActionIdsRef.current.delete(actionKey);
+          setSpecialistBusy(false);
+        }
+      },
+    });
+  };
+
+  const enqueueDelegateResult = (result: DelegateResult) => {
+    enqueueWorkspaceOperation({
+      id: `delegate-${crypto.randomUUID()}`,
+      run: async () => {
+        await sendDelegateResult(result);
+      },
+    });
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const text = input.trim();
+    if (!text || isLoadingHistory || isVoiceConnecting || voiceActive) return;
+    setInput("");
+    setComposerExpanded(false);
+    enqueuePrompt(text);
+  };
+
   handoffPromptSubmitRef.current = async (prompt: string) => {
-    if (hasChatAccess) {
-      await runAgentTurn(prompt, { source: "typed" });
-      return;
-    }
-    await runIntroTurn(prompt);
+    enqueuePrompt(prompt);
   };
 
   useEffect(() => {
     const prompt = queuedHandoffPrompt?.trim();
-    if (!prompt || isChatLoading || isStreaming) return;
-    if (!tryAcquireAgentTurnSubmitLock(agentTurnSubmitLockRef)) return;
+    if (!prompt) return;
     setQueuedHandoffPrompt(null);
-
-    void (async () => {
-      try {
-        await handoffPromptSubmitRef.current?.(prompt);
-      } finally {
-        releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
-      }
-    })();
-  }, [isChatLoading, isStreaming, queuedHandoffPrompt]);
+    void handoffPromptSubmitRef.current?.(prompt);
+  }, [queuedHandoffPrompt, setQueuedHandoffPrompt]);
 
   useEffect(() => {
     if (!isPopover || !isSurfaceClosing) return;
@@ -3661,7 +3813,6 @@ export function AgentChatWorkspace({
           message.text.trim().length > 0
       )?.id ?? null;
   const handleRetryAssistantResponse = (messageId: string) => {
-    if (isChatLoading || isStreaming) return;
     const assistantIndex = messages.findIndex((message) => message.id === messageId);
     if (assistantIndex < 0) return;
     const previousUserMessage = [...messages.slice(0, assistantIndex)]
@@ -3672,24 +3823,24 @@ export function AgentChatWorkspace({
       toast.error("No previous message found to retry.");
       return;
     }
-    if (!tryAcquireAgentTurnSubmitLock(agentTurnSubmitLockRef)) return;
     setPkmReviews([]);
     setPkmActivity([]);
     // Pre-vault / anonymous turns go through the informational intro tier, which
     // runAgentTurn early-returns on (no vault access). Route the retry to the
     // same tier the original turn used so the button is not a no-op there.
-    if (!hasChatAccess) {
-      void runIntroTurn(retryText).finally(() => {
-        releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
-      });
-      return;
-    }
-    void runAgentTurn(retryText, {
-      source: "typed",
-      appendUserMessage: false,
-      replaceAssistantMessageId: messageId,
-    }).finally(() => {
-      releaseAgentTurnSubmitLock(agentTurnSubmitLockRef);
+    enqueueWorkspaceOperation({
+      id: `retry-${crypto.randomUUID()}`,
+      run: async () => {
+        if (!hasChatAccess) {
+          await runIntroTurn(retryText);
+          return;
+        }
+        await runAgentTurn(retryText, {
+          source: "typed",
+          appendUserMessage: false,
+          replaceAssistantMessageId: messageId,
+        });
+      },
     });
   };
   const handleWelcomePromptSelect = useCallback((prompt: string) => {
@@ -3761,6 +3912,37 @@ export function AgentChatWorkspace({
       onRenameConversation={handleRenameConversation}
       onDeleteConversation={handleDeleteConversation}
     />
+  );
+  const composerActionRail = (
+    <>
+      {agentVoiceEnabled ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          data-native-voice-control-id="one_voice_agent_chat_start"
+          data-testid="one-voice-agent-chat-start"
+          className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:text-[color:var(--app-accent-deep)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:max-sm:text-[color:var(--app-accent-deep)]"
+          disabled={!canToggleVoice}
+          onClick={() => {
+            void startConversationalVoice();
+          }}
+          aria-label="Start voice mode"
+          title="Start voice mode"
+        >
+          <Mic className="h-4 w-4" />
+        </Button>
+      ) : null}
+      <Button
+        type="submit"
+        size="icon"
+        className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:rounded-full max-sm:enabled:bg-[color:var(--app-accent)] max-sm:enabled:text-[color:var(--app-accent-fg)] max-sm:enabled:shadow-[var(--app-accent-ring)] max-sm:enabled:hover:bg-[color:var(--app-accent-hover)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500 dark:max-sm:enabled:bg-[color:var(--app-accent)] dark:max-sm:enabled:text-[color:var(--app-accent-fg)]"
+        disabled={!canSend}
+        aria-label="Send message"
+      >
+        <Send className="h-4 w-4" />
+      </Button>
+    </>
   );
 
   return (
@@ -4141,7 +4323,7 @@ export function AgentChatWorkspace({
                           status: "done",
                           kind: "selection",
                         });
-                        await sendDelegateResult({
+                        enqueueDelegateResult({
                           delegate_agent_id: "agent_connected_systems",
                           kind: "selection",
                           id: String(prompt.id ?? ""),
@@ -4172,7 +4354,7 @@ export function AgentChatWorkspace({
                         status: "done",
                         kind: "selection",
                       });
-                      await sendDelegateResult({
+                      enqueueDelegateResult({
                         delegate_agent_id: "agent_connected_systems",
                         kind: "selection",
                         id: String(prompt.id ?? ""),
@@ -4207,7 +4389,7 @@ export function AgentChatWorkspace({
                           status: "done",
                           kind: "selection",
                         });
-                        await sendDelegateResult({
+                        enqueueDelegateResult({
                           delegate_agent_id: evt.delegateAgentId as DelegateResult["delegate_agent_id"],
                           kind: "selection",
                           id: prompt.id,
@@ -4235,7 +4417,7 @@ export function AgentChatWorkspace({
                           status: "done",
                           kind: "selection",
                         });
-                        await sendDelegateResult({
+                        enqueueDelegateResult({
                           delegate_agent_id: evt.delegateAgentId as DelegateResult["delegate_agent_id"],
                           kind: "selection",
                           id: prompt.id,
@@ -4261,7 +4443,7 @@ export function AgentChatWorkspace({
                         status: "done",
                         kind: "selection",
                       });
-                      await sendDelegateResult({
+                      enqueueDelegateResult({
                         delegate_agent_id: evt.delegateAgentId as DelegateResult["delegate_agent_id"],
                         kind: "selection",
                         id: prompt.id,
@@ -4324,40 +4506,7 @@ export function AgentChatWorkspace({
                         addErrorMessage("Vault access expired. Unlock again to continue.");
                         return;
                       }
-                      setSpecialistBusy(true);
-                      try {
-                        const label = String(payload.confirmLabel ?? "Confirm");
-                        appendMessage({
-                          id: `msg-${Date.now()}-calendar-confirm`,
-                          role: "user",
-                          text: label,
-                          timestamp: formatNow(),
-                          status: "done",
-                          kind: "selection",
-                        });
-                        const result = await runCalendarDirective(
-                          directive.directive,
-                          token,
-                          user.uid,
-                        );
-                        setPendingSpecialistDirective(null);
-                        appendMessage({
-                          id: `msg-${Date.now()}-calendar-result`,
-                          role: "assistant",
-                          text: result.detail || "Calendar updated.",
-                          timestamp: formatNow(),
-                          status: "done",
-                        });
-                      } catch (error) {
-                        setPendingSpecialistDirective(null);
-                        addErrorMessage(
-                          error instanceof Error
-                            ? error.message
-                            : "The Calendar change could not be completed.",
-                        );
-                      } finally {
-                        setSpecialistBusy(false);
-                      }
+                      enqueueCalendarDirective(directive, token, user.uid);
                     }}
                     onCancel={() => {
                       setPendingSpecialistDirective(null);
@@ -4405,7 +4554,7 @@ export function AgentChatWorkspace({
                           },
                         );
                         setPendingSpecialistDirective(null);
-                        await sendDelegateResult(result);
+                        enqueueDelegateResult(result);
                       } finally {
                         setSpecialistBusy(false);
                       }
@@ -4421,7 +4570,7 @@ export function AgentChatWorkspace({
                         status: "done",
                         kind: "selection",
                       });
-                      await sendDelegateResult({
+                      enqueueDelegateResult({
                         delegate_agent_id: "agent_connected_systems",
                         kind: "action",
                         id: String(
@@ -4494,7 +4643,7 @@ export function AgentChatWorkspace({
                           );
                         }
                         // Follow-up turn: report the result back so One confirms in words.
-                        await sendDelegateResult(result);
+                        enqueueDelegateResult(result);
                       } finally {
                         setSpecialistBusy(false);
                       }
@@ -4510,7 +4659,7 @@ export function AgentChatWorkspace({
                         status: "done",
                         kind: "selection",
                       });
-                      await sendDelegateResult({
+                      enqueueDelegateResult({
                         delegate_agent_id: directive.delegateAgentId as DelegateResult["delegate_agent_id"],
                         kind: "action",
                         id: String(
@@ -4551,6 +4700,84 @@ export function AgentChatWorkspace({
             )}
           >
             <div className="mx-auto w-full max-w-4xl">
+              {queuedPrompts.length > 0 ? (
+                <div
+                  className="mb-2 rounded-2xl border border-border/70 bg-muted/45 px-3 py-2"
+                  data-testid="agent-chat-prompt-queue"
+                  aria-live="polite"
+                >
+                  <div className="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
+                    <span>{queuedPrompts.length} {queuedPrompts.length === 1 ? "message" : "messages"} queued</span>
+                    <span>One will send these in order.</span>
+                  </div>
+                  <div className="mt-1.5 space-y-1.5">
+                    {queuedPrompts.map((prompt, index) => (
+                      <div
+                        key={prompt.id}
+                        className="flex min-w-0 items-center gap-2 rounded-xl bg-background/75 px-2 py-1.5 text-sm"
+                      >
+                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{index + 1}</span>
+                        {editingQueuedPromptId === prompt.id ? (
+                          <input
+                            autoFocus
+                            aria-label="Edit queued message"
+                            className="min-w-0 flex-1 bg-transparent outline-none"
+                            value={editingQueuedPromptText}
+                            onChange={(event) => setEditingQueuedPromptText(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                editQueuedPrompt(prompt.id, editingQueuedPromptText);
+                              }
+                              if (event.key === "Escape") {
+                                setEditingQueuedPromptId(null);
+                                setEditingQueuedPromptText("");
+                              }
+                            }}
+                          />
+                        ) : (
+                          <span className="min-w-0 flex-1 truncate">{prompt.text}</span>
+                        )}
+                        {editingQueuedPromptId === prompt.id ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => editQueuedPrompt(prompt.id, editingQueuedPromptText)}
+                          >
+                            Save
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            aria-label={`Edit queued message ${index + 1}`}
+                            onClick={() => {
+                              setEditingQueuedPromptId(prompt.id);
+                              setEditingQueuedPromptText(prompt.text);
+                            }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          aria-label={`Remove queued message ${index + 1}`}
+                          onClick={() => removeQueuedPrompt(prompt.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               {voiceActive ? (
                 <div className="rounded-[var(--app-card-radius-compact)] border border-border/70 bg-foreground/[0.04] p-2 shadow-[var(--app-card-shadow-standard)]">
                   <AgentVoiceWaveInput
@@ -4563,54 +4790,92 @@ export function AgentChatWorkspace({
                   />
                 </div>
               ) : (
-                <div className="flex min-h-14 items-end gap-2 rounded-[var(--app-radius-pill)] border border-border/70 bg-foreground/[0.04] px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[color:var(--app-accent)] max-sm:focus-within:ring-[color:var(--app-accent-ring)]">
-                  <textarea
-                    ref={composerTextareaRef}
-                    aria-label="Message One"
-                    value={input}
-                    onChange={(event) => setInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
-                        return;
-                      }
-                      event.preventDefault();
-                      if (canSend) {
-                        event.currentTarget.form?.requestSubmit();
-                      }
-                    }}
-                    disabled={isLoadingHistory || isVoiceConnecting}
-                    placeholder="Message One..."
-                    rows={1}
-                    className="max-h-40 min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1 py-2 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
-                  />
-                  {agentVoiceEnabled ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      data-native-voice-control-id="one_voice_agent_chat_start"
-                      data-testid="one-voice-agent-chat-start"
-                      className="h-9 w-9 shrink-0 rounded-xl text-[rgba(0,0,0,0.50)] hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:text-[color:var(--app-accent-deep)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 dark:max-sm:text-[color:var(--app-accent-deep)]"
-                      disabled={!canToggleVoice}
-                      onClick={() => {
-                        void startConversationalVoice();
-                      }}
-                      aria-label="Start voice mode"
-                      title="Start voice mode"
+                <>
+                  {composerExpanded ? (
+                    <div
+                      data-testid="agent-chat-composer-expanded"
+                      className="relative mb-2 overflow-hidden rounded-[var(--app-card-radius-compact)] border border-border/70 bg-foreground/[0.04] shadow-[var(--app-card-shadow-standard)]"
                     >
-                      <Mic className="h-4 w-4" />
-                    </Button>
+                      <textarea
+                        ref={composerTextareaRef}
+                        data-testid="agent-chat-composer-expanded-textarea"
+                        aria-label="Expanded message One"
+                        value={input}
+                        onChange={(event) => setInput(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+                            return;
+                          }
+                          event.preventDefault();
+                          if (canSend) {
+                            event.currentTarget.form?.requestSubmit();
+                          }
+                        }}
+                        disabled={isLoadingHistory || isVoiceConnecting}
+                        placeholder="Write a longer message..."
+                        className="block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-14 pt-4 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-16 sm:pt-5 sm:text-sm"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
+                        aria-label="Collapse message editor"
+                        title="Collapse"
+                        onClick={() => setComposerExpanded(false)}
+                      >
+                        <Minimize2 className="h-4 w-4" />
+                      </Button>
+                      <div className="absolute bottom-3 right-3 flex items-center gap-2 sm:bottom-4 sm:right-4">
+                        {composerActionRail}
+                      </div>
+                    </div>
                   ) : null}
-                  <Button
-                    type="submit"
-                    size="icon"
-                    className="h-9 w-9 shrink-0 rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/20 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-primary/60 max-sm:rounded-full max-sm:enabled:bg-[color:var(--app-accent)] max-sm:enabled:text-[color:var(--app-accent-fg)] max-sm:enabled:shadow-[var(--app-accent-ring)] max-sm:enabled:hover:bg-[color:var(--app-accent-hover)] max-sm:focus-visible:ring-[color:var(--app-accent-ring)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] disabled:shadow-none dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500 dark:max-sm:enabled:bg-[color:var(--app-accent)] dark:max-sm:enabled:text-[color:var(--app-accent-fg)]"
-                    disabled={!canSend}
-                    aria-label="Send message"
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
-                </div>
+                  {!composerExpanded ? (
+                    <div
+                      data-testid="agent-chat-composer"
+                      className="flex min-h-16 items-end gap-2 rounded-[var(--app-radius-pill)] border border-border/70 bg-foreground/[0.04] px-3 py-2 shadow-[var(--app-card-shadow-standard)] transition-colors focus-within:border-primary/55 focus-within:ring-2 focus-within:ring-primary/20 max-sm:focus-within:border-[color:var(--app-accent)] max-sm:focus-within:ring-[color:var(--app-accent-ring)]"
+                    >
+                      <div className="relative min-w-0 flex-1 self-stretch">
+                        <textarea
+                          ref={composerTextareaRef}
+                          data-testid="agent-chat-composer-textarea"
+                          aria-label="Message One"
+                          value={input}
+                          onChange={(event) => setInput(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+                              return;
+                            }
+                            event.preventDefault();
+                            if (canSend) {
+                              event.currentTarget.form?.requestSubmit();
+                            }
+                          }}
+                          disabled={isLoadingHistory || isVoiceConnecting}
+                          placeholder="Message One..."
+                          rows={1}
+                          className="min-h-10 max-h-28 w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-7 py-3 pr-14 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:px-8 sm:pr-14 sm:text-sm"
+                        />
+                        {composerLong ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            data-testid="agent-chat-composer-expand"
+                            className="absolute right-1 top-1.5 h-9 w-9 rounded-xl text-muted-foreground"
+                            aria-label="Expand message editor"
+                            title="Expand"
+                            onClick={() => setComposerExpanded(true)}
+                          >
+                            <Maximize2 className="h-4 w-4" />
+                          </Button>
+                        ) : null}
+                      </div>
+                      {composerActionRail}
+                    </div>
+                  ) : null}
+                </>
               )}
             </div>
           </form>

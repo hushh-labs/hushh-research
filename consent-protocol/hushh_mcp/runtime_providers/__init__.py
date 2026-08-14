@@ -25,9 +25,12 @@ from .factory import (
 )
 from .gemini_config import (
     GEMINI_36_FLASH,
+    GEMINI_37_FLASH,
     build_generate_content_config,
     generation_config_kwargs,
     is_gemini_36_flash,
+    is_gemini_37_flash,
+    is_gemini_flash_v3,
 )
 from .registry import (
     ModelEntry,
@@ -45,6 +48,7 @@ __all__ = [
     "GeminiByokTransportUnsupportedError",
     "ManagedGeminiRuntimeBinding",
     "GEMINI_36_FLASH",
+    "GEMINI_37_FLASH",
     "build_generate_content_config",
     "build_gemini_byok_adk_model",
     "build_managed_gemini_adk_model",
@@ -53,6 +57,8 @@ __all__ = [
     "default_model_for_provider",
     "is_known_provider",
     "is_gemini_36_flash",
+    "is_gemini_37_flash",
+    "is_gemini_flash_v3",
     "generation_config_kwargs",
     "normalize_provider",
     "resolve_model_entry",

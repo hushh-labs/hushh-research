@@ -53,16 +53,16 @@ The value never appears in a URL, relay ticket, browser storage, native
 preferences, Postgres, logs, telemetry, action contracts, or model prompts.
 
 The bounded credential/readiness probe uses the same manifest-owned
-`gemini-3.6-flash` model as normal typed private-agent reasoning. Successful
+`gemini-3.7-flash` model as normal typed private-agent reasoning. Successful
 setup therefore proves authentication, exact-model access, billing/quota
 availability, and one minimal generation before a key can be saved. Managed
 voice uses `gemini-live-2.5-flash-native-audio`. No standalone TTS fallback is
 configured.
 
-Gemini 3.6 text requests use the global Vertex endpoint and omit legacy
+Gemini 3.7 text requests use the global Vertex endpoint and omit legacy
 sampling controls. The runtime retains `thinking_level` for bounded reasoning;
 it does not send `temperature`, `top_p`, `top_k`, `candidate_count`, or
-`thinking_budget` to 3.6.
+`thinking_budget` to 3.7.
 
 ## Live Compatibility Registry
 

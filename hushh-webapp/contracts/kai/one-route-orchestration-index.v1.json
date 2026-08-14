@@ -5493,6 +5493,7 @@
       "canonical_screen": "ria_clients",
       "voice_contract_file": "app/ria/clients/page.voice-action-contract.json",
       "action_ids": [
+        "ria.clients.switch_to_nearby",
         "route.ria_clients"
       ],
       "action_coverage": "inherited",

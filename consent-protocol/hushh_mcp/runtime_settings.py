@@ -44,6 +44,8 @@ CONNECTOR_KDF_ITERATIONS_ENV = "CONNECTOR_KDF_ITERATIONS"
 _CONNECTOR_KDF_ITERATIONS_DEFAULT = 65536
 OMNIGATEWAY_CLIENT_ID_ENV = "OMNIGATEWAY_CLIENT_ID"
 OMNIGATEWAY_CLIENT_SECRET_ENV = "OMNIGATEWAY_CLIENT_SECRET"  # noqa: S105
+OMNIGATEWAY_EXT_CRM_CLIENT_ID_ENV = "OMNIGATEWAY_EXT_CRM_CLIENT_ID"
+OMNIGATEWAY_EXT_CRM_CLIENT_SECRET_ENV = "OMNIGATEWAY_EXT_CRM_CLIENT_SECRET"  # noqa: S105
 APP_FRONTEND_ORIGIN_ENV = "APP_FRONTEND_ORIGIN"
 FIREBASE_ADMIN_CREDENTIALS_JSON_ENV = "FIREBASE_ADMIN_CREDENTIALS_JSON"
 FIREBASE_SERVICE_ACCOUNT_JSON_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON"
@@ -120,6 +122,12 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # the advisor base URL directly above; the bearer key is a real
     # secret and is mounted through --set-secrets instead.
     "insurance_agents_api_base_url": "INSURANCE_AGENTS_API_BASE_URL",
+    # NWS Nearby Intelligence base URL. Non-secret and the same reasoning again;
+    # the X-NWS-API-Key is a real secret and is mounted through --set-secrets.
+    # Unlike the two directories above, this service lives in hushh-tech-prod
+    # rather than the lane project, so its key is mirrored across projects by
+    # scripts/ops/sync_backend_runtime_secrets.py before the deploy runs.
+    "nws_nearby_api_base_url": "NWS_NEARBY_API_BASE_URL",
     # Places directory switch. Deliberately its own key rather than reusing the
     # nearby-presence mode: that flag governs co-presence, and closing
     # co-presence in production must not also close a business directory.
@@ -347,15 +355,25 @@ def get_connector_kdf_iterations() -> int:
         return _CONNECTOR_KDF_ITERATIONS_DEFAULT
 
 
-def get_omnigateway_transport_headers() -> tuple[tuple[str, str], ...]:
+def get_omnigateway_transport_headers(
+    credential_profile: str = "shared",
+) -> tuple[tuple[str, str], ...]:
     """Client-ID-Enforcement headers for the MuleSoft OmniGateway transport.
 
     These authenticate Hushh to the gateway. They are separate from the
     encrypted CRM credentials stored in enterprise_crm_registry and forwarded to
     MuleSoft for CRM-side auth.
     """
-    client_id = _clean_env(OMNIGATEWAY_CLIENT_ID_ENV)
-    client_secret = _clean_env(OMNIGATEWAY_CLIENT_SECRET_ENV)
+    if credential_profile == "external_crm":
+        client_id_env = OMNIGATEWAY_EXT_CRM_CLIENT_ID_ENV
+        client_secret_env = OMNIGATEWAY_EXT_CRM_CLIENT_SECRET_ENV
+    elif credential_profile == "shared":
+        client_id_env = OMNIGATEWAY_CLIENT_ID_ENV
+        client_secret_env = OMNIGATEWAY_CLIENT_SECRET_ENV
+    else:
+        return ()
+    client_id = _clean_env(client_id_env)
+    client_secret = _clean_env(client_secret_env)
     headers: list[tuple[str, str]] = []
     if client_id:
         headers.append(("client_id", client_id))

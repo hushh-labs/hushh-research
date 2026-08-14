@@ -86,6 +86,37 @@ async function apiJsonWithRetry<T>(
   }
 }
 
+/**
+ * How long a captured fix stays reusable. Deliberately well under the 60s the
+ * backend allows between capture and confirmation, so a reused point still
+ * passes the server's freshness check and still describes where the user
+ * actually is.
+ */
+export const CAPTURE_DEFAULT_MAX_AGE_MS = 20_000;
+
+/**
+ * The window for a caller that needs a fix describing where the user is *now*
+ * — dropping a pin, saving a place, anchoring a check-in.
+ *
+ * Deliberately a few seconds rather than zero. `maxAgeMs: 0` forces a full
+ * device acquisition on every press, and on a laptop with no GPS that is well
+ * over a second of dead time before any UI appears. But a fix taken five
+ * seconds ago is not meaningfully different: at walking pace that is about
+ * seven metres, comfortably inside the 10-35m accuracy the device reports
+ * anyway. So the "fresh" reading and the reused one describe the same place,
+ * and one of them is free.
+ *
+ * Zero is still correct for the live-share publisher — nobody is waiting on it,
+ * and a recipient watching someone move must see the newest fix there is.
+ */
+export const CAPTURE_FRESH_MAX_AGE_MS = 5_000;
+
+/** The most recent fix, reused inside CAPTURE_DEFAULT_MAX_AGE_MS. */
+let lastCapturedPoint: PlainLocationPoint | null = null;
+
+/** In-flight capture, shared so N simultaneous callers cause one GPS read. */
+let pendingCapture: Promise<PlainLocationPoint> | null = null;
+
 export class OneLocationService {
   static async getPermissionState() {
     return HushhLocation.getPermissionState();
@@ -107,11 +138,79 @@ export class OneLocationService {
     return HushhLocation.openLocationSettings();
   }
 
-  static async captureCurrentPosition(): Promise<PlainLocationPoint> {
-    return HushhLocation.getCurrentPosition({
+  /**
+   * The account's current position, held briefly and shared between callers.
+   *
+   * Every control on this surface used to reach the device directly, so one
+   * share wizard paid for a full GPS acquisition per step and each one cost
+   * seconds. Two guards remove that without ever serving a position stale
+   * enough to be wrong:
+   *
+   * - a fix younger than `maxAgeMs` is reused instead of re-acquired;
+   * - concurrent callers share ONE in-flight acquisition rather than each
+   *   starting their own — sharing with N people used to mean N simultaneous
+   *   GPS reads, which is slower than one read for every one of them.
+   *
+   * Pass `maxAgeMs: 0` to force a genuinely new fix. The live-share publisher
+   * does exactly that: a recipient watching someone move must never be handed
+   * a cached point, or the share looks paused.
+   */
+  static async captureCurrentPosition(options?: {
+    maxAgeMs?: number;
+    /**
+     * "I need a fix that describes where the user is right now" — dropping a
+     * pin, saving a place, anchoring a check-in.
+     *
+     * Prefer this over `maxAgeMs: 0` at a call site. It says what the caller
+     * needs rather than a number, and it keeps the freshness policy in one
+     * place. It is also deliberately not importable state: a caller that had to
+     * import a constant from this module would break the moment a test mocked
+     * the module without re-exporting it.
+     */
+    fresh?: boolean;
+  }): Promise<PlainLocationPoint> {
+    const maxAgeMs =
+      options?.maxAgeMs ??
+      (options?.fresh ? CAPTURE_FRESH_MAX_AGE_MS : CAPTURE_DEFAULT_MAX_AGE_MS);
+
+    if (lastCapturedPoint && maxAgeMs > 0) {
+      const capturedMs = Date.parse(lastCapturedPoint.capturedAt);
+      if (Number.isFinite(capturedMs) && Date.now() - capturedMs <= maxAgeMs) {
+        return lastCapturedPoint;
+      }
+    }
+
+    // An acquisition already running is fresher than anything we could start
+    // now, so every caller joins it — including one that asked for maxAgeMs: 0.
+    if (pendingCapture) return pendingCapture;
+
+    pendingCapture = HushhLocation.getCurrentPosition({
       enableHighAccuracy: true,
       timeoutMs: 15_000,
-    });
+    })
+      .then((point) => {
+        lastCapturedPoint = point;
+        return point;
+      })
+      .finally(() => {
+        pendingCapture = null;
+      });
+
+    return pendingCapture;
+  }
+
+  /**
+   * Drop the reusable fix. Call when the device may have moved without us —
+   * a permission change, or the app returning from background.
+   */
+  static invalidateCapturedPosition(): void {
+    lastCapturedPoint = null;
+  }
+
+  /** Test seam. Never call from app code. */
+  static __resetCaptureCacheForTests(): void {
+    lastCapturedPoint = null;
+    pendingCapture = null;
   }
 
   /**
@@ -233,6 +332,51 @@ export class OneLocationService {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),
         body: JSON.stringify({ name: params.name, kind: params.kind }),
+      },
+    );
+    return response.circle;
+  }
+
+  /**
+   * Find-or-create the caller's first Circle and return its live code.
+   *
+   * Takes a Firebase ID token rather than a vault owner token, because
+   * onboarding runs before the vault exists — the vault is only introduced once
+   * the /one/setup wizard finishes. Every other Circle call here stays
+   * vault-gated; this is the single pre-vault entry point, and it can only ever
+   * act on a Circle the caller owns.
+   */
+  static async bootstrapOnboardingCircle(params: {
+    idToken: string;
+    name: string;
+  }): Promise<{ circleId: string; circleName: string; code: string }> {
+    const response = await apiJson<{
+      invite: { circleId: string; circleName: string; code: string };
+    }>("/api/one/location/circles/bootstrap", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.idToken),
+      body: JSON.stringify({ name: params.name }),
+    });
+    return response.invite;
+  }
+
+  /**
+   * Show what a circle code points at, before joining it.
+   *
+   * Firebase-authenticated like the bootstrap call, because someone who was
+   * handed a code meets it mid-setup, before any vault exists -- which is
+   * precisely the person the vault-gated resolve route would turn away.
+   */
+  static async previewOnboardingCircleCode(params: {
+    idToken: string;
+    code: string;
+  }): Promise<OneLocationCircleInvitePreview> {
+    const response = await apiJson<{ circle: OneLocationCircleInvitePreview }>(
+      "/api/one/location/circle-codes/preview",
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.idToken),
+        body: JSON.stringify({ code: params.code }),
       },
     );
     return response.circle;
@@ -490,6 +634,17 @@ export class OneLocationService {
     return apiJson<OneLocationMapState>("/api/one/location/map-state", {
       headers: authHeaders(vaultOwnerToken),
     });
+  }
+
+  /** The viewer's own map presence preference, without the marker payload. */
+  static async getMapPreferences(
+    vaultOwnerToken: string,
+  ): Promise<OneLocationMapPreferences> {
+    const response = await apiJson<{ preferences: OneLocationMapPreferences }>(
+      "/api/one/location/map-preferences",
+      { headers: authHeaders(vaultOwnerToken) },
+    );
+    return response.preferences;
   }
 
   static async updateMapPreferences(params: {

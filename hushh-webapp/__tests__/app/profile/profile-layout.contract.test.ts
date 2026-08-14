@@ -24,7 +24,7 @@ describe("Profile canonical page layout", () => {
 
     expect(source).toContain('data-profile-avatar-frame="true"');
     expect(source).toContain('className="h-full w-full"');
-    expect(source).toContain('<AvatarImage src={photo} alt={displayName || "Profile"} />');
+    expect(source).toContain('<AvatarImage src={shownPhoto} alt={displayName || "Profile"} />');
     expect(source).toContain('bg-primary/18 p-1');
     expect(source).toContain('<UserIcon className="h-8 w-8 sm:h-9 sm:w-9" />');
     expect(source).not.toContain(
@@ -52,6 +52,36 @@ describe("Profile canonical page layout", () => {
     );
     expect(source).not.toContain(
       'className="profile-home-meta inline-flex max-w-full',
+    );
+  });
+
+  it("keeps Profile and Account supporting metadata below body row size", () => {
+    const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+
+    expect(css).toContain("--ios-account-row-title-size: 17px;");
+    expect(css).toContain("--ios-account-row-title-line: 22px;");
+    expect(css).toContain("--type-page-subtitle-size: 15px;");
+    expect(css).toContain("--type-page-subtitle-line: 20px;");
+    expect(css).toContain("--type-row-description-size: 13px;");
+    expect(css).toContain("--type-row-description-line: 18px;");
+    expect(css).toContain(
+      "--ios-account-row-value-size: var(--type-row-description-size);",
+    );
+    expect(css).toContain(
+      "--ios-account-row-value-line: var(--type-row-description-line);",
+    );
+    expect(css).toContain(".profile-account-hero-email {");
+    expect(css).toContain(
+      "font-size: var(--type-row-description-size);",
+    );
+    expect(css).toContain(".profile-home-meta {");
+    expect(css).toContain(
+      "font-size: var(--type-row-description-size) !important;",
+    );
+    expect(css).toContain(".app-page-shell .profile-account-inline-action {");
+    expect(css).toContain("font-size: 15px !important;");
+    expect(css).not.toContain(
+      ".app-page-shell .profile-account-content [data-slot=\"settings-row-title\"],\n  .app-page-shell .profile-account-inline-action",
     );
   });
 });

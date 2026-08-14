@@ -51,7 +51,14 @@ const point = {
 
 describe("NearbyCheckInSheet", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    Object.values(service).forEach((mock) => mock.mockReset());
+    navigation.push.mockReset();
+    service.nearbyCheckInErrorDetails.mockReturnValue({
+      message: "Check-in didn't complete. Your location is not visible.",
+      retryLocation: false,
+      openAppSettings: false,
+    });
+    service.placesSearchErrorMessage.mockReturnValue("Place search failed.");
     service.getNearbyPresence.mockResolvedValue({
       presence: null,
       attendees: [],
@@ -160,7 +167,7 @@ describe("NearbyCheckInSheet", () => {
     );
 
     const submit = screen.getByRole("button", {
-      name: "Check in and see people",
+      name: "Check in",
     });
     expect(submit).toBeDisabled();
     expect(
@@ -168,7 +175,7 @@ describe("NearbyCheckInSheet", () => {
     ).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Show me in the nearby people list/,
+        name: /Appear nearby/,
       }),
     );
     expect(submit).toBeEnabled();
@@ -208,11 +215,11 @@ describe("NearbyCheckInSheet", () => {
     await screen.findByRole("radio", { name: /Stanford University/ });
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Show me in the nearby people list/,
+        name: /Appear nearby/,
       }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Check in and see people" }),
+      screen.getByRole("button", { name: "Check in" }),
     );
 
     expect(
@@ -280,11 +287,11 @@ describe("NearbyCheckInSheet", () => {
 
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Show me in the nearby people list/,
+        name: /Appear nearby/,
       }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Check in and see people" }),
+      screen.getByRole("button", { name: "Check in" }),
     );
 
     await waitFor(() => {
@@ -312,9 +319,9 @@ describe("NearbyCheckInSheet", () => {
   });
 
   it("keeps a persistent retry after the initial presence read fails", async () => {
-    service.getNearbyPresence
-      .mockRejectedValueOnce(new Error("temporary network failure"))
-      .mockResolvedValueOnce({ presence: null, attendees: [] });
+    service.getNearbyPresence.mockRejectedValue(
+      new Error("temporary network failure"),
+    );
     const capture = vi.fn().mockResolvedValue(point);
 
     render(
@@ -333,6 +340,11 @@ describe("NearbyCheckInSheet", () => {
       ),
     ).toBeInTheDocument();
     expect(capture).not.toHaveBeenCalled();
+    const callsBeforeRetry = service.getNearbyPresence.mock.calls.length;
+    service.getNearbyPresence.mockResolvedValue({
+      presence: null,
+      attendees: [],
+    });
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -341,7 +353,9 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await waitFor(() => {
-      expect(service.getNearbyPresence).toHaveBeenCalledTimes(2);
+      expect(service.getNearbyPresence.mock.calls.length).toBeGreaterThan(
+        callsBeforeRetry,
+      );
       expect(capture).toHaveBeenCalledTimes(1);
       expect(service.nearbyPlaces).toHaveBeenCalledWith({
         vaultOwnerToken: "owner-token",
@@ -351,7 +365,7 @@ describe("NearbyCheckInSheet", () => {
       });
     });
     expect(
-      service.getNearbyPresence.mock.invocationCallOrder[1],
+      service.getNearbyPresence.mock.invocationCallOrder[callsBeforeRetry],
     ).toBeLessThan(capture.mock.invocationCallOrder[0]);
     expect(
       screen.queryByText(
@@ -924,11 +938,11 @@ describe("NearbyCheckInSheet", () => {
     await screen.findByRole("radio", { name: /Stanford University/ });
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Show me in the nearby people list/,
+        name: /Appear nearby/,
       }),
     );
     const submit = screen.getByRole("button", {
-      name: "Check in and see people",
+      name: "Check in",
     });
     expect(submit).toBeEnabled();
 
@@ -982,11 +996,11 @@ describe("NearbyCheckInSheet", () => {
     });
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Show me in the nearby people list/,
+        name: /Appear nearby/,
       }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Check in and see people" }),
+      screen.getByRole("button", { name: "Check in" }),
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
@@ -1106,11 +1120,11 @@ describe("NearbyCheckInSheet", () => {
     });
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Show me in the nearby people list/,
+        name: /Appear nearby/,
       }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Check in and see people" }),
+      screen.getByRole("button", { name: "Check in" }),
     );
 
     // The area is re-swept once when the chosen place turns out to be
@@ -1159,11 +1173,11 @@ describe("NearbyCheckInSheet", () => {
     await screen.findByRole("radio", { name: /Stanford University/ });
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Show me in the nearby people list/,
+        name: /Appear nearby/,
       }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Check in and see people" }),
+      screen.getByRole("button", { name: "Check in" }),
     );
 
     await waitFor(() => {
@@ -1252,11 +1266,11 @@ describe("NearbyCheckInSheet", () => {
     await screen.findByRole("radio", { name: /Stanford University/ });
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Show me in the nearby people list/,
+        name: /Appear nearby/,
       }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Check in and see people" }),
+      screen.getByRole("button", { name: "Check in" }),
     );
 
     await waitFor(() => {

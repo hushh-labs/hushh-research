@@ -66,16 +66,20 @@ for (const exportName of [
 
 const globals = read("app/globals.css");
 for (const [token, value] of [
-  ["--type-large-page-title-size", "34px"],
-  ["--type-large-page-title-line", "41px"],
+  ["--type-large-page-title-size", "28px"],
+  ["--type-large-page-title-line", "34px"],
   ["--type-large-page-title-weight", "700"],
   ["--type-large-page-title-tracking", "normal"],
   ["--type-page-title-size", "28px"],
   ["--type-page-title-line", "34px"],
   ["--type-page-title-weight", "700"],
   ["--type-page-title-tracking", "normal"],
-  ["--type-major-section-title-size", "22px"],
-  ["--type-major-section-title-line", "28px"],
+  ["--type-agent-title-size", "28px"],
+  ["--type-agent-title-line", "34px"],
+  ["--type-agent-title-weight", "700"],
+  ["--type-agent-title-tracking", "normal"],
+  ["--type-major-section-title-size", "20px"],
+  ["--type-major-section-title-line", "25px"],
   ["--type-major-section-title-weight", "600"],
   ["--type-major-section-title-tracking", "normal"],
   ["--type-card-title-size", "20px"],
@@ -91,8 +95,8 @@ for (const [token, value] of [
   ["--type-row-label-size", "17px"],
   ["--type-row-label-line", "22px"],
   ["--type-row-label-tracking", "normal"],
-  ["--type-row-description-size", "15px"],
-  ["--type-row-description-line", "20px"],
+  ["--type-row-description-size", "13px"],
+  ["--type-row-description-line", "18px"],
   ["--type-row-description-tracking", "0"],
   ["--type-input-value-size", "17px"],
   ["--type-input-value-line", "22px"],
@@ -124,6 +128,17 @@ if (!/\.type-caption\s*\{[^}]*text-transform:\s*none;/s.test(globals)) {
 if (!globals.includes(".app-page-shell")) {
   failures.push("app/globals.css: app shell must keep scoped readable-text guardrails");
 }
+
+expectIncludes(
+  "app/globals.css",
+  '--font-family-product: "InterVariable", "Inter", system-ui, sans-serif;',
+  "product UI must use Inter only",
+);
+expectNotIncludes(
+  "app/globals.css",
+  '--font-family-product:\n    -apple-system, BlinkMacSystemFont, "InterVariable"',
+  "product UI must not prefer the Apple/system font stack",
+);
 
 for (const repoPath of [
   "components/app-ui/settings-ui.tsx",

@@ -301,20 +301,17 @@ const SUPPORT_KIND_COPY: Record<
 > = {
   bug_report: {
     title: "Report a bug",
-    description:
-      "Tell us what broke, what you expected, and anything we should look at.",
+    description: "Tell us what broke.",
     subject: "Bug report",
   },
   support_request: {
     title: "Contact support",
-    description:
-      "Ask for help with your account, portfolio flows, or something unclear in the app.",
+    description: "Get help with One.",
     subject: "Support request",
   },
   developer_reachout: {
     title: "Reach the developer",
-    description:
-      "Share product feedback, implementation notes, or a direct engineering question.",
+    description: "Send product feedback.",
     subject: "Developer feedback",
   },
 };
@@ -1928,14 +1925,14 @@ function ProfilePageContent() {
     ? "Unlock to delete account"
     : "Delete account";
   const deleteRowDescription = vaultAccess.needsVaultCreation
-    ? "No vault exists yet. This deletes cloud-linked account records."
-    : "This permanently deletes your One account.";
+    ? "Deletes cloud-linked records."
+    : "Deletes your One account.";
   const deleteDialogTitle = DELETE_ACCOUNT_DIALOG_TITLE;
   const deleteDialogDescription = DELETE_ACCOUNT_DIALOG_DESCRIPTION;
 
   const resetRowDescription =
-    "Clear your saved details and start onboarding fresh. Keeps your account and sign-in.";
-  const resetDialogTitle = "Reset your One account?";
+    "Clears saved details. Keeps sign-in.";
+  const resetDialogTitle = "Reset account?";
   const resetDialogDescription =
     "This clears all your saved details: connected services, finance and Gmail, your knowledge base, consents, and saved preferences. It keeps your account, your sign-in, and your vault. You will start onboarding again.";
 
@@ -1956,16 +1953,16 @@ function ProfilePageContent() {
 
   const unlockDialogTitle =
     vaultUnlockReason === "delete_account"
-      ? "Unlock Vault to Delete Account"
+      ? "Unlock to delete"
       : vaultUnlockReason === "reset_account"
-        ? "Unlock Vault to Reset Account"
-        : "Unlock Vault";
+        ? "Unlock to reset"
+        : "Unlock vault";
   const unlockDialogDescription =
     vaultUnlockReason === "delete_account"
-      ? "Unlock your vault to confirm deletion. This is permanent and removes all encrypted records."
+      ? "This permanently removes encrypted records."
       : vaultUnlockReason === "reset_account"
-        ? "Unlock your vault to confirm reset. This clears your saved details but keeps your account and vault."
-        : "Unlock your vault to access profile settings.";
+        ? "Saved details reset. Account and vault stay."
+        : "Unlock to continue.";
 
   const displayedUnlockMethod = effectiveVaultMethod ?? vaultMethod;
   const recommendedQuickMethod =
@@ -2013,7 +2010,7 @@ function ProfilePageContent() {
   const contactDiscoverableStatusText = loadingContactDiscoverable
     ? "Checking discoverability…"
     : contactDiscoverable
-      ? "People who have your number can find you"
+      ? "People with your number can find you"
       : "Hidden from contact sync";
   const phoneSummaryText = phoneNumber
     ? maskPhoneNumber(phoneNumber)
@@ -2996,7 +2993,7 @@ function ProfilePageContent() {
         <SettingsRow
           icon={MapPin}
           title="Location sharing"
-          description="Share, request, and revoke encrypted live-location access."
+          description="Manage live location."
           trailing={<Badge variant="secondary">One</Badge>}
           chevron
           stackTrailingOnMobile
@@ -3005,7 +3002,7 @@ function ProfilePageContent() {
         <SettingsRow
           icon={ExternalLink}
           title="Consent center"
-          description="Open the full sharing workspace."
+          description="Review sharing."
           trailing={<Badge variant="secondary">Manage</Badge>}
           chevron
           stackTrailingOnMobile
@@ -3146,7 +3143,7 @@ function ProfilePageContent() {
         <SettingsRow
           icon={Palette}
           title="Accent"
-          description="The highlight color One uses across the app."
+          description="Choose the app accent."
           trailing={
             <Select
               value={appAccent}
@@ -3189,7 +3186,7 @@ function ProfilePageContent() {
         <SettingsRow
           leading={<GeminiLogo className="h-8 w-8" />}
           title="Gemini"
-          description="Choose Hussh managed Gemini or keep your own key in your encrypted vault."
+          description="Choose managed or BYOK."
           chevron
           onClick={() =>
             updateProfileView(
@@ -3270,7 +3267,7 @@ function ProfilePageContent() {
         <SettingsRow
           icon={RefreshCw}
           title="Actions"
-          description="Connect, sync, receipts, or disconnect."
+          description="Sync, receipts, or disconnect."
           chevron
           onClick={() =>
             updateProfileView(
@@ -3286,7 +3283,6 @@ function ProfilePageContent() {
   const connectedSystemsContent = (
     <ConnectedSystemsPanel
       cacheUserId={user?.uid}
-      vaultKey={vaultKey}
       vaultOwnerToken={vaultOwnerToken}
       onRequestUnlock={() => requestVaultUnlock("profile_data")}
       profile={{
@@ -3304,7 +3300,7 @@ function ProfilePageContent() {
           <SettingsRow
             icon={KeyRound}
             title="Create your vault"
-            description="Set up a passphrase to secure your saved details."
+            description="Secure saved details."
             chevron
             onClick={() => setShowVaultCreation(true)}
           />
@@ -3372,7 +3368,7 @@ function ProfilePageContent() {
               <SettingsRow
                 icon={KeyRound}
                 title="Unlock vault"
-                description="Unlock your vault to change methods or update your passphrase."
+                description="Change methods or passphrase."
                 chevron
                 onClick={() => requestVaultUnlock("profile_data")}
               />
@@ -3388,8 +3384,8 @@ function ProfilePageContent() {
                 }
                 description={
                   isPasskeyVaultMethod(recommendedQuickMethod)
-                    ? "Create a saved passkey for this device or browser."
-                    : "Enable this device's secure quick unlock."
+                    ? "Save a passkey."
+                    : "Enable quick unlock."
                 }
                 disabled={switchingVaultMethod}
                 chevron
@@ -3468,7 +3464,7 @@ function ProfilePageContent() {
               <SettingsRow
                 icon={RefreshCw}
                 title="Change passphrase"
-                description="Update the passphrase that protects your vault."
+                description="Update vault protection."
                 disabled={switchingVaultMethod}
                 chevron
                 onClick={() => setPassphraseDialogOpen(true)}
@@ -3730,7 +3726,7 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:account",
       title: "Account",
-      description: "Manage email, phone number, and sign-in identity.",
+      description: "Email, phone, and sign-in.",
       content: accountContent,
     });
     if (activeDetail === "phone") {
@@ -3738,8 +3734,8 @@ function ProfilePageContent() {
         key: "detail:phone",
         title: phoneNumber ? "Change phone number" : "Add phone number",
         description: phoneNumber
-          ? "Verify a new number to replace the current one."
-          : "Add a verified phone number to this account.",
+          ? "Verify a new number."
+          : "Add a verified number.",
         content: (
           <>
             <PhoneVerificationFlow
@@ -3757,8 +3753,8 @@ function ProfilePageContent() {
               className="gap-5"
               helperText={
                 phoneNumber
-                  ? "Choose your country code and enter the new phone number you want to use for this account."
-                  : "Choose your country code and enter your phone number. We’ll send you a verification code."
+                  ? "Enter the new phone number."
+                  : "Enter your phone number."
               }
             />
             <div id="recaptcha-container" className="min-h-0" />
@@ -3770,14 +3766,14 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:my-data",
       title: "Memory",
-      description: "Browse saved details and sharing controls.",
+      description: "Saved details and sharing.",
       content: myDataContent,
     });
     if (selectedDomain) {
       profileStackEntries.push({
         key: `detail:domain:${selectedDomain.key}`,
         title: selectedDomain.title,
-        description: "Review sections and sharing controls.",
+        description: "Sections and sharing.",
         content: (
           <PkmDomainDetailPanel
             domain={selectedDomain}
@@ -3843,14 +3839,14 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:access",
       title: "Access & sharing",
-      description: "Review who can read what and manage live grants.",
+      description: "Review live access.",
       content: accessContent,
     });
     if (selectedConnection) {
       profileStackEntries.push({
         key: `detail:connection:${selectedConnection.id}`,
         title: selectedConnection.requesterLabel,
-        description: "Inspect exact scopes and revoke access inline.",
+        description: "Scopes and access.",
         content: (
           <PkmAccessConnectionDetailPanel
             connection={selectedConnection}
@@ -3865,21 +3861,21 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:connected-systems",
       title: "Connected Systems",
-      description: "Salesforce CRM and future MuleSoft-backed systems.",
+      description: "Connected CRM systems.",
       content: connectedSystemsContent,
     });
   } else if (!routeBlockedByVault && activePanel === "preferences") {
     profileStackEntries.push({
       key: "panel:preferences",
       title: PROFILE_LABELS.preferences,
-      description: "Choose the app theme and accent color.",
+      description: "Theme and accent.",
       content: preferencesContent,
     });
     if (activeDetail === "kai-preferences") {
       profileStackEntries.push({
         key: "detail:kai-preferences",
         title: "Kai preferences",
-        description: "Secure personal investing preferences.",
+        description: "Investing preferences.",
         content: (
           <ProfileKaiPreferencesPanel
             userId={user.uid}
@@ -3894,7 +3890,7 @@ function ProfilePageContent() {
       profileStackEntries.push({
         key: "detail:gemini",
         title: "Gemini",
-        description: "Choose how your private agent reaches Gemini.",
+        description: "Gemini access.",
         content: (
           <GeminiRuntimeSettingsCard
             userId={user.uid}
@@ -3912,21 +3908,21 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:security",
       title: PROFILE_LABELS.security,
-      description: "Vault methods and account access controls.",
+      description: "Vault and sign-in.",
       content: securityContent,
     });
     if (activeDetail === "vault") {
       profileStackEntries.push({
         key: "detail:vault",
         title: "Vault methods",
-        description: "Review unlock method and secure defaults.",
+        description: "Unlock methods.",
         content: vaultMethodsContent,
       });
     } else if (activeDetail === "session") {
       profileStackEntries.push({
         key: "detail:session",
         title: PROFILE_LABELS.accountAccess,
-        description: "Manage sign-in on this device.",
+        description: "This device.",
         content: (
           <SettingsGroup title={PROFILE_LABELS.accountAccess}>
             <SettingsRow
@@ -3944,21 +3940,21 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:gmail",
       title: "Gmail receipts",
-      description: "Connection state, sync health, and receipt actions.",
+      description: "Receipts and sync.",
       content: gmailContent,
     });
     if (activeDetail === "gmail-connection") {
       profileStackEntries.push({
         key: "detail:gmail-connection",
         title: "Connection",
-        description: "Current inbox, status, and latest sync.",
+        description: "Inbox and sync.",
         content: gmailConnectionContent,
       });
     } else if (activeDetail === "gmail-actions") {
       profileStackEntries.push({
         key: "detail:gmail-actions",
         title: "Actions",
-        description: "Connect, sync, open receipts, or disconnect.",
+        description: "Sync, receipts, or disconnect.",
         content: gmailActionsContent,
       });
     }
@@ -3966,21 +3962,21 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:support",
       title: PROFILE_LABELS.support,
-      description: "Get help, report bugs, or send product feedback.",
+      description: "Help and feedback.",
       content: supportContent,
     });
     if (activeDetail === "support-routing") {
       profileStackEntries.push({
         key: "detail:support-routing",
         title: "Support routing",
-        description: "Where support messages are routed and replied.",
+        description: "Reply routing.",
         content: supportRoutingContent,
       });
     } else if (supportComposeKind && supportComposeContent) {
       profileStackEntries.push({
         key: `detail:support-compose:${supportComposeKind}`,
         title: SUPPORT_KIND_COPY[supportComposeKind].title,
-        description: "Write and send a concise support message.",
+        description: "Write your message.",
         content: supportComposeContent,
       });
     }

@@ -27,7 +27,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
   const router = useRouter();
   const params = useSearchParams();
   const { user } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
+  const { vaultOwnerToken } = useVault();
   const [showUnlock, setShowUnlock] = useState(false);
   const [ready, setReady] = useState(false);
   const coordinator = useSetupCapabilityCoordinator({
@@ -64,7 +64,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
         <AppPageHeaderRegion>
           <PageHeader
             title="CRM"
-            description="Find your existing CRM record or approve creating one from your verified identity."
+            description="Find or create your CRM record."
             accent="neutral"
           />
         </AppPageHeaderRegion>
@@ -72,7 +72,6 @@ export function ConnectedSystemsOnboardingSetupClient() {
           <VaultStatusInline className="mb-3 px-1" />
           <ConnectedSystemsPanel
             cacheUserId={user?.uid}
-            vaultKey={vaultKey}
             vaultOwnerToken={vaultOwnerToken}
             onRequestUnlock={() => setShowUnlock(true)}
             mode={systemId ? "detail" : "list"}
@@ -95,7 +94,7 @@ export function ConnectedSystemsOnboardingSetupClient() {
             open={showUnlock}
             onOpenChange={setShowUnlock}
             title="Set up your private vault"
-            description="Set up or open your private vault to inspect CRM records and approve CRM actions."
+            description="Open your vault to review CRM."
             allowVaultCreation={false}
             onSuccess={() => setShowUnlock(false)}
           />

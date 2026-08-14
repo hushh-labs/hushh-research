@@ -16,6 +16,9 @@ const ONBOARDING_PROXY_TIMEOUT_MS = Number(
 const RIA_DASHBOARD_PROXY_TIMEOUT_MS = Number(
   process.env.RIA_DASHBOARD_PROXY_TIMEOUT_MS || 90_000,
 );
+const NEARBY_PROXY_TIMEOUT_MS = Number(
+  process.env.RIA_NEARBY_PROXY_TIMEOUT_MS || 30_000,
+);
 const hotGetCache = new Map<
   string,
   { status: number; payload: unknown; cachedAt: number }
@@ -67,6 +70,14 @@ function resolveProxyTimeoutMs(path: string, method: "GET" | "POST"): number {
       path.startsWith("claim/"))
   ) {
     return ONBOARDING_PROXY_TIMEOUT_MS;
+  }
+  if (method === "POST" && path.startsWith("nearby/")) {
+    // NWS runs as its own Cloud Run service with no minimum instance, so the
+    // first call after an idle period pays a cold start — measured at ~6s
+    // against ~0.35s warm. Adding our own hop on top puts a real request over
+    // the 12s default, which would surface as a timeout on the one call an
+    // advisor is most likely to make first.
+    return NEARBY_PROXY_TIMEOUT_MS;
   }
   return DEFAULT_PROXY_TIMEOUT_MS;
 }

@@ -29,7 +29,7 @@ export function ConnectedSystemDetailClient({
   routeId?: "/one/connected-systems" | "/one/connected-systems/[systemId]";
 }) {
   const { user, phoneNumber } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
+  const { vaultOwnerToken } = useVault();
   const searchParams = useSearchParams();
   const [showUnlock, setShowUnlock] = useState(false);
   const [system, setSystem] = useState<ConnectedSystemSummary | null>(null);
@@ -96,7 +96,6 @@ export function ConnectedSystemDetailClient({
       <AppPageContentRegion>
         <ConnectedSystemsPanel
           cacheUserId={user?.uid}
-          vaultKey={vaultKey}
           vaultOwnerToken={vaultOwnerToken}
           onRequestUnlock={() => setShowUnlock(true)}
           mode="detail"
@@ -117,7 +116,7 @@ export function ConnectedSystemDetailClient({
           open={showUnlock}
           onOpenChange={setShowUnlock}
           title="Unlock vault"
-          description="Unlock your vault to inspect CRM records and approve Connected Systems actions."
+          description="Unlock to review CRM."
           onSuccess={() => setShowUnlock(false)}
         />
       ) : null}

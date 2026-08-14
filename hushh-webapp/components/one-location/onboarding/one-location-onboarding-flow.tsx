@@ -3,12 +3,11 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
-import { preload } from "react-dom";
+import { preconnect, preload } from "react-dom";
 import {
   ArrowLeft,
   Check,
@@ -17,26 +16,19 @@ import {
   MapPin,
   Share2,
   UserPlus,
-  Users,
 } from "lucide-react";
-import { toast } from "sonner";
-
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
+import { normalizeCircleCode } from "@/lib/one-location/pending-circle-join";
+import { useGoogleMaps } from "@/lib/one-location/use-google-maps";
 import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import locationOnboardingContract from "@/lib/onboarding/one-location-onboarding.contract.json";
-import type {
-  ConnectionSummaryEntry,
-  DirectoryPerson,
-} from "@/lib/services/connections-service";
+import { trackEvent } from "@/lib/observability/client";
+import { resolveRouteId } from "@/lib/observability/route-map";
 import { cn } from "@/lib/utils";
 
-type OnboardingScreen =
-  | "welcome"
-  | "features"
-  | "invite"
-  | "people"
-  | "circle";
+type OnboardingScreen = "welcome" | "features" | "contacts" | "invite";
 
 const LOCATION_SCREEN_TEST_IDS = Object.fromEntries(
   locationOnboardingContract.screens.map(({ key, testId }) => [key, testId]),
@@ -63,30 +55,46 @@ export type OnboardingCircleInvite = {
   code: string;
 };
 
-type CircleMember = {
+/**
+ * Someone from the person's own address book who already has One.
+ *
+ * Deliberately not the same thing as the directory list this flow used to show:
+ * that was every Hushh user, so it asked a new person to share their location
+ * with strangers. These are people whose number is already in their phone.
+ */
+export type OnboardingContactMatch = {
   userId: string;
   displayName: string;
-  photoUrl: string | null;
-  status: "connected" | "pending" | "failed";
 };
+
+/**
+ * What a circle code points at, shown before anyone joins it.
+ *
+ * Seeing the circle's name, its owner and how many people are already in it is
+ * the difference between accepting an invitation and accepting a string. It is
+ * also the moment where someone decides whether to share their location with
+ * these people, which is not a decision to make blind.
+ */
+export type OnboardingCirclePreview = {
+  name: string;
+  ownerDisplayName: string;
+  memberCount: number;
+  alreadyMember: boolean;
+};
+
+export type OnboardingContactSyncResult =
+  | { status: "matched"; matches: OnboardingContactMatch[] }
+  | { status: "none"; partial: boolean }
+  | { status: "failed"; message: string; canOpenSettings: boolean };
 
 type OneLocationOnboardingFlowProps = {
   startAt: OneLocationOnboardingStart;
   currentUserName: string;
-  currentUserPhotoUrl?: string | null;
-  people: DirectoryPerson[];
-  connections: ConnectionSummaryEntry[];
-  peopleLoading: boolean;
-  peopleError: string | null;
   locationPermission: HushhLocationPermissionState | null;
   notificationDeliveryMode: ConsentNotificationDeliveryMode;
   notificationBusy: boolean;
   locationBusy: boolean;
   nativeTest: React.ComponentProps<typeof NativeTestBeacon>;
-  onRetryPeople: () => void;
-  onSendConnectionRequests: (
-    userIds: string[],
-  ) => Promise<ConnectionRequestResult>;
   onRequestLocation: () => Promise<void>;
   onLocationReady: () => Promise<boolean>;
   onRequestNotifications: () => Promise<void>;
@@ -94,6 +102,42 @@ type OneLocationOnboardingFlowProps = {
   onComplete: () => void | Promise<void>;
   onSkip?: () => void | Promise<void>;
   requireLocationToComplete?: boolean;
+  /**
+   * Label for the final CTA. Setup ends back in the wizard, the workspace ends
+   * on the Location hub, and saying so beats a generic "Done" that leaves the
+   * person guessing where the button goes.
+   */
+  completeLabel?: string;
+  /**
+   * Whether this device can read an address book at all.
+   *
+   * False on a desktop browser, where there is nothing to read. The step is
+   * then skipped rather than rendered as an apology: a screen whose entire
+   * content is "this does not work here" is a step that should not exist.
+   *
+   * This is a platform capability, not a missing prop -- the distinction
+   * matters, because a screen that disappears because a caller forgot to pass
+   * a handler is the bug this flow just removed.
+   */
+  /** Where to centre the finale map. Null renders the stylised fallback. */
+  mapPoint?: { lat: number; lng: number } | null;
+  contactsStepAvailable?: boolean;
+  /**
+   * Read the address book and return whichever contacts already have One.
+   * Called only after the person taps on the contacts screen, never on mount.
+   */
+  onSyncOnboardingContacts?: () => Promise<OnboardingContactSyncResult>;
+  /** Send a connection request to one matched contact. */
+  onAddOnboardingContact?: (userId: string) => Promise<void>;
+  /** Open the OS settings page so a declined permission can be changed. */
+  onOpenContactSettings?: () => void;
+  /** Look up a circle code so it can be previewed before joining. */
+  onPreviewCircleCode?: (code: string) => Promise<OnboardingCirclePreview>;
+  /**
+   * Accept a previewed circle. Joining needs a vault, which does not exist
+   * during setup, so the parent parks the code and redeems it once one does.
+   */
+  onAcceptCircleCode?: (code: string) => Promise<void>;
   /**
    * Find-or-create the person's first Circle and return its active,
    * member-visible invite code. Called when the Invite screen opens so a
@@ -138,86 +182,12 @@ const WELCOME_ORBIT_ITEMS = [
 
 const ONBOARDING_IMAGE_SOURCES = WELCOME_ORBIT_ITEMS.map(({ src }) => src);
 
-const AVATAR_TONES = [
-  { background: "#2f80ed", foreground: "#ffffff" },
-  { background: "#a847e8", foreground: "#ffffff" },
-  { background: "#0fae9c", foreground: "#ffffff" },
-  { background: "#f38a13", foreground: "#ffffff" },
-  { background: "#e74747", foreground: "#ffffff" },
-  { background: "#7357df", foreground: "#ffffff" },
-] as const;
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "O";
-  return parts
-    .slice(0, 2)
-    .map((part) => part.charAt(0).toUpperCase())
-    .join("");
-}
-
 function safeName(
   value: string | null | undefined,
   fallback = "Someone",
 ): string {
   const normalized = String(value || "").trim();
   return normalized || fallback;
-}
-
-function avatarTone(seed: string) {
-  let hash = 0;
-  for (const character of seed) {
-    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  }
-  return AVATAR_TONES[hash % AVATAR_TONES.length]!;
-}
-
-function Avatar({
-  name,
-  photoUrl,
-  size = "md",
-  colorSeed,
-}: {
-  name: string;
-  photoUrl?: string | null;
-  size?: "sm" | "md" | "lg";
-  colorSeed?: string;
-}) {
-  const sizeClass =
-    size === "lg"
-      ? "h-[72px] w-[72px] text-xl"
-      : size === "sm"
-        ? "h-9 w-9 text-xs"
-        : "h-14 w-14 text-sm";
-  const tone = avatarTone(colorSeed || name);
-
-  return (
-    <span
-      className={cn(
-        "relative flex shrink-0 items-center justify-center overflow-hidden rounded-full border-[3px] border-white font-bold shadow-[0_8px_22px_rgba(24,57,91,0.18)] dark:border-[#e7edf6]",
-        sizeClass,
-      )}
-      style={
-        photoUrl
-          ? undefined
-          : { backgroundColor: tone.background, color: tone.foreground }
-      }
-      aria-hidden="true"
-    >
-      {photoUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element -- Directory photos are remote user media.
-        <img
-          src={photoUrl}
-          alt=""
-          loading="eager"
-          decoding="async"
-          className="h-full w-full object-cover"
-        />
-      ) : (
-        initials(name)
-      )}
-    </span>
-  );
 }
 
 function PrimaryButton({
@@ -347,6 +317,7 @@ function WelcomeRadar() {
   return (
     <div
       className="relative mx-auto aspect-square w-[min(88vw,48dvh,390px)]"
+      data-one-welcome-radar
       aria-hidden="true"
     >
       {["inset-[5%]", "inset-[21%]", "inset-[37%]"].map((position, index) => (
@@ -457,6 +428,13 @@ function WelcomeScreen({
       </div>
       <style>{`
         @media (max-height: 720px) { [data-one-welcome-heading] { margin-top: 12px; font-size: 34px; } }
+        @media (max-height: 560px) {
+          [data-one-welcome-heading] { margin-top: 8px; font-size: 26px; line-height: 30px; }
+          [data-one-welcome-radar] { width: min(88vw, 30dvh, 390px); }
+        }
+        @media (max-height: 400px) {
+          [data-one-welcome-radar] { width: min(60vw, 26dvh, 390px); }
+        }
       `}</style>
     </div>
   );
@@ -746,16 +724,9 @@ function CheckInFeatureCard() {
       >
         <MapBackdrop tone="checkin" />
         <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#f4f6f8] to-transparent dark:from-[#171d27]" />
-        <span
-          className="absolute bottom-[88px] right-[23%] z-20 h-7 w-7 drop-shadow-[0_7px_9px_rgba(28,177,103,0.26)]"
-          data-one-checkin-pin
-        >
-          <MapPin
-            className="h-full w-full fill-[#27b96a] text-[#27b96a]"
-            strokeWidth={1.8}
-          />
-          <span className="absolute left-1/2 top-[37%] h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
-        </span>
+        {/* Green location-pin overlay removed: the check-in card now shows the
+            clean building artwork on its own. The [data-one-checkin-pin]
+            responsive rules below are harmless no-ops now. */}
         <span
           className="absolute bottom-12 left-1/2 w-[54%] -translate-x-1/2"
           style={{ perspective: "320px", perspectiveOrigin: "50% 100%" }}
@@ -952,7 +923,10 @@ function FeaturesScreen({
           disabled={permissionBusy}
           className="h-[58px] min-h-[58px]"
         >
-          {locationPreparationRetry ? "Try again" : "Add my people"}
+          {/* Names the next screen, which is finding people you already know.
+              A deliberately distinct string also keeps the reviewer flow's
+              exact button match from colliding with a generic "Continue". */}
+          {locationPreparationRetry ? "Try again" : "Find my people"}
         </PrimaryButton>
       </div>
       <style>{`
@@ -1372,8 +1346,202 @@ function formatCircleCode(code: string): string {
  * can set up their One account and later join the Location Circle with it. The
  * code is member-visible only and is never placed in a URL.
  */
-function InviteScreen({
+/**
+ * Find the people you already know who are already on One.
+ *
+ * Primed, not sprung: the OS contacts prompt fires only after the person taps
+ * the button on this screen, which is what lifts opt-in and is how Snapchat
+ * ties the prompt to "find friends" rather than to app launch. Every state has
+ * a way forward, so nobody is stuck behind a permission they declined.
+ */
+function ContactsScreen({
+  state,
+  matches,
+  addedUserIds,
+  addingUserIds,
+  onSync,
+  onAdd,
+  onOpenSettings,
+  onBack,
+  onSkip,
+  onContinue,
+  leaving,
+}: {
+  state:
+    | { kind: "idle" }
+    | { kind: "busy" }
+    | { kind: "none"; partial: boolean }
+    | { kind: "matched" }
+    | { kind: "failed"; message: string; canOpenSettings: boolean };
+  matches: OnboardingContactMatch[];
+  addedUserIds: string[];
+  addingUserIds: string[];
+  onSync: () => void;
+  onAdd: (userId: string) => void;
+  onOpenSettings: () => void;
+  onBack: () => void;
+  onSkip: () => void;
+  onContinue: () => void;
+  leaving: boolean;
+}) {
+  const primed = state.kind === "idle" || state.kind === "busy";
+
+  return (
+    <div
+      className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]"
+      data-testid="one-location-onboarding-contacts-surface"
+    >
+      {/* pt clears the status bar and notch. A bare pt-2 put Back and Skip
+          under the clock and battery on every notched iPhone -- reachable
+          only by guessing where they were. */}
+      <header className="flex min-h-16 shrink-0 items-center justify-between px-5 pb-2 pt-[max(var(--app-safe-area-top-effective,0px),8px)]">
+        <button
+          type="button"
+          onClick={onBack}
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
+          aria-label="Go back"
+        >
+          <ArrowLeft className="h-6 w-6" />
+        </button>
+        <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
+        <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+          <UserPlus className="h-7 w-7" strokeWidth={2} />
+        </span>
+        <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[#f5f7fb]">
+          Find your people
+        </h1>
+        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
+          {primed
+            ? "Find contacts already on One."
+            : state.kind === "matched"
+              ? "Add anyone you trust."
+              : "You can always find people later from the People tab."}
+        </p>
+
+        {primed ? (
+          <>
+            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 dark:border-white/[0.08] dark:bg-[#1c212a]">
+              {state.kind === "busy" ? (
+                <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[#8d99a8]">
+                  <Loader2 className="h-5 w-5 animate-spin" /> Checking your
+                  contacts
+                </div>
+              ) : (
+                <div className="flex min-h-32 flex-col justify-center gap-3">
+                  {/* Say what happens to the address book before asking for it.
+                      A vague ask on a location product is what makes people
+                      decline, and the decline is permanent on iOS. */}
+                  <p className="text-[14px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
+                    Your contacts are checked using a one-way hash. One never
+                    stores your contact list, and nobody is contacted for you.
+                  </p>
+                  <PrimaryButton onClick={onSync} disabled={leaving}>
+                    Check my contacts
+                  </PrimaryButton>
+                </div>
+              )}
+            </div>
+          </>
+        ) : null}
+
+        {state.kind === "matched" ? (
+          <ul className="mt-6 space-y-2" data-testid="onboarding-contact-matches">
+            {matches.map((match) => {
+              const added = addedUserIds.includes(match.userId);
+              const adding = addingUserIds.includes(match.userId);
+              return (
+                <li
+                  key={match.userId}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-white/[0.08] dark:bg-[#1c212a]"
+                >
+                  <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[#151b26] dark:text-[#f5f7fb]">
+                    {match.displayName}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onAdd(match.userId)}
+                    disabled={added || adding || leaving}
+                    className="press-scale inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                  >
+                    {adding ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : added ? (
+                      <Check className="h-4 w-4" strokeWidth={2.5} />
+                    ) : null}
+                    {added ? "Requested" : adding ? "Adding" : "Add"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+
+        {state.kind === "none" ? (
+          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-white/[0.08] dark:bg-[#1c212a]">
+            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
+              {state.partial
+                ? "None of the contacts you shared are on One yet."
+                : "None of your contacts are on One yet."}
+            </p>
+            <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
+              Your circle code is on the next screen — send it to whoever you
+              want here.
+            </p>
+          </div>
+        ) : null}
+
+        {state.kind === "failed" ? (
+          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-white/[0.08] dark:bg-[#1c212a]">
+            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
+              {state.message}
+            </p>
+            {state.canOpenSettings ? (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+              >
+                Open Settings
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3">
+        {/* Always present, whatever happened above. Declining contacts, finding
+            nobody, or a plugin failure must never be a dead end. */}
+        <PrimaryButton
+          onClick={onContinue}
+          disabled={leaving}
+          inverse={primed && state.kind === "idle"}
+        >
+          {state.kind === "idle" ? "Not now" : "Continue"}
+        </PrimaryButton>
+      </footer>
+    </div>
+  );
+}
+
+/**
+ * The last thing a new person sees: themselves, on a real map.
+ *
+ * This screen used to be a wall -- a code to copy before you were allowed
+ * through. That is an errand, not a reason to stay. The map is the product, so
+ * the map is the finale: your own pin lands, an empty seat appears beside it,
+ * and the circle code sits underneath as the way to fill that seat.
+ *
+ * It deliberately does not re-list Share / Check in / SOS. The features screen
+ * already introduces those; saying them twice in a four-screen flow turns the
+ * payoff into a summary slide. What is new here is the map, and the one thing
+ * the map cannot show on its own -- that it is empty until someone joins.
+ */
+function ReadyScreen({
   currentUserName,
+  mapPoint,
   invite,
   loading,
   error,
@@ -1385,8 +1553,22 @@ function InviteScreen({
   onSkip,
   onContinue,
   leaving,
+  completeLabel,
+  completing,
+  settlementRetryCount,
+  joinCode,
+  joinPreview,
+  joinBusy,
+  joinError,
+  joinAccepted,
+  joinEnabled,
+  onJoinCodeChange,
+  onPreviewJoinCode,
+  onAcceptJoinCode,
+  onClearJoinPreview,
 }: {
   currentUserName: string;
+  mapPoint: { lat: number; lng: number } | null;
   invite: OnboardingCircleInvite | null;
   loading: boolean;
   error: string | null;
@@ -1398,47 +1580,96 @@ function InviteScreen({
   onSkip: () => void;
   onContinue: () => void;
   leaving: boolean;
+  completeLabel: string;
+  completing: boolean;
+  settlementRetryCount: number;
+  joinCode: string;
+  joinPreview: OnboardingCirclePreview | null;
+  joinBusy: boolean;
+  joinError: string | null;
+  joinAccepted: boolean;
+  joinEnabled: boolean;
+  onJoinCodeChange: (value: string) => void;
+  onPreviewJoinCode: () => void;
+  onAcceptJoinCode: () => void;
+  onClearJoinPreview: () => void;
 }) {
   const firstName = safeName(currentUserName, "You").split(/\s+/)[0];
   const formattedCode = invite ? formatCircleCode(invite.code) : "";
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]">
-      <header className="flex h-16 shrink-0 items-center justify-between px-5 pt-2">
+    <div
+      className="relative flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]"
+      data-testid="one-location-onboarding-ready-surface"
+    >
+      {/* The map gets its own band rather than sitting behind the copy.
+          A translucent scrim over a live map is a contrast gamble that depends
+          on whatever streets happen to be under the text -- dense city tiles
+          win, and the copy becomes unreadable. Giving the map the top third and
+          the words an opaque sheet means both are always legible, and it is the
+          layout every map product converges on for the same reason. */}
+      <OnboardingLiveMap
+        point={mapPoint}
+        className="h-[34dvh] max-h-[300px] min-h-[190px] w-full shrink-0"
+      />
+
+      {/* Floats over the map: the controls stay reachable without stealing a
+          band of the map, and both sit on their own translucent chips. */}
+      {/* Same clearance, and it matters more here: the header floats over
+          the map, so without it the controls sit directly under the status
+          bar with map tiles behind both. */}
+      <header className="absolute inset-x-0 top-0 z-20 flex min-h-16 shrink-0 items-center justify-between px-5 pb-2 pt-[max(var(--app-safe-area-top-effective,0px),8px)]">
         <button
           type="button"
           onClick={onBack}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-white/85 text-[#1f2b3d] shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[#1c212a]/85 dark:text-white"
           aria-label="Go back"
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
-        <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
-          <Users className="h-7 w-7" strokeWidth={2} />
+        <span className="rounded-full bg-white/85 px-1 shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[#1c212a]/85">
+          <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
         </span>
-        <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[#f5f7fb]">
-          Share your circle code
+      </header>
+
+      <div className="relative z-10 -mt-6 min-h-0 flex-1 overflow-y-auto rounded-t-[28px] bg-white px-6 pb-4 pt-6 shadow-[0_-8px_24px_rgba(24,57,91,0.10)] dark:bg-[#14171d]">
+        <h1
+          className="ui-text-agent-title text-[#151b26] dark:!text-[#f5f7fb]"
+          data-one-ready-title
+        >
+          You&apos;re on the map, {firstName}.
         </h1>
         <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
-          Send this code to your loved ones. When they set up One, they enter it
-          under &ldquo;Join a circle&rdquo; to connect with you.
+          Only you can see this until you choose to share it.
+        </p>
+
+        <p
+          className="mt-6 flex items-center gap-2 text-[14px] font-medium leading-5 text-[#5c626c] dark:text-[#aeb8c7]"
+          data-testid="onboarding-ready-empty-seat"
+          data-one-ready-seat
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-[color:var(--app-accent)]/45">
+            <UserPlus
+              className="h-3.5 w-3.5 text-[color:var(--app-accent)]/70"
+              strokeWidth={2.2}
+            />
+          </span>
+          Your people show up here once they join.
         </p>
 
         <div
-          className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center shadow-none dark:border-white/[0.08] dark:bg-[#1c212a]"
+          className="mt-5 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-white/[0.08] dark:bg-[#1c212a]"
           data-testid="one-location-onboarding-invite-card"
+          data-one-ready-code
         >
           {loading ? (
-            <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86]">
+            <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[#8d99a8]">
               <Loader2 className="h-5 w-5 animate-spin" /> Preparing your circle
               code
             </div>
           ) : error ? (
-            <div className="flex min-h-32 flex-col items-center justify-center gap-3 text-center">
-              <p className="max-w-[260px] text-sm leading-5 text-[#6f7580]">
+            <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
+              <p className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[#aeb8c7]">
                 {error}
               </p>
               <button
@@ -1451,24 +1682,23 @@ function InviteScreen({
             </div>
           ) : invite ? (
             <>
-              <p className="text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73] dark:text-[#aeb8c7]">
-                {invite.circleName}
+              <p className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[#aeb8c7]">
+                Bring your people to {invite.circleName}
               </p>
               <p
-                className="mt-3 select-all font-mono text-[30px] font-bold uppercase leading-none tracking-[0.14em] text-[#151b26] dark:text-[#f5f7fb]"
+                className="mt-2 select-all whitespace-nowrap font-mono text-[clamp(20px,6vw,28px)] font-bold uppercase leading-none tracking-[0.12em] text-[#151b26] dark:text-[#f5f7fb]"
                 data-testid="one-location-onboarding-invite-code"
               >
                 {formattedCode}
               </p>
-              <p className="mt-3 text-[12px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
-                Expires in 72 hours. You can always get a fresh code later from
-                your circle.
+              <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[#8d99a8]">
+                Expires in 72 hours. You can get a fresh one any time.
               </p>
-              <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="mt-4 grid grid-cols-2 gap-3">
                 <button
                   type="button"
                   onClick={onCopy}
-                  className="press-scale inline-flex h-12 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                  className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
                 >
                   {copied ? (
                     <Check className="h-5 w-5" strokeWidth={2.5} />
@@ -1480,385 +1710,172 @@ function InviteScreen({
                 <button
                   type="button"
                   onClick={onShare}
-                  className="press-scale inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)]"
+                  className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)]"
                 >
                   <Share2 className="h-5 w-5" strokeWidth={2} />
                   Share
                 </button>
               </div>
             </>
-          ) : null}
-        </div>
-
-        <p className="mx-auto mt-5 max-w-[350px] text-center text-[12px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
-          Joining connects you as {firstName}&apos;s circle. Location and SMS
-          always stay private until each person chooses to share.
-        </p>
-      </div>
-      <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3">
-        <PrimaryButton onClick={onContinue}>
-          {invite ? "Next" : "Skip for now"}
-        </PrimaryButton>
-      </footer>
-    </div>
-  );
-}
-
-function SelectionMark({ selected }: { selected: boolean }) {
-  return (
-    <span
-      className={cn(
-        "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
-        selected
-          ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-          : "border-[#c9cdd3] bg-white text-transparent dark:border-white/25 dark:bg-white/[0.06]",
-      )}
-      aria-hidden="true"
-    >
-      <Check className="h-5 w-5" strokeWidth={3} />
-    </span>
-  );
-}
-
-function PeopleScreen({
-  people,
-  connections,
-  loading,
-  error,
-  initialSelectedIds,
-  onRetry,
-  onBack,
-  onSkip,
-  leaving,
-  onSelectionChange,
-  onContinue,
-}: {
-  people: DirectoryPerson[];
-  connections: ConnectionSummaryEntry[];
-  loading: boolean;
-  error: string | null;
-  initialSelectedIds: string[];
-  onRetry: () => void;
-  onBack: () => void;
-  onSkip: () => void;
-  leaving: boolean;
-  onSelectionChange: (selectedIds: string[]) => void;
-  onContinue: (selectedIds: string[]) => void;
-}) {
-  const [selectedIds, setSelectedIds] = useState<string[]>(initialSelectedIds);
-  const defaultsAppliedRef = useRef(false);
-
-  const recommendedPeople = useMemo(() => {
-    const weight = (relationship: DirectoryPerson["relationship"]) => {
-      if (relationship === "connected") return 0;
-      if (relationship === "none") return 1;
-      return 2;
-    };
-    return [...people]
-      .sort((a, b) => weight(a.relationship) - weight(b.relationship))
-      .slice(0, 6);
-  }, [people]);
-
-  useEffect(() => {
-    if (defaultsAppliedRef.current || recommendedPeople.length === 0) return;
-    defaultsAppliedRef.current = true;
-    if (initialSelectedIds.length > 0) return;
-    const connectedIds = new Set(
-      connections.map((connection) => connection.userId),
-    );
-    setSelectedIds(
-      recommendedPeople
-        .filter(
-          (person) =>
-            person.relationship === "connected" ||
-            connectedIds.has(person.userId),
-        )
-        .map((person) => person.userId),
-    );
-  }, [connections, initialSelectedIds.length, recommendedPeople]);
-
-  useEffect(() => {
-    onSelectionChange(selectedIds);
-  }, [onSelectionChange, selectedIds]);
-
-  const togglePerson = (person: DirectoryPerson) => {
-    if (
-      person.relationship === "pending_incoming" ||
-      person.relationship === "pending_outgoing"
-    ) {
-      return;
-    }
-    setSelectedIds((current) =>
-      current.includes(person.userId)
-        ? current.filter((userId) => userId !== person.userId)
-        : [...current, person.userId],
-    );
-  };
-
-  const canContinue = !loading;
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col bg-white pt-[max(var(--app-safe-area-top-effective,0px),12px)] dark:bg-[#14171d]">
-      <OnboardingNavigation
-        onBack={onBack}
-        onSkip={onSkip}
-        disabled={leaving}
-        busy={leaving}
-        className="px-5 pt-2"
-      />
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
-        <h1 className="ui-text-agent-title mt-3 text-[#151b26] dark:!text-[#f5f7fb]">
-          Add people
-        </h1>
-        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
-          Invite the people you want to keep connected with.
-        </p>
-        <h2 className="mt-7 text-[15px] font-medium leading-[20px] tracking-[-0.01em] text-[#6E6E73] dark:text-[#aeb8c7]">
-          Contacts
-        </h2>
-        <div className="mt-3 overflow-hidden rounded-[24px] bg-[#f8f9fb] px-4 shadow-[0_10px_30px_rgba(29,45,68,0.08)] dark:bg-[#1c212a] dark:shadow-[0_10px_30px_rgba(0,0,0,0.22)]">
-          {loading ? (
-            <div className="flex min-h-44 items-center justify-center gap-2 text-sm text-[#777d86]">
-              <Loader2 className="h-5 w-5 animate-spin" /> Finding your people
-            </div>
-          ) : error ? (
-            <div className="flex min-h-44 flex-col items-center justify-center gap-3 text-center">
-              <p className="text-sm text-[#6f7580]">
-                We could not load recommendations.
-              </p>
-              <button
-                type="button"
-                onClick={onRetry}
-                className="min-h-11 px-4 font-semibold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]"
-              >
-                Try again
-              </button>
-            </div>
-          ) : recommendedPeople.length === 0 ? (
-            <div className="flex min-h-44 flex-col items-center justify-center gap-3 text-center text-[#73777f]">
-              <UserPlus className="h-8 w-8 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]" />
-              <p className="max-w-[260px] text-sm leading-5">
-                No recommendations yet. Refresh after your people open One
-                Location.
-              </p>
-              <button
-                type="button"
-                onClick={onRetry}
-                className="press-scale inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-bold text-[color:var(--app-accent-fg)]"
-              >
-                Refresh people
-              </button>
-            </div>
           ) : (
-            recommendedPeople.map((person, index) => {
-              const selected = selectedIds.includes(person.userId);
-              const pending =
-                person.relationship === "pending_incoming" ||
-                person.relationship === "pending_outgoing";
-              return (
-                <button
-                  key={person.userId}
-                  type="button"
-                  onClick={() => togglePerson(person)}
-                  disabled={pending}
-                  aria-pressed={selected}
-                  aria-label={`${selected ? "Remove" : "Add"} ${safeName(person.displayName)}`}
-                  className={cn(
-                    "flex min-h-[88px] w-full items-center gap-3 py-3 text-left",
-                    index > 0 &&
-                      "border-t border-[#e4e6e9] dark:border-white/[0.08]",
-                    pending && "cursor-default opacity-70",
-                  )}
-                >
-                  <Avatar
-                    name={safeName(person.displayName)}
-                    photoUrl={person.photoUrl}
-                    colorSeed={person.userId}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[17px] font-bold text-[#171d28] dark:text-[#f3f6fb]">
-                      {safeName(person.displayName)}
-                    </span>
-                    <span className="block truncate text-[14px] text-[#999ca2] dark:text-[#9ca8b7]">
-                      {pending
-                        ? "Connection request pending"
-                        : person.relationship === "connected"
-                          ? "Already in your circle"
-                          : person.email || "Available on One"}
-                    </span>
-                  </span>
-                  {pending ? (
-                    <span className="shrink-0 rounded-full bg-[#eef1f5] px-3 py-1 text-xs font-semibold text-[#7d828b] dark:bg-white/10 dark:text-white/60">
-                      Pending
-                    </span>
-                  ) : (
-                    <SelectionMark selected={selected} />
-                  )}
-                </button>
-              );
-            })
+            <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[#8d99a8]">
+              Your circle code will be ready in One. You can share it any time
+              from your circle.
+            </p>
           )}
         </div>
-        <p className="mx-auto mt-4 max-w-[350px] text-center text-[12px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
-          New people receive a Connect request. Location is never shared until
-          you approve it.
-        </p>
+
+        {joinEnabled ? (
+          <div className="mt-4" data-testid="onboarding-join-circle">
+            {joinAccepted ? (
+              <p
+                className="flex items-center gap-2 rounded-[18px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-4 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:text-[#dce6f5]"
+                role="status"
+              >
+                <Check
+                  className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
+                  strokeWidth={2.5}
+                />
+                You&apos;ll join {joinPreview?.name ?? "their circle"} as soon as
+                One finishes setting up.
+              </p>
+            ) : joinPreview ? (
+              <div
+                className="rounded-[18px] border border-[#e4e6e9] bg-[#f8f9fb] p-4 dark:border-white/[0.08] dark:bg-[#1c212a]"
+                data-testid="onboarding-join-circle-preview"
+              >
+                {/* Name, owner and size before accepting. Deciding whether to
+                    share your location with a group is not a decision anyone
+                    should make against an opaque string. */}
+                <p className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[#f5f7fb]">
+                  {joinPreview.name}
+                </p>
+                <p className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[#aeb8c7]">
+                  {joinPreview.ownerDisplayName} &middot;{" "}
+                  {joinPreview.memberCount}{" "}
+                  {joinPreview.memberCount === 1 ? "person" : "people"}
+                </p>
+                {joinPreview.alreadyMember ? (
+                  <p className="mt-3 text-[13px] leading-[18px] text-[#73777f] dark:text-[#aeb8c7]">
+                    You&apos;re already in this circle.
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onAcceptJoinCode}
+                    disabled={joinBusy || leaving}
+                    className="press-scale mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                  >
+                    {joinBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : null}
+                    Join {joinPreview.name}
+                  </button>
+                )}
+                {/* The only way back. Previewing replaced the input, so without
+                    this a mistyped or wrong code left the person staring at
+                    someone else's circle with no route to try another. */}
+                <button
+                  type="button"
+                  onClick={onClearJoinPreview}
+                  disabled={joinBusy || leaving}
+                  className="press-scale mt-2 inline-flex min-h-11 w-full items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-bright)]"
+                  data-testid="onboarding-join-circle-reset"
+                >
+                  Use a different code
+                </button>
+              </div>
+            ) : (
+              <details className="group" data-testid="onboarding-join-circle-toggle" open={Boolean(joinCode)}>
+                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]">
+                  Someone sent you a code?
+                </summary>
+                <div className="mt-3 flex gap-2">
+                  <input
+                    value={joinCode}
+                    onChange={(event) => onJoinCodeChange(event.target.value)}
+                    placeholder="Enter their code"
+                    aria-label="Circle code"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-white/15 dark:bg-white/[0.06] dark:text-[#f5f7fb]"
+                  />
+                  <button
+                    type="button"
+                    onClick={onPreviewJoinCode}
+                    disabled={joinBusy || !joinCode.trim() || leaving}
+                    className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-5 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                  >
+                    {joinBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : null}
+                    Look up
+                  </button>
+                </div>
+              </details>
+            )}
+            {joinError ? (
+              <p
+                className="mt-2 text-center text-[13px] leading-[18px] text-[#c8372d] dark:text-[#ff9a90]"
+                role="status"
+              >
+                {joinError}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
-      <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3">
-        <p
-          className="mb-3 h-5 text-center text-[12px] font-semibold text-[#8b8f96] dark:text-[#98a5b5]"
-          aria-live="polite"
-        >
-          {selectedIds.length > 0
-            ? `${selectedIds.length} selected`
-            : "Select at least one person to continue"}
-        </p>
-        <PrimaryButton
-          onClick={() => onContinue(selectedIds)}
-          disabled={!canContinue}
-        >
-          Continue
+
+      <footer className="relative z-10 shrink-0 bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 dark:bg-[#14171d]">
+        {settlementRetryCount > 0 ? (
+          <p
+            className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]"
+            role="status"
+          >
+            That didn&apos;t save. Tap again to finish setting up Location.
+          </p>
+        ) : null}
+        {/* Always the completion CTA. A code that failed to load is not a
+            reason to record the whole capability as skipped -- the person
+            granted permission and saved a place, so finishing is the honest
+            outcome. Retrying the code lives inside the card above. */}
+        <PrimaryButton onClick={onContinue} busy={completing} disabled={leaving}>
+          {completeLabel}
         </PrimaryButton>
       </footer>
-    </div>
-  );
-}
 
-function CircleScreen({
-  currentUserName,
-  currentUserPhotoUrl,
-  members,
-  requestsSending,
-  failedCount,
-  settlementRetryCount,
-  onBack,
-  onSkip,
-  leaving,
-}: {
-  currentUserName: string;
-  currentUserPhotoUrl?: string | null;
-  members: CircleMember[];
-  requestsSending: boolean;
-  failedCount: number;
-  settlementRetryCount: number;
-  onBack: () => void;
-  onSkip: () => void;
-  leaving: boolean;
-}) {
-  const shown = members.slice(0, 4);
-  const positions = [
-    "left-[42%] top-[-2%]",
-    "left-[-1%] top-[38%]",
-    "right-[-1%] top-[38%]",
-    "bottom-[-2%] left-[13%]",
-  ];
-  const joinedMember = shown.find((member) => member.status === "connected");
-  const joinedFirstName = joinedMember?.displayName.split(/\s+/)[0];
-  const subtitle =
-    settlementRetryCount > 0
-      ? "One is finishing your secure setup. This screen will close when it is ready."
-      : failedCount > 0
-        ? `${failedCount} invitation could not be sent. You can retry it later from Connect.`
-        : requestsSending
-          ? "I am sending the invitations now. I will tell you when your people join."
-          : joinedFirstName
-            ? `${joinedFirstName}'s in. I've invited the rest - I'll tell you when they join.`
-            : "I've invited your people - I'll tell you when they join.";
-
-  return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] dark:bg-[#0c1017]">
-      <OnboardingNavigation
-        floating
-        onBack={onBack}
-        onSkip={onSkip}
-        disabled={leaving}
-        busy={leaving}
-      />
-      <div className="shrink-0 pt-3 text-left" data-one-circle-heading>
-        <h1 className="ui-text-agent-title text-[#111823] dark:!text-[#f5f7fb]">
-          Your circle is ready.
-        </h1>
-        <p className="mt-3 min-h-12 max-w-[410px] text-[15px] font-normal leading-[20px] text-[#777d86] dark:text-[#aeb8c7]">
-          {subtitle}
-        </p>
-      </div>
-      <div className="flex min-h-0 flex-1 items-start justify-center pt-3">
-        <div
-          className="relative aspect-square w-[min(88vw,48dvh,390px)]"
-          aria-label="Your private circle"
-        >
-          <span
-            data-one-onboarding-motion
-            className="absolute inset-[9%] rounded-full border-2 border-dashed border-[#a8d5fb] [animation:oneCircleReady_2.8s_ease-in-out_infinite] dark:border-[#426b91]"
-          />
-          <span className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
-            <Avatar
-              name={currentUserName}
-              photoUrl={currentUserPhotoUrl}
-              size="lg"
-              colorSeed={currentUserName}
-            />
-            <span className="absolute -inset-2 -z-10 rounded-full border-[3px] border-[#087ff5] bg-white shadow-[0_9px_28px_rgba(8,127,245,0.24)] dark:bg-[#0c1017]" />
-          </span>
-          {shown.map((member, index) => (
-            <span
-              key={member.userId}
-              data-one-onboarding-motion
-              className={cn(
-                "absolute z-10 flex w-[82px] flex-col items-center [animation:oneCircleMemberIn_.46s_ease-out_both]",
-                positions[index],
-              )}
-              style={{ animationDelay: `${180 + index * 340}ms` }}
-            >
-              <span className="relative">
-                <Avatar
-                  name={member.displayName}
-                  photoUrl={member.photoUrl}
-                  colorSeed={member.userId}
-                />
-                {member.status === "connected" ? (
-                  <span className="absolute -right-0.5 -top-0.5 h-[18px] w-[18px] rounded-full border-[3px] border-white bg-[#31c65b] dark:border-[#0c1017]" />
-                ) : null}
-              </span>
-              <span className="mt-1 max-w-[82px] truncate text-[12px] font-bold text-[#202736] dark:text-[#e9eef7]">
-                {member.displayName.split(" ")[0]}
-              </span>
-              <span
-                className={cn(
-                  "mt-0.5 text-[10px] font-semibold",
-                  member.status === "connected"
-                    ? "text-[#23a64d]"
-                    : member.status === "failed"
-                      ? "text-[#c2413b] dark:text-[#ff8b83]"
-                    : "text-[#8b919a] dark:text-[#8f9bab]",
-                )}
-              >
-                {member.status === "connected"
-                  ? "Joined"
-                  : member.status === "failed"
-                    ? "Not sent"
-                    : "Invited"}
-              </span>
-            </span>
-          ))}
-        </div>
-      </div>
       <style>{`
-        @keyframes oneCircleReady { 0%, 100% { opacity: .52; transform: scale(.98); } 50% { opacity: 1; transform: scale(1.02); } }
-        @keyframes oneCircleMemberIn { from { opacity: 0; transform: translateY(10px) scale(.9); } to { opacity: 1; transform: translateY(0) scale(1); } }
-        @media (max-height: 680px) {
-          [data-one-onboarding-navigation] { height: 52px; }
-          [data-one-circle-heading] { padding-top: 6px; }
-          [data-one-circle-heading] h1 { font-size: 31px; }
-          [data-one-circle-heading] p { margin-top: 8px; font-size: 14px; line-height: 20px; }
+        [data-one-ready-title] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+        [data-one-ready-seat] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 900ms; }
+        [data-one-ready-code] { animation: oneReadyRise 560ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 1350ms; }
+        /* 34dvh of map is right on a phone, which is tall. A 1366x768 laptop is
+           shorter than an iPhone, and there the same fraction pushed the join
+           link below the fold -- so the last thing on the screen needed a
+           scroll to discover it existed. The map yields the height instead,
+           since it is atmosphere and the link is a way in. Phones are past 820px
+           and keep the taller band. */
+        @media (max-height: 820px) {
+          [data-testid="onboarding-live-map"] { height: 24dvh; min-height: 150px; }
+        }
+        @keyframes oneReadyRise {
+          from { opacity: 0; transform: translateY(14px); }
+          to   { opacity: 1; transform: translateY(0); }
         }
         @media (prefers-reduced-motion: reduce) {
-          [data-one-onboarding-motion] { animation: none !important; }
+          [data-one-ready-title],
+          [data-one-ready-seat],
+          [data-one-ready-code] {
+            animation: none;
+            opacity: 1;
+            transform: none;
+          }
         }
       `}</style>
     </div>
   );
 }
+
 
 function initialScreen(startAt: OneLocationOnboardingStart): OnboardingScreen {
   return startAt === "permissions" ? "features" : "welcome";
@@ -1867,18 +1884,11 @@ function initialScreen(startAt: OneLocationOnboardingStart): OnboardingScreen {
 export function OneLocationOnboardingFlow({
   startAt,
   currentUserName,
-  currentUserPhotoUrl,
-  people,
-  connections,
-  peopleLoading,
-  peopleError,
   locationPermission,
   notificationDeliveryMode,
   notificationBusy,
   locationBusy,
   nativeTest,
-  onRetryPeople,
-  onSendConnectionRequests,
   onRequestLocation,
   onLocationReady,
   onRequestNotifications,
@@ -1886,6 +1896,14 @@ export function OneLocationOnboardingFlow({
   onComplete,
   onSkip = onComplete,
   requireLocationToComplete = false,
+  completeLabel = "Open One Location",
+  mapPoint = null,
+  contactsStepAvailable = true,
+  onSyncOnboardingContacts,
+  onAddOnboardingContact,
+  onOpenContactSettings,
+  onPreviewCircleCode,
+  onAcceptCircleCode,
   onPrepareOnboardingCircleInvite,
   onCopyOnboardingCircleCode,
   onShareOnboardingCircleCode,
@@ -1894,11 +1912,20 @@ export function OneLocationOnboardingFlow({
     preload(source, { as: "image", fetchPriority: "high" });
   }
 
+  // The finale is a map, and a map that arrives after the screen does reads as
+  // the product being slow at the exact moment it is trying to impress. Warm
+  // the connection from the very first screen so DNS and TLS are already paid
+  // for, then start the Maps script immediately -- the loader is a module-level
+  // singleton, so this is the same request the finale would make, only several
+  // screens earlier and off the critical path.
+  preconnect("https://maps.googleapis.com");
+  preconnect("https://maps.gstatic.com");
+  useGoogleMaps({ enabled: true });
+
   const [screen, setScreen] = useState<OnboardingScreen>(() =>
     initialScreen(startAt),
   );
-  const [circleMembers, setCircleMembers] = useState<CircleMember[]>([]);
-  // Invite screen (third step) state. The parent provisions the code; we cache
+  // Invite screen (final step) state. The parent provisions the code; we cache
   // it so navigating back/forward never refetches or rotates it.
   const [circleInvite, setCircleInvite] =
     useState<OnboardingCircleInvite | null>(null);
@@ -1912,17 +1939,40 @@ export function OneLocationOnboardingFlow({
   const circleInviteCopiedTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
-  const inviteScreenEnabled = Boolean(onPrepareOnboardingCircleInvite);
+  // Contacts screen. Nothing runs until the person asks for it, so "idle" is
+  // the resting state rather than a loading one.
+  const [contactState, setContactState] = useState<
+    | { kind: "idle" }
+    | { kind: "busy" }
+    | { kind: "none"; partial: boolean }
+    | { kind: "matched" }
+    | { kind: "failed"; message: string; canOpenSettings: boolean }
+  >({ kind: "idle" });
+  const [contactMatches, setContactMatches] = useState<OnboardingContactMatch[]>(
+    [],
+  );
+  const [addedContactIds, setAddedContactIds] = useState<string[]>([]);
+  const [addingContactIds, setAddingContactIds] = useState<string[]>([]);
 
-  const [selectedPeopleIds, setSelectedPeopleIds] = useState<string[]>([]);
-  const [failedRequestCount, setFailedRequestCount] = useState(0);
-  const [requestsSending, setRequestsSending] = useState(false);
+  // "Someone sent me a code" is the other half of this product, and it had no
+  // route through onboarding at all: a person handed a code finished setup
+  // alone and then had to go hunting for Join a circle on the hub.
+  const [joinCode, setJoinCode] = useState("");
+  const [joinPreview, setJoinPreview] =
+    useState<OnboardingCirclePreview | null>(null);
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joinAccepted, setJoinAccepted] = useState(false);
+
   const [leaving, setLeaving] = useState(false);
   const [completionBusy, setCompletionBusy] = useState(false);
   const [settlementRetryCount, setSettlementRetryCount] = useState(0);
-  const requestBatchRef = useRef(0);
-  const requestedConnectionIdsRef = useRef<Set<string>>(new Set());
   const permissionPromptAttemptedRef = useRef(false);
+  // Funnel bookkeeping. Refs, not state: none of this should cause a render.
+  const codeSharedRef = useRef(false);
+  const codeCopiedRef = useRef(false);
+  const outcomeReportedRef = useRef(false);
+  const screensSeenRef = useRef<Set<OnboardingScreen>>(new Set());
   const locationPreparationCompleteRef = useRef(false);
   const locationPreparationInFlightRef = useRef<Promise<boolean> | null>(null);
   const completionInFlightRef = useRef(false);
@@ -2021,12 +2071,16 @@ export function OneLocationOnboardingFlow({
 
   // Provision the invite code once, the first time the Invite screen opens.
   useEffect(() => {
-    if (screen !== "invite" || !inviteScreenEnabled) return;
+    screensSeenRef.current.add(screen);
+  }, [screen]);
+
+  useEffect(() => {
+    if (screen !== "invite") return;
     if (circleInvitePreparedRef.current || circleInviteInFlightRef.current) {
       return;
     }
     void prepareCircleInvite();
-  }, [inviteScreenEnabled, prepareCircleInvite, screen]);
+  }, [prepareCircleInvite, screen]);
 
   useEffect(() => {
     return () => {
@@ -2038,6 +2092,7 @@ export function OneLocationOnboardingFlow({
 
   const handleCopyCircleInvite = useCallback(() => {
     if (!circleInvite) return;
+    codeCopiedRef.current = true;
     void Promise.resolve(
       onCopyOnboardingCircleCode?.(circleInvite.code),
     ).catch(() => {
@@ -2055,6 +2110,7 @@ export function OneLocationOnboardingFlow({
 
   const handleShareCircleInvite = useCallback(() => {
     if (!circleInvite) return;
+    codeSharedRef.current = true;
     void Promise.resolve(
       onShareOnboardingCircleCode?.(circleInvite),
     ).catch(() => {
@@ -2062,22 +2118,159 @@ export function OneLocationOnboardingFlow({
     });
   }, [circleInvite, onShareOnboardingCircleCode]);
 
-  useEffect(() => {
-    if (screen !== "circle") return;
-    const delay = settlementRetryCount === 0 ? 4000 : 3000;
-
-    const timer = window.setTimeout(() => {
-      if (completionInFlightRef.current) return;
-      completionInFlightRef.current = true;
-      setCompletionBusy(true);
-      void Promise.resolve(onComplete()).catch(() => {
-        completionInFlightRef.current = false;
-        setCompletionBusy(false);
-        setSettlementRetryCount((current) => current + 1);
+  const handleSyncContacts = useCallback(async () => {
+    if (!onSyncOnboardingContacts) return;
+    setContactState({ kind: "busy" });
+    try {
+      const result = await onSyncOnboardingContacts();
+      if (result.status === "matched" && result.matches.length > 0) {
+        setContactMatches(result.matches);
+        setContactState({ kind: "matched" });
+        return;
+      }
+      // A declined permission resolves rather than throws, and must not be
+      // reported as "nobody matched" -- that would hide the one thing that
+      // could fix it, and on iOS the decline is otherwise permanent.
+      if (result.status === "failed") {
+        setContactState({
+          kind: "failed",
+          message: result.message,
+          canOpenSettings:
+            result.canOpenSettings && Boolean(onOpenContactSettings),
+        });
+        return;
+      }
+      // "matched" with an empty list lands here too, which is the same outcome
+      // as "none" from the person's point of view.
+      setContactState({
+        kind: "none",
+        partial: result.status === "none" ? result.partial : false,
       });
-    }, delay);
-    return () => window.clearTimeout(timer);
-  }, [onComplete, screen, settlementRetryCount]);
+    } catch (error) {
+      setContactState({
+        kind: "failed",
+        message:
+          error instanceof Error && error.message
+            ? error.message
+            : "We couldn't check your contacts. You can try again later.",
+        canOpenSettings: Boolean(onOpenContactSettings),
+      });
+    }
+  }, [onOpenContactSettings, onSyncOnboardingContacts]);
+
+  const handleAddContact = useCallback(
+    (userId: string) => {
+      if (!onAddOnboardingContact) return;
+      setAddingContactIds((current) =>
+        current.includes(userId) ? current : [...current, userId],
+      );
+      void Promise.resolve(onAddOnboardingContact(userId))
+        .then(() => {
+          setAddedContactIds((current) =>
+            current.includes(userId) ? current : [...current, userId],
+          );
+        })
+        .catch(() => {
+          /* the parent owns the failure toast; the row simply stays addable */
+        })
+        .finally(() => {
+          setAddingContactIds((current) =>
+            current.filter((id) => id !== userId),
+          );
+        });
+    },
+    [onAddOnboardingContact],
+  );
+
+  const handlePreviewJoinCode = useCallback(async () => {
+    if (!onPreviewCircleCode) return;
+    const trimmed = joinCode.trim();
+    if (!trimmed) return;
+    // Your own code resolves to a circle you already own, so the generic
+    // "you're already in this circle" would be technically true and useless.
+    // Caught before the request, because there is nothing to look up.
+    if (
+      circleInvite &&
+      normalizeCircleCode(trimmed) === normalizeCircleCode(circleInvite.code)
+    ) {
+      setJoinPreview(null);
+      setJoinError(
+        "That's your own code — send it to someone else so they can join you.",
+      );
+      return;
+    }
+    setJoinBusy(true);
+    setJoinError(null);
+    try {
+      setJoinPreview(await onPreviewCircleCode(trimmed));
+    } catch (error) {
+      setJoinPreview(null);
+      setJoinError(
+        error instanceof Error && error.message
+          ? error.message
+          : "That code did not match a circle. Check it and try again.",
+      );
+    } finally {
+      setJoinBusy(false);
+    }
+  }, [circleInvite, joinCode, onPreviewCircleCode]);
+
+  const handleAcceptJoinCode = useCallback(async () => {
+    if (!onAcceptCircleCode || !joinPreview) return;
+    setJoinBusy(true);
+    setJoinError(null);
+    try {
+      await onAcceptCircleCode(joinCode.trim());
+      setJoinAccepted(true);
+    } catch (error) {
+      setJoinError(
+        error instanceof Error && error.message
+          ? error.message
+          : "We couldn't join that circle. You can try again from Circles.",
+      );
+    } finally {
+      setJoinBusy(false);
+    }
+  }, [joinCode, joinPreview, onAcceptCircleCode]);
+
+  // Report how onboarding ended, once per exit. Removing the contact picker is
+  // a bet on drop-off; without this there is no way to tell whether it paid off
+  // or simply moved where people leave. The circle code is deliberately never
+  // included -- this screen's whole content is a shareable secret.
+  const reportOutcome = useCallback(
+    (exitedVia: "complete" | "skip") => {
+      if (outcomeReportedRef.current) return;
+      outcomeReportedRef.current = true;
+      trackEvent("one_location_onboarding_completed", {
+        route_id: resolveRouteId(window.location.pathname),
+        result: "success",
+        exited_via: exitedVia,
+        code_shared: codeSharedRef.current,
+        code_copied: codeCopiedRef.current,
+        screens_seen: screensSeenRef.current.size,
+        contacts_matched: contactMatches.length,
+        contacts_added: addedContactIds.length,
+      });
+    },
+    [addedContactIds.length, contactMatches.length],
+  );
+
+  // Completion is a press, not a timer. The settlement guard and retry counter
+  // are unchanged -- they are what makes setup completion durable when the
+  // capability coordinator rejects -- but a screen that finished itself after
+  // four seconds could not be skipped, could not be tested by the reviewer
+  // flow, and made the person wait for nothing.
+  const finishFromInvite = useCallback(() => {
+    if (completionInFlightRef.current || leaving) return;
+    completionInFlightRef.current = true;
+    setCompletionBusy(true);
+    reportOutcome("complete");
+    void Promise.resolve(onComplete()).catch(() => {
+      completionInFlightRef.current = false;
+      setCompletionBusy(false);
+      setSettlementRetryCount((current) => current + 1);
+    });
+  }, [leaving, onComplete, reportOutcome]);
 
   const runSkip = async (settleCircle = false) => {
     if (leaving || (settleCircle && completionInFlightRef.current)) return;
@@ -2086,6 +2279,7 @@ export function OneLocationOnboardingFlow({
       setCompletionBusy(true);
     }
     setLeaving(true);
+    reportOutcome("skip");
     try {
       await onSkip();
     } catch {
@@ -2134,105 +2328,18 @@ export function OneLocationOnboardingFlow({
       void prepareSavedLocation();
       return;
     }
-    setScreen(inviteScreenEnabled ? "invite" : "people");
+    setScreen(contactsStepAvailable ? "contacts" : "invite");
   };
 
-  const handlePeopleContinue = (selectedIds: string[]) => {
-    const selectedPeople = people.filter((person) =>
-      selectedIds.includes(person.userId),
-    );
-    if (selectedPeople.length === 0) {
-      toast.error("Choose at least one contact", {
-        description:
-          "One Location works best with someone in your circle. You can update contacts later from the Connect tab.",
-      });
-      return;
-    }
-
-    setSelectedPeopleIds(selectedPeople.map((person) => person.userId));
-    const requestIds = selectedPeople
-      .filter(
-        (person) =>
-          person.relationship === "none" &&
-          !requestedConnectionIdsRef.current.has(person.userId),
-      )
-      .map((person) => person.userId);
-    const activeIds = new Set(
-      connections.map((connection) => connection.userId),
-    );
-    const optimisticMembers: CircleMember[] = selectedPeople.map((person) => ({
-      userId: person.userId,
-      displayName: safeName(person.displayName),
-      photoUrl: person.photoUrl,
-      status:
-        person.relationship === "connected" || activeIds.has(person.userId)
-          ? "connected"
-          : "pending",
-    }));
-
-    setCircleMembers(optimisticMembers);
-    setFailedRequestCount(0);
-    setRequestsSending(requestIds.length > 0);
-    setSettlementRetryCount(0);
-    completionInFlightRef.current = false;
-    setCompletionBusy(false);
-    setScreen("circle");
-
-    const batchId = ++requestBatchRef.current;
-    if (requestIds.length === 0) return;
-    requestIds.forEach((userId) =>
-      requestedConnectionIdsRef.current.add(userId),
-    );
-
-    void onSendConnectionRequests(requestIds)
-      .then((result) => {
-        result.failedUserIds.forEach((userId) =>
-          requestedConnectionIdsRef.current.delete(userId),
-        );
-        if (requestBatchRef.current !== batchId) return;
-        const failedIds = new Set(result.failedUserIds);
-        setCircleMembers(
-          optimisticMembers.map((member) =>
-            failedIds.has(member.userId)
-              ? { ...member, status: "failed" as const }
-              : member,
-          ),
-        );
-        setFailedRequestCount(result.failedUserIds.length);
-        setRequestsSending(false);
-      })
-      .catch(() => {
-        requestIds.forEach((userId) =>
-          requestedConnectionIdsRef.current.delete(userId),
-        );
-        if (requestBatchRef.current !== batchId) return;
-        const failedIds = new Set(requestIds);
-        setCircleMembers(
-          optimisticMembers.map((member) =>
-            failedIds.has(member.userId)
-              ? { ...member, status: "failed" as const }
-              : member,
-          ),
-        );
-        setFailedRequestCount(requestIds.length);
-        setRequestsSending(false);
-      });
-  };
-
-  // Skip leaves onboarding without adding anyone. It used to call Continue so
-  // that neither control could bypass a minimum-one-contact requirement, but
-  // that made the button lie: a person with nobody selected tapped Skip and got
-  // "Choose at least one contact" back, with no way forward. Requiring a
-  // contact to finish setup is the friction this screen was meant to avoid, and
-  // contacts can be added later from Connect. Continue still enforces the
-  // minimum, so the choice stays deliberate rather than accidental.
-  const handlePeopleSkip = () => {
-    void runSkip();
-  };
 
   return (
     <main
-      className="fixed inset-0 z-[540] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[#eef3f8] text-[#171d28] dark:bg-[#070a0f] dark:text-[#f4f7fb]"
+      // z-560, above the agent bar's elevated z-540. The bar normally sits at
+      // z-118 and onboarding covered it, but it raises itself to 540 for a
+      // pending confirmation or an interactive voice layer -- at which point it
+      // tied with this overlay and won on DOM order, drawing "Talk to One"
+      // across the primary CTA. Onboarding is modal; nothing belongs over it.
+      className="fixed inset-0 z-[560] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[#eef3f8] text-[#171d28] dark:bg-[#070a0f] dark:text-[#f4f7fb]"
       data-no-route-swipe
       data-testid="one-location-onboarding"
       data-location-onboarding-screen={screen}
@@ -2241,16 +2348,19 @@ export function OneLocationOnboardingFlow({
       <section
         className={cn(
           "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[#0c1017]",
-          // Features sizes off viewport HEIGHT so its artwork keeps its
-          // proportions on a short screen, but that left the whole panel a
-          // narrow strip on a wide one: `58dvh` shrinks as the window gets
-          // shorter, and 560px capped it however much room there was. Keep
-          // that behaviour where it earns its place -- phones and short
-          // windows -- and let a genuinely wide viewport use the width, the
-          // same way the SOS panel does.
-          screen === "features"
-            ? "max-w-[min(560px,58dvh)] max-[431px]:max-w-none lg:max-w-3xl"
-            : "max-w-[480px]",
+          // One width for every screen, and deliberately a phone's width.
+          //
+          // The feature cards style themselves with `@container (max-width:
+          // 420px)`, so the CARD decides its own tier, not the viewport. At a
+          // 480px panel the card measured 432px and fell out of that tier, so
+          // desktop rendered a different pill size, padding and type scale than
+          // the same screen on a phone -- which is the inconsistency, not any
+          // single element being misplaced. 430px puts the card at 382px, in
+          // the same tier a phone lands in, so the two render identically.
+          //
+          // 431px is the phone breakpoint: below it the panel goes full-bleed
+          // rather than leaving side gutters on a device that has none.
+          "max-w-[430px] max-[431px]:max-w-none",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >
@@ -2277,9 +2387,37 @@ export function OneLocationOnboardingFlow({
             onContinue={continueFromFeatures}
           />
         ) : null}
+        {/* Tile prewarm. The script being ready is only half of it -- the map
+            still has to fetch imagery for this exact point, and doing that on
+            arrival is what makes the finale look like it is thinking. A
+            full-size instance renders here, invisibly, so the tiles are in the
+            browser cache before the screen that shows them exists. It unmounts
+            as the finale mounts, so there is never a second live map. */}
+        {screen === "contacts" && mapPoint ? (
+          <OnboardingLiveMap
+            point={mapPoint}
+            className="pointer-events-none absolute inset-0 -z-10 opacity-0"
+          />
+        ) : null}
+        {screen === "contacts" ? (
+          <ContactsScreen
+            state={contactState}
+            matches={contactMatches}
+            addedUserIds={addedContactIds}
+            addingUserIds={addingContactIds}
+            onSync={() => void handleSyncContacts()}
+            onAdd={handleAddContact}
+            onOpenSettings={() => onOpenContactSettings?.()}
+            onBack={() => setScreen("features")}
+            onSkip={() => void runSkip()}
+            onContinue={() => setScreen("invite")}
+            leaving={leaving}
+          />
+        ) : null}
         {screen === "invite" ? (
-          <InviteScreen
+          <ReadyScreen
             currentUserName={currentUserName}
+            mapPoint={mapPoint}
             invite={circleInvite}
             loading={circleInviteLoading}
             error={circleInviteError}
@@ -2287,42 +2425,34 @@ export function OneLocationOnboardingFlow({
             onRetry={() => void prepareCircleInvite()}
             onCopy={handleCopyCircleInvite}
             onShare={handleShareCircleInvite}
-            onBack={() => setScreen("features")}
-            onSkip={() => void runSkip()}
-            onContinue={() => setScreen("people")}
-            leaving={leaving}
-          />
-        ) : null}
-        {screen === "people" ? (
-          <PeopleScreen
-            people={people}
-            connections={connections}
-            loading={peopleLoading}
-            error={peopleError}
-            initialSelectedIds={selectedPeopleIds}
-            onRetry={onRetryPeople}
             onBack={() =>
-              setScreen(inviteScreenEnabled ? "invite" : "features")
+              setScreen(contactsStepAvailable ? "contacts" : "features")
             }
-            onSkip={handlePeopleSkip}
+            onSkip={() => void runSkip()}
+            onContinue={finishFromInvite}
             leaving={leaving}
-            onSelectionChange={setSelectedPeopleIds}
-            onContinue={handlePeopleContinue}
-          />
-        ) : null}
-        {screen === "circle" ? (
-          <CircleScreen
-            currentUserName={currentUserName}
-            currentUserPhotoUrl={currentUserPhotoUrl}
-            members={circleMembers}
-            requestsSending={requestsSending}
-            failedCount={failedRequestCount}
+            completeLabel={completeLabel}
+            completing={completionBusy}
             settlementRetryCount={settlementRetryCount}
-            onBack={() => {
-              if (!completionBusy) setScreen("people");
+            joinCode={joinCode}
+            joinPreview={joinPreview}
+            joinBusy={joinBusy}
+            joinError={joinError}
+            joinAccepted={joinAccepted}
+            joinEnabled={Boolean(onPreviewCircleCode && onAcceptCircleCode)}
+            onJoinCodeChange={(value) => {
+              setJoinCode(value);
+              setJoinPreview(null);
+              setJoinError(null);
             }}
-            onSkip={() => void runSkip(true)}
-            leaving={leaving || completionBusy || requestsSending}
+            onPreviewJoinCode={() => void handlePreviewJoinCode()}
+            onAcceptJoinCode={() => void handleAcceptJoinCode()}
+            onClearJoinPreview={() => {
+              // Keep the typed code so a single wrong character is a quick
+              // edit rather than a retype of all twelve.
+              setJoinPreview(null);
+              setJoinError(null);
+            }}
           />
         ) : null}
       </section>

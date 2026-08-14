@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useState,
   useMemo,
   useRef,
   type CSSProperties,
@@ -75,6 +76,16 @@ export function TopShellTabs({
   const tabWidth = `${100 / tabSet.tabs.length}%`;
   const tabSwipeState = useTopShellTabSwipeState(tabSet.id);
   const indicatorTransform = `translate3d(calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%), 0, 0)`;
+
+  const textRefs = useRef<Array<HTMLSpanElement | null>>([]);
+  const [activeTextWidth, setActiveTextWidth] = useState(0);
+
+  useEffect(() => {
+    const activeTextSpan = textRefs.current[activeIndex];
+    if (activeTextSpan) {
+      setActiveTextWidth(activeTextSpan.offsetWidth);
+    }
+  }, [activeIndex, tabSet.tabs.length]);
 
   // Keep the shared swipe-position variable in sync with the committed active
   // tab. Taps go through `selectIndex`, which already snaps the indicator, but
@@ -176,6 +187,9 @@ export function TopShellTabs({
               }}
             >
               <span
+                ref={(node) => {
+                  textRefs.current[index] = node;
+                }}
                 data-ui-role="agent-tab-label"
                 className={cn(
                   "ui-text-agent-tab-label relative truncate transition-colors duration-150",
@@ -204,7 +218,12 @@ export function TopShellTabs({
               width: tabWidth,
             }}
           >
-            <span className="h-[3px] w-[max(28px,calc(100%-2rem))] rounded-full bg-[var(--app-accent)]" />
+            <span
+              className="h-[3px] rounded-full bg-[var(--app-accent)] transition-[width] duration-150"
+              style={{
+                width: activeTextWidth ? `${Math.max(28, activeTextWidth)}px` : 'max(28px, calc(100% - 2rem))'
+              }}
+            />
           </div>
         ) : null}
       </div>

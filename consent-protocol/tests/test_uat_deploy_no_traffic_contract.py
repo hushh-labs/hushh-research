@@ -39,6 +39,7 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
 
 def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> None:
     backend_build = backend_deploy_surface()
+    uat_workflow = _read(".github/workflows/deploy-uat.yml")
 
     # Gemini 3.1 Flash-Lite is part of the approved text matrix and only shares
     # global/us/eu endpoints with Gemini 3.5 Flash. The deployed service and its
@@ -49,6 +50,22 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     assert "|HUSHH_VERTEX_LOCATIONS=global,us,eu|" in backend_build
     assert "HUSHH_VERTEX_LOCATIONS=global\\,us\\,eu" not in backend_build
     assert "GOOGLE_CLOUD_LOCATION=asia-southeast1" not in backend_build
+    # The managed-Vertex candidate job stays conservative for direct builds,
+    # while UAT must honor the same changed-SHA selector that governs the
+    # candidate evaluator lane. An unrelated release must not fail because an
+    # unselected advisory probe happened to be unavailable.
+    assert '_VERIFY_MANAGED_VERTEX_RUNTIME: "true"' in backend_build
+    assert 'case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in' in backend_build
+    assert "true) ;;" in backend_build
+    assert "false)" in backend_build
+    assert 'echo "_VERIFY_MANAGED_VERTEX_RUNTIME must be true or false." >&2' in backend_build
+    assert (
+        "Skipping managed Vertex candidate probe: not selected by the verification plan."
+        in backend_build
+    )
+    assert "verify_managed_vertex_runtime=false" in uat_workflow
+    assert "steps.verification-plan.outputs.pkm_evaluator_runs" in uat_workflow
+    assert "##_VERIFY_MANAGED_VERTEX_RUNTIME=${verify_managed_vertex_runtime}" in uat_workflow
 
 
 def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None:

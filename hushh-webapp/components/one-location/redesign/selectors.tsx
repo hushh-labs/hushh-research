@@ -23,7 +23,6 @@ import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
 
 /** Mirrors the existing page DURATION_OPTIONS so the Select/menu values stay identical. */
 export const REDESIGN_DURATION_OPTIONS: { value: string; label: string }[] = [
-  { value: "0.25", label: "15 min" },
   { value: "0.5", label: "30 min" },
   { value: "1", label: "1 hour" },
   { value: "4", label: "4 hours" },
@@ -200,11 +199,50 @@ export function ReasonChips({
   value,
   onChange,
   label = "Reason",
+  presentation = "buttons",
+  placeholder = "Select a reason for request…",
 }: {
   value: ReasonValue | null;
   onChange: (next: ReasonValue) => void;
   label?: string;
+  presentation?: "buttons" | "select";
+  placeholder?: string;
 }) {
+  const labelId = useId();
+
+  // Dropdown presentation to match DurationSelector's select variant, for a
+  // denser Ask form. Buttons variant is retained for any other caller.
+  if (presentation === "select") {
+    return (
+      <div className="space-y-2">
+        {label ? (
+          <p id={labelId} className="text-sm font-semibold text-foreground">
+            {label}
+          </p>
+        ) : null}
+        <Select
+          value={value ?? undefined}
+          onValueChange={(next) => onChange(next as ReasonValue)}
+        >
+          <SelectTrigger
+            aria-label={label || "Reason"}
+            aria-labelledby={label ? labelId : undefined}
+            className="h-11 w-full rounded-[14px] border-border/70 bg-background text-sm shadow-none"
+          >
+            <SelectValue placeholder={placeholder} />
+          </SelectTrigger>
+          <SelectContent align="start" position="popper" className="rounded-[14px]">
+            {REASON_CHIPS.map((reason) => (
+              <SelectItem key={reason} value={reason}>
+                {reason}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2">
       {label ? (

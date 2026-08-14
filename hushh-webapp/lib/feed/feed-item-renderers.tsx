@@ -48,6 +48,10 @@ function metadataString(metadata: Record<string, unknown>, key: string): string 
   return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
+function metadataBool(metadata: Record<string, unknown>, key: string): boolean {
+  return metadata[key] === true;
+}
+
 /**
  * Resolve the most identifying name available for a feed counterparty.
  *
@@ -77,7 +81,6 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   const icon = DOMAIN_ICON[item.source_domain] || Newspaper;
   const domainLabel = DOMAIN_LABEL[item.source_domain] || "Activity";
   const scope = metadataString(item.metadata, "scope_description") || metadataString(item.metadata, "scope");
-  const counterparty = metadataString(item.metadata, "counterpart_label");
   // Best-available name for the other party (label → display → first → phone →
   // "Someone" last). Used to turn vague, subjectless lines like "A live
   // location share was revoked" into explicit subject-action-object sentences.
@@ -210,54 +213,71 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         description: "It was idle for a while, so we powered it down. It wakes when you need it.",
         href: ROUTES.AGENT,
       };
-    case "location_share_created":
+    // Location events use a person-first layout: the title is the counterparty's
+    // name (falling back to "Location" only when no name is resolvable), and the
+    // subtitle is the action. The name arrives via `counterpart_label` in the
+    // backend feed metadata (one_location_agent_service.py).
+    case "location_share_created": {
+      const hasWho = who !== "Someone";
       return {
         icon,
         domainLabel,
-        label: "Location shared",
-        description: `${who} shared their live location with you.`,
+        label: hasWho ? who : "Location",
+        description: "Started sharing location",
         href: ROUTES.ONE_LOCATION,
       };
-    case "location_share_revoked":
+    }
+    case "location_share_revoked": {
+      const hasWho = who !== "Someone";
+      const ownerRevoked = metadataString(item.metadata, "reason") === "owner_revoke";
       return {
         icon,
         domainLabel,
-        label: "Location share ended",
-        description: `${who}'s live location share ended.`,
+        label: hasWho ? who : "Location",
+        description: ownerRevoked ? "You stopped sharing location" : "Stopped sharing location",
         href: ROUTES.ONE_LOCATION,
       };
-    case "location_share_expired":
+    }
+    case "location_share_expired": {
+      const hasWho = who !== "Someone";
       return {
         icon,
         domainLabel,
-        label: "Location share expired",
-        description: `${who}'s live location share expired.`,
+        label: hasWho ? who : "Location",
+        description: "Location share expired",
         href: ROUTES.ONE_LOCATION,
       };
-    case "location_access_request":
+    }
+    case "location_access_request": {
+      const hasWho = who !== "Someone";
       return {
         icon,
         domainLabel,
-        label: "Location access requested",
-        description: `${who} requested to see your location.`,
+        label: hasWho ? who : "Location",
+        description: "Requested your location",
         href: ROUTES.ONE_LOCATION,
       };
-    case "location_access_approved":
+    }
+    case "location_access_approved": {
+      const hasWho = who !== "Someone";
       return {
         icon,
         domainLabel,
-        label: "Location access approved",
-        description: `${who} approved your location request.`,
+        label: hasWho ? who : "Location",
+        description: "You approved the location request",
         href: ROUTES.ONE_LOCATION,
       };
-    case "location_access_denied":
+    }
+    case "location_access_denied": {
+      const hasWho = who !== "Someone";
       return {
         icon,
         domainLabel,
-        label: "Location access denied",
-        description: `${who} denied your location request.`,
+        label: hasWho ? who : "Location",
+        description: "You declined the location request",
         href: ROUTES.ONE_LOCATION,
       };
+    }
     case "circle_member_invited": {
       const circleName = metadataString(item.metadata, "circle_name");
       const inviteId = metadataString(item.metadata, "invite_id");
@@ -323,34 +343,54 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         description: "A connected-system action failed.",
         href: ROUTES.CONNECTED_SYSTEMS,
       };
-    case "connection_accepted":
+    // Connection events use the same person-first layout: title is the other
+    // person's name, subtitle is the action. Name comes from `counterpart_label`
+    // in the backend feed metadata (connections_service.py).
+    case "connection_accepted": {
+      const hasWho = who !== "Someone";
+      const actorIsSelf = metadataBool(item.metadata, "actor_is_self");
       return {
         icon: UserRound,
         domainLabel,
-        label: "Connection accepted",
-        description: counterparty ? `You and ${counterparty} are connected.` : "A connection was accepted.",
+        label: hasWho ? who : "Connection",
+        description: !hasWho
+          ? "A connection was accepted."
+          : actorIsSelf
+            ? "You accepted the connection request"
+            : "accepted your connection request",
         href: ROUTES.CONNECT,
       };
-    case "connection_rejected":
+    }
+    case "connection_rejected": {
+      const hasWho = who !== "Someone";
+      const actorIsSelf = metadataBool(item.metadata, "actor_is_self");
       return {
         icon: UserRound,
         domainLabel,
-        label: "Connection rejected",
-        description: counterparty
-          ? `${counterparty} declined your connection request.`
-          : "A connection request was rejected.",
+        label: hasWho ? who : "Connection",
+        description: !hasWho
+          ? "A connection request was rejected."
+          : actorIsSelf
+            ? "You declined the connection request"
+            : "declined your connection request",
         href: ROUTES.CONNECT,
       };
-    case "connection_revoked":
+    }
+    case "connection_revoked": {
+      const hasWho = who !== "Someone";
+      const actorIsSelf = metadataBool(item.metadata, "actor_is_self");
       return {
         icon: UserRound,
         domainLabel,
-        label: "Connection removed",
-        description: counterparty
-          ? `Your connection with ${counterparty} was removed.`
-          : "A connection was removed.",
+        label: hasWho ? who : "Connection",
+        description: !hasWho
+          ? "A connection was removed."
+          : actorIsSelf
+            ? "You removed the connection"
+            : "removed your connection",
         href: ROUTES.CONNECT,
       };
+    }
     default:
       return {
         icon,

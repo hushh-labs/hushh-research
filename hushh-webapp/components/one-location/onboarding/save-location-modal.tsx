@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import type { SavedLocationCategory } from "@/lib/one-location/saved-locations";
 import {
   EMPTY_SAVED_LOCATION_ADDRESS_DETAILS,
-  inferPostalCode,
+  inferSavedLocationAddressDetails,
   isValidPostalCode,
   normalizeSavedLocationAddressDetails,
   type SavedLocationAddressDetails,
@@ -91,11 +91,39 @@ export type SaveLocationModalProps = {
     category: SavedLocationCategory,
     label: string,
     details?: SavedLocationAddressDetails,
+    /**
+     * The street address as it stands in the Address field -- detected from
+     * the pin, or typed over it. Passed separately from `details` so callers
+     * compose the saved line from its parts instead of layering this save on
+     * top of whatever the last one produced.
+     */
+    addressLine?: string | null,
   ) => void;
   onSkip: () => void;
 };
 
 type SaveLocationFlowStep = "summary" | "map" | "details";
+
+/**
+ * Fold what a detected address can tell us into the form, leaving anything the
+ * person typed alone.
+ *
+ * Defined outside the component and taking its "has been edited" flags as an
+ * argument so the rule reads as one thing rather than as three closures that
+ * each have to remember to check a ref.
+ */
+function detectedAddressDetails(
+  current: SavedLocationAddressDetails,
+  address: string | null,
+  edited: { houseOrFlat: boolean; postalCode: boolean },
+): SavedLocationAddressDetails {
+  const inferred = inferSavedLocationAddressDetails(address);
+  return {
+    ...current,
+    houseOrFlat: edited.houseOrFlat ? current.houseOrFlat : inferred.houseOrFlat,
+    postalCode: edited.postalCode ? current.postalCode : inferred.postalCode,
+  };
+}
 
 const CATEGORY_OPTIONS: {
   category: SavedLocationCategory;
@@ -186,6 +214,12 @@ export function SaveLocationModal({
   const [editingPlace, setEditingPlace] = useState(false);
   const [flowStep, setFlowStep] = useState<SaveLocationFlowStep>("summary");
   const [pickedAddress, setPickedAddress] = useState<string | null>(null);
+  /**
+   * Ticked: the fields below are filled from whatever the pin resolves to, and
+   * keep following it as the pin moves. Unticked: they are cleared and left
+   * alone. Anything typed by hand wins either way -- see the edited refs.
+   */
+  const [useDetectedAddress, setUseDetectedAddress] = useState(true);
   const [addressDetails, setAddressDetails] =
     useState<SavedLocationAddressDetails>(EMPTY_SAVED_LOCATION_ADDRESS_DETAILS);
   const [placeQuery, setPlaceQuery] = useState("");
@@ -203,7 +237,11 @@ export function SaveLocationModal({
   const postalCodeErrorId = useId();
   const mapTitleRef = useRef<HTMLHeadingElement | null>(null);
   const detailsTitleRef = useRef<HTMLHeadingElement | null>(null);
+  // A field the person has typed in is theirs. The pin may fill a blank field
+  // and refill it as it moves, but it must never overwrite an answer someone
+  // gave -- a prefill that fights the typing is worse than no prefill.
   const postalCodeEditedRef = useRef(false);
+  const houseOrFlatEditedRef = useRef(false);
 
   // Reset internal selection each time the modal (re)opens. When editing an
   // existing saved place, seed the category/label/detail fields from the
@@ -213,13 +251,16 @@ export function SaveLocationModal({
       // Treat provided initial details (edit mode) as already user-authored so
       // the inferred-postal effect does not clobber them.
       postalCodeEditedRef.current = Boolean(
-        initialDetails &&
-          (initialDetails.postalCode || initialDetails.houseOrFlat),
+        initialDetails && initialDetails.postalCode,
+      );
+      houseOrFlatEditedRef.current = Boolean(
+        initialDetails && initialDetails.houseOrFlat,
       );
       setCategory(initialCategory ?? null);
       setCustomLabel(initialCustomLabel ?? "");
       setEditingPlace(false);
       setPickedAddress(null);
+      setUseDetectedAddress(true);
       setAddressDetails(
         initialDetails
           ? { ...EMPTY_SAVED_LOCATION_ADDRESS_DETAILS, ...initialDetails }
@@ -299,12 +340,18 @@ export function SaveLocationModal({
     if (!open) return;
     const next = (address && address.trim()) || null;
     if (next) setPickedAddress(next);
+    if (!useDetectedAddress) return;
+    // Spread the detected address across the fields it can actually answer.
+    // It was previously only mined for a postal code, so a person looking at
+    // "B-284/3, Rd Number 1, ..." on screen still had to retype B-284/3 into
+    // the box directly underneath it.
     setAddressDetails((current) =>
-      postalCodeEditedRef.current
-        ? current
-        : { ...current, postalCode: inferPostalCode(next) },
+      detectedAddressDetails(current, next, {
+        houseOrFlat: houseOrFlatEditedRef.current,
+        postalCode: postalCodeEditedRef.current,
+      }),
     );
-  }, [address, open]);
+  }, [address, open, useDetectedAddress]);
 
   useEffect(() => {
     if (!open) return;
@@ -319,16 +366,42 @@ export function SaveLocationModal({
 
   const normalizedAddressDetails =
     normalizeSavedLocationAddressDetails(addressDetails);
-  const detailsComplete =
-    normalizedAddressDetails.houseOrFlat.length > 0 &&
-    isValidPostalCode(normalizedAddressDetails.postalCode);
+  const detectedAddress = pickedAddress || resolvedAddress || "";
+  const postalCodeInvalid =
+    normalizedAddressDetails.postalCode.length > 0 &&
+    !isValidPostalCode(normalizedAddressDetails.postalCode);
+  /**
+   * Why the primary button is off, in the person's own terms, or null when it
+   * is on. This exists because the button used to just sit there dead: House,
+   * flat was required and blank, so "Update location" could not be pressed and
+   * nothing on screen said why -- which is what "saving address not working"
+   * looked like from the outside.
+   *
+   * The gate is now the one thing saving an address actually needs: an
+   * address. The entrance details are enrichment and no longer block a save.
+   */
+  const saveBlockedReason: string | null =
+    saving || changingPlace || loadingAddress || editingPlace || flowStep === "map"
+      ? null
+      : category === null
+        ? "Pick Home, Work or Other first."
+        : collectAddressDetails && detectedAddress.length === 0
+          ? "Pin a spot on the map first."
+          : postalCodeInvalid
+            ? // Not the field's own wording. The invalid PIN already says
+              // "Enter a valid PIN or postal code." right next to itself, and
+              // the same sentence twice on one screen reads as a stutter
+              // rather than as two places worth looking.
+              "Check the PIN or postal code above."
+            : null;
   const canSave =
     category !== null &&
     !saving &&
     !loadingAddress &&
     !editingPlace &&
     flowStep !== "map" &&
-    !changingPlace;
+    !changingPlace &&
+    saveBlockedReason === null;
 
   const handleSelectPlace = async (placeId: string) => {
     if (!onSelectPlace || changingPlace) return;
@@ -349,12 +422,14 @@ export function SaveLocationModal({
   const handleConfirmMapPick = (picked: PickedLocation) => {
     onPickExactLocation?.(picked);
     setPickedAddress(picked.address);
-    setAddressDetails((current) => ({
-      ...current,
-      postalCode: postalCodeEditedRef.current
-        ? current.postalCode
-        : inferPostalCode(picked.address),
-    }));
+    if (useDetectedAddress) {
+      setAddressDetails((current) =>
+        detectedAddressDetails(current, picked.address, {
+          houseOrFlat: houseOrFlatEditedRef.current,
+          postalCode: postalCodeEditedRef.current,
+        }),
+      );
+    }
     setFlowStep(collectAddressDetails ? "details" : "summary");
   };
 
@@ -364,13 +439,16 @@ export function SaveLocationModal({
   };
 
   const handleSave = () => {
-    if (!category || !canSave || (collectAddressDetails && !detailsComplete)) {
-      return;
-    }
+    if (!category || !canSave) return;
     const label =
       category === "other" ? customLabel.trim() || "Other" : undefined;
     if (collectAddressDetails) {
-      onSave(category, label ?? "", normalizedAddressDetails);
+      onSave(
+        category,
+        label ?? "",
+        normalizedAddressDetails,
+        detectedAddress || null,
+      );
       return;
     }
     onSave(category, label ?? "");
@@ -381,6 +459,7 @@ export function SaveLocationModal({
     value: string,
   ) => {
     if (key === "postalCode") postalCodeEditedRef.current = true;
+    if (key === "houseOrFlat") houseOrFlatEditedRef.current = true;
     setAddressDetails((current) => ({ ...current, [key]: value }));
   };
 
@@ -416,8 +495,8 @@ export function SaveLocationModal({
             </DialogTitle>
             <p id={descriptionId} className="sr-only">
               {rendererReady
-                ? "Step one of two. Move the map so the centre pin sits on your entrance, then confirm it."
-                : "Review how Google Maps uses the selected point before opening the map."}
+                ? "Move the pin to the entrance."
+                : "Review before opening Maps."}
             </p>
             {collectAddressDetails ? (
               <p className="text-[13px] font-normal leading-[18px] tracking-normal text-[color:var(--app-accent-deep,#0b62c4)] dark:text-[#9bc7f5]">
@@ -485,11 +564,12 @@ export function SaveLocationModal({
                 id={descriptionId}
                 className="mt-2 text-[15px] leading-5 text-muted-foreground"
               >
-                The pin tells One where. These details make the entrance easy to
-                recognise.
+                Only the address is needed. The rest helps at the door.
               </p>
             </header>
 
+            {/* The detected address, shown as the thing the fields below were
+                filled from. */}
             <div className="flex items-start gap-2.5 rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3">
               <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
                 <MapPin className="h-[17px] w-[17px]" strokeWidth={1.9} aria-hidden />
@@ -499,9 +579,9 @@ export function SaveLocationModal({
                   Pinned location
                 </p>
                 <p className="mt-0.5 line-clamp-2 text-[15px] font-semibold leading-5 text-foreground">
-                  {pickedAddress ||
-                    resolvedAddress ||
-                    "Your selected map point"}
+                  {loadingAddress
+                    ? "Finding your address…"
+                    : detectedAddress || "Your selected map point"}
                 </p>
               </div>
               {canPickOnMap ? (
@@ -516,13 +596,43 @@ export function SaveLocationModal({
               ) : null}
             </div>
 
+            {/* Ticked, the fields below are filled from that address and keep
+                following the pin. Unticked, they are cleared and left alone.
+                Anything typed by hand survives either way. */}
+            <label className="flex cursor-pointer items-center gap-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={useDetectedAddress}
+                onChange={(event) => {
+                  const next = event.target.checked;
+                  setUseDetectedAddress(next);
+                  // Both directions act now rather than at the next pin move,
+                  // so the box never reads as on while the fields disagree
+                  // with it. Unticking forgets that anything was typed, which
+                  // is what makes re-ticking a clean redo.
+                  houseOrFlatEditedRef.current = false;
+                  postalCodeEditedRef.current = false;
+                  setAddressDetails((current) =>
+                    detectedAddressDetails(current, next ? detectedAddress : null, {
+                      houseOrFlat: false,
+                      postalCode: false,
+                    }),
+                  );
+                }}
+                disabled={interactionBusy}
+                className="h-[15px] w-[15px] shrink-0 accent-[color:var(--app-accent)] disabled:opacity-45"
+              />
+              Fill the fields below from this address
+            </label>
+
             <div className="space-y-3.5">
               <div>
                 <label
                   htmlFor="saved-location-house-or-flat"
                   className={controlLabelClassName}
                 >
-                  House, flat, floor or block
+                  House, flat, floor or block{" "}
+                  <span className="font-normal">(optional)</span>
                 </label>
                 <input
                   id="saved-location-house-or-flat"
@@ -532,7 +642,6 @@ export function SaveLocationModal({
                     updateAddressDetail("houseOrFlat", event.target.value)
                   }
                   disabled={interactionBusy}
-                  required
                   maxLength={80}
                   autoComplete={deferredUntilVault ? "off" : "address-line1"}
                   placeholder="e.g. Flat 4B, Tower 2"
@@ -568,7 +677,8 @@ export function SaveLocationModal({
                     htmlFor="saved-location-postal-code"
                     className={controlLabelClassName}
                   >
-                    PIN / postal code
+                    PIN / postal code{" "}
+                    <span className="font-normal">(optional)</span>
                   </label>
                   <input
                     id="saved-location-postal-code"
@@ -578,7 +688,6 @@ export function SaveLocationModal({
                       updateAddressDetail("postalCode", event.target.value)
                     }
                     disabled={interactionBusy}
-                    required
                     maxLength={12}
                     inputMode="text"
                     autoComplete={deferredUntilVault ? "off" : "postal-code"}
@@ -664,15 +773,26 @@ export function SaveLocationModal({
 
             <p className="rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3 text-[13px] leading-[18px] text-muted-foreground">
               {deferredUntilVault
-                ? "Kept only for this setup session. One encrypts and saves it after your private vault is ready."
-                : "Saved in your private vault and shared only when you approve location access."}
+                ? "Saved after your vault is ready."
+                : "Saved in your private vault."}
             </p>
 
             <div className="sticky bottom-0 z-20 -mx-3 mt-1 flex flex-col gap-2.5 rounded-t-[18px] border-t border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)]/95 px-3 pb-1 pt-3 backdrop-blur">
+              {/* A disabled primary button with no explanation is the whole of
+                  "saving is not working" from the outside. When it is off, say
+                  which single thing turns it on. */}
+              {saveBlockedReason ? (
+                <p
+                  role="status"
+                  className="text-center text-[13px] leading-[18px] text-muted-foreground"
+                >
+                  {saveBlockedReason}
+                </p>
+              ) : null}
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={!canSave || !detailsComplete}
+                disabled={!canSave}
                 aria-busy={saving || undefined}
                 className={cn(
                   "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[17px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45",
@@ -720,9 +840,7 @@ export function SaveLocationModal({
                 id={descriptionId}
                 className="mt-2 text-[15px] leading-5 text-muted-foreground"
               >
-                Tag where you are so One can personalise your experience. It
-                stays encrypted in your vault and is shared only when you
-                approve location access.
+                Tag where you are. It stays encrypted in your vault.
               </p>
             </header>
 

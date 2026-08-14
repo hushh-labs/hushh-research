@@ -24,13 +24,27 @@ base and Streamable HTTP MCP endpoints, capability list, exact per-operation
 tool names, request styles, fixed response paths, and synthetic probe arguments
 when CRUD is declared.
 
+For `crm-encrypted-fields.v1`, the descriptor also pins MuleSoft's recipient
+key ID, public key, and fingerprint, plus the encrypted read/update tool
+mappings. Those mappings may reuse the standard `read-crm-record` and
+`update-crm-record` tools when MuleSoft supports the exact `encryptedFields`
+wire contract. The operator verifies that the fingerprint is the SHA-256 digest
+of that exact 32-byte X25519 public key. The mapping may not introduce a
+plaintext fallback. Activation also requires a reviewed partner-conformance
+evidence digest and explicit attestations that MuleSoft tested its strict tool
+schema and schema-allowlists decrypted update keys.
+
 ## Commands
 
 - `check` validates the descriptor, credential presence, URLs, exact operation
   set, and response-contract versions without network or database mutation.
 - `probe` performs MCP `initialize`, `tools/list`, schema normalization, and the
-  declared operation checks. CRUD runs create, ID read, update/readback, delete,
-  and absent-ID verification with cleanup.
+  declared operation and encrypted-fields tool checks. A cross-object registry
+  probes every distinct object schema (for Hussh, `Account` and `Contact`)
+  without reusing one object's record ID for another. This schema-only result
+  cannot activate a write-capable row: activation fails closed until a safe
+  cross-object fixture proves every declared operation. Same-object CRUD runs create, ID
+  read, update/readback, delete, and absent-ID verification with cleanup.
 - `apply --activate` repeats the probe, encrypts runtime credentials,
   transactionally replaces the parent and exact operation rows, increments the
   configuration revision, invalidates old caches, writes a redacted audit

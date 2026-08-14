@@ -480,6 +480,9 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("clears stale regulator fields before applying a fresh verification result", async () => {
+    mocks.useSearchParams.mockReturnValue(
+      new URLSearchParams("step=license_number"),
+    );
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "license_number",
       onboardingType: "individual",
@@ -558,6 +561,9 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("repairs stale verified draft location from the license API on load", async () => {
+    mocks.useSearchParams.mockReturnValue(
+      new URLSearchParams("step=license_details"),
+    );
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "license_details",
       onboardingType: "individual",
@@ -625,6 +631,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("repairs conflicting verified draft location from the license API on load", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=services"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "services",
       onboardingType: "individual",
@@ -807,10 +814,10 @@ describe("RiaOnboardingPage", () => {
     });
   });
 
-  it("loads existing draft and restores saved step", async () => {
+  it("loads an existing draft but still opens at the welcome step", async () => {
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "services",
-      onboardingType: "individual",
+      onboardingType: "firm",
       licenseNumber: "111222",
       licenseVerificationStatus: "found",
       advisorName: "Saved Advisor",
@@ -824,9 +831,19 @@ describe("RiaOnboardingPage", () => {
     await waitFor(() => {
       expect(mocks.draftService.load).toHaveBeenCalledWith("user-ria-1");
     });
+
+    // Entering RIA setup never resumes mid-wizard — the saved step pointer is
+    // ignored so step 1 (and its cinematic intro) is never skipped...
+    await waitFor(() => {
+      expect(screen.getByTestId("step-welcome")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("step-services")).toBeNull();
+    // ...while every other saved field still prefills the flow.
+    expect(screen.getByTestId("welcome-type").textContent).toBe("firm");
   });
 
   it("drafts a bio from verified onboarding fields", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=services"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "services",
       onboardingType: "individual",
@@ -869,6 +886,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("opens Kai command from the review update action", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",
@@ -903,6 +921,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("does not force a second live verification after license verification", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",
@@ -954,6 +973,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("does not submit onboarding twice while the first request is pending", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",
@@ -1001,6 +1021,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("turns provider unavailable submit errors into actionable verification copy", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",
@@ -1128,6 +1149,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("keeps the user on the services step when Continue is pressed with empty required fields", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=services"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "services",
       onboardingType: "individual",
@@ -1162,6 +1184,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("completes onboarding and routes to the RIA profile when verification is pending", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",

@@ -320,7 +320,16 @@ def main() -> int:
             )
     # The boundary itself: selection between subagents is One's, never inferred
     # here from the words of the request.
-    handoff_contract = "It never examines request words to choose *between subagents*"
+    #
+    # Pinned to `main`'s wording, not this branch's. `main` reworded the same
+    # sentence ("choose a subagent. One makes that selection" for "choose
+    # *between subagents* -- that selection stays One's"): identical meaning,
+    # different words, so the merge of 2026-08-14 turned this check red over
+    # prose. Tracking `main` here means the next sync does not re-break it. The
+    # fragment deliberately stops before the sentence's end so a later reflow or
+    # a change to the FOLLOWING sentence cannot fail a contract it does not
+    # state.
+    handoff_contract = "It never examines request words to choose a subagent"
     if handoff_contract not in one_tree_prose:
         errors.append(
             f"{ONE_AGENT_TREE_PATH}: missing semantic Nav/Connections handoff contract `{handoff_contract}`"

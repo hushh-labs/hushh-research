@@ -36,7 +36,7 @@ class AgentOutputConfig(StrictManifestModel):
 
 class AgentModelConfig(StrictManifestModel):
     provider: str = "gemini"
-    name: str = GEMINI_MODEL
+    name: str = Field(default_factory=lambda: GEMINI_MODEL)
     mode: str = "hushh_managed_vertex"
     credential_ref: str | None = None
 
@@ -198,8 +198,31 @@ class AgentManifestV2(StrictManifestModel):
 
     def model_config_for_runtime(self) -> AgentModelConfig:
         if isinstance(self.model, AgentModelConfig):
-            return self.model
-        return AgentModelConfig(name=self.model)
+            name = str(self.model.name or "").strip()
+            if not name or name in {
+                "default",
+                "gemini-default",
+                "active",
+                "gemini-active",
+                "gemini_default",
+            }:
+                name = GEMINI_MODEL
+            return AgentModelConfig(
+                provider=self.model.provider,
+                name=name,
+                mode=self.model.mode,
+                credential_ref=self.model.credential_ref,
+            )
+        name = str(self.model or "").strip()
+        if not name or name in {
+            "default",
+            "gemini-default",
+            "active",
+            "gemini-active",
+            "gemini_default",
+        }:
+            name = GEMINI_MODEL
+        return AgentModelConfig(name=name)
 
 
 # Compatibility import name while callers migrate to the explicit V2 name.

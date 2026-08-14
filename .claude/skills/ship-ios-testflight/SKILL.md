@@ -3,12 +3,6 @@ name: ship-ios-testflight
 description: Compatibility entry point for shipping an explicitly authorized green-main iOS build to TestFlight through the governed GitHub workflow.
 argument-hint: "[sha: <green-main-sha>] [dry_run: true|false] [notes: <what-to-test>]"
 allowed-tools: Read Grep Glob Bash(gh *) Bash(git fetch*) Bash(git status*) Bash(git rev-parse*) Bash(git log*) Bash(git branch*)
-paths:
-  - .codex/skills/repo-operations/references/admin-release-sop.md
-  - .codex/skills/release-ios-appstore/references/release-proof.md
-  - .github/workflows/ship-ios-testflight.yml
-  - config/ci-governance.json
-  - docs/guides/mobile/ship-ios-testflight.md
 ---
 
 # Ship iOS to TestFlight — governed compatibility bridge

@@ -270,7 +270,7 @@ export function GeminiRuntimeConfigurationPage({
               ? "Set up your private vault"
               : "Open your private vault"
           }
-          description="Your Gemini access is encrypted in your private vault and is never stored by Hussh."
+          description="Gemini access stays in your vault."
           onSuccess={() => setUnlockOpen(false)}
         />
       ) : null}

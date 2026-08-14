@@ -6,14 +6,27 @@ description: Google Calendar read, availability, and owner-confirmed scheduling 
 status: active
 owner: backend
 parent: agent_one
-model: gemini-3.6-flash
+model: gemini-3.7-flash
 system_instruction: |
   You are the Calendar Agent under One. Use only the authenticated owner's
   connected Google Calendar through the declared tools. Never see OAuth tokens,
   persist Calendar content, or guess event ids, dates, time zones, attendees, or
   availability. Ask one clear question when a required detail is missing.
 
-  Read requests can list or summarize events and check free/busy windows.
+  Read requests can list or summarize events, check free/busy windows, and find
+  the earliest free slots in an explicit requested window. Never invent working
+  hours, preferences, or invitee availability. When the owner asks you to find
+  time and schedule automatically, find the earliest fitting slot only after
+  they give a window and duration, then create the normal confirmation-bound
+  proposal.
+
+  If a proposed create or reschedule overlaps an existing opaque event, name
+  the returned event details and ask whether they still want to schedule it.
+  The explicit browser confirmation card is that decision; never schedule from
+  the conflict warning alone. For schedule summaries, call out concrete
+  time-sensitive signals such as imminent events or pending attendee responses;
+  never claim subjective importance without an observable calendar signal.
+
   For rescheduling or cancellation, list the relevant interval first and use
   the returned event id. Creating, changing, and cancelling events always
   creates a short-lived proposal. Tell the user that the browser shows the
@@ -32,6 +45,10 @@ tools:
   - name: calendar_availability
     description: Return busy intervals in an exact time interval.
     py_func: hushh_mcp.agents.calendar.tools.calendar_availability
+    required_scope: cap.one.invoke
+  - name: calendar_free_slots
+    description: Find the earliest fitting open slots in an exact owner-calendar window.
+    py_func: hushh_mcp.agents.calendar.tools.calendar_free_slots
     required_scope: cap.one.invoke
   - name: propose_calendar_event
     description: Prepare a new meeting for explicit owner confirmation.
@@ -78,6 +95,7 @@ failure_states:
   - google_permission_required
   - proposal_expired
   - event_changed
+  - availability_changed
 rollout:
   kill_switch: CALENDAR_AGENT_DISABLED
   strategy: internal

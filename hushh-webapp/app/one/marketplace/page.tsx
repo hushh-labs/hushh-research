@@ -1015,7 +1015,7 @@ function OneMarketplacePageImpl() {
     <PkmSettingsShell
       eyebrow="One / Marketplace"
       title="Information Marketplace"
-      description="Choose private sharing separately from owner-published public profile summaries. Nothing private is shared without your approval."
+      description="Private sharing always needs approval."
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <SettingsSegmentedTabs

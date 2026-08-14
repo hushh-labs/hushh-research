@@ -30,6 +30,9 @@ export const ROUTE_ID_VALUES = [
   "profile_access",
   "profile_access_connection",
   "profile_connected_systems",
+  "profile_integrations",
+  "profile_google_oauth_return",
+  "one_calendar",
   "profile_gmail",
   "profile_gmail_connection",
   "profile_gmail_actions",
@@ -142,6 +145,17 @@ export function resolveRouteId(pathname: string): RouteId {
     return "profile_access_connection";
   if (pathname === ROUTES.PROFILE_CONNECTED_SYSTEMS)
     return "profile_connected_systems";
+  if (pathname === ROUTES.PROFILE_INTEGRATIONS) return "profile_integrations";
+  // Both the /one-prefixed route and the bare legacy path land here; an OAuth
+  // return that falls through to "unknown" logs a raw pathname carrying
+  // provider state, which is the same reasoning as the Gmail return below.
+  if (
+    pathname === ROUTES.PROFILE_GOOGLE_OAUTH_RETURN ||
+    pathname === "/profile/google/oauth/return"
+  ) {
+    return "profile_google_oauth_return";
+  }
+  if (pathname === ROUTES.CALENDAR) return "one_calendar";
   if (pathname === ROUTES.PROFILE_GMAIL) return "profile_gmail";
   if (pathname === ROUTES.PROFILE_GMAIL_CONNECTION)
     return "profile_gmail_connection";

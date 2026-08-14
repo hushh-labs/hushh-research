@@ -119,7 +119,7 @@ export function RiaClientRequestDetail({
     return (
       <RiaCompatibilityState
         title="Request detail is unavailable in this environment"
-        description="The route is wired, but this environment still needs the full IAM schema before advisor-side request detail can load."
+        description="IAM setup is required here."
         nativeTest={{
           routeId: "/ria/clients/[userId]/requests/[requestId]",
           marker: "native-route-ria-client-request-detail",
@@ -168,11 +168,11 @@ export function RiaClientRequestDetail({
         <SettingsGroup
           embedded
           title="Request not available"
-          description="This request is not part of the current client workspace history or the identifier is no longer valid."
+          description="This request is no longer available."
         >
           <SettingsRow
             title="Return to client access"
-            description="Use the client workspace to review active access and recent relationship activity."
+            description="Review active access."
             trailing={
               <Button asChild variant="link" size="sm" className="h-auto px-0">
                 <Link
@@ -204,7 +204,7 @@ export function RiaClientRequestDetail({
               <SectionHeader
                 eyebrow="Request"
                 title="Access request summary"
-                description="This route keeps request context readable without forcing the advisor back into the main workspace list."
+                description="Request context."
                 icon={ClipboardList}
                 accent="ria"
               />
@@ -237,7 +237,7 @@ export function RiaClientRequestDetail({
               <SectionHeader
                 eyebrow="Coverage"
                 title="Client access framing"
-                description="Account branches and Kai/explorer access are still governed from the client workspace. This detail route stays intentionally focused on request metadata."
+                description="Workspace access still applies."
                 icon={ClipboardList}
                 accent="ria"
               />

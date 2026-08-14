@@ -26,6 +26,7 @@ from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.genai import types as genai_types
 
+from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
@@ -125,6 +126,8 @@ def _runtime_model(
 ) -> Any:
     """Build a turn-local ADK model without persisting a BYOK secret."""
     model = str(runtime_model or "").strip()
+    if not model or model in {"default", "gemini-default", "active", "gemini-active"}:
+        model = GEMINI_MODEL
     if not model:
         raise ValueError("One text runtime model is missing")
     credential = str(runtime_credential or "").strip()
@@ -203,6 +206,7 @@ _SPECIALIST_TOOL_SOURCES: dict[str, tuple[str, str]] = {
     "calendar_summary": ("agent_calendar", "Calendar"),
     "calendar_events": ("agent_calendar", "Calendar"),
     "calendar_availability": ("agent_calendar", "Calendar"),
+    "calendar_free_slots": ("agent_calendar", "Calendar"),
     "propose_calendar_event": ("agent_calendar", "Calendar"),
     "propose_calendar_reschedule": ("agent_calendar", "Calendar"),
     "propose_calendar_cancellation": ("agent_calendar", "Calendar"),

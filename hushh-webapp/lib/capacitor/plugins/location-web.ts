@@ -103,6 +103,39 @@ export class HushhLocationWeb implements HushhLocationPlugin {
 
     const timeoutMs = options?.timeoutMs ?? 15_000;
 
+    // Headroom added to `timeoutMs` to bound the WHOLE acquisition — every
+    // stage below shares this one deadline.
+    //
+    // The W3C `timeout` option does not start counting until the permission
+    // prompt has been resolved. A prompt the user never answers, or one the
+    // browser suppresses without telling the page, therefore leaves
+    // `getCurrentPosition` with neither callback fired and its promise pending
+    // forever. Every caller awaits that promise, so the CTA spins with no
+    // result, no error and no way back — which is exactly how "Share outside
+    // your Circle" presented. Nothing below may outlive this deadline.
+    const OVERALL_GRACE_MS = 8_000;
+
+    // Time held back from the earlier stages so the last-resort cached read
+    // always gets a window. It answers from a fix the browser already holds, so
+    // it needs very little — but reaching it with zero budget would drop the
+    // one path that recovers a device whose provider cannot produce a NEW fix.
+    const LAST_RESORT_RESERVE_MS = 4_000;
+
+    const overallDeadlineAt = Date.now() + timeoutMs + OVERALL_GRACE_MS;
+    const remainingMs = () => Math.max(0, overallDeadlineAt - Date.now());
+
+    // Always an Error (never a bare `{ code: 3 }` literal): downstream
+    // `instanceof Error` checks in locationServicesErrorMessage and
+    // LocationBus.isDeniedError silently degrade every message otherwise.
+    const timeoutError = () => {
+      const error = new Error(
+        "Could not get your location. Turn on Location for your device/browser and try again.",
+      );
+      error.name = "LocationTimeoutError";
+      (error as Error & { code?: number }).code = 3;
+      return error;
+    };
+
     type WebFix = {
       latitude: number;
       longitude: number;
@@ -113,6 +146,15 @@ export class HushhLocationWeb implements HushhLocationPlugin {
 
     // Accuracy (meters) at which we stop sampling early — a confident fix.
     const TARGET_ACCURACY_M = 35;
+
+    // How long to keep refining AFTER the first usable fix lands. The sampling
+    // budget below is the ceiling for finding ANY fix at all; once one is in
+    // hand, holding the caller for the rest of it buys accuracy nobody is
+    // waiting for. It cost the most on the devices that could least afford it:
+    // a laptop with no GPS produces one coarse fix and no better one is ever
+    // coming, so every capture sat out the entire budget before returning a
+    // result it already had within a few hundred milliseconds.
+    const REFINE_AFTER_FIRST_FIX_MS = 1_200;
 
     const toFix = (position: GeolocationPosition): WebFix => ({
       latitude: position.coords.latitude,
@@ -141,12 +183,39 @@ export class HushhLocationWeb implements HushhLocationPlugin {
     // Single-shot reader (used for the low-accuracy desktop fallback). Defaults
     // to a FRESH fix (maximumAge: 0) so a stale cached position from a previous
     // place is never returned as "current location".
-    const readOnce = (enableHighAccuracy: boolean, maximumAge = 0) =>
+    // `reserveMs` is time this call must leave on the overall deadline for the
+    // stages after it.
+    const readOnce = (
+      enableHighAccuracy: boolean,
+      maximumAge = 0,
+      reserveMs = 0,
+    ) =>
       new Promise<WebFix>((resolve, reject) => {
+        const budgetMs = Math.min(timeoutMs, remainingMs() - reserveMs);
+        if (budgetMs <= 0) {
+          reject(timeoutError());
+          return;
+        }
+
+        let settled = false;
+        // The load-bearing line: `options.timeout` cannot be relied on to fire
+        // while a permission prompt is outstanding, so we time out ourselves.
+        const deadline = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          reject(timeoutError());
+        }, budgetMs);
+        const settle = (run: () => void) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(deadline);
+          run();
+        };
+
         navigator.geolocation.getCurrentPosition(
-          (position) => resolve(toFix(position)),
-          (error) => reject(error),
-          { enableHighAccuracy, timeout: timeoutMs, maximumAge },
+          (position) => settle(() => resolve(toFix(position))),
+          (error) => settle(() => reject(error)),
+          { enableHighAccuracy, timeout: budgetMs, maximumAge },
         );
       });
 
@@ -162,11 +231,16 @@ export class HushhLocationWeb implements HushhLocationPlugin {
         let settled = false;
         let watchId: number | null = null;
         let timer: ReturnType<typeof setTimeout> | null = null;
+        let refineTimer: ReturnType<typeof setTimeout> | null = null;
 
         const cleanup = () => {
           if (timer !== null) {
             clearTimeout(timer);
             timer = null;
+          }
+          if (refineTimer !== null) {
+            clearTimeout(refineTimer);
+            refineTimer = null;
           }
           if (watchId !== null) {
             navigator.geolocation.clearWatch(watchId);
@@ -191,6 +265,17 @@ export class HushhLocationWeb implements HushhLocationPlugin {
                 best.accuracyM <= TARGET_ACCURACY_M
               ) {
                 finish(best);
+                return;
+              }
+              // First fix in hand but not yet confident. Give later fixes a
+              // short window to beat it — enough to reject one jumpy reading,
+              // which is the whole point of sampling — then return the best of
+              // them rather than waiting out the full budget.
+              if (refineTimer === null) {
+                refineTimer = setTimeout(
+                  () => finish(best),
+                  REFINE_AFTER_FIRST_FIX_MS,
+                );
               }
             },
             (error) => {
@@ -209,15 +294,23 @@ export class HushhLocationWeb implements HushhLocationPlugin {
 
         timer = setTimeout(() => {
           if (best) finish(best);
-          else finish(null, { code: 3 } as GeolocationPositionError);
+          else finish(null, timeoutError());
         }, budgetMs);
       });
 
     const attempt = (enableHighAccuracy: boolean) => {
-      if (!enableHighAccuracy) return readOnce(false);
+      if (!enableHighAccuracy) {
+        return readOnce(false, 0, LAST_RESORT_RESERVE_MS);
+      }
       // Sample within a bounded window (cap at 9s) so the picker stays snappy
-      // while still rejecting a single jumpy reading.
-      const budgetMs = Math.min(Math.max(timeoutMs, 1_000), 9_000);
+      // while still rejecting a single jumpy reading — and never past the
+      // overall deadline, minus the last-resort reserve.
+      const budgetMs = Math.min(
+        Math.max(timeoutMs, 1_000),
+        9_000,
+        remainingMs() - LAST_RESORT_RESERVE_MS,
+      );
+      if (budgetMs <= 0) return Promise.reject(timeoutError());
       return sampleBest(true, budgetMs);
     };
 

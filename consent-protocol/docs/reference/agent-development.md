@@ -360,7 +360,7 @@ id: agent_my_domain
 name: MyDomain Agent
 version: "1.0.0"
 description: Analyzes user data for the my_domain domain.
-model: gemini-3.6-flash
+model: gemini-3.7-flash
 system_instruction: |
   You are a Hussh agent specializing in [domain].
   Always respect user consent and privacy.

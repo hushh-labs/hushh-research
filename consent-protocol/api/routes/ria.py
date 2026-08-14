@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import secrets
 from typing import Annotated, Any, Literal
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from api.middleware import require_firebase_auth
-from api.middlewares.rate_limit import limiter
+from api.middlewares.rate_limit import RateLimits, limiter
 from api.routes.account import _verify_phone_claim_id_token
 from db.connection import get_pool
 from hushh_mcp.services.actor_identity_service import (
@@ -21,6 +22,7 @@ from hushh_mcp.services.actor_identity_service import (
     ActorIdentityService,
 )
 from hushh_mcp.services.consent_center_service import ConsentCenterService
+from hushh_mcp.services.nws_nearby_service import NwsNearbyError, NwsNearbyService
 from hushh_mcp.services.ria_claim_email_service import queue_claim_verification_email
 from hushh_mcp.services.ria_claim_service import (
     RIAClaimEmailError,
@@ -255,6 +257,68 @@ def _iam_schema_not_ready_response() -> JSONResponse:
     )
 
 
+class RIANearbyDiscoverRequest(BaseModel):
+    """A location to look around, plus the advisor's on-screen filters.
+
+    Bounds mirror the upstream contract so a bad request is refused here rather
+    than spent against a rate limit every Hushh caller shares. ``country_code``
+    is accepted only alongside a postal code — see the service for why a
+    coordinate deliberately carries no country context.
+    """
+
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    postal_code: str | None = Field(default=None, min_length=3, max_length=16)
+    country_code: str | None = Field(default=None, min_length=2, max_length=2)
+    top_n: int = Field(default=100, ge=1, le=400)
+    initial_radius_km: float = Field(default=20.0, gt=0, le=250)
+    max_radius_km: float = Field(default=100.0, gt=0, le=500)
+    lanes: list[str] = Field(default_factory=list, max_length=6)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    minimum_confidence_grade: str = Field(default="B", min_length=1, max_length=1)
+
+
+class RIANearbyShortlistRequest(BaseModel):
+    """One shortlist or dismiss action against a public NWS record.
+
+    ``snapshot`` is the public record as rendered, stored so the shortlist can
+    be listed without another upstream call. It is bounded rather than free-form
+    because it is caller-supplied and lands in a JSONB column (CWE-400).
+    """
+
+    person_id: str = Field(..., min_length=1, max_length=128)
+    action: str = Field(default="shortlist", min_length=1, max_length=32)
+    snapshot: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("snapshot")
+    @classmethod
+    def bound_snapshot(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if len(value) > 40:
+            raise ValueError("snapshot has too many fields")
+        if len(json.dumps(value, default=str)) > 8192:
+            raise ValueError("snapshot is too large")
+        return value
+
+
+def _nearby_no_store(response: Response) -> None:
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+
+
+def _handle_nearby_error(exc: NwsNearbyError) -> HTTPException:
+    # The upstream limits per {key, egress IP} and every caller shares both, so
+    # its Retry-After is the whole surface's. Passing it through lets a client
+    # wait the stated time instead of hammering a closed door.
+    headers = None
+    if exc.status_code == 429 and exc.retry_after_seconds:
+        headers = {"Retry-After": str(exc.retry_after_seconds)}
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": "RIA_NEARBY_UNAVAILABLE", "message": str(exc)},
+        headers=headers,
+    )
+
+
 @router.post("/onboarding/submit")
 async def submit_onboarding(
     payload: RIAOnboardingSubmitRequest,
@@ -451,6 +515,82 @@ async def ria_clients(
         if limit != 50:
             params["limit"] = limit
         return await service.list_ria_clients(firebase_uid, **params)
+    except IAMSchemaNotReadyError:
+        return _iam_schema_not_ready_response()
+
+
+@router.post("/nearby/discover")
+@limiter.limit(RateLimits.RIA_NEARBY_DIRECTORY_READ)
+async def ria_nearby_discover(
+    request: Request,
+    response: Response,
+    payload: RIANearbyDiscoverRequest,
+    firebase_uid: str = Depends(_require_ria_verified),
+):
+    """Public-association records near a location the advisor chose.
+
+    POST rather than GET even though it reads nothing: a GET would put the
+    advisor's coordinate in the request line, which the access log records
+    verbatim and which also lands in browser history and any Referer. The
+    advisors and Maps proxies are POST for the same reason.
+
+    A coverage miss is a normal 200 with an empty result set, not an error. The
+    upstream's coverage block is returned untouched so the screen can say what
+    is true — no approved dataset here — rather than implying a failure or
+    quietly substituting the one market that does have data.
+    """
+    _ = firebase_uid  # auth-gate only; results are public and not user-scoped
+    _nearby_no_store(response)
+    try:
+        return await NwsNearbyService().discover(
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            postal_code=payload.postal_code,
+            country_code=payload.country_code,
+            top_n=payload.top_n,
+            initial_radius_km=payload.initial_radius_km,
+            max_radius_km=payload.max_radius_km,
+            lanes=payload.lanes,
+            tags=payload.tags,
+            minimum_confidence_grade=payload.minimum_confidence_grade,
+        )
+    except NwsNearbyError as exc:
+        raise _handle_nearby_error(exc) from exc
+
+
+@router.post("/nearby/shortlist")
+@limiter.limit(RateLimits.RIA_NEARBY_SHORTLIST_WRITE)
+async def ria_nearby_shortlist_write(
+    request: Request,
+    response: Response,
+    payload: RIANearbyShortlistRequest,
+    firebase_uid: str = Depends(_require_ria_verified),
+):
+    _nearby_no_store(response)
+    service = RIAIAMService()
+    try:
+        return await service.record_nws_nearby_action(
+            firebase_uid,
+            person_id=payload.person_id,
+            action=payload.action,
+            snapshot=payload.snapshot,
+        )
+    except IAMSchemaNotReadyError:
+        return _iam_schema_not_ready_response()
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/nearby/shortlist")
+async def ria_nearby_shortlist_read(
+    response: Response,
+    limit: int = Query(default=100, ge=1, le=200),
+    firebase_uid: str = Depends(_require_ria_verified),
+):
+    _nearby_no_store(response)
+    service = RIAIAMService()
+    try:
+        return {"items": await service.list_nws_nearby_shortlist(firebase_uid, limit=limit)}
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
 

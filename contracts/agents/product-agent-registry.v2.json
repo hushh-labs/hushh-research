@@ -26,7 +26,8 @@
         "google_connection_required",
         "google_permission_required",
         "proposal_expired",
-        "event_changed"
+        "event_changed",
+        "availability_changed"
       ],
       "icon": null,
       "id": "agent_calendar",
@@ -34,7 +35,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/calendar/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Calendar Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -94,7 +95,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "130204dc7b3e88d36b8215ffa4626de0e5171f553eba2095ede348f473688a02",
+      "system_instruction_sha256": "8f664d2cde215f8aca055b45877de651add62a467dded371611725de78bddc11",
       "telemetry_namespace": "agent.calendar",
       "tools": [
         {
@@ -113,6 +114,12 @@
           "description": "Return busy intervals in an exact time interval.",
           "name": "calendar_availability",
           "py_func": "hushh_mcp.agents.calendar.tools.calendar_availability",
+          "required_scope": "cap.one.invoke"
+        },
+        {
+          "description": "Find the earliest fitting open slots in an exact owner-calendar window.",
+          "name": "calendar_free_slots",
+          "py_func": "hushh_mcp.agents.calendar.tools.calendar_free_slots",
           "required_scope": "cap.one.invoke"
         },
         {
@@ -164,7 +171,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/connected_systems/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Connected Systems Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -214,7 +221,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.6-flash",
+            "name": "gemini-3.7-flash",
             "provider": "gemini"
           },
           "name": "CRM Schema Mapper",
@@ -301,7 +308,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/connections/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Connections Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -383,7 +390,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/email/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Email Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -470,7 +477,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/financial_guard/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Financial Guard Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -558,7 +565,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/gmail/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Gmail Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -653,7 +660,7 @@
       "model": {
         "credential_ref": null,
         "mode": "hushh_managed_vertex",
-        "name": "gemini-3.6-flash",
+        "name": "gemini-3.7-flash",
         "provider": "gemini"
       },
       "name": "Kai Financial Agent",
@@ -716,7 +723,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.6-flash",
+            "name": "gemini-3.7-flash",
             "provider": "gemini"
           },
           "name": "RIA",
@@ -752,7 +759,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.6-flash",
+            "name": "gemini-3.7-flash",
             "provider": "gemini"
           },
           "name": "Investor",
@@ -868,7 +875,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/kyc/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Agent KYC",
       "native_requirements": [],
       "optional_scopes": [
@@ -958,7 +965,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/location/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Location Agent",
       "native_requirements": [],
       "optional_scopes": [
@@ -1195,7 +1202,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/memory_intent/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Memory Intent Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1343,7 +1350,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/memory_merge/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Memory Merge Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1471,7 +1478,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/memory_segmentation/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Memory Segmentation Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1570,7 +1577,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/nav/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Consent Center Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1667,7 +1674,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/onboarding/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Onboarding Specialist",
       "native_requirements": [],
       "optional_scopes": [],
@@ -1753,8 +1760,8 @@
       "capabilities": {
         "heads": {
           "live": "gemini-live-2.5-flash-native-audio",
-          "specialist_text": "gemini-3.6-flash",
-          "text": "gemini-3.6-flash"
+          "specialist_text": "gemini-3.7-flash",
+          "text": "gemini-3.7-flash"
         },
         "specialist_roster": [
           "agent_kai",
@@ -1791,7 +1798,7 @@
       "model": {
         "credential_ref": null,
         "mode": "hushh_managed_vertex",
-        "name": "gemini-3.6-flash",
+        "name": "gemini-3.7-flash",
         "provider": "gemini"
       },
       "name": "Agent One",
@@ -1848,7 +1855,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "15f0268d1bab85156981c9bd4dbc3d480c7467841f8bd29db96e2d614b13b851",
+      "system_instruction_sha256": "de7568182f00cbda27a88a59ca334065a80fca1af981e2fd884af6c0d62e27b4",
       "telemetry_namespace": "agent.one",
       "tools": [],
       "ui_type": "chat",
@@ -1877,7 +1884,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/personal_information/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Information Marketplace",
       "native_requirements": [],
       "optional_scopes": [
@@ -2030,7 +2037,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/pkm_structure/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "PKM Structure Agent",
       "native_requirements": [],
       "optional_scopes": [],
@@ -2153,7 +2160,7 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/portfolio_import/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-3.6-flash",
+      "model": "gemini-3.7-flash",
       "name": "Portfolio Import Agent",
       "native_requirements": [],
       "optional_scopes": [],

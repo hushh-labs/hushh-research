@@ -96,7 +96,8 @@ export type ObservabilityEventName =
   | "one_location_public_link_created"
   | "one_location_circle_invite_created"
   | "one_location_recommendation_selected"
-  | "one_location_share_review_opened";
+  | "one_location_share_review_opened"
+  | "one_location_onboarding_completed";
 
 export type StatusBucket =
   | "2xx"
@@ -237,6 +238,7 @@ const EVENT_CATEGORY_BY_NAME: Record<
   one_location_foreground_retry: "feature",
   one_location_share_confirmed: "feature",
   one_location_contact_signal_synced: "feature",
+  one_location_onboarding_completed: "feature",
   one_location_request_sent: "feature",
   one_location_public_link_created: "feature",
   one_location_circle_invite_created: "feature",
@@ -539,6 +541,27 @@ export interface EventPayloadMap {
     failure_count: number;
     duration_bucket: string;
     review_required: boolean;
+  };
+  /**
+   * Location onboarding reached its end. Without this the redesign is
+   * unfalsifiable: there is no way to tell whether removing the contact picker
+   * moved drop-off, or where people leave now.
+   */
+  one_location_onboarding_completed: {
+    route_id: RouteId;
+    result: EventResult;
+    /** How they left: finished the last screen, or skipped from any screen. */
+    exited_via: "complete" | "skip";
+    /** Whether the share sheet was opened for the circle code. */
+    code_shared: boolean;
+    /** Whether the code was copied to the clipboard. */
+    code_copied: boolean;
+    /** How many screens were seen before leaving. */
+    screens_seen: number;
+    /** Contacts found to already be on One, 0 when the step was declined. */
+    contacts_matched: number;
+    /** How many of those matches were actually added. */
+    contacts_added: number;
   };
   one_location_contact_signal_synced: {
     route_id: RouteId;

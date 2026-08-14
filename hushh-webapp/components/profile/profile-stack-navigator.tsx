@@ -51,7 +51,7 @@ function StackHeader({
 }) {
   return (
     <div
-      className="mx-auto w-full max-w-[47.5rem] px-[var(--page-inline-gutter-standard)] pt-[var(--page-header-section-gap)]"
+      className="mx-auto w-full max-w-[720px] px-[var(--page-inline-gutter-standard)] pt-[var(--page-header-section-gap)]"
       data-profile-stack-header="true"
     >
       <PageHeader
@@ -195,7 +195,7 @@ export function ProfileStackNavigator({
                 className="flex-1 overflow-y-auto overflow-x-hidden"
               >
                 <div
-                  className="mx-auto flex w-full max-w-[720px] flex-col px-[var(--page-inline-gutter-standard)] pb-[calc(env(safe-area-inset-bottom)+12rem)] pt-0 sm:pb-14"
+                    className="mx-auto flex w-full max-w-[720px] flex-col px-[var(--page-inline-gutter-standard)] pb-[var(--app-bottom-content-clearance)] pt-0"
                   data-profile-stack-content="true"
                 >
                   <SettingsPresentationProvider
@@ -220,7 +220,7 @@ export function ProfileStackNavigator({
                   className="flex-1 overflow-y-auto overflow-x-hidden"
                 >
                   <div
-                    className="mx-auto flex w-full max-w-[47.5rem] flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-4 sm:pb-10"
+                    className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-[var(--app-bottom-content-clearance)] pt-3"
                     data-profile-stack-content="true"
                   >
                     <SettingsPresentationProvider

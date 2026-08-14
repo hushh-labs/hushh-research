@@ -219,7 +219,7 @@ export function EmailOnboardingSetupClient() {
       <AppPageContentRegion>
         <SettingsGroup
           title="Response preparation"
-          description="This is off by default. When enabled, One recognizes requests sent from your verified email to one@hushh.ai. You still approve every response before it is sent."
+          description="One finds requests. You approve every reply."
           separatorInset
         >
           <SettingsRow

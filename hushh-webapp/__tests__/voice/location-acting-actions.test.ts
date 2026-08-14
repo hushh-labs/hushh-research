@@ -54,7 +54,7 @@ describe("what a spoken Location action is allowed to do", () => {
     const input = getKaiActionById(SHARE)?.goal?.required_inputs?.find(
       (spec) => spec.slot === "duration_hours",
     );
-    expect(input?.options).toEqual(["0.25", "0.5", "1", "4", "24"]);
+    expect(input?.options).toEqual(["0.5", "1", "4", "24"]);
     // Not required: saying "share with them" keeps whatever the composer
     // already shows rather than blocking on a number the person never
     // intended to give.
