@@ -2111,24 +2111,43 @@ function SosFlow({
   }, [onResolveSosLocation]);
 
   return (
-    <SosPanel
-      recipients={vm.smsRecipients}
-      active={vm.sosActive}
-      busy={vm.sosBusy}
-      onTrigger={vm.onTriggerSos}
-      onStopSos={vm.onStopSos}
-      stopBusy={vm.sosBusy}
-      onClose={onClose}
-      onEditContacts={onEditContacts}
-      recipientLabel={vm.recipientLabel}
-      isRecipientShareReady={vm.isRecipientShareReady}
-      emergency={lookupStartedForMount ? vm.sosEmergency : null}
-      emergencyStatus={
-        lookupStartedForMount ? vm.sosEmergencyStatus : "idle"
-      }
-      onResolveEmergencyNumber={onResolveSosLocation}
-    />
-
+    <>
+      {/*
+        SOS is the surface where a blocked permission costs the most and was
+        explained the least. The recovery card lived only on the hub, so
+        someone who opened Save my Soul with location blocked got a toast that
+        vanished, two console warnings, and a button that refuses to send —
+        with nothing on screen saying why or what to do. The card belongs
+        wherever location can fail, not only where it was first added.
+      */}
+      {vm.locationBlocked ? (
+        <div className="mb-4">
+          <LocationPermissionRecoveryCard
+            blocked
+            busy={vm.sosBusy}
+            onRetry={onResolveSosLocation}
+            onOpenSettings={vm.onOpenLocationSettings}
+          />
+        </div>
+      ) : null}
+      <SosPanel
+        recipients={vm.smsRecipients}
+        active={vm.sosActive}
+        busy={vm.sosBusy}
+        onTrigger={vm.onTriggerSos}
+        onStopSos={vm.onStopSos}
+        stopBusy={vm.sosBusy}
+        onClose={onClose}
+        onEditContacts={onEditContacts}
+        recipientLabel={vm.recipientLabel}
+        isRecipientShareReady={vm.isRecipientShareReady}
+        emergency={lookupStartedForMount ? vm.sosEmergency : null}
+        emergencyStatus={
+          lookupStartedForMount ? vm.sosEmergencyStatus : "idle"
+        }
+        onResolveEmergencyNumber={onResolveSosLocation}
+      />
+    </>
   );
 }
 
