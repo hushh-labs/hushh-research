@@ -33,9 +33,14 @@
 #     --role=roles/iam.serviceAccountTokenCreator \
 #     --member="serviceAccount:${HUSHH_CALLER}"
 #
-# That single command ends hushh's access immediately. Nothing hushh holds survives it,
-# because hushh holds nothing -- there is no key to also remember to delete. Your pod
-# and everything it wrote stay yours and keep running.
+# That command ends FUTURE access. Be precise about the window: a token already minted
+# lives out its remaining 900 seconds, because Google does not revoke issued access
+# tokens. So the honest guarantee is "no new authority, and at most 15 more minutes of
+# the old" -- not "instantly nothing".
+#
+# Nothing else hushh holds survives it, because hushh holds nothing else: there is no
+# key to also remember to delete. Your pod and everything it wrote stay yours and keep
+# running.
 #
 # Usage:
 #   PROJECT_ID=my-project HUSHH_CALLER=<the identity hushh gives you> \
@@ -65,7 +70,19 @@ gcloud projects describe "${PROJECT_ID}" >/dev/null
 readonly BOOTSTRAP_SA_EMAIL="${BOOTSTRAP_SA_ID}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 # Mirrors BOOTSTRAP_ROLES in user_gcp_bootstrap.py, in the same order and with the same
-# reasons. Each exists to create one thing your pod needs; none of them reads your data.
+# reasons. Read the list honestly: these are ADMIN-class roles. During each 900-second
+# window, the borrowed identity could read your bucket's objects (storage.admin) and your
+# secret payloads (secretmanager.admin). An earlier version of this file claimed "none of
+# them reads your data", which was false and is corrected here rather than quietly
+# deleted -- a consent artifact that overstates its own safety is worse than no artifact.
+#
+# What actually protects you is not the role list. It is two things:
+#   1. hushh holds no standing credential. Between windows there is nothing to use.
+#   2. Your pod mints and wraps its OWN data-encryption key, and this bootstrap account
+#      deliberately does NOT hold cloudkms.encrypter/decrypter on the key that seals it
+#      (byoc_key_custody.py). So the bucket's contents are ciphertext hushh cannot read
+#      even while holding storage.admin.
+# That is a narrower claim than the one it replaces, and unlike it, it is true.
 readonly -a BOOTSTRAP_ROLES=(
   "roles/serviceusage.serviceUsageAdmin"    # turn on the APIs the pod needs
   "roles/cloudkms.admin"                    # the per-user key that seals your history
