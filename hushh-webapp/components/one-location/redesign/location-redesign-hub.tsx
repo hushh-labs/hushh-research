@@ -1898,7 +1898,7 @@ function PeopleHub({
         />
 
         {filtered.length ? (
-          <div className={cn("overflow-hidden", SUBCARD_SURFACE)}>
+          <div className={cn("max-h-[50vh] overflow-y-auto overflow-x-hidden", SUBCARD_SURFACE)}>
             {filtered.map((r, i) => {
               const grant = vm.activeOwnerGrants.find(
                 (g) => g.recipientUserId === r.userId,
