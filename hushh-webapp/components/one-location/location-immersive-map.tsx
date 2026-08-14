@@ -104,6 +104,11 @@ const TRAY_COLLAPSED_HEIGHT_PX = 56; // 3.5rem, the collapsed pill.
 // The scroll container's own pt-1 + pb-3, which sit outside the measured
 // content ref and so are not part of its offsetHeight.
 const TRAY_BODY_PADDING_PX = 16;
+// The section's own `border` (1px top + 1px bottom) is border-box, so it
+// eats into the content area other than shrink it away from the header and
+// scroll container. Leaving it out of the sum shorted the sheet by 2px --
+// invisible as blank space, but enough to force a permanent 2px scrollbar.
+const TRAY_BORDER_HEIGHT_PX = 2;
 const MAP_ACCENT_CONTROL_CLASSNAME =
   "!border-[var(--app-accent-border)] !bg-[var(--app-accent-surface)] !text-[var(--app-accent-deep)] hover:!bg-[var(--app-accent-surface-strong)] dark:!text-[var(--app-accent-bright)]";
 const MAP_ACCENT_ACTIVE_CLASSNAME =
@@ -2128,7 +2133,7 @@ export function LocationImmersiveMap({
             // shrinks the sheet, a long one still stops short of the notch
             // and scrolls internally.
             height: trayExpanded
-              ? `clamp(${TRAY_COLLAPSED_HEIGHT_PX}px, ${TRAY_HEADER_HEIGHT_PX + TRAY_BODY_PADDING_PX + trayContentHeight}px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))`
+              ? `clamp(${TRAY_COLLAPSED_HEIGHT_PX}px, ${TRAY_HEADER_HEIGHT_PX + TRAY_BODY_PADDING_PX + TRAY_BORDER_HEIGHT_PX + trayContentHeight}px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))`
               : "3.5rem",
             borderRadius: trayExpanded ? "1.75rem" : "999px",
             transition: [

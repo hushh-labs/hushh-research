@@ -477,7 +477,7 @@ describe("LocationImmersiveMap demo experience", () => {
       width:
         "min(34rem, calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)))",
       height:
-        "clamp(56px, 348px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))",
+        "clamp(56px, 350px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))",
       borderRadius: "1.75rem",
     });
     expect(screen.getByTestId("one-location-map-tray-body")).toHaveClass(
@@ -578,13 +578,13 @@ describe("LocationImmersiveMap demo experience", () => {
       expect(trayToggle).toHaveAttribute("aria-expanded", "true");
       expect(screen.getByTestId("one-location-map-people-tray")).toHaveStyle({
         height:
-          "clamp(56px, 184px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))",
+          "clamp(56px, 186px, min(29.5rem, calc(100dvh - 6.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))))",
       });
       // Shorter content, shorter sheet -- not the fixed viewport-derived
       // allowance the populated-tray case reaches for.
       expect(
         screen.getByTestId("one-location-map-people-tray"),
-      ).not.toHaveStyle({ height: "348px" });
+      ).not.toHaveStyle({ height: "350px" });
     });
   });
 
