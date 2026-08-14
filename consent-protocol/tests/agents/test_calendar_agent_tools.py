@@ -149,6 +149,49 @@ def test_calendar_conflict_requires_an_explicit_schedule_anyway_choice(monkeypat
     assert directive["payload"]["confirmLabel"] == "Schedule anyway"
 
 
+def test_calendar_confirmation_uses_the_chat_users_timezone_not_plan_utc(monkeypatch) -> None:  # noqa: ANN001
+    context = _context()
+    calendar = _Calendar()
+
+    async def propose(**kwargs: object) -> dict[str, object]:
+        return {
+            "proposal_id": "gcal_example",
+            "expires_at": "2026-08-11T12:00:00Z",
+            "plan": {
+                "title": "Client call",
+                "start_at": "2026-08-11T04:30:00Z",
+                "end_at": "2026-08-11T05:00:00Z",
+                # Google/provider plan data is allowed to be UTC. It must not
+                # dictate the confirmation display timezone.
+                "time_zone": "UTC",
+                "attendees": [],
+                "send_updates": True,
+                "conflicts": [
+                    {
+                        "title": "Design review",
+                        "start": {"dateTime": "2026-08-11T04:30:00Z"},
+                    }
+                ],
+            },
+        }
+
+    calendar.propose = propose  # type: ignore[method-assign]
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+
+    asyncio.run(
+        tools.propose_calendar_event(
+            context,
+            title="Client call",
+            start_at="2026-08-11T10:00:00+05:30",
+            end_at="2026-08-11T10:30:00+05:30",
+        )
+    )
+
+    summary = context.state["hussh:pending_directive:calendar"]["payload"]["summary"]
+    assert "10:00 AM IST" in summary
+    assert "UTC" not in summary
+
+
 class _ReadOnlyCalendar:
     async def propose(self, **kwargs: object) -> dict[str, object]:
         raise GoogleConnectionError(
