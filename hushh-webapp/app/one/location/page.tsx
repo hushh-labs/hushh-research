@@ -3911,33 +3911,11 @@ export function OneLocationAgentPageContent({
     vaultOwnerToken,
   ]);
 
-  // Warm the local emergency number from ANY location the app already has.
-  //
-  // Save My Soul used to start from nothing: open the screen, ask for a fix,
-  // then wait on a reverse-geocode, leaving "Finding local number" on the one
-  // control someone might need in seconds. Every other flow here — the map, a
-  // share, a check-in — already produces a fix, so the country can be settled
-  // long before the SOS screen is ever opened.
-  //
-  // Runs only when the answer would actually change: no fix, no token, or a fix
-  // still inside the radius the current number was confirmed at, and it does
-  // nothing. It never requests permission, so it cannot prompt on its own.
-  useEffect(() => {
-    if (!myLocationPoint || !vaultOwnerToken) return;
-    const alreadyCoversThisPoint =
-      sosEmergencyStatus === "resolved" &&
-      isWithinEmergencyTrustRadius(
-        sosEmergencyOriginRef.current,
-        myLocationPoint,
-      );
-    if (alreadyCoversThisPoint) return;
-    void resolveEmergencyInfoForPoint(myLocationPoint, { seedFromCache: true });
-  }, [
-    myLocationPoint,
-    resolveEmergencyInfoForPoint,
-    sosEmergencyStatus,
-    vaultOwnerToken,
-  ]);
+  // The local emergency number is looked up only when someone actually taps
+  // "Find local number" (resolveSosLocation, wired to onResolveEmergencyNumber
+  // below) or triggers Save My Soul. It used to also warm silently off any fix
+  // the app already had, which made the control read as permanently loading
+  // before anyone pressed it — the lookup must stay a deliberate, on-click act.
 
   const handleTriggerSos = useCallback(
     async (note?: string | null) => {
