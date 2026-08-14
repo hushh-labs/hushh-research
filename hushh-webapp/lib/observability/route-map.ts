@@ -94,7 +94,37 @@ export const ROUTE_ID_VALUES = [
 
 export type RouteId = (typeof ROUTE_ID_VALUES)[number];
 
-export function resolveRouteId(pathname: string): RouteId {
+/**
+ * Brings a pathname to the shape the match table below expects.
+ *
+ * The native build sets `trailingSlash: true` (`next.config.ts`, gated on
+ * `isCapacitorBuild`), so on iOS and Android every route arrives as
+ * `/one/location/` while this table compares with `===` against `/one/location`.
+ * The result was that essentially every native screen resolved to "unknown":
+ * over 30 days, 117 iOS users and 7,504 views landed in that bucket, and the
+ * only native routes that did resolve were the handful matched by a
+ * `startsWith(".../")` prefix, plus the root.
+ *
+ * That is also a privacy matter, not only a reporting one. As the comments
+ * further down note, "unknown" is not inert — callers that fall through to it
+ * log the raw pathname, and on the share-link routes the pathname *is* the
+ * token. Fewer fall-throughs means fewer raw paths written anywhere.
+ *
+ * Query and hash are stripped defensively: a caller passing a full href should
+ * degrade to the right route id rather than to "unknown".
+ */
+function normalizeRoutePathname(pathname: string): string {
+  if (!pathname) return "/";
+  const withoutQuery = pathname.split("?")[0]!.split("#")[0]!;
+  // Static exports serve a directory route as its index document.
+  const withoutIndex = withoutQuery.replace(/\/index\.html$/i, "/");
+  if (withoutIndex.length <= 1) return withoutIndex || "/";
+  const withoutTrailingSlash = withoutIndex.replace(/\/+$/, "");
+  return withoutTrailingSlash || "/";
+}
+
+export function resolveRouteId(rawPathname: string): RouteId {
+  const pathname = normalizeRoutePathname(rawPathname);
   if (
     pathname === ROUTES.HOME ||
     pathname === ROUTES.ONE_HOME ||
