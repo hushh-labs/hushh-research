@@ -988,9 +988,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             circles={vm.circles}
             selectedUserIds={vm.smsContactUserIds}
             busyKey={vm.busy}
-            // Back is the shell's, not this screen's. The top bar resolves the
-            // target from `?source=`, so opening contacts mid-SOS still returns
-            // to SOS rather than dropping the person into Settings.
             onAdd={vm.onAddSmsContact}
             onAddCircle={vm.onAddSmsCircle}
             onRemove={vm.onRemoveSmsContact}

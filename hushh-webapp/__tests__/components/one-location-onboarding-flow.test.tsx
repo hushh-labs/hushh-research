@@ -154,7 +154,7 @@ describe("OneLocationOnboardingFlow", () => {
     }
   });
 
-  it("holds one column width across every screen", () => {
+  it("keeps visual intro canvases full width while dense steps hold one column", () => {
     // Features used to size off viewport height and widen to 3xl on a large
     // window, so on desktop the panel visibly jumped wider on step two and
     // back again on step three -- the surface changing shape under the person
@@ -174,32 +174,38 @@ describe("OneLocationOnboardingFlow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     record("one-location-onboarding-invite");
 
-    expect(widths).toHaveLength(4);
-    expect(new Set(widths).size).toBe(1);
-    expect(widths[0]).toBe("max-w-[430px]");
+    expect(widths).toEqual([
+      "none",
+      "none",
+      "max-w-[430px]",
+      "none",
+    ]);
   });
 
-  it("keeps the mobile feature screen readable and fitted without page scrolling", () => {
+  it("keeps the mobile feature screen readable without forced card compression", () => {
     renderFlow();
     fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
     const featureShell = screen.getByTestId("one-location-onboarding-features");
-    expect(featureShell.className).toContain("max-w-[430px]");
-    expect(featureShell.className).toContain("max-[431px]:max-w-none");
+    expect(featureShell.className).toContain("max-w-none");
+    expect(featureShell.className).not.toContain("md:max-w-[920px]");
     const featureSurface = featureShell.firstElementChild;
+    expect(featureSurface?.className).toContain("max-w-[430px]");
+    expect(featureSurface?.className).toContain("max-[431px]:max-w-none");
     expect(featureSurface?.className).toContain("overflow-hidden");
     expect(featureSurface?.className).toContain("flex-col");
     expect(featureSurface?.className).toContain("bg-white");
-    expect(featureSurface?.className).toContain("px-6");
+    expect(featureSurface?.className).toContain("px-5");
+    expect(featureSurface?.className).toContain("sm:px-8");
     expect(featureSurface?.className).toContain(
       "pt-[max(var(--app-safe-area-top-effective,0px),12px)]",
     );
 
     const featureScroll = document.querySelector("[data-one-feature-scroll]");
-    expect(featureScroll?.className).toContain("overflow-hidden");
-    expect(featureScroll?.className).not.toContain("overflow-y-auto");
+    expect(featureScroll?.className).toContain("overflow-y-auto");
+    expect(featureScroll?.className).toContain("overflow-x-hidden");
     expect(featureScroll?.className).toContain("flex-col");
-    expect(featureScroll?.className).toContain("flex-[0_1_auto]");
+    expect(featureScroll?.className).toContain("flex-1");
     const featureGrid = document.querySelector("[data-one-feature-grid]");
     expect(featureGrid?.className).toContain("mt-6");
     expect(featureGrid?.className).toContain("shrink-0");
@@ -221,18 +227,31 @@ describe("OneLocationOnboardingFlow", () => {
     expect(responsiveStyles).not.toContain(
       "var(--onboarding-agent-bar-clearance)",
     );
-    expect(responsiveStyles).toContain(
+    expect(responsiveStyles).toContain("grid-template-rows: auto");
+    expect(responsiveStyles).not.toContain(
       "grid-template-rows: minmax(0, 0.82fr) minmax(0, 1fr)",
     );
-    expect(responsiveStyles).toContain("aspect-ratio: auto");
+    expect(responsiveStyles).toContain("@media (min-width: 768px)");
+    expect(responsiveStyles).toContain("flex: 0 0 auto");
     expect(responsiveStyles).toContain(
       "font-size: clamp(14px, 9.5cqw, 15px)",
     );
-    expect(responsiveStyles).toContain(
+    expect(responsiveStyles).toContain("--foundation-title1-size: 34px");
+    expect(responsiveStyles).not.toContain(
       "--foundation-title1-size: clamp(36px, 3vw, 40px)",
     );
-    expect(responsiveStyles).toContain("--foundation-title1-size: 34px");
-    expect(responsiveStyles).toContain("font-size: 13.5px");
+    expect(responsiveStyles).not.toContain("aspect-ratio: 2.5 / 1");
+    expect(responsiveStyles).not.toContain("aspect-ratio: 1.6 / 1");
+    expect(responsiveStyles).toContain("grid-template-areas:");
+    expect(responsiveStyles).toContain("aspect-ratio: auto");
+    expect(responsiveStyles).toContain(
+      "grid-template-columns: repeat(3, minmax(0, 1fr))",
+    );
+    expect(responsiveStyles).toContain('"share checkin sms"');
+    expect(responsiveStyles).toContain("min-height: 390px");
+    expect(responsiveStyles).not.toContain("width: 58%");
+    expect(responsiveStyles).toContain("font-size: 20px");
+    expect(responsiveStyles).toContain("font-size: 15px");
     expect(responsiveStyles).toContain("margin-top: 8px");
     expect(responsiveStyles).toContain("margin-top: 6px");
     expect(responsiveStyles).toContain(
@@ -288,7 +307,7 @@ describe("OneLocationOnboardingFlow", () => {
           .getByTestId("location-use-case-trip")
           .querySelectorAll("[data-one-feature-title-line]"),
       ).map((line) => line.textContent),
-    ).toEqual(["No more explaining", "where you are."]);
+    ).toEqual(["Can\u2019t explain", "where you are?"]);
     expect(
       Array.from(
         screen
@@ -305,15 +324,20 @@ describe("OneLocationOnboardingFlow", () => {
     ).toEqual(["Need help but can\u2019t", "call or speak?"]);
 
     expect(
-      screen.getByRole("heading", { name: "Stay connected" }),
+      screen.getByRole("heading", { name: "Need to keep people updated?" }),
     ).toBeTruthy();
     expect(
-      screen.getByText("For everyday plans, meetups, and emergencies."),
+      screen.getByText(
+        "Share location, check in, or send help in seconds.",
+      ),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "No more explaining where you are.",
+        name: "Can\u2019t explain where you are?",
       }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Share once. Your Circle can find you safely."),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
@@ -367,7 +391,7 @@ describe("OneLocationOnboardingFlow", () => {
     );
 
     const checkInCard = screen.getByTestId("location-use-case-checkin");
-    expect(checkInCard.querySelector("[data-one-checkin-pin]")).toBeTruthy();
+    expect(checkInCard.querySelector("[data-one-checkin-pin]")).toBeNull();
     const hotelArt = checkInCard.querySelector(
       'img[src="/one-location/onboarding/feature-checkin-house-transparent.webp"]',
     );
@@ -1224,13 +1248,14 @@ describe("OneLocationOnboardingFlow", () => {
 
       const map = screen.getByTestId("onboarding-live-map");
       const seat = screen.getByTestId("onboarding-ready-empty-seat");
-      const sheet = seat.closest("div.overflow-y-auto");
+      const sheet = screen.getByTestId("one-location-onboarding-ready-panel");
 
       // The map owns a band of its own; the words sit on an opaque sheet below
       // it. A translucent scrim over live tiles is a contrast gamble that dense
       // city streets win, and the copy loses.
       expect(map.className).toContain("shrink-0");
-      expect(map.className).not.toContain("absolute");
+      expect(map.className).toContain("md:absolute");
+      expect(map.className).not.toMatch(/(^|\s)absolute(\s|$)/u);
       expect(sheet?.className).toContain("bg-white");
       expect(sheet?.className).not.toMatch(/bg-white\/\d/u);
       expect(map.contains(seat)).toBe(false);
