@@ -126,6 +126,14 @@ function ContactGroup({ children }: { children: ReactNode }) {
   );
 }
 
+function EmptyStateCard({ message }: { message: string }) {
+  return (
+    <div className="flex min-h-[92px] w-full items-center justify-center rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-4 text-center text-[14px] font-normal leading-5 text-muted-foreground transition-all duration-200 ease-out shadow-none">
+      <p className="max-w-[280px]">{message}</p>
+    </div>
+  );
+}
+
 export function SmsContactsFlow({
   recipients,
   circles,
@@ -266,9 +274,7 @@ export function SmsContactsFlow({
                 ))}
               </ContactGroup>
             ) : (
-              <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-5 text-center text-[15px] leading-5 text-muted-foreground">
-                No SMS contacts yet. Add someone from your circle below.
-              </div>
+              <EmptyStateCard message="No SMS contacts yet. Add someone from your circle below." />
             )}
           </div>
 
@@ -294,9 +300,7 @@ export function SmsContactsFlow({
                 ))}
               </ContactGroup>
             ) : (
-              <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-5 text-center text-[15px] leading-5 text-muted-foreground">
-                Everyone in your ready circle is already selected.
-              </div>
+              <EmptyStateCard message="Everyone in your ready circle is already selected." />
             )}
           </div>
         </div>
