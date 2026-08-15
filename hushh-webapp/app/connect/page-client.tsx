@@ -333,6 +333,8 @@ export default function ConnectPageClient() {
     Map<string, DirectoryPerson>
   >(new Map());
   const [isConnectingMultiple, setIsConnectingMultiple] = useState(false);
+  /** Which open of the review sheet is allowed to write its catalogs back. */
+  const batchDraftGenerationRef = useRef(0);
   const [batchConnectDraft, setBatchConnectDraft] = useState<{
     people: DirectoryPerson[];
     /** Per person: what THEY can be asked for. Absent until loaded. */
@@ -711,6 +713,15 @@ export default function ConnectPageClient() {
   const openBatchConnectDraft = useCallback(
     async (people: DirectoryPerson[]) => {
       if (!user || people.length === 0) return;
+      // Close the sheet, change the selection, reopen: the first load is still
+      // in flight and would land on the second draft, clearing its loading flag
+      // before its own catalogs arrive. That un-holds Send with no handles
+      // collected -- a send reported as a success that asked for nothing, which
+      // is the failure this whole sheet exists to end. Only the newest open
+      // gets to write.
+      const generation = batchDraftGenerationRef.current + 1;
+      batchDraftGenerationRef.current = generation;
+      const isCurrent = () => batchDraftGenerationRef.current === generation;
       setBatchConnectDraft({
         people,
         catalogs: {},
@@ -742,12 +753,14 @@ export default function ConnectPageClient() {
           const person = people[index];
           if (catalog && person) catalogs[person.userId] = catalog;
         });
+        if (!isCurrent()) return;
         setBatchConnectDraft((current) =>
           current === null
             ? current
             : { ...current, catalogs, loadingCatalogs: false },
         );
       } catch {
+        if (!isCurrent()) return;
         setBatchConnectDraft((current) =>
           current === null ? current : { ...current, loadingCatalogs: false },
         );
