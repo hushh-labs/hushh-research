@@ -204,9 +204,9 @@ function PrimaryButton({
       disabled={disabled || busy}
       aria-busy={busy || undefined}
       className={cn(
-        "press-scale flex h-14 w-full items-center justify-center rounded-full px-6 text-[17px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        "press-scale flex h-14 w-full items-center justify-center rounded-full px-6 text-[17px] font-semibold tracking-[-0.2px] transition-colors motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50",
         inverse
-          ? "bg-white text-[color:var(--app-accent-deep)] dark:bg-white dark:text-[#07111f]"
+          ? "bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-label)] hover:bg-[color:var(--app-neutral-fill)]"
           : "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
         className,
       )}
@@ -236,11 +236,11 @@ function OnboardingSkipButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "min-h-11 rounded-full text-[16px] font-bold disabled:opacity-50",
+        "min-h-11 rounded-full text-[16px] font-semibold tracking-[-0.2px] disabled:opacity-50",
         floating
-          ? "h-11 bg-[#eef1f5] px-5 text-[color:var(--app-accent-deep)] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-[color:var(--app-accent-bright)] dark:ring-white/[0.06]"
+          ? "h-11 bg-[color:var(--app-primary-surface)] px-5 text-[color:var(--app-accent-deep)] shadow-[var(--app-card-shadow-standard)] ring-1 ring-[color:var(--app-separator)] dark:text-[color:var(--app-accent-bright)]"
           : inverse
-            ? "text-white"
+            ? "text-[color:var(--app-label)]"
             : "min-h-11 px-2 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]",
       )}
     >
@@ -282,10 +282,10 @@ function OnboardingNavigation({
         className={cn(
           "press-scale flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-50",
           floating
-            ? "bg-[#eef1f5] text-[#59616c] shadow-[0_4px_14px_rgba(26,42,65,0.14)] ring-1 ring-black/[0.06] dark:bg-[#1b222d] dark:text-white dark:ring-white/[0.06]"
+            ? "bg-[color:var(--app-primary-surface)] text-[color:var(--app-secondary-label)] shadow-[var(--app-card-shadow-standard)] ring-1 ring-[color:var(--app-separator)]"
             : inverse
-              ? "bg-white/15 text-white"
-              : "bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white",
+              ? "bg-[color:var(--app-neutral-fill)] text-[color:var(--app-label)]"
+              : "bg-[color:var(--app-neutral-fill)] text-[color:var(--app-label)]",
         )}
         aria-label="Go back"
       >
@@ -317,7 +317,7 @@ function WelcomeRadar() {
           key={position}
           data-one-onboarding-motion
           className={cn(
-            "absolute rounded-full border border-white/30",
+            "absolute rounded-full border border-[color:var(--app-accent-border)]",
             position,
             index === 0 && "[animation:oneWelcomeRing_3s_ease-in-out_infinite]",
           )}
@@ -325,12 +325,12 @@ function WelcomeRadar() {
       ))}
       <span className="absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
         <span
-          className="flex h-16 w-16 items-center justify-center rounded-full border border-white/70 bg-white text-[#087ff5] shadow-[0_12px_32px_rgba(0,61,144,0.22)]"
+          className="flex h-16 w-16 items-center justify-center rounded-full border border-[color:var(--app-accent-border)] bg-[color:var(--app-primary-surface)] text-[color:var(--app-accent)] shadow-[var(--app-card-shadow-feature)]"
           data-one-welcome-core
         >
           <MapPin className="h-6 w-6 fill-current/10" strokeWidth={2.7} />
         </span>
-        <span className="-mt-1 rounded-full bg-white px-4 py-0.5 text-[14px] font-bold text-[#087ff5] shadow-[0_5px_14px_rgba(0,61,144,0.18)]">
+        <span className="-mt-1 rounded-full bg-[color:var(--app-primary-surface)] px-4 py-0.5 text-[14px] font-semibold text-[color:var(--app-accent-deep)] shadow-[var(--app-card-shadow-standard)] dark:text-[color:var(--app-accent-bright)]">
           You
         </span>
       </span>
@@ -345,7 +345,7 @@ function WelcomeRadar() {
           style={{ animationDelay: `${120 + index * 90}ms` }}
         >
           <span
-            className="block h-[58px] w-[58px] overflow-hidden rounded-[18px] border-[3px] border-white bg-white p-0.5 shadow-[0_12px_28px_rgba(0,40,100,0.28)]"
+            className="block h-[58px] w-[58px] overflow-hidden rounded-[18px] border-[3px] border-[color:var(--app-primary-surface)] bg-[color:var(--app-primary-surface)] p-0.5 shadow-[var(--app-card-shadow-feature)]"
             data-one-welcome-orbit-card
           >
             {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
@@ -362,7 +362,7 @@ function WelcomeRadar() {
             />
           </span>
           <span
-            className="absolute -right-1 -top-1 h-[17px] w-[17px] rounded-full border-[3px] border-white bg-[#31c65b]"
+            className="absolute -right-1 -top-1 h-[17px] w-[17px] rounded-full border-[3px] border-[color:var(--app-primary-surface)] bg-[color:var(--app-success)]"
             data-one-welcome-orbit-status
           />
         </span>
@@ -388,12 +388,12 @@ function WelcomeScreen({
   leaving: boolean;
 }) {
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(var(--app-safe-area-top-effective,0px),10px)] text-white dark:bg-[#073d78]">
-      <span className="pointer-events-none absolute -right-24 -top-32 h-72 w-72 rounded-full bg-white/[0.05]" />
-      <span className="pointer-events-none absolute -bottom-28 -left-32 h-72 w-72 rounded-full bg-[#006bd9]/55" />
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--app-grouped-background)] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(var(--app-safe-area-top-effective,0px),10px)] text-[color:var(--app-label)]">
+      <span className="pointer-events-none absolute -right-24 -top-32 h-72 w-72 rounded-full bg-[color:var(--app-accent-surface)] opacity-70" />
+      <span className="pointer-events-none absolute -bottom-28 -left-32 h-72 w-72 rounded-full bg-[color:var(--app-accent-surface)] opacity-50" />
       <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-[560px] flex-1 flex-col">
         <OnboardingNavigation
-          inverse
+          floating
           onBack={onBack}
           onSkip={onSkip}
           disabled={leaving}
@@ -402,7 +402,7 @@ function WelcomeScreen({
         />
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="shrink-0 text-center">
-            <p className="inline-flex items-center gap-2 text-[17px] font-semibold leading-[22px]">
+            <p className="inline-flex items-center gap-2 text-[15px] font-semibold leading-5 tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
               <MapPin
                 className="h-5 w-5"
                 strokeWidth={2.5}
@@ -411,7 +411,7 @@ function WelcomeScreen({
               Location Agent
             </p>
             <h1
-              className="mx-auto mt-5 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.015em]"
+              className="ui-text-agent-title mx-auto mt-5 max-w-[410px] text-balance"
               data-one-welcome-heading
             >
               Share your location
@@ -423,19 +423,17 @@ function WelcomeScreen({
             <WelcomeRadar />
           </div>
           <div className="shrink-0">
-            <PrimaryButton inverse onClick={onStart}>
-              Get started
-            </PrimaryButton>
+            <PrimaryButton onClick={onStart}>Get started</PrimaryButton>
           </div>
         </div>
       </div>
       <style>{`
         @media (max-height: 720px) {
-          [data-one-welcome-heading] { margin-top: 12px; font-size: 28px; line-height: 34px; }
+          [data-one-welcome-heading] { margin-top: 12px; --type-agent-title-size: 30px; --type-agent-title-line: 33px; }
           [data-one-welcome-radar] { width: min(80vw, 42dvh, 320px); }
         }
         @media (max-height: 560px) {
-          [data-one-welcome-heading] { margin-top: 8px; font-size: 26px; line-height: 30px; }
+          [data-one-welcome-heading] { margin-top: 8px; --type-agent-title-size: 28px; --type-agent-title-line: 31px; }
           [data-one-welcome-radar] { width: min(76vw, 38dvh, 280px); }
           [data-one-welcome-orbit-card] { width: 52px; height: 52px; }
           [data-one-welcome-core] { width: 58px; height: 58px; }
@@ -450,7 +448,9 @@ function WelcomeScreen({
 
 /** Minimal, stylised street-map backdrop used behind the share / check-in art. */
 function MapBackdrop({ tone }: { tone: "share" | "checkin" }) {
-  const park = tone === "checkin" ? "#dcecd8" : "#dfeede";
+  const park = `color-mix(in srgb, var(--app-success) ${
+    tone === "checkin" ? "16%" : "12%"
+  }, var(--app-primary-surface))`;
   return (
     <svg
       viewBox="0 0 200 168"
@@ -552,13 +552,13 @@ function FeatureStatusPill({
   return (
     <span
       className={cn(
-        "relative z-30 flex h-8 w-max max-w-full items-center gap-1 rounded-full bg-white/95 px-2 text-[9px] font-bold leading-none text-[#151b26] shadow-[0_5px_16px_rgba(22,35,58,0.15)] dark:bg-[#f4f7fb]",
+        "relative z-30 flex h-8 w-max max-w-full items-center gap-1 rounded-full bg-[color:var(--app-primary-surface)] px-2 text-[11px] font-semibold leading-none text-[color:var(--app-label)] shadow-[var(--app-card-shadow-standard)]",
         className,
       )}
       data-one-use-case-alert
     >
       <span
-        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#28b867] text-white"
+        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-success)] text-[color:var(--app-icon-tile-foreground)]"
         aria-hidden="true"
       >
         <Check className="h-2.5 w-2.5" strokeWidth={3.5} />
@@ -601,7 +601,7 @@ function TwoLineFeatureTitle({
       aria-level={2}
       aria-label={lines.join(" ")}
       className={cn(
-        "font-bold leading-[1.13] tracking-[-0.015em] text-[#111823] dark:text-white",
+        "font-semibold leading-[1.13] tracking-[-0.015em] text-[color:var(--app-label)]",
         className,
       )}
       data-one-feature-title
@@ -623,16 +623,16 @@ function TwoLineFeatureTitle({
 function ShareLocationFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[1.72/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#f2f5f8] [container-type:inline-size] dark:bg-[#171d27]"
+      className="relative flex aspect-[1.72/1] w-full flex-col overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)] [container-type:inline-size]"
       data-testid="location-use-case-trip"
       data-one-use-case-card
       data-one-feature-card="share"
     >
       <MapBackdrop tone="share" />
-      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#f2f5f8] from-[35%] via-[#f2f5f8]/95 via-[51%] to-transparent dark:from-[#171d27] dark:via-[#171d27]/95" />
+      <span className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[color:var(--app-primary-surface)] from-[35%] via-[color:var(--app-primary-surface)] via-[51%] to-transparent" />
       <div className="relative z-20 w-[56%] px-5 pt-5" data-one-feature-copy>
         <span
-          className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-bold text-[color:var(--app-accent-deep)]"
+          className="inline-flex rounded-full bg-[color:var(--app-accent-tint)] px-3 py-1 text-[11px] font-semibold text-[color:var(--app-accent-deep)]"
           data-one-use-case-tag
         >
           Share location
@@ -642,7 +642,7 @@ function ShareLocationFeatureCard() {
           className="font-[family-name:var(--font-app-display)] text-[21px]"
         />
         <p
-          className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
+          className="text-[15px] leading-[1.4] text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
           Share once. Your Circle can find you safely.
@@ -669,12 +669,12 @@ function ShareLocationFeatureCard() {
         </svg>
         <span className="absolute left-[47%] top-[49%] h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/10" />
         <span className="absolute left-[47%] top-[49%] h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--app-accent)]/15" />
-        <span className="absolute left-[47%] top-[49%] h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-[color:var(--app-accent)] shadow-[0_3px_10px_rgba(8,127,245,0.28)] dark:border-[#171d27]" />
+        <span className="absolute left-[47%] top-[49%] h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-[color:var(--app-primary-surface)] bg-[color:var(--app-accent)] shadow-[var(--app-card-shadow-standard)]" />
         {SHARE_LOCATION_AVATARS.map((avatar, index) => (
           <span
             key={avatar.src}
             className={cn(
-              "absolute h-11 w-11 overflow-hidden rounded-full border-[3px] border-white bg-white shadow-[0_5px_14px_rgba(24,57,91,0.2)] dark:border-[#dce5ef]",
+              "absolute h-11 w-11 overflow-hidden rounded-full border-[3px] border-[color:var(--app-primary-surface)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]",
               avatar.className,
             )}
             data-one-share-avatar={index + 1}
@@ -701,14 +701,14 @@ function ShareLocationFeatureCard() {
 function CheckInFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#f4f6f8] [container-type:inline-size] dark:bg-[#171d27]"
+      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)] [container-type:inline-size]"
       data-testid="location-use-case-checkin"
       data-one-use-case-card
       data-one-feature-card="checkin"
     >
       <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
         <span
-          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-bold text-[#27884f] dark:bg-[#1c3f2b] dark:text-[#78d69a]"
+          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-semibold text-[#27884f] dark:bg-[#1c3f2b] dark:text-[#78d69a]"
           data-one-use-case-tag
         >
           Check in
@@ -718,7 +718,7 @@ function CheckInFeatureCard() {
           className="text-[19px]"
         />
         <p
-          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
+          className="text-[14px] leading-[1.4] text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
           Check in anywhere. Your Circle knows you arrived.
@@ -730,7 +730,7 @@ function CheckInFeatureCard() {
         aria-hidden="true"
       >
         <MapBackdrop tone="checkin" />
-        <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[#f4f6f8] to-transparent dark:from-[#171d27]" />
+        <span className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-[color:var(--app-primary-surface)] to-transparent" />
         {/* Green location-pin overlay removed: the check-in card now shows the
             clean building artwork on its own. The [data-one-checkin-pin]
             responsive rules below are harmless no-ops now. */}
@@ -762,14 +762,14 @@ function CheckInFeatureCard() {
 function SaveMySoulFeatureCard() {
   return (
     <article
-      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[26px] bg-[#fff3f2] [container-type:inline-size] dark:bg-[#2a191c]"
+      className="relative flex aspect-[0.68/1] w-full flex-col overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)] [container-type:inline-size]"
       data-testid="location-use-case-sos"
       data-one-use-case-card
       data-one-feature-card="sms"
     >
       <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
         <span
-          className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-bold text-[#d44442] dark:bg-[#55252a] dark:text-[#ff9a98]"
+          className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-semibold text-[#d44442] dark:bg-[#55252a] dark:text-[#ff9a98]"
           data-one-use-case-tag
         >
           SMS &middot; Save My Soul
@@ -779,7 +779,7 @@ function SaveMySoulFeatureCard() {
           className="text-[19px]"
         />
         <p
-          className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#c2aeb2]"
+          className="text-[14px] leading-[1.4] text-[color:var(--app-secondary-label)]"
           data-one-feature-body
         >
           Send your location when you need help fast.
@@ -810,7 +810,7 @@ function SaveMySoulFeatureCard() {
             />
             <span
               data-one-sms-core
-              className="relative z-10 flex h-14 w-14 items-center justify-center text-[15px] font-bold text-white"
+              className="relative z-10 flex h-14 w-14 items-center justify-center text-[15px] font-semibold text-white"
             >
               <span
                 data-one-onboarding-motion
@@ -824,9 +824,7 @@ function SaveMySoulFeatureCard() {
           </span>
         </div>
       </div>
-      <FeatureStatusRow className="px-3">
-        Alerted 3 contacts
-      </FeatureStatusRow>
+      <FeatureStatusRow className="px-3">Alerted 3 contacts</FeatureStatusRow>
     </article>
   );
 }
@@ -875,7 +873,7 @@ function FeaturesScreen({
 
   return (
     <div
-      className="mx-auto flex h-full min-h-0 w-full max-w-[430px] max-[431px]:max-w-none flex-1 flex-col overflow-hidden bg-white px-5 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] dark:bg-[#0c1017] sm:px-8 md:max-w-none md:px-10 lg:px-14"
+      className="mx-auto flex h-full min-h-0 w-full max-w-[430px] max-[431px]:max-w-none flex-1 flex-col overflow-hidden bg-[color:var(--app-grouped-background)] px-5 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] sm:px-8 md:max-w-none md:px-10 lg:px-14"
       data-one-feature-screen
     >
       <OnboardingNavigation
@@ -889,21 +887,27 @@ function FeaturesScreen({
         className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         data-one-feature-scroll
       >
-        <header className="mx-auto mt-3 w-full max-w-[700px] shrink-0" data-one-feature-header>
+        <header
+          className="mx-auto mt-3 w-full max-w-[700px] shrink-0"
+          data-one-feature-header
+        >
           <h1
-            className="ui-text-agent-title text-[#111823] dark:!text-[#f6f8fc]"
+            className="ui-text-agent-title text-balance"
             data-one-feature-heading
           >
             Need to keep people updated?
           </h1>
           <p
-            className="mt-3 text-[15px] font-normal leading-[20px] text-[#737a84] dark:text-[#aeb8c7]"
+            className="mt-3 text-[15px] font-normal leading-[20px] text-[color:var(--app-secondary-label)]"
             data-one-feature-subtitle
           >
             Share location, check in, or send help in seconds.
           </p>
         </header>
-        <div className="mx-auto mt-6 grid w-full max-w-[700px] shrink-0 gap-4" data-one-feature-grid>
+        <div
+          className="mx-auto mt-6 grid w-full max-w-[700px] shrink-0 gap-4"
+          data-one-feature-grid
+        >
           <ShareLocationFeatureCard />
           <div
             className="grid grid-cols-2 items-start gap-4"
@@ -915,7 +919,7 @@ function FeaturesScreen({
         </div>
         <p
           className={cn(
-            "shrink-0 pt-3 text-center text-[11px] font-semibold leading-4 text-[#7d838d] dark:text-[#9ba7b7]",
+            "shrink-0 pt-3 text-center text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]",
             !waitingForLocation && !permissionBusy && "sr-only",
           )}
           aria-live="polite"
@@ -923,7 +927,10 @@ function FeaturesScreen({
           {status}
         </p>
       </div>
-      <div className="mx-auto w-full max-w-[560px] shrink-0 pt-5" data-one-feature-cta>
+      <div
+        className="mx-auto w-full max-w-[560px] shrink-0 pt-5"
+        data-one-feature-cta
+      >
         <PrimaryButton
           onClick={onContinue}
           busy={permissionBusy}
@@ -950,8 +957,8 @@ function FeaturesScreen({
           [data-one-onboarding-motion] { animation: none !important; }
         }
         [data-one-feature-heading] {
-          --foundation-title1-size: 34px;
-          --foundation-title1-line: 1.08;
+          --type-agent-title-size: 34px;
+          --type-agent-title-line: 37px;
         }
         [data-one-feature-copy] {
           --one-feature-copy-gap: 12px;
@@ -984,7 +991,7 @@ function FeaturesScreen({
           }
           [data-one-onboarding-navigation] { height: 52px; }
           [data-one-feature-header] { margin-top: 8px; }
-          [data-one-feature-heading] { --foundation-title1-size: 32px; }
+          [data-one-feature-heading] { --type-agent-title-size: 32px; --type-agent-title-line: 35px; }
           [data-one-feature-subtitle] { margin-top: 9px; font-size: 15px; line-height: 21px; }
           [data-one-feature-grid] { margin-top: 14px; gap: 12px; }
           [data-one-feature-lower-grid] { gap: 12px; }
@@ -998,7 +1005,7 @@ function FeaturesScreen({
           }
           [data-one-onboarding-navigation] { height: 44px; }
           [data-one-feature-header] { margin-top: 4px; }
-          [data-one-feature-heading] { --foundation-title1-size: 30px; }
+          [data-one-feature-heading] { --type-agent-title-size: 30px; --type-agent-title-line: 33px; }
           [data-one-feature-subtitle] {
             margin-top: 6px;
             font-size: 13px;
@@ -1016,7 +1023,7 @@ function FeaturesScreen({
         }
         @media (max-width: 431px) {
           [data-one-feature-screen] { padding-left: 16px; padding-right: 16px; }
-          [data-one-feature-heading] { --foundation-title1-size: 34px; }
+          [data-one-feature-heading] { --type-agent-title-size: 34px; --type-agent-title-line: 37px; }
           [data-one-feature-subtitle] { font-size: 15px; line-height: 22px; }
           [data-one-feature-grid] {
             gap: 12px;
@@ -1028,7 +1035,7 @@ function FeaturesScreen({
             border-radius: 22px;
           }
         }
-        @media (min-width: 768px) {
+        @media (min-width: 1024px) {
           [data-one-feature-scroll] {
             align-items: center;
             flex: 0 0 auto;
@@ -1039,7 +1046,8 @@ function FeaturesScreen({
             max-width: 1040px;
           }
           [data-one-feature-heading] {
-            --foundation-title1-size: 34px;
+            --type-agent-title-size: 44px;
+            --type-agent-title-line: 48px;
           }
           [data-one-feature-grid] {
             display: grid;
@@ -1136,17 +1144,14 @@ function FeaturesScreen({
         }
         @media (max-width: 340px) {
           [data-one-feature-screen] { padding-left: 12px; padding-right: 12px; }
-          [data-one-feature-heading] { --foundation-title1-size: 31px; }
+          [data-one-feature-heading] { --type-agent-title-size: 31px; --type-agent-title-line: 34px; }
           [data-one-feature-grid] { gap: 10px; }
           [data-one-feature-lower-grid] { gap: 8px; }
           [data-one-feature-card] { border-radius: 20px; }
         }
-        @media (max-width: 300px) {
+        @media (max-width: 359px) {
           [data-one-feature-lower-grid] { grid-template-columns: minmax(0, 1fr); }
-          [data-one-feature-card="checkin"], [data-one-feature-card="sms"] { aspect-ratio: 1.15 / 1; }
-          [data-one-feature-title] { font-size: 16px; }
-          [data-one-feature-body] { font-size: 11px; }
-          [data-one-use-case-alert] { font-size: 9px; }
+          [data-one-feature-card="checkin"], [data-one-feature-card="sms"] { aspect-ratio: 1.35 / 1; }
         }
         @container (max-width: 420px) {
           [data-one-feature-card="share"] [data-one-feature-copy] {
@@ -1156,7 +1161,7 @@ function FeaturesScreen({
           }
           [data-one-feature-card="share"] [data-one-use-case-tag] {
             padding: 3px 9px;
-            font-size: 10px;
+            font-size: 11px;
           }
           [data-one-feature-card="share"] [data-one-feature-title] {
             font-size: 19px;
@@ -1170,7 +1175,7 @@ function FeaturesScreen({
             height: 28px;
             padding-left: 7px;
             padding-right: 7px;
-            font-size: 9px;
+            font-size: 11px;
           }
           [data-one-feature-card="share"] [data-one-feature-status-row] {
             padding-right: 14px;
@@ -1184,7 +1189,7 @@ function FeaturesScreen({
           }
           [data-one-feature-card="share"] [data-one-use-case-tag] {
             padding: 3px 7px;
-            font-size: 10px;
+            font-size: 11px;
           }
           [data-one-feature-card="share"] [data-one-feature-title] {
             font-size: 17px;
@@ -1203,7 +1208,7 @@ function FeaturesScreen({
             gap: 3px;
             padding-left: 5px;
             padding-right: 5px;
-            font-size: 9px;
+            font-size: 11px;
           }
           [data-one-feature-card="share"] [data-one-use-case-alert] > span:first-child {
             width: 12px;
@@ -1221,7 +1226,7 @@ function FeaturesScreen({
           [data-one-feature-card="checkin"] [data-one-use-case-tag],
           [data-one-feature-card="sms"] [data-one-use-case-tag] {
             padding: 3px 9px;
-            font-size: 10px;
+            font-size: 11px;
           }
           [data-one-feature-card="checkin"] [data-one-feature-title],
           [data-one-feature-card="sms"] [data-one-feature-title] {
@@ -1252,7 +1257,7 @@ function FeaturesScreen({
             height: 28px;
             padding-left: 7px;
             padding-right: 7px;
-            font-size: 9px;
+            font-size: 11px;
           }
           [data-one-sms-radar-clearance] { width: 81px; height: 81px; }
           [data-one-sms-radar] { width: 60px; height: 60px; }
@@ -1269,7 +1274,7 @@ function FeaturesScreen({
           [data-one-feature-card="checkin"] [data-one-use-case-tag],
           [data-one-feature-card="sms"] [data-one-use-case-tag] {
             padding: 3px 7px;
-            font-size: 10px;
+            font-size: 11px;
           }
           [data-one-feature-card="checkin"] [data-one-feature-title],
           [data-one-feature-card="sms"] [data-one-feature-title] {
@@ -1296,7 +1301,7 @@ function FeaturesScreen({
             gap: 3px;
             padding-left: 4px;
             padding-right: 4px;
-            font-size: 9px;
+            font-size: 11px;
           }
           [data-one-feature-card="checkin"] [data-one-use-case-alert] > span:first-child,
           [data-one-feature-card="sms"] [data-one-use-case-alert] > span:first-child {
@@ -1310,7 +1315,7 @@ function FeaturesScreen({
           [data-one-sms-core] { width: 32px; height: 32px; font-size: 13px; }
         }
         @media (max-width: 431px) and (max-height: 680px) {
-          [data-one-feature-heading] { --foundation-title1-size: 30px; }
+          [data-one-feature-heading] { --type-agent-title-size: 30px; --type-agent-title-line: 33px; }
           [data-one-feature-subtitle] {
             margin-top: 6px;
             font-size: 13px;
@@ -1322,7 +1327,7 @@ function FeaturesScreen({
           [data-one-feature-card="checkin"] [data-one-feature-title],
           [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 15px; }
           [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11.5px; }
+          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 12px; }
           [data-one-feature-grid] { margin-top: 8px; gap: 8px; }
           [data-one-feature-lower-grid] { gap: 8px; }
           [data-one-feature-cta] { padding-top: 8px; }
@@ -1330,11 +1335,11 @@ function FeaturesScreen({
         }
         @media (max-width: 340px) and (max-height: 680px) {
           [data-one-feature-card="share"] [data-one-feature-title] { font-size: 16px; }
-          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 11px; }
+          [data-one-feature-card="share"] [data-one-feature-body] { font-size: 12px; }
           [data-one-feature-card="checkin"] [data-one-feature-title],
           [data-one-feature-card="sms"] [data-one-feature-title] { font-size: 14px; }
           [data-one-feature-card="checkin"] [data-one-feature-body],
-          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 11px; }
+          [data-one-feature-card="sms"] [data-one-feature-body] { font-size: 12px; }
         }
         @media (max-width: 365px) and (min-height: 681px) {
           [data-one-checkin-pin] {
@@ -1351,10 +1356,10 @@ function FeaturesScreen({
           }
           [data-one-onboarding-navigation] { height: 38px; }
           [data-one-feature-header] { margin-top: 2px; }
-          [data-one-feature-heading] { --foundation-title1-size: 28px; }
+          [data-one-feature-heading] { --type-agent-title-size: 28px; --type-agent-title-line: 31px; }
           [data-one-feature-subtitle] {
             margin-top: 4px;
-            font-size: 11.5px;
+            font-size: 13px;
             line-height: 15px;
           }
           [data-one-feature-grid] {
@@ -1364,7 +1369,7 @@ function FeaturesScreen({
           }
           [data-one-feature-lower-grid] { gap: 6px; }
           [data-one-feature-cta] { padding-top: 6px; }
-          [data-one-feature-cta] button { min-height: 42px; height: 42px; }
+          [data-one-feature-cta] button { min-height: 44px; height: 44px; }
           [data-one-feature-card="share"] [data-one-feature-copy] {
             --one-feature-copy-gap: 5px;
             width: 60%;
@@ -1372,14 +1377,14 @@ function FeaturesScreen({
           }
           [data-one-feature-card="share"] [data-one-use-case-tag] {
             padding: 2px 7px;
-            font-size: 9px;
+            font-size: 11px;
           }
           [data-one-feature-card="share"] [data-one-feature-title] {
-            font-size: 15.5px;
+            font-size: 16px;
             line-height: 1.08;
           }
           [data-one-feature-card="share"] [data-one-feature-body] {
-            font-size: 10px;
+            font-size: 12px;
             line-height: 1.2;
           }
           [data-one-feature-card="share"] [data-one-feature-status-row] {
@@ -1398,17 +1403,17 @@ function FeaturesScreen({
           [data-one-feature-card="checkin"] [data-one-use-case-tag],
           [data-one-feature-card="sms"] [data-one-use-case-tag] {
             padding: 2px 6px;
-            font-size: 9px;
+            font-size: 11px;
           }
           [data-one-feature-card="checkin"] [data-one-feature-title],
           [data-one-feature-card="sms"] [data-one-feature-title] {
-            font-size: 13px;
+            font-size: 16px;
             line-height: 1.08;
           }
           [data-one-feature-card="checkin"] [data-one-feature-body],
           [data-one-feature-card="sms"] [data-one-feature-body] {
-            font-size: 9.5px;
-            line-height: 1.2;
+            font-size: 12px;
+            line-height: 1.3;
           }
           [data-one-feature-card="checkin"] [data-one-feature-status-row],
           [data-one-feature-card="sms"] [data-one-feature-status-row] {
@@ -1422,7 +1427,7 @@ function FeaturesScreen({
             height: 22px;
             padding-right: 4px;
             padding-left: 4px;
-            font-size: 8px;
+            font-size: 11px;
           }
           [data-one-feature-card="share"] [data-one-use-case-alert] > span:first-child,
           [data-one-feature-card="checkin"] [data-one-use-case-alert] > span:first-child,
@@ -1436,7 +1441,7 @@ function FeaturesScreen({
           [data-one-sms-radar] { width: 32px; height: 32px; }
           [data-one-sms-core] { width: 28px; height: 28px; font-size: 11px; }
         }
-        @media (min-width: 768px) {
+        @media (min-width: 1024px) {
           [data-one-feature-card="share"] [data-one-feature-copy],
           [data-one-feature-card="checkin"] [data-one-feature-copy],
           [data-one-feature-card="sms"] [data-one-feature-copy] {
@@ -1454,6 +1459,26 @@ function FeaturesScreen({
           [data-one-feature-card="sms"] [data-one-feature-body] {
             font-size: 15px;
             line-height: 1.35;
+          }
+        }
+        @media (max-width: 359px) {
+          [data-one-feature-card="share"] [data-one-feature-body],
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] {
+            font-size: 13px;
+            line-height: 1.35;
+          }
+          [data-one-feature-card="share"] [data-one-feature-title],
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] {
+            font-size: 16px;
+            line-height: 1.12;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-alert],
+          [data-one-feature-card="checkin"] [data-one-use-case-alert],
+          [data-one-feature-card="sms"] [data-one-use-case-alert] {
+            min-height: 24px;
+            font-size: 11px;
           }
         }
       `}</style>
@@ -1517,7 +1542,7 @@ function ContactsScreen({
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]"
+      className="flex min-h-0 flex-1 flex-col bg-[color:var(--app-grouped-background)]"
       data-testid="one-location-onboarding-contacts-surface"
     >
       {/* pt clears the status bar and notch. A bare pt-2 put Back and Skip
@@ -1527,7 +1552,7 @@ function ContactsScreen({
         <button
           type="button"
           onClick={onBack}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] dark:bg-white/[0.08] dark:text-white"
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-[color:var(--app-label)]"
           aria-label="Go back"
         >
           <ArrowLeft className="h-6 w-6" />
@@ -1536,13 +1561,13 @@ function ContactsScreen({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
-        <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+        <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-[var(--app-radius-md)] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]">
           <UserPlus className="h-7 w-7" strokeWidth={2} />
         </span>
-        <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[#f5f7fb]">
+        <h1 className="ui-text-agent-title mt-4 text-balance">
           Find your people
         </h1>
-        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
+        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[color:var(--app-secondary-label)]">
           {primed
             ? "Find contacts already on One."
             : state.kind === "matched"
@@ -1552,9 +1577,9 @@ function ContactsScreen({
 
         {primed ? (
           <>
-            <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 dark:border-white/[0.08] dark:bg-[#1c212a]">
+            <div className="mt-7 rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] p-6 shadow-[var(--app-card-shadow-standard)] ring-1 ring-[color:var(--app-separator)]">
               {state.kind === "busy" ? (
-                <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[#8d99a8]">
+                <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[color:var(--app-secondary-label)]">
                   <Loader2 className="h-5 w-5 animate-spin" /> Checking your
                   contacts
                 </div>
@@ -1563,7 +1588,7 @@ function ContactsScreen({
                   {/* Say what happens to the address book before asking for it.
                       A vague ask on a location product is what makes people
                       decline, and the decline is permanent on iOS. */}
-                  <p className="text-[14px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
+                  <p className="text-[14px] leading-5 text-[color:var(--app-secondary-label)]">
                     Your contacts are checked using a one-way hash. One never
                     stores your contact list, and nobody is contacted for you.
                   </p>
@@ -1577,23 +1602,26 @@ function ContactsScreen({
         ) : null}
 
         {state.kind === "matched" ? (
-          <ul className="mt-6 space-y-2" data-testid="onboarding-contact-matches">
+          <ul
+            className="mt-6 divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]"
+            data-testid="onboarding-contact-matches"
+          >
             {matches.map((match) => {
               const added = addedUserIds.includes(match.userId);
               const adding = addingUserIds.includes(match.userId);
               return (
                 <li
                   key={match.userId}
-                  className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-white/[0.08] dark:bg-[#1c212a]"
+                  className="flex min-h-[60px] items-center justify-between gap-3 px-4 py-3"
                 >
-                  <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-[#151b26] dark:text-[#f5f7fb]">
+                  <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-[color:var(--app-label)]">
                     {match.displayName}
                   </span>
                   <button
                     type="button"
                     onClick={() => onAdd(match.userId)}
                     disabled={added || adding || leaving}
-                    className="press-scale inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                    className="press-scale inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent)] px-4 text-[14px] font-semibold text-[color:var(--app-accent-fg)] disabled:opacity-60"
                   >
                     {adding ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -1609,13 +1637,13 @@ function ContactsScreen({
         ) : null}
 
         {state.kind === "none" ? (
-          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-white/[0.08] dark:bg-[#1c212a]">
-            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
+          <div className="mt-7 rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] p-6 text-center shadow-[var(--app-card-shadow-standard)] ring-1 ring-[color:var(--app-separator)]">
+            <p className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
               {state.partial
                 ? "None of the contacts you shared are on One yet."
                 : "None of your contacts are on One yet."}
             </p>
-            <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]">
+            <p className="mt-2 text-[13px] leading-5 text-[color:var(--app-tertiary-label)]">
               Your circle code is on the next screen — send it to whoever you
               want here.
             </p>
@@ -1623,15 +1651,15 @@ function ContactsScreen({
         ) : null}
 
         {state.kind === "failed" ? (
-          <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-white/[0.08] dark:bg-[#1c212a]">
-            <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[#aeb8c7]">
+          <div className="mt-7 rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] p-6 text-center shadow-[var(--app-card-shadow-standard)] ring-1 ring-[color:var(--app-separator)]">
+            <p className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
               {state.message}
             </p>
             {state.canOpenSettings ? (
               <button
                 type="button"
                 onClick={onOpenSettings}
-                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] px-5 text-sm font-semibold text-[color:var(--app-label)]"
               >
                 Open Settings
               </button>
@@ -1727,7 +1755,7 @@ function ReadyScreen({
 
   return (
     <div
-      className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white dark:bg-[#14171d] md:bg-[#eef3f8] md:dark:bg-[#070a0f]"
+      className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[color:var(--app-grouped-background)]"
       data-testid="one-location-onboarding-ready-surface"
     >
       {/* The map gets its own band rather than sitting behind the copy.
@@ -1750,219 +1778,223 @@ function ReadyScreen({
         <button
           type="button"
           onClick={onBack}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-white/85 text-[#1f2b3d] shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[#1c212a]/85 dark:text-white"
+          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--app-glass-surface)] text-[color:var(--app-label)] shadow-[var(--app-glass-shadow)] ring-1 ring-[color:var(--app-glass-border)] backdrop-blur-sm"
           aria-label="Go back"
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <span className="rounded-full bg-white/85 px-1 shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[#1c212a]/85">
+        <span className="rounded-full bg-[color:var(--app-glass-surface)] px-1 shadow-[var(--app-glass-shadow)] ring-1 ring-[color:var(--app-glass-border)] backdrop-blur-sm">
           <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
         </span>
       </header>
 
       <div
-        className="relative z-10 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-[28px] bg-white shadow-[0_-8px_24px_rgba(24,57,91,0.10)] dark:bg-[#14171d] md:absolute md:right-[max(44px,6vw)] md:top-1/2 md:mt-0 md:h-auto md:max-h-[calc(100dvh-96px)] md:w-[430px] md:-translate-y-1/2 md:rounded-[30px] md:shadow-[0_24px_80px_rgba(24,57,91,0.22)]"
+        className="relative z-10 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-[var(--app-radius-lg)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-feature)] md:absolute md:right-[max(44px,6vw)] md:top-1/2 md:mt-0 md:h-auto md:max-h-[calc(100dvh-96px)] md:w-[430px] md:-translate-y-1/2 md:rounded-[var(--app-radius-lg)]"
         data-testid="one-location-onboarding-ready-panel"
       >
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 pt-6 md:px-7 md:pb-5 md:pt-7">
           <h1
-            className="ui-text-agent-title pb-1 leading-[1.15] text-[#151b26] dark:!text-[#f5f7fb]"
+            className="ui-text-agent-title pb-1 text-balance"
             data-one-ready-title
           >
             You&apos;re on the map.
           </h1>
-          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
+          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[color:var(--app-secondary-label)]">
             Private until you share.
           </p>
 
-        <p
-          className="mt-6 flex items-center gap-2 text-[14px] font-medium leading-5 text-[#5c626c] dark:text-[#aeb8c7]"
-          data-testid="onboarding-ready-empty-seat"
-          data-one-ready-seat
-        >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-[color:var(--app-accent)]/45">
-            <UserPlus
-              className="h-3.5 w-3.5 text-[color:var(--app-accent)]/70"
-              strokeWidth={2.2}
-            />
-          </span>
-          Your people show up here once they join.
-        </p>
+          <p
+            className="mt-6 flex items-center gap-2 text-[14px] font-normal leading-5 text-[color:var(--app-secondary-label)]"
+            data-testid="onboarding-ready-empty-seat"
+            data-one-ready-seat
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-[color:var(--app-accent)]/45">
+              <UserPlus
+                className="h-3.5 w-3.5 text-[color:var(--app-accent)]/70"
+                strokeWidth={2.2}
+              />
+            </span>
+            Your people show up here once they join.
+          </p>
 
-        <div
-          className="mt-5 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-white/[0.08] dark:bg-[#1c212a]"
-          data-testid="one-location-onboarding-invite-card"
-          data-one-ready-code
-        >
-          {loading ? (
-            <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[#8d99a8]">
-              <Loader2 className="h-5 w-5 animate-spin" /> Preparing your circle
-              code
-            </div>
-          ) : error ? (
-            <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
-              <p className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[#aeb8c7]">
-                {error}
-              </p>
-              <button
-                type="button"
-                onClick={onRetry}
-                className="press-scale inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-bold text-[color:var(--app-accent-fg)]"
-              >
-                Try again
-              </button>
-            </div>
-          ) : invite ? (
-            <>
-              <p className="text-[13px] font-medium leading-[18px] text-[#6E6E73] dark:text-[#aeb8c7]">
-                Bring your people to {invite.circleName}
-              </p>
-              <p
-                className="mt-2 select-all whitespace-nowrap font-mono text-[clamp(20px,6vw,28px)] font-bold uppercase leading-[1.15] tracking-[0.12em] text-[#151b26] dark:text-[#f5f7fb]"
-                data-testid="one-location-onboarding-invite-code"
-              >
-                {formattedCode}
-              </p>
-              <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[#8d99a8]">
-                Expires in 72 hours. You can get a fresh one any time.
-              </p>
-              <div className="mt-4 grid grid-cols-2 gap-3">
+          <div
+            className="mt-5 rounded-[var(--app-radius-md)] bg-[color:var(--app-secondary-surface)] p-5 ring-1 ring-[color:var(--app-separator)]"
+            data-testid="one-location-onboarding-invite-card"
+            data-one-ready-code
+          >
+            {loading ? (
+              <div className="flex min-h-24 items-center justify-center gap-2 text-sm text-[color:var(--app-secondary-label)]">
+                <Loader2 className="h-5 w-5 animate-spin" /> Preparing your
+                circle code
+              </div>
+            ) : error ? (
+              <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
+                <p className="max-w-[260px] text-sm leading-5 text-[color:var(--app-secondary-label)]">
+                  {error}
+                </p>
                 <button
                   type="button"
-                  onClick={onCopy}
-                  className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                  onClick={onRetry}
+                  className="press-scale inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-semibold text-[color:var(--app-accent-fg)]"
                 >
-                  {copied ? (
-                    <Check className="h-5 w-5" strokeWidth={2.5} />
-                  ) : (
-                    <Copy className="h-5 w-5" strokeWidth={2} />
-                  )}
-                  {copied ? "Copied" : "Copy"}
-                </button>
-                <button
-                  type="button"
-                  onClick={onShare}
-                  className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)]"
-                >
-                  <Share2 className="h-5 w-5" strokeWidth={2} />
-                  Share
+                  Try again
                 </button>
               </div>
-            </>
-          ) : (
-            <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[#8d99a8]">
-              Your circle code will be ready in One. You can share it any time
-              from your circle.
-            </p>
-          )}
-        </div>
-
-        {joinEnabled ? (
-          <div className="mt-4" data-testid="onboarding-join-circle">
-            {joinAccepted ? (
-              <p
-                className="flex items-center gap-2 rounded-[18px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-4 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:text-[#dce6f5]"
-                role="status"
-              >
-                <Check
-                  className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
-                  strokeWidth={2.5}
-                />
-                You&apos;ll join {joinPreview?.name ?? "their circle"} as soon as
-                One finishes setting up.
-              </p>
-            ) : joinPreview ? (
-              <div
-                className="rounded-[18px] border border-[#e4e6e9] bg-[#f8f9fb] p-4 dark:border-white/[0.08] dark:bg-[#1c212a]"
-                data-testid="onboarding-join-circle-preview"
-              >
-                {/* Name, owner and size before accepting. Deciding whether to
-                    share your location with a group is not a decision anyone
-                    should make against an opaque string. */}
-                <p className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[#f5f7fb]">
-                  {joinPreview.name}
+            ) : invite ? (
+              <>
+                <p className="text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+                  Bring your people to {invite.circleName}
                 </p>
-                <p className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[#aeb8c7]">
-                  {joinPreview.ownerDisplayName} &middot;{" "}
-                  {joinPreview.memberCount}{" "}
-                  {joinPreview.memberCount === 1 ? "person" : "people"}
+                <p
+                  className="mt-2 select-all whitespace-nowrap font-mono text-[clamp(20px,6vw,28px)] font-semibold uppercase leading-[1.15] tracking-[0.12em] text-[color:var(--app-label)]"
+                  data-testid="one-location-onboarding-invite-code"
+                >
+                  {formattedCode}
                 </p>
-                {joinPreview.alreadyMember ? (
-                  <p className="mt-3 text-[13px] leading-[18px] text-[#73777f] dark:text-[#aeb8c7]">
-                    You&apos;re already in this circle.
-                  </p>
-                ) : (
+                <p className="mt-2 text-[12px] leading-[18px] text-[color:var(--app-tertiary-label)]">
+                  Expires in 72 hours. You can get a fresh one any time.
+                </p>
+                <div className="mt-4 grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={onAcceptJoinCode}
-                    disabled={joinBusy || leaving}
-                    className="press-scale mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                    onClick={onCopy}
+                    className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[15px] font-semibold text-[color:var(--app-label)]"
                   >
-                    {joinBusy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : null}
-                    Join {joinPreview.name}
+                    {copied ? (
+                      <Check className="h-5 w-5" strokeWidth={2.5} />
+                    ) : (
+                      <Copy className="h-5 w-5" strokeWidth={2} />
+                    )}
+                    {copied ? "Copied" : "Copy"}
                   </button>
-                )}
-                {/* The only way back. Previewing replaced the input, so without
-                    this a mistyped or wrong code left the person staring at
-                    someone else's circle with no route to try another. */}
-                <button
-                  type="button"
-                  onClick={onClearJoinPreview}
-                  disabled={joinBusy || leaving}
-                  className="press-scale mt-2 inline-flex min-h-11 w-full items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-bright)]"
-                  data-testid="onboarding-join-circle-reset"
-                >
-                  Use a different code
-                </button>
-              </div>
-            ) : (
-              <details className="group" data-testid="onboarding-join-circle-toggle" open={Boolean(joinCode)}>
-                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]">
-                  Someone sent you a code?
-                </summary>
-                <div className="mt-3 flex gap-2">
-                  <input
-                    value={joinCode}
-                    onChange={(event) => onJoinCodeChange(event.target.value)}
-                    placeholder="Enter their code"
-                    aria-label="Circle code"
-                    autoCapitalize="characters"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-white/15 dark:bg-white/[0.06] dark:text-[#f5f7fb]"
-                  />
                   <button
                     type="button"
-                    onClick={onPreviewJoinCode}
-                    disabled={joinBusy || !joinCode.trim() || leaving}
-                    className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-5 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-white/15 dark:bg-white/[0.06] dark:text-white"
+                    onClick={onShare}
+                    className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)]"
                   >
-                    {joinBusy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : null}
-                    Look up
+                    <Share2 className="h-5 w-5" strokeWidth={2} />
+                    Share
                   </button>
                 </div>
-              </details>
-            )}
-            {joinError ? (
-              <p
-                className="mt-2 text-center text-[13px] leading-[18px] text-[#c8372d] dark:text-[#ff9a90]"
-                role="status"
-              >
-                {joinError}
+              </>
+            ) : (
+              <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[color:var(--app-secondary-label)]">
+                Your circle code will be ready in One. You can share it any time
+                from your circle.
               </p>
-            ) : null}
+            )}
           </div>
-        ) : null}
+
+          {joinEnabled ? (
+            <div className="mt-4" data-testid="onboarding-join-circle">
+              {joinAccepted ? (
+                <p
+                  className="flex items-center gap-2 rounded-[var(--app-radius-md)] border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] px-4 py-3 text-[14px] font-normal leading-5 text-[color:var(--app-label)]"
+                  role="status"
+                >
+                  <Check
+                    className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
+                    strokeWidth={2.5}
+                  />
+                  You&apos;ll join {joinPreview?.name ?? "their circle"} as soon
+                  as One finishes setting up.
+                </p>
+              ) : joinPreview ? (
+                <div
+                  className="rounded-[var(--app-radius-md)] bg-[color:var(--app-secondary-surface)] p-4 ring-1 ring-[color:var(--app-separator)]"
+                  data-testid="onboarding-join-circle-preview"
+                >
+                  {/* Name, owner and size before accepting. Deciding whether to
+                    share your location with a group is not a decision anyone
+                    should make against an opaque string. */}
+                  <p className="text-[15px] font-semibold leading-5 text-[color:var(--app-label)]">
+                    {joinPreview.name}
+                  </p>
+                  <p className="mt-1 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                    {joinPreview.ownerDisplayName} &middot;{" "}
+                    {joinPreview.memberCount}{" "}
+                    {joinPreview.memberCount === 1 ? "person" : "people"}
+                  </p>
+                  {joinPreview.alreadyMember ? (
+                    <p className="mt-3 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]">
+                      You&apos;re already in this circle.
+                    </p>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={onAcceptJoinCode}
+                      disabled={joinBusy || leaving}
+                      className="press-scale mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                    >
+                      {joinBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : null}
+                      Join {joinPreview.name}
+                    </button>
+                  )}
+                  {/* The only way back. Previewing replaced the input, so without
+                    this a mistyped or wrong code left the person staring at
+                    someone else's circle with no route to try another. */}
+                  <button
+                    type="button"
+                    onClick={onClearJoinPreview}
+                    disabled={joinBusy || leaving}
+                    className="press-scale mt-2 inline-flex min-h-11 w-full items-center justify-center text-[14px] font-semibold text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-bright)]"
+                    data-testid="onboarding-join-circle-reset"
+                  >
+                    Use a different code
+                  </button>
+                </div>
+              ) : (
+                <details
+                  className="group"
+                  data-testid="onboarding-join-circle-toggle"
+                  open={Boolean(joinCode)}
+                >
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center text-[14px] font-semibold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]">
+                    Someone sent you a code?
+                  </summary>
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      value={joinCode}
+                      onChange={(event) => onJoinCodeChange(event.target.value)}
+                      placeholder="Enter their code"
+                      aria-label="Circle code"
+                      autoCapitalize="characters"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      className="h-11 min-w-0 flex-1 rounded-full border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[color:var(--app-label)] outline-none focus:border-[color:var(--app-accent)]"
+                    />
+                    <button
+                      type="button"
+                      onClick={onPreviewJoinCode}
+                      disabled={joinBusy || !joinCode.trim() || leaving}
+                      className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-[color:var(--app-neutral-fill-strong)] px-5 text-[15px] font-semibold text-[color:var(--app-label)] disabled:opacity-50"
+                    >
+                      {joinBusy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : null}
+                      Look up
+                    </button>
+                  </div>
+                </details>
+              )}
+              {joinError ? (
+                <p
+                  className="mt-2 text-center text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
+                  role="status"
+                >
+                  {joinError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
-        <footer className="relative z-10 shrink-0 bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 dark:bg-[#14171d] md:px-7 md:pb-7">
+        <footer className="relative z-10 shrink-0 bg-[color:var(--app-primary-surface)] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 md:px-7 md:pb-7">
           {settlementRetryCount > 0 ? (
             <p
-              className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]"
+              className="mb-3 text-center text-[13px] leading-5 text-[color:var(--app-secondary-label)]"
               role="status"
             >
               That didn&apos;t save. Tap again to finish setting up Location.
@@ -1972,7 +2004,11 @@ function ReadyScreen({
               reason to record the whole capability as skipped -- the person
               granted permission and saved a place, so finishing is the honest
               outcome. Retrying the code lives inside the card above. */}
-          <PrimaryButton onClick={onContinue} busy={completing} disabled={leaving}>
+          <PrimaryButton
+            onClick={onContinue}
+            busy={completing}
+            disabled={leaving}
+          >
             {completeLabel}
           </PrimaryButton>
         </footer>
@@ -2008,7 +2044,6 @@ function ReadyScreen({
     </div>
   );
 }
-
 
 function initialScreen(startAt: OneLocationOnboardingStart): OnboardingScreen {
   return startAt === "permissions" ? "features" : "welcome";
@@ -2081,9 +2116,9 @@ export function OneLocationOnboardingFlow({
     | { kind: "matched" }
     | { kind: "failed"; message: string; canOpenSettings: boolean }
   >({ kind: "idle" });
-  const [contactMatches, setContactMatches] = useState<OnboardingContactMatch[]>(
-    [],
-  );
+  const [contactMatches, setContactMatches] = useState<
+    OnboardingContactMatch[]
+  >([]);
   const [addedContactIds, setAddedContactIds] = useState<string[]>([]);
   const [addingContactIds, setAddingContactIds] = useState<string[]>([]);
 
@@ -2226,11 +2261,11 @@ export function OneLocationOnboardingFlow({
   const handleCopyCircleInvite = useCallback(() => {
     if (!circleInvite) return;
     codeCopiedRef.current = true;
-    void Promise.resolve(
-      onCopyOnboardingCircleCode?.(circleInvite.code),
-    ).catch(() => {
-      /* parent surfaces its own failure toast */
-    });
+    void Promise.resolve(onCopyOnboardingCircleCode?.(circleInvite.code)).catch(
+      () => {
+        /* parent surfaces its own failure toast */
+      },
+    );
     setCircleInviteCopied(true);
     if (circleInviteCopiedTimerRef.current) {
       clearTimeout(circleInviteCopiedTimerRef.current);
@@ -2244,11 +2279,11 @@ export function OneLocationOnboardingFlow({
   const handleShareCircleInvite = useCallback(() => {
     if (!circleInvite) return;
     codeSharedRef.current = true;
-    void Promise.resolve(
-      onShareOnboardingCircleCode?.(circleInvite),
-    ).catch(() => {
-      /* parent surfaces its own failure toast */
-    });
+    void Promise.resolve(onShareOnboardingCircleCode?.(circleInvite)).catch(
+      () => {
+        /* parent surfaces its own failure toast */
+      },
+    );
   }, [circleInvite, onShareOnboardingCircleCode]);
 
   const handleSyncContacts = useCallback(async () => {
@@ -2464,7 +2499,6 @@ export function OneLocationOnboardingFlow({
     setScreen(contactsStepAvailable ? "contacts" : "invite");
   };
 
-
   return (
     <main
       // z-560, above the agent bar's elevated z-540. The bar normally sits at
@@ -2472,15 +2506,16 @@ export function OneLocationOnboardingFlow({
       // pending confirmation or an interactive voice layer -- at which point it
       // tied with this overlay and won on DOM order, drawing "Talk to One"
       // across the primary CTA. Onboarding is modal; nothing belongs over it.
-      className="fixed inset-0 z-[560] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[#eef3f8] text-[#171d28] dark:bg-[#070a0f] dark:text-[#f4f7fb]"
+      className="fixed inset-0 z-[560] flex h-dvh min-h-[100svh] w-full items-stretch justify-center overflow-hidden bg-[color:var(--app-grouped-background)] text-[color:var(--app-label)] [--type-agent-title-line:37px] [--type-agent-title-size:34px] [--type-agent-title-tracking:-0.9px] [--type-agent-title-weight:600] sm:[--type-agent-title-line:48px] sm:[--type-agent-title-size:44px] sm:[--type-agent-title-tracking:-1.1px]"
       data-no-route-swipe
       data-testid="one-location-onboarding"
+      data-one-onboarding-design="location-agent-v2"
       data-location-onboarding-screen={screen}
     >
       <NativeTestBeacon {...nativeTest} />
       <section
         className={cn(
-          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[#0c1017]",
+          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[color:var(--app-grouped-background)]",
           // The welcome and feature screens own the full-bleed desktop canvas,
           // while their inner content rails keep the designed width. Expanding
           // the canvas is fine; stretching feature cards is what creates the
@@ -2501,7 +2536,7 @@ export function OneLocationOnboardingFlow({
             ? "max-w-none"
             : screen === "features" || screen === "invite"
               ? "max-w-none"
-            : "max-w-[430px] max-[431px]:max-w-none",
+              : "max-w-[430px] max-[431px]:max-w-none",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >

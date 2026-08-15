@@ -65,14 +65,18 @@ describe("Location setup route contract", () => {
     );
     expect(coordinator).toContain("resolveCompletedSetupCapabilityEntry({");
     expect(coordinator).toContain('completedEntry.kind === "acknowledge"');
-    expect(coordinator).toContain("setConfirmedCompletionKey(`${userId}:${capabilityId}`)");
+    expect(coordinator).toContain(
+      "setConfirmedCompletionKey(`${userId}:${capabilityId}`)",
+    );
     expect(coordinator).toContain(
       "enabled && routeReady && !settlementBlocked && !isAlreadyComplete",
     );
     expect(adapter).toContain("if (coordinator.isAlreadyComplete)");
     expect(adapter).toContain("<LocationOnboardingCompletedScreen");
+    expect(adapter).not.toContain("<CapabilityCinematicIntroGate");
+    expect(adapter).not.toContain("<LocationPermissionPrimerGate");
     expect(adapter.indexOf("if (coordinator.isAlreadyComplete)")).toBeLessThan(
-      adapter.indexOf("<CapabilityCinematicIntroGate"),
+      adapter.indexOf("<OneLocationAgentPage"),
     );
   });
 });
