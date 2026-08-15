@@ -143,18 +143,31 @@ export function locationReadiness(params: {
   return "askable";
 }
 
-/** Short status text for the Location header. */
+/**
+ * Short status text for the Location header.
+ *
+ * `compact` drops the leading "Location", for the phone layout where the switch
+ * sits under a 28px title that already says Location. Two reasons, both
+ * measured rather than assumed: the word is pure repetition of the screen
+ * title, and at 320-390px the longer string is wide enough to push "Location
+ * Agent" onto a second line. The precedence lives here once so the two forms
+ * can never disagree about which state wins.
+ */
 export function locationStatusLabel(params: {
   readiness: LocationReadiness;
   previewOn: boolean;
   paused: boolean;
   accuracyLimited: boolean;
+  compact?: boolean;
 }): string {
-  if (params.paused) return "Location paused";
-  if (params.readiness === "blocked") return "Location blocked";
-  if (!params.previewOn) return "Location off";
-  if (params.accuracyLimited) return "Location limited";
-  return "Location on";
+  const prefix = params.compact ? "" : "Location ";
+  const word = (compact: string, full: string) =>
+    params.compact ? compact : `${prefix}${full}`;
+  if (params.paused) return word("Paused", "paused");
+  if (params.readiness === "blocked") return word("Blocked", "blocked");
+  if (!params.previewOn) return word("Off", "off");
+  if (params.accuracyLimited) return word("Limited", "limited");
+  return word("On", "on");
 }
 
 /**

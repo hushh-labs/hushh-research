@@ -114,9 +114,15 @@ vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultOwnerToken: "in-memory-owner-token" }),
 }));
 
+// Mutable so a case can assert the NATIVE branch. `setPadding` is a real
+// camera inset on iOS/Android but a zoom-out on the @capacitor/google-maps web
+// shim, so the two runtimes have genuinely different contracts here and both
+// need covering.
+const platformHarness = vi.hoisted(() => ({ native: false }));
+
 vi.mock("@/lib/capacitor/platform", () => ({
-  getPlatform: () => "web",
-  isNative: () => false,
+  getPlatform: () => (platformHarness.native ? "ios" : "web"),
+  isNative: () => platformHarness.native,
 }));
 
 vi.mock("@/lib/one-location/maps-config", () => ({
@@ -321,6 +327,7 @@ Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
 });
 
 beforeEach(() => {
+  platformHarness.native = false;
   trayHeaderHeightStub = 72;
   trayContentHeightStub = 260;
   // Lanes are module state: without this a superseded claim or a queued
@@ -570,7 +577,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -621,7 +628,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -706,7 +713,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -727,7 +734,7 @@ describe("LocationImmersiveMap demo experience", () => {
     });
     expect(
       screen.getByTestId("one-location-nearby-search-area-legend"),
-    ).toHaveTextContent("500 m search area");
+    ).toHaveTextContent("500 m around you");
     expect(mapHarness.map.fitBounds).toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId("clear-nearby-search-area"));
@@ -737,6 +744,39 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(
       screen.queryByTestId("one-location-nearby-search-area-legend"),
     ).not.toBeInTheDocument();
+  });
+
+  it("never sends camera padding to the web map renderer", async () => {
+    // Regression, QA "uppr gap kyu aa raha hai": on iOS/Android `setPadding` is
+    // a true camera inset — same zoom, map still edge to edge. The
+    // @capacitor/google-maps WEB shim is `fitBounds(map.getBounds(), padding)`,
+    // i.e. it re-fits the visible world into a box shrunk by the padding. That
+    // is a zoom-out, and a raster map snaps to a whole integer zoom, so the
+    // world stopped filling the container and Google's out-of-world grey showed
+    // as a band above and below the map. Web must never make this call.
+    platformHarness.native = false;
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+
+    render(<LocationImmersiveMap surface="check-in" />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    await waitFor(() => {
+      expect(mapHarness.map.addCircles).toHaveBeenCalled();
+    });
+
+    expect(mapHarness.map.setPadding).not.toHaveBeenCalled();
+    // The container itself is untouched by the fix and still owns the viewport.
+    expect(screen.getByTestId("one-location-map").className).toContain(
+      "h-[100dvh]",
+    );
   });
 
   it("never strands markers when the set changes mid-write", async () => {
@@ -766,7 +806,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -802,7 +842,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -881,7 +921,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -910,6 +950,8 @@ describe("LocationImmersiveMap demo experience", () => {
   });
 
   it("keeps the full search circle in the visible mobile viewport above the sheet", async () => {
+    // Camera padding is a NATIVE-only bridge call, so this case runs native.
+    platformHarness.native = true;
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     // Check-in is its own destination now; the legacy `?action=check-in`
@@ -956,7 +998,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -990,7 +1032,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -1031,7 +1073,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -1091,7 +1133,7 @@ describe("LocationImmersiveMap demo experience", () => {
       // correctly skipped on remount within the same session. Click it only
       // when it's actually there.
       const continueButton = screen.queryByRole("button", {
-        name: "Continue to Your Map",
+        name: "Continue",
       });
       if (continueButton) fireEvent.click(continueButton);
       await waitFor(() => {
@@ -1133,7 +1175,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
       render(<LocationImmersiveMap surface="check-in" />);
       fireEvent.click(
-        screen.getByRole("button", { name: "Continue to Your Map" }),
+        screen.getByRole("button", { name: "Continue" }),
       );
       await waitFor(() => {
         expect(
@@ -1167,7 +1209,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     const view = render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
@@ -1197,7 +1239,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
@@ -1248,7 +1290,7 @@ describe("LocationImmersiveMap demo experience", () => {
 
     render(<LocationImmersiveMap surface="check-in" />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
 
     await waitFor(() => {
@@ -1662,7 +1704,7 @@ describe("LocationImmersiveMap remount triggers", () => {
     render(<LocationImmersiveMap surface="check-in" />);
     // Renderer consent gates the sheet and the marker refresh alike.
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -1733,7 +1775,7 @@ describe("LocationImmersiveMap reported map defects", () => {
   async function renderReadyMap() {
     render(<LocationImmersiveMap />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Continue to Your Map" }),
+      screen.getByRole("button", { name: "Continue" }),
     );
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
