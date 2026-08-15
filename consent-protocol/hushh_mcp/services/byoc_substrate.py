@@ -339,9 +339,35 @@ def resolve_substrate_ensurer(spec: Any) -> SubstrateEnsurer:
     if (getattr(spec, "deployment_target", None) or "").strip() != BACKEND_USER_GCP:
         return NoSubstrateRequired()
 
+    # From the SPEC, not the environment. These three used to be process-wide reads,
+    # which made per-tenant infrastructure single-tenant: the bucket, the KMS key, the
+    # signing secret and the pod service account were all created in whichever project
+    # HUSSH_USER_GCP_PROJECT named, for every person. Env survives only as the
+    # single-tenant dev fallback, and only when the spec is silent.
+    project = (
+        getattr(spec, "user_cloud_project", None) or os.getenv("HUSSH_USER_GCP_PROJECT") or ""
+    ).strip()
+    if not project:
+        # Refused rather than defaulted. An empty project previously built a substrate
+        # pointed at "", and provisioning then raised SubstrateNotReadyError naming a
+        # STEP -- so the error described the symptom and never the cause.
+        raise ValueError(
+            "a user_gcp substrate needs the person's own project, and it is never "
+            "inferred. There is no safe default here: the fallback would apply this "
+            "person's infrastructure inside another person's cloud."
+        )
+
     return HushhFederatedSubstrate(
-        project=(os.getenv("HUSSH_USER_GCP_PROJECT") or "").strip(),
-        region=(os.getenv("HUSSH_USER_GCP_REGION") or "us-central1").strip(),
-        bootstrap_sa=(os.getenv("HUSSH_USER_GCP_BOOTSTRAP_SA") or "").strip(),
+        project=project,
+        region=(
+            getattr(spec, "user_cloud_region", None)
+            or os.getenv("HUSSH_USER_GCP_REGION")
+            or "us-central1"
+        ).strip(),
+        bootstrap_sa=(
+            getattr(spec, "user_cloud_bootstrap_sa", None)
+            or os.getenv("HUSSH_USER_GCP_BOOTSTRAP_SA")
+            or ""
+        ).strip(),
         dry_run=not user_gcp_substrate_apply_enabled(),
     )

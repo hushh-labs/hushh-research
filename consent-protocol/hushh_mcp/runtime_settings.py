@@ -602,6 +602,27 @@ def pod_managed_model_enabled() -> bool:
     return _bool_from_value(_clean_env("HUSSH_POD_MANAGED_MODEL_ENABLED"), default=False)
 
 
+def pod_user_adc_enabled() -> bool:
+    """Let a pod serve a turn on the OWNER'S OWN Vertex, in the owner's own project.
+
+    Distinct from :func:`pod_managed_model_enabled`, and the distinction is the whole
+    architecture. That flag spends hushh's fleet identity on someone's behalf; this one
+    spends nothing of hushh's at all. Inside a BYOC pod the ambient credential IS the
+    person's -- their project, their quota, their bill, their pod's own service account
+    -- so this is what "own your AI, own your compute" actually resolves to once their
+    cloud exists.
+
+    Default **OFF** because it is only true where it is rendered, and it is rendered by
+    ``UserGcpBackend`` alone. A hushh-managed pod that read this as on would reach for
+    ambient ADC in HUSHH's project, which is the fleet identity by another name and
+    exactly what the managed flag exists to gate. So this is set per pod at render time,
+    never propagated from the hub's own environment.
+
+    Read at turn time rather than baked into the image so revoking a person's Vertex
+    access takes effect on their next turn rather than their next deploy."""
+    return _bool_from_value(_clean_env("HUSSH_POD_USER_ADC_ENABLED"), default=False)
+
+
 def pod_turn_enabled() -> bool:
     """Let a POD serve an Agent One turn from its own process.
 

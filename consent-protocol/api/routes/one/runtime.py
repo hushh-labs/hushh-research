@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import time
 from pathlib import Path
@@ -444,3 +445,160 @@ async def plan_byoc_project(
             )
         }
     return plan
+
+
+class ByocProjectSaveRequest(BaseModel):
+    projectId: str = Field(min_length=1, max_length=64)
+    region: str = Field(default="us-central1", max_length=32)
+    # Matches BOOTSTRAP_SA_ID in deploy/iam/authorize_byoc_project.sh, which is the
+    # artifact a person actually runs. Overridable for anyone who changed it there.
+    bootstrapServiceAccountId: str = Field(default="one-bootstrap", max_length=30)
+
+
+class ByocProjectSaveResponse(BaseModel):
+    projectId: str
+    region: str
+    bootstrapServiceAccount: str
+    # Proven, not asserted: True only when hushh just minted a token against their
+    # project. A form cannot set this.
+    authorized: bool
+    # The single value the authorization script cannot run without. Returned on BOTH
+    # outcomes, because the unauthorized case is exactly when a person needs it.
+    hushhCaller: str
+    nextStep: str
+
+
+def _hushh_caller_identity() -> str:
+    """The one hushh identity a person grants serviceAccountTokenCreator to.
+
+    Normalized through `_bare_service_account` rather than read raw, because the same
+    principal is spelled two ways across this codebase -- `HUSSH_POD_INVOKER_MEMBER`
+    carries an IAM-member `serviceAccount:` prefix and `HUSSH_CONSENT_PLANE_SA` does
+    not. Handing a person the prefixed form would have them build
+    `serviceAccount:serviceAccount:...`, which IAM rejects with a 400 on every
+    setIamPolicy, in their own project, with nothing naming the cause.
+    """
+    from hushh_mcp.services.user_gcp_backend import _bare_service_account
+
+    # str() because `hushh_mcp.services.*` is excluded from mypy's strict section, so the
+    # helper's declared `-> str` arrives here as Any and would silently widen this
+    # function's contract.
+    return str(_bare_service_account(os.getenv("HUSSH_CONSENT_PLANE_SA", "")))
+
+
+@router.post("/byoc/project/save", response_model=ByocProjectSaveResponse)
+@limiter.limit(RateLimits.AGENT_CHAT)
+async def save_byoc_project(
+    request: Request,
+    body: ByocProjectSaveRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> ByocProjectSaveResponse:
+    """Record WHICH cloud is this person's, and prove hushh can actually reach it.
+
+    This is the route that ends BYOC's single-tenancy. Until it existed, the target
+    project was `os.getenv("HUSSH_USER_GCP_PROJECT")` -- one value for the whole
+    deployment -- so the second person to choose their own cloud would have had their
+    pod built inside the first person's project.
+
+    IT READS THE GRANT BACK RATHER THAN BELIEVING THE FORM
+
+    A person clicking "I ran the script" is not evidence that they ran it, and the
+    failure that follows a wrong answer is expensive and far away: three steps into
+    provisioning, inside someone else's cloud, with an error naming none of this. So
+    authorization is established the only way it can honestly be established -- by
+    minting a short-lived token against their bootstrap account. `mint_bootstrap_token`
+    fails loudly rather than falling back to hushh's own identity, which is exactly the
+    property being tested here.
+
+    A FAILED PROOF IS NOT AN ERROR
+
+    Naming a cloud before authorizing it is the normal order: a person needs
+    `hushhCaller` from this response *in order to* run the script. So an unauthorized
+    project is recorded (without the proof) and returned 200 with the next step, rather
+    than 4xx. The state "named but not yet authorized" is a real, expected stage of
+    onboarding, and provisioning refuses it later rather than silently falling back to
+    hushh's cloud.
+
+    IT PROVISIONS NOTHING, like its three siblings above.
+    """
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+    from hushh_mcp.services.user_gcp_bootstrap import BootstrapError, mint_bootstrap_token
+    from hushh_mcp.services.user_gcp_project import validate_project_id
+
+    verdict = validate_project_id(body.projectId)
+    if not verdict.valid:
+        raise HTTPException(
+            status_code=422, detail={"code": "INVALID_PROJECT_ID", "reason": verdict.reason}
+        )
+
+    project = verdict.project_id
+    bootstrap_sa = f"{body.bootstrapServiceAccountId}@{project}.iam.gserviceaccount.com"
+    hushh_caller = _hushh_caller_identity()
+
+    authorized = False
+    try:
+        await asyncio.to_thread(mint_bootstrap_token, bootstrap_sa=bootstrap_sa)
+        authorized = True
+    except BootstrapError:
+        logger.info("byoc_project.not_yet_authorized project=%s", project)
+    except Exception:  # noqa: BLE001 - an unreachable IAM API is not a failed grant
+        logger.info("byoc_project.authorization_probe_unavailable project=%s", project)
+
+    repo = PersonalAgentRegistryRepo()
+    wrote = await repo.set_user_cloud(
+        user_id=firebase_uid,
+        project=project,
+        region=body.region,
+        bootstrap_sa=bootstrap_sa,
+        authorized=authorized,
+        # Named here, not in the registry: the common layer must not be able to name a
+        # provider (test_deployment_boundary_holds). This route is the layer that knows
+        # a person chose their own cloud, so it is the layer allowed to say so.
+        deployment_target="user_gcp",
+        model_credential_mode="user_adc",
+    )
+    if not wrote:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "NO_AGENT_RECORD",
+                "message": (
+                    "Verify your phone number first. Your agent's record is created then, "
+                    "and this is where your cloud gets attached to it."
+                ),
+            },
+        )
+
+    if authorized:
+        # Server-written, never client-asserted. A marker that can exist without a
+        # stored, proven project is a gate that does nothing.
+        try:
+            from hushh_mcp.onboarding_contract import normalize_setup_capability_ids
+            from hushh_mcp.services.vault_keys_service import VaultKeysService
+
+            service = VaultKeysService()
+            state = await service.get_pre_vault_state(firebase_uid)
+            current = list(state.get("setupCapabilityIds") or [])
+            if "cloud" not in current:
+                await service.update_pre_vault_state(
+                    user_id=firebase_uid,
+                    setup_capability_ids=normalize_setup_capability_ids([*current, "cloud"]),
+                )
+        except Exception:  # noqa: BLE001 - the cloud is recorded; the marker can be retried
+            logger.warning("byoc_project.marker_write_failed", exc_info=True)
+
+    return ByocProjectSaveResponse(
+        projectId=project,
+        region=body.region,
+        bootstrapServiceAccount=bootstrap_sa,
+        authorized=authorized,
+        hushhCaller=hushh_caller,
+        nextStep=(
+            "Your cloud is connected. Choose how your agent reaches a model next."
+            if authorized
+            else (
+                "Run the authorization script in your project, then continue. "
+                f"It needs PROJECT_ID={project} and HUSHH_CALLER={hushh_caller}."
+            )
+        ),
+    )

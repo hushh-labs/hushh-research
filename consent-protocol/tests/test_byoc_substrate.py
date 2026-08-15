@@ -118,8 +118,15 @@ def test_only_byoc_resolves_to_a_real_ensurer():
         spec = PodSpec(hushh_id="h", phone_e164_hash="p", pod_pubkey="k", deployment_target=target)
         assert isinstance(resolve_substrate_ensurer(spec), NoSubstrateRequired)
 
+    # A well-formed BYOC spec carries the tenant it is for. It did not have to before,
+    # when the destination was a process-wide env var -- which is exactly why two people
+    # resolved to one project. The coordinates are now part of what makes the spec valid.
     byoc = PodSpec(
-        hushh_id="h", phone_e164_hash="p", pod_pubkey="k", deployment_target=BACKEND_USER_GCP
+        hushh_id="h",
+        phone_e164_hash="p",
+        pod_pubkey="k",
+        deployment_target=BACKEND_USER_GCP,
+        user_cloud_project="their-own-project",
     )
     assert isinstance(resolve_substrate_ensurer(byoc), HushhFederatedSubstrate)
 
@@ -127,7 +134,11 @@ def test_only_byoc_resolves_to_a_real_ensurer():
 def test_creating_resources_in_someone_elses_cloud_is_opt_in(monkeypatch):
     monkeypatch.delenv("HUSSH_USER_GCP_SUBSTRATE_APPLY", raising=False)
     byoc = PodSpec(
-        hushh_id="h", phone_e164_hash="p", pod_pubkey="k", deployment_target=BACKEND_USER_GCP
+        hushh_id="h",
+        phone_e164_hash="p",
+        pod_pubkey="k",
+        deployment_target=BACKEND_USER_GCP,
+        user_cloud_project="their-own-project",
     )
     assert resolve_substrate_ensurer(byoc)._dry_run is True, (
         "substrate apply defaulted ON. Creating a KMS key, a CMEK bucket and IAM in a "

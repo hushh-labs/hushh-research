@@ -55,7 +55,9 @@ def test_a_persons_target_selects_their_backend_not_the_deployments(monkeypatch)
 
     from hushh_mcp.services.user_gcp_backend import UserGcpBackend
 
-    chosen = resolve_compute_backend_for_spec(_spec(deployment_target=BACKEND_USER_GCP))
+    chosen = resolve_compute_backend_for_spec(
+        _spec(deployment_target=BACKEND_USER_GCP, user_cloud_project="their-own-project")
+    )
     assert isinstance(chosen, UserGcpBackend), (
         "a person who connected their own cloud was routed to the deployment's "
         "backend instead of their own — this is the BYOC failure the axis exists to stop"
@@ -125,7 +127,9 @@ def test_a_per_person_target_overrides_the_injected_backend(monkeypatch) -> None
 
     injected = _RecordingBackend()
     svc = PersonalAgentProvisioningService(registry=object(), backend=injected)
-    chosen = svc._backend_for(_spec(deployment_target=BACKEND_USER_GCP))
+    chosen = svc._backend_for(
+        _spec(deployment_target=BACKEND_USER_GCP, user_cloud_project="their-own-project")
+    )
 
     assert chosen is not injected
     assert isinstance(chosen, UserGcpBackend)

@@ -35,7 +35,7 @@ only one of them is what they asked about.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,25 @@ async def on_ai_connection_verified(
             return {"scheduled": False, "reason": "personal agent is off"}
         if not provision_on_ai_connection():
             return {"scheduled": False, "reason": "ai-connection trigger is off"}
-        access = _pod_can_serve(provider)
+        # THIS person's target, not the deployment's. A BYOC person's connection must
+        # be judged against their own project, where Vertex ADC is theirs, rather than
+        # against hushh's fleet flag -- which is a different tier's question entirely.
+        from hushh_mcp.services.user_cloud_service import resolve_user_cloud  # noqa: PLC0415
+
+        cloud = await resolve_user_cloud(normalized, repo=registry)
+        if cloud is not None and cloud.is_user_owned and not cloud.is_ready_to_provision:
+            # They chose their own cloud and have not yet let hushh in. Refusing is the
+            # ordering rule in its load-bearing form: without it, a person who started
+            # BYOC is silently completed as a trial user, on hushh's compute and hushh's
+            # bill, and nothing in the product ever tells them.
+            return {
+                "scheduled": False,
+                "reason": "your cloud is named but not yet authorized",
+            }
+
+        access = _pod_can_serve(
+            provider, deployment_target=(cloud.deployment_target if cloud else None)
+        )
         if not access.can_serve:
             # NOT a new flag, deliberately. For the managed tier this still resolves
             # to `pod_managed_model_enabled`, the same setting that decides whether a
@@ -171,8 +189,17 @@ async def on_ai_connection_verified(
 _MANAGED_PROVIDER = "hushh_managed_vertex"
 
 
-def _pod_can_serve(provider: str) -> Any:
+def _pod_can_serve(provider: str, *, deployment_target: Optional[str] = None) -> Any:
     """Could a pod actually run a turn on this connection mode, ON THIS PATH?
+
+    ``deployment_target`` is THIS person's, not the deployment's. Without it the
+    verdict was resolved from the process-wide ``PERSONAL_AGENT_BACKEND``, so a BYOC
+    person's managed selection was judged as though it would run on hushh's fleet
+    identity -- and therefore gated on ``pod_managed_model_enabled()``, a flag that has
+    nothing to do with whether their own project's ADC works. That is the wrong
+    question asked of the wrong tier, and it is what makes the trial tier and BYOC
+    unable to coexist in one deployment. They must coexist: the trial is offered
+    before the cloud step.
 
     The last clause is the fix. This asked only "managed or BYOK?" and consulted one
     global flag, which is backend-blind — and the paths do not have the same model
@@ -198,7 +225,7 @@ def _pod_can_serve(provider: str) -> Any:
         resolve_backend_id,
     )
 
-    return model_access_for(resolve_backend_id(), provider)
+    return model_access_for(resolve_backend_id(deployment_target), provider)
 
 
 async def _verified_phone(actor: Any, user_id: str) -> str:

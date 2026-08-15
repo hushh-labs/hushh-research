@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from hushh_mcp.services.compute_backend import (
@@ -84,11 +86,55 @@ def test_bootstrap_plan_includes_metadata_only_mail_trigger():
 
 
 def test_bootstrap_plan_carries_no_secret_material():
-    # The plan is a declarative resource/IAM/federation spec — never key material.
-    # ("private ingress" is fine; we forbid actual secret markers.)
-    blob = str(_backend().render_bootstrap_plan(_spec())).lower()
-    for forbidden in ("private key", "private_key", "secret", "password", "api_key", "-----begin"):
-        assert forbidden not in blob
+    """The plan is a declarative resource/IAM/federation spec, never key material.
+
+    WHY THIS NO LONGER GREPS FOR THE WORD "secret"
+
+    It used to forbid that substring anywhere in the rendered plan. That was a proxy,
+    and it failed in both directions once the plan had to be honest about what it
+    grants. The applier binds ``roles/secretmanager.secretAccessor`` and creates a
+    Secret Manager entry, so a plan that names neither is hiding authority from the
+    person being asked to consent to it -- the exact failure
+    ``test_byoc_bootstrap_plan_matches_the_applier`` exists to catch. Under the old
+    pattern, the more truthful the artifact became, the redder this went.
+
+    It was also weak in the direction that matters: a base64 key blob under a neutral
+    field name passed cleanly, because nobody had written the word.
+
+    So this now inspects VALUES for the shape of key material rather than scanning the
+    blob for a vocabulary. A role name and a resource id are identifiers; a PEM block or
+    a long opaque blob is a secret, whatever it is called.
+    """
+    plan = _backend().render_bootstrap_plan(_spec())
+
+    def _walk(node, path=""):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                # A field whose NAME promises a value is a field that must not hold one.
+                assert str(key).lower() not in {
+                    "private_key",
+                    "privatekey",
+                    "password",
+                    "api_key",
+                    "apikey",
+                    "credential",
+                    "token",
+                }, f"{path}.{key} is a value-bearing field name in a declarative plan"
+                _walk(value, f"{path}.{key}")
+        elif isinstance(node, (list, tuple)):
+            for i, item in enumerate(node):
+                _walk(item, f"{path}[{i}]")
+        elif isinstance(node, str):
+            lowered = node.lower()
+            assert "-----begin" not in lowered, f"{path} carries a PEM block"
+            assert "private key" not in lowered, f"{path} names private key material"
+            # An opaque high-entropy run is what an exported key or a token looks like.
+            # Real plan strings are dotted role names, hyphenated resource ids, URLs and
+            # prose -- none of which produce a long unbroken alphanumeric token.
+            for token in re.split(r"[^A-Za-z0-9+/=_]+", node):
+                assert len(token) < 40, f"{path} carries an opaque {len(token)}-char blob"
+
+    _walk(plan, "plan")
 
 
 async def test_provision_plan_mode_is_user_owned_and_keyless():

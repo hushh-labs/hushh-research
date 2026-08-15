@@ -145,6 +145,28 @@ class PodSpec:
     deployment_target: Optional[str] = None
     model_credential_mode: Optional[str] = None
 
+    # -- WHERE, precisely: the coordinates of the person's own cloud --------------
+    #
+    # `deployment_target` says which KIND of place a pod runs in. These say WHICH one.
+    # Without them the target was per-person while the destination stayed a
+    # process-wide environment variable, so the second person to choose their own
+    # cloud had their pod, their bucket and their KMS key built inside the FIRST
+    # person's project. That is an isolation failure, not a configuration gap, and it
+    # is the reason a target alone was never enough.
+    #
+    # The bootstrap account is carried rather than derived from the project name for
+    # the reason `UserGcpBackend` already gives about identities: a guessed account
+    # that happens to exist would be used silently, and the whole point of the grant
+    # is that it was deliberately made.
+    #
+    # `None` means "fall back to the deployment default", which is what every
+    # pre-existing caller gets. A target of `user_gcp` with no project is refused
+    # rather than defaulted -- a fallback that resolves to "somebody's project" is
+    # exactly the failure these fields exist to remove.
+    user_cloud_project: Optional[str] = None
+    user_cloud_region: Optional[str] = None
+    user_cloud_bootstrap_sa: Optional[str] = None
+
     # -- the third axis: how warm THIS person's pod is kept -----------------------
     #
     # Same defect as the two above, one layer down. `HUSSH_POD_MIN_INSTANCES` is read
@@ -298,4 +320,28 @@ def resolve_compute_backend_for_spec(spec: PodSpec) -> ComputeBackend:
     default, which for a BYOC user would mean provisioning into hushh's project
     instead of their own. That is the one failure mode worth being noisy about.
     """
-    return resolve_compute_backend(spec.deployment_target or None)
+    target = (spec.deployment_target or "").strip() or None
+    if target != BACKEND_USER_GCP:
+        return resolve_compute_backend(target)
+
+    # The tenant-bearing branch. `resolve_compute_backend` constructs its backends with
+    # no arguments, which is right for every target whose destination is a property of
+    # the deployment -- and exactly wrong for the one whose destination is a property of
+    # the PERSON. Routing this branch through the generic resolver is what put two
+    # people's pods in one project.
+    if not (spec.user_cloud_project or "").strip():
+        raise ValueError(
+            "a user_gcp pod needs the person's own project on its spec, and it is never "
+            "inferred. Falling back to HUSSH_USER_GCP_PROJECT here would build this "
+            "person's pod inside whichever project that variable happens to name -- "
+            "which, with more than one BYOC person, is somebody else's cloud."
+        )
+
+    from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+
+    tenant: ComputeBackend = UserGcpBackend(
+        user_project=spec.user_cloud_project,
+        user_region=spec.user_cloud_region or None,
+        bootstrap_sa=spec.user_cloud_bootstrap_sa or None,
+    )
+    return tenant

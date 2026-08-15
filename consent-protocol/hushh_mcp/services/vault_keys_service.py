@@ -184,7 +184,17 @@ class VaultKeysService:
 
     @staticmethod
     def _normalize_int_ms_or_none(value: Any) -> Optional[int]:
+        # The `try` below used to sit under the NEXT function's `return`, where it was
+        # unreachable, so this one fell off the end and answered None for every non-None
+        # input. Every millisecond field on /api/vault/bootstrap-state was therefore null
+        # -- firstLoginAt, setupCompletedAt, onboardingJourneyUpdatedAt and the rest --
+        # which also left `expectedOnboardingJourneyUpdatedAt` optimistic concurrency
+        # comparing against null and unable to detect a stale journey.
         if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
             return None
 
     @staticmethod
@@ -193,10 +203,6 @@ class VaultKeysService:
             return None
         normalized = str(value).strip()
         return normalized if normalized in ONE_RUNTIME_SETUP_CHOICES else None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
 
     @staticmethod
     def _now_ms() -> int:

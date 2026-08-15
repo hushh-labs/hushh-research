@@ -20,9 +20,12 @@ tests/test_agent_runtime_tool_resolution_error.py
 tests/test_ai_connection_gate.py
 tests/test_anypoint_backend.py
 tests/test_byoc_authorization_script_matches_the_applier.py
+tests/test_byoc_bootstrap_plan_matches_the_applier.py
 tests/test_byoc_bootstrap_and_custody.py
 tests/test_byoc_project_naming.py
+tests/test_byoc_project_save_route.py
 tests/test_byoc_substrate.py
+tests/test_byoc_tenancy_is_per_person.py
 tests/test_campaign_context_tool.py
 tests/test_cloudbuild_step_arg_limit.py
 tests/test_compute_backend.py
@@ -68,6 +71,7 @@ tests/test_mcp_public_tools_v030.py
 tests/test_mcp_remote_endpoint.py
 tests/test_model_access_policy.py
 tests/test_no_orphaned_agents.py
+tests/test_onboarding_contract.py
 tests/test_one_adk_live_protocol.py
 tests/test_one_grounding_honesty.py
 tests/test_one_location_db_error_detail_cwe209.py
@@ -131,6 +135,7 @@ tests/test_pod_turn_relay.py
 tests/test_pod_turn_route.py
 tests/test_portfolio_stream_quality_rules.py
 tests/test_product_agent_registry_v2.py
+tests/test_provision_uses_the_persons_own_cloud.py
 tests/test_request_consent_local_keypair.py
 tests/test_ria_brochure_profile.py
 tests/test_ria_claim_dossiers_migration.py
@@ -161,3 +166,4 @@ tests/test_webauthn_routes.py
 tests/test_webauthn_service.py
 tests/test_user_gcp_model_access_boundary.py
 tests/test_pod_architecture_is_authoritative.py
+tests/test_user_adc_turn.py

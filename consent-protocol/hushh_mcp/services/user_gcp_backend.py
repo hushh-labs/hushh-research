@@ -244,6 +244,7 @@ class UserGcpBackend:
         hushh_invoker_sa: Optional[str] = None,
         min_instances: Optional[int] = None,
         live: Optional[bool] = None,
+        bootstrap_sa: Optional[str] = None,
     ) -> None:
         self._user_project = (
             user_project if user_project is not None else _env("HUSSH_USER_GCP_PROJECT")
@@ -267,7 +268,14 @@ class UserGcpBackend:
         # The account in the USER's project that hushh was authorized to impersonate.
         # Never derived from the project name: a guessed identity that happens to exist
         # would be used silently, and the point of the grant is that it was made.
-        self._bootstrap_sa = _env("HUSSH_USER_GCP_BOOTSTRAP_SA")
+        # Per person when the caller knows who this pod belongs to, env only as the
+        # single-tenant dev fallback. One person's bootstrap account is
+        # `one-bootstrap@their-project` and another's is `one-bootstrap@other-project`,
+        # so this stopped being one environment variable the moment there were two
+        # people.
+        self._bootstrap_sa = (
+            bootstrap_sa if bootstrap_sa is not None else _env("HUSSH_USER_GCP_BOOTSTRAP_SA")
+        )
         # Reuse the GCP renderer, pinned to the USER's project/region (never live here;
         # the inner backend only renders — this class owns provisioning semantics).
         self._inner = GcpBackend(
@@ -329,6 +337,17 @@ class UserGcpBackend:
                 # does not own.
                 {"name": "GOOGLE_CLOUD_PROJECT", "value": project},
                 {"name": "GOOGLE_CLOUD_LOCATION", "value": region},
+                # The NAME for what the two lines above already make true. Without it
+                # `_resolve_runtime_mode` has no branch for "serve on my own ADC" and a
+                # credential-less turn 400s -- so a BYOC pod, whose model access is
+                # complete, refused every turn for want of a vocabulary entry.
+                #
+                # Rendered ONLY here, never by `GcpBackend`, and never propagated from
+                # the hub's own environment the way `HUSSH_POD_TURN_ENABLED` is. This is
+                # a fact about ONE person's pod: it is true because this renderer is
+                # building into that person's project, and it would be false anywhere
+                # hushh owns the ambient identity.
+                {"name": "HUSSH_POD_USER_ADC_ENABLED", "value": "true"},
             ]
         )
         # Two addresses in place of two secrets. The pod mints and wraps its own key on
@@ -372,6 +391,15 @@ class UserGcpBackend:
         # Per-user mail-event trigger, entirely inside the user's project (BYOC): Gmail
         # push -> the user's OWN Pub/Sub topic; the always-on pod pulls its own wake
         # events. A metadata-only doorbell -- the pod opens the mail, never Hushh.
+        # Created by `UserGcpBootstrap` step `pod_signing_secret` and, until now,
+        # declared by the plan nowhere. A resource the plan does not name cannot appear
+        # in `resource_ids(plan)`, so the teardown receipt could never account for it.
+        signing_secret = f"{pod_service_account_id(spec.hushh_id)}-signing-key"
+        # The account the PERSON creates when they run deploy/iam/authorize_byoc_project.sh,
+        # whose BOOTSTRAP_SA_ID defaults to `one-bootstrap`. This used to render
+        # `one-bootstrap-{slug}@`, which no script anywhere creates -- so the artifact a
+        # person reads named an identity that would never exist.
+        bootstrap_sa = self._bootstrap_sa or f"one-bootstrap@{project}.iam.gserviceaccount.com"
         mail_topic = f"one-mail-{slug}"
         mail_sub = f"one-mail-{slug}-sub"
         watch_job = f"one-mail-{slug}-watch-renew"
@@ -404,6 +432,11 @@ class UserGcpBackend:
                     "purpose": "the sovereign per-user pod (slim image)",
                 },
                 {
+                    "type": "secret",
+                    "id": signing_secret,
+                    "purpose": "the pod signs its own receipts with this; hushh never reads it",
+                },
+                {
                     "type": "pubsub_topic",
                     "id": mail_topic,
                     "purpose": "Gmail push target — mailbox-change events (metadata only, no body)",
@@ -425,14 +458,62 @@ class UserGcpBackend:
                     "purpose": "re-arm Gmail users.watch() before its 7-day expiry (fail-safe: history catch-up on lapse)",
                 },
             ],
+            # THE CONSENT ARTIFACT. This list is what a person is shown before they
+            # authorize their project, so it must name every grant the applier actually
+            # makes. It did not: five roles were bound by `UserGcpBootstrap.plan_calls`
+            # and advertised nowhere -- including the ONLY project-level grant in the
+            # design. Asking someone to consent to a list that omits the broadest thing
+            # on it is the failure `test_byoc_authorization_script_matches_the_applier`
+            # exists to prevent, applied to the pair that actually diverged.
             "iam": [
                 {"member": pod_sa, "role": "roles/cloudkms.cryptoKeyDecrypter", "on": kms_key},
+                {
+                    "member": pod_sa,
+                    "role": "roles/cloudkms.cryptoKeyEncrypter",
+                    "on": kms_key,
+                    "note": "the pod generates and WRAPS its own data key on first boot; hushh never holds the plaintext",
+                },
+                {
+                    "member": "the project's Cloud Storage service agent",
+                    "role": "roles/cloudkms.cryptoKeyEncrypterDecrypter",
+                    "on": kms_key,
+                    "note": "what makes the bucket CMEK-encrypted under YOUR key rather than Google's default",
+                },
                 {"member": pod_sa, "role": "roles/storage.objectAdmin", "on": bucket},
+                {
+                    "member": pod_sa,
+                    "role": "roles/secretmanager.secretAccessor",
+                    "on": signing_secret,
+                    "note": "the pod reads its own signing secret; scoped to that one secret",
+                },
+                {
+                    "member": bootstrap_sa,
+                    "role": "roles/iam.serviceAccountUser",
+                    "on": pod_sa,
+                    "note": "lets the bootstrap deploy a service that RUNS AS the pod account, and nothing else",
+                },
+                {
+                    "member": pod_sa,
+                    "role": "roles/aiplatform.user",
+                    "on": f"project:{project}",
+                    "project_level": True,
+                    "note": (
+                        "PROJECT-LEVEL, and the only project-wide grant here. Vertex has "
+                        "no per-resource binding to scope to. This is your agent calling "
+                        "Vertex as itself, on your own quota and your own bill -- which "
+                        "is what lets it work without you handing hushh an AI key"
+                    ),
+                },
                 {
                     "member": invoker,
                     "role": "roles/run.invoker",
                     "on": name,
-                    "note": "lets ONLY the Hushh A2A gateway reach the pod; Hushh holds no key into this project",
+                    "applied_at": "provision",
+                    "note": (
+                        "lets ONLY the Hushh A2A gateway reach the pod; Hushh holds no key "
+                        "into this project. Bound when the service is created, not during "
+                        "bootstrap, because the binding needs a service to bind to"
+                    ),
                 },
                 {
                     "member": "gmail-api-push@system.gserviceaccount.com",
@@ -463,7 +544,7 @@ class UserGcpBackend:
                 if self._hushh_invoker_sa
                 else "workload_identity_federation",
                 "impersonation": {
-                    "bootstrap_service_account": f"one-bootstrap-{slug}@{project}.iam.gserviceaccount.com",
+                    "bootstrap_service_account": bootstrap_sa,
                     "granted_to": invoker,
                     "role": "roles/iam.serviceAccountTokenCreator",
                     "scope": "that ONE service account — never a project-level role",

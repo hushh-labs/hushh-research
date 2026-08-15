@@ -304,8 +304,24 @@ def _resolve_runtime_mode(payload: PodTurnRequest) -> str:
         # pins the value a function returns, rather than what the next function does
         # with it, passes for exactly as long as both ends are wrong together.
         return "byok"
-    from hushh_mcp.runtime_settings import pod_managed_model_enabled  # noqa: PLC0415
+    from hushh_mcp.runtime_settings import (  # noqa: PLC0415
+        pod_managed_model_enabled,
+        pod_user_adc_enabled,
+    )
 
+    # ORDER IS LOAD-BEARING, and it is BYOK -> user ADC -> managed.
+    #
+    # An owner who sends a key gets their key: that is checked above and nothing here
+    # can take it from them. Next comes the person's own project, which is the
+    # production answer once their cloud exists -- no credential travels, because the
+    # pod already runs as their service account in their project.
+    #
+    # Managed stays last precisely because it is the only branch that spends hushh's
+    # identity. Putting it earlier would let a mis-set FLEET flag capture a BYOC pod
+    # and quietly bill a person's thinking to hushh while their own project sat idle,
+    # and nothing in the answer would look wrong.
+    if pod_user_adc_enabled():
+        return "user_adc"
     if pod_managed_model_enabled():
         return "hushh_managed_vertex"
     # Refusing beats guessing. This is the honest state for a person whose AI

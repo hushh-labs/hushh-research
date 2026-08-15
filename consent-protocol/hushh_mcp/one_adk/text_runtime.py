@@ -141,6 +141,24 @@ def _runtime_model(
             vertex_project=runtime_vertex_project,
             vertex_location=runtime_vertex_location,
         )
+    if runtime_mode == "user_adc":
+        # The person's OWN Vertex, reached from their OWN pod's service account in
+        # their OWN project. A named third member of this set, never a fallthrough.
+        #
+        # It reaches the same builder as the managed branch on purpose: what differs
+        # is not how the client is built but WHOSE identity ambient ADC resolves to.
+        # Inside a BYOC pod `GOOGLE_CLOUD_PROJECT` is the person's project and the
+        # runtime identity is their pod's service account, so
+        # `ManagedGeminiRuntimeBinding.from_environment()` already resolves to them.
+        # A second builder doing the same work is the drift `factory.py` argues
+        # against.
+        #
+        # The NAME is the point. Reporting `hushh_managed_vertex` in a BYOC pod's log
+        # line would be a false statement about who paid for the turn, and that line
+        # is the evidence the tier is sold on.
+        if credential:
+            raise ValueError("user ADC cannot be constructed from an API key")
+        return build_managed_gemini_adk_model(model, vertex_location=managed_location)
     if runtime_mode != "hushh_managed_vertex":
         # Closed set, and closed is the point. hussh's own Vertex identity used to
         # be the DEFAULT branch: any mode string that was not exactly "byok" landed

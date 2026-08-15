@@ -77,6 +77,7 @@ from hushh_mcp.services.pod_connector_keypair_service import (
     WRAPPING_ALG,
     parse_pod_public_key,
 )
+from hushh_mcp.services.user_cloud_service import resolve_user_cloud
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,21 @@ class SubstrateNotReadyError(RuntimeError):
     details. For BYOC the usual causes are external and often self-healing -- the
     bootstrap grant was never completed, or it was revoked -- and telling someone their
     details are invalid would send them to fix the one thing that is fine.
+    """
+
+
+class PersonalAgentCloudNotAuthorizedError(RuntimeError):
+    """They named their cloud and have not yet let hushh in.
+
+    A distinct type from :class:`SubstrateNotReadyError` because the remedy is a
+    different person's action: the substrate case is infrastructure that failed to
+    apply, this one is a grant that was never made. Both are temporary rather than
+    invalid-details for the same reason -- nothing they typed is wrong.
+
+    The important property is that this REFUSES rather than falls back. Provisioning
+    onto hushh's own cloud here would be the worst available outcome: the person
+    explicitly chose to own their compute, the product would show them a working agent,
+    and neither the bill nor the boundary would match what they agreed to.
     """
 
 
@@ -473,6 +489,40 @@ class PersonalAgentProvisioningService:
             # materializes when a backend is enabled live. Done BEFORE the mint so a host
             # failure leaves the row visibly stuck in ``provisioning`` for reconcile,
             # never a live grant with no host.
+            # Resolved HERE rather than at each call site, deliberately. All three
+            # production callers -- the phone-verify seam, the reconcile retry and the
+            # owner-authorized route -- omitted both axes, and two of them are
+            # fire-and-forget. A future caller WILL forget the argument again, and the
+            # failure that follows is a pod built in hushh's project for someone who
+            # authorized their own, with no error anywhere. Making the service
+            # responsible removes the class instead of fixing three instances of it.
+            #
+            # An explicit argument still wins, so a caller who genuinely knows better
+            # (tests, an operator re-homing one person) is not overridden.
+            # Through the INJECTED registry, not a fresh one. This service takes its
+            # registry as a constructor argument precisely so the whole flow is
+            # exercisable with no database; resolving the cloud against a
+            # separately-constructed repo would bypass that seam, and -- worse -- a
+            # registry that is merely unreachable would read as "this person has no
+            # cloud" and provision them onto the deployment default.
+            cloud = await resolve_user_cloud(user_id, repo=self._registry)
+            if deployment_target is None and cloud is not None:
+                deployment_target = cloud.deployment_target
+                model_credential_mode = model_credential_mode or cloud.model_credential_mode
+
+            # Asked of the cloud, never branched on a provider name here. This file is
+            # the common layer and may not name a cloud (test_deployment_boundary_holds);
+            # `blocks_provisioning` carries that knowledge where it belongs.
+            if cloud is not None and cloud.blocks_provisioning:
+                # Refuse rather than fall back. Falling back would build this person's
+                # agent on hushh's compute and hushh's bill after they explicitly chose
+                # otherwise, and the product would show them a working agent.
+                raise PersonalAgentCloudNotAuthorizedError(
+                    "this person's own cloud is recorded but not yet authorized; "
+                    "they need to run the authorization script in their project "
+                    "before their agent can be built there"
+                )
+
             spec = PodSpec(
                 hushh_id=hushh_id,
                 phone_e164_hash=phone_hash,
@@ -483,6 +533,11 @@ class PersonalAgentProvisioningService:
                 # exactly what every existing caller already got.
                 deployment_target=deployment_target,
                 model_credential_mode=model_credential_mode,
+                # WHICH cloud, not merely which kind. Without these the target was
+                # per-person while the destination stayed a process-wide env var.
+                user_cloud_project=(cloud.project if cloud else None),
+                user_cloud_region=(cloud.region if cloud else None),
+                user_cloud_bootstrap_sa=(cloud.bootstrap_sa if cloud else None),
             )
             # The person's own target wins over the one this service was constructed
             # with. BYOC is the production path, so a pod belonging to someone who has

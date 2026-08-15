@@ -64,6 +64,8 @@ class PersonalAgentRegistryRepo:
         backend_metadata: Optional[dict] = None,
         attestation_ref: Optional[str] = None,
         liveness_mode: Optional[str] = None,
+        deployment_target: Optional[str] = None,
+        model_credential_mode: Optional[str] = None,
     ) -> None:
         # None fields are dropped so a PENDING/logical row (phone-verify seam, or the
         # NullBackend) leaves them at the schema NULL default; a full provision with a
@@ -84,6 +86,12 @@ class PersonalAgentRegistryRepo:
             # Pinned from the handle at creation. None (any backend that does not
             # report one) leaves the schema default rather than guessing a tier.
             "liveness_mode": liveness_mode,
+            # The per-person deployment axes (migration 906). Recorded on the row that
+            # the provision actually used, so what happened and what was asked for can
+            # be compared later. None leaves the column NULL, which honestly means "the
+            # deployment default" -- which is what every pre-906 row is.
+            "deployment_target": deployment_target,
+            "model_credential_mode": model_credential_mode,
             "status": status,
         }
         data = {k: v for k, v in data.items() if v is not None}
@@ -223,6 +231,66 @@ class PersonalAgentRegistryRepo:
         self._db().table(_REGISTRY).update({"liveness_mode": normalized}).eq(
             "user_id", user_id
         ).execute()
+
+    # -- the person's own cloud (migration 906) --------------------------------
+
+    async def set_user_cloud(
+        self,
+        *,
+        user_id: str,
+        project: str,
+        deployment_target: str,
+        model_credential_mode: str,
+        region: Optional[str] = None,
+        bootstrap_sa: Optional[str] = None,
+        authorized: bool = False,
+    ) -> bool:
+        """Record WHERE this person's pod belongs. Returns False if they have no row.
+
+        `deployment_target` and `model_credential_mode` are REQUIRED and are never
+        defaulted here. The registry is the common layer: it orchestrates a fleet it must
+        not be able to name, and a default like "the target is user_gcp" would be this
+        file deciding a provider policy on the caller's behalf. Defaulting them was
+        caught by `test_deployment_boundary_holds` on the first run, which is the guard
+        doing precisely its job. The route that knows a person chose their own cloud is
+        the layer allowed to say so.
+
+        An UPDATE rather than an upsert, deliberately. This is called while someone is
+        onboarding, long before a pod exists, and it must never be the thing that brings
+        a registry row into being -- a row created here would carry no HusshID and no
+        phone hash, and every reader downstream assumes both. `register_pending` owns
+        row creation; this only ever adds coordinates to a row that already exists.
+
+        `authorized` is the whole point of the separation. It is set only when hushh has
+        just PROVEN it can act in the project by minting a token and reading the bindings
+        back -- never because a form said so. A project recorded without it is a person
+        who named a cloud and has not yet run the grant, and provisioning must refuse
+        that rather than fall back to hushh's own cloud (which would silently put their
+        agent, and their bill, somewhere they did not choose).
+
+        Not cleared on a failed re-check: losing a previously proven authorization on one
+        transient API error would strand a working pod. Re-proving updates the timestamp;
+        only an explicit revocation path should ever clear it.
+        """
+        normalized_project = str(project or "").strip()
+        if not normalized_project:
+            raise ValueError("a user cloud needs a project id -- it is never inferred")
+
+        data: dict[str, Any] = {
+            "user_cloud_project": normalized_project,
+            "deployment_target": deployment_target,
+            "model_credential_mode": model_credential_mode,
+        }
+        if region:
+            data["user_cloud_region"] = str(region).strip()
+        if bootstrap_sa:
+            data["user_cloud_bootstrap_sa"] = str(bootstrap_sa).strip()
+        if authorized:
+            data["user_cloud_authorized_at"] = datetime.now(timezone.utc).isoformat()
+        data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        response = self._db().table(_REGISTRY).update(data).eq("user_id", user_id).execute()
+        return bool(response.data or [])
 
     async def fetch_liveness_candidates(self, *, limit: int = 200) -> list[dict]:
         """Rows that own (or are standing up) a host, for the liveness sweep to judge.
