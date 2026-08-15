@@ -232,7 +232,10 @@ import {
   type EmergencyInfo,
   type EmergencyNumberLookupStatus,
 } from "@/lib/one-location/emergency-numbers";
-import { buildCircleJoinUrl } from "@/lib/one-location/circle-join-url";
+import {
+  buildCircleJoinUrl,
+  resolveCircleJoinOrigin,
+} from "@/lib/one-location/circle-join-url";
 import type {
   DriveDestination,
   DriveSharePayload,
@@ -309,6 +312,7 @@ import {
 import { getApiBaseUrl } from "@/lib/services/api-service";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import {
+  buildCircleInviteShareText,
   circleShareLabel,
   isShareCancellationError,
   shareNamedCircleCode,
@@ -6389,18 +6393,22 @@ export function OneLocationAgentPageContent({
   const handleShareNamedCircleCode = useCallback(
     async (circle: OneLocationCircleDetail, code: string) => {
       try {
-        const joinUrl =
-          typeof window !== "undefined"
-            ? buildCircleJoinUrl(window.location.origin, code)
-            : undefined;
+        // Not window.location.origin: inside the installed iOS/Android build
+        // that is a Capacitor scheme, and the link it produced was dead.
+        const joinOrigin = resolveCircleJoinOrigin();
+        const joinUrl = joinOrigin
+          ? buildCircleJoinUrl(joinOrigin, code)
+          : undefined;
         const circleLabel = circleShareLabel(circle.name);
         const delivery = await shareNamedCircleCode({
           title: `Join ${circle.name} on One`,
           // The link lives in `url` only. Repeating it inline made share targets
           // that append `url` to `text` (WhatsApp, Messages) deliver it twice.
-          text: joinUrl
-            ? `Join my ${circleLabel} on One — tap the link to join, or enter code ${code}. Location and SMS stay private until you choose to share.`
-            : `Join my ${circleLabel} on One with code ${code}. You'll connect with current and future members, while location and SMS stay private until you choose to share.`,
+          text: buildCircleInviteShareText({
+            circleLabel,
+            code,
+            hasJoinLink: Boolean(joinUrl),
+          }),
           dialogTitle: "Share Circle code",
           url: joinUrl,
         });
@@ -6564,17 +6572,21 @@ export function OneLocationAgentPageContent({
   const handleShareOnboardingCircleInvite = useCallback(
     async (invite: OnboardingCircleInvite) => {
       try {
-        const joinUrl =
-          typeof window !== "undefined"
-            ? buildCircleJoinUrl(window.location.origin, invite.code)
-            : undefined;
+        // See handleShareNamedCircleCode: the live origin is a Capacitor scheme
+        // in the installed build, so the shared link has to come from here.
+        const joinOrigin = resolveCircleJoinOrigin();
+        const joinUrl = joinOrigin
+          ? buildCircleJoinUrl(joinOrigin, invite.code)
+          : undefined;
         const circleLabel = circleShareLabel(invite.circleName);
         const delivery = await shareNamedCircleCode({
           title: `Join ${invite.circleName} on One`,
           // Link in `url` only — see the note on handleShareNamedCircleCode.
-          text: joinUrl
-            ? `Join my ${circleLabel} on One — tap the link to join, or enter code ${invite.code}. Set up One, then the link opens the join screen with the code filled in. Location and SMS stay private until you choose to share.`
-            : `Join my ${circleLabel} on One with code ${invite.code}. Set up One, then open Location → People → Join a circle and enter it. Location and SMS stay private until you choose to share.`,
+          text: buildCircleInviteShareText({
+            circleLabel,
+            code: invite.code,
+            hasJoinLink: Boolean(joinUrl),
+          }),
           dialogTitle: "Share Circle code",
           url: joinUrl,
         });
