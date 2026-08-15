@@ -200,6 +200,14 @@ export type PkmFactCountBucket =
   | "50_249"
   | "250_plus";
 
+/** Non-overlapping, and no exact non-zero count. */
+export type ConsentPendingCountBucket =
+  | "0"
+  | "1_3"
+  | "4_10"
+  | "11_plus";
+/** Whether a pending-consent load was a real screen view or a background warm. */
+export type ConsentPendingLoadSurface = "screen" | "warm";
 export type AuthMethod = "google" | "apple" | "reviewer" | "redirect" | "existing_session";
 export type ConsentAction = "approve" | "deny" | "revoke";
 
@@ -370,6 +378,23 @@ export interface EventPayloadMap {
   };
   consent_pending_loaded: {
     result: EventResult;
+    /**
+     * Screen view or background prefetch. The warm orchestrator calls this
+     * endpoint on every unlock, so without this the count is dominated by
+     * loads for a screen nobody opened.
+     */
+    load_surface: ConsentPendingLoadSurface;
+    /**
+     * How many requests were waiting, bucketed.
+     *
+     * Without this the Consent Center is unfalsifiable. It loads 2,574 times
+     * for 85 people a month and `consent_action_submitted` has never once
+     * fired, and there is currently no way to tell whether that means people
+     * are ignoring decisions put in front of them or opening a screen that had
+     * nothing on it. Those two readings call for opposite work, and for a
+     * consent-first product it is the wrong question to be unable to answer.
+     */
+    pending_count_bucket?: ConsentPendingCountBucket;
   };
   consent_action_submitted: {
     action: ConsentAction;
