@@ -1993,7 +1993,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
             ? "max-w-[min(calc(100vw-1.5rem),var(--app-agent-bar-max-width))]"
             : "max-w-[min(calc(100vw-2rem),34rem)]",
           layout === "slot"
-            ? "h-10 rounded-[1.25rem] px-2"
+            ? "h-11 rounded-[22px] px-2.5"
             : "h-11 rounded-full pl-3 pr-1.5",
           // Single, consolidated transition covering surface color plus the
           // open/close fade+lift. Smoothly eases the bar in/out with the agent
@@ -2002,7 +2002,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           // Bottom-shell material: read the same live ambient token as the
           // shared bottom mask so the Agent Bar never becomes a white pill on
           // a dark/gradient route surface.
-          "backdrop-blur-[12px] backdrop-saturate-[1.3]",
+          "backdrop-blur-[24px] backdrop-saturate-[1.6]",
           "bottom-chrome-surface",
           barHidden
             ? "pointer-events-none translate-y-1 scale-[0.98] opacity-0"

@@ -140,16 +140,19 @@ export function SettingsPresentationProvider({
 
 const SETTINGS_ICON_TONE_CLASSNAME = {
   accent:
-    "bg-[color:var(--app-accent)] text-white",
+    "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]",
   blue:
-    "bg-[color:var(--app-accent)] text-white",
-  purple: "bg-[color:var(--app-purple)] text-white",
-  green: "bg-[color:var(--app-success)] text-white",
+    "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]",
+  purple:
+    "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:bg-[color:var(--app-accent-surface)] dark:text-[color:var(--app-accent-bright)]",
+  green:
+    "bg-[rgba(52,199,89,0.12)] text-[#34C759] dark:bg-[rgba(48,209,88,0.20)] dark:text-[#30D158]",
   orange:
-    "bg-[color:var(--app-warning)] text-white",
-  red: "bg-[color:var(--app-destructive)] text-white",
+    "bg-[rgba(255,159,10,0.12)] text-[#FF9F0A] dark:bg-[rgba(255,159,10,0.20)] dark:text-[#FFD60A]",
+  red:
+    "bg-[rgba(255,59,48,0.12)] text-[#FF3B30] dark:bg-[rgba(255,69,58,0.20)] dark:text-[#FF6961]",
   gray:
-    "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]",
+    "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]",
 } as const;
 
 type SettingsIconTone = keyof typeof SETTINGS_ICON_TONE_CLASSNAME;
@@ -322,7 +325,9 @@ export function SettingsRow({
     // need a full-width hairline; otherwise the divider appears arbitrarily cut
     // off, as it did on Connect's plain-text rows.
     icon || leading
-      ? "group-data-[inset-separators=true]/settings-list:after:left-[62px] sm:group-data-[inset-separators=true]/settings-list:after:left-[62px]"
+      ? resolvedDensity === "compact"
+        ? "group-data-[inset-separators=true]/settings-list:after:left-[58px] sm:group-data-[inset-separators=true]/settings-list:after:left-[58px]"
+        : "group-data-[inset-separators=true]/settings-list:after:left-[62px] sm:group-data-[inset-separators=true]/settings-list:after:left-[62px]"
       : "group-data-[inset-separators=true]/settings-list:after:left-0";
   const rowShellClassName = cn(
     "group/settings-row relative isolate overflow-hidden bg-transparent",
@@ -356,13 +361,14 @@ export function SettingsRow({
             // Keep settings icons as iOS-style rounded-square utility wells.
             // Agent artwork continues to use AgentSectionIcon, which owns the
             // larger launcher/menu geometry separately.
-            "inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center self-center rounded-[10px]",
-            resolvedDensity !== "compact" &&
-              "sm:h-[34px] sm:w-[34px] sm:rounded-[10px]",
+            "inline-flex shrink-0 items-center justify-center self-center",
+            resolvedDensity === "compact"
+              ? "h-7 w-7 rounded-[7px]"
+              : "h-[34px] w-[34px] rounded-[10px] sm:h-[34px] sm:w-[34px] sm:rounded-[10px]",
             SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
           )}
         >
-          <Icon icon={icon} size={17} />
+          <Icon icon={icon} size={resolvedDensity === "compact" ? 16 : 17} />
         </span>
       ) : null}
       <div className="min-w-0 flex-1 space-y-0.5">
@@ -416,7 +422,8 @@ export function SettingsRow({
     ) : null;
 
   const sharedClassName = cn(
-    "relative isolate grid min-h-[60px] w-full appearance-none overflow-hidden border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent]",
+    "relative isolate grid w-full appearance-none overflow-hidden border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent]",
+    resolvedDensity === "compact" ? "min-h-[56px]" : "min-h-[60px]",
     shouldStackTrailing
       ? "grid-cols-1 gap-y-[var(--settings-row-stack-gap)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-[var(--settings-row-gap)] sm:gap-y-0"
       : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-[var(--settings-row-gap)]",
@@ -424,7 +431,8 @@ export function SettingsRow({
       "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0",
   );
   const primaryActionClassName = cn(
-    "relative isolate min-h-[60px] min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+    "relative isolate min-w-0 overflow-hidden rounded-[inherit] border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+    resolvedDensity === "compact" ? "min-h-[56px]" : "min-h-[60px]",
   );
   const voiceProps = {
     "data-voice-control-id": voiceControlId || undefined,

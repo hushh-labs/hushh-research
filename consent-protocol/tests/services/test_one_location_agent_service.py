@@ -208,6 +208,7 @@ class AtomicPrivateShareProbe(OneLocationAgentService):
                     if self.expired_replay
                     else values["expires_at"]
                 ),
+                "duration_mode": values.get("duration_mode", "timed"),
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
@@ -1025,7 +1026,12 @@ class FourUserMemoryService(OneLocationAgentService):
                     "request_id": None,
                     "referral_id": None,
                     "event_type": "location_share_created",
-                    "metadata_json": json.dumps({"duration_hours": grant_params["duration_hours"]}),
+                    "metadata_json": json.dumps(
+                        {
+                            "duration_hours": grant_params["duration_hours"],
+                            "duration_mode": grant_params.get("duration_mode", "timed"),
+                        }
+                    ),
                 },
             )
         return row
@@ -1819,6 +1825,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 "capability_scopes": params["capability_scopes"],
                 "duration_hours": params["duration_hours"],
                 "expires_at": params["expires_at"],
+                "duration_mode": params.get("duration_mode", "timed"),
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
@@ -1939,7 +1946,10 @@ class FourUserMemoryService(OneLocationAgentService):
                 grant
                 and grant["recipient_user_id"] == params["referring_user_id"]
                 and grant["status"] == "active"
-                and grant["expires_at"] > datetime.now(timezone.utc)
+                and (
+                    grant.get("expires_at") is None
+                    or grant["expires_at"] > datetime.now(timezone.utc)
+                )
             ):
                 return grant
             return None
@@ -2116,7 +2126,10 @@ class FourUserMemoryService(OneLocationAgentService):
                 grant["revoked_at"] = datetime.now(timezone.utc)
                 return grant
             return None
-        if "SET expires_at = :new_expires_at" in sql:
+        if (
+            "UPDATE one_location_share_grants" in sql
+            and "expires_at = :new_expires_at" in sql
+        ):
             grant = self.grants.get(params["grant_id"])
             if (
                 grant
@@ -2125,6 +2138,8 @@ class FourUserMemoryService(OneLocationAgentService):
                 and grant["status"] == "active"
             ):
                 grant["expires_at"] = params["new_expires_at"]
+                grant["duration_hours"] = params.get("duration_hours")
+                grant["duration_mode"] = "timed"
                 grant["updated_at"] = datetime.now(timezone.utc)
                 return grant
             return None
@@ -3031,7 +3046,7 @@ def test_shorten_grant_lets_either_party_bring_expiry_earlier() -> None:
     assert service.notifications[-1]["user_id"] == "user_a"
 
     # The owner may also shorten their own exposure further.
-    service.shorten_grant(caller_user_id="user_a", grant_id=grant["id"], duration_hours=0.1)
+    service.shorten_grant(caller_user_id="user_a", grant_id=grant["id"], duration_hours=0.25)
     assert service.grants[grant["id"]]["expires_at"] < new_expires_at
 
 
@@ -3168,6 +3183,63 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
     )
     assert "0100002" not in user_visible_text
     assert "0002" not in user_visible_text
+
+
+def test_until_stopped_private_grant_is_revocable_not_timeboxed() -> None:
+    service = FourUserMemoryService()
+    owner = "user_a"
+    recipient = "user_b"
+    service.register_recipient_key(
+        user_id=recipient,
+        key_id=f"key-{recipient}",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": recipient, "y": recipient},
+    )
+
+    grant = service.create_grant(
+        owner_user_id=owner,
+        recipient_user_id=recipient,
+        recipient_key_id=f"key-{recipient}",
+        duration_hours=None,
+        duration_mode="until_stopped",
+    )
+
+    assert grant["durationMode"] == "until_stopped"
+    assert grant["durationHours"] is None
+    assert grant["expiresAt"] is None
+    assert service.grants[grant["id"]]["expires_at"] is None
+
+    service.store_encrypted_envelope(
+        owner_user_id=owner,
+        grant_id=grant["id"],
+        envelope=encrypted_envelope(f"key-{recipient}", "ciphertext-for-b"),
+    )
+    viewed = service.view_latest_envelope(recipient_user_id=recipient, grant_id=grant["id"])
+    assert viewed["grant"]["durationMode"] == "until_stopped"
+    assert viewed["envelope"]["ciphertext"] == "ciphertext-for-b"
+
+
+def test_until_stopped_is_rejected_for_check_in_grants() -> None:
+    service = FourUserMemoryService()
+    owner = "user_a"
+    recipient = "user_b"
+    service.register_recipient_key(
+        user_id=recipient,
+        key_id=f"key-{recipient}",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": recipient, "y": recipient},
+    )
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.create_grant(
+            owner_user_id=owner,
+            recipient_user_id=recipient,
+            recipient_key_id=f"key-{recipient}",
+            duration_hours=None,
+            duration_mode="until_stopped",
+            share_kind="check_in",
+            reason="check_in",
+        )
+
+    assert exc.value.code == "LOCATION_DURATION_MODE_NOT_ALLOWED"
 
 
 def test_public_invite_is_request_only_and_token_hash_only() -> None:

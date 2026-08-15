@@ -77,7 +77,7 @@ const ACCENT_STYLES: Record<SectionAccent, {
   },
   location: {
     eyebrow: "text-muted-foreground",
-    icon: "bg-[color:var(--app-accent)] text-white shadow-none",
+    icon: "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] shadow-none",
   },
   success: {
     eyebrow: "text-emerald-700 dark:text-emerald-300",

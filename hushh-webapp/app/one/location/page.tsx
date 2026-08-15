@@ -312,6 +312,13 @@ const DURATION_OPTIONS = [
   { value: "24", label: "24 hours" },
 ];
 
+const PRIVATE_SHARE_DURATION_LABELS: Record<string, string> = {
+  "0.25": "15 min",
+  "1": "1 hour",
+  today: "Today",
+  until_stopped: "Until I stop",
+};
+
 /**
  * How many recipients a single share fans out to concurrently.
  *
@@ -426,7 +433,7 @@ const USE_LOCATION_REDESIGN: boolean = true;
  * the surface on screen stay the same surface.
  */
 const LOCATION_HUB_TAB_LABELS: Readonly<Record<string, string>> = {
-  now: "Now",
+  now: "Overview",
   people: "People",
   links: "Links",
 };
@@ -565,7 +572,15 @@ type BusyState =
 type OneLocationSelectionSurface =
   "quick_circle" | "section_list" | "select_menu";
 
-type OneLocationDurationBucket = "15m" | "30m" | "1h" | "4h" | "24h" | "custom";
+type OneLocationDurationBucket =
+  | "15m"
+  | "30m"
+  | "1h"
+  | "4h"
+  | "24h"
+  | "today"
+  | "until_stopped"
+  | "custom";
 type OneLocationForegroundOperation = "publish" | "view";
 type OneLocationForegroundTrigger = "manual" | "foreground_interval";
 type OneLocationFocusTarget = OneLocationNotificationSection;
@@ -627,6 +642,7 @@ function formatDateTime(value?: string | null): string {
 function expiresLabel(grant: OneLocationGrant): string {
   if (grant.status === "revoked") return "Revoked";
   if (grant.status === "expired") return "Expired";
+  if (grant.durationMode === "until_stopped") return "Until stopped";
   return `Expires ${formatDateTime(grant.expiresAt)}`;
 }
 
@@ -961,9 +977,39 @@ function oneLocationDurationBucket(value: string): OneLocationDurationBucket {
       return "4h";
     case "24":
       return "24h";
+    case "today":
+      return "today";
+    case "until_stopped":
+      return "until_stopped";
     default:
       return "custom";
   }
+}
+
+function privateShareDurationPayload(value: string): {
+  durationHours?: number;
+  durationMode: "timed" | "until_stopped";
+} {
+  if (value === "until_stopped") {
+    return { durationMode: "until_stopped" };
+  }
+  if (value === "today") {
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 0, 0);
+    const diffHours = (endOfDay.getTime() - Date.now()) / 3_600_000;
+    return {
+      durationHours: Math.min(24, Math.max(0.25, Number(diffHours.toFixed(2)))),
+      durationMode: "timed",
+    };
+  }
+  return {
+    durationHours: Number(value),
+    durationMode: "timed",
+  };
+}
+
+function privateShareDurationLabel(value: string): string {
+  return PRIVATE_SHARE_DURATION_LABELS[value] ?? `${value} hours`;
 }
 
 function oneLocationEventResult(
@@ -1319,11 +1365,13 @@ function LocalMapPreview({
   point,
   showNavigation = true,
   viewportResetKey,
+  staleAction,
 }: {
   point: PlainLocationPoint;
   // Self-location previews do not need Directions/Start - you are already there.
   showNavigation?: boolean;
   viewportResetKey?: string | number;
+  staleAction?: ReactNode;
 }) {
   const captured = formatDateTime(point.capturedAt);
   const accuracy = locationAccuracyLabel(point);
@@ -1417,15 +1465,18 @@ function LocalMapPreview({
       {isStale ? (
         <div
           role="status"
-          className="mx-3 mb-3 flex min-w-0 items-start gap-2 rounded-[12px] border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-[12px] font-medium text-amber-800 dark:text-amber-100"
+          className="mx-3 mb-3 flex min-w-0 flex-col gap-2 rounded-[12px] border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-[12px] font-medium text-amber-800 sm:flex-row sm:items-center sm:justify-between dark:text-amber-100"
         >
-          <AlertTriangle
-            className="mt-0.5 h-4 w-4 shrink-0"
-            aria-hidden="true"
-          />
-          <span className="min-w-0 break-words [overflow-wrap:anywhere]">
-            Location update may be stale. Ask them to refresh sharing.
+          <span className="flex min-w-0 items-start gap-2">
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0"
+              aria-hidden="true"
+            />
+            <span className="min-w-0 break-words [overflow-wrap:anywhere]">
+              Location may be stale.
+            </span>
           </span>
+          {staleAction ? <span className="shrink-0">{staleAction}</span> : null}
         </div>
       ) : null}
     </div>
@@ -1570,7 +1621,7 @@ function EmptyOneState({
 }: {
   icon: LucideIcon;
   title: string;
-  description: string;
+  description?: string;
 }) {
   return (
     <div className="flex min-h-24 min-w-0 max-w-full flex-col items-start gap-3 p-3.5 text-sm sm:flex-row sm:items-center">
@@ -1581,9 +1632,11 @@ function EmptyOneState({
         <div className="font-semibold text-[#1c1c1e] dark:text-white">
           {title}
         </div>
-        <div className="break-words text-[13px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-          {description}
-        </div>
+        {description ? (
+          <div className="break-words text-[13px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+            {description}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -3782,6 +3835,7 @@ export function OneLocationAgentPageContent({
       landOnAfter?: string,
     ): Promise<LocalOnboardingActionResult> => {
       const effectiveDurationHours = durationOverride ?? shareDurationHours;
+      const durationPayload = privateShareDurationPayload(effectiveDurationHours);
       // Set on every attempt, so a landing asked for by one share can never
       // survive into the next one. Taps pass nothing and get the clean hub.
       shareCompletedDestinationRef.current = landOnAfter ?? null;
@@ -3862,7 +3916,7 @@ export function OneLocationAgentPageContent({
               vaultOwnerToken,
               recipientUserId: recipient.userId,
               recipientKeyId: recipient.keyId,
-              durationHours: Number(effectiveDurationHours),
+              ...durationPayload,
               reason: shareMessage.trim() || undefined,
               shareKind: "share",
               sourceCircleId:
@@ -3899,10 +3953,7 @@ export function OneLocationAgentPageContent({
         duration_bucket: oneLocationDurationBucket(effectiveDurationHours),
         review_required: shareReviewOpen,
       });
-      const durationLabel =
-        DURATION_OPTIONS.find(
-          (option) => option.value === String(effectiveDurationHours),
-        )?.label ?? `${effectiveDurationHours} hours`;
+      const durationLabel = privateShareDurationLabel(effectiveDurationHours);
       let summary: string;
       if (recipientFailureCount) {
         summary = `Location shared with ${peopleCountLabel(successCount)} for ${durationLabel}. ${recipientFailureCount} ${
@@ -7791,7 +7842,7 @@ export function OneLocationAgentPageContent({
         : `Location, ${hubTabLabel} tab`,
       deadEnd,
       sections: [
-        { id: "now", title: "Now", purpose: "See current sharing status and start a quick action." },
+        { id: "now", title: "Overview", purpose: "See current sharing status and start a quick action." },
         { id: "people", title: "People", purpose: "See the people and circles you share location with." },
         { id: "links", title: "Links", purpose: "See and create temporary sharing links." },
       ],
@@ -9789,6 +9840,7 @@ export function OneLocationAgentPageContent({
     onDeny: (requestId) => void handleDeny(requestId),
     onViewGrant: (grant) => void handleView(grant),
     onStopGrant: (grantId) => void handleRevoke(grantId),
+    onAskReshare: (grant) => void handleAskReshare(grant),
     editingGrantId,
     onEditGrantStart: (grantId) => {
       setEditGrantDurationHours("1");
@@ -9844,11 +9896,12 @@ export function OneLocationAgentPageContent({
     expiresLabel: (value) =>
       value ? `Live until ${formatDateTime(value)}` : "Live now",
     expiresCountdownLabel: (value) => expiresCountdownLabel(value) ?? "Active",
-    renderMapPreview: (point, showNavigation, viewportResetKey) => (
+    renderMapPreview: (point, showNavigation, viewportResetKey, staleAction) => (
       <LocalMapPreview
         point={point}
         showNavigation={showNavigation}
         viewportResetKey={`${mapViewportResetKey}:${viewportResetKey ?? "default"}`}
+        staleAction={staleAction}
       />
     ),
     mapLocationHref: googleMapsLocationUrl,
@@ -10649,7 +10702,11 @@ export function OneLocationAgentPageContent({
                                 {grant.status}
                               </Badge>
                               <span className="min-w-0 break-words text-[12px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-                                {expiresLabel(grant)} - {grant.durationHours}h
+                                {expiresLabel(grant)}
+                                {grant.durationMode === "until_stopped" ||
+                                grant.durationHours == null
+                                  ? ""
+                                  : ` - ${grant.durationHours}h`}
                               </span>
                             </div>
                           </div>
@@ -10687,7 +10744,6 @@ export function OneLocationAgentPageContent({
                       <EmptyOneState
                         icon={UsersRound}
                         title="No active shares"
-                        description="Create one encrypted grant when you need a trusted person to see you."
                       />
                     )}
                   </div>
@@ -11052,7 +11108,31 @@ export function OneLocationAgentPageContent({
                           </div>
                           {point ? (
                             <div className="px-3.5 pb-3.5">
-                              <LocalMapPreview point={point} />
+                              <LocalMapPreview
+                                point={point}
+                                staleAction={
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => void handleAskReshare(grant)}
+                                    disabled={busy === "request"}
+                                    className="h-8 rounded-full border-amber-500/30 bg-white/70 px-3 text-[12px] font-semibold text-amber-800 hover:bg-white dark:border-amber-300/25 dark:bg-white/10 dark:text-amber-100 dark:hover:bg-white/15"
+                                  >
+                                    {busy === "request" ? (
+                                      <Loader2
+                                        className="mr-1.5 h-3.5 w-3.5 animate-spin"
+                                        aria-hidden="true"
+                                      />
+                                    ) : (
+                                      <Send
+                                        className="mr-1.5 h-3.5 w-3.5"
+                                        aria-hidden="true"
+                                      />
+                                    )}
+                                    Ask to refresh
+                                  </Button>
+                                }
+                              />
                             </div>
                           ) : viewError && grant.status === "active" ? (
                             <div className="px-3.5 pb-3.5">
