@@ -1261,6 +1261,26 @@ describe("OneLocationOnboardingFlow", () => {
       expect(map.contains(seat)).toBe(false);
     });
 
+    it("centers the invite panel on wide viewports instead of pinning it right", () => {
+      renderFlow({ mapPoint: { lat: 19.076, lng: 72.8777 } });
+      openInviteScreen();
+
+      const sheet = screen.getByTestId("one-location-onboarding-ready-panel");
+
+      // It reads as a dialog over the map, so it belongs in the middle of it.
+      // Anchored to the right edge it looked like a panel that had slid off.
+      expect(sheet.className).toContain("md:left-1/2");
+      expect(sheet.className).toContain("md:-translate-x-1/2");
+      expect(sheet.className).toContain("md:top-1/2");
+      expect(sheet.className).toContain("md:-translate-y-1/2");
+      expect(sheet.className).not.toMatch(/md:right-/u);
+
+      // Phone width -- which is what the iOS build renders at -- keeps the
+      // full-width bottom sheet untouched. The centering is a md: concern only.
+      expect(sheet.className).not.toMatch(/(^|\s)left-1\/2(\s|$)/u);
+      expect(sheet.className).not.toMatch(/(^|\s)absolute(\s|$)/u);
+    });
+
     it("yields map height on short windows so the join link stays on screen", () => {
       renderFlow({ mapPoint: { lat: 19.076, lng: 72.8777 } });
       openInviteScreen();

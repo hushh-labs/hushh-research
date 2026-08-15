@@ -1762,7 +1762,7 @@ function ReadyScreen({
       </header>
 
       <div
-        className="relative z-10 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-[28px] bg-white shadow-[0_-8px_24px_rgba(24,57,91,0.10)] dark:bg-[#14171d] md:absolute md:right-[max(44px,6vw)] md:top-1/2 md:mt-0 md:h-auto md:max-h-[calc(100dvh-96px)] md:w-[430px] md:-translate-y-1/2 md:rounded-[30px] md:shadow-[0_24px_80px_rgba(24,57,91,0.22)]"
+        className="relative z-10 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-[28px] bg-white shadow-[0_-8px_24px_rgba(24,57,91,0.10)] dark:bg-[#14171d] md:absolute md:left-1/2 md:top-1/2 md:mt-0 md:h-auto md:max-h-[calc(100dvh-96px)] md:w-[430px] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-[30px] md:shadow-[0_24px_80px_rgba(24,57,91,0.22)]"
         data-testid="one-location-onboarding-ready-panel"
       >
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 pt-6 md:px-7 md:pb-5 md:pt-7">
