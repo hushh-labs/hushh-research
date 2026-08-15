@@ -31,13 +31,12 @@ import {
   type FeedItem,
   type FeedListResponse,
 } from "@/lib/services/feed-service";
+import { daysSinceToday } from "@/lib/feed/feed-timestamp";
 
 function dayLabel(value: string): string {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "";
-  const startOfDay = (input: Date) =>
-    new Date(input.getFullYear(), input.getMonth(), input.getDate()).getTime();
-  const diffDays = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86_400_000);
+  const diffDays = daysSinceToday(date);
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Yesterday";
   return date.toLocaleDateString(undefined, {
@@ -241,19 +240,21 @@ export function FeedPage() {
     );
     return groupItemsByDay(sorted);
   }, [items]);
-  // Emergency SMS cards are individually framed (rounded + bordered), so
-  // stacking them in the same divide-y list as plain rows leaves them
-  // flush against each other with only a hairline between — two SOS alerts
-  // read as one merged block. Render them in their own gapped stack instead;
-  // the sort in useFeedActionables already keeps all "emergency" items
-  // contiguous at the top, so this split never reorders anything.
-  const emergencyActionables = actionables.filter(
+  // A live SOS share gets its own "Live" section, pinned above "Needs you",
+  // so a safety alert is never mistaken for a routine pending item, and two
+  // live SOS cards never read as one merged block (each keeps its own
+  // gapped, individually framed card). A revoked/expired SOS no longer
+  // carries `emphasis: "emergency"` (see useFeedActionables) and falls
+  // straight into the regular divide-y "Needs you" list like any other row.
+  const liveActionables = actionables.filter(
     (item) => item.emphasis === "emergency",
   );
   const regularActionables = actionables.filter(
     (item) => item.emphasis !== "emergency",
   );
-  const hasActionables = actionables.length > 0;
+  const hasLiveActionables = liveActionables.length > 0;
+  const hasRegularActionables = regularActionables.length > 0;
+  const hasActionables = hasLiveActionables || hasRegularActionables;
   // Once cleared this session, the loaded history rows are hidden even though
   // `items` still holds them (no backend delete yet), so the empty state shows.
   const hasHistory = items.length > 0;
@@ -273,23 +274,25 @@ export function FeedPage() {
             arrow (see resolveTopShellBreadcrumb). Only the sticky day dividers
             below travel with the scroll. */}
         <AppPageContentRegion>
-          {hasActionables ? (
+          {hasLiveActionables ? (
+            <section aria-label="Live" className="bg-accent/[0.03]">
+              <SectionLabel>Live</SectionLabel>
+              <div className="flex flex-col gap-2 px-[6px] pb-2">
+                {liveActionables.map((item) => (
+                  <FeedActionableRow key={item.id} item={item} />
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {hasRegularActionables ? (
             <section aria-label="Needs you" className="bg-accent/[0.03]">
               <SectionLabel>Needs you</SectionLabel>
-              {emergencyActionables.length ? (
-                <div className="flex flex-col gap-2 px-[6px] pb-2">
-                  {emergencyActionables.map((item) => (
-                    <FeedActionableRow key={item.id} item={item} />
-                  ))}
-                </div>
-              ) : null}
-              {regularActionables.length ? (
-                <div className="divide-y divide-[color:var(--foundation-hairline)]">
-                  {regularActionables.map((item) => (
-                    <FeedActionableRow key={item.id} item={item} />
-                  ))}
-                </div>
-              ) : null}
+              <div className="divide-y divide-[color:var(--foundation-hairline)]">
+                {regularActionables.map((item) => (
+                  <FeedActionableRow key={item.id} item={item} />
+                ))}
+              </div>
             </section>
           ) : null}
 
