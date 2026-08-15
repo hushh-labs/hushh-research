@@ -1924,14 +1924,79 @@ export function LocationImmersiveMap({
     );
   }, [demoAvailable, demoMode]);
 
+  /**
+   * A name in the "Sharing with" list belongs to someone this account shares
+   * its location WITH. That is a different direction from the pins, which are
+   * people who share with THIS account, so the same person only has a pin when
+   * the sharing is mutual. Matched on the display label, which is the only
+   * identity both sides carry here.
+   */
+  const markerForSharedPerson = useCallback(
+    (name: string): RenderMarker | null => {
+      const wanted = name.trim().toLocaleLowerCase();
+      if (!wanted) return null;
+      return (
+        markers.find(
+          (marker) => marker.label.trim().toLocaleLowerCase() === wanted,
+        ) ?? null
+      );
+    },
+    [markers],
+  );
+
+  const openSharedPerson = useCallback(
+    async (name: string) => {
+      setSharingPopoverOpen(false);
+      const pin = markerForSharedPerson(name);
+      if (pin) {
+        await focusMarker(pin);
+        return;
+      }
+      // No pin means no coordinate to fly to. Leaving the tap inert would put
+      // this row right back where it started, so it goes to the one screen that
+      // can actually answer for this share.
+      closeMap();
+    },
+    [closeMap, focusMarker, markerForSharedPerson],
+  );
+
   const showEveryone = useCallback(async () => {
     const map = mapRef.current;
-    if (!map || visibleMarkers.length === 0) return;
+    if (!map) return;
     setSelected(null);
     setSearchQuery("");
     setTrayExpanded(false);
-    await frameMarkers(map, visibleMarkers);
-  }, [visibleMarkers]);
+    // Everyone was `disabled` whenever there was nothing to frame, and silent
+    // whenever the only thing to frame was you. Both are the same experience
+    // from the outside -- press it, nothing happens, no reason given -- and
+    // both are exactly the state a new account is in. That is the reported
+    // "everyone is not working on your map, why does it so?".
+    //
+    // So the control is never disabled, and it answers the question it was
+    // asked. `markers` is the incoming set: people who chose to share with this
+    // account. Your own pin is not "everyone".
+    if (markers.length === 0) {
+      toast.message("No one is sharing a live location with you yet.");
+    }
+    if (visibleMarkers.length > 0) {
+      await frameMarkers(map, visibleMarkers);
+      return;
+    }
+    // Nothing on the map at all, not even this device. Still put the camera
+    // somewhere true rather than leaving the press unanswered.
+    try {
+      const point = await captureAndRememberCurrentLocation();
+      await focusSelfPoint(point, { animate: true, select: false });
+    } catch {
+      // Locate owns the permission and no-fix copy; repeating it here would
+      // give one tap two competing explanations.
+    }
+  }, [
+    captureAndRememberCurrentLocation,
+    focusSelfPoint,
+    markers.length,
+    visibleMarkers,
+  ]);
 
   return (
     <main
@@ -1962,16 +2027,30 @@ export function LocationImmersiveMap({
         // the controls strictly above every map layer guarantees the back/X and
         // locate buttons stay tappable in every state (loading, error, tray open).
         //
-        // A three-column grid, not a flex row: with flex + justify-between,
-        // three-plus items of uneven width get spread by *equal gaps*, which
-        // is what dragged Check-in and Sharing out of place in the first
-        // place. `1fr auto 1fr` instead forces the two outer columns to the
-        // same width regardless of what they contain, which puts the middle
-        // (auto) column -- Sharing -- at the header's true visual center no
-        // matter how wide the close X or the Check-in+Locate group are.
-        className="pointer-events-none absolute inset-x-0 top-0 z-30 grid grid-cols-[1fr_auto_1fr] items-center gap-3 p-4 pt-[max(1rem,env(safe-area-inset-top))]"
+        // A grid, not a flex row: with flex + justify-between, three-plus items
+        // of uneven width get spread by *equal gaps*, which is what dragged
+        // Check-in and Sharing out of place in the first place.
+        //
+        // From `sm` up, `1fr auto 1fr` forces the two outer columns to the same
+        // width regardless of what they contain, which puts the middle (auto)
+        // column -- Sharing -- at the header's true visual center no matter how
+        // wide the close X or the Check-in+Locate group are.
+        //
+        // Below `sm` -- i.e. every phone -- that same symmetry is what broke the
+        // header. Making the left column (one 56px X) as wide as the right one
+        // (Check-in + Locate) burns ~95px on empty space, and the leftover
+        // centre column could not hold "Sharing with 2" AND let Check-in keep
+        // its label. Measured in Chromium against this stylesheet, "Check in"
+        // was truncated at EVERY phone width tested -- 320, 360, 375, 390 and
+        // 430 -- reaching the reporter as the single letter "C".
+        // A product-owned action word is not an acceptable thing to truncate,
+        // so the phone layout gives row 1 to the controls at their natural
+        // widths and drops Sharing onto its own full-width row beneath them.
+        // Nothing truncates, and the Sharing popover gains the room it needs to
+        // open without being clipped by the screen edge.
+        className="pointer-events-none absolute inset-x-0 top-0 z-30 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:grid-cols-[1fr_auto_1fr]"
       >
-        <div className="flex min-w-0 items-center">
+        <div className="col-start-1 row-start-1 flex min-w-0 items-center">
           <ShellActionSurface
             className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
             aria-label="Back to Location"
@@ -1987,7 +2066,7 @@ export function LocationImmersiveMap({
             <X className="h-5 w-5 stroke-[2.25]" />
           </ShellActionSurface>
         </div>
-        <div className="flex min-w-0 items-center justify-center">
+        <div className="col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center sm:col-span-1 sm:col-start-2 sm:row-start-1">
           {!demoMode && (activeShareCount ?? 0) > 0 ? (
             <Popover
               open={sharingPopoverOpen}
@@ -2028,25 +2107,63 @@ export function LocationImmersiveMap({
                   Sharing with
                 </p>
                 <ul className="grid gap-1" aria-label="People you are sharing with">
-                  {activeShareNames.map((name, index) => (
-                    <li
-                      key={`${name}-${index}`}
-                      className="flex min-h-9 items-center gap-2 rounded-[12px] px-2 py-1.5 text-[15px] leading-5"
-                    >
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]"
-                        aria-hidden="true"
-                      />
-                      <span className="min-w-0 truncate">{name}</span>
-                    </li>
-                  ))}
+                  {activeShareNames.map((name, index) => {
+                    const pin = markerForSharedPerson(name);
+                    return (
+                      <li key={`${name}-${index}`}>
+                        {/*
+                          A row here names a real person, so it has to behave
+                          like one: tapping "Ankit Kumar Singh" should take you
+                          to Ankit Kumar Singh. It used to be inert text, which
+                          is the worst of both worlds -- it looks like a list
+                          you can act on and answers nothing when you press it.
+
+                          The two destinations are the only two that exist. If
+                          they share back, they have a pin, so the tap flies the
+                          camera to it. If they do not, there is nothing to fly
+                          to, and the only useful place is the Location screen
+                          where that share is managed -- so the tap goes there
+                          rather than pretending to do something on the map.
+                          min-h-11 keeps the row a 44px touch target.
+                        */}
+                        <button
+                          type="button"
+                          data-testid="one-location-map-sharing-person"
+                          data-has-pin={pin ? "true" : "false"}
+                          aria-label={
+                            pin
+                              ? `Show ${name} on your map`
+                              : `Manage your location share with ${name}`
+                          }
+                          className="flex min-h-11 w-full items-center gap-2 rounded-[12px] px-2 py-1.5 text-left text-[15px] leading-5 transition-colors hover:bg-[var(--app-accent-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                          onClick={() => void openSharedPerson(name)}
+                        >
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]"
+                            aria-hidden="true"
+                          />
+                          <span className="min-w-0 flex-1 truncate">
+                            {name}
+                          </span>
+                          {pin ? (
+                            <span
+                              className="shrink-0 text-[11px] font-medium text-muted-foreground"
+                              aria-hidden="true"
+                            >
+                              On your map
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               </PopoverContent>
             </Popover>
           ) : null}
         </div>
         {rendererReady ? (
-          <div className="flex min-w-0 items-center justify-end gap-3">
+          <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-3 sm:col-start-3">
             {rendererReady && nearbyCheckInAvailable && !demoMode ? (
               <ShellActionSurface
                 variant="pill"
@@ -2672,7 +2789,7 @@ export function LocationImmersiveMap({
                 <Button
                   className="h-11 min-w-0 rounded-2xl px-2"
                   variant="secondary"
-                  disabled={visibleMarkers.length === 0}
+                  data-testid="one-location-map-show-everyone"
                   onClick={() => void showEveryone()}
                 >
                   Everyone
