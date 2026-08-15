@@ -1269,6 +1269,68 @@ describe("LocationImmersiveMap demo experience", () => {
     ).toHaveAccessibleName("You are sharing your location with 1 person");
   });
 
+  it("centers Check-in in the header on mobile instead of grouping it with Locate", async () => {
+    // Regression test: Check-in used to always sit grouped with Locate on
+    // the trailing edge, even on phone-width screens where there is no room
+    // for three live pills. Below the md breakpoint it now takes the
+    // header's center column (Sharing steps aside there) instead.
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", {
+      writable: true,
+      configurable: true,
+      value: 390,
+    });
+
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "source=map";
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [
+        {
+          id: "active-location-share",
+          ownerUserId: "test-user",
+          recipientUserId: "trusted-person",
+          recipientKeyId: "trusted-person-key",
+          status: "active",
+          consentScope: "location",
+          capabilityScopes: ["location.read"],
+          durationHours: 1,
+        },
+      ],
+    });
+
+    try {
+      render(<LocationImmersiveMap surface="check-in" />);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Continue to Your Map" }),
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+          "data-map-ready",
+          "true",
+        );
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByTestId("one-location-map-nearby-check-in"),
+        ).toHaveAccessibleName("Check in nearby");
+      });
+      // Sharing steps aside on mobile -- Check-in occupies its column instead.
+      expect(
+        screen.queryByTestId("one-location-map-sharing-status"),
+      ).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        writable: true,
+        configurable: true,
+        value: originalInnerWidth,
+      });
+    }
+  });
+
   it("does not build a synthetic history boundary on the check-in route", async () => {
     // The sheet used to have no URL of its own, so it faked a history entry to
     // make Back close it. A real route already is one; re-creating the boundary
