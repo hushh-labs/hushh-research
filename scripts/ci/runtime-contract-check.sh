@@ -178,4 +178,41 @@ if grep -q '_LOCATION_MAP_DEMO=true' "$deploy_production_workflow"; then
   exit 1
 fi
 
+# --- Nearby check-in on public store builds -------------------------------
+#
+# Same failure shape as the map demo fixture above, and the same reason. The
+# architecture doc calls nearby check-in "a visibly labelled local/UAT
+# simulation" that still needs organizer admission proof, replay resistance and
+# bidirectional Block/Report before spoof resistance may be claimed. The public
+# store binaries are stamped `NEXT_PUBLIC_APP_ENV=uat`, so an
+# environment-shaped gate reads them as non-production and offers it anyway.
+#
+# The client now requires an explicit opt-in everywhere but local development.
+# Assert that, and assert the two PUBLIC store lanes never opt in. TestFlight is
+# deliberately not covered: it is an internal tester lane, and turning the flow
+# on there is a legitimate choice for whoever owns that build.
+nearby_availability="$REPO_ROOT/hushh-webapp/lib/one-location/nearby-check-in-availability.ts"
+
+# Comment lines are stripped first: the file documents the old gate on purpose,
+# and matching that prose would fail the build for explaining itself.
+if sed -e 's://.*::' -e '/^[[:space:]]*\*/d' "$nearby_availability" |
+  grep -q 'resolveAppEnvironment() !== "production"'; then
+  echo "❌ nearby check-in must not gate on an environment comparison; store builds are stamped uat."
+  exit 1
+fi
+
+if ! grep -q 'NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN' "$nearby_availability"; then
+  echo "❌ nearby check-in availability must read its explicit opt-in flag."
+  exit 1
+fi
+
+for public_store_lane in \
+  "$REPO_ROOT/.github/workflows/release-ios-appstore.yml" \
+  "$REPO_ROOT/.github/workflows/ship-android-playstore-v1.yml"; do
+  if grep -qE 'NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN[ ="]+true' "$public_store_lane"; then
+    echo "❌ $(basename "$public_store_lane") must not enable nearby check-in for public store users."
+    exit 1
+  fi
+done
+
 echo "✅ Runtime contract check passed."
