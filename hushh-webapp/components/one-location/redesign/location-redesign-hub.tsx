@@ -90,7 +90,10 @@ import {
   SharedWithMeCard,
   TemporaryLinkCard,
   TrustedPersonCard,
+  type GrantViewStatus,
 } from "./cards";
+
+export type { GrantViewStatus } from "./cards";
 // LocationTypeSelector stays exported from ./selectors, unused for now, so
 // PR #4767 can wire it back to a real precision mode without rebuilding it.
 import {
@@ -415,6 +418,17 @@ export type LocationHubViewModel = {
   ) => ReactNode;
   mapLocationHref: (point: PlainLocationPoint) => string;
   decryptedPoints: Record<string, PlainLocationPoint>;
+  /**
+   * Why a received share has no point on screen, keyed by grant id. Mirrors
+   * `decryptedPoints`: a grant appears in exactly one of the two.
+   *
+   * Optional so an existing view model keeps type-checking, but leaving it out
+   * is what produced the bug this exists to fix — the page computed these
+   * statuses on every five-second poll and the only component that rendered
+   * them was the retired legacy UI, so a recipient waiting on a first point,
+   * or blocked by a rotated key, saw a card with a name and nothing else.
+   */
+  grantViewStatuses?: Record<string, GrantViewStatus>;
   /**
    * Reverse-geocode a decrypted shared point to a street address. Returns null
    * when unavailable (no vault token, provider error, or no match). Optional so
@@ -1527,6 +1541,14 @@ function LocationDetailFlow({
                       ? `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}`
                       : undefined
                   }
+                  // Only while there is nothing to look at. Once a point lands
+                  // it is the answer, and a leftover "waiting for their first
+                  // update" line under a live map would contradict it.
+                  viewStatus={
+                    point ? null : (vm.grantViewStatuses?.[grant.id] ?? null)
+                  }
+                  onAskReshare={() => vm.onAskReshare(grant)}
+                  askReshareBusy={vm.busy === "request"}
                 >
                   {expanded && point
                     ? vm.renderMapPreview(
