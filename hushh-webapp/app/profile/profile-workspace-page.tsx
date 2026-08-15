@@ -4089,7 +4089,7 @@ function ProfilePageContent() {
       data-testid="profile-primary"
       as="div"
       width="reading"
-      className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      className="relative isolate pb-3"
       nativeTest={{
         routeId: profileNativeRouteId,
         marker: "native-route-profile",
