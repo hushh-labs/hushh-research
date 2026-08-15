@@ -714,9 +714,21 @@ function ConsentEntryRow({
   const scopeLabel = entry.scope
     ? entry.scope_description || humanizeConsentScope(entry.scope)
     : null;
-  const supportingCopy = isIdentifierHistory
-    ? entrySummary(entry)
-    : scopeLabel || entrySummary(entry);
+  // A One Location share grant can run in either direction between the same
+  // two people (you see them / they see you), and both land in this same
+  // Active list with the counterpart's name as the only other visible field.
+  // `scope_description` is identical either way ("Live location sharing"),
+  // so two opposite-direction rows for the same person render as
+  // indistinguishable duplicates. `entrySummary` resolves to the
+  // direction-aware `locationConsentSummary`, which does tell them apart —
+  // prefer it here the same way history rows already do.
+  const isAmbiguousLocationGrant =
+    entry.kind === "active_grant" &&
+    isLocationConsent(entry.metadata, entry.scope);
+  const supportingCopy =
+    isIdentifierHistory || isAmbiguousLocationGrant
+      ? entrySummary(entry)
+      : scopeLabel || entrySummary(entry);
 
   return (
     <SettingsRow
@@ -1096,8 +1108,14 @@ function ConsentEntryDetail({
       isConnectionDecision ? "Relationship" : "Access",
       isConnectionDecision
         ? entry.scope_description || "Trusted connection"
-        : entry.scope_description ||
-          (entry.scope ? humanizeConsentScope(entry.scope) : "Not provided"),
+        : // Same identical-scope_description problem as the list row above:
+          // an active One Location share grant reads the same ("Live
+          // location sharing") whichever direction it flows, so this detail
+          // panel needs the direction-aware summary to say who sees whom.
+          entry?.kind === "active_grant" && isLocationEntry
+          ? entrySummary(entry)
+          : entry.scope_description ||
+            (entry.scope ? humanizeConsentScope(entry.scope) : "Not provided"),
     ],
     [activityDateLabel, formatDate(entry.issued_at) || "Unavailable"],
     isPendingDecision && requestDeadline

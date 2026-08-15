@@ -205,6 +205,65 @@ function receivedLocationGrantList() {
   };
 }
 
+// Regression fixture: the same counterpart appears twice in the Active tab
+// at once — once because they can see the signed-in user (owner side) and
+// once because the signed-in user can see them (recipient side). This is
+// the exact UAT shape that read as two indistinguishable "JHUMMA KUMARI —
+// Live location sharing" rows before the direction-aware summary landed.
+function bothDirectionsLocationGrantList() {
+  return {
+    user_id: "user-1",
+    actor: "investor",
+    mode: "consents",
+    surface: "active",
+    query: "",
+    page: 1,
+    limit: 20,
+    total: 2,
+    has_more: false,
+    items: [
+      {
+        id: "one_location_grant:grant-owner",
+        kind: "active_grant",
+        status: "active",
+        action: "CONSENT_GRANTED",
+        scope: "cap.location.live.view",
+        scope_description: "Live location sharing",
+        counterpart_type: "investor",
+        counterpart_label: "Jhumma Kumari",
+        issued_at: "2026-08-15T03:15:24.000Z",
+        expires_at: "2026-08-16T03:15:24.000Z",
+        metadata: {
+          request_source: "one_location_share_grant",
+          section: "people",
+          grant_id: "grant-owner",
+          requester_label: "Jhumma Kumari",
+          share_kind: "share",
+        },
+      },
+      {
+        id: "one_location_grant:grant-recipient",
+        kind: "active_grant",
+        status: "active",
+        action: "CONSENT_GRANTED",
+        scope: "cap.location.live.view",
+        scope_description: "Live location sharing",
+        counterpart_type: "investor",
+        counterpart_label: "Jhumma Kumari",
+        issued_at: "2026-08-15T03:15:24.000Z",
+        expires_at: "2026-08-16T03:15:24.000Z",
+        metadata: {
+          request_source: "one_location_share_grant",
+          section: "shared",
+          grant_id: "grant-recipient",
+          requester_label: "Jhumma Kumari",
+          share_kind: "share",
+        },
+      },
+    ],
+  };
+}
+
 function pendingLocationRequestList() {
   return {
     user_id: "user-1",
@@ -464,6 +523,41 @@ describe("ConsentCenterPage One Location action routing", () => {
       expect(mocks.handleRevoke).toHaveBeenCalledWith("attr.shopping.receipts.*");
     });
     expect(mocks.handleLocationRevoke).not.toHaveBeenCalled();
+  });
+
+  it("tells apart two active grants with the same counterpart by direction", async () => {
+    // No requestId in the search string: render the plain Active list, not a
+    // preselected detail dialog.
+    mocks.search = "tab=active";
+    mocks.getSummary.mockResolvedValue(
+      summaryResponse({ pending: 0, active: 2, previous: 0 }),
+    );
+    mocks.listEntries.mockResolvedValue(bothDirectionsLocationGrantList());
+
+    render(<ConsentCenterPage />);
+
+    // Wait for the async list to actually resolve, not just the initial
+    // "Loading consent entries" placeholder row (which also carries the
+    // settings-row testid and would otherwise satisfy findAllByTestId).
+    await screen.findByText(
+      "You're sharing your location with Jhumma Kumari.",
+    );
+    const rows = screen.getAllByTestId("settings-row");
+    const locationRows = rows.filter((row) =>
+      row.textContent?.includes("Jhumma Kumari"),
+    );
+    expect(locationRows).toHaveLength(2);
+
+    const descriptions = locationRows.map((row) => row.textContent);
+    // Before the fix both rows read identically ("Live location sharing"),
+    // so a reviewer could not tell whose location was exposed to whom.
+    expect(descriptions[0]).not.toBe(descriptions[1]);
+    expect(descriptions.join(" ")).toContain(
+      "You're sharing your location with Jhumma Kumari",
+    );
+    expect(descriptions.join(" ")).toContain(
+      "Jhumma Kumari is sharing their location with you",
+    );
   });
 
   it("does not offer revoke for a received Location grant", async () => {

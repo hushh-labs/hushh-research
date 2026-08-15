@@ -95,6 +95,16 @@ export function locationConsentShareKindLabel(metadata: MetadataLike): string {
  * is a share grant the summary is kind-aware so the Consent Manager can tell an
  * Save My Soul from a friendly Check-In (with its note) from a plain share,
  * instead of the same generic "wants to see your location" line for every row.
+ *
+ * Share grants are bidirectional between the same two people: the owner side
+ * ("people who can see me") and the recipient side ("shared with me") both
+ * land in this same Active-tab bucket, with the counterpart's name as the
+ * only other visible field. `metadata.section` (set by
+ * `OneLocationCenterContributor._active_grants`) is "people" for the owner
+ * side and "shared" for the recipient side — the one signal that tells the
+ * two apart. Without branching on it, "JHUMMA KUMARI — Live location
+ * sharing" reads identically whichever way the grant actually flows, so a
+ * user reviewing consent cannot tell whose location is exposed to whom.
  */
 export function locationConsentSummary(metadata: MetadataLike): string {
   const requesterLabel = readString(metadata, "requester_label");
@@ -107,6 +117,23 @@ export function locationConsentSummary(metadata: MetadataLike): string {
     return `${who} invited you to join ${circleName}. Membership connects the group, while location and SMS stay private until you choose to share.`;
   }
   const durationSuffix = durationLabel ? ` for ${durationLabel}` : "";
+  // Only share grants (not access requests, public links, or circle invites)
+  // carry a share_kind, and only they can run in either direction.
+  const isOwnerSideGrant =
+    Boolean(shareKind) && readString(metadata, "section") === "people";
+  if (isOwnerSideGrant) {
+    if (shareKind === "sos") {
+      return shareMessage
+        ? `You sent an SMS to ${who}: ${shareMessage}`
+        : `You're sharing your live location with ${who}${durationSuffix}.`;
+    }
+    if (shareKind === "check_in" || shareKind === "checkin") {
+      return shareMessage
+        ? `You checked in with ${who}: ${shareMessage}`
+        : `You checked in and shared your location with ${who}${durationSuffix}.`;
+    }
+    return `You're sharing your location with ${who}${durationSuffix}.`;
+  }
   if (shareKind === "sos") {
     return shareMessage
       ? `${who}: ${shareMessage}`

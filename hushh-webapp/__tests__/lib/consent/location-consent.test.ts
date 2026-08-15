@@ -51,6 +51,84 @@ describe("isLocationConsent", () => {
   });
 });
 
+describe("locationConsentSummary direction", () => {
+  // Regression guard: a share grant appears in the Consent Center Active tab
+  // from both sides at once (owner side: "people who can see me"; recipient
+  // side: "shared with me"), both carrying the same counterpart name and the
+  // same generic scope_description ("Live location sharing"). Without
+  // branching on metadata.section the two rows were indistinguishable, so a
+  // user reviewing consent could not tell whose location was exposed to
+  // whom. See OneLocationCenterContributor._active_grants (backend) for
+  // where "people" vs "shared" is set.
+  it("describes a plain share from the owner's side as sharing out", () => {
+    const summary = locationConsentSummary({
+      request_source: "one_location_share_grant",
+      section: "people",
+      share_kind: "share",
+      requester_label: "Jhumma",
+    });
+    expect(summary).toBe("You're sharing your location with Jhumma.");
+  });
+
+  it("describes the same plain share from the recipient's side as sharing in", () => {
+    const summary = locationConsentSummary({
+      request_source: "one_location_share_grant",
+      section: "shared",
+      share_kind: "share",
+      requester_label: "Jhumma",
+    });
+    expect(summary).toBe("Jhumma is sharing their location with you.");
+  });
+
+  it("keeps the two directions distinguishable for the same counterpart", () => {
+    const base = {
+      request_source: "one_location_share_grant",
+      share_kind: "share",
+      requester_label: "Jhumma",
+    };
+    const ownerSide = locationConsentSummary({ ...base, section: "people" });
+    const recipientSide = locationConsentSummary({
+      ...base,
+      section: "shared",
+    });
+    expect(ownerSide).not.toBe(recipientSide);
+  });
+
+  it("describes a Check-In from the owner's side as sharing out", () => {
+    const summary = locationConsentSummary({
+      request_source: "one_location_share_grant",
+      section: "people",
+      share_kind: "check_in",
+      requester_label: "Jhumma",
+      duration_label: "1 hour",
+    });
+    expect(summary).toBe(
+      "You checked in and shared your location with Jhumma for 1 hour.",
+    );
+  });
+
+  it("describes an SOS share from the owner's side as sharing out", () => {
+    const summary = locationConsentSummary({
+      request_source: "one_location_share_grant",
+      section: "people",
+      share_kind: "sos",
+      requester_label: "Jhumma",
+    });
+    expect(summary).toBe(
+      "You're sharing your live location with Jhumma.",
+    );
+  });
+
+  it("does not treat a pending access request as owner-side (no share_kind)", () => {
+    const summary = locationConsentSummary({
+      request_source: "one_location_access_request",
+      section: "approvals",
+      requester_label: "Jhumma",
+    });
+    expect(summary).toBe("Jhumma wants to see your location through Location.");
+  });
+});
+
 describe("parseLocationConsentEntry", () => {
   it("maps an access request entry to the request kind + id", () => {
     const ref = parseLocationConsentEntry({
