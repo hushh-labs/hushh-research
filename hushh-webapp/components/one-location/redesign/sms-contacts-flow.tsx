@@ -17,16 +17,8 @@ import type {
   OneLocationCircleSummary,
   OneLocationRecipient,
 } from "@/lib/one-location/types";
-import { MUTED_TEXT, SECTION_HEADING } from "@/components/one-location/redesign/tokens";
+import { SECTION_HEADING } from "@/components/one-location/redesign/tokens";
 import { TaskFlowHeader } from "@/components/one-location/redesign/primitives";
-
-const AVATAR_TONES = [
-  "bg-[#2f80ed]",
-  "bg-[#9b51e0]",
-  "bg-[#f29918]",
-  "bg-[#10a89a]",
-  "bg-[#eb5757]",
-] as const;
 
 type SmsContactsFlowProps = {
   recipients: OneLocationRecipient[];
@@ -50,33 +42,26 @@ function initials(value: string): string {
 
 function ContactRow({
   recipient,
-  index,
   selected,
   busy,
   ready,
   onAdd,
   onAskRemove,
   recipientLabel,
-  recipientSubtitle,
 }: {
   recipient: OneLocationRecipient;
-  index: number;
   selected: boolean;
   busy: boolean;
   ready: boolean;
   onAdd: () => void;
   onAskRemove: () => void;
   recipientLabel: (recipient: OneLocationRecipient) => string;
-  recipientSubtitle: (recipient: OneLocationRecipient) => string;
 }) {
   const label = recipientLabel(recipient);
   return (
-    <div className="flex min-h-[64px] items-center gap-3 px-3.5 py-2.5">
+    <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
       <span
-        className={cn(
-          "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[16px] font-semibold text-white",
-          AVATAR_TONES[index % AVATAR_TONES.length],
-        )}
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent)]/12 text-[15px] font-semibold text-[color:var(--app-accent)]"
         aria-hidden
       >
         {initials(label)}
@@ -84,9 +69,6 @@ function ContactRow({
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
           {label}
-        </span>
-        <span className="mt-0.5 block truncate text-[15px] leading-5 text-muted-foreground">
-          {recipientSubtitle(recipient) || "Connected in One"}
         </span>
       </span>
       {selected ? (
@@ -103,6 +85,7 @@ function ContactRow({
           type="button"
           onClick={onAdd}
           disabled={busy || !ready}
+          aria-label={`Add ${label}`}
           className="press-scale flex h-8 min-w-[58px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:text-muted-foreground"
         >
           {busy ? (
@@ -128,7 +111,7 @@ function ContactGroup({ children }: { children: ReactNode }) {
 
 function EmptyStateCard({ message }: { message: string }) {
   return (
-    <div className="flex min-h-[92px] w-full items-center justify-center rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-4 text-center text-[14px] font-normal leading-5 text-muted-foreground transition-all duration-200 ease-out shadow-none">
+    <div className="flex min-h-[72px] w-full items-center justify-center rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-4 text-center text-[15px] font-normal leading-5 text-muted-foreground transition-all duration-200 ease-out shadow-none">
       <p className="max-w-[280px]">{message}</p>
     </div>
   );
@@ -143,7 +126,6 @@ export function SmsContactsFlow({
   onAddCircle,
   onRemove,
   recipientLabel,
-  recipientSubtitle,
   isRecipientShareReady,
 }: SmsContactsFlowProps) {
   const [pendingRemoval, setPendingRemoval] =
@@ -183,16 +165,16 @@ export function SmsContactsFlow({
           inside a narrow ribbon. The column grows with the viewport instead, and
           stops at 960px so the rows never stretch into unreadable full-bleed
           lines. */}
-      <div className="mx-auto w-full max-w-[430px] md:max-w-[720px] xl:max-w-[960px]">
+      <div className="mx-auto w-full max-w-[430px] md:max-w-[680px] xl:max-w-[720px]">
         <TaskFlowHeader
           title="SMS contacts"
-          description="Alert these people in an emergency."
+          description="Emergency contacts."
         />
 
         {circles.length ? (
           <>
             <p className={cn(SECTION_HEADING, "mb-2 mt-6 px-[6px]")}>
-              Add a Circle
+              Circles
             </p>
             <ContactGroup>
               {circles.map((circle, index) => {
@@ -201,7 +183,7 @@ export function SmsContactsFlow({
                   <div
                     key={circle.id}
                     className={cn(
-                      "flex min-h-[64px] items-center gap-3 px-3.5 py-2.5",
+                      "flex min-h-[58px] items-center gap-3 px-3.5 py-2",
                       index < circles.length - 1 &&
                         "border-b border-[color:var(--app-separator)]",
                     )}
@@ -214,28 +196,26 @@ export function SmsContactsFlow({
                         {circle.name}
                       </span>
                       <span className="mt-0.5 block text-[15px] leading-5 text-muted-foreground">
-                        Add current ready members · {circle.memberCount} total
+                        {circle.memberCount} members
                       </span>
                     </span>
                     <button
                       type="button"
                       disabled={Boolean(busyKey)}
                       onClick={() => void onAddCircle(circle.id)}
-                      className="press-scale flex h-8 min-w-[78px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:opacity-45"
+                      aria-label={`Add ${circle.name}`}
+                      className="press-scale flex h-8 min-w-[58px] items-center justify-center rounded-full bg-[color:var(--app-accent)] px-3 text-[13px] font-semibold text-[color:var(--app-accent-fg)] disabled:opacity-45"
                     >
                       {circleBusy ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
-                        "Add Circle"
+                        "Add"
                       )}
                     </button>
                   </div>
                 );
               })}
             </ContactGroup>
-            <p className={cn(MUTED_TEXT, "mt-2 px-1")}>
-              Adds current ready members only.
-            </p>
             {/* Growing a Circle deliberately does NOT live here. This screen
                 answers one question -- who gets the alert -- and a per-Circle
                 "Invite people / Share code" block for every Circle pushed that
@@ -246,68 +226,57 @@ export function SmsContactsFlow({
         ) : null}
 
 
-        {/* The two lists are one task: moving a person from "can be added" to
-            "will be alerted". Stacked, the destination sits off-screen while you
-            work the source. Side by side once there is room, the move is visible
-            in a single glance — which is the whole reason to want the width.
-            `items-start` keeps a short column from stretching to match a long one. */}
-        <div className="mt-6 md:grid md:grid-cols-2 md:items-start md:gap-x-6">
+        {/* Keep contacts in one column on every viewport. The previous desktop
+            split made a simple contact task feel scattered and disconnected. */}
+        <div className="mt-6 grid gap-6">
           <div>
             <p className={cn(SECTION_HEADING, "mb-2 px-[6px]")}>
-              Alerted on SMS
+              Contacts
             </p>
             {selected.length ? (
               <ContactGroup>
-                {selected.map((recipient, index) => (
+                {selected.map((recipient) => (
                   <ContactRow
                     key={recipient.userId}
                     recipient={recipient}
-                    index={index}
                     selected
                     ready={isRecipientShareReady(recipient)}
                     busy={busyKey === `sms-contact:${recipient.userId}`}
                     onAdd={() => onAdd(recipient.userId)}
                     onAskRemove={() => setPendingRemoval(recipient)}
                     recipientLabel={recipientLabel}
-                    recipientSubtitle={recipientSubtitle}
                   />
                 ))}
               </ContactGroup>
             ) : (
-              <EmptyStateCard message="No SMS contacts yet. Add someone from your circle below." />
+              <EmptyStateCard message="No contacts yet." />
             )}
           </div>
 
-          <div className="mt-6 md:mt-0">
+          <div>
             <p className={cn(SECTION_HEADING, "mb-2 px-[6px]")}>
-              Add from your circle
+              Add contacts
             </p>
             {available.length ? (
               <ContactGroup>
-                {available.map((recipient, index) => (
+                {available.map((recipient) => (
                   <ContactRow
                     key={recipient.userId}
                     recipient={recipient}
-                    index={index + selected.length}
                     selected={false}
                     ready={isRecipientShareReady(recipient)}
                     busy={busyKey === `sms-contact:${recipient.userId}`}
                     onAdd={() => onAdd(recipient.userId)}
                     onAskRemove={() => setPendingRemoval(recipient)}
                     recipientLabel={recipientLabel}
-                    recipientSubtitle={recipientSubtitle}
                   />
                 ))}
               </ContactGroup>
             ) : (
-              <EmptyStateCard message="Everyone in your ready circle is already selected." />
+              <EmptyStateCard message="All contacts added." />
             )}
           </div>
         </div>
-
-        <p className={cn(MUTED_TEXT, "mt-4 px-1")}>
-          Only Circle people can be SMS contacts.
-        </p>
       </div>
 
       <AlertDialog

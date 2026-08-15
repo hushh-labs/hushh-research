@@ -29,6 +29,13 @@ export const REDESIGN_DURATION_OPTIONS: { value: string; label: string }[] = [
   { value: "24", label: "24 hours" },
 ];
 
+export const REDESIGN_PRIVATE_SHARE_DURATION_OPTIONS: { value: string; label: string }[] = [
+  { value: "0.25", label: "15 min" },
+  { value: "1", label: "1 hour" },
+  { value: "today", label: "Today" },
+  { value: "until_stopped", label: "Until I stop" },
+];
+
 export function DurationSelector({
   value,
   onChange,
@@ -45,7 +52,7 @@ export function DurationSelector({
   const labelId = useId();
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       {label ? (
         <p
           id={labelId}
@@ -59,7 +66,7 @@ export function DurationSelector({
           <SelectTrigger
             aria-label={label || "Duration"}
             aria-labelledby={label ? labelId : undefined}
-            className="h-11 w-full rounded-[14px] border-border/70 bg-background text-sm shadow-none"
+            className="h-11 w-full rounded-[14px] border-border/70 bg-[color:var(--app-card-surface-compact)] text-sm shadow-none"
           >
             <SelectValue />
           </SelectTrigger>
@@ -227,7 +234,7 @@ export function ReasonChips({
           <SelectTrigger
             aria-label={label || "Reason"}
             aria-labelledby={label ? labelId : undefined}
-            className="h-11 w-full rounded-[14px] border-border/70 bg-background text-sm shadow-none"
+            className="h-11 w-full rounded-[14px] border-border/70 bg-[color:var(--app-card-surface-compact)] text-sm shadow-none"
           >
             <SelectValue placeholder={placeholder} />
           </SelectTrigger>

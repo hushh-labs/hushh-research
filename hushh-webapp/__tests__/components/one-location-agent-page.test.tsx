@@ -611,7 +611,7 @@ async function openLocationFeatureStep() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
   expect(
     await screen.findByRole("heading", {
-      name: "Stay connected",
+      name: "Need to keep people updated?",
     }),
   ).toBeTruthy();
 }
@@ -818,7 +818,7 @@ async function openShareConfirmStep() {
 async function openAskFlow() {
   fireEvent.click(screen.getByRole("button", { name: /Request location/i }));
   expect(
-    await screen.findByRole("heading", { name: "Ask clearly" }),
+    await screen.findByRole("heading", { name: "Request with context" }),
   ).toBeTruthy();
 }
 
@@ -1513,19 +1513,19 @@ describe("OneLocationAgentPage", () => {
     expect(within(people).getByText("Trusted B")).toBeTruthy();
 
     const duration = screen.getByRole("combobox", { name: "Duration" });
-    expect(duration.textContent).toContain("30 min");
+    expect(duration.textContent).toContain("15 min");
     fireEvent.click(duration);
     const options = await screen.findAllByRole("option");
     expect(options.map((option) => option.textContent)).toEqual([
-      "30 min",
+      "15 min",
       "1 hour",
-      "4 hours",
-      "24 hours",
+      "Today",
+      "Until I stop",
     ]);
-    fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
-    expect(duration.textContent).toContain("4 hours");
+    fireEvent.click(screen.getByRole("option", { name: "1 hour" }));
+    expect(duration.textContent).toContain("1 hour");
     // The duration reads back as a clock time on the same screen that set it.
-    expect(screen.getByText(/^Access ends around /)).toBeTruthy();
+    expect(screen.getByText(/^Access ends at /)).toBeTruthy();
 
     const note = screen.getByRole("textbox", { name: "Optional note" });
     const startButton = screen.getByRole("button", { name: "Start sharing" });
@@ -1554,7 +1554,8 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
     expect(mockCreateGrant).toHaveBeenCalledWith(
       expect.objectContaining({
-        durationHours: 4,
+        durationHours: 1,
+        durationMode: "timed",
         reason: "On my way",
         shareKind: "share",
       }),
@@ -1648,7 +1649,7 @@ describe("OneLocationAgentPage", () => {
       await screen.findByRole("heading", { name: "Ready to share?" }),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("combobox", { name: "Duration" }));
-    fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
+    fireEvent.click(screen.getByRole("option", { name: "1 hour" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Optional note" }), {
       target: { value: "Meet me by the entrance" },
     });
@@ -1732,7 +1733,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
     expect(
       screen.getByRole("combobox", { name: "Duration" }).textContent,
-    ).toContain("30 min");
+    ).toContain("15 min");
     expect(screen.getByRole("textbox", { name: "Optional note" })).toHaveValue(
       "",
     );
@@ -2709,7 +2710,7 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
-          name: "Stay connected",
+          name: "Need to keep people updated?",
         }),
       ).toBeNull();
       expect(
@@ -3134,12 +3135,11 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     await waitFor(() => expect(mockViewEnvelope).toHaveBeenCalled());
     expect(
-      await screen.findByText(
-        "Location update may be stale. Ask them to refresh sharing.",
-      ),
+      await screen.findByText("Location may be stale."),
     ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ask to refresh" })).toBeTruthy();
 
-    expect(screen.getByText("Access active")).toBeTruthy();
+    expect(screen.getByText("Active")).toBeTruthy();
     expect(screen.getByText(/^Access until /)).toBeTruthy();
     expect(screen.queryByText(/^Live$/)).toBeNull();
     expect(screen.queryByText(/^Live until /)).toBeNull();
@@ -3186,7 +3186,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(collapseButton);
 
     expect(screen.queryByTitle("Live location map preview")).toBeNull();
-    expect(screen.getByText("Trusted A is sharing with you")).toBeTruthy();
+    expect(screen.getByText("Trusted A")).toBeTruthy();
     expect(screen.getByRole("button", { name: "View location" })).toBeTruthy();
     const expandButton = screen.getByRole("button", {
       name: "Expand shared location from Trusted A",
@@ -3295,9 +3295,11 @@ describe("OneLocationAgentPage", () => {
       vaultOwnerToken: "vault-token",
       recipientUserId: "user_b",
       recipientKeyId: "key_b",
-      durationHours: 0.5,
+      durationHours: 0.25,
+      durationMode: "timed",
       reason: undefined,
       shareKind: "share",
+      sourceCircleId: undefined,
     });
     expect(mockCaptureCurrentPosition).toHaveBeenCalled();
     expect(mockEncryptLocationForRecipient).toHaveBeenCalledWith(
@@ -3324,7 +3326,7 @@ describe("OneLocationAgentPage", () => {
         route_id: "one_location",
         result: "success",
         selected_count: 1,
-        duration_bucket: "30m",
+        duration_bucket: "15m",
       }),
       expect.any(Object),
     );
@@ -3532,7 +3534,7 @@ describe("OneLocationAgentPage", () => {
     ).toEqual(["user_b", "user_d"]);
     expect(
       mockCreateGrant.mock.calls.map(([payload]) => payload.durationHours),
-    ).toEqual([0.5, 0.5]);
+    ).toEqual([0.25, 0.25]);
     expect(
       mockEncryptLocationForRecipient.mock.calls.map(
         ([payload]) => payload.recipientKeyId,

@@ -3055,7 +3055,7 @@ function ProfilePageContent() {
   };
 
   const accountContent = (
-    <div className="profile-account-content space-y-4">
+    <div className="profile-account-content">
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={User}
@@ -3065,13 +3065,13 @@ function ProfilePageContent() {
         />
         <SettingsRow
           icon={Mail}
-          iconTone="blue"
+          iconTone="gray"
           title="Email"
           description={user.email || "Not available"}
         />
         <SettingsRow
           icon={Phone}
-          iconTone="green"
+          iconTone="gray"
           title="Phone number"
           description={phoneSummaryText}
           trailing={
@@ -3086,7 +3086,7 @@ function ProfilePageContent() {
         />
         <SettingsRow
           icon={Fingerprint}
-          iconTone="green"
+          iconTone="gray"
           title="Sign-in provider"
           description={provider.name}
         />
@@ -4011,7 +4011,7 @@ function ProfilePageContent() {
 
       <AppPageContentRegion>
         <SurfaceStack compact>
-          <div className="profile-home-content space-y-4 sm:space-y-5">
+          <div className="profile-home-content">
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
                 icon={UserRound}
@@ -4023,7 +4023,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={SlidersHorizontal}
-                iconTone="purple"
+                iconTone="gray"
                 title={PROFILE_LABELS.preferences}
                 chevron
                 density="compact"
@@ -4043,7 +4043,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={MessageCircleQuestion}
-                iconTone="orange"
+                iconTone="gray"
                 title={PROFILE_LABELS.support}
                 chevron
                 density="compact"

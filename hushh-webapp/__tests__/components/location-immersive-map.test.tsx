@@ -1220,6 +1220,7 @@ describe("LocationImmersiveMap demo experience", () => {
           id: "active-location-share",
           ownerUserId: "test-user",
           recipientUserId: "trusted-person",
+          recipientDisplayName: "Ankit Kumar Singh",
           recipientKeyId: "trusted-person-key",
           status: "active",
           consentScope: "location",
@@ -1263,10 +1264,25 @@ describe("LocationImmersiveMap demo experience", () => {
     });
     expect(
       screen.getByTestId("one-location-map-sharing-status"),
-    ).toHaveAttribute("role", "status");
+    ).toHaveAttribute("type", "button");
     expect(
       screen.getByTestId("one-location-map-sharing-status"),
-    ).toHaveAccessibleName("You are sharing your location with 1 person");
+    ).toHaveAccessibleName(
+      "Show who you are sharing your location with. 1 person.",
+    );
+
+    fireEvent.click(screen.getByTestId("one-location-map-sharing-status"));
+
+    expect(
+      screen.getByRole("list", { name: "People you are sharing with" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Ankit Kumar Singh")).toBeInTheDocument();
+
+    fireEvent.scroll(window);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Ankit Kumar Singh")).not.toBeInTheDocument();
+    });
   });
 
   it("does not build a synthetic history boundary on the check-in route", async () => {

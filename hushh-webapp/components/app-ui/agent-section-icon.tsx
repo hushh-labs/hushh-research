@@ -67,6 +67,14 @@ const ICON_SIZE_CLASS = {
     image: "h-full w-full object-contain",
     pixels: 40,
   },
+  "roster-dashboard": {
+    surface: "h-[52px] w-[52px]",
+    lucideSurface: "h-[52px] w-[52px] rounded-[14px]",
+    imageSurface: "rounded-[14px]",
+    lucide: "h-[23px] w-[23px]",
+    image: "h-full w-full object-contain",
+    pixels: 52,
+  },
   // Larger rounded-square tile for the dashboard grid card (reference design).
   "roster-lg": {
     surface: "h-[68px] w-[68px]",
@@ -84,6 +92,7 @@ const PROFILE_ICON_RADIUS_CLASS: Record<AgentSectionIconSize, string> = {
   topbar: "rounded-[10px]",
   menu: "rounded-[11px]",
   roster: "rounded-[12px]",
+  "roster-dashboard": "rounded-[14px]",
   "roster-lg": "rounded-[18px]",
 };
 
@@ -113,6 +122,7 @@ export function AgentSectionIcon({
   glyphContrast = "default",
   className,
   isActive,
+  profileStyle,
 }: {
   id: string;
   icon: OneCapabilityIcon;
@@ -126,6 +136,7 @@ export function AgentSectionIcon({
   glyphContrast?: "default" | "inverted";
   className?: string;
   isActive?: boolean;
+  profileStyle?: CSSProperties;
 }) {
   const classes = ICON_SIZE_CLASS[size];
 
@@ -153,7 +164,7 @@ export function AgentSectionIcon({
             : AGENT_ICON_SURFACE_FALLBACK_CLASSNAME,
           className,
         )}
-        style={active ? profileToneStyle : undefined}
+        style={active ? (profileStyle ?? profileToneStyle) : undefined}
         data-testid={`one-agent-icon-${id}`}
         data-agent-icon-palette-index={
           Number.isInteger(paletteIndex) ? paletteIndex : undefined
@@ -164,7 +175,9 @@ export function AgentSectionIcon({
         <Icon
           className={cn(
             classes.lucide,
-            size === "roster" ? "[stroke-width:1.7]" : "[stroke-width:1.8]",
+            size === "roster" || size === "roster-dashboard"
+              ? "[stroke-width:1.7]"
+              : "[stroke-width:1.8]",
             active
               ? glyphContrast === "inverted"
                 ? "!text-white dark:!text-[#1d1d1f]"

@@ -50,14 +50,14 @@ function StackHeader({
 }) {
   return (
     <div
-      className="mx-auto flex w-full max-w-[720px] flex-col gap-1 px-[var(--page-inline-gutter-standard)] pb-1 pt-3"
+      className="mx-auto flex w-full max-w-[520px] flex-col gap-1 px-[var(--page-inline-gutter-standard)] pb-1 pt-3"
       data-profile-stack-header="true"
     >
       <h1 className="profile-home-name ui-text-identity-name text-[32px] font-bold tracking-tight text-[color:var(--ios-account-label)]">
         {title}
       </h1>
       {description ? (
-        <p className="text-[13px] font-normal leading-[18px] text-[color:var(--ios-account-secondary-label)]">
+        <p className="ui-text-page-subtitle text-[color:var(--ios-account-secondary-label)]">
           {description}
         </p>
       ) : null}
@@ -198,10 +198,10 @@ export function ProfileStackNavigator({
                     scrollRegionRefs.current[index] = node;
                   }}
                   data-profile-stack-scroll="true"
-                  className="flex flex-1 flex-col overflow-hidden"
+                  className="flex flex-1 flex-col overflow-y-auto overscroll-contain"
                 >
                   <div
-                    className="mx-auto flex w-full max-w-[720px] flex-1 flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-4 pt-1"
+                    className="mx-auto flex w-full max-w-[520px] flex-1 flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-4 pt-1"
                     data-profile-stack-content="true"
                   >
                     <SettingsPresentationProvider

@@ -384,12 +384,12 @@ export function SharedWithMeCard({
         <Avatar initials={initialsFrom(name)} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-semibold text-foreground">
-            {name} is sharing with you
+            {name}
           </p>
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
             <p className={cn(MUTED_TEXT, "min-w-0 truncate")}>{statusLine}</p>
             <StatusPill tone="ready" className="shrink-0">
-              Access active
+              Active
             </StatusPill>
           </div>
         </div>

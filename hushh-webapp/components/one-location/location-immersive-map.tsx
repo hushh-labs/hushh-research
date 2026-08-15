@@ -37,6 +37,11 @@ import {
 } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useRequireAuth } from "@/hooks/use-auth";
 import {
   decryptLocationEnvelope,
@@ -65,6 +70,7 @@ import { OneLocationService } from "@/lib/one-location/service";
 import type {
   OneLocationMapMarker,
   OneLocationMapPreferences,
+  OneLocationGrant,
   OneLocationNearbyAttendee,
   OneLocationNearbyPresenceState,
   PlainLocationPoint,
@@ -112,6 +118,17 @@ const MAP_ACCENT_CONTROL_CLASSNAME =
   "!border-[var(--app-accent-border)] !bg-[var(--app-accent-surface)] !text-[var(--app-accent-deep)] hover:!bg-[var(--app-accent-surface-strong)] dark:!text-[var(--app-accent-bright)]";
 const MAP_ACCENT_ACTIVE_CLASSNAME =
   "border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--app-accent-fg)] hover:bg-[var(--app-accent-hover)]";
+
+function activeShareLabels(grants: OneLocationGrant[]): string[] {
+  return grants
+    .filter((grant) => grant.status === "active")
+    .map(
+      (grant) =>
+        grant.recipientDisplayName?.trim() ||
+        grant.recipientMaskedPhone?.trim() ||
+        "Someone",
+    );
+}
 
 type RenderMarker = {
   key: string;
@@ -426,6 +443,8 @@ export function LocationImmersiveMap({
   // refresh — the map surfaces it as a "Sharing with N" status, since outgoing
   // shares carry no coordinate to plot.
   const [activeShareCount, setActiveShareCount] = useState<number | null>(null);
+  const [activeShareNames, setActiveShareNames] = useState<string[]>([]);
+  const [sharingPopoverOpen, setSharingPopoverOpen] = useState(false);
   const [selected, setSelected] = useState<RenderMarker | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [trayExpanded, setTrayExpanded] = useState(true);
@@ -846,13 +865,26 @@ export function LocationImmersiveMap({
     try {
       const state = await OneLocationService.getState(vaultOwnerToken);
       if (!mountedRef.current) return;
-      setActiveShareCount(
-        state.ownerGrants.filter((grant) => grant.status === "active").length,
-      );
+      const names = activeShareLabels(state.ownerGrants);
+      setActiveShareCount(names.length);
+      setActiveShareNames(names);
     } catch {
       // A status count is non-critical; leave the last-known value in place.
     }
   }, [auth.userId, demoMode, vaultOwnerToken]);
+
+  useEffect(() => {
+    if (!sharingPopoverOpen) return;
+    const close = () => setSharingPopoverOpen(false);
+    window.addEventListener("scroll", close, true);
+    return () => window.removeEventListener("scroll", close, true);
+  }, [sharingPopoverOpen]);
+
+  useEffect(() => {
+    if ((activeShareCount ?? 0) === 0 && sharingPopoverOpen) {
+      setSharingPopoverOpen(false);
+    }
+  }, [activeShareCount, sharingPopoverOpen]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -1656,9 +1688,9 @@ export function LocationImmersiveMap({
       );
       // Keep the on-map "Sharing with N" status in sync off this same fetch.
       if (mountedRef.current) {
-        setActiveShareCount(
-          state.ownerGrants.filter((grant) => grant.status === "active").length,
-        );
+        const names = activeShareLabels(state.ownerGrants);
+        setActiveShareCount(names.length);
+        setActiveShareNames(names);
       }
       await Promise.all(
         grants.map(async (grant) => {
@@ -1957,21 +1989,60 @@ export function LocationImmersiveMap({
         </div>
         <div className="flex min-w-0 items-center justify-center">
           {!demoMode && (activeShareCount ?? 0) > 0 ? (
-            <span
-              data-testid="one-location-map-sharing-status"
-              aria-label={`You are sharing your location with ${activeShareCount} ${
-                activeShareCount === 1 ? "person" : "people"
-              }`}
-              role="status"
-              aria-live="polite"
-              className="pointer-events-none flex min-w-0 shrink items-center gap-1.5 truncate rounded-full border border-[var(--app-accent-border)] bg-background/85 px-3 py-1.5 text-[12px] font-semibold text-[var(--app-accent-deep)] shadow-lg backdrop-blur-md dark:text-[var(--app-accent-bright)]"
+            <Popover
+              open={sharingPopoverOpen}
+              onOpenChange={setSharingPopoverOpen}
+              modal={false}
             >
-              <span
-                className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--app-accent)] motion-safe:animate-pulse"
-                aria-hidden="true"
-              />
-              <span className="truncate">Sharing with {activeShareCount}</span>
-            </span>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  data-testid="one-location-map-sharing-status"
+                  aria-label={`Show who you are sharing your location with. ${activeShareCount} ${
+                    activeShareCount === 1 ? "person" : "people"
+                  }.`}
+                  aria-expanded={sharingPopoverOpen}
+                  className="pointer-events-auto press-scale flex min-w-0 shrink items-center gap-1.5 truncate rounded-full border border-[var(--app-accent-border)] bg-background/85 px-3 py-1.5 text-[12px] font-semibold text-[var(--app-accent-deep)] shadow-lg backdrop-blur-md transition-colors hover:bg-background/95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] focus-visible:ring-offset-2 dark:text-[var(--app-accent-bright)]"
+                >
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--app-accent)] motion-safe:animate-pulse"
+                    aria-hidden="true"
+                  />
+                  <span className="truncate">
+                    Sharing with {activeShareCount}
+                  </span>
+                  <span className="sr-only" role="status" aria-live="polite">
+                    You are sharing your location with {activeShareCount}{" "}
+                    {activeShareCount === 1 ? "person" : "people"}.
+                  </span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="center"
+                side="bottom"
+                sideOffset={8}
+                onOpenAutoFocus={(event) => event.preventDefault()}
+                className="pointer-events-auto w-[min(17rem,calc(100vw-2rem))] rounded-[18px] border border-[var(--app-accent-border)] bg-background/92 p-2 text-foreground shadow-xl backdrop-blur-md"
+              >
+                <p className="px-2 py-1 text-[13px] font-semibold leading-[18px] text-muted-foreground">
+                  Sharing with
+                </p>
+                <ul className="grid gap-1" aria-label="People you are sharing with">
+                  {activeShareNames.map((name, index) => (
+                    <li
+                      key={`${name}-${index}`}
+                      className="flex min-h-9 items-center gap-2 rounded-[12px] px-2 py-1.5 text-[15px] leading-5"
+                    >
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full bg-[var(--app-accent)]"
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 truncate">{name}</span>
+                    </li>
+                  ))}
+                </ul>
+              </PopoverContent>
+            </Popover>
           ) : null}
         </div>
         {rendererReady ? (

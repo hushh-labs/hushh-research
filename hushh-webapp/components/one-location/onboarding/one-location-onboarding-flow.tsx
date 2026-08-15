@@ -308,7 +308,7 @@ function OnboardingNavigation({
 function WelcomeRadar() {
   return (
     <div
-      className="relative mx-auto aspect-square w-[min(88vw,48dvh,390px)]"
+      className="relative mx-auto aspect-square w-[min(82vw,42dvh,340px)]"
       data-one-welcome-radar
       aria-hidden="true"
     >
@@ -324,8 +324,11 @@ function WelcomeRadar() {
         />
       ))}
       <span className="absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
-        <span className="flex h-[70px] w-[70px] items-center justify-center rounded-full border border-white/70 bg-white text-[#087ff5] shadow-[0_12px_32px_rgba(0,61,144,0.22)]">
-          <MapPin className="h-7 w-7 fill-current/10" strokeWidth={2.7} />
+        <span
+          className="flex h-16 w-16 items-center justify-center rounded-full border border-white/70 bg-white text-[#087ff5] shadow-[0_12px_32px_rgba(0,61,144,0.22)]"
+          data-one-welcome-core
+        >
+          <MapPin className="h-6 w-6 fill-current/10" strokeWidth={2.7} />
         </span>
         <span className="-mt-1 rounded-full bg-white px-4 py-0.5 text-[14px] font-bold text-[#087ff5] shadow-[0_5px_14px_rgba(0,61,144,0.18)]">
           You
@@ -341,7 +344,10 @@ function WelcomeRadar() {
           )}
           style={{ animationDelay: `${120 + index * 90}ms` }}
         >
-          <span className="block h-[66px] w-[66px] overflow-hidden rounded-[18px] border-[3px] border-white bg-white p-0.5 shadow-[0_12px_28px_rgba(0,40,100,0.28)]">
+          <span
+            className="block h-[58px] w-[58px] overflow-hidden rounded-[18px] border-[3px] border-white bg-white p-0.5 shadow-[0_12px_28px_rgba(0,40,100,0.28)]"
+            data-one-welcome-orbit-card
+          >
             {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
             <img
               src={item.src}
@@ -355,7 +361,10 @@ function WelcomeRadar() {
               )}
             />
           </span>
-          <span className="absolute -right-1 -top-1 h-[19px] w-[19px] rounded-full border-[3px] border-white bg-[#31c65b]" />
+          <span
+            className="absolute -right-1 -top-1 h-[17px] w-[17px] rounded-full border-[3px] border-white bg-[#31c65b]"
+            data-one-welcome-orbit-status
+          />
         </span>
       ))}
       <style>{`
@@ -379,7 +388,7 @@ function WelcomeScreen({
   leaving: boolean;
 }) {
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] text-white dark:bg-[#073d78]">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(var(--app-safe-area-top-effective,0px),10px)] text-white dark:bg-[#073d78]">
       <span className="pointer-events-none absolute -right-24 -top-32 h-72 w-72 rounded-full bg-white/[0.05]" />
       <span className="pointer-events-none absolute -bottom-28 -left-32 h-72 w-72 rounded-full bg-[#006bd9]/55" />
       <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-[560px] flex-1 flex-col">
@@ -402,7 +411,7 @@ function WelcomeScreen({
               Location Agent
             </p>
             <h1
-              className="mx-auto mt-7 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.025em]"
+              className="mx-auto mt-5 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.015em]"
               data-one-welcome-heading
             >
               Share your location
@@ -410,7 +419,7 @@ function WelcomeScreen({
               easily with anyone.
             </h1>
           </div>
-          <div className="flex min-h-0 flex-1 items-center justify-center py-2">
+          <div className="flex min-h-0 flex-1 items-center justify-center py-4">
             <WelcomeRadar />
           </div>
           <div className="shrink-0">
@@ -421,13 +430,18 @@ function WelcomeScreen({
         </div>
       </div>
       <style>{`
-        @media (max-height: 720px) { [data-one-welcome-heading] { margin-top: 12px; font-size: 34px; } }
+        @media (max-height: 720px) {
+          [data-one-welcome-heading] { margin-top: 12px; font-size: 28px; line-height: 34px; }
+          [data-one-welcome-radar] { width: min(80vw, 42dvh, 320px); }
+        }
         @media (max-height: 560px) {
           [data-one-welcome-heading] { margin-top: 8px; font-size: 26px; line-height: 30px; }
-          [data-one-welcome-radar] { width: min(88vw, 30dvh, 390px); }
+          [data-one-welcome-radar] { width: min(76vw, 38dvh, 280px); }
+          [data-one-welcome-orbit-card] { width: 52px; height: 52px; }
+          [data-one-welcome-core] { width: 58px; height: 58px; }
         }
         @media (max-height: 400px) {
-          [data-one-welcome-radar] { width: min(60vw, 26dvh, 390px); }
+          [data-one-welcome-radar] { width: min(60vw, 32dvh, 220px); }
         }
       `}</style>
     </div>

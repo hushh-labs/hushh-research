@@ -221,9 +221,7 @@ function AppShellFrame({ children }: ProvidersProps) {
         // The route-body tab gap is deliberate reading space, not a chrome
         // extension. Keep it out of the mask so dark mode cannot form a band
         // beneath the tab underline.
-        "--top-shell-mask-tabs-gap": topShellMetrics.hasTabs
-          ? "var(--top-tabs-gap)"
-          : "0px",
+        "--top-shell-mask-tabs-gap": "0px",
         "--top-shell-mask-solid-height":
           "calc(var(--top-shell-reserved-height) - var(--top-shell-mask-tabs-gap) - var(--top-chrome-collapse-px, 0px))",
         "--top-shell-mask-visible-height":

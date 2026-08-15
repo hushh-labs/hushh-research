@@ -629,11 +629,6 @@ export function JoinCircleFlow({
           Preview circle
         </Button>
       )}
-
-      <TrustNoteCard
-        title="No request wait"
-        description="Join the Circle. Location stays explicit."
-      />
     </div>
   );
 }
