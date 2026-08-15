@@ -54,6 +54,9 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_SETUP) {
     return { screen: "one_setup_hub", subview: null };
   }
+  if (normalizedPath === ROUTES.ONE_SETUP_CLOUD) {
+    return { screen: "one_setup_cloud", subview: null };
+  }
   if (normalizedPath === ROUTES.ONE_SETUP_CONNECTIONS) {
     return { screen: "one_setup_connections", subview: null };
   }

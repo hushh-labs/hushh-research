@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { LockKeyhole, PlugZap } from "lucide-react";
+import { Cloud, LockKeyhole, PlugZap } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -102,14 +102,17 @@ export function OneSetupHub() {
     "idle" | "guided_connection" | "migrating" | "explainer" | "draining"
   >("idle");
   const finalizationInFlightRef = useRef<Promise<void> | null>(null);
-  const [runtimeChoiceSnapshot, setRuntimeChoiceSnapshot] = useState<{
+  // Both root prerequisites come from ONE PreVaultUserState read. They are two facts
+  // on the same record, so splitting them into two snapshots would mean two fetches,
+  // two caches and two chances for the hub to show a person a half-updated checklist.
+  const [prereqSnapshot, setPrereqSnapshot] = useState<{
     userId: string | null;
-    state: "loading" | "required" | "complete";
-  }>({ userId: null, state: "loading" });
-  const runtimeChoiceState =
-    runtimeChoiceSnapshot.userId === (user?.uid ?? null)
-      ? runtimeChoiceSnapshot.state
-      : "loading";
+    cloud: "loading" | "required" | "complete";
+    runtime: "loading" | "required" | "complete";
+  }>({ userId: null, cloud: "loading", runtime: "loading" });
+  const prereqMatchesUser = prereqSnapshot.userId === (user?.uid ?? null);
+  const cloudState = prereqMatchesUser ? prereqSnapshot.cloud : "loading";
+  const runtimeChoiceState = prereqMatchesUser ? prereqSnapshot.runtime : "loading";
   const returnTo = useMemo(() => {
     const raw = normalizeInternalRouteHref(searchParams.get("return_to"));
     if (!raw) return null;
@@ -124,34 +127,47 @@ export function OneSetupHub() {
 
   useEffect(() => {
     if (!user?.uid) {
-      setRuntimeChoiceSnapshot({ userId: null, state: "required" });
-      return;
-    }
-    let active = true;
-    const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
-    if (cached) {
-      setRuntimeChoiceSnapshot({
-        userId: user.uid,
-        state: PreVaultUserStateService.hasOneRuntimeChoice(cached)
-          ? "complete"
-          : "required",
+      setPrereqSnapshot({
+        userId: null,
+        cloud: "required",
+        runtime: "required",
       });
       return;
     }
-    setRuntimeChoiceSnapshot({ userId: user.uid, state: "loading" });
+    let active = true;
+    const project = (
+      state: Parameters<typeof PreVaultUserStateService.hasOneCloudProject>[0],
+    ) => ({
+      userId: user.uid,
+      cloud: PreVaultUserStateService.hasOneCloudProject(state)
+        ? ("complete" as const)
+        : ("required" as const),
+      runtime: PreVaultUserStateService.hasOneRuntimeChoice(state)
+        ? ("complete" as const)
+        : ("required" as const),
+    });
+    const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+    if (cached) {
+      setPrereqSnapshot(project(cached));
+      return;
+    }
+    setPrereqSnapshot({
+      userId: user.uid,
+      cloud: "loading",
+      runtime: "loading",
+    });
     void PreVaultUserStateService.bootstrapState(user.uid)
       .then((state) => {
         if (!active) return;
-        setRuntimeChoiceSnapshot({
-          userId: user.uid,
-          state: PreVaultUserStateService.hasOneRuntimeChoice(state)
-            ? "complete"
-            : "required",
-        });
+        setPrereqSnapshot(project(state));
       })
       .catch(() => {
         if (active) {
-          setRuntimeChoiceSnapshot({ userId: user.uid, state: "required" });
+          setPrereqSnapshot({
+            userId: user.uid,
+            cloud: "required",
+            runtime: "required",
+          });
         }
       });
     return () => {
@@ -167,7 +183,11 @@ export function OneSetupHub() {
   const completeItems = groupedItems.complete;
   const visibleItems = groupedItems.visible;
 
+  const cloudComplete = cloudState === "complete";
   const runtimeChoiceComplete = runtimeChoiceState === "complete";
+  // Both root prerequisites, in product order. The footer and the master exit read
+  // this rather than either half, so a person cannot leave the hub having done one.
+  const setupPrerequisitesComplete = cloudComplete && runtimeChoiceComplete;
   // "Ready" counts only GENUINELY set-up capabilities (completed/skipped). A
   // tile that still needs a connection or an unlock (blocked/unknown) is NOT
   // ready, even though it is not directly tappable-into-setup — so we never
@@ -175,6 +195,7 @@ export function OneSetupHub() {
   // rendered alongside these capability rows, so it must participate in the
   // same progress projection instead of being omitted from the denominator.
   const progressSteps = [
+    { id: "cloud", complete: cloudComplete },
     { id: "connections", complete: runtimeChoiceComplete },
     ...items.map((item) => ({
       id: item.id,
@@ -212,7 +233,7 @@ export function OneSetupHub() {
                 : "This setup is still remaining."
             }`,
           })),
-          ...(dismissing || !runtimeChoiceComplete
+          ...(dismissing || !setupPrerequisitesComplete
             ? []
             : [
                 {
@@ -421,31 +442,44 @@ export function OneSetupHub() {
     }
     setDismissing(true);
     try {
-      // AI access gate: a runtime choice is mandatory before leaving the hub.
-      // When the client already knows the choice is made (the footer stays
-      // disabled until runtimeChoiceComplete) trust it and skip the network
-      // round-trip. Only re-verify against fresh server state when the client
-      // is unsure — and even then a failed probe must not trap the person, so
-      // fall back to the resolved client gate rather than stranding them.
+      // Root-setup gate: BOTH prerequisites are mandatory before leaving the hub.
+      // When the client already knows they are satisfied (the footer stays disabled
+      // until then) trust it and skip the network round-trip. Only re-verify against
+      // fresh server state when the client is unsure — and even then a failed probe
+      // must not trap the person, so fall back to the resolved client gate rather
+      // than stranding them.
+      let cloudConfirmed = cloudComplete;
       let runtimeChoiceConfirmed = runtimeChoiceComplete;
-      if (!runtimeChoiceConfirmed) {
+      if (!cloudConfirmed || !runtimeChoiceConfirmed) {
         try {
           const currentState = await PreVaultUserStateService.bootstrapState(
             user.uid,
             { force: true },
           );
+          cloudConfirmed =
+            PreVaultUserStateService.hasOneCloudProject(currentState);
           runtimeChoiceConfirmed =
             PreVaultUserStateService.hasOneRuntimeChoice(currentState);
-          setRuntimeChoiceSnapshot({
+          setPrereqSnapshot({
             userId: user.uid,
-            state: runtimeChoiceConfirmed ? "complete" : "required",
+            cloud: cloudConfirmed ? "complete" : "required",
+            runtime: runtimeChoiceConfirmed ? "complete" : "required",
           });
         } catch (error) {
           console.warn(
-            "[OneSetupHub] Could not verify the AI access choice:",
+            "[OneSetupHub] Could not verify the root setup prerequisites:",
             error,
           );
         }
+      }
+      // Distinct messages per missing step, deliberately. "Set up your cloud" and
+      // "Choose AI access" are different next actions, and one string covering both
+      // is how a gate stops telling a person what to do and becomes noise.
+      if (!cloudConfirmed) {
+        return {
+          status: "blocked" as const,
+          summary: "Connect your own cloud before continuing.",
+        };
       }
       if (!runtimeChoiceConfirmed) {
         return {
@@ -555,11 +589,13 @@ export function OneSetupHub() {
             <button
               type="button"
               onClick={() => void handleMasterAck()}
-              disabled={dismissing || !runtimeChoiceComplete}
+              disabled={dismissing || !setupPrerequisitesComplete}
               title={
-                !runtimeChoiceComplete
-                  ? "Choose an AI access option before continuing."
-                  : undefined
+                !cloudComplete
+                  ? "Connect your own cloud before continuing."
+                  : !runtimeChoiceComplete
+                    ? "Choose an AI access option before continuing."
+                    : undefined
               }
               data-testid="one-setup-master-ack-mobile"
               className="mt-1 shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:opacity-40 sm:hidden"
@@ -654,16 +690,32 @@ export function OneSetupHub() {
                 testId="one-setup-capabilities-remaining"
                 separatorInset
               >
+                {!cloudComplete ? (
+                  <SetupNavigationTile
+                    id="cloud"
+                    title="Your cloud"
+                    description="Run your private agent in your own Google Cloud project. Your compute, your bill."
+                    href={ROUTES.ONE_SETUP_CLOUD}
+                    voiceControlId="one_setup_tile_cloud"
+                    icon={lucideCapabilityIcon(Cloud)}
+                    tone="connected"
+                    statusLabel="Required"
+                  />
+                ) : null}
                 {!runtimeChoiceComplete ? (
                   <SetupNavigationTile
                     id="connections"
                     title="AI access"
-                    description="Choose Hussh managed Gemini or your own Gemini access."
+                    description={
+                      cloudComplete
+                        ? "Your own project's AI is used by default. Add your own key only if you need to."
+                        : "Set up your cloud first, then choose how your agent reaches a model."
+                    }
                     href={ROUTES.ONE_SETUP_CONNECTIONS}
                     voiceControlId="one_setup_tile_connections"
                     icon={lucideCapabilityIcon(PlugZap)}
                     tone="connected"
-                    statusLabel="Required"
+                    statusLabel={cloudComplete ? "Required" : "After your cloud"}
                   />
                 ) : null}
                 {remainingItems.map((item) => (
@@ -684,12 +736,25 @@ export function OneSetupHub() {
                   />
                 ))}
               </SettingsGroup>
-              {completeItems.length > 0 || runtimeChoiceComplete ? (
+              {completeItems.length > 0 || runtimeChoiceComplete || cloudComplete ? (
                 <SettingsGroup
                   title="Complete"
                   testId="one-setup-capabilities-complete"
                   separatorInset
                 >
+                  {cloudComplete ? (
+                    <SetupNavigationTile
+                      id="cloud"
+                      title="Your cloud"
+                      description="Your private agent runs in your own Google Cloud project."
+                      href={ROUTES.ONE_SETUP_CLOUD}
+                      voiceControlId="one_setup_tile_cloud"
+                      icon={lucideCapabilityIcon(Cloud)}
+                      tone="connected"
+                      statusLabel="Connected"
+                      isComplete
+                    />
+                  ) : null}
                   {runtimeChoiceComplete ? (
                     <SetupNavigationTile
                       id="connections"
@@ -731,7 +796,7 @@ export function OneSetupHub() {
                 label={masterActionLabel}
                 onComplete={() => void handleMasterAck()}
                 busy={dismissing}
-                disabled={!runtimeChoiceComplete}
+                disabled={!setupPrerequisitesComplete}
                 controlId="one-setup-master-ack"
                 actionId="setup.hub_master_ack"
                 testId="one-setup-master-ack"
@@ -739,9 +804,11 @@ export function OneSetupHub() {
                   "Finish setup and protect what you save."
                 }
                 supportingText={
-                  !runtimeChoiceComplete
-                    ? "Choose an AI access option before continuing."
-                    : "Your vault is required. You can add more capabilities any time."
+                  !cloudComplete
+                    ? "Connect your own cloud before continuing."
+                    : !runtimeChoiceComplete
+                      ? "Choose an AI access option before continuing."
+                      : "Your vault is required. You can add more capabilities any time."
                 }
                 variant="blue-gradient"
                 effect="fill"

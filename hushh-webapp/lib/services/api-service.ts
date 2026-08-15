@@ -3484,6 +3484,51 @@ export class ApiService {
   }
 
   /**
+   * Record WHICH cloud is this person's, and ask hushh to PROVE it can reach it.
+   *
+   * `authorized` comes back from a real impersonation attempt against their bootstrap
+   * account, never from anything this client sends. An unauthorized answer is a normal
+   * outcome rather than an error: a person needs `hushhCaller` from this response in
+   * order to run the authorization script, so the first call is expected to say no.
+   */
+  static async saveByocProject(input: {
+    projectId: string;
+    region?: string;
+    bootstrapServiceAccountId?: string;
+  }): Promise<{
+    projectId: string;
+    region: string;
+    bootstrapServiceAccount: string;
+    authorized: boolean;
+    hushhCaller: string;
+    nextStep: string;
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/byoc/project/save",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          projectId: input.projectId,
+          region: input.region ?? "us-central1",
+          bootstrapServiceAccountId:
+            input.bootstrapServiceAccountId ?? "one-bootstrap",
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error("BYOC_SAVE_FAILED");
+    }
+    return response.json();
+  }
+
+  /**
    * Run one turn on this person's own pod, through the private relay.
    *
    * The pod is `internal` ingress with no public binding, so the hub is the only

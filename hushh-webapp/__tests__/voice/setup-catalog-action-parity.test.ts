@@ -47,6 +47,7 @@ describe("setup catalog voice parity", () => {
         .filter((action) => action.action_id.startsWith("setup.open_"))
         .map((action) => action.label),
     ).toEqual([
+      "Set up your cloud",
       "Set up AI access",
       ...CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ]);
@@ -72,6 +73,7 @@ describe("setup catalog voice parity", () => {
       (capability) => capability.setupActionId,
     );
     const orderedHubActionIds = [
+      "setup.open_cloud",
       "setup.open_connections",
       ...orderedActionIds,
     ];
@@ -84,7 +86,9 @@ describe("setup catalog voice parity", () => {
     const setupRoute = routeLayoutContract.find(
       (entry) => entry.route === "/one/setup",
     );
-    expect(setupRoute?.voicePlaybook?.primaryActionId).toBe("setup.open_connections");
+    // The hub's primary action leads with the cloud, because that is the first step
+    // a person must take. Broken on purpose: point it back at AI access and this fails.
+    expect(setupRoute?.voicePlaybook?.primaryActionId).toBe("setup.open_cloud");
     expect(setupRoute?.voicePlaybook?.happyPathActionIds).toEqual([
       ...orderedHubActionIds,
       "setup.hub_master_ack",

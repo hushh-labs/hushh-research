@@ -6409,8 +6409,9 @@
           "screen": "one_setup_hub",
           "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
           "proactivity": "on_entry",
-          "primary_action_id": "setup.open_connections",
+          "primary_action_id": "setup.open_cloud",
           "happy_path_action_ids": [
+            "setup.open_cloud",
             "setup.open_connections",
             "setup.open_gmail",
             "setup.open_calendar",
@@ -6590,6 +6591,75 @@
       "thread_and_consent_contract": {
         "oauth_connection": "Google refresh tokens remain server-encrypted; setup receives only connection status and an authorization URL."
       }
+    },
+    {
+      "route": "/one/setup/cloud",
+      "page_file": "app/one/setup/cloud/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/connections/byoc-cloud-setup-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.cloud",
+          "purpose": "Name and authorize the person's own Google Cloud project so their private agent can be built there, before any AI-access choice is made.",
+          "screen": "one_setup_cloud",
+          "entry_cue": "Name the project your agent will live in, then run the one-line grant we give you.",
+          "proactivity": "on_entry",
+          "primary_action_id": "setup.finish_cloud",
+          "happy_path_action_ids": [
+            "setup.finish_cloud"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Setup records the project and the proven grant only. No credential is ever held: authorization is re-proven per operation with a short-lived impersonated token.",
+          "next_route": "/one/setup",
+          "return_policy": "return_to_hub",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/cloud",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
+        "expectedMarker": "native-route-one-setup-cloud",
+        "expectedRoute": "/one/setup/cloud",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/setup/cloud/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "setup.finish_cloud"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
     },
     {
       "route": "/one/setup/connected-systems",
@@ -8514,5 +8584,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "0910bb37ea96d377f391d495c76effc016aecee8c4f06922de755bdb00ffd17b"
+  "content_sha256": "aa1c723a01a2683a16fbbdaf232e9f6146d315fded5151ed22c65588c68a53e2"
 }

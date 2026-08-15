@@ -43,7 +43,18 @@ describe("One setup hub terminal action contract", () => {
 
     expect(source).toContain("<SetupCompletionFooter");
     expect(source).toContain('testId="one-setup-master-ack"');
-    expect(source).toContain("disabled={!runtimeChoiceComplete}");
+    // Both root prerequisites now gate the exit, so the footer reads the combined
+    // value rather than the AI-access half. A person must not be able to leave the
+    // hub having connected a model but no cloud for it to run in.
+    expect(source).toContain("disabled={!setupPrerequisitesComplete}");
+    expect(source).toContain(
+      "const setupPrerequisitesComplete = cloudComplete && runtimeChoiceComplete;",
+    );
+    // The reorder itself, asserted on the rendered order rather than on intent.
+    // Broken on purpose: move the cloud tile below AI access and this goes red.
+    expect(source.indexOf('title="Your cloud"')).toBeLessThan(
+      source.indexOf('title="AI access"'),
+    );
     expect(source).toContain(
       "PreVaultUserStateService.hasOneRuntimeChoice(currentState)",
     );

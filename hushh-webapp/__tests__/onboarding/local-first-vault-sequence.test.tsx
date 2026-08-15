@@ -70,6 +70,10 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
     getCachedBootstrapState: () => ({ oneRuntimeChoice: "hushh_managed" }),
     bootstrapState: vi.fn(async () => ({ oneRuntimeChoice: "hushh_managed" })),
     hasOneRuntimeChoice: () => true,
+    // These tests are about the VAULT sequence, so both root prerequisites are
+    // already satisfied. Without this the hub's exit gate blocks on the cloud step --
+    // which is the gate working, but it is not what this file is exercising.
+    hasOneCloudProject: () => true,
   },
 }));
 
@@ -99,7 +103,8 @@ vi.mock("@/lib/agent/local-onboarding-actions", () => ({
 }));
 
 vi.mock("@/lib/navigation/routes", () => ({
-  ROUTES: { ONE_HOME: "/one", ONE_SETUP_CONNECTIONS: "/one/setup/connections" },
+  ROUTES: { ONE_HOME: "/one", ONE_SETUP_CLOUD: "/one/setup/cloud",
+    ONE_SETUP_CONNECTIONS: "/one/setup/connections" },
   isOneSetupSurfaceRoute: () => false,
   normalizeInternalRouteHref: () => null,
 }));
