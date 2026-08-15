@@ -49,11 +49,6 @@ import {
   locationConsentSummary,
 } from "@/lib/consent/location-consent";
 import { OneLocationService } from "@/lib/one-location/service";
-import {
-  RECIPIENT_KEY_UNAVAILABLE_MESSAGE,
-  decryptLocationEnvelope,
-  ensureVaultSyncedRecipientKey,
-} from "@/lib/one-location/encryption";
 import type {
   OneLocationAccessRequest,
   OneLocationCircleMemberInvite,
@@ -114,6 +109,12 @@ export interface UseFeedActionablesResult {
   actionables: FeedActionable[];
   count: number;
   loading: boolean;
+  /** A revoked/expired SOS card is sitting in `actionables` with nothing left
+   * to act on — only the Feed page's existing Clear button can remove it. */
+  hasClearableSmsEmergencies: boolean;
+  /** Dismisses every revoked/expired SOS card currently shown. Wired into the
+   * Feed page's existing Clear button so it clears SOS notifications too. */
+  clearSmsEmergencies: () => void;
 }
 
 function toTimestamp(value?: string | number | null): number {
@@ -166,6 +167,45 @@ export function isActiveSmsEmergencyGrant(grant: OneLocationGrant): boolean {
   return grant.status === "active" && grant.shareKind === "sos";
 }
 
+/**
+ * Any SOS grant a contact ever sent, live or revoked. Unlike
+ * `isActiveSmsEmergencyGrant`, this keeps a revoked/expired SOS in the "Needs
+ * you" feed as a historical alert instead of silently dropping it the instant
+ * the sender cancels — a safety event must stay visible until the recipient
+ * explicitly clears it.
+ */
+export function isSmsEmergencyGrant(grant: OneLocationGrant): boolean {
+  return grant.shareKind === "sos";
+}
+
+const SMS_EMERGENCY_DISMISSED_STORAGE_PREFIX = "hushh:feed-sms-dismissed:";
+
+function readDismissedSmsEmergencyIds(userId: string): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(
+      `${SMS_EMERGENCY_DISMISSED_STORAGE_PREFIX}${userId}`,
+    );
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((id): id is string => typeof id === "string"))
+      : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function writeDismissedSmsEmergencyIds(userId: string, ids: Set<string>): void {
+  try {
+    window.localStorage.setItem(
+      `${SMS_EMERGENCY_DISMISSED_STORAGE_PREFIX}${userId}`,
+      JSON.stringify([...ids]),
+    );
+  } catch {
+    // Storage disabled — the dismiss still applies for this session via state.
+  }
+}
+
 export function notifyFeedActionResolved(): void {
   dispatchConsentStateChanged({ source: "feed_actionable" });
   dispatchFeedStateChanged();
@@ -174,12 +214,23 @@ export function notifyFeedActionResolved(): void {
 export function useFeedActionables(): UseFeedActionablesResult {
   const router = useRouter();
   const { user } = useAuth();
-  const { vaultKey, vaultOwnerToken } = useVault();
+  const { vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
-  const [smsEmergencyAddresses, setSmsEmergencyAddresses] = useState<
-    Record<string, string>
-  >({});
+  const [dismissedSmsEmergencyIds, setDismissedSmsEmergencyIds] = useState<
+    Set<string>
+  >(() => new Set());
   const cache = useMemo(() => CacheService.getInstance(), []);
+
+  // Revoked/expired SOS cards stay in the feed as a historical alert until the
+  // recipient explicitly clears them (see the Clear action below); the
+  // per-user dismissal set persists to localStorage so it survives refreshes.
+  useEffect(() => {
+    if (!userId) {
+      setDismissedSmsEmergencyIds(new Set());
+      return;
+    }
+    setDismissedSmsEmergencyIds(readDismissedSmsEmergencyIds(userId));
+  }, [userId]);
 
   // ── Debate + background-task live stores (in-memory, synchronous) ──
   const [debateState, setDebateState] = useState(() =>
@@ -316,112 +367,39 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // + the stable refresh callbacks, not the changing wrapper identity.
   const locationRequests = locationResource.data?.requests;
   const receivedGrants = locationResource.data?.receivedGrants;
-  const myRecipientKey = locationResource.data?.myRecipientKey;
   const circleMemberInvites = locationResource.data?.circleMemberInvites;
   const locationRefresh = locationResource.refresh;
   const connectionRequests = connectionsResource.data;
   const connectionsRefresh = connectionsResource.refresh;
   const consentItems = consentListResource.data?.items;
 
-  // SOS location remains end-to-end encrypted at rest. Only active SOS
-  // grants are opened here, while the recipient vault is unlocked. The
-  // decrypted coordinate exists only long enough to reverse-geocode it;
-  // Feed state retains the resulting human-readable address, never the
-  // plaintext point.
-  useEffect(() => {
-    const emergencies = (receivedGrants ?? []).filter(
-      isActiveSmsEmergencyGrant,
-    );
+  // Revoked/expired SOS cards stay in the feed as a historical alert instead
+  // of vanishing the moment the sender cancels — but there is nothing left to
+  // act on, so only the Feed page's existing Clear button removes them (no
+  // separate per-row control). The dismissal set persists to localStorage so
+  // a clear survives refreshes.
+  const clearableSmsEmergencyIds = useMemo(
+    () =>
+      (receivedGrants ?? [])
+        .filter(
+          (grant) =>
+            isSmsEmergencyGrant(grant) &&
+            !isActiveSmsEmergencyGrant(grant) &&
+            !dismissedSmsEmergencyIds.has(grant.id),
+        )
+        .map((grant) => grant.id),
+    [receivedGrants, dismissedSmsEmergencyIds],
+  );
 
-    if (!userId || !vaultOwnerToken || emergencies.length === 0) {
-      setSmsEmergencyAddresses((current) =>
-        Object.keys(current).length === 0 ? current : {},
-      );
-      return;
-    }
-
-    let cancelled = false;
-
-    void Promise.all(
-      emergencies.map(async (grant) => {
-        try {
-          const response = await OneLocationService.viewEnvelope({
-            vaultOwnerToken,
-            grantId: grant.id,
-          });
-          // An SOS grant whose first point hasn't landed yet. There is no
-          // address to resolve, and inventing an error here would put a red
-          // state on an emergency card that is actually working — fall through
-          // to the same empty address the catch below produces, which the
-          // filter drops without disturbing the card.
-          const envelope = response.envelope;
-          if (!envelope) return [grant.id, ""] as const;
-
-          let point;
-          try {
-            point = await decryptLocationEnvelope({
-              userId,
-              envelope,
-            });
-          } catch (decryptError) {
-            // Match the Location workspace recovery path: a new device
-            // may need to restore the vault-synced recipient key once.
-            if (
-              decryptError instanceof Error &&
-              decryptError.message === RECIPIENT_KEY_UNAVAILABLE_MESSAGE &&
-              vaultKey &&
-              myRecipientKey?.encryptedPrivateKeyJwk
-            ) {
-              await ensureVaultSyncedRecipientKey({
-                userId,
-                vaultKey,
-                remoteBackup: myRecipientKey,
-              });
-              point = await decryptLocationEnvelope({
-                userId,
-                envelope,
-              });
-            } else {
-              throw decryptError;
-            }
-          }
-
-          const place = await OneLocationService.reverseGeocode({
-            vaultOwnerToken,
-            lat: point.latitude,
-            lng: point.longitude,
-          });
-
-          const address =
-            place.formattedAddress?.trim() || place.name?.trim() || "";
-
-          return [grant.id, address] as const;
-        } catch {
-          // The emergency card must remain useful even while an envelope,
-          // key, or geocoder is temporarily unavailable.
-          return [grant.id, ""] as const;
-        }
-      }),
-    ).then((entries) => {
-      if (cancelled) return;
-
-      setSmsEmergencyAddresses(
-        Object.fromEntries(
-          entries.filter(([, address]) => Boolean(address)),
-        ),
-      );
+  const clearSmsEmergencies = useCallback(() => {
+    if (!userId || clearableSmsEmergencyIds.length === 0) return;
+    setDismissedSmsEmergencyIds((current) => {
+      const next = new Set(current);
+      for (const id of clearableSmsEmergencyIds) next.add(id);
+      writeDismissedSmsEmergencyIds(userId, next);
+      return next;
     });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    myRecipientKey,
-    receivedGrants,
-    userId,
-    vaultKey,
-    vaultOwnerToken,
-  ]);
+  }, [userId, clearableSmsEmergencyIds]);
 
   const actionables = useMemo<FeedActionable[]>(() => {
     if (!userId) return [];
@@ -464,27 +442,27 @@ export function useFeedActionables(): UseFeedActionablesResult {
       }
     }
 
-    // SMS · Save My Soul emergency alerts — a live share a contact started as an
-    // SOS. Rendered as pinned, emergency-styled cards at the very top of the feed
-    // so a safety alert is never buried under routine activity.
+    // SMS · Save My Soul emergency alerts — a share a contact started as an
+    // SOS. Rendered as pinned, emergency-styled cards at the very top of the
+    // feed so a safety alert is never buried under routine activity. A
+    // revoked/expired SOS stays as a historical entry ("Revoked") rather than
+    // vanishing the moment the sender cancels; the Feed page's existing Clear
+    // button (via `clearSmsEmergencies` above) is what removes it — no
+    // separate per-row control here.
     const smsEmergencies = (receivedGrants ?? []).filter(
-      isActiveSmsEmergencyGrant,
+      (grant) =>
+        isSmsEmergencyGrant(grant) && !dismissedSmsEmergencyIds.has(grant.id),
     );
     for (const grant of smsEmergencies) {
       const label = grant.ownerDisplayName?.trim() || "A contact";
-      const emergencyMessage =
-        grant.shareMessage?.trim() ||
-        "Emergency SMS — sharing live location with you now.";
-      const lastKnownAddress = smsEmergencyAddresses[grant.id]?.trim();
+      const isRevoked = !isActiveSmsEmergencyGrant(grant);
       items.push({
         id: `sms-emergency:${grant.id}`,
         icon: Siren,
         iconTone: "red",
         emphasis: "emergency",
         title: `${label} triggered an SOS`,
-        description: lastKnownAddress
-          ? `${emergencyMessage} | Last known: ${lastKnownAddress}`
-          : emergencyMessage,
+        description: isRevoked ? "Emergency SMS - Revoked" : "Emergency SMS - Sent.",
         href: buildOneLocationNotificationHref(grant.id),
         chevron: true,
         actions: [],
@@ -782,9 +760,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
     connectionsRefresh,
     consentItems,
     debateState.tasks,
+    dismissedSmsEmergencyIds,
     locationRequests,
     receivedGrants,
-    smsEmergencyAddresses,
     circleMemberInvites,
     locationRefresh,
     openAnalysis,
@@ -801,5 +779,11 @@ export function useFeedActionables(): UseFeedActionablesResult {
     locationResource.loading ||
     connectionsResource.loading;
 
-  return { actionables, count: actionables.length, loading };
+  return {
+    actionables,
+    count: actionables.length,
+    loading,
+    hasClearableSmsEmergencies: clearableSmsEmergencyIds.length > 0,
+    clearSmsEmergencies,
+  };
 }
