@@ -9295,6 +9295,15 @@ export function OneLocationAgentPageContent({
       category: SavedLocationCategory,
       label: string,
       details?: SavedLocationAddressDetails,
+      /**
+       * The address line exactly as the modal had it when Save was pressed.
+       * The modal already dropped this in favour of `saveLocationAddress`
+       * state, which is null for the whole of root setup -- there is no vault
+       * token yet, so nothing ever reverse-geocodes into it. The place then
+       * saved with no address at all, which is what "address is not
+       * populating" looked like once it reached the vault.
+       */
+      addressLine?: string | null,
     ) => {
       if (
         !auth.userId ||
@@ -9309,14 +9318,18 @@ export function OneLocationAgentPageContent({
       const sessionEpoch = savedLocationSessionEpochRef.current;
       setSaveLocationSaving(true);
       try {
+        // What was on screen wins over what state happened to hold.
+        const composedFrom =
+          (typeof addressLine === "string" ? addressLine.trim() : "") ||
+          saveLocationAddress;
         const input = {
           category,
           label,
           latitude: saveLocationPoint.latitude,
           longitude: saveLocationPoint.longitude,
           address: details
-            ? buildSavedLocationAddress(saveLocationAddress, details)
-            : saveLocationAddress,
+            ? buildSavedLocationAddress(composedFrom, details)
+            : composedFrom,
         };
         const canPersistNow = Boolean(vaultKey && vaultOwnerToken);
         if (vaultKey && vaultOwnerToken) {
@@ -9911,8 +9924,13 @@ export function OneLocationAgentPageContent({
           initialAccuracyM={saveLocationPoint?.accuracyM}
           rendererDisclosureAccepted={savedLocationRendererAccepted}
           onAcceptRendererDisclosure={acceptSavedLocationMapRenderer}
-          onSave={(category, label, details) =>
-            void handleSaveOnboardingLocation(category, label, details)
+          onSave={(category, label, details, addressLine) =>
+            void handleSaveOnboardingLocation(
+              category,
+              label,
+              details,
+              addressLine,
+            )
           }
           onSkip={handleSkipSaveOnboardingLocation}
         />

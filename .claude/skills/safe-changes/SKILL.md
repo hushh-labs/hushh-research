@@ -581,6 +581,62 @@ First must be empty — any hit is a raw `tel:` template that skipped the helper
 Second must list both directory surfaces (`advisor-detail-surface.tsx` and
 `insurance-agent-detail-surface.tsx`).
 
+### R15 — An overlay's z-index is meaningless until you name what it must sit above
+
+**Incident (2026-08-16, the Location onboarding "save a place" sheet).**
+The sheet's scrim was `z-[559]` with `bg-black/45 backdrop-blur-[6px]` — correct
+CSS, correct intent, and completely invisible. Location onboarding renders as a
+full-screen **opaque** takeover at `z-[560]`, so the dim and the blur were painted
+underneath it. The sheet's own content tied at `z-[560]` and won on portal order,
+which is why it appeared at all: a white rectangle pasted onto a fully lit screen
+with no separation. Reported as "it's looking like a patch — background should be
+blur", which reads as a missing blur and is actually a buried one. Adding more
+blur would have changed nothing.
+
+**Rule.** A modal layered over a takeover, drawer, or any other full-screen
+surface must be checked against **that surface's** z-index, not against the app's
+default chrome. Before setting one, grep the z-indexes it must clear and the ones
+it must stay under, and write both into the comment. Here: above the onboarding
+takeover at 560, below the shared sheet/drawer layer at 711.
+
+**Check.**
+```bash
+git grep -nE 'fixed inset-0 z-\[[0-9]{3}\]' -- hushh-webapp/components hushh-webapp/app \
+  | grep -E 'bg-(white|\[#)' 
+git grep -nE 'overlayClassName="z-\[([0-9]{3})\]' -- hushh-webapp/components
+```
+Every overlay in the second list must outrank every opaque full-screen layer in
+the first that it can appear over. The Location pair is 600/601 vs 560.
+
+### R16 — A Tailwind arbitrary value does not always beat the class it is meant to replace
+
+**Incident (2026-08-16, giving that same sheet a real elevation.)**
+`cn(...)` merged `shadow-[var(--app-card-shadow-feature)]` from the dialog
+primitive with `shadow-[0_24px_60px_-12px_rgba(16,24,40,0.35),...]` from the
+caller. tailwind-merge kept **both** classes on the element — it cannot compare
+two opaque arbitrary values — and the base one won on stylesheet order. Typecheck,
+lint and the unit tests were all green; the class was present in the DOM; the
+shadow simply never rendered. Only reading `getComputedStyle(...).boxShadow` in a
+real browser exposed it.
+
+**Rule.** When an arbitrary-value utility overrides another arbitrary-value
+utility of the same property, assert the **computed** style, not the class list.
+If it loses, mark it `!`. This applies to any comma-bearing arbitrary value
+(`shadow-[…]`, `transition-[…]`, `bg-[image:…]`, `grid-template-columns-[…]`).
+
+**Check.**
+```bash
+# Every shared primitive that ships its own arbitrary shadow.
+git grep -lE 'shadow-\[' -- hushh-webapp/components/ui
+# Every caller trying to override one of those from the outside.
+git grep -nE 'shadow-\[0_' -- hushh-webapp/components hushh-webapp/app \
+  | grep -v 'components/ui/' | grep -v '!shadow-'
+```
+The first lists the base layers (`dialog`, `sheet`, `alert-dialog`, `card`,
+`tabs`, `sidebar`). Any hit in the second is a caller whose shadow may be silently
+losing to one of them — read `getComputedStyle(el).boxShadow` in a browser before
+believing it rendered.
+
 ## Adding a rule
 
 Every mistake found becomes a rule. Fix the **cause**, not the symptom, then add
