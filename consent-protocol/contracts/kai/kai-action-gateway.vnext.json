@@ -4537,8 +4537,10 @@
     {
       "action_id": "location.open_now",
       "surface_id": "one_location",
-      "label": "Open Location now",
+      "label": "Open Location overview",
       "aliases": [
+        "location overview",
+        "overview tab",
         "location now",
         "now tab",
         "location home",
@@ -4546,12 +4548,13 @@
         "am i sharing my location"
       ],
       "search_keywords": [
+        "overview",
         "now",
         "location",
         "status",
         "sharing"
       ],
-      "meaning": "Opens the Now tab of Location, which shows current sharing status and the quick actions.",
+      "meaning": "Opens the Overview tab of Location, which shows current sharing status and the quick actions.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -4613,7 +4616,7 @@
           {
             "type": "action",
             "action_id": "location.open_now",
-            "label": "Open Location now",
+            "label": "Open Location overview",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/location",

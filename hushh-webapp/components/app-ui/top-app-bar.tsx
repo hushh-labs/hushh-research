@@ -1028,7 +1028,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         variant="icon"
                         aria-label="Go back"
                         onClick={handleTopShellBack}
-                        className="!text-[color:var(--app-accent)]"
+                        className="!border-transparent !bg-transparent !text-[color:var(--app-accent-deep)] !shadow-none hover:!bg-transparent active:!scale-100"
                       >
                         <ArrowLeft className="h-5 w-5" />
                       </ShellActionSurface>
@@ -1229,13 +1229,13 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                               transitionMode: "full",
                             })
                           }
-                          className="p-0"
+                          className="!h-8 !w-8 !border-transparent !bg-[color:var(--app-accent)] p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]"
                         >
-                          <Avatar className="h-9 w-9">
+                          <Avatar className="h-8 w-8">
                             {effectiveAvatarUrl ? (
                               <AvatarImage src={effectiveAvatarUrl} alt="" />
                             ) : null}
-                            <AvatarFallback className="bg-transparent text-current">
+                            <AvatarFallback className="bg-transparent text-[15px] font-semibold leading-5 text-current">
                               {user?.displayName ? (
                                 user.displayName
                                   .split(" ")

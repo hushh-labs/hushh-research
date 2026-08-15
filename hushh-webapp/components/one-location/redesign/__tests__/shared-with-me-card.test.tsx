@@ -22,10 +22,12 @@ describe("SharedWithMeCard", () => {
       </SharedWithMeCard>,
     );
 
-    const livePill = screen.getByText("Live");
-    expect(livePill.parentElement?.textContent).toContain(
-      "Live until Jul 28, 11:19 PMLive",
+    const activePill = screen.getByText("Active");
+    expect(activePill.parentElement?.textContent).toContain(
+      "Live until Jul 28, 11:19 PMActive",
     );
+    expect(screen.getByText("Trusted A")).toBeTruthy();
+    expect(screen.queryByText("Trusted A is sharing with you")).toBeNull();
 
     const expandButton = screen.getByRole("button", {
       name: "Expand shared location from Trusted A",

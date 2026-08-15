@@ -1,23 +1,7 @@
-import { renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const serviceHarness = vi.hoisted(() => ({
-  viewEnvelope: vi.fn(),
-  reverseGeocode: vi.fn(),
-}));
-
-const encryptionHarness = vi.hoisted(() => ({
-  decryptLocationEnvelope: vi.fn(),
-  ensureVaultSyncedRecipientKey: vi.fn(),
-}));
-
-const envelope = {
-  ciphertext: "ciphertext",
-  iv: "iv",
-  tag: "tag",
-  algorithm: "AES-GCM",
-  recipientKeyId: "recipient-key",
-};
+let receivedGrantsFixture: unknown[] = [];
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -70,18 +54,7 @@ vi.mock("@/lib/cache/use-stale-resource", () => ({
       return {
         data: {
           requests: [],
-          receivedGrants: [
-            {
-              id: "sos-grant-1",
-              ownerUserId: "sender-user",
-              recipientUserId: "receiver-user",
-              ownerDisplayName: "Test contact",
-              status: "active",
-              shareKind: "sos",
-              shareMessage: null,
-              createdAt: "2026-08-10T00:00:00.000Z",
-            },
-          ],
+          receivedGrants: receivedGrantsFixture,
           myRecipientKey: null,
         },
         loading: false,
@@ -154,83 +127,148 @@ vi.mock("@/lib/one-location/service", () => ({
       requests: [],
       receivedGrants: [],
     }),
-    viewEnvelope: serviceHarness.viewEnvelope,
-    reverseGeocode: serviceHarness.reverseGeocode,
   },
-}));
-
-vi.mock("@/lib/one-location/encryption", () => ({
-  RECIPIENT_KEY_UNAVAILABLE_MESSAGE:
-    "Recipient key unavailable for this location share.",
-  decryptLocationEnvelope: encryptionHarness.decryptLocationEnvelope,
-  ensureVaultSyncedRecipientKey:
-    encryptionHarness.ensureVaultSyncedRecipientKey,
 }));
 
 import { useFeedActionables } from "@/lib/feed/use-feed-actionables";
 
-describe("useFeedActionables SOS last-known address", () => {
+describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
   beforeEach(() => {
-    serviceHarness.viewEnvelope.mockReset();
-    serviceHarness.reverseGeocode.mockReset();
-    encryptionHarness.decryptLocationEnvelope.mockReset();
-    encryptionHarness.ensureVaultSyncedRecipientKey.mockReset();
-
-    serviceHarness.viewEnvelope.mockResolvedValue({
-      grant: {
+    window.localStorage.clear();
+    receivedGrantsFixture = [
+      {
         id: "sos-grant-1",
+        ownerUserId: "sender-user",
+        recipientUserId: "receiver-user",
+        ownerDisplayName: "Test contact",
+        status: "active",
+        shareKind: "sos",
+        shareMessage: null,
+        createdAt: "2026-08-10T00:00:00.000Z",
       },
-      envelope,
-    });
-
-    encryptionHarness.decryptLocationEnvelope.mockResolvedValue({
-      latitude: 12.3456,
-      longitude: 78.9012,
-      accuracyM: 18,
-      capturedAt: "2026-08-10T00:00:00.000Z",
-      sourcePlatform: "web",
-    });
-
-    serviceHarness.reverseGeocode.mockResolvedValue({
-      name: "Test Place",
-      formattedAddress: "100 Test Lane, Example City",
-      countryCode: "IN",
-    });
+    ];
   });
 
-  it("decrypts an active SOS point and adds its last-known address to the Feed tile", async () => {
-    const { result } = renderHook(() => useFeedActionables());
+  afterEach(() => {
+    window.localStorage.clear();
+  });
 
-    await waitFor(() => {
-      expect(serviceHarness.viewEnvelope).toHaveBeenCalledWith({
-        vaultOwnerToken: "test-vault-token",
-        grantId: "sos-grant-1",
-      });
-    });
+  it("shows a plain 'Emergency SMS - Sent.' body with no address for a live SOS share", async () => {
+    const { result } = renderHook(() => useFeedActionables());
 
     await waitFor(() => {
       const emergency = result.current.actionables.find(
         (item) => item.id === "sms-emergency:sos-grant-1",
       );
+      expect(emergency?.description).toBe("Emergency SMS - Sent.");
+    });
 
-      expect(emergency?.description).toContain(
-        "Last known: 100 Test Lane, Example City",
+    const emergency = result.current.actionables.find(
+      (item) => item.id === "sms-emergency:sos-grant-1",
+    );
+    expect(emergency?.description).not.toContain("Last known");
+    expect(emergency?.actions).toEqual([]);
+  });
+
+  it("keeps a revoked SOS card visible as 'Emergency SMS - Revoked' instead of dropping it", async () => {
+    receivedGrantsFixture = [
+      {
+        id: "sos-grant-1",
+        ownerUserId: "sender-user",
+        recipientUserId: "receiver-user",
+        ownerDisplayName: "Test contact",
+        status: "revoked",
+        shareKind: "sos",
+        shareMessage: null,
+        createdAt: "2026-08-10T00:00:00.000Z",
+      },
+    ];
+
+    const { result } = renderHook(() => useFeedActionables());
+
+    await waitFor(() => {
+      const emergency = result.current.actionables.find(
+        (item) => item.id === "sms-emergency:sos-grant-1",
       );
+      expect(emergency?.description).toBe("Emergency SMS - Revoked");
+    });
+  });
+
+  it("does NOT put a Clear action on the card itself — the Feed page's existing Clear button owns it", async () => {
+    receivedGrantsFixture = [
+      {
+        id: "sos-grant-1",
+        ownerUserId: "sender-user",
+        recipientUserId: "receiver-user",
+        ownerDisplayName: "Test contact",
+        status: "revoked",
+        shareKind: "sos",
+        shareMessage: null,
+        createdAt: "2026-08-10T00:00:00.000Z",
+      },
+    ];
+
+    const { result } = renderHook(() => useFeedActionables());
+
+    await waitFor(() => {
+      expect(result.current.hasClearableSmsEmergencies).toBe(true);
     });
 
-    expect(encryptionHarness.decryptLocationEnvelope).toHaveBeenCalledWith({
-      userId: "receiver-user",
-      envelope,
+    const emergency = result.current.actionables.find(
+      (item) => item.id === "sms-emergency:sos-grant-1",
+    );
+    expect(emergency?.actions).toEqual([]);
+  });
+
+  it("removes a revoked SOS card once clearSmsEmergencies() runs, and persists the clear", async () => {
+    receivedGrantsFixture = [
+      {
+        id: "sos-grant-1",
+        ownerUserId: "sender-user",
+        recipientUserId: "receiver-user",
+        ownerDisplayName: "Test contact",
+        status: "revoked",
+        shareKind: "sos",
+        shareMessage: null,
+        createdAt: "2026-08-10T00:00:00.000Z",
+      },
+    ];
+
+    const { result } = renderHook(() => useFeedActionables());
+
+    await waitFor(() => {
+      expect(result.current.hasClearableSmsEmergencies).toBe(true);
     });
 
-    expect(serviceHarness.reverseGeocode).toHaveBeenCalledWith({
-      vaultOwnerToken: "test-vault-token",
-      lat: 12.3456,
-      lng: 78.9012,
+    act(() => {
+      result.current.clearSmsEmergencies();
+    });
+
+    await waitFor(() => {
+      expect(
+        result.current.actionables.find(
+          (item) => item.id === "sms-emergency:sos-grant-1",
+        ),
+      ).toBeUndefined();
+      expect(result.current.hasClearableSmsEmergencies).toBe(false);
     });
 
     expect(
-      encryptionHarness.ensureVaultSyncedRecipientKey,
-    ).not.toHaveBeenCalled();
+      window.localStorage.getItem("hushh:feed-sms-dismissed:receiver-user"),
+    ).toContain("sos-grant-1");
+  });
+
+  it("does NOT offer a clear for a live (still-active) SOS share", async () => {
+    const { result } = renderHook(() => useFeedActionables());
+
+    await waitFor(() => {
+      expect(
+        result.current.actionables.find(
+          (item) => item.id === "sms-emergency:sos-grant-1",
+        ),
+      ).toBeDefined();
+    });
+
+    expect(result.current.hasClearableSmsEmergencies).toBe(false);
   });
 });

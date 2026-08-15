@@ -202,7 +202,7 @@ describe("NearbyCheckInSheet", () => {
     expect(await screen.findByRole("radio", { name: /Place Four/ })).toBeInTheDocument();
   });
 
-  it("captures a fresh point, preselects the nearest place, and keeps consent explicit", async () => {
+  it("captures a fresh point, requires a place choice, and keeps consent explicit", async () => {
     const confirmationPoint = {
       ...point,
       latitude: 37.4277,
@@ -235,20 +235,17 @@ describe("NearbyCheckInSheet", () => {
     expect(screen.queryByText("Stanford Shopping Center")).not.toBeInTheDocument();
     expect(screen.getByText("University · 450 Jane Stanford Way")).toBeInTheDocument();
     expect(screen.getByText("48 m away")).toBeInTheDocument();
-    expect(nearest).toHaveAttribute("aria-checked", "true");
+    expect(nearest).toHaveAttribute("aria-checked", "false");
     expect(
       screen.getByRole("switch", {
         name: "Allow nearby connection requests",
       }),
     ).toHaveAttribute("data-state", "unchecked");
+    expect(screen.queryByText("How sharing works")).not.toBeInTheDocument();
     expect(
-      screen.getByText(/current point is sent to Google/i),
-    ).toHaveTextContent(
-      /Hussh stores your check-in point only as short-lived encrypted data/i,
-    );
-    expect(screen.getByText(/current point is sent to Google/i)).toHaveTextContent(
-      /They see your display name in their list, never your point or exact distance/i,
-    );
+      screen.queryByText(/current point is sent to Google/i),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Off by default.")).not.toBeInTheDocument();
 
     const submit = screen.getByRole("button", {
       name: "Check in",
@@ -262,6 +259,8 @@ describe("NearbyCheckInSheet", () => {
         name: /Appear nearby/,
       }),
     );
+    expect(submit).toBeDisabled();
+    fireEvent.click(nearest);
     expect(submit).toBeEnabled();
     fireEvent.click(submit);
 
@@ -296,7 +295,9 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /Stanford University/ }),
+    );
     fireEvent.click(
       screen.getByRole("checkbox", {
         name: /Appear nearby/,
@@ -364,7 +365,9 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /Stanford University/ }),
+    );
     expect(
       await screen.findByText(/accurate to about 1\.2 km/i),
     ).toBeInTheDocument();
@@ -398,7 +401,9 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /Stanford University/ }),
+    );
     expect(screen.queryByText(/accurate to about/i)).not.toBeInTheDocument();
   });
 
@@ -559,7 +564,7 @@ describe("NearbyCheckInSheet", () => {
     });
     expect(
       screen.getByRole("radio", { name: /Stanford University/ }),
-    ).toHaveAttribute("aria-checked", "true");
+    ).toHaveAttribute("aria-checked", "false");
   });
 
   it("does not restore a checked-out presence when an older poll resolves late", async () => {
@@ -760,10 +765,12 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /Stanford University/ }),
+    );
     service.nearbyPlaces.mockClear();
 
-    fireEvent.click(screen.getByPlaceholderText("Search for another place"));
+    fireEvent.click(screen.getByPlaceholderText("Search"));
     await act(async () => {
       // A failed refresh must degrade the drawer, not blank it.
       fireEvent.click(screen.getByRole("button", { name: "All" }));
@@ -943,7 +950,9 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /Stanford University/ }),
+    );
     expect(onSearchAreaChange).toHaveBeenLastCalledWith(point);
 
     // One merged sweep serves every chip. Re-querying per chip re-applied the
@@ -965,7 +974,7 @@ describe("NearbyCheckInSheet", () => {
     });
     expect(service.nearbyPlaces).toHaveBeenCalledTimes(1);
 
-    fireEvent.change(screen.getByPlaceholderText("Search for another place"), {
+    fireEvent.change(screen.getByPlaceholderText("Search"), {
       target: { value: "clinic" },
     });
     await waitFor(() => {
@@ -989,7 +998,7 @@ describe("NearbyCheckInSheet", () => {
     expect(screen.queryByText(/sorted by distance/)).not.toBeInTheDocument();
     expect(screen.getByText("Google Maps")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText("Search for another place"), {
+    fireEvent.change(screen.getByPlaceholderText("Search"), {
       target: { value: "" },
     });
     expect(await screen.findByRole("button", { name: "Health" })).toHaveAttribute(
@@ -1019,7 +1028,9 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /Stanford University/ }),
+    );
     fireEvent.click(
       screen.getByRole("checkbox", {
         name: /Appear nearby/,
@@ -1030,7 +1041,7 @@ describe("NearbyCheckInSheet", () => {
     });
     expect(submit).toBeEnabled();
 
-    fireEvent.change(screen.getByPlaceholderText("Search for another place"), {
+    fireEvent.change(screen.getByPlaceholderText("Search"), {
       target: { value: "clinic" },
     });
     expect(
@@ -1048,8 +1059,8 @@ describe("NearbyCheckInSheet", () => {
     });
     expect(
       await screen.findByRole("radio", { name: /Campus Clinic/ }),
-    ).toHaveAttribute("aria-checked", "true");
-    expect(submit).toBeEnabled();
+    ).toHaveAttribute("aria-checked", "false");
+    expect(submit).toBeDisabled();
     expect(service.checkInNearby).not.toHaveBeenCalled();
   });
 
@@ -1070,7 +1081,9 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /Stanford University/ }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Health" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Health" })).toHaveAttribute(
@@ -1078,6 +1091,9 @@ describe("NearbyCheckInSheet", () => {
         "true",
       );
     });
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /Campus Health Centre/ }),
+    );
     fireEvent.click(
       screen.getByRole("checkbox", {
         name: /Appear nearby/,
@@ -1203,6 +1219,9 @@ describe("NearbyCheckInSheet", () => {
       );
     });
     fireEvent.click(
+      await screen.findByRole("radio", { name: /Campus Health Centre/ }),
+    );
+    fireEvent.click(
       screen.getByRole("checkbox", {
         name: /Appear nearby/,
       }),
@@ -1254,7 +1273,9 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /Stanford University/ }),
+    );
     fireEvent.click(
       screen.getByRole("checkbox", {
         name: /Appear nearby/,
@@ -1291,15 +1312,7 @@ describe("NearbyCheckInSheet", () => {
 
     await screen.findByRole("radio", { name: /Stanford University/ });
     await waitFor(() => {
-      expect(onPlaceFocusChange).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          placeId: "stanford-main",
-          label: "Stanford University",
-          latitude: 37.4276,
-          longitude: -122.1697,
-          active: false,
-        }),
-      );
+      expect(onPlaceFocusChange).toHaveBeenLastCalledWith(null);
     });
 
     // Choosing a different row moves the pin with it.
@@ -1347,7 +1360,9 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /Stanford University/ }),
+    );
     fireEvent.click(
       screen.getByRole("checkbox", {
         name: /Appear nearby/,

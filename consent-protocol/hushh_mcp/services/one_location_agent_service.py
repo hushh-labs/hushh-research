@@ -22,7 +22,10 @@ from hushh_mcp.consent.token import issue_token, validate_token
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.location.policy import (
     LOCATION_CAPABILITY_SCOPES,
+    TIMED_LOCATION_SHARE_DURATION_MODE,
+    UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
     normalize_duration_hours,
+    normalize_duration_mode,
     normalize_source_platform,
 )
 from hushh_mcp.types import AgentID, UserID
@@ -73,16 +76,6 @@ COORDINATE_METADATA_KEYS = {
 }
 LOCATION_TERMINAL_RETENTION_HOURS = 12
 ATOMIC_LOCATION_SHARE_NAMESPACE = uuid.UUID("ef983dac-5044-49b0-9d35-c523b3437a54")
-
-# Provenance marker written to grant metadata (`metadata.source`) when the
-# Auto-share fan-out or an auto-start hook creates a grant. Toggle-off tears down
-# ONLY grants carrying this marker, so a manually created share is never touched.
-AUTO_SHARE_GRANT_SOURCE = "auto_share"
-
-# Duration for an auto-created share. The owner keeps sharing live location for
-# this window; while Auto-share stays on, the frontend live-update pipeline keeps
-# each share fresh and the owner can extend or revoke any of them manually.
-AUTO_SHARE_DURATION_HOURS = 24.0
 
 
 def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -265,7 +258,8 @@ def _private_share_operation_fingerprint(
     *,
     recipient_user_id: str,
     recipient_key_id: str,
-    duration_hours: float,
+    duration_hours: float | None,
+    duration_mode: str,
     reason: str | None,
     share_kind: str,
     confirmed_at: datetime,
@@ -278,6 +272,7 @@ def _private_share_operation_fingerprint(
             "recipient_user_id": recipient_user_id,
             "recipient_key_id": recipient_key_id,
             "duration_hours": duration_hours,
+            "duration_mode": duration_mode,
             "reason": reason or "",
             "share_kind": share_kind,
             "confirmed_at": confirmed_at.isoformat(),
@@ -526,6 +521,64 @@ def _classify_share_kind(reason: str | None) -> str:
     if not text or text in {"owner_approved", "request_approved"}:
         return "share"
     return "check_in"
+
+
+def _is_until_stopped_share(duration_mode: str | None) -> bool:
+    return duration_mode == UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+
+
+def _resolve_share_duration(
+    *,
+    duration_hours: float | None,
+    duration_mode: str | None,
+    share_kind: str,
+    now: datetime,
+) -> tuple[float | None, datetime | None, str]:
+    try:
+        mode = normalize_duration_mode(duration_mode)
+    except ValueError as exc:
+        raise OneLocationAgentError(
+            "LOCATION_DURATION_MODE_INVALID",
+            str(exc),
+            status_code=422,
+        ) from exc
+    if _is_until_stopped_share(mode):
+        if share_kind in {"sos", "check_in"}:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_MODE_NOT_ALLOWED",
+                "Until I stop is only available for trusted live shares.",
+                status_code=422,
+            )
+        return None, None, mode
+    try:
+        duration = normalize_duration_hours(duration_hours)
+    except ValueError as exc:
+        raise OneLocationAgentError(
+            "LOCATION_DURATION_INVALID",
+            str(exc),
+            status_code=422,
+        ) from exc
+    return duration, now + timedelta(hours=duration), TIMED_LOCATION_SHARE_DURATION_MODE
+
+
+def _duration_metadata_value(duration_hours: float | None) -> float | None:
+    return float(duration_hours) if duration_hours is not None else None
+
+
+def _grant_expires_at_is_past(row: dict[str, Any]) -> bool:
+    expires_at_raw = row.get("expires_at")
+    if expires_at_raw is None:
+        return str(row.get("duration_mode") or "") != UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+    expires_at = _parse_datetime(expires_at_raw, field_name="expires_at")
+    return expires_at <= _utcnow()
+
+
+def _payload_expires_at_is_past(grant: dict[str, Any]) -> bool:
+    expires_at_raw = grant.get("expiresAt")
+    if not expires_at_raw:
+        return str(grant.get("durationMode") or "") != UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE
+    expires_at = _parse_datetime(expires_at_raw, field_name="expiresAt")
+    return expires_at <= _utcnow()
 
 
 def _visible_share_message(reason: str | None) -> str | None:
@@ -1965,6 +2018,11 @@ class OneLocationAgentService:
         metadata = _loads_json(row.get("metadata"))
         reason = metadata.get("reason") if isinstance(metadata, dict) else None
         stored_kind = metadata.get("share_kind") if isinstance(metadata, dict) else None
+        duration_mode = str(
+            row.get("duration_mode")
+            or (metadata.get("duration_mode") if isinstance(metadata, dict) else "")
+            or TIMED_LOCATION_SHARE_DURATION_MODE
+        )
         share_kind = stored_kind or _classify_share_kind(reason)
         share_message = _visible_share_message(reason)
         return {
@@ -1979,7 +2037,10 @@ class OneLocationAgentService:
             "status": str(row.get("status") or ""),
             "consentScope": str(row.get("consent_scope") or "cap.location.live.view"),
             "capabilityScopes": _loads_json(row.get("capability_scopes")) or [],
-            "durationHours": float(row.get("duration_hours") or 0),
+            "durationMode": duration_mode,
+            "durationHours": (
+                float(row.get("duration_hours")) if row.get("duration_hours") is not None else None
+            ),
             "expiresAt": _iso(row.get("expires_at")),
             "createdAt": _iso(row.get("created_at")),
             "updatedAt": _iso(row.get("updated_at")),
@@ -3701,7 +3762,7 @@ class OneLocationAgentService:
         grant: dict[str, Any],
         owner_user_id: str,
         recipient_user_id: str,
-        duration: float,
+        duration: float | None,
         reason: str | None,
         resolved_kind: str,
     ) -> bool:
@@ -3762,7 +3823,8 @@ class OneLocationAgentService:
                 "grant_id": grant["id"],
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
-                "duration_hours": str(duration),
+                "duration_hours": str(duration) if duration is not None else "",
+                "duration_mode": str(grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE),
                 "expires_at": grant.get("expiresAt"),
                 "share_kind": resolved_kind,
                 **(
@@ -3950,7 +4012,13 @@ class OneLocationAgentService:
                     recipient_user_id=recipient_user_id,
                     requested_circle_id=requested_circle_id,
                 )
-                params = {**grant_params, "source_circle_id": source_circle_id}
+                params = {
+                    **grant_params,
+                    "duration_mode": grant_params.get(
+                        "duration_mode", TIMED_LOCATION_SHARE_DURATION_MODE
+                    ),
+                    "source_circle_id": source_circle_id,
+                }
                 conn.execute(
                     text(
                         """
@@ -3970,13 +4038,14 @@ class OneLocationAgentService:
                             INSERT INTO one_location_share_grants (
                               owner_user_id, recipient_user_id, recipient_key_id, status,
                               consent_scope, capability_scopes, duration_hours, expires_at,
-                              source_circle_id, created_at, updated_at, metadata
+                              duration_mode, source_circle_id, created_at, updated_at, metadata
                             )
                             VALUES (
                               :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                               'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                              :duration_hours, :expires_at, CAST(:source_circle_id AS UUID),
-                              NOW(), NOW(), CAST(:metadata_json AS JSONB)
+                              :duration_hours, :expires_at, :duration_mode,
+                              CAST(:source_circle_id AS UUID), NOW(), NOW(),
+                              CAST(:metadata_json AS JSONB)
                             )
                             RETURNING *,
                               :recipient_display_name AS recipient_display_name,
@@ -4010,6 +4079,7 @@ class OneLocationAgentService:
                         "event_metadata_json": _json_param(
                             {
                                 "duration_hours": params["duration_hours"],
+                                "duration_mode": params["duration_mode"],
                                 "counterpart_label": str(
                                     params.get("recipient_display_name") or ""
                                 ).strip()
@@ -4035,7 +4105,8 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_user_id: str,
         recipient_key_id: str | None,
-        duration_hours: float,
+        duration_hours: float | None,
+        duration_mode: str = TIMED_LOCATION_SHARE_DURATION_MODE,
         reason: str | None = None,
         share_kind: str | None = None,
         source_circle_id: str | None = None,
@@ -4060,6 +4131,7 @@ class OneLocationAgentService:
                     recipient_user_id=recipient_user_id,
                     recipient_key_id=recipient_key_id,
                     duration_hours=duration_hours,
+                    duration_mode=duration_mode,
                     reason=reason,
                     share_kind=share_kind,
                     source_circle_id=source_circle_id,
@@ -4075,7 +4147,7 @@ class OneLocationAgentService:
                     grant=grant,
                     owner_user_id=owner_user_id,
                     recipient_user_id=recipient_user_id,
-                    duration=float(grant.get("durationHours") or duration_hours),
+                    duration=_duration_metadata_value(grant.get("durationHours")),
                     reason=reason,
                     resolved_kind=resolved_kind,
                 )
@@ -4096,15 +4168,13 @@ class OneLocationAgentService:
                 LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
                 status_code=403,
             )
-        try:
-            duration = normalize_duration_hours(duration_hours)
-        except ValueError as exc:
-            raise OneLocationAgentError(
-                "LOCATION_DURATION_INVALID",
-                str(exc),
-                status_code=422,
-            ) from exc
         resolved_kind = share_kind or _classify_share_kind(reason)
+        duration, expires_at, resolved_duration_mode = _resolve_share_duration(
+            duration_hours=duration_hours,
+            duration_mode=duration_mode,
+            share_kind=resolved_kind,
+            now=_utcnow(),
+        )
         if resolved_kind == "sos" and not self._is_sms_contact(
             owner_user_id=owner_user_id, contact_user_id=recipient_user_id
         ):
@@ -4119,12 +4189,23 @@ class OneLocationAgentService:
             require_phone_verified=require_recipient_phone_verified,
         )
         key_id = str(recipient.get("key_id") or "")
-        expires_at = _utcnow() + timedelta(hours=duration)
-        capability = self._mint_grant_capability_token(
-            owner_user_id=owner_user_id,
-            recipient_user_id=recipient_user_id,
-            duration_hours=duration,
+        capability = (
+            self._mint_grant_capability_token(
+                owner_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+                duration_hours=duration,
+            )
+            if duration is not None
+            else None
         )
+        metadata = {
+            "reason": reason or "owner_approved",
+            "share_kind": resolved_kind,
+            "duration_mode": resolved_duration_mode,
+            "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
+        }
+        if capability is not None:
+            metadata["capability_token"] = capability["token"]
         grant_params = {
             "owner_user_id": owner_user_id,
             "recipient_user_id": recipient_user_id,
@@ -4132,15 +4213,9 @@ class OneLocationAgentService:
             "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
             "duration_hours": duration,
             "expires_at": expires_at,
+            "duration_mode": resolved_duration_mode,
             "source_circle_id": source_circle_id,
-            "metadata_json": _json_param(
-                {
-                    "reason": reason or "owner_approved",
-                    "share_kind": resolved_kind,
-                    "capability_token": capability["token"],
-                    "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
-                }
-            ),
+            "metadata_json": _json_param(metadata),
             "recipient_display_name": recipient.get("display_name"),
             "recipient_phone_number": recipient.get("phone_number"),
         }
@@ -4171,13 +4246,14 @@ class OneLocationAgentService:
                 INSERT INTO one_location_share_grants (
                   owner_user_id, recipient_user_id, recipient_key_id, status,
                   consent_scope, capability_scopes, duration_hours, expires_at,
-                  source_circle_id, created_at, updated_at, metadata
+                  duration_mode, source_circle_id, created_at, updated_at, metadata
                 )
                 VALUES (
                   :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                   'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                  :duration_hours, :expires_at, CAST(:source_circle_id AS UUID),
-                  NOW(), NOW(), CAST(:metadata_json AS JSONB)
+                  :duration_hours, :expires_at, :duration_mode,
+                  CAST(:source_circle_id AS UUID), NOW(), NOW(),
+                  CAST(:metadata_json AS JSONB)
                 )
                 RETURNING *,
                   :recipient_display_name AS recipient_display_name,
@@ -4200,7 +4276,11 @@ class OneLocationAgentService:
                 recipient_user_id=recipient_user_id,
                 grant_id=grant["id"],
                 event_type="location_share_created",
-                metadata={"duration_hours": duration, "counterpart_label": recipient_label},
+                metadata={
+                    "duration_hours": _duration_metadata_value(duration),
+                    "duration_mode": resolved_duration_mode,
+                    "counterpart_label": recipient_label,
+                },
             )
         # Request approval has its own richer notification immediately after
         # this call. Sending share-created as well produces two alerts for one
@@ -4211,7 +4291,7 @@ class OneLocationAgentService:
                 grant=grant,
                 owner_user_id=owner_user_id,
                 recipient_user_id=recipient_user_id,
-                duration=duration,
+                duration=_duration_metadata_value(duration),
                 reason=reason,
                 resolved_kind=resolved_kind,
             )
@@ -4223,10 +4303,11 @@ class OneLocationAgentService:
         owner_user_id: str,
         recipient_user_id: str,
         recipient_key_id: str | None,
-        duration_hours: float,
+        duration_hours: float | None,
         client_operation_id: str,
         confirmed_at: datetime | str,
         envelope: dict[str, Any],
+        duration_mode: str = TIMED_LOCATION_SHARE_DURATION_MODE,
         reason: str | None = None,
         share_kind: str | None = None,
         source_circle_id: str | None = None,
@@ -4262,15 +4343,13 @@ class OneLocationAgentService:
                 "The approved recipient key is required.",
                 status_code=422,
             )
-        try:
-            duration = normalize_duration_hours(duration_hours)
-        except ValueError as exc:
-            raise OneLocationAgentError(
-                "LOCATION_DURATION_INVALID",
-                str(exc),
-                status_code=422,
-            ) from exc
         resolved_kind = share_kind or _classify_share_kind(reason)
+        duration, expires_at, resolved_duration_mode = _resolve_share_duration(
+            duration_hours=duration_hours,
+            duration_mode=duration_mode,
+            share_kind=resolved_kind,
+            now=_utcnow(),
+        )
         # Record which relationship authorized this share. When the caller names
         # a Circle it must be that Circle; otherwise a Circle-only peer still
         # gets its source Circle stamped, so revoking the Circle later revokes
@@ -4317,6 +4396,7 @@ class OneLocationAgentService:
             recipient_user_id=recipient_user_id,
             recipient_key_id=key_id,
             duration_hours=duration,
+            duration_mode=resolved_duration_mode,
             reason=stored_reason,
             share_kind=resolved_kind,
             confirmed_at=confirmed_at_value,
@@ -4327,23 +4407,27 @@ class OneLocationAgentService:
             recipient_user_id=recipient_user_id,
             client_operation_id=operation_id,
         )
-        expires_at = now + timedelta(hours=duration)
-        capability = self._mint_grant_capability_token(
-            owner_user_id=owner_user_id,
-            recipient_user_id=recipient_user_id,
-            duration_hours=duration,
+        capability = (
+            self._mint_grant_capability_token(
+                owner_user_id=owner_user_id,
+                recipient_user_id=recipient_user_id,
+                duration_hours=duration,
+            )
+            if duration is not None
+            else None
         )
-        metadata_json = _json_param(
-            {
-                "reason": stored_reason or "owner_approved",
-                "share_kind": resolved_kind,
-                "capability_token": capability["token"],
-                "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
-                "client_operation_id": operation_id,
-                "client_operation_fingerprint": operation_fingerprint,
-                "confirmed_at": confirmed_at_value.isoformat(),
-            }
-        )
+        metadata = {
+            "reason": stored_reason or "owner_approved",
+            "share_kind": resolved_kind,
+            "duration_mode": resolved_duration_mode,
+            "capability_scope": LOCATION_GRANT_CONSENT_SCOPE,
+            "client_operation_id": operation_id,
+            "client_operation_fingerprint": operation_fingerprint,
+            "confirmed_at": confirmed_at_value.isoformat(),
+        }
+        if capability is not None:
+            metadata["capability_token"] = capability["token"]
+        metadata_json = _json_param(metadata)
         row = self._execute_atomic_private_share(
             recipient_key_lock_key=f"one-location-recipient-key:{recipient_user_id}",
             pair_lock_key=f"one-location-grant:{owner_user_id}:{recipient_user_id}",
@@ -4460,13 +4544,13 @@ class OneLocationAgentService:
               INSERT INTO one_location_share_grants (
                 id, owner_user_id, recipient_user_id, recipient_key_id,
                 status, consent_scope, capability_scopes, duration_hours,
-                expires_at, source_circle_id, created_at, updated_at, metadata
+                expires_at, duration_mode, source_circle_id, created_at, updated_at, metadata
               )
               SELECT
                 CAST(:grant_id AS UUID),
                 :owner_user_id, :recipient_user_id, :recipient_key_id, 'active',
                 'cap.location.live.view', CAST(:capability_scopes AS JSONB),
-                :duration_hours, :expires_at,
+                :duration_hours, :expires_at, :duration_mode,
                 CAST(:source_circle_id AS UUID), NOW(), NOW(),
                 CAST(:metadata_json AS JSONB)
               FROM eligible_recipient
@@ -4507,6 +4591,7 @@ class OneLocationAgentService:
                 'location_share_created',
                 jsonb_build_object(
                   'duration_hours', g.duration_hours,
+                  'duration_mode', g.duration_mode,
                   'counterpart_label', COALESCE(NULLIF(e.display_name, ''), 'A trusted person')
                 ),
                 NOW()
@@ -4573,6 +4658,7 @@ class OneLocationAgentService:
                 "recipient_key_id": key_id,
                 "capability_scopes": _json_param(LOCATION_CAPABILITY_SCOPES),
                 "duration_hours": duration,
+                "duration_mode": resolved_duration_mode,
                 "expires_at": expires_at,
                 "metadata_json": metadata_json,
                 "freshness_valid": freshness_error is None,
@@ -4663,11 +4749,7 @@ class OneLocationAgentService:
                 "The recipient's secure location key changed. Review and share again.",
                 status_code=409,
             )
-        grant_expires_at = _parse_datetime(
-            grant.get("expiresAt"),
-            field_name="expiresAt",
-        )
-        if grant_expires_at <= _utcnow():
+        if _payload_expires_at_is_past(grant):
             # Expiry is lazily materialized elsewhere. Never report a stale
             # deterministic replay as active; normalize it before failing.
             self._expire_stale_grants(recipient_user_id)
@@ -4778,8 +4860,7 @@ class OneLocationAgentService:
                 "LOCATION_GRANT_NOT_ACTIVE", "Location share is not active.", status_code=409
             )
         is_first_envelope = not bool(grant_row.get("latest_envelope_id"))
-        expires_at = _parse_datetime(grant_row.get("expires_at"), field_name="expires_at")
-        if expires_at <= _utcnow():
+        if _grant_expires_at_is_past(grant_row):
             self._expire_stale_grants(owner_user_id)
             raise OneLocationAgentError(
                 "LOCATION_GRANT_EXPIRED", "Location share has expired.", status_code=410
@@ -4874,7 +4955,9 @@ class OneLocationAgentService:
                 )
         return envelope_payload
 
-    def view_latest_envelope(self, *, recipient_user_id: str, grant_id: str) -> dict[str, Any]:
+    def view_latest_envelope(
+        self, *, recipient_user_id: str, grant_id: str, allow_empty: bool = False
+    ) -> dict[str, Any]:
         self._expire_stale_grants(recipient_user_id)
         grant_row = self._execute_one(
             """
@@ -4923,6 +5006,18 @@ class OneLocationAgentService:
             {"recipient_user_id": recipient_user_id, "grant_id": grant_id},
         )
         if not row:
+            # "The share is live, the owner just hasn't published a point yet"
+            # is a normal state on the happy path — the recipient opens One the
+            # moment they are granted access, before the owner's first GPS fix
+            # lands. Callers that opt in get that as a success with a null
+            # envelope so it never surfaces as a failed request; callers that
+            # do not keep the original 404 contract they already branch on.
+            if allow_empty:
+                return {
+                    "grant": self._grant_payload(grant_row),
+                    "envelope": None,
+                    "status": "awaiting_first_publish",
+                }
             raise OneLocationAgentError(
                 "LOCATION_ENVELOPE_MISSING",
                 "The owner has not published an encrypted location envelope yet.",
@@ -4940,6 +5035,7 @@ class OneLocationAgentService:
         return {
             "grant": self._grant_payload(grant_row),
             "envelope": self._envelope_payload(row),
+            "status": "published",
         }
 
     def get_map_preferences(self, *, user_id: str) -> dict[str, Any]:
@@ -4951,53 +5047,19 @@ class OneLocationAgentService:
         """
         row = self._execute_one(
             """
-            SELECT presence_mode, renderer_consent_version, auto_share_enabled, updated_at
+            SELECT presence_mode, renderer_consent_version, updated_at
             FROM one_location_map_preferences
             WHERE user_id = :user_id
             LIMIT 1
             """,
             {"user_id": user_id},
         )
-        # A missing row (never opened the preference) defaults to auto-share ON,
-        # matching the shipped frontend default. The `is None` guard preserves an
-        # explicit stored FALSE rather than coercing it back to the default.
-        auto_share_value = (row or {}).get("auto_share_enabled")
         return {
             "presenceMode": str((row or {}).get("presence_mode") or "ghost"),
             "rendererConsentVersion": str((row or {}).get("renderer_consent_version") or "")
             or None,
-            "autoShareEnabled": True if auto_share_value is None else bool(auto_share_value),
             "updatedAt": _iso((row or {}).get("updated_at")),
         }
-
-    def get_auto_share_enabled(self, *, user_id: str) -> bool:
-        """Owner-scoped source of truth for the Auto-share toggle.
-
-        Fails open to the shipped default (ON) when the preference row or the
-        additive column is missing, so an environment a migration behind keeps
-        the pre-existing behavior instead of silently disabling auto-share.
-        """
-        try:
-            row = self._execute_one(
-                """
-                SELECT auto_share_enabled
-                FROM one_location_map_preferences
-                WHERE user_id = :user_id
-                LIMIT 1
-                """,
-                {"user_id": user_id},
-            )
-        except Exception as exc:  # noqa: BLE001 - additive column rollout
-            logger.warning(
-                "one_location.auto_share_flag_read_failed user=%s error=%s",
-                redact_log_field("user_id", user_id),
-                exc,
-            )
-            return True
-        if not row:
-            return True
-        value = row.get("auto_share_enabled")
-        return True if value is None else bool(value)
 
     def update_map_preferences(
         self,
@@ -5110,7 +5172,7 @@ class OneLocationAgentService:
             ) envelope ON TRUE
             WHERE g.recipient_user_id = :user_id
               AND g.status = 'active'
-              AND g.expires_at > NOW()
+              AND (g.expires_at IS NULL OR g.expires_at > NOW())
             ORDER BY envelope.captured_at DESC
             LIMIT 100
             """,
@@ -5166,8 +5228,7 @@ class OneLocationAgentService:
         """Project wall-clock expiry for read models without mutating storage."""
         if not row or str(row.get("status") or "") != "active":
             return row
-        expires_at = _parse_datetime(row.get("expires_at"), field_name="expires_at")
-        return {**row, "status": "expired"} if expires_at <= _utcnow() else row
+        return {**row, "status": "expired"} if _grant_expires_at_is_past(row) else row
 
     def _expire_circle_invite(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not row or str(row.get("status") or "") != "active":
@@ -6106,157 +6167,6 @@ class OneLocationAgentService:
             "capabilityScopes": LOCATION_CAPABILITY_SCOPES,
         }
 
-    def _has_active_grant(self, *, owner_user_id: str, recipient_user_id: str) -> bool:
-        """True when the owner already has any active grant to this recipient."""
-        try:
-            row = self._execute_one(
-                """
-                SELECT 1
-                FROM one_location_share_grants
-                WHERE owner_user_id = :owner_user_id
-                  AND recipient_user_id = :recipient_user_id
-                  AND status = 'active'
-                LIMIT 1
-                """,
-                {
-                    "owner_user_id": owner_user_id,
-                    "recipient_user_id": recipient_user_id,
-                },
-            )
-        except Exception as exc:  # noqa: BLE001 - duplicate-avoidance fails closed
-            logger.warning(
-                "one_location.auto_share_active_grant_lookup_failed owner=%s error=%s",
-                redact_log_field("owner_user_id", owner_user_id),
-                exc,
-            )
-            return True
-        return row is not None
-
-    def _create_auto_share_grant(
-        self, *, owner_user_id: str, recipient_user_id: str
-    ) -> dict[str, Any] | None:
-        """Create one relationship-gated, provenance-tagged auto-share grant."""
-        try:
-            return self.create_grant(
-                owner_user_id=owner_user_id,
-                recipient_user_id=recipient_user_id,
-                recipient_key_id=None,
-                duration_hours=AUTO_SHARE_DURATION_HOURS,
-                reason="owner_approved",
-                share_kind="share",
-                enforce_connection=True,
-                source=AUTO_SHARE_GRANT_SOURCE,
-            )
-        except OneLocationAgentError as exc:
-            logger.info(
-                "one_location.auto_share_grant_skipped owner=%s code=%s",
-                redact_log_field("owner_user_id", owner_user_id),
-                exc.code,
-            )
-            return None
-        except Exception as exc:  # noqa: BLE001 - one peer cannot fail the fan-out
-            logger.warning(
-                "one_location.auto_share_grant_failed owner=%s error=%s",
-                redact_log_field("owner_user_id", owner_user_id),
-                exc,
-            )
-            return None
-
-    def _auto_share_fan_out(self, *, owner_user_id: str) -> int:
-        """Fan an auto-share grant out to every eligible, key-ready peer."""
-        created = 0
-        for recipient in self.list_verified_recipients(owner_user_id=owner_user_id):
-            recipient_user_id = str(recipient.get("userId") or "").strip()
-            if not recipient_user_id or recipient_user_id == owner_user_id:
-                continue
-            if not recipient.get("canReceiveLocation"):
-                continue
-            if self._has_active_grant(
-                owner_user_id=owner_user_id, recipient_user_id=recipient_user_id
-            ):
-                continue
-            if self._create_auto_share_grant(
-                owner_user_id=owner_user_id, recipient_user_id=recipient_user_id
-            ):
-                created += 1
-        return created
-
-    def _auto_share_teardown(self, *, owner_user_id: str) -> int:
-        """Revoke ONLY this account active auto-created shares (source == auto_share)."""
-        rows = self._execute_many(
-            """
-            SELECT id
-            FROM one_location_share_grants
-            WHERE owner_user_id = :owner_user_id
-              AND status = 'active'
-              AND metadata->>'source' = :auto_share_source
-            """,
-            {
-                "owner_user_id": owner_user_id,
-                "auto_share_source": AUTO_SHARE_GRANT_SOURCE,
-            },
-        )
-        revoked = 0
-        for row in rows:
-            grant_id = str(row.get("id") or "").strip()
-            if not grant_id:
-                continue
-            try:
-                self.revoke_grant(owner_user_id=owner_user_id, grant_id=grant_id)
-                revoked += 1
-            except Exception as exc:  # noqa: BLE001 - one failure cannot block teardown
-                logger.warning(
-                    "one_location.auto_share_teardown_revoke_failed owner=%s error=%s",
-                    redact_log_field("owner_user_id", owner_user_id),
-                    exc,
-                )
-        return revoked
-
-    def set_auto_share_enabled(self, *, user_id: str, enabled: bool) -> dict[str, Any]:
-        """Persist the Auto-share toggle and reconcile auto-created shares."""
-        if not user_id:
-            raise OneLocationAgentError(
-                "LOCATION_AUTH_REQUIRED", "A user is required.", status_code=401
-            )
-        self._execute_one(
-            """
-            INSERT INTO one_location_map_preferences (
-              user_id, auto_share_enabled, created_at, updated_at
-            ) VALUES (:user_id, :auto_share_enabled, NOW(), NOW())
-            ON CONFLICT (user_id) DO UPDATE SET
-              auto_share_enabled = :auto_share_enabled,
-              updated_at = NOW()
-            """,
-            {"user_id": user_id, "auto_share_enabled": bool(enabled)},
-        )
-        if enabled:
-            affected = self._auto_share_fan_out(owner_user_id=user_id)
-            action = "fan_out"
-        else:
-            affected = self._auto_share_teardown(owner_user_id=user_id)
-            action = "teardown"
-        return {
-            "autoShareEnabled": bool(enabled),
-            "action": action,
-            "affectedShareCount": affected,
-        }
-
-    def auto_start_share_for_new_peer(
-        self, *, owner_user_id: str, peer_user_id: str
-    ) -> dict[str, Any] | None:
-        """Start an auto-share to a peer that just became eligible."""
-        owner_user_id = str(owner_user_id or "").strip()
-        peer_user_id = str(peer_user_id or "").strip()
-        if not owner_user_id or not peer_user_id or owner_user_id == peer_user_id:
-            return None
-        if not self.get_auto_share_enabled(user_id=owner_user_id):
-            return None
-        if self._has_active_grant(owner_user_id=owner_user_id, recipient_user_id=peer_user_id):
-            return None
-        return self._create_auto_share_grant(
-            owner_user_id=owner_user_id, recipient_user_id=peer_user_id
-        )
-
     def revoke_grant(self, *, owner_user_id: str, grant_id: str) -> dict[str, Any]:
         row = self._execute_one(
             """
@@ -6327,6 +6237,133 @@ class OneLocationAgentService:
             },
         )
         return self._grant_payload(row) or {}
+
+    def shorten_grant(
+        self, *, caller_user_id: str, grant_id: str, duration_hours: float
+    ) -> dict[str, Any]:
+        """Bring a grant's expiry earlier. Either side may do this; neither may extend.
+
+        Shortening only ever reduces exposure, so it needs no fresh consent
+        from the other party -- the owner already agreed to be seen at least
+        this long, and the recipient giving back time early is just an
+        early, partial revoke. Extending is a different question: it grows
+        how long the recipient can see the owner, and that is the owner's
+        consent to give again, not something either side can hand
+        themselves through this endpoint. A person who wants more time goes
+        through request_access instead, and the owner approves it like any
+        other request.
+        """
+        row = self._execute_one(
+            """
+            SELECT id, owner_user_id, recipient_user_id, expires_at, status
+            FROM one_location_share_grants
+            WHERE id = CAST(:grant_id AS UUID)
+              AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
+            LIMIT 1
+            """,
+            {"grant_id": grant_id, "owner_user_id": caller_user_id},
+        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_GRANT_NOT_FOUND", "Location share was not found.", status_code=404
+            )
+        if str(row.get("status") or "") != "active":
+            return self._grant_payload(row) or {}
+
+        try:
+            duration = normalize_duration_hours(duration_hours)
+        except ValueError as exc:
+            raise OneLocationAgentError(
+                "LOCATION_DURATION_INVALID",
+                str(exc),
+                status_code=422,
+            ) from exc
+        candidate_expires_at = datetime.now(timezone.utc) + timedelta(hours=duration)
+        current_expires_at = row.get("expires_at")
+        if current_expires_at is not None:
+            if current_expires_at.tzinfo is None:
+                current_expires_at = current_expires_at.replace(tzinfo=timezone.utc)
+            if candidate_expires_at >= current_expires_at:
+                raise OneLocationAgentError(
+                    "LOCATION_GRANT_SHORTEN_ONLY",
+                    "This can only make a share end sooner, not later.",
+                    status_code=422,
+                )
+
+        updated = self._execute_one(
+            """
+            UPDATE one_location_share_grants
+            SET duration_mode = 'timed',
+                duration_hours = :duration_hours,
+                expires_at = :new_expires_at,
+                updated_at = NOW()
+            WHERE id = CAST(:grant_id AS UUID)
+              AND (owner_user_id = :owner_user_id OR recipient_user_id = :owner_user_id)
+              AND status = 'active'
+            RETURNING *
+            """,
+            {
+                "grant_id": grant_id,
+                "owner_user_id": caller_user_id,
+                "duration_hours": duration,
+                "new_expires_at": candidate_expires_at,
+            },
+        )
+        if not updated:
+            # Revoked between the read above and this write -- report the
+            # grant as it now stands rather than raising on a race.
+            existing_row = self._execute_one(
+                """
+                SELECT * FROM one_location_share_grants
+                WHERE id = CAST(:grant_id AS UUID)
+                LIMIT 1
+                """,
+                {"grant_id": grant_id},
+            )
+            return self._grant_payload(existing_row) or {}
+
+        actor_is_owner = str(row.get("owner_user_id") or "") == caller_user_id
+        recipient_user_id = str(row.get("recipient_user_id") or "") or None
+        owner_identity = self._identity_row(str(row.get("owner_user_id") or caller_user_id))
+        owner_label = _identity_notification_label(owner_identity)
+        recipient_identity = self._identity_row(recipient_user_id or "")
+        recipient_label = _identity_notification_label(recipient_identity)
+        self._insert_event(
+            owner_user_id=str(row.get("owner_user_id") or caller_user_id),
+            actor_user_id=caller_user_id,
+            recipient_user_id=recipient_user_id,
+            grant_id=grant_id,
+            event_type="location_share_shortened",
+            metadata={
+                "reason": "owner_shorten" if actor_is_owner else "recipient_shorten",
+                "counterpart_label": recipient_label,
+            },
+        )
+        notification_user_id = (
+            recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")
+        )
+        self._send_metadata_notification(
+            user_id=notification_user_id,
+            notification_type="location_share_shortened",
+            title="Location access shortened",
+            body=(
+                f"{owner_label} shortened your location access."
+                if actor_is_owner
+                else f"{recipient_label} gave back some of their remaining time early."
+            ),
+            notification_tag=f"one-location-shortened:{grant_id}",
+            request_url=_one_location_url(
+                grantId=grant_id, section="shared" if actor_is_owner else "people"
+            ),
+            data={
+                "grant_id": grant_id,
+                "owner_user_id": str(row.get("owner_user_id") or caller_user_id),
+                "owner_display_label": owner_label,
+                "recipient_user_id": recipient_user_id,
+                "recipient_display_label": recipient_label,
+            },
+        )
+        return self._grant_payload(updated) or {}
 
     def request_access(
         self,
@@ -6440,7 +6477,8 @@ class OneLocationAgentService:
         *,
         owner_user_id: str,
         request_id: str,
-        duration_hours: float,
+        duration_hours: float | None,
+        duration_mode: str = TIMED_LOCATION_SHARE_DURATION_MODE,
     ) -> dict[str, Any]:
         request_row = self._execute_one(
             """
@@ -6465,6 +6503,7 @@ class OneLocationAgentService:
             recipient_user_id=requester_user_id,
             recipient_key_id=None,
             duration_hours=duration_hours,
+            duration_mode=duration_mode,
             reason="request_approved",
             require_recipient_phone_verified=False,
         )
@@ -6488,7 +6527,8 @@ class OneLocationAgentService:
             request_id=request_id,
             event_type="location_access_approved",
             metadata={
-                "duration_hours": normalize_duration_hours(duration_hours),
+                "duration_hours": _duration_metadata_value(grant.get("durationHours")),
+                "duration_mode": grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE,
                 "counterpart_label": requester_label,
             },
         )
@@ -6575,7 +6615,7 @@ class OneLocationAgentService:
             WHERE id = CAST(:grant_id AS UUID)
               AND recipient_user_id = :referring_user_id
               AND status = 'active'
-              AND expires_at > NOW()
+              AND (expires_at IS NULL OR expires_at > NOW())
             LIMIT 1
             """,
             {"grant_id": grant_id, "referring_user_id": referring_user_id},

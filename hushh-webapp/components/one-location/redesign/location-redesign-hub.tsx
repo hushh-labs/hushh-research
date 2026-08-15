@@ -97,6 +97,7 @@ import {
   DurationSelector,
   PersonSearchInput,
   ReasonChips,
+  REDESIGN_PRIVATE_SHARE_DURATION_OPTIONS,
   type ReasonValue,
 } from "./selectors";
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
@@ -132,7 +133,7 @@ import { useMediaQuery } from "@/lib/morphy-ux/use-media-query";
 
 type ReadinessTone = "ready" | "warning" | "blocked" | "checking";
 
-export const ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS = "0.5";
+export const ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS = "0.25";
 
 export type PrivateCheckInResult = {
   succeededRecipientIds: string[];
@@ -292,10 +293,22 @@ export type LocationHubViewModel = {
   onEnterShareConfirm: () => void;
   onConfirmShare: () => void;
   onSendRequest: (reason?: string | null) => void;
+  onAskReshare: (grant: OneLocationGrant) => void;
   onApprove: (request: OneLocationAccessRequest) => void;
   onDeny: (requestId: string) => void;
   onViewGrant: (grant: OneLocationGrant) => void;
   onStopGrant: (grantId: string) => void;
+  /** Grant currently showing the inline duration editor, or null. */
+  editingGrantId: string | null;
+  onEditGrantStart: (grantId: string) => void;
+  onEditGrantCancel: () => void;
+  editGrantDurationHours: string;
+  setEditGrantDurationHours: (v: string) => void;
+  onEditGrantSave: (params: {
+    ownerUserId: string;
+    grantId: string;
+    ownerLabel: string;
+  }) => void;
   onCreatePublicInvite: () => void;
   onCopyPublicInvite: () => void;
   onSharePublicInvite: () => void;
@@ -398,6 +411,7 @@ export type LocationHubViewModel = {
     point: PlainLocationPoint,
     showNavigation?: boolean,
     viewportResetKey?: string | number,
+    staleAction?: ReactNode,
   ) => ReactNode;
   mapLocationHref: (point: PlainLocationPoint) => string;
   decryptedPoints: Record<string, PlainLocationPoint>;
@@ -977,9 +991,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             circles={vm.circles}
             selectedUserIds={vm.smsContactUserIds}
             busyKey={vm.busy}
-            // Back is the shell's, not this screen's. The top bar resolves the
-            // target from `?source=`, so opening contacts mid-SOS still returns
-            // to SOS rather than dropping the person into Settings.
             onAdd={vm.onAddSmsContact}
             onAddCircle={vm.onAddSmsCircle}
             onRemove={vm.onRemoveSmsContact}
@@ -1197,13 +1208,22 @@ function NowHub({
   onRequestLocation: () => void;
   onOpenSettings: () => void;
 }) {
+  const groupedShellClassName =
+    "[--settings-group-radius:16px] bg-white shadow-none dark:bg-[#1C1C1E]";
+  const reviewIconTone =
+    vm.pendingOwnerRequests.length > 0 ? "orange" : "gray";
+
   return (
     <div className="space-y-4" data-testid="one-location-now-hub">
       {/* Every row and tile below carries the `control_ids` / `action_id` pair
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
           rather than only the screen it lives on. */}
-      <SettingsGroup separatorInset testId="one-location-now-primary">
+      <SettingsGroup
+        separatorInset
+        testId="one-location-now-share"
+        shellClassName={groupedShellClassName}
+      >
         <SettingsRow
           icon={Navigation}
           iconTone="blue"
@@ -1215,9 +1235,15 @@ function NowHub({
           voiceControlId="one-location-action-share"
           voiceActionId="location.open_share"
         />
+      </SettingsGroup>
+      <SettingsGroup
+        separatorInset
+        testId="one-location-now-primary"
+        shellClassName={groupedShellClassName}
+      >
         <SettingsRow
           icon={Map}
-          iconTone="green"
+          iconTone="blue"
           title="Your Map"
           density="compact"
           chevron
@@ -1228,10 +1254,14 @@ function NowHub({
         />
       </SettingsGroup>
 
-      <SettingsGroup separatorInset testId="one-location-now-status">
+      <SettingsGroup
+        separatorInset
+        testId="one-location-now-status"
+        shellClassName={groupedShellClassName}
+      >
         <SettingsRow
           icon={UsersRound}
-          iconTone="purple"
+          iconTone="blue"
           title="Active shares"
           density="compact"
           trailing={vm.activeOwnerGrants.length}
@@ -1253,7 +1283,7 @@ function NowHub({
         />
         <SettingsRow
           icon={ShieldCheck}
-          iconTone="orange"
+          iconTone={reviewIconTone}
           title="Needs my review"
           density="compact"
           trailing={vm.pendingOwnerRequests.length}
@@ -1275,7 +1305,7 @@ function NowHub({
             surface built around consent. */}
         <SettingsRow
           icon={MessageCircleQuestionMark}
-          iconTone="accent"
+          iconTone="blue"
           title="Request location"
           density="compact"
           chevron
@@ -1299,7 +1329,7 @@ function NowHub({
 
       <QuickActionsSection title="Quick actions" columns={2}>
         <QuickActionCard
-          tone="green"
+          tone="blue"
           icon={<ShieldCheck />}
           title="Check-In"
           subtitle={checkInSubtitle}
@@ -1405,11 +1435,11 @@ function LocationDetailFlow({
   const copy = {
     "active-shares": {
       title: "Active shares",
-      description: "People who can see you now.",
+      description: "People who can see your location.",
     },
     "shared-with-me": {
       title: "Shared with me",
-      description: "Live access from others.",
+      description: undefined,
     },
     "needs-review": {
       title: "Needs my review",
@@ -1429,7 +1459,11 @@ function LocationDetailFlow({
                 icon={UsersRound}
                 iconTone="purple"
                 title={vm.grantRecipientLabel(grant)}
-                description={vm.expiresCountdownLabel(grant.expiresAt)}
+                description={
+                  grant.durationMode === "until_stopped"
+                    ? "Until stopped"
+                    : vm.expiresCountdownLabel(grant.expiresAt)
+                }
                 trailing={
                   <Button
                     variant="ghost"
@@ -1445,10 +1479,7 @@ function LocationDetailFlow({
             ))}
           </SettingsGroup>
         ) : (
-          <EmptyState
-            title="No active shares"
-            description="Share when needed."
-          />
+          <EmptyState title="No active shares" />
         )
       ) : null}
       {kind === "shared-with-me" ? (
@@ -1464,9 +1495,11 @@ function LocationDetailFlow({
                   key={grant.id}
                   name={vm.grantOwnerLabel(grant)}
                   statusLine={
-                    grant.expiresAt
-                      ? `Access until ${vm.formatDateTime(grant.expiresAt)}`
-                      : "Access active"
+                    grant.durationMode === "until_stopped"
+                      ? "Until stopped"
+                      : grant.expiresAt
+                        ? `Access until ${vm.formatDateTime(grant.expiresAt)}`
+                        : "Active"
                   }
                   previewExpanded={expanded}
                   mapHref={point ? vm.mapLocationHref(point) : undefined}
@@ -1475,6 +1508,8 @@ function LocationDetailFlow({
                   onRecenter={
                     point ? () => recenterGrantViewport(grant.id) : undefined
                   }
+                  onRemove={() => vm.onStopGrant(grant.id)}
+                  removeBusy={vm.revokingGrantId === grant.id}
                   viewBusy={vm.busy === "view"}
                   message={
                     point?.checkIn?.message ??
@@ -1498,6 +1533,26 @@ function LocationDetailFlow({
                         point,
                         false,
                         `${grant.id}:${grantViewportResetKeys[grant.id] ?? 0}`,
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => vm.onAskReshare(grant)}
+                          disabled={vm.busy === "request"}
+                          className="h-8 rounded-full border-amber-500/30 bg-white/70 px-3 text-[12px] font-semibold text-amber-800 hover:bg-white dark:border-amber-300/25 dark:bg-white/10 dark:text-amber-100 dark:hover:bg-white/15"
+                        >
+                          {vm.busy === "request" ? (
+                            <span
+                              className="mr-1.5 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <Send
+                              className="mr-1.5 h-3.5 w-3.5"
+                              aria-hidden="true"
+                            />
+                          )}
+                          Ask to refresh
+                        </Button>,
                       )
                     : null}
                 </SharedWithMeCard>
@@ -1946,21 +2001,92 @@ function PeopleHub({
               separatorInset
               shellClassName="[--settings-group-radius:var(--app-radius-md)] !rounded-[var(--app-radius-md)] !bg-[color:var(--app-primary-surface)] !shadow-[var(--app-card-shadow-standard)]"
             >
-              {vm.requestedByMe.map((request) => (
-                <SettingsRow
-                  key={request.id}
-                  icon={Send}
-                  iconTone="blue"
-                  title={vm.requestOwnerLabel(request)}
-                  description={vm.formatDateTime(request.requestedAt)}
-                  trailing={
-                    /active|approved|shared|granted/i.test(request.status)
-                      ? "Active"
-                      : "Pending"
-                  }
-                  density="compact"
-                />
-              ))}
+              {vm.requestedByMe.map((request) => {
+                const isLive = /active|approved|shared|granted/i.test(
+                  request.status,
+                );
+                const grantId = request.approvedGrantId;
+                const canEdit = isLive && Boolean(grantId);
+                const isEditing =
+                  Boolean(grantId) && vm.editingGrantId === grantId;
+                const ownerLabel = vm.requestOwnerLabel(request);
+                return (
+                  <div key={request.id}>
+                    <SettingsRow
+                      icon={Send}
+                      iconTone="blue"
+                      title={ownerLabel}
+                      description={vm.formatDateTime(request.requestedAt)}
+                      trailing={
+                        canEdit && grantId ? (
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-9"
+                              onClick={() =>
+                                isEditing
+                                  ? vm.onEditGrantCancel()
+                                  : vm.onEditGrantStart(grantId)
+                              }
+                            >
+                              {isEditing ? "Cancel" : "Edit"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-9 text-destructive"
+                              onClick={() => vm.onStopGrant(grantId)}
+                              disabled={vm.revokingGrantId === grantId}
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        ) : isLive ? (
+                          "Active"
+                        ) : (
+                          "Pending"
+                        )
+                      }
+                      density="compact"
+                    />
+                    {isEditing && grantId ? (
+                      <div className="space-y-3 px-1 pb-3">
+                        <DurationSelector
+                          value={vm.editGrantDurationHours}
+                          onChange={vm.setEditGrantDurationHours}
+                          label="New duration"
+                          presentation="select"
+                        />
+                        {/* Framed as "new duration", not "shorten"/"extend":
+                            the person picks a duration like any other
+                            duration picker in this app. Whether it applies
+                            immediately or turns into a fresh request the
+                            owner has to approve is decided server-side by
+                            whether it's shorter or longer than what's left --
+                            and either outcome is confirmed by the toast that
+                            follows. */}
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            className="h-9 flex-1 rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+                            onClick={() =>
+                              vm.onEditGrantSave({
+                                ownerUserId: request.ownerUserId,
+                                grantId,
+                                ownerLabel,
+                              })
+                            }
+                            isLoading={vm.revokingGrantId === grantId}
+                          >
+                            Save
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </SettingsGroup>
           ) : null}
         </div>
@@ -2037,9 +2163,12 @@ function LinksHub({
 
   return (
     <div className="space-y-4">
-      <SectionTitle as="h2" className="px-[6px]">
-        Active links
-      </SectionTitle>
+      <div className="px-[6px]">
+        <SectionTitle as="h2">Active links</SectionTitle>
+        <RowDescription as="p" className="mt-1">
+          Share your live location outside your Circle.
+        </RowDescription>
+      </div>
 
       {hasLinks ? (
         <div className={cn("overflow-hidden px-3.5", SUBCARD_SURFACE)}>
@@ -2067,7 +2196,6 @@ function LinksHub({
       ) : (
         <EmptyState
           title="No active links"
-          description="Create one when needed."
         />
       )}
 
@@ -2083,7 +2211,7 @@ function LinksHub({
       <div className="flex items-start gap-2 px-1">
         <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <p className={MUTED_TEXT}>
-          Links expire automatically.
+          Links expire after the time you choose.
         </p>
       </div>
     </div>
@@ -2306,10 +2434,11 @@ function ShareFlow({
 
         <SectionCard>
           <div className="space-y-5">
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               <DurationSelector
                 value={vm.shareDurationHours}
                 onChange={vm.setShareDurationHours}
+                options={REDESIGN_PRIVATE_SHARE_DURATION_OPTIONS}
                 presentation="select"
               />
               {/* The absolute end time is the part people actually reason
@@ -2340,7 +2469,7 @@ function ShareFlow({
                       : "one-location-share-note-count"
                   }
                   placeholder="On my way to the meeting"
-                  className="block w-full rounded-[14px] border border-border/70 bg-background px-3 pb-8 pt-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)] aria-invalid:border-destructive aria-invalid:focus:ring-destructive/30"
+                  className="block w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-compact)] px-3 pb-8 pt-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)] aria-invalid:border-destructive aria-invalid:focus:ring-destructive/30"
                 />
                 <span
                   id="one-location-share-note-count"
@@ -2371,8 +2500,11 @@ function ShareFlow({
             which made the consent step the most convincing part of a promise
             nothing kept — see the note above ShareFlow. */}
         <TrustNoteCard
-          title="You stay in control"
-          description="Encrypted. Ends automatically."
+          description={
+            vm.shareDurationHours === "until_stopped"
+              ? "Encrypted. Stop anytime."
+              : "Encrypted. Ends automatically."
+          }
         />
 
         <div className="space-y-2.5">
@@ -2531,7 +2663,7 @@ function ShareFlow({
 }
 
 /**
- * "Access ends around 4:35 PM" — the confirm step's read-back of the duration.
+ * "Access ends at 4:35 PM" — the confirm step's read-back of the duration.
  *
  * A duration is a promise about a moment, and "4 hours" makes the reader do the
  * arithmetic. Stating the clock time is what lets someone notice that a share
@@ -2542,6 +2674,18 @@ function ShareFlow({
  * the button is pressed, not when the label rendered.
  */
 function shareEndsAtLabel(durationHours: string, nowMs: number): string {
+  if (durationHours === "until_stopped") {
+    return "Stays on until you stop it.";
+  }
+  if (durationHours === "today") {
+    const endOfDay = new Date(nowMs);
+    endOfDay.setHours(23, 59, 0, 0);
+    const time = endOfDay.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    return `Access ends at ${time} today.`;
+  }
   const hours = Number(durationHours);
   if (!Number.isFinite(hours) || hours <= 0) return "Access ends when time is up.";
   const endsAt = new Date(nowMs + Math.round(hours * 60) * 60_000);
@@ -2551,9 +2695,9 @@ function shareEndsAtLabel(durationHours: string, nowMs: number): string {
   });
   if (hours >= 12) {
     const day = endsAt.toLocaleDateString(undefined, { weekday: "long" });
-    return `Access ends around ${time} on ${day}.`;
+    return `Access ends at ${time} on ${day}.`;
   }
-  return `Access ends around ${time}.`;
+  return `Access ends at ${time}.`;
 }
 
 /* =================================================================== */
@@ -2589,11 +2733,7 @@ function AskFlow({
   }, []);
   return (
     <div className="space-y-5">
-      <TaskFlowHeader
-        eyebrow="Request with context"
-        title="Ask clearly"
-        description="They choose whether to share."
-      />
+      <TaskFlowHeader title="Request with context" />
 
       {justSent ? (
         <div
@@ -2628,10 +2768,22 @@ function AskFlow({
                 receivedGrants: vm.receivedGrants,
                 nowMs: statusNowMs,
               });
+              // A row already Live is the one place this list had no way off
+              // it: the person keeps showing up "already sharing" with
+              // nothing to do about that but wait it out or leave the screen
+              // entirely to find the Shared with me / Requests sent list
+              // that could end or shorten it.
+              const activeGrant = vm.receivedGrants.find(
+                (grant) =>
+                  grant.ownerUserId === r.userId && grant.status === "active",
+              );
+              const isEditingThis =
+                Boolean(activeGrant) && vm.editingGrantId === activeGrant?.id;
+              const recipientLabel = vm.recipientLabel(r);
               return (
                 <TrustedPersonCard
                   key={r.userId}
-                  name={vm.recipientLabel(r)}
+                  name={recipientLabel}
                   subtitle={status.subtitle}
                   tone={status.tone}
                   statusLabel={status.statusLabel}
@@ -2644,13 +2796,58 @@ function AskFlow({
                   }
                   actionAriaLabel={`${
                     selected ? "Deselect" : "Select"
-                  } ${vm.recipientLabel(r)} for location request`}
+                  } ${recipientLabel} for location request`}
                   onAction={
                     status.selectable
                       ? () => vm.toggleRequestOwner(r.userId, "ask_flow")
                       : undefined
                   }
                   selected={selected && status.selectable}
+                  onEdit={
+                    activeGrant
+                      ? () =>
+                          isEditingThis
+                            ? vm.onEditGrantCancel()
+                            : vm.onEditGrantStart(activeGrant.id)
+                      : undefined
+                  }
+                  editActive={isEditingThis}
+                  onRemove={
+                    activeGrant
+                      ? () => vm.onStopGrant(activeGrant.id)
+                      : undefined
+                  }
+                  removeBusy={
+                    activeGrant
+                      ? vm.revokingGrantId === activeGrant.id
+                      : false
+                  }
+                  expandedContent={
+                    isEditingThis && activeGrant ? (
+                      <>
+                        <DurationSelector
+                          value={vm.editGrantDurationHours}
+                          onChange={vm.setEditGrantDurationHours}
+                          label="New duration"
+                          presentation="select"
+                        />
+                        <Button
+                          size="sm"
+                          className="h-9 w-full rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+                          onClick={() =>
+                            vm.onEditGrantSave({
+                              ownerUserId: r.userId,
+                              grantId: activeGrant.id,
+                              ownerLabel: recipientLabel,
+                            })
+                          }
+                          isLoading={vm.revokingGrantId === activeGrant.id}
+                        >
+                          Save
+                        </Button>
+                      </>
+                    ) : undefined
+                  }
                 />
               );
             })}
@@ -2696,11 +2893,6 @@ function AskFlow({
           className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
         />
       </SectionCard>
-
-      <TrustNoteCard
-        title="No silent tracking"
-        description="They choose."
-      />
 
       {/* Send is enabled once at least one recipient is chosen. Duration and
           reason default to sensible values, so gating Send on them too (added

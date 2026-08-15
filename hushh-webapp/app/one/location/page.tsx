@@ -129,6 +129,12 @@ import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { LocationBus } from "@/lib/one-location/location-bus";
+import {
+  isPublishableAge,
+  publishPointFrom,
+  shouldWarnOnPublishFailure,
+} from "@/lib/one-location/live-publish-decision";
 
 
 import {
@@ -159,9 +165,13 @@ import { driveEtaText } from "@/app/one/location/drive-eta";
 import { publicInviteUrlLabel } from "@/lib/one-location/public-invite-url";
 import {
   LOCATION_BLOCK_MESSAGE,
+  LOCATION_COPY,
+  type LocationFailure,
   isLocationPermissionDeniedError,
+  isUsableFixAge,
   locationBlockReason,
   locationReadiness as resolveLocationReadiness,
+  shouldSurfaceLocationError,
 } from "@/lib/one-location/location-readiness";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
@@ -274,6 +284,14 @@ import {
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
+import {
+  trackLocationShareConfirmed,
+  trackLocationShareReceived,
+} from "@/lib/observability/location-events";
+import {
+  rememberLocationInviteSource,
+  trackLocationFunnelStepCompleted,
+} from "@/lib/observability/growth";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
 import { LiveMap } from "@/components/one-location/live-map";
@@ -302,6 +320,13 @@ const DURATION_OPTIONS = [
   { value: "24", label: "24 hours" },
 ];
 
+const PRIVATE_SHARE_DURATION_LABELS: Record<string, string> = {
+  "0.25": "15 min",
+  "1": "1 hour",
+  today: "Today",
+  until_stopped: "Until I stop",
+};
+
 /**
  * How many recipients a single share fans out to concurrently.
  *
@@ -313,9 +338,65 @@ const DURATION_OPTIONS = [
 const ONE_LOCATION_SHARE_CONCURRENCY = 4;
 
 const LIVE_LOCATION_UPDATE_INTERVAL_MS = 20_000;
+
+/**
+ * How old a fix this heartbeat may reuse without re-reading the device.
+ *
+ * One tick. The requirement has always been that a recipient watching someone
+ * move sees where they are now — `maxAgeMs: 0` was a mechanism chosen for
+ * that, and it became the wrong one once a continuous watch existed. This
+ * ceiling means a published point is never older than a single period, which
+ * is the guarantee the recipient side is already written against: it calls a
+ * share stale at three of them.
+ */
+const LIVE_HEARTBEAT_MAX_AGE_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS;
+
+/**
+ * The point this heartbeat may publish, or null to skip the tick.
+ *
+ * Reads the shared store first, and only asks the device when the store has
+ * nothing recent — which, while the movement watch is running, is almost
+ * never. Anything not measured this session is refused: `publishPointFrom`
+ * rejects a restored fix outright, because the recipient's screen says "live".
+ */
+async function liveHeartbeatPoint(): Promise<PlainLocationPoint | null> {
+  const held = LocationBus.getState();
+  if (
+    held.snapshotOrigin === "fresh" &&
+    isPublishableAge(held.snapshot?.capturedAt, LIVE_HEARTBEAT_MAX_AGE_MS)
+  ) {
+    return publishPointFrom(held);
+  }
+  await LocationBus.ensure({ maxAgeMs: LIVE_HEARTBEAT_MAX_AGE_MS });
+  return publishPointFrom(LocationBus.getState());
+}
+
 // Recipients poll faster than the owner's publish heartbeat so the shared dot
 // stays fresh; the LiveMap marker interpolates between these reads.
 const LIVE_VIEW_REFRESH_INTERVAL_MS = 5_000;
+/**
+ * Cadence for a share that is live but has never published a point. There is
+ * nothing to stream yet — the owner's first GPS fix hasn't landed — so asking
+ * every 5s burns a request per grant per tick for an answer that cannot change
+ * until the owner acts. The grant row already carries the authoritative tag
+ * (`latestEnvelopeId`), so this path only exists to catch the first publish
+ * promptly when no push notification arrives to refresh state.
+ */
+const AWAITING_FIRST_PUBLISH_POLL_MS = 30_000;
+/**
+ * Per-grant backoff ceiling after consecutive failed reads. One share that is
+ * genuinely broken (pruned envelope, rotated key, backend degraded) must never
+ * keep hitting the backend at the live cadence — and must never slow down the
+ * healthy shares next to it, which is why backoff is tracked per grant.
+ */
+const LIVE_VIEW_BACKOFF_MAX_MS = 60_000;
+/**
+ * A sweep that never settles (hung fetch, throttled tab resumed mid-flight)
+ * would leave the in-flight guard latched and silently kill live tracking for
+ * the rest of the session. Past this age the guard is treated as stale and the
+ * next tick proceeds, so the poll can always recover itself.
+ */
+const LIVE_VIEW_INFLIGHT_WATCHDOG_MS = 30_000;
 const LIVE_LOCATION_STALE_THRESHOLD_MS = LIVE_LOCATION_UPDATE_INTERVAL_MS * 3;
 const FOREGROUND_RETRY_DELAYS_MS = [450, 900] as const;
 // True live tracking: while a share is active and the app is foregrounded, the
@@ -360,7 +441,7 @@ const USE_LOCATION_REDESIGN: boolean = true;
  * the surface on screen stay the same surface.
  */
 const LOCATION_HUB_TAB_LABELS: Readonly<Record<string, string>> = {
-  now: "Now",
+  now: "Overview",
   people: "People",
   links: "Links",
 };
@@ -499,7 +580,15 @@ type BusyState =
 type OneLocationSelectionSurface =
   "quick_circle" | "section_list" | "select_menu";
 
-type OneLocationDurationBucket = "15m" | "30m" | "1h" | "4h" | "24h" | "custom";
+type OneLocationDurationBucket =
+  | "15m"
+  | "30m"
+  | "1h"
+  | "4h"
+  | "24h"
+  | "today"
+  | "until_stopped"
+  | "custom";
 type OneLocationForegroundOperation = "publish" | "view";
 type OneLocationForegroundTrigger = "manual" | "foreground_interval";
 type OneLocationFocusTarget = OneLocationNotificationSection;
@@ -561,6 +650,7 @@ function formatDateTime(value?: string | null): string {
 function expiresLabel(grant: OneLocationGrant): string {
   if (grant.status === "revoked") return "Revoked";
   if (grant.status === "expired") return "Expired";
+  if (grant.durationMode === "until_stopped") return "Until stopped";
   return `Expires ${formatDateTime(grant.expiresAt)}`;
 }
 
@@ -895,9 +985,39 @@ function oneLocationDurationBucket(value: string): OneLocationDurationBucket {
       return "4h";
     case "24":
       return "24h";
+    case "today":
+      return "today";
+    case "until_stopped":
+      return "until_stopped";
     default:
       return "custom";
   }
+}
+
+function privateShareDurationPayload(value: string): {
+  durationHours?: number;
+  durationMode: "timed" | "until_stopped";
+} {
+  if (value === "until_stopped") {
+    return { durationMode: "until_stopped" };
+  }
+  if (value === "today") {
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 0, 0);
+    const diffHours = (endOfDay.getTime() - Date.now()) / 3_600_000;
+    return {
+      durationHours: Math.min(24, Math.max(0.25, Number(diffHours.toFixed(2)))),
+      durationMode: "timed",
+    };
+  }
+  return {
+    durationHours: Number(value),
+    durationMode: "timed",
+  };
+}
+
+function privateShareDurationLabel(value: string): string {
+  return PRIVATE_SHARE_DURATION_LABELS[value] ?? `${value} hours`;
 }
 
 function oneLocationEventResult(
@@ -926,6 +1046,65 @@ function receivedGrantOwnerLabel(grant: OneLocationGrant): string {
     grant.ownerDisplayName || grant.recipientDisplayName,
     "A trusted person",
   );
+}
+
+/**
+ * Copy for a share that is genuinely live but has no point yet. Shared by the
+ * success path (backend answered `awaiting_first_publish`), the legacy 404 path,
+ * and the pre-flight skip driven by `grant.latestEnvelopeId`, so all three
+ * render byte-identical text — the state setters below compare by value to
+ * avoid re-rendering the map on every poll.
+ */
+function awaitingFirstPublishMessage(grant: OneLocationGrant): string {
+  return `${receivedGrantOwnerLabel(
+    grant,
+  )} is sharing, but hasn't sent a live location update yet. It will appear here automatically as soon as they move or open One.`;
+}
+
+/** Outcome of one recipient-side envelope read, used to pace the next poll. */
+type OneLocationViewOutcome = "published" | "awaiting" | "error" | "skipped";
+
+type OneLocationGrantPollEntry = {
+  /** Epoch ms before which this grant must not be read again. */
+  nextAttemptAt: number;
+  /** Consecutive failed reads; drives the exponential backoff. */
+  failures: number;
+};
+
+/**
+ * Pace the next recipient-side read of one share, per grant.
+ *
+ * - `published` — the dot is live and moving, so stay on the tick cadence. Zero
+ *   delay keeps the streaming path byte-for-byte as fast as it was.
+ * - `awaiting` / `skipped` — healthy share with nothing to send. Asking twelve
+ *   times a minute cannot change an answer that only the owner can change, so
+ *   drop to the slow heartbeat.
+ * - `error` — exponential backoff, capped. Tracked per grant so one broken share
+ *   can neither hammer the backend nor slow down the healthy shares beside it.
+ */
+function recordGrantPollOutcome(
+  schedule: Map<string, OneLocationGrantPollEntry>,
+  grantId: string,
+  outcome: OneLocationViewOutcome,
+  now: number,
+): OneLocationGrantPollEntry {
+  const previousFailures = schedule.get(grantId)?.failures ?? 0;
+  const failures = outcome === "error" ? previousFailures + 1 : 0;
+  let delayMs = 0;
+  if (outcome === "error") {
+    delayMs = Math.min(
+      LIVE_VIEW_REFRESH_INTERVAL_MS * 2 ** failures,
+      LIVE_VIEW_BACKOFF_MAX_MS,
+    );
+  } else if (outcome !== "published") {
+    delayMs = AWAITING_FIRST_PUBLISH_POLL_MS;
+  }
+  const entry: OneLocationGrantPollEntry = {
+    nextAttemptAt: now + delayMs,
+    failures,
+  };
+  schedule.set(grantId, entry);
+  return entry;
 }
 
 function requestLabel(request: OneLocationAccessRequest): string {
@@ -988,7 +1167,11 @@ function oneLocationBackoffBucket(delayMs: number): OneLocationBackoffBucket {
   return "gte_3s";
 }
 
-function oneLocationFailureClass(error: unknown): string {
+/**
+ * Exported for the unit test that guards the ordering below. The ordering is
+ * the whole point of this function and is easy to undo by accident.
+ */
+export function oneLocationFailureClass(error: unknown): string {
   if (isTransientOneApiError(error)) return "one_api_unavailable";
   const name =
     error && typeof error === "object" && "name" in error
@@ -1003,14 +1186,29 @@ function oneLocationFailureClass(error: unknown): string {
   if (name === "aborterror" || message.includes("abort")) return "aborted";
   if (message.includes("network") || message.includes("fetch"))
     return "network";
-  if (message.includes("permission") || message.includes("location"))
-    return "permission";
+  // Encryption before permission. "location" is a substring of almost every
+  // message this surface produces — "could not decrypt location envelope"
+  // included — so matching it first labelled key and envelope failures as
+  // permission problems. In production, `permission` is 965 of 1,248 retry
+  // events on iOS, and an unknown share of those are really something else;
+  // the point of a failure class is to send you to the right cause.
   if (
     message.includes("key") ||
     message.includes("encrypt") ||
     message.includes("decrypt")
   ) {
     return "encryption";
+  }
+  // Matched on the vocabulary the platforms actually use for a denial, not on
+  // the word "location" — which appears in nearly every message this surface
+  // produces and was therefore labelling unrelated failures as permission
+  // problems.
+  if (
+    message.includes("permission") ||
+    message.includes("denied") ||
+    message.includes("authoriz")
+  ) {
+    return "permission";
   }
   return "unknown";
 }
@@ -1194,11 +1392,13 @@ function LocalMapPreview({
   point,
   showNavigation = true,
   viewportResetKey,
+  staleAction,
 }: {
   point: PlainLocationPoint;
   // Self-location previews do not need Directions/Start - you are already there.
   showNavigation?: boolean;
   viewportResetKey?: string | number;
+  staleAction?: ReactNode;
 }) {
   const captured = formatDateTime(point.capturedAt);
   const accuracy = locationAccuracyLabel(point);
@@ -1292,15 +1492,18 @@ function LocalMapPreview({
       {isStale ? (
         <div
           role="status"
-          className="mx-3 mb-3 flex min-w-0 items-start gap-2 rounded-[12px] border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-[12px] font-medium text-amber-800 dark:text-amber-100"
+          className="mx-3 mb-3 flex min-w-0 flex-col gap-2 rounded-[12px] border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-[12px] font-medium text-amber-800 sm:flex-row sm:items-center sm:justify-between dark:text-amber-100"
         >
-          <AlertTriangle
-            className="mt-0.5 h-4 w-4 shrink-0"
-            aria-hidden="true"
-          />
-          <span className="min-w-0 break-words [overflow-wrap:anywhere]">
-            Location update may be stale. Ask them to refresh sharing.
+          <span className="flex min-w-0 items-start gap-2">
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0"
+              aria-hidden="true"
+            />
+            <span className="min-w-0 break-words [overflow-wrap:anywhere]">
+              Location may be stale.
+            </span>
           </span>
+          {staleAction ? <span className="shrink-0">{staleAction}</span> : null}
         </div>
       ) : null}
     </div>
@@ -1445,7 +1648,7 @@ function EmptyOneState({
 }: {
   icon: LucideIcon;
   title: string;
-  description: string;
+  description?: string;
 }) {
   return (
     <div className="flex min-h-24 min-w-0 max-w-full flex-col items-start gap-3 p-3.5 text-sm sm:flex-row sm:items-center">
@@ -1456,9 +1659,11 @@ function EmptyOneState({
         <div className="font-semibold text-[#1c1c1e] dark:text-white">
           {title}
         </div>
-        <div className="break-words text-[13px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-          {description}
-        </div>
+        {description ? (
+          <div className="break-words text-[13px] leading-5 text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+            {description}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -1977,6 +2182,9 @@ export function OneLocationAgentPageContent({
   // Per-grant revoke tracking so "Stop sharing" only spins on the specific
   // active-share card the user tapped, not every active share at once.
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+  /** Which grant is showing the inline duration editor, wherever it's listed. */
+  const [editingGrantId, setEditingGrantId] = useState<string | null>(null);
+  const [editGrantDurationHours, setEditGrantDurationHours] = useState("1");
   // Opt-in: keep publishing location while the app is backgrounded (native only).
   const [backgroundShareEnabled, setBackgroundShareEnabled] = useState(false);
   // Monotonic counter bumped each time a share completes successfully, so the
@@ -2340,6 +2548,22 @@ export function OneLocationAgentPageContent({
   const focusClearRef = useRef<number | null>(null);
   const livePublishInFlightRef = useRef(false);
   const liveViewInFlightRef = useRef(false);
+  /** When the in-flight sweep began, so a wedged sweep can be timed out. */
+  const liveViewStartedAtRef = useRef(0);
+  /** Identifies the sweep that currently owns the in-flight guard. */
+  const liveViewSweepIdRef = useRef(0);
+  /** Per-grant read pacing: see `recordGrantPollOutcome`. */
+  const grantPollScheduleRef = useRef<Map<string, OneLocationGrantPollEntry>>(
+    new Map(),
+  );
+  /** Latest-value refs so the recipient poll runs on one stable interval. */
+  const visibleReceivedGrantsRef = useRef<OneLocationGrant[]>([]);
+  const viewGrantEnvelopeRef = useRef<
+    (
+      grant: OneLocationGrant,
+      options?: { silent?: boolean; trigger?: OneLocationForegroundTrigger },
+    ) => Promise<OneLocationViewOutcome>
+  >(async () => "skipped");
   const suppressAutoRecipientSelectionRef = useRef(false);
   const shareReviewAttemptRef = useRef(0);
   const shareReviewPendingRef = useRef(false);
@@ -3051,9 +3275,69 @@ export function OneLocationAgentPageContent({
        * on/off control passes this; every other caller keeps today's behaviour.
        */
       isStale?: () => boolean;
-    }): Promise<{ ready: boolean; point?: PlainLocationPoint }> => {
+      /**
+       * Whether this gate may speak.
+       *
+       * False for a caller that prints its own message — nine of them do, and
+       * a shared toast on top meant one failure produced two. Also false for
+       * anything the owner did not ask for: a screen warming a position in the
+       * background does not get to interrupt them about it.
+       */
+      announce?: boolean;
+      /**
+       * Refuse a held position; only a fix measured now will do.
+       *
+       * For the small set of callers where degrading would be a lie rather
+       * than a courtesy. Un-pausing is one: pause is a privacy control, and
+       * resuming a share on a remembered coordinate would start telling people
+       * the owner is somewhere they have left. The live publisher and the
+       * check-in confirmation draw the same line for the same reason.
+       */
+      requireMeasurement?: boolean;
+    }): Promise<{
+      ready: boolean;
+      point?: PlainLocationPoint;
+      origin?: "fresh" | "restored";
+      failure?: LocationFailure;
+    }> => {
       const shouldCapturePoint = Boolean(options?.capturePoint);
       const shouldOpenSettings = options?.autoOpenSettings !== false;
+      const announce = options?.announce !== false;
+
+      const heldFix = (): PlainLocationPoint | null => {
+        const bus = LocationBus.getState();
+        if (!bus.snapshot) return null;
+        if (!isUsableFixAge(bus.snapshot.capturedAt)) return null;
+        return {
+          latitude: bus.snapshot.latitude,
+          longitude: bus.snapshot.longitude,
+          accuracyM: bus.snapshot.accuracyM ?? null,
+          capturedAt: bus.snapshot.capturedAt,
+          sourcePlatform: bus.snapshot.sourcePlatform ?? "web",
+        };
+      };
+
+      // Nothing to do but hand back what we already have.
+      //
+      // A caller that does not need a new measurement, on a session that is
+      // holding a usable position, used to pay for a permission read and a
+      // device round trip anyway — and could be toasted at for the privilege.
+      // On Safari, where the permission value is unreadable, it took that path
+      // every single time.
+      if (!shouldCapturePoint && !observedLocationDenialRef.current) {
+        const held = heldFix();
+        if (held) {
+          return {
+            ready: true,
+            point: held,
+            origin:
+              LocationBus.getState().snapshotOrigin === "fresh"
+                ? "fresh"
+                : "restored",
+          };
+        }
+      }
+
       const currentPermission = await refreshLocationPermission();
 
       // Only two things stop us before we have tried, and neither can be fixed
@@ -3067,11 +3351,11 @@ export function OneLocationAgentPageContent({
       // attempt, and let a real PERMISSION_DENIED be the thing that blocks.
       const blockReason = locationBlockReason(currentPermission);
       if (blockReason) {
-        toast.error(LOCATION_BLOCK_MESSAGE[blockReason]);
-        if (shouldOpenSettings) {
+        if (announce) toast.error(LOCATION_BLOCK_MESSAGE[blockReason]);
+        if (shouldOpenSettings && announce) {
           await OneLocationService.openLocationSettings().catch(() => null);
         }
-        return { ready: false };
+        return { ready: false, failure: "blocked" };
       }
 
       if (
@@ -3112,7 +3396,14 @@ export function OneLocationAgentPageContent({
         // so a later step in the same flow can use it instead of paying for a
         // second acquisition. `shouldCapturePoint` still governs the SIDE
         // EFFECT (activateMyLocation) above — only the return widens.
-        return { ready: true, point };
+        return {
+          ready: true,
+          point,
+          origin:
+            LocationBus.getState().snapshotOrigin === "restored"
+              ? "restored"
+              : "fresh",
+        };
       } catch (error) {
         const nextPermission =
           await OneLocationService.getPermissionState().catch(() => null);
@@ -3124,17 +3415,45 @@ export function OneLocationAgentPageContent({
         const denied = isLocationPermissionDeniedError(error);
         observedLocationDenialRef.current = denied;
         setLocationDenialObserved(denied);
-        const message = locationServicesErrorMessage(error);
-        toast.error(message);
+
+        // Not a refusal, and we are holding a position. Use it and say
+        // nothing: this is the case that produced most of the noise, because
+        // a device that declines one reading is routine and the owner has
+        // nothing to do about it.
+        const held =
+          denied || options?.requireMeasurement ? null : heldFix();
+        if (held) {
+          if (shouldCapturePoint && !options?.isStale?.()) {
+            activateMyLocation(held);
+          }
+          return { ready: true, point: held, origin: "restored" };
+        }
+
+        const failure: LocationFailure = denied
+          ? "denied"
+          : isLocationServicesDisabled(nextPermission)
+            ? "blocked"
+            : "no-fix";
         if (
-          shouldOpenSettings &&
-          (denied ||
-            isLocationServicesDisabled(nextPermission) ||
-            message.toLowerCase().includes("turn on location"))
+          shouldSurfaceLocationError({
+            hasUsableFix: false,
+            observedDenial: denied,
+            blockReason: locationBlockReason(nextPermission),
+            blocksUserIntent: announce,
+          })
         ) {
+          toast.error(
+            failure === "no-fix" ? LOCATION_COPY.noFix : LOCATION_COPY.denied,
+          );
+        }
+        // Settings only for something Settings can fix. The old trigger also
+        // fired on any message containing "turn on location" — which the web
+        // plugin puts on a TIMEOUT, so a laptop with no GPS radio was thrown
+        // at a settings pane it does not have.
+        if (shouldOpenSettings && announce && failure !== "no-fix") {
           await OneLocationService.openLocationSettings().catch(() => null);
         }
-        return { ready: false };
+        return { ready: false, failure };
       }
     },
     [activateMyLocation, refreshLocationPermission],
@@ -3543,6 +3862,7 @@ export function OneLocationAgentPageContent({
       landOnAfter?: string,
     ): Promise<LocalOnboardingActionResult> => {
       const effectiveDurationHours = durationOverride ?? shareDurationHours;
+      const durationPayload = privateShareDurationPayload(effectiveDurationHours);
       // Set on every attempt, so a landing asked for by one share can never
       // survive into the next one. Taps pass nothing and get the clean hub.
       shareCompletedDestinationRef.current = landOnAfter ?? null;
@@ -3623,7 +3943,7 @@ export function OneLocationAgentPageContent({
               vaultOwnerToken,
               recipientUserId: recipient.userId,
               recipientKeyId: recipient.keyId,
-              durationHours: Number(effectiveDurationHours),
+              ...durationPayload,
               reason: shareMessage.trim() || undefined,
               shareKind: "share",
               sourceCircleId:
@@ -3651,7 +3971,7 @@ export function OneLocationAgentPageContent({
       if (!successCount && lastRecipientError) {
         throw lastRecipientError;
       }
-      trackEvent("one_location_share_confirmed", {
+      trackLocationShareConfirmed({
         route_id: "one_location",
         result: oneLocationEventResult(successCount, recipientFailureCount),
         selected_count: shareReadySelectedRecipients.length,
@@ -3660,10 +3980,7 @@ export function OneLocationAgentPageContent({
         duration_bucket: oneLocationDurationBucket(effectiveDurationHours),
         review_required: shareReviewOpen,
       });
-      const durationLabel =
-        DURATION_OPTIONS.find(
-          (option) => option.value === String(effectiveDurationHours),
-        )?.label ?? `${effectiveDurationHours} hours`;
+      const durationLabel = privateShareDurationLabel(effectiveDurationHours);
       let summary: string;
       if (recipientFailureCount) {
         summary = `Location shared with ${peopleCountLabel(successCount)} for ${durationLabel}. ${recipientFailureCount} ${
@@ -3685,7 +4002,7 @@ export function OneLocationAgentPageContent({
         recipientFailureCount ||
         shareReadySelectedRecipients.length - successCount ||
         1;
-      trackEvent("one_location_share_confirmed", {
+      trackLocationShareConfirmed({
         route_id: "one_location",
         result: oneLocationEventResult(successCount, failureCount),
         selected_count: shareReadySelectedRecipients.length,
@@ -3860,6 +4177,11 @@ export function OneLocationAgentPageContent({
         const result = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: false,
+          // This runs when Save my Soul is merely OPENED. Nobody has asked for
+          // anything yet, so a failure here has nothing to tell them — and on
+          // a promptable browser a toast plus a settings pane for opening a
+          // panel is how "it keeps asking me again" happens.
+          announce: false,
         });
         if (!result.ready || !result.point) {
           setSosEmergencyStatus((current) =>
@@ -3917,6 +4239,48 @@ export function OneLocationAgentPageContent({
   // the app already had, which made the control read as permanently loading
   // before anyone pressed it — the lookup must stay a deliberate, on-click act.
 
+  /**
+   * Records that the emergency alert fired, on every path it can leave by.
+   *
+   * Counts only: never the note, the coordinates, or who was contacted. The
+   * number that matters is `reached_count` — an alert that reached nobody is
+   * the most serious failure this product has, and it is exactly the case that
+   * previously produced no telemetry because the emit sat on the success path.
+   *
+   * The three counts reconcile: `selected` is everyone the person chose, and
+   * `unreachable` covers both those filtered out as not-ready and those whose
+   * device was not alerted, so `reached + unreachable === selected`.
+   */
+  const trackSosTriggered = useCallback(
+    ({
+      selectedCount,
+      reachedCount,
+      unreachableCount,
+      emailedCount = 0,
+      note,
+    }: {
+      selectedCount: number;
+      reachedCount: number;
+      unreachableCount: number;
+      emailedCount?: number;
+      note?: string | null;
+    }) => {
+      trackEvent("one_location_sos_triggered", {
+        route_id: "one_location",
+        // "error", not "expected_error": reaching nobody is a genuine failure
+        // of the alert, never a normal outcome.
+        // Success if the alert landed on either channel.
+        result: reachedCount > 0 || emailedCount > 0 ? "success" : "error",
+        selected_count: selectedCount,
+        reached_count: reachedCount,
+        unreachable_count: unreachableCount,
+        emailed_count: emailedCount,
+        has_note: Boolean(note && note.trim()),
+      });
+    },
+    [],
+  );
+
   const handleTriggerSos = useCallback(
     async (note?: string | null) => {
       if (sosIncident) return; // re-entry guard: never overwrite/orphan an active incident
@@ -3927,6 +4291,16 @@ export function OneLocationAgentPageContent({
       );
       const totalSelected = smsActionRecipients.length;
       if (!readyRecipients.length) {
+        // Emitted before returning. This is an alert that reached nobody, which
+        // is precisely the case the event exists to surface; leaving it on the
+        // success path only meant the failures we most need to see were the
+        // ones that produced no telemetry at all.
+        trackSosTriggered({
+          selectedCount: totalSelected,
+          reachedCount: 0,
+          unreachableCount: 0,
+          note,
+        });
         toast.error(
           totalSelected
             ? "Your SMS contacts are not ready to receive location yet."
@@ -3938,6 +4312,12 @@ export function OneLocationAgentPageContent({
       try {
         const point = await resolveSosLocation();
         if (!point) {
+          trackSosTriggered({
+            selectedCount: totalSelected,
+            reachedCount: 0,
+            unreachableCount: readyRecipients.length,
+            note,
+          });
           toast.error(
             "Couldn't get your location — alert not sent. Check location permissions.",
           );
@@ -3973,6 +4353,11 @@ export function OneLocationAgentPageContent({
           latitude: point.latitude,
           longitude: point.longitude,
           accuracyM: point.accuracyM ?? null,
+          // Save my Soul sends the last known position rather than nothing
+          // when the device will not produce a new one — the right call in an
+          // emergency, but only if the person reading it is told how old it
+          // is. The email stamps anything older than a couple of minutes.
+          capturedAt: point.capturedAt,
           note,
           emergencyNumber: sosEmergency?.number ?? null,
         });
@@ -3987,6 +4372,19 @@ export function OneLocationAgentPageContent({
           (mail.withoutEmail.length > 0
             ? ` No email on file for ${formatNameList(mail.withoutEmail)}.`
             : "");
+
+        // Emitted after the email fallback so it reports the alert's real
+        // outcome rather than the push channel's. An SOS where every push
+        // failed but two inboxes received it is not an alert that reached
+        // nobody, and recording it as one would point the investigation at
+        // exactly the wrong thing.
+        trackSosTriggered({
+          selectedCount: totalSelected,
+          reachedCount: reached,
+          unreachableCount: unreachable.length + skipped,
+          emailedCount: mail.emailed,
+          note,
+        });
 
         if (reached === 0) {
           const stillNoOne = mail.emailed === 0;
@@ -4013,6 +4411,18 @@ export function OneLocationAgentPageContent({
         if (error instanceof SosPanicError && error.partialIncident) {
           setSosIncident(error.partialIncident);
         }
+        // Reported as reaching nobody, because on this path we genuinely cannot
+        // tell. `SosPanicError.partialIncident` carries only grant ids, not
+        // per-recipient delivery, so some contacts may in fact have been
+        // alerted before the throw. Biasing an unobservable emergency outcome
+        // toward failure is the right way round: it surfaces for investigation
+        // rather than being averaged away, which a guessed number would do.
+        trackSosTriggered({
+          selectedCount: totalSelected,
+          reachedCount: 0,
+          unreachableCount: totalSelected,
+          note,
+        });
         toast.error(
           error instanceof Error ? error.message : "Could not send SMS alert.",
         );
@@ -4027,6 +4437,7 @@ export function OneLocationAgentPageContent({
       smsActionRecipients,
       refresh,
       sosIncident,
+      trackSosTriggered,
       // The local emergency number is read at send time so the email can tell
       // the recipient which number to dial where the sender is.
       sosEmergency?.number,
@@ -4193,6 +4604,8 @@ export function OneLocationAgentPageContent({
         const readiness = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: true,
+          // Prints its own message below.
+          announce: false,
         });
         if (!readiness.ready || !readiness.point) {
           return;
@@ -4225,8 +4638,8 @@ export function OneLocationAgentPageContent({
     async (
       grant: OneLocationGrant,
       options?: { silent?: boolean; trigger?: OneLocationForegroundTrigger },
-    ) => {
-      if (!auth.userId || !vaultOwnerToken) return;
+    ): Promise<OneLocationViewOutcome> => {
+      if (!auth.userId || !vaultOwnerToken) return "skipped";
       const activeUserId = auth.userId;
       const silent = Boolean(options?.silent);
       const trigger =
@@ -4241,6 +4654,10 @@ export function OneLocationAgentPageContent({
               vaultOwnerToken,
               grantId: grant.id,
             });
+            // Live share, no point published yet. The backend reports this as a
+            // success (see `allow_empty` in OneLocationService.viewEnvelope), so
+            // there is nothing to decrypt and nothing has gone wrong.
+            if (!response.envelope) return null;
             try {
               return await decryptLocationEnvelope({
                 userId: activeUserId,
@@ -4269,6 +4686,19 @@ export function OneLocationAgentPageContent({
             }
           },
         });
+        if (!point) {
+          // Live share, first point not published yet. This is a success, not a
+          // failure: hold the calm waiting copy and let the caller drop this
+          // grant to the slow cadence until the owner actually publishes.
+          setGrantViewErrors((current) => {
+            const waiting = awaitingFirstPublishMessage(grant);
+            return current[grant.id] === waiting
+              ? current
+              : { ...current, [grant.id]: waiting };
+          });
+          if (!silent) toast.message(awaitingFirstPublishMessage(grant));
+          return "awaiting";
+        }
         // A stationary owner republishes the same point every heartbeat, so most
         // ticks decrypt to something identical to what is already on screen.
         // Writing it anyway would allocate a new workspace object and re-render
@@ -4285,18 +4715,21 @@ export function OneLocationAgentPageContent({
           delete next[grant.id];
           return next;
         });
+        // The receiving half of activation. A person who is only ever shared
+        // with -- the invited friend, which is the whole viral loop -- is still
+        // an active user of a sharing product, and counted as un-activated
+        // until this fires.
+        trackLocationShareReceived();
+        return "published";
       } catch (error) {
         const keyUnavailable =
           error instanceof Error &&
           error.message === RECIPIENT_KEY_UNAVAILABLE_MESSAGE;
-        // The grant is active ("Live") but the owner has not published any
-        // encrypted point yet — e.g. they JUST started sharing, or haven't
-        // moved / re-opened One since. The backend returns a 404
-        // LOCATION_ENVELOPE_MISSING for this. It's a normal "not ready yet"
-        // state on the happy path, NOT a failure, so we must never surface the
-        // raw backend string ("The owner has not published an encrypted
-        // location envelope yet.") as a scary red error toast the moment the
-        // recipient lands on the page.
+        // Legacy shape of the same "not ready yet" state: a backend that predates
+        // `allow_empty` answers 404 LOCATION_ENVELOPE_MISSING instead of a 200
+        // with a null envelope. This branch must stay for as long as a client
+        // can reach an older backend — including the window during a rollout
+        // where the webapp ships ahead of the Python service.
         const envelopeMissing =
           !keyUnavailable &&
           (apiErrorCode(error) === "LOCATION_ENVELOPE_MISSING" ||
@@ -4326,13 +4759,13 @@ export function OneLocationAgentPageContent({
               grant,
             )}'s live location — the secure key changed. Ask them to share again.`,
           }));
-        } else if (envelopeMissing) {
+          return "error";
+        }
+        if (envelopeMissing) {
           // Calm, reassuring "waiting for their first update" state. The share
           // is genuinely active; the point simply hasn't arrived yet and will
           // appear automatically on the next poll once the owner publishes.
-          const waitingMessage = `${receivedGrantOwnerLabel(
-            grant,
-          )} is sharing, but hasn't sent a live location update yet. It will appear here automatically as soon as they move or open One.`;
+          const waitingMessage = awaitingFirstPublishMessage(grant);
           setGrantViewErrors((current) =>
             current[grant.id] === waitingMessage
               ? current
@@ -4343,7 +4776,9 @@ export function OneLocationAgentPageContent({
           if (!silent) {
             toast.message(waitingMessage);
           }
-        } else if (!silent) {
+          return "awaiting";
+        }
+        if (!silent) {
           toast.error(
             error instanceof Error
               ? error.message
@@ -4355,8 +4790,8 @@ export function OneLocationAgentPageContent({
             error,
           );
         }
+        return "error";
       } finally {
-
         if (!silent) setBusy(null);
       }
     },
@@ -4490,12 +4925,20 @@ export function OneLocationAgentPageContent({
         return;
       livePublishInFlightRef.current = true;
       try {
-        // Never a reused fix: a recipient watching this person move must see
-        // where they are now, not where they were when a button was last
-        // pressed. One capture here still serves every grant below.
-        const point = await OneLocationService.captureCurrentPosition({
-          maxAgeMs: 0,
-        });
+        // Read the shared position rather than forcing a second acquisition.
+        //
+        // The movement watch below already feeds the bus every fix the device
+        // produces, so the bus snapshot IS the newest position that exists. A
+        // competing one-shot here made the point less current, not more: on
+        // iOS it raced that watch for the plugin's single pending-call slot,
+        // and on web getCurrentPosition can spend ~23s — longer than this
+        // interval. Every lost race threw, and this loop reported "could not
+        // get your location" once a tick while the watch was delivering.
+        const point = await liveHeartbeatPoint();
+        // Nothing measured this session. The watch will deliver; a recipient
+        // watching a live dot must never be shown a remembered coordinate,
+        // and there is nothing here to tell the owner.
+        if (!point) return;
         if (!automaticPrivatePublishingAllowedRef.current) return;
         // Every grant is published independently. Sharing this loop's failure
         // between recipients is what made "share with several people" look
@@ -4535,11 +4978,23 @@ export function OneLocationAgentPageContent({
           }),
         );
       } catch (error) {
-        void refreshLocationPermission();
-        console.warn(
-          "[OneLocationAgent] Foreground live update skipped:",
-          error,
-        );
+        // Only worth the owner's attention when the platform refused or we
+        // hold no position at all. A failed refresh while a share is running
+        // on a good fix is not news they can act on — and re-reading
+        // permission on every one of those cost a platform round trip every
+        // twenty seconds for a value nothing on this path reads.
+        if (
+          shouldWarnOnPublishFailure({
+            error,
+            snapshot: LocationBus.getState().snapshot,
+            observedDenial: observedLocationDenialRef.current,
+          })
+        ) {
+          console.warn(
+            "[OneLocationAgent] Foreground live update skipped:",
+            error,
+          );
+        }
       } finally {
         livePublishInFlightRef.current = false;
       }
@@ -4558,7 +5013,6 @@ export function OneLocationAgentPageContent({
     permission?.state,
     publishEnvelopeWithRetry,
     recipientForGrant,
-    refreshLocationPermission,
     vaultOwnerToken,
   ]);
 
@@ -4775,39 +5229,122 @@ export function OneLocationAgentPageContent({
     setMyLocationPoint,
   ]);
 
+  // Latest-value refs for the recipient poll below. The poll must survive on a
+  // single long-lived interval: keying its effect on the grant objects and the
+  // `viewGrantEnvelope` identity tore the timer down and rebuilt it on every
+  // render, and each rebuild fires an immediate sweep — so a render burst became
+  // a request burst at the backend (visible as clusters of back-to-back reads
+  // between the honest 5s ticks). These refs let the effect depend only on the
+  // grant id list, which changes when the set of shares genuinely changes.
   useEffect(() => {
-    if (!activeVisibleReceivedGrants.length) return;
-    if (busy && busy !== "load") return;
+    visibleReceivedGrantsRef.current = activeVisibleReceivedGrants;
+    viewGrantEnvelopeRef.current = viewGrantEnvelope;
+  });
+
+  const visibleReceivedGrantKey = useMemo(
+    () => activeVisibleReceivedGrants.map((grant) => grant.id).join(","),
+    [activeVisibleReceivedGrants],
+  );
+  const liveViewPollBlocked = Boolean(busy && busy !== "load");
+
+  useEffect(() => {
+    if (!visibleReceivedGrantKey) return;
+    if (liveViewPollBlocked) return;
 
     const refreshVisibleGrants = async () => {
-      if (liveViewInFlightRef.current) return;
+      const now = Date.now();
+      // Checked before the watchdog: a backgrounded tab is throttled by the
+      // browser, so an in-flight sweep sitting there is expected, not wedged.
       if (
         typeof document !== "undefined" &&
         document.visibilityState === "hidden"
       )
         return;
+      if (liveViewInFlightRef.current) {
+        // Normal overlap: the previous sweep is still running, skip this tick.
+        if (now - liveViewStartedAtRef.current < LIVE_VIEW_INFLIGHT_WATCHDOG_MS)
+          return;
+        // The previous sweep never settled. Without this escape the guard stays
+        // latched for the life of the page and live tracking dies silently, with
+        // the interval still firing into a permanent no-op.
+        console.warn(
+          "[OneLocationAgent] Live view sweep exceeded the watchdog; " +
+            "releasing the in-flight guard so polling can recover.",
+        );
+      }
+
+      const grants = visibleReceivedGrantsRef.current;
+      const schedule = grantPollScheduleRef.current;
+      // Only read shares whose next attempt is actually due. A share that has
+      // never published, or one that keeps failing, sits on a slower cadence
+      // than a share that is streaming a moving dot.
+      const due = grants.filter((grant) => {
+        const entry = schedule.get(grant.id);
+        return !entry || now >= entry.nextAttemptAt;
+      });
+      if (!due.length) return;
+
+      // Claim this sweep. If the watchdog above abandoned an earlier one, that
+      // earlier sweep may still resolve later — and it must not then clear a
+      // guard it no longer owns, which would let two sweeps run concurrently.
+      const sweepId = liveViewSweepIdRef.current + 1;
+      liveViewSweepIdRef.current = sweepId;
       liveViewInFlightRef.current = true;
+      liveViewStartedAtRef.current = now;
       try {
+        const view = viewGrantEnvelopeRef.current;
         await Promise.allSettled(
-          activeVisibleReceivedGrants.map((grant) =>
-            viewGrantEnvelope(grant, {
-              silent: true,
-              trigger: "foreground_interval",
-            }),
-          ),
+          due.map(async (grant) => {
+            // Deliberately NOT gated on `grant.latestEnvelopeId`. That column is
+            // a denormalised copy of "has this share ever published", and using
+            // it to skip the read would mean one missed write permanently hides
+            // a live dot — a far worse failure than an extra request. The
+            // cadence below is driven by the response itself, so it self-heals.
+            //
+            // Defensive: viewGrantEnvelope already resolves rather than rejects
+            // for every state it knows about, but a future throw inside it must
+            // degrade this grant to backoff — never take down the whole sweep.
+            let outcome: OneLocationViewOutcome = "error";
+            try {
+              outcome = await view(grant, {
+                silent: true,
+                trigger: "foreground_interval",
+              });
+            } catch (error) {
+              console.warn(
+                "[OneLocationAgent] Live view sweep entry failed:",
+                error,
+              );
+            }
+            recordGrantPollOutcome(schedule, grant.id, outcome, now);
+          }),
         );
       } finally {
-        liveViewInFlightRef.current = false;
+        if (liveViewSweepIdRef.current === sweepId) {
+          liveViewInFlightRef.current = false;
+        }
       }
     };
 
+    // Drop schedule entries for shares that are no longer on screen so a long
+    // session cannot accumulate state for revoked/expired grants.
+    const liveIds = new Set(visibleReceivedGrantKey.split(","));
+    for (const id of [...grantPollScheduleRef.current.keys()]) {
+      if (!liveIds.has(id)) grantPollScheduleRef.current.delete(id);
+    }
+
     void refreshVisibleGrants();
-    const interval = window.setInterval(
-      () => void refreshVisibleGrants(),
-      LIVE_VIEW_REFRESH_INTERVAL_MS,
-    );
+    const interval = window.setInterval(() => {
+      // A synchronous throw here would kill the interval for the rest of the
+      // session, so nothing is allowed to escape the tick.
+      try {
+        void refreshVisibleGrants();
+      } catch (error) {
+        console.warn("[OneLocationAgent] Live view tick failed:", error);
+      }
+    }, LIVE_VIEW_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(interval);
-  }, [activeVisibleReceivedGrants, busy, viewGrantEnvelope]);
+  }, [visibleReceivedGrantKey, liveViewPollBlocked, setGrantViewErrors]);
 
   // Keep native background publishing in sync with the opt-in toggle + grants.
   // Web returns { started:false } and this is a no-op there.
@@ -4849,6 +5386,68 @@ export function OneLocationAgentPageContent({
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Could not revoke access.",
+        );
+      } finally {
+        setRevokingGrantId(null);
+      }
+    },
+    [refresh, vaultOwnerToken],
+  );
+
+  /**
+   * Edit a received grant's remaining time -- from any list that shows one
+   * (Ask's "already sharing" rows, Requests sent, Shared with me).
+   *
+   * Shortening is self-limiting -- the owner already agreed to be seen at
+   * least this long -- so it applies immediately. Extending is a different
+   * question: it grows how long the recipient can see the owner, and that
+   * is the owner's consent to give again. This tries shorten_grant first,
+   * and on the backend's explicit "that would extend it" rejection, falls
+   * back to a fresh request_access the owner has to approve like any other.
+   */
+  const handleEditGrantDuration = useCallback(
+    async (
+      params: { ownerUserId: string; grantId: string; ownerLabel: string },
+      durationHours: number,
+    ) => {
+      if (!vaultOwnerToken) return;
+      const { ownerUserId, grantId, ownerLabel } = params;
+      setRevokingGrantId(grantId);
+      try {
+        await OneLocationService.shortenGrant({
+          vaultOwnerToken,
+          grantId,
+          durationHours,
+        });
+        toast.success("Access shortened.");
+        setEditingGrantId(null);
+        void refresh().catch(() => null);
+        return;
+      } catch (error) {
+        if (apiErrorCode(error) !== "LOCATION_GRANT_SHORTEN_ONLY") {
+          toast.error(
+            error instanceof Error ? error.message : "Could not update access.",
+          );
+          setRevokingGrantId(null);
+          return;
+        }
+      }
+      // Extending needs the owner's approval again -- send a new request
+      // rather than silently lengthening the existing grant.
+      try {
+        await OneLocationService.requestAccess({
+          vaultOwnerToken,
+          ownerUserId,
+          message: "Requesting more time.",
+        });
+        toast.success(`Asked ${ownerLabel} for more time.`);
+        setEditingGrantId(null);
+        void refresh().catch(() => null);
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : `Could not ask ${ownerLabel} for more time.`,
         );
       } finally {
         setRevokingGrantId(null);
@@ -5375,6 +5974,7 @@ export function OneLocationAgentPageContent({
         copied_to_clipboard: copiedToClipboard,
         active_invite_count: activeCircleInvites.length + 1,
       });
+      trackLocationFunnelStepCompleted("invite_shared");
       toast.success(
         copiedToClipboard
           ? "Invite to One link created and copied."
@@ -5616,6 +6216,14 @@ export function OneLocationAgentPageContent({
           kind,
         });
         scheduleNamedCircleStateRefresh();
+        // The kind, never the name — a Circle name is the user's own words and
+        // often identifies a household.
+        trackEvent("one_location_circle_created", {
+          route_id: "one_location",
+          result: "success",
+          circle_kind: kind,
+        });
+        trackLocationFunnelStepCompleted("circle_created");
         toast.success(`${circle.name} created.`);
         return circle;
       } catch (error) {
@@ -5823,6 +6431,11 @@ export function OneLocationAgentPageContent({
     if (!vaultOwnerToken || !auth.userId) return;
     const pending = readPendingCircleJoin(auth.userId);
     if (!pending) return;
+    // Recorded before the join is attempted: arriving on someone's circle code
+    // is the viral acquisition, whether or not the code turns out to be spent.
+    // Without this the invite_source dimension is never populated and viral
+    // joins cannot be told apart from cold ones.
+    rememberLocationInviteSource("circle_code");
     clearPendingCircleJoin(auth.userId);
     let cancelled = false;
     void OneLocationService.joinNamedCircle({ vaultOwnerToken, code: pending })
@@ -6635,6 +7248,8 @@ export function OneLocationAgentPageContent({
         const readiness = await ensureForegroundLocationReady({
           capturePoint: false,
           autoOpenSettings: true,
+          // Prints its own message below.
+          announce: false,
         });
         // The location shown on the consent screen is the only point this
         // operation may encrypt; permission is rechecked without recapturing.
@@ -6714,7 +7329,7 @@ export function OneLocationAgentPageContent({
         }
         const successCount = succeededRecipientIds.length;
         const failureCount = failedRecipientIds.length;
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(successCount, failureCount),
           selected_count: selected.length,
@@ -6722,6 +7337,18 @@ export function OneLocationAgentPageContent({
           failure_count: failureCount,
           duration_bucket: oneLocationDurationBucket(durationHoursValue),
           review_required: false,
+        });
+        // Emitted alongside the share event, not instead of it: a check-in *is*
+        // a recipient-scoped share and still counts toward activation, but
+        // without its own event Check-In and live sharing are indistinguishable
+        // in reporting, so we cannot tell which feature people actually use.
+        trackEvent("one_location_check_in_completed", {
+          route_id: "one_location",
+          result: oneLocationEventResult(successCount, failureCount),
+          selected_count: selected.length,
+          success_count: successCount,
+          failure_count: failureCount,
+          circle_targeted: Boolean(request.sourceCircleId),
         });
         if (failureCount === 0) {
           toast.success(
@@ -6751,7 +7378,7 @@ export function OneLocationAgentPageContent({
           .filter(
             (recipientId) => !succeededRecipientIds.includes(recipientId),
           );
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(
             succeededRecipientIds.length,
@@ -6809,6 +7436,8 @@ export function OneLocationAgentPageContent({
         const readiness = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: true,
+          // Prints its own message below.
+          announce: false,
         });
         if (!readiness.ready || !readiness.point) {
           toast.error("Couldn't get your location — drive not shared.");
@@ -6989,6 +7618,8 @@ export function OneLocationAgentPageContent({
           const readiness = await ensureForegroundLocationReady({
             capturePoint: true,
             autoOpenSettings: true,
+            // Prints its own message below.
+            announce: false,
           });
           if (!readiness.ready || !readiness.point) {
             toast.error(
@@ -7017,7 +7648,7 @@ export function OneLocationAgentPageContent({
           await publishEnvelopeWithRetry(grant, recipient, "manual", point);
           successCount += 1;
         }
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(successCount, 0),
           selected_count: selected.length,
@@ -7033,7 +7664,7 @@ export function OneLocationAgentPageContent({
         void refresh().catch(() => null);
       } catch (error) {
         const failureCount = selected.length - successCount || 1;
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(successCount, failureCount),
           selected_count: selected.length,
@@ -7094,6 +7725,8 @@ export function OneLocationAgentPageContent({
         const readiness = await ensureForegroundLocationReady({
           capturePoint: true,
           autoOpenSettings: true,
+          // Prints its own message below.
+          announce: false,
         });
         if (!readiness.ready || !readiness.point) {
           toast.error(
@@ -7259,6 +7892,9 @@ export function OneLocationAgentPageContent({
     const readiness = await ensureForegroundLocationReady({
       capturePoint: false,
       autoOpenSettings: true,
+      // Opening the review screen is not the owner asking for a fix. Failing
+      // here used to toast before the screen they pressed had even appeared.
+      announce: false,
     });
     if (shareReviewAttemptRef.current !== attemptId) return;
     shareReviewPendingRef.current = false;
@@ -7348,7 +7984,7 @@ export function OneLocationAgentPageContent({
         : `Location, ${hubTabLabel} tab`,
       deadEnd,
       sections: [
-        { id: "now", title: "Now", purpose: "See current sharing status and start a quick action." },
+        { id: "now", title: "Overview", purpose: "See current sharing status and start a quick action." },
         { id: "people", title: "People", purpose: "See the people and circles you share location with." },
         { id: "links", title: "Links", purpose: "See and create temporary sharing links." },
       ],
@@ -7502,6 +8138,12 @@ export function OneLocationAgentPageContent({
           capturePoint: true,
           autoOpenSettings: true,
           isStale,
+          // Renders its outcome inline on the switch itself.
+          announce: false,
+          // Turning location on must not succeed on a remembered position:
+          // pause is a privacy control, and resuming a share on a coordinate
+          // the owner has left starts telling people something untrue.
+          requireMeasurement: true,
         });
         // A newer tap owns the control now. Reporting this one's outcome would
         // describe a state the person has already moved on from, and rolling
@@ -7509,8 +8151,14 @@ export function OneLocationAgentPageContent({
         if (isStale()) return superseded;
         if (!result.ready || !result.point) {
           rollbackOptimisticOn();
+          // Say which of the two it was. "Needs device Location permission"
+          // was printed even when permission was fine and the device had
+          // simply not answered yet, which sent people to a settings screen
+          // with nothing to change on it.
           const message =
-            "Live location preview needs device Location permission.";
+            result.failure === "no-fix"
+              ? LOCATION_COPY.noFix
+              : LOCATION_COPY.denied;
           setMyLocationError(message);
           return { status: "blocked", summary: message };
         }
@@ -7523,7 +8171,11 @@ export function OneLocationAgentPageContent({
       } catch (error) {
         if (isStale()) return superseded;
         rollbackOptimisticOn();
-        const message = locationServicesErrorMessage(error);
+        // The gate already decided whether this was a refusal; asserting a
+        // cause from the error text guessed wrong on every timeout.
+        const message = isLocationPermissionDeniedError(error)
+          ? LOCATION_COPY.denied
+          : LOCATION_COPY.noFix;
         setMyLocationError(message);
         toast.error(message);
         return { status: "failed", summary: message };
@@ -9330,6 +9982,17 @@ export function OneLocationAgentPageContent({
     onDeny: (requestId) => void handleDeny(requestId),
     onViewGrant: (grant) => void handleView(grant),
     onStopGrant: (grantId) => void handleRevoke(grantId),
+    onAskReshare: (grant) => void handleAskReshare(grant),
+    editingGrantId,
+    onEditGrantStart: (grantId) => {
+      setEditGrantDurationHours("1");
+      setEditingGrantId(grantId);
+    },
+    onEditGrantCancel: () => setEditingGrantId(null),
+    editGrantDurationHours,
+    setEditGrantDurationHours,
+    onEditGrantSave: (params) =>
+      void handleEditGrantDuration(params, Number(editGrantDurationHours)),
     onCreatePublicInvite: () => void handleCreatePublicInvite(),
     onCopyPublicInvite: () => void handleCopyPublicInvite(),
     onSharePublicInvite: () => void handleSharePublicInvite(),
@@ -9375,11 +10038,12 @@ export function OneLocationAgentPageContent({
     expiresLabel: (value) =>
       value ? `Live until ${formatDateTime(value)}` : "Live now",
     expiresCountdownLabel: (value) => expiresCountdownLabel(value) ?? "Active",
-    renderMapPreview: (point, showNavigation, viewportResetKey) => (
+    renderMapPreview: (point, showNavigation, viewportResetKey, staleAction) => (
       <LocalMapPreview
         point={point}
         showNavigation={showNavigation}
         viewportResetKey={`${mapViewportResetKey}:${viewportResetKey ?? "default"}`}
+        staleAction={staleAction}
       />
     ),
     mapLocationHref: googleMapsLocationUrl,
@@ -10180,7 +10844,11 @@ export function OneLocationAgentPageContent({
                                 {grant.status}
                               </Badge>
                               <span className="min-w-0 break-words text-[12px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
-                                {expiresLabel(grant)} - {grant.durationHours}h
+                                {expiresLabel(grant)}
+                                {grant.durationMode === "until_stopped" ||
+                                grant.durationHours == null
+                                  ? ""
+                                  : ` - ${grant.durationHours}h`}
                               </span>
                             </div>
                           </div>
@@ -10218,7 +10886,6 @@ export function OneLocationAgentPageContent({
                       <EmptyOneState
                         icon={UsersRound}
                         title="No active shares"
-                        description="Create one encrypted grant when you need a trusted person to see you."
                       />
                     )}
                   </div>
@@ -10583,7 +11250,31 @@ export function OneLocationAgentPageContent({
                           </div>
                           {point ? (
                             <div className="px-3.5 pb-3.5">
-                              <LocalMapPreview point={point} />
+                              <LocalMapPreview
+                                point={point}
+                                staleAction={
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => void handleAskReshare(grant)}
+                                    disabled={busy === "request"}
+                                    className="h-8 rounded-full border-amber-500/30 bg-white/70 px-3 text-[12px] font-semibold text-amber-800 hover:bg-white dark:border-amber-300/25 dark:bg-white/10 dark:text-amber-100 dark:hover:bg-white/15"
+                                  >
+                                    {busy === "request" ? (
+                                      <Loader2
+                                        className="mr-1.5 h-3.5 w-3.5 animate-spin"
+                                        aria-hidden="true"
+                                      />
+                                    ) : (
+                                      <Send
+                                        className="mr-1.5 h-3.5 w-3.5"
+                                        aria-hidden="true"
+                                      />
+                                    )}
+                                    Ask to refresh
+                                  </Button>
+                                }
+                              />
                             </div>
                           ) : viewError && grant.status === "active" ? (
                             <div className="px-3.5 pb-3.5">

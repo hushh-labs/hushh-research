@@ -208,6 +208,7 @@ class AtomicPrivateShareProbe(OneLocationAgentService):
                     if self.expired_replay
                     else values["expires_at"]
                 ),
+                "duration_mode": values.get("duration_mode", "timed"),
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
@@ -647,6 +648,10 @@ def test_list_verified_recipients_sources_from_connections(
 
 
 class EnvelopeReadProbe(OneLocationAgentService):
+    #: When False the grant is live but no envelope row exists yet — the state a
+    #: recipient sits in between being granted access and the owner's first fix.
+    has_envelope = True
+
     def __init__(self) -> None:
         self.calls: list[str] = []
 
@@ -656,6 +661,8 @@ class EnvelopeReadProbe(OneLocationAgentService):
 
     def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
         self.calls.append(sql)
+        if "FROM one_location_envelopes" in sql and not self.has_envelope:
+            return None
         if "FROM one_location_share_grants g" in sql:
             return {
                 "id": "00000000-0000-0000-0000-000000000001",
@@ -698,8 +705,137 @@ def test_view_latest_envelope_returns_ciphertext_only_payload() -> None:
     assert "RETURNING\n              target_grant.id" in stale_cleanup_sql
     assert response["grant"]["recipientUserId"] == "user_b"
     assert response["envelope"]["ciphertext"] == "ciphertext-only"
+    assert response["status"] == "published"
     assert "latitude" not in json.dumps(response)
     assert "longitude" not in json.dumps(response)
+
+
+class _AwaitingFirstPublishProbe(EnvelopeReadProbe):
+    has_envelope = False
+
+
+def test_view_latest_envelope_without_allow_empty_keeps_legacy_404() -> None:
+    """Clients already in the field branch on this error code; it must not move."""
+
+    service = _AwaitingFirstPublishProbe()
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        service.view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+        )
+
+    assert excinfo.value.code == "LOCATION_ENVELOPE_MISSING"
+    assert excinfo.value.status_code == 404
+
+
+def test_view_latest_envelope_allow_empty_returns_awaiting_first_publish() -> None:
+    """A live grant with no point yet is a success, not a failed request.
+
+    The recipient almost always opens One before the owner's first GPS fix
+    lands. Reporting that as 404 made the browser log a failed request on every
+    poll for a state nothing had gone wrong in.
+    """
+
+    service = _AwaitingFirstPublishProbe()
+    response = service.view_latest_envelope(
+        recipient_user_id="user_b",
+        grant_id="00000000-0000-0000-0000-000000000001",
+        allow_empty=True,
+    )
+
+    assert response["envelope"] is None
+    assert response["status"] == "awaiting_first_publish"
+    # The grant itself still comes back so the recipient keeps the owner label
+    # and expiry on screen while waiting.
+    assert response["grant"]["recipientUserId"] == "user_b"
+    # Waiting must never leak coordinates, same as the published path.
+    assert "latitude" not in json.dumps(response)
+    assert "longitude" not in json.dumps(response)
+
+
+def test_view_latest_envelope_allow_empty_does_not_mask_a_missing_grant() -> None:
+    """allow_empty relaxes 'no point yet' only — never 'no such share'."""
+
+    class _NoGrantProbe(EnvelopeReadProbe):
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            self.calls.append(sql)
+            if "FROM one_location_share_grants g" in sql:
+                return None
+            return None
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        _NoGrantProbe().view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            allow_empty=True,
+        )
+
+    assert excinfo.value.code == "LOCATION_GRANT_NOT_FOUND"
+    assert excinfo.value.status_code == 404
+
+
+def test_view_latest_envelope_allow_empty_does_not_mask_a_revoked_grant() -> None:
+    """A revoked/expired share must still be rejected, not reported as waiting."""
+
+    class _RevokedGrantProbe(EnvelopeReadProbe):
+        has_envelope = False
+
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            row = super()._execute_one(sql, params)
+            if row and "FROM one_location_share_grants g" in sql:
+                return {**row, "status": "revoked"}
+            return row
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        _RevokedGrantProbe().view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            allow_empty=True,
+        )
+
+    assert excinfo.value.code == "LOCATION_GRANT_NOT_ACTIVE"
+    assert excinfo.value.status_code == 410
+
+
+def test_view_latest_envelope_allow_empty_does_not_mask_a_rotated_recipient_key() -> None:
+    """A key rotation still needs the 'ask them to share again' signal."""
+
+    class _RotatedKeyProbe(EnvelopeReadProbe):
+        has_envelope = False
+
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            row = super()._execute_one(sql, params)
+            if row and "FROM one_location_share_grants g" in sql:
+                return {**row, "recipient_key_active": False}
+            return row
+
+    with pytest.raises(OneLocationAgentError) as excinfo:
+        _RotatedKeyProbe().view_latest_envelope(
+            recipient_user_id="user_b",
+            grant_id="00000000-0000-0000-0000-000000000001",
+            allow_empty=True,
+        )
+
+    assert excinfo.value.code == "LOCATION_GRANT_NOT_ACTIVE"
+    assert excinfo.value.status_code == 410
+
+
+def test_view_latest_envelope_awaiting_first_publish_records_no_view_event() -> None:
+    """No ciphertext was released, so the audit trail must not claim a view."""
+
+    service = _AwaitingFirstPublishProbe()
+    inserted: list[str] = []
+    service._insert_event = lambda **kwargs: inserted.append(  # type: ignore[method-assign]
+        str(kwargs.get("event_type"))
+    )
+
+    service.view_latest_envelope(
+        recipient_user_id="user_b",
+        grant_id="00000000-0000-0000-0000-000000000001",
+        allow_empty=True,
+    )
+
+    assert "location_share_viewed" not in inserted
 
 
 class FourUserMemoryService(OneLocationAgentService):
@@ -890,7 +1026,12 @@ class FourUserMemoryService(OneLocationAgentService):
                     "request_id": None,
                     "referral_id": None,
                     "event_type": "location_share_created",
-                    "metadata_json": json.dumps({"duration_hours": grant_params["duration_hours"]}),
+                    "metadata_json": json.dumps(
+                        {
+                            "duration_hours": grant_params["duration_hours"],
+                            "duration_mode": grant_params.get("duration_mode", "timed"),
+                        }
+                    ),
                 },
             )
         return row
@@ -1684,6 +1825,7 @@ class FourUserMemoryService(OneLocationAgentService):
                 "capability_scopes": params["capability_scopes"],
                 "duration_hours": params["duration_hours"],
                 "expires_at": params["expires_at"],
+                "duration_mode": params.get("duration_mode", "timed"),
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
                 "revoked_at": None,
@@ -1804,7 +1946,10 @@ class FourUserMemoryService(OneLocationAgentService):
                 grant
                 and grant["recipient_user_id"] == params["referring_user_id"]
                 and grant["status"] == "active"
-                and grant["expires_at"] > datetime.now(timezone.utc)
+                and (
+                    grant.get("expires_at") is None
+                    or grant["expires_at"] > datetime.now(timezone.utc)
+                )
             ):
                 return grant
             return None
@@ -1979,6 +2124,23 @@ class FourUserMemoryService(OneLocationAgentService):
             ):
                 grant["status"] = "revoked"
                 grant["revoked_at"] = datetime.now(timezone.utc)
+                return grant
+            return None
+        if (
+            "UPDATE one_location_share_grants" in sql
+            and "expires_at = :new_expires_at" in sql
+        ):
+            grant = self.grants.get(params["grant_id"])
+            if (
+                grant
+                and params["owner_user_id"]
+                in {grant["owner_user_id"], grant["recipient_user_id"]}
+                and grant["status"] == "active"
+            ):
+                grant["expires_at"] = params["new_expires_at"]
+                grant["duration_hours"] = params.get("duration_hours")
+                grant["duration_mode"] = "timed"
+                grant["updated_at"] = datetime.now(timezone.utc)
                 return grant
             return None
         if "INSERT INTO trusted_connections" in sql:
@@ -2843,6 +3005,83 @@ def test_location_grant_recipient_can_mark_share_revoked() -> None:
     assert already_revoked["status"] == "revoked"
 
 
+def test_shorten_grant_lets_either_party_bring_expiry_earlier() -> None:
+    service = FourUserMemoryService()
+    for user_id in ("user_a", "user_b", "user_c"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=20,
+    )
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    with pytest.raises(OneLocationAgentError) as unrelated:
+        service.shorten_grant(
+            caller_user_id="user_c", grant_id=grant["id"], duration_hours=1
+        )
+    assert unrelated.value.code == "LOCATION_GRANT_NOT_FOUND"
+
+    # The recipient gives back time early -- self-limiting, needs no
+    # approval from the owner.
+    shortened = service.shorten_grant(
+        caller_user_id="user_b", grant_id=grant["id"], duration_hours=1
+    )
+    assert shortened["status"] == "active"
+    new_expires_at = service.grants[grant["id"]]["expires_at"]
+    assert new_expires_at < original_expires_at
+    shorten_events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_shortened"
+    ]
+    assert shorten_events[-1]["actor_user_id"] == "user_b"
+    assert shorten_events[-1]["metadata"]["reason"] == "recipient_shorten"
+    assert service.notifications[-1]["user_id"] == "user_a"
+
+    # The owner may also shorten their own exposure further.
+    service.shorten_grant(caller_user_id="user_a", grant_id=grant["id"], duration_hours=0.25)
+    assert service.grants[grant["id"]]["expires_at"] < new_expires_at
+
+
+def test_shorten_grant_rejects_any_attempt_to_extend() -> None:
+    """The one thing shorten_grant must never do: move expiry later.
+
+    That would let a recipient keep watching an owner longer than the
+    owner ever agreed to -- exactly the class of unconsented-access bug
+    this endpoint exists to avoid. Extending only ever happens through a
+    fresh request_access the owner approves.
+    """
+    service = FourUserMemoryService()
+    for user_id in ("user_a", "user_b"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    with pytest.raises(OneLocationAgentError) as extend_attempt:
+        service.shorten_grant(
+            caller_user_id="user_b", grant_id=grant["id"], duration_hours=24
+        )
+    assert extend_attempt.value.code == "LOCATION_GRANT_SHORTEN_ONLY"
+    assert service.grants[grant["id"]]["expires_at"] == original_expires_at
+
+
 def test_location_request_creation_does_not_require_requester_key_material() -> None:
     service = FourUserMemoryService()
     service.register_recipient_key(
@@ -2944,6 +3183,63 @@ def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
     )
     assert "0100002" not in user_visible_text
     assert "0002" not in user_visible_text
+
+
+def test_until_stopped_private_grant_is_revocable_not_timeboxed() -> None:
+    service = FourUserMemoryService()
+    owner = "user_a"
+    recipient = "user_b"
+    service.register_recipient_key(
+        user_id=recipient,
+        key_id=f"key-{recipient}",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": recipient, "y": recipient},
+    )
+
+    grant = service.create_grant(
+        owner_user_id=owner,
+        recipient_user_id=recipient,
+        recipient_key_id=f"key-{recipient}",
+        duration_hours=None,
+        duration_mode="until_stopped",
+    )
+
+    assert grant["durationMode"] == "until_stopped"
+    assert grant["durationHours"] is None
+    assert grant["expiresAt"] is None
+    assert service.grants[grant["id"]]["expires_at"] is None
+
+    service.store_encrypted_envelope(
+        owner_user_id=owner,
+        grant_id=grant["id"],
+        envelope=encrypted_envelope(f"key-{recipient}", "ciphertext-for-b"),
+    )
+    viewed = service.view_latest_envelope(recipient_user_id=recipient, grant_id=grant["id"])
+    assert viewed["grant"]["durationMode"] == "until_stopped"
+    assert viewed["envelope"]["ciphertext"] == "ciphertext-for-b"
+
+
+def test_until_stopped_is_rejected_for_check_in_grants() -> None:
+    service = FourUserMemoryService()
+    owner = "user_a"
+    recipient = "user_b"
+    service.register_recipient_key(
+        user_id=recipient,
+        key_id=f"key-{recipient}",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": recipient, "y": recipient},
+    )
+
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.create_grant(
+            owner_user_id=owner,
+            recipient_user_id=recipient,
+            recipient_key_id=f"key-{recipient}",
+            duration_hours=None,
+            duration_mode="until_stopped",
+            share_kind="check_in",
+            reason="check_in",
+        )
+
+    assert exc.value.code == "LOCATION_DURATION_MODE_NOT_ALLOWED"
 
 
 def test_public_invite_is_request_only_and_token_hash_only() -> None:

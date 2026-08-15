@@ -144,6 +144,26 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     requiresVault: true,
   },
   {
+    // Second, deliberately. Location was row 6 of 10 and below the fold on a
+    // phone; 391 people reached this screen in 30 days and 18 opened Location,
+    // while the feature converts at 76% once found. Unlike Finance and Consent
+    // it has no inbound entry point -- no push, no toast, no feed row reaches
+    // someone who does not already have a share -- so its only discovery path
+    // is this list.
+    id: "location",
+    setupActionId: "setup.open_location",
+    setupControlId: "one_setup_tile_location",
+    agentId: "agent_location",
+    title: "Location",
+    description: "Share where you are with people you trust.",
+    previewLabel: "Live location & Alerts",
+    href: ROUTES.ONE_LOCATION,
+    icon: lucideCapabilityIcon(MapPin),
+    tone: "location",
+    group: "workflow",
+    requiresVault: true,
+  },
+  {
     id: "ria",
     setupActionId: "setup.open_ria",
     setupControlId: "one_setup_tile_ria",
@@ -197,20 +217,6 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     href: ROUTES.ONE_KYC,
     icon: lucideCapabilityIcon(FileCheck2),
     tone: "email",
-    group: "workflow",
-    requiresVault: true,
-  },
-  {
-    id: "location",
-    setupActionId: "setup.open_location",
-    setupControlId: "one_setup_tile_location",
-    agentId: "agent_location",
-    title: "Location",
-    description: "Live location & Alerts",
-    previewLabel: "Live location & Alerts",
-    href: ROUTES.ONE_LOCATION,
-    icon: lucideCapabilityIcon(MapPin),
-    tone: "location",
     group: "workflow",
     requiresVault: true,
   },

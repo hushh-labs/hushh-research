@@ -138,6 +138,23 @@ describe("LocationBus permission handling", () => {
 
     expect(LocationBus.getState().status).toBe("unavailable");
   });
+
+  it("recognises the native plugins' refusal, not just the browser's", async () => {
+    // iOS and Android reject with this exact sentence and no custom error
+    // name. The bus used to test the message against /denied|blocked/i, which
+    // this sentence fails — so on a phone a real refusal was filed as a
+    // transient failure. That is the one misclassification the degradation
+    // path cannot survive: it would hand the owner their last known position
+    // forever instead of the screen that gets them un-blocked.
+    mockLocation.getCurrentPosition.mockRejectedValue(
+      new Error("Location permission was not granted."),
+    );
+
+    const snapshot = await LocationBus.ensure();
+
+    expect(snapshot).toBeNull();
+    expect(LocationBus.getState().status).toBe("denied");
+  });
 });
 
 describe("LocationBus.watch", () => {
@@ -152,6 +169,17 @@ describe("LocationBus.watch", () => {
 
     stopB();
     expect(mockLocation.clearWatch).toHaveBeenCalledWith({ id: "watch-1" });
+  });
+
+  it("starts one watch even when both surfaces mount in the same tick", async () => {
+    // The Location page starts two watches — one to publish movement, one to
+    // draw the owner's own marker — and they mount together. Sequential
+    // subscribers are caught by the watchId guard; simultaneous ones are only
+    // caught by the in-flight guard, so this is the case the test above
+    // cannot see.
+    await Promise.all([LocationBus.watch(), LocationBus.watch()]);
+
+    expect(mockLocation.watchPosition).toHaveBeenCalledTimes(1);
   });
 
   it("ignores a repeated stop from the same subscriber", async () => {

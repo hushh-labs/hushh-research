@@ -54,7 +54,7 @@ Every emitted observability event carries centrally added shared params:
 
 | Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
 | --- | --- | --- | --- | --- | --- |
-| `consent_pending_loaded` | Pending consent load outcome | `result` | `hushh-webapp/lib/services/api-service.ts` | consent inbox health | GA DebugView |
+| `consent_pending_loaded` | Pending consent load outcome | `result`, `load_surface`, `pending_count_bucket` | `hushh-webapp/lib/services/api-service.ts` | consent inbox health; separates an ignored queue from an empty one, and a real screen view from the unlock warm prefetch | GA DebugView |
 | `consent_action_submitted` | Approve / deny / revoke submitted | `action`, `result` | `hushh-webapp/lib/services/api-service.ts` | consent action attempts | GA DebugView |
 | `consent_action_result` | Approve / deny / revoke resolved | `action`, `result` | `hushh-webapp/lib/services/api-service.ts` | consent action success/failure outcomes | GA DebugView |
 | `profile_method_switch_result` | Vault/profile method switch outcome | `result` | `hushh-webapp/lib/services/vault-method-service.ts` | vault/profile migration health | GA DebugView |

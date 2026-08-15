@@ -32,6 +32,7 @@ import {
   rememberLastKnownFix,
   rememberLocationGrant,
 } from "@/lib/one-location/location-grant-memory";
+import { isLocationPermissionDeniedError } from "@/lib/one-location/location-readiness";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 
 export type LocationSnapshot = {
@@ -39,6 +40,17 @@ export type LocationSnapshot = {
   longitude: number;
   accuracyM: number | null;
   capturedAt: string;
+  /**
+   * Which platform produced the fix.
+   *
+   * Carried on the snapshot rather than re-derived by whoever needs it,
+   * because the snapshot is written from four places — a capture, a watch
+   * fix, a restore, and the held fix returned by a failed refresh — and only
+   * the snapshot itself is right on all four. It is required on
+   * `PlainLocationPoint`, sealed into the envelope, and shown to the
+   * recipient, so a caller that guesses "web" relabels every iPhone share.
+   */
+  sourcePlatform?: PlainLocationPoint["sourcePlatform"] | null;
 };
 
 export type LocationPermission = HushhLocationPermissionState["state"];
@@ -98,6 +110,26 @@ const listeners = new Set<(next: LocationBusState) => void>();
 /** In-flight capture, shared so N simultaneous callers cause one GPS read. */
 let pendingCapture: Promise<LocationSnapshot | null> | null = null;
 
+/**
+ * The error object from the most recent failed capture.
+ *
+ * Deliberately not on `LocationBusState`. Subscribers must not re-render for
+ * it, and more importantly `state.error` is a string: routing a failure
+ * through it drops `error.name` and `error.code`, which are the only reliable
+ * evidence of a real permission denial across three platforms. A caller that
+ * still has to throw needs the original object, not a description of it.
+ */
+let lastCaptureError: unknown = null;
+
+/**
+ * Set when a caller declares the held fix untrustworthy — the app returning
+ * from background, or a permission change. It revokes the fix's right to
+ * short-circuit the next `ensure()`, and nothing more: the position stays
+ * visible, because blanking a coordinate the owner can see is the flicker
+ * this whole design exists to avoid.
+ */
+let fixInvalidated = false;
+
 let watchId: string | null = null;
 let watchStarting: Promise<void> | null = null;
 let watchers = 0;
@@ -133,12 +165,19 @@ function emit(patch: Partial<LocationBusState>): void {
   for (const listener of [...listeners]) listener(state);
 }
 
+/**
+ * Did this failure come from a refused permission?
+ *
+ * Delegated rather than reimplemented. The local version matched
+ * `/denied|blocked/i`, and both native plugins reject a refusal with
+ * "Location permission was not granted." — which contains neither word and
+ * carries no custom `name`. So on iOS and Android a real denial read as a
+ * transient failure, and the degradation path below would have swallowed it:
+ * the owner would have been shown their last known position, indefinitely,
+ * instead of the one screen that can get them un-blocked.
+ */
 function isDeniedError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return (
-    error.name === "LocationPermissionDeniedError" ||
-    /denied|blocked/i.test(error.message)
-  );
+  return isLocationPermissionDeniedError(error);
 }
 
 function statusForPermission(
@@ -151,6 +190,10 @@ function statusForPermission(
 
 function isFresh(snapshot: LocationSnapshot | null, maxAgeMs: number): boolean {
   if (!snapshot) return false;
+  // A caller asking for zero age is asking for a genuinely new reading, and
+  // under fake timers — or simply within one synchronous tick — an age of
+  // exactly zero would otherwise satisfy `<=` and hand back the old fix.
+  if (maxAgeMs <= 0) return false;
   const capturedMs = Date.parse(snapshot.capturedAt);
   if (!Number.isFinite(capturedMs)) return false;
   return Date.now() - capturedMs <= maxAgeMs;
@@ -161,12 +204,15 @@ function toSnapshot(point: {
   longitude: number;
   accuracyM: number | null;
   capturedAt: string;
+  sourcePlatform?: string | null;
 }): LocationSnapshot {
   return {
     latitude: point.latitude,
     longitude: point.longitude,
     accuracyM: point.accuracyM ?? null,
     capturedAt: point.capturedAt,
+    sourcePlatform:
+      (point.sourcePlatform as PlainLocationPoint["sourcePlatform"]) ?? null,
   };
 }
 
@@ -213,6 +259,8 @@ async function capture(): Promise<LocationSnapshot | null> {
       timeoutMs: 15_000,
     });
     const snapshot = toSnapshot(point);
+    lastCaptureError = null;
+    fixInvalidated = false;
     emit({
       status: "ready",
       snapshot,
@@ -223,6 +271,7 @@ async function capture(): Promise<LocationSnapshot | null> {
     recordFix(point);
     return snapshot;
   } catch (error) {
+    lastCaptureError = error;
     const denied = isDeniedError(error);
     if (!denied && state.snapshot) {
       // We already hold a position. A failed refresh in that situation is a
@@ -278,6 +327,7 @@ async function hydrateFromMemory(userId: string): Promise<void> {
       longitude: point.longitude,
       accuracyM: point.accuracyM ?? null,
       capturedAt: point.capturedAt,
+      sourcePlatform: point.sourcePlatform,
     }),
     snapshotOrigin: "restored",
     // A restored fix answers "where were you", not "did this attempt work", so
@@ -299,6 +349,29 @@ export const LocationBus = {
     return () => {
       listeners.delete(listener);
     };
+  },
+
+  /**
+   * The error object behind the most recent failed capture.
+   *
+   * For a caller that must re-throw. `state.error` is a string and would lose
+   * `name` and `code`, which is how a real permission denial is told apart
+   * from a timeout on every platform.
+   */
+  getLastCaptureError(): unknown {
+    return lastCaptureError;
+  },
+
+  /**
+   * Declare the held fix untrustworthy without discarding it.
+   *
+   * For a caller that knows the device may have moved without us — a
+   * permission change, or the app returning from background. The next
+   * `ensure()` re-reads instead of short-circuiting, and nothing is emitted,
+   * so a position the owner can see stays on screen while the new one lands.
+   */
+  invalidate(): void {
+    fixInvalidated = true;
   },
 
   /** Read the OS permission without prompting. Safe to call on mount. */
@@ -327,7 +400,11 @@ export const LocationBus = {
     // Only a fix measured this session short-circuits the GPS. A restored one
     // is there to fill the screen, not to end the attempt — reusing it would
     // mean an app that never refreshes as long as its memory looks recent.
-    if (state.snapshotOrigin === "fresh" && isFresh(state.snapshot, maxAgeMs)) {
+    if (
+      !fixInvalidated &&
+      state.snapshotOrigin === "fresh" &&
+      isFresh(state.snapshot, maxAgeMs)
+    ) {
       return state.snapshot;
     }
     if (pendingCapture) return pendingCapture;
@@ -381,7 +458,10 @@ export const LocationBus = {
     // of the point of this change. Keep it, and write it through.
     if (!switchingAccounts && state.snapshotOrigin === "fresh" && state.snapshot) {
       lastPersistedAtMs = 0;
-      recordFix({ ...state.snapshot, sourcePlatform: "web" });
+      // The snapshot knows which platform produced it. Hardcoding "web" here
+      // persisted every first-attach fix on an iPhone as a web fix, and that
+      // label is what the recipient is shown.
+      recordFix(state.snapshot);
       return;
     }
 
@@ -440,6 +520,8 @@ export const LocationBus = {
         { enableHighAccuracy: true, timeoutMs: 20_000 },
         (point, error) => {
           if (point) {
+            lastCaptureError = null;
+            fixInvalidated = false;
             emit({
               status: "ready",
               snapshot: toSnapshot(point),
@@ -501,5 +583,7 @@ export const LocationBus = {
     attachedUserId = null;
     pendingHydration = null;
     lastPersistedAtMs = 0;
+    lastCaptureError = null;
+    fixInvalidated = false;
   },
 };

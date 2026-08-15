@@ -1084,14 +1084,14 @@ export function NearbyCheckInSheet({
     return () => window.clearTimeout(timer);
   }, [open, ownerId, point, search, vaultOwnerToken]);
 
-  // Keep the selection inside whatever is on screen. Runs after every list
-  // change (chip switch, search, reload) so the confirm button never points at
-  // a row the owner can no longer see.
+  // Keep the selection inside whatever is on screen without making a choice for
+  // the owner. If a chip switch, search, or reload hides the selected row, the
+  // owner must intentionally choose another place before checking in.
   useEffect(() => {
     setSelectedPlaceId((current) =>
       places.some((place) => place.placeId === current)
         ? current
-        : (places[0]?.placeId ?? ""),
+        : "",
     );
   }, [places]);
 
@@ -1656,11 +1656,6 @@ export function NearbyCheckInSheet({
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <h2 className="font-semibold">Places within 500 m</h2>
-                    <p className="text-sm text-muted-foreground">
-                      {typedSearchActive
-                        ? "Search results stay inside the same 500 m area."
-                        : "Every place we can find around you. The closest is selected."}
-                    </p>
                   </div>
                   {capturing ? (
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -1763,7 +1758,7 @@ export function NearbyCheckInSheet({
                     ) : null}
                     <label className="relative mt-3 block">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <span className="sr-only">Search for another place</span>
+                      <span className="sr-only">Search</span>
                       <Input
                         value={search}
                         onChange={(event) => {
@@ -1779,7 +1774,7 @@ export function NearbyCheckInSheet({
                           }
                         }}
                         disabled={!point || capturing}
-                        placeholder="Search for another place"
+                        placeholder="Search"
                         className="h-11 rounded-full pl-9"
                       />
                       {searching ? (
@@ -2005,28 +2000,10 @@ export function NearbyCheckInSheet({
                   </span>
                 </label>
 
-                <details className="group rounded-xl bg-muted/45 px-3 py-2 text-xs leading-4 text-muted-foreground">
-                  <summary className="cursor-pointer list-none font-medium text-foreground/80">
-                    How sharing works
-                  </summary>
-                  <p className="mt-2">
-                    Your current point is sent to Google to suggest nearby
-                    places; searching may send it again to improve results. At
-                    confirmation, Hussh stores your check-in point only as
-                    short-lived encrypted data to match opted-in people within
-                    500 metres. They see your display name in their list, never
-                    your point or exact distance. It is cleared on checkout or
-                    expiry. Closing the app does not check you out.
-                  </p>
-                </details>
-
                 <div className="flex items-center justify-between gap-4 border-t border-border/60 pt-3">
                   <div>
                     <p className="text-sm font-semibold">
                       Connection requests
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Off by default.
                     </p>
                   </div>
                   <Switch
@@ -2039,7 +2016,7 @@ export function NearbyCheckInSheet({
 
               <Button
                 type="button"
-                className="h-12 w-full"
+                className="h-12 w-full disabled:!bg-muted disabled:!text-muted-foreground disabled:!opacity-100"
                 disabled={
                   busy !== null ||
                   capturing ||

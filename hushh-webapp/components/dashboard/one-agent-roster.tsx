@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import { ChevronRight, Grid2X2, List, Search } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
@@ -49,9 +49,56 @@ type OneAgentMode = {
 
 type AgentMetric = OneAgentMode["primaryMetric"];
 type AgentRosterView = "grid" | "list";
-type AgentMetricTone = "default" | "positive" | "warning" | "muted";
+type AgentMetricTone = "default" | "positive" | "accent" | "warning" | "muted";
+type DashboardAgentIconFamily = "indigo" | "blue" | "neutral";
+type DashboardAgentIconStyle = CSSProperties & {
+  "--agent-icon-profile-bg": string;
+  "--agent-icon-profile-fg": string;
+  "--agent-icon-profile-bg-dark": string;
+  "--agent-icon-profile-fg-dark": string;
+};
 
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
+const DASHBOARD_AGENT_ICON_FAMILY_BY_ID: Record<string, DashboardAgentIconFamily> = {
+  finance: "indigo",
+  ria: "indigo",
+  gmail: "blue",
+  calendar: "blue",
+  email: "blue",
+  location: "blue",
+  "connected-systems": "blue",
+  pkm: "neutral",
+  consent: "neutral",
+};
+
+const DASHBOARD_AGENT_ICON_STYLE_BY_FAMILY: Record<
+  DashboardAgentIconFamily,
+  DashboardAgentIconStyle
+> = {
+  indigo: {
+    "--agent-icon-profile-bg": "rgba(88, 86, 214, 0.16)",
+    "--agent-icon-profile-fg": "#5856D6",
+    "--agent-icon-profile-bg-dark": "rgba(94, 92, 230, 0.24)",
+    "--agent-icon-profile-fg-dark": "#A7A3FF",
+  },
+  blue: {
+    "--agent-icon-profile-bg": "rgba(0, 122, 255, 0.14)",
+    "--agent-icon-profile-fg": "var(--app-accent-deep)",
+    "--agent-icon-profile-bg-dark": "rgba(10, 132, 255, 0.24)",
+    "--agent-icon-profile-fg-dark": "var(--app-accent-bright)",
+  },
+  neutral: {
+    "--agent-icon-profile-bg": "#E5E5EA",
+    "--agent-icon-profile-fg": "#3A3A3C",
+    "--agent-icon-profile-bg-dark": "rgba(142, 142, 147, 0.28)",
+    "--agent-icon-profile-fg-dark": "#E5E5EA",
+  },
+};
+
+function dashboardAgentIconStyle(mode: OneAgentMode): DashboardAgentIconStyle {
+  const family = DASHBOARD_AGENT_ICON_FAMILY_BY_ID[mode.id] ?? "blue";
+  return DASHBOARD_AGENT_ICON_STYLE_BY_FAMILY[family];
+}
 
 /**
  * The roster only ever mounts client-side (its `/one` route renders a loader
@@ -166,10 +213,7 @@ export function resolveCachedAgentMetrics(
     metrics.email = { value: String(pendingConsents.length), label };
     metrics.consent = {
       value: String(pendingConsents.length),
-      label:
-        pendingConsents.length === 1
-          ? "request to review"
-          : "requests to review",
+      label: pendingConsents.length === 1 ? "request" : "requests",
     };
   }
 
@@ -185,7 +229,7 @@ export function resolveCachedAgentMetrics(
     ).length;
     metrics.location = {
       value: String(liveShares),
-      label: liveShares === 1 ? "live share" : "live shares",
+      label: liveShares === 1 ? "live" : "live",
     };
   }
 
@@ -196,7 +240,7 @@ export function resolveCachedAgentMetrics(
   if (attributes !== null) {
     metrics.pkm = {
       value: String(attributes),
-      label: attributes === 1 ? "saved detail" : "saved details",
+      label: attributes === 1 ? "saved" : "saved",
     };
   }
 
@@ -210,7 +254,7 @@ export function resolveCachedAgentMetrics(
   if (connectedSystems !== null) {
     metrics["connected-systems"] = {
       value: String(connectedSystems),
-      label: connectedSystems === 1 ? "connected system" : "connected systems",
+      label: connectedSystems === 1 ? "connected" : "connected",
     };
   }
 
@@ -321,13 +365,12 @@ function resolvePrimaryMetric({
 }): OneAgentMode["primaryMetric"] {
   if (capabilityId === "consent") {
     if (!status || status.state === "unknown") {
-      return { value: "—", label: "checking requests" };
+      return { value: "—", label: "checking" };
     }
     const pendingConsentCount = status.pendingCount;
     return {
       value: String(pendingConsentCount),
-      label:
-        pendingConsentCount === 1 ? "request to review" : "requests to review",
+      label: pendingConsentCount === 1 ? "request" : "requests",
     };
   }
 
@@ -338,7 +381,7 @@ function resolvePrimaryMetric({
   if (status.pendingCount > 0) {
     return {
       value: String(status.pendingCount),
-      label: status.pendingCount === 1 ? "item to review" : "items to review",
+      label: status.pendingCount === 1 ? "review" : "reviews",
     };
   }
 
@@ -346,7 +389,7 @@ function resolvePrimaryMetric({
     status.state === "completed" || status.state === "skipped" ? 0 : 1;
   return {
     value: String(actionsDue),
-    label: actionsDue === 1 ? "action due" : "actions due",
+    label: actionsDue === 1 ? "action" : "actions",
   };
 }
 
@@ -365,7 +408,7 @@ function resolveMetricTone(mode: OneAgentMode): AgentMetricTone {
   }
 
   if (mode.id === "location") {
-    return isZero ? "muted" : "positive";
+    return isZero ? "muted" : "accent";
   }
 
   if (mode.id === "pkm") {
@@ -386,6 +429,7 @@ function resolveMetricTone(mode: OneAgentMode): AgentMetricTone {
 
 function metricValueClassName(tone: AgentMetricTone): string {
   if (tone === "positive") return "text-[#34C759]";
+  if (tone === "accent") return "text-[color:var(--app-accent-deep)]";
   if (tone === "warning") return "text-[#FF9500]";
   if (tone === "muted") return "text-[#8E8E93]";
   return "text-[#1D1D1F] dark:text-[#F5F5F7]";
@@ -393,6 +437,7 @@ function metricValueClassName(tone: AgentMetricTone): string {
 
 function metricLabelClassName(tone: AgentMetricTone): string {
   if (tone === "positive") return "text-[#34C759]";
+  if (tone === "accent") return "text-[color:var(--app-accent-deep)]";
   if (tone === "warning") return "text-[#8E8E93]";
   if (tone === "muted") return "text-[#8E8E93]";
   return "text-[#8E8E93]";
@@ -479,14 +524,9 @@ function AgentGridItem({
       data-testid={`one-agent-tile-${mode.id}`}
       title={mode.description}
       className={cn(
-        // Reference design: centered card — large pastel icon tile, then a
-        // bold title, then a single-line KPI ("1 action due"). `min-w-0` +
-        // consistent gaps keep every cell's icon/title/KPI on the same
-        // baseline across columns. Colors are unchanged (the tone logic in
-        // AgentMetric still drives them).
-        "group relative flex min-h-[7rem] min-w-0 w-full flex-col items-center justify-start gap-2 overflow-hidden rounded-[16px] px-2 py-3 text-center",
+        "group relative flex min-h-[96px] min-w-0 w-full flex-col items-center justify-start gap-[7px] overflow-hidden rounded-[14px] px-1.5 py-2 text-center",
         "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-        "hover:bg-[color:var(--app-card-surface-compact)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-inset active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
+        "hover:bg-[rgba(120,120,128,.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 focus-visible:ring-inset active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
         className,
       )}
     >
@@ -496,14 +536,15 @@ function AgentGridItem({
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
         isActive={mode.statusTone !== "muted"}
-        size="roster-lg"
+        size="roster-dashboard"
         treatment="profile"
         glyphContrast="default"
         className="relative z-10"
+        profileStyle={dashboardAgentIconStyle(mode)}
       />
-      <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-1 text-center">
+      <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-[2px] text-center">
         <span
-          className="block w-full truncate text-center text-[15px] font-semibold leading-5 tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
+          className="block w-full truncate text-center text-[14px] font-semibold leading-[18px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
           data-ui-role="body-strong"
         >
           {mode.title}
@@ -539,13 +580,31 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           size="roster"
           treatment="profile"
           glyphContrast="default"
+          profileStyle={dashboardAgentIconStyle(mode)}
         />
       </span>
-      <span
-        data-ui-role="row-label"
-        className="ui-text-row-label relative z-10 min-w-0 truncate"
-      >
-        {mode.title}
+      <span className="relative z-10 flex min-w-0 flex-col justify-center">
+        <span
+          data-ui-role="row-label"
+          className="ui-text-row-label min-w-0 truncate"
+        >
+          {mode.title}
+        </span>
+        {/*
+          The description was carried on every capability but rendered only as a
+          `title` attribute — a hover tooltip, which does not exist on a phone.
+          A roster of nine one-word labels asks the reader to already know what
+          each agent does, and the one people do not find is the one whose name
+          explains least.
+        */}
+        {mode.description ? (
+          <span
+            data-ui-role="row-description"
+            className="min-w-0 truncate text-[12px] leading-[16px] text-[#6E6E73] dark:text-[#98989D]"
+          >
+            {mode.description}
+          </span>
+        ) : null}
       </span>
       <span className="relative z-10 flex min-w-0 max-w-[132px] justify-end">
         <AgentMetric mode={mode} />
@@ -574,7 +633,7 @@ function AgentRosterViewToggle({
     <div
       role="group"
       aria-label="Agent roster view"
-      className="inline-flex h-10 shrink-0 items-center rounded-[13px] bg-[rgba(120,120,128,.12)] p-0"
+      className="inline-flex h-9 shrink-0 items-center gap-0.5 rounded-[13px] bg-[rgba(120,120,128,.14)] p-0.5"
     >
       <ShellActionSurface
         aria-label="Show agent grid view"
@@ -582,10 +641,10 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-grid"
         onClick={() => onChange("grid")}
         className={cn(
-          "h-10 w-10 rounded-[13px]",
+          "h-8 w-8 rounded-[11px]",
           value === "grid"
-            ? "bg-[color:var(--app-accent)] text-white shadow-none hover:bg-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]"
-            : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent",
+            ? "bg-white text-[color:var(--app-accent-deep)] shadow-[0_1px_2px_rgba(0,0,0,.10)] hover:bg-white dark:bg-[#2C2C2E] dark:text-[color:var(--app-accent-bright)]"
+            : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent dark:text-[#98989D]",
         )}
       >
         <Grid2X2 className="h-4 w-4 [stroke-width:1.8]" aria-hidden />
@@ -596,10 +655,10 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-list"
         onClick={() => onChange("list")}
         className={cn(
-          "h-10 w-10 rounded-[13px]",
+          "h-8 w-8 rounded-[11px]",
           value === "list"
-            ? "bg-[color:var(--app-accent)] text-white shadow-none hover:bg-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]"
-            : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent",
+            ? "bg-white text-[color:var(--app-accent-deep)] shadow-[0_1px_2px_rgba(0,0,0,.10)] hover:bg-white dark:bg-[#2C2C2E] dark:text-[color:var(--app-accent-bright)]"
+            : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent dark:text-[#98989D]",
         )}
       >
         <List className="h-4 w-4 [stroke-width:1.8]" aria-hidden />
@@ -657,17 +716,21 @@ export function OneAgentRoster({
     <section
       aria-labelledby="one-agents-heading"
       data-testid="one-agents-section"
-      className="mx-auto w-full max-w-[880px]"
+      className="mx-auto w-full max-w-[720px] pb-[calc(var(--app-bottom-fixed-ui,96px)+1.75rem)] md:pb-[calc(var(--app-bottom-fixed-ui,96px)+2rem)]"
     >
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <PageTitle as="h1" id="one-agents-heading" className="min-w-0 whitespace-nowrap">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <PageTitle
+          as="h1"
+          id="one-agents-heading"
+          className="min-w-0 whitespace-nowrap"
+        >
           Agents ({modes.length})
         </PageTitle>
         <AgentRosterViewToggle value={view} onChange={selectView} />
       </div>
-      <label className="relative mb-4 block">
+      <label className="relative mb-3.5 block">
         <Search
-          className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-muted-foreground [stroke-width:1.8]"
+          className="pointer-events-none absolute left-4 top-1/2 h-[17px] w-[17px] -translate-y-1/2 text-[#8E8E93] [stroke-width:1.8]"
           aria-hidden="true"
         />
         <input
@@ -678,7 +741,7 @@ export function OneAgentRoster({
           aria-label="Search agents"
           data-ui-role="input-text"
           data-testid="one-agents-search"
-          className="h-12 w-full rounded-[16px] border border-[rgba(60,60,67,.12)] bg-white py-[13px] pl-11 pr-4 text-[17px] font-normal leading-[22px] text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/70 dark:bg-[#1C1C1E] dark:text-[#F5F5F7]"
+          className="h-11 w-full rounded-[14px] border border-[rgba(60,60,67,.12)] bg-white py-[11px] pl-11 pr-4 text-[15px] font-normal leading-5 text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 dark:bg-[#1C1C1E] dark:text-[#F5F5F7]"
         />
       </label>
       <div
@@ -689,11 +752,11 @@ export function OneAgentRoster({
         {view === "grid" ? (
           <div
             data-testid="one-agents-grid"
-            className="rounded-[20px] bg-white p-2 shadow-[var(--app-card-shadow-standard)] dark:bg-[#1C1C1E]"
+            className="overflow-hidden rounded-[20px] bg-white p-[18px] shadow-none dark:bg-[#1C1C1E]"
           >
             <div
               data-agent-roster-layout="grouped-icon-grid"
-              className="grid w-full grid-cols-[repeat(3,minmax(92px,1fr))] justify-center gap-x-1.5 gap-y-1.5 min-[430px]:grid-cols-[repeat(3,minmax(104px,1fr))] sm:grid-cols-[repeat(4,minmax(108px,1fr))] sm:gap-x-2 sm:gap-y-2"
+              className="grid w-full grid-cols-[repeat(3,minmax(84px,1fr))] justify-center gap-x-2 gap-y-5 min-[430px]:grid-cols-[repeat(3,minmax(96px,1fr))] sm:gap-x-3 sm:gap-y-6"
             >
               {visibleModes.map((mode) => (
                 <AgentGridItem key={mode.id} mode={mode} />
@@ -703,7 +766,7 @@ export function OneAgentRoster({
         ) : (
           <div
             data-testid="one-agents-list"
-            className="group/agent-list overflow-hidden rounded-[20px] bg-white shadow-[var(--app-card-shadow-standard)] dark:bg-[#1C1C1E]"
+            className="group/agent-list overflow-hidden rounded-[20px] bg-white shadow-none dark:bg-[#1C1C1E]"
           >
             {visibleModes.map((mode) => (
               <AgentListRow key={mode.id} mode={mode} />

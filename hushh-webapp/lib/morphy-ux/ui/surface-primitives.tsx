@@ -208,14 +208,14 @@ export function TrustNoteCard({
   title,
   description,
 }: {
-  title: string;
+  title?: string;
   description: string;
 }) {
   return (
     <div className={cn(TRUST_SURFACE, "flex gap-3 p-3.5")}>
       <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
       <div>
-        <p className="ui-text-row-label-emphasized">{title}</p>
+        {title ? <p className="ui-text-row-label-emphasized">{title}</p> : null}
         <p className={MUTED_TEXT}>{description}</p>
       </div>
     </div>

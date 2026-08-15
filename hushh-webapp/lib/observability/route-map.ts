@@ -1,4 +1,8 @@
-import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
+import {
+  KAI_MARKET_PATH,
+  normalizeStaticExportPathname,
+  ROUTES,
+} from "@/lib/navigation/routes";
 
 export const ROUTE_ID_VALUES = [
   "one_dashboard",
@@ -94,7 +98,38 @@ export const ROUTE_ID_VALUES = [
 
 export type RouteId = (typeof ROUTE_ID_VALUES)[number];
 
-export function resolveRouteId(pathname: string): RouteId {
+/**
+ * Brings a pathname to the shape the match table below expects.
+ *
+ * The native build sets `trailingSlash: true` (`next.config.ts`, gated on
+ * `isCapacitorBuild`), so on iOS and Android every route arrives as
+ * `/one/location/` while this table compares with `===` against `/one/location`.
+ * The result was that essentially every native screen resolved to "unknown":
+ * over 30 days, 117 iOS users and 7,504 views landed in that bucket, and the
+ * only native routes that did resolve were the handful matched by a
+ * `startsWith(".../")` prefix, plus the root.
+ *
+ * That is also a privacy matter, not only a reporting one. As the comments
+ * further down note, "unknown" is not inert — callers that fall through to it
+ * log the raw pathname, and on the share-link routes the pathname *is* the
+ * token. Fewer fall-throughs means fewer raw paths written anywhere.
+ *
+ * Delegates the trailing-slash and index-document handling to
+ * `normalizeStaticExportPathname`, which route admission and the analytics
+ * exemption check already use. A second private copy would be free to drift
+ * from it, and a disagreement between this and `isAnalyticsExemptRoute` is
+ * precisely the case where an unexempted event writes a share token into the
+ * dataLayer. Query and hash are stripped here on top, so a caller passing a
+ * full href degrades to the right route id rather than to "unknown".
+ */
+function normalizeRoutePathname(pathname: string): string {
+  if (!pathname) return "/";
+  const withoutQuery = pathname.split("?")[0]!.split("#")[0]!;
+  return normalizeStaticExportPathname(withoutQuery);
+}
+
+export function resolveRouteId(rawPathname: string): RouteId {
+  const pathname = normalizeRoutePathname(rawPathname);
   if (
     pathname === ROUTES.HOME ||
     pathname === ROUTES.ONE_HOME ||
@@ -213,9 +248,17 @@ export function resolveRouteId(pathname: string): RouteId {
   // folding them together would hide the split from every page-view metric.
   if (pathname === ROUTES.ONE_LOCATION_CHECK_IN) return "one_location_check_in";
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
-  if (pathname.startsWith("/one/location/request/"))
+  // Both forms: the bare route and a token beneath it. Normalization strips the
+  // trailing slash, so a `startsWith("/one/location/request/")` check alone would send
+  // "/one/location/request/" to "unknown" — and falling through logs the raw pathname on the
+  // one route family whose pathname carries a share token.
+  if (pathname === "/one/location/request" || pathname.startsWith("/one/location/request/"))
     return "one_location_public_request";
-  if (pathname.startsWith("/one/location/invite/"))
+  // Both forms: the bare route and a token beneath it. Normalization strips the
+  // trailing slash, so a `startsWith("/one/location/invite/")` check alone would send
+  // "/one/location/invite/" to "unknown" — and falling through logs the raw pathname on the
+  // one route family whose pathname carries a share token.
+  if (pathname === "/one/location/invite" || pathname.startsWith("/one/location/invite/"))
     return "one_location_circle_invite";
   // Recipient landing for a shared Circle join link. It only forwards into
   // /one/location with the code pre-filled, but it still needs an id: falling

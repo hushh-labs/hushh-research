@@ -86,7 +86,12 @@ class CreateGrantRequest(_CamelModel):
         default=None,
         alias="sourceCircleId",
     )
-    duration_hours: float = Field(alias="durationHours", gt=0, le=24)
+    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
+    duration_mode: str = Field(
+        default="timed",
+        alias="durationMode",
+        pattern="^(timed|until_stopped)$",
+    )
     reason: str | None = Field(default=None, max_length=300)
     share_kind: str | None = Field(default=None, alias="shareKind", max_length=40)
 
@@ -143,7 +148,16 @@ class CreateAccessRequest(_CamelModel):
 
 
 class ResolveAccessRequest(_CamelModel):
-    duration_hours: float = Field(default=1, alias="durationHours", gt=0, le=24)
+    duration_hours: float | None = Field(default=1, alias="durationHours", gt=0, le=24)
+    duration_mode: str = Field(
+        default="timed",
+        alias="durationMode",
+        pattern="^(timed|until_stopped)$",
+    )
+
+
+class ShortenGrantRequest(_CamelModel):
+    duration_hours: float = Field(alias="durationHours", gt=0, le=24)
 
 
 class ReferralRequest(_CamelModel):
@@ -1321,6 +1335,7 @@ def create_location_grant(
                 recipient_user_id=payload.recipient_user_id,
                 recipient_key_id=payload.recipient_key_id,
                 duration_hours=payload.duration_hours,
+                duration_mode=payload.duration_mode,
                 reason=payload.reason,
                 share_kind=payload.share_kind,
                 source_circle_id=(
@@ -1346,6 +1361,7 @@ def create_location_grant_with_envelope(
             recipient_user_id=payload.recipient_user_id,
             recipient_key_id=payload.recipient_key_id,
             duration_hours=payload.duration_hours,
+            duration_mode=payload.duration_mode,
             client_operation_id=payload.client_operation_id,
             confirmed_at=payload.confirmed_at,
             envelope=payload.envelope,
@@ -1388,12 +1404,22 @@ def store_location_envelope(
 @router.get("/location/grants/{grant_id}/envelope")
 def view_latest_location_envelope(
     grant_id: _GrantId,
+    allow_empty: bool = Query(
+        False,
+        description=(
+            "Treat 'grant is live but the owner has not published yet' as a "
+            "success (200 with envelope=null) instead of a 404. Opt-in so "
+            "already-shipped clients keep the legacy LOCATION_ENVELOPE_MISSING "
+            "error contract they branch on."
+        ),
+    ),
     token_data: dict = Depends(require_vault_owner_token),
 ):
     try:
         return _service().view_latest_envelope(
             recipient_user_id=_user_id(token_data),
             grant_id=grant_id,
+            allow_empty=allow_empty,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc
@@ -1409,6 +1435,28 @@ def revoke_location_grant(
             "grant": _service().revoke_grant(
                 owner_user_id=_user_id(token_data),
                 grant_id=grant_id,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.patch("/location/grants/{grant_id}/shorten")
+def shorten_location_grant(
+    grant_id: _GrantId,
+    payload: ShortenGrantRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Bring a grant's expiry earlier. Either party may call this; the
+    service rejects any attempt to move the expiry later -- extending
+    access is the owner's consent to give again, via request_access, not a
+    duration either side can hand themselves through this route."""
+    try:
+        return {
+            "grant": _service().shorten_grant(
+                caller_user_id=_user_id(token_data),
+                grant_id=grant_id,
+                duration_hours=payload.duration_hours,
             )
         }
     except Exception as exc:
@@ -1443,6 +1491,7 @@ def approve_location_access_request(
             owner_user_id=_user_id(token_data),
             request_id=request_id,
             duration_hours=payload.duration_hours,
+            duration_mode=payload.duration_mode,
         )
     except Exception as exc:
         raise _handle_error(exc) from exc

@@ -592,6 +592,7 @@ export class UnlockWarmOrchestrator {
               ? ApiService.getPendingConsents(
                   params.userId,
                   params.vaultOwnerToken,
+                  { loadSurface: "warm" },
                 )
               : Promise.resolve(null),
           () =>

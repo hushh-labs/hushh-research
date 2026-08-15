@@ -4,10 +4,13 @@ import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import {
   canAttemptLocation,
   canPromptForLocation,
+  fixAgeLabel,
   isLocationPermissionDeniedError,
+  isUsableFixAge,
   locationBlockReason,
   locationReadiness,
   locationStatusLabel,
+  shouldSurfaceLocationError,
 } from "@/lib/one-location/location-readiness";
 
 function permission(
@@ -181,5 +184,104 @@ describe("status label", () => {
         accuracyLimited: false,
       }),
     ).toBe("Location on");
+  });
+});
+
+describe("when a location failure is worth showing", () => {
+  // The rule this replaces: toast on every capture failure, including the ones
+  // where a perfectly good position was already on screen. That is how "turn
+  // on location" ended up in front of people whose location was working.
+  it("says nothing about a failed refresh while a usable fix is held", () => {
+    expect(
+      shouldSurfaceLocationError({
+        hasUsableFix: true,
+        observedDenial: false,
+        blockReason: null,
+        blocksUserIntent: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("speaks up for an observed denial even while a fix is held", () => {
+    // The owner is cut off from every future fix until they change a setting.
+    // Holding a position does not make that less true, and only saying so
+    // gets them to the screen that fixes it.
+    expect(
+      shouldSurfaceLocationError({
+        hasUsableFix: true,
+        observedDenial: true,
+        blockReason: null,
+        blocksUserIntent: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("speaks up for a platform block even while a fix is held", () => {
+    expect(
+      shouldSurfaceLocationError({
+        hasUsableFix: true,
+        observedDenial: false,
+        blockReason: "services-off",
+        blocksUserIntent: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("speaks up when the owner pressed something and got nothing", () => {
+    expect(
+      shouldSurfaceLocationError({
+        hasUsableFix: false,
+        observedDenial: false,
+        blockReason: null,
+        blocksUserIntent: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("stays quiet about background work the owner never asked for", () => {
+    // A screen warming a position does not get to interrupt somebody about it.
+    expect(
+      shouldSurfaceLocationError({
+        hasUsableFix: false,
+        observedDenial: false,
+        blockReason: null,
+        blocksUserIntent: false,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("how a position's age is judged and described", () => {
+  it("accepts a position from within the usable window", () => {
+    const capturedAt = new Date(Date.now() - 20 * 60_000).toISOString();
+    expect(isUsableFixAge(capturedAt)).toBe(true);
+  });
+
+  it("rejects a position older than the usable window", () => {
+    const capturedAt = new Date(Date.now() - 90 * 60_000).toISOString();
+    expect(isUsableFixAge(capturedAt)).toBe(false);
+  });
+
+  it("rejects a future timestamp as a clock change, not a fresh fix", () => {
+    const capturedAt = new Date(Date.now() + 10 * 60_000).toISOString();
+    expect(isUsableFixAge(capturedAt)).toBe(false);
+  });
+
+  it("says nothing about a position recent enough to need no qualifier", () => {
+    expect(fixAgeLabel(new Date(Date.now() - 30_000).toISOString())).toBe("");
+  });
+
+  it("labels an older position honestly rather than replacing it with an error", () => {
+    expect(fixAgeLabel(new Date(Date.now() - 20 * 60_000).toISOString())).toBe(
+      " · 20 min ago",
+    );
+    expect(fixAgeLabel(new Date(Date.now() - 60 * 60_000).toISOString())).toBe(
+      " · 1 hr ago",
+    );
+  });
+
+  it("says nothing when there is no timestamp to describe", () => {
+    expect(fixAgeLabel(null)).toBe("");
+    expect(fixAgeLabel("not-a-date")).toBe("");
   });
 });
