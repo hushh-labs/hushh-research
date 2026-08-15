@@ -1862,7 +1862,7 @@ function ReadyScreen({
           <div className="mt-4" data-testid="onboarding-join-circle">
             {joinAccepted ? (
               <p
-                className="flex items-center gap-2 rounded-[18px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-4 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:text-[#dce6f5]"
+                className="flex items-center gap-2 rounded-[20px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-5 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:text-[#dce6f5]"
                 role="status"
               >
                 <Check
@@ -1874,7 +1874,11 @@ function ReadyScreen({
               </p>
             ) : joinPreview ? (
               <div
-                className="rounded-[18px] border border-[#e4e6e9] bg-[#f8f9fb] p-4 dark:border-white/[0.08] dark:bg-[#1c212a]"
+                // Same geometry as the invite card directly above it. These two
+                // stack at the same width, so a 16px inset under a 20px one put
+                // every line of the join card 4px left of the code card's --
+                // a visibly ragged edge down the panel.
+                className="rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-white/[0.08] dark:bg-[#1c212a]"
                 data-testid="onboarding-join-circle-preview"
               >
                 {/* Name, owner and size before accepting. Deciding whether to

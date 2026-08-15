@@ -809,6 +809,54 @@ describe("OneLocationOnboardingFlow", () => {
       ).toBeTruthy();
     });
 
+    it("lines the join card up with the invite card stacked above it", async () => {
+      openJoin({
+        onPrepareOnboardingCircleInvite: vi.fn().mockResolvedValue(invite),
+      });
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "ABCDEFGHJKLM" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+
+      const inviteCard = screen.getByTestId(
+        "one-location-onboarding-invite-card",
+      );
+      const joinCard = await screen.findByTestId(
+        "onboarding-join-circle-preview",
+      );
+
+      // These two are siblings at the same width, so any difference in inset
+      // or radius shows up as a ragged left edge down the panel -- the join
+      // card used to sit 4px inside the code card's text column.
+      for (const geometry of ["p-5", "rounded-[20px]"]) {
+        expect(inviteCard.className).toContain(geometry);
+        expect(joinCard.className).toContain(geometry);
+      }
+    });
+
+    it("keeps the accepted confirmation on the same left edge as the cards", async () => {
+      openJoin({
+        onPrepareOnboardingCircleInvite: vi.fn().mockResolvedValue(invite),
+      });
+
+      fireEvent.click(screen.getByText("Someone sent you a code?"));
+      fireEvent.change(screen.getByLabelText("Circle code"), {
+        target: { value: "ABCDEFGHJKLM" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /Look up/ }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: /Join Meena Family/ }),
+      );
+
+      const confirmation = await screen.findByRole("status");
+      // The confirmation replaces the join card in place. Its horizontal inset
+      // has to match, or the panel's left edge jumps the moment someone joins.
+      expect(confirmation.className).toContain("px-5");
+      expect(confirmation.className).toContain("rounded-[20px]");
+    });
+
     it("does not offer to join a circle the person is already in", async () => {
       const props = openJoin({
         onPreviewCircleCode: vi

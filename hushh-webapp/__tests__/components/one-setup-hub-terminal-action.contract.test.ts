@@ -122,6 +122,73 @@ describe("One setup hub terminal action contract", () => {
     expect(stateHook).toContain("useState(enrichRia)");
   });
 
+  it("spends the accent only on a finish that can actually go through", () => {
+    const hub = readFileSync(
+      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+      "utf8",
+    );
+    const footer = readFileSync(
+      join(
+        process.cwd(),
+        "components/onboarding/setup/setup-completion-footer.tsx",
+      ),
+      "utf8",
+    );
+
+    // Both master actions are gated on the same mandatory AI access choice,
+    // and both must LOOK gated. `disabled:opacity-40/50` over the accent still
+    // reads as the blue primary action, which is what made a blocked finish
+    // look tappable and then swallow the tap.
+    expect(footer).toContain(
+      "const isBlockedFilledAction = disabled && !busy && !isQuietSetupAction",
+    );
+    expect(footer).toContain("disabled:!bg-muted/60");
+    expect(hub).toContain("disabled:text-muted-foreground");
+    expect(hub).not.toContain("disabled:opacity-40");
+
+    // The reason travels with the block on every surface. The desktop footer
+    // has a supporting line under the button; the phone header action has
+    // nothing but a `title` tooltip, which a touch device never shows -- so the
+    // header summary both layouts render has to name it too.
+    expect(hub).toContain('"Choose AI access to finish."');
+    expect(hub).toContain(
+      "${done} of ${total} ready. Choose AI access to finish.",
+    );
+    expect(
+      hub.match(/Choose AI access to finish\./g)?.length,
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  it("keeps the mandatory-step language out of system nouns", () => {
+    const hub = readFileSync(
+      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+      "utf8",
+    );
+
+    // "vault" is an implementation noun. It stays in the code (services,
+    // props, test ids) and out of anything a person reads. Every phrase below
+    // was rendered on this hub or spoken back by the setup guide.
+    const retiredCopy = [
+      "Your vault is required to finish setup.",
+      "Your vault is required. You can add more capabilities any time.",
+      "Your private vault gives One end-to-end encryption.",
+      "Your private vault is not ready yet.",
+      "Set up private vault",
+      "Set up your private vault",
+      "Continue to set up your private vault.",
+      "Choose an AI access option before continuing.",
+      "We could not protect your setup.",
+    ];
+    for (const phrase of retiredCopy) {
+      expect(hub).not.toContain(phrase);
+    }
+
+    expect(hub).toContain("Only you can open what you save.");
+    expect(hub).toContain("Not even we can read it.");
+    expect(hub).toContain('"One step left."');
+    expect(hub).toContain('"Add the rest any time."');
+  });
+
   it("keeps the quiet Morphy action legible on hover and while disabled", () => {
     const source = readFileSync(
       join(
@@ -197,7 +264,7 @@ describe("One setup hub terminal action contract", () => {
     const masterHandler = source.slice(source.indexOf("const handleMasterAck"));
     expect(masterHandler).not.toContain("acknowledgeOneSetupExit");
     expect(source).toContain('data-testid="one-setup-vault-invitation"');
-    expect(source).toContain("Set up private vault");
+    expect(source).toContain("Set a lock");
     expect(source).not.toContain("I’ll do this later");
     expect(source).not.toContain("one-setup-vault-invitation-later");
     expect(source).toContain("<VaultUnlockDialog");

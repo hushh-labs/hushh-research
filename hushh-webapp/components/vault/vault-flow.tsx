@@ -937,10 +937,10 @@ export function VaultFlow({
               <VaultFlowHeader
                 icon={Lock}
                 title="Finish setup first"
-                description="Your private vault is the final step after setup."
+                description="This is the last step."
               />
               <p className="type-footnote leading-snug text-muted-foreground">
-                Finish this setup journey, then create your vault from the final security step.
+                Finish setting up, then come back here.
               </p>
             </div>
           )}
@@ -952,8 +952,8 @@ export function VaultFlow({
             >
               <VaultFlowHeader
                 icon={Lock}
-                title="Create your private vault"
-                description="End-to-end encryption starts here."
+                title="Create your passphrase"
+                description="This is what opens your private place."
               />
               <div className="space-y-1.5">
                 <Label htmlFor="passphrase" className="type-footnote font-medium text-muted-foreground">
@@ -1025,10 +1025,10 @@ export function VaultFlow({
               >
                 {isUnlocking ? (
                   <>
-                    <Icon icon={Loader2} size="md" className="mr-2 animate-spin" /> Creating vault...
+                    <Icon icon={Loader2} size="md" className="mr-2 animate-spin" /> Creating...
                   </>
                 ) : (
-                  "Create private vault"
+                  "Create passphrase"
                 )}
               </Button>
             </form>
@@ -1039,7 +1039,7 @@ export function VaultFlow({
             <div className="space-y-2.5">
               <VaultFlowHeader
                 icon={isGeneratedVaultMode ? Fingerprint : Lock}
-                title="Open your private vault"
+                title="Open your private place"
                 description={
                   isGeneratedVaultMode
                     ? "Confirm with your device."
@@ -1501,9 +1501,7 @@ export function VaultFlow({
                 onClick={handleRecoveryKeyContinue}
                 disabled={isUnlocking}
               >
-                {isUnlocking
-                  ? "Opening vault..."
-                  : "I’ve saved my recovery key"}
+                {isUnlocking ? "Opening..." : "I’ve saved my recovery key"}
               </Button>
             </div>
           ) : null}
