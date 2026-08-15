@@ -56,6 +56,7 @@ steps:
           --build-arg NEXT_PUBLIC_OBSERVABILITY_ENABLED=true \
           --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
           --build-arg NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=${_ONE_LOCATION_NEARBY_CHECK_IN} \
+          --build-arg NEXT_PUBLIC_LOCATION_MAP_DEMO=${_LOCATION_MAP_DEMO} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=1 \
           --build-arg NEXT_PUBLIC_GTM_ID=$$NEXT_PUBLIC_GTM_ID_VAL \
@@ -143,6 +144,17 @@ substitutions:
   # callers by cohort and this only avoids collecting a location for a flow that
   # would then be refused. Turning this on alone changes nothing server-side.
   _ONE_LOCATION_NEARBY_CHECK_IN: "false"
+  # Shows the operator preview of fifty fictional people on the location map
+  # (`?demo=people`). Default off, and the UAT web lane is the only caller that
+  # turns it on. `isLocationMapDemoAvailable()` keeps a hard production floor
+  # underneath this, so the flag can only ever widen a non-production build.
+  #
+  # This is an explicit opt-in rather than an `APP_ENV != "production"` check
+  # because the App Store and Play Store binaries are stamped
+  # `NEXT_PUBLIC_APP_ENV=uat` — they ship against the UAT backend — so an
+  # environment-shaped gate reads every store install as non-production and
+  # hands real users a map of fabricated people.
+  _LOCATION_MAP_DEMO: "false"
   # `hushh-mail-api` in hushh-tech-prod. One key per consuming project, so this
   # single endpoint serves UAT and production.
   _MAIL_API_ENDPOINT: "https://hushh-mail-api-646258530541.us-central1.run.app"
