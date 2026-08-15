@@ -168,9 +168,13 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
     );
     expect(emergency?.description).not.toContain("Last known");
     expect(emergency?.actions).toEqual([]);
+    expect(emergency?.emphasis).toBe("emergency");
+    expect(emergency?.displayTimestamp).toBe(
+      new Date("2026-08-10T00:00:00.000Z").getTime(),
+    );
   });
 
-  it("keeps a revoked SOS card visible as 'Emergency SMS - Revoked' instead of dropping it", async () => {
+  it("keeps a revoked SOS card visible as 'Emergency SMS - Revoked' instead of dropping it, and drops its emergency emphasis", async () => {
     receivedGrantsFixture = [
       {
         id: "sos-grant-1",
@@ -192,6 +196,50 @@ describe("useFeedActionables SMS · Save My Soul emergency cards", () => {
       );
       expect(emergency?.description).toBe("Emergency SMS - Revoked");
     });
+
+    const emergency = result.current.actionables.find(
+      (item) => item.id === "sms-emergency:sos-grant-1",
+    );
+    // Renders as a plain "Needs you" row now, not the pinned emergency card
+    // — with no revokedAt/updatedAt/expiresAt in this fixture, the fallback
+    // chain lands on createdAt.
+    expect(emergency?.emphasis).toBeUndefined();
+    expect(emergency?.sortAt).toBe(new Date("2026-08-10T00:00:00.000Z").getTime());
+    expect(emergency?.displayTimestamp).toBe(
+      new Date("2026-08-10T00:00:00.000Z").getTime(),
+    );
+  });
+
+  it("prefers revokedAt over createdAt for a revoked SOS card's sort/display time", async () => {
+    receivedGrantsFixture = [
+      {
+        id: "sos-grant-1",
+        ownerUserId: "sender-user",
+        recipientUserId: "receiver-user",
+        ownerDisplayName: "Test contact",
+        status: "revoked",
+        shareKind: "sos",
+        shareMessage: null,
+        createdAt: "2026-08-10T00:00:00.000Z",
+        revokedAt: "2026-08-12T09:30:00.000Z",
+      },
+    ];
+
+    const { result } = renderHook(() => useFeedActionables());
+
+    await waitFor(() => {
+      const emergency = result.current.actionables.find(
+        (item) => item.id === "sms-emergency:sos-grant-1",
+      );
+      expect(emergency?.description).toBe("Emergency SMS - Revoked");
+    });
+
+    const emergency = result.current.actionables.find(
+      (item) => item.id === "sms-emergency:sos-grant-1",
+    );
+    const revokedAtMs = new Date("2026-08-12T09:30:00.000Z").getTime();
+    expect(emergency?.sortAt).toBe(revokedAtMs);
+    expect(emergency?.displayTimestamp).toBe(revokedAtMs);
   });
 
   it("does NOT put a Clear action on the card itself — the Feed page's existing Clear button owns it", async () => {

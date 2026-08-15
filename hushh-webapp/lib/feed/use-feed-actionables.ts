@@ -99,6 +99,15 @@ export interface FeedActionable {
   actions: FeedActionButton[];
   sortAt: number;
   /**
+   * Real-world instant to render as the row's "Today - 3:45 PM" label.
+   * Distinct from `sortAt` (which always falls back to `Date.now()` so
+   * ordering never breaks) — null/absent exactly when there is no real
+   * timestamp to show the user (a consent entry with no `issued_at`, or any
+   * connection request, whose payload carries no timestamp at all).
+   * `FeedActionableRow` omits the label entirely rather than fabricating one.
+   */
+  displayTimestamp?: number | null;
+  /**
    * High-priority visual treatment. "emergency" rows (an incoming SMS · Save My
    * Soul alert) render with prominent red styling and sort above everything else.
    */
@@ -121,6 +130,18 @@ function toTimestamp(value?: string | number | null): number {
   if (value == null) return 0;
   const ts = new Date(value).getTime();
   return Number.isFinite(ts) ? ts : 0;
+}
+
+/**
+ * Same idea as `toTimestamp` but yields `null` (not `0`) when there is no
+ * source value or it doesn't parse — used for `displayTimestamp`, where the
+ * absence of a real instant must suppress the row's time label rather than
+ * silently rendering an epoch-zero date.
+ */
+function toDisplayTimestamp(value?: string | number | null): number | null {
+  if (value == null) return null;
+  const ts = toTimestamp(value);
+  return ts > 0 ? ts : null;
 }
 
 function consentSummary(entry: ConsentCenterEntry): string {
@@ -438,6 +459,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
           // expiry), so treat pending consents as current rather than mixing
           // future expiry into the descending recency sort.
           sortAt: Date.now(),
+          // Real only when the backend happened to populate issued_at — never
+          // fabricate a "just now" time label for this type.
+          displayTimestamp: toDisplayTimestamp(entry.issued_at),
         });
       }
     }
@@ -456,17 +480,33 @@ export function useFeedActionables(): UseFeedActionablesResult {
     for (const grant of smsEmergencies) {
       const label = grant.ownerDisplayName?.trim() || "A contact";
       const isRevoked = !isActiveSmsEmergencyGrant(grant);
+      // A revoked/expired SOS sorts and displays by when it stopped
+      // mattering, not when it was triggered — mirrors the
+      // `revokedAt || updatedAt || expiresAt` "stopped" convention in
+      // lib/one-location/activity.ts, extended with a createdAt fallback so
+      // this is never 0/null.
+      const resolvedAt = isRevoked
+        ? toTimestamp(grant.revokedAt) ||
+          toTimestamp(grant.updatedAt) ||
+          toTimestamp(grant.expiresAt) ||
+          toTimestamp(grant.createdAt)
+        : toTimestamp(grant.createdAt);
       items.push({
         id: `sms-emergency:${grant.id}`,
         icon: Siren,
         iconTone: "red",
-        emphasis: "emergency",
+        // Only a still-live SOS gets the pinned "Live" emergency treatment.
+        // A revoked/expired one renders as a plain "Needs you" row (see
+        // feed-page.tsx) — Siren icon + red icon-well tint are all that's
+        // left as the "this was an SOS" signal.
+        emphasis: isRevoked ? undefined : "emergency",
         title: `${label} triggered an SOS`,
         description: isRevoked ? "Emergency SMS - Revoked" : "Emergency SMS - Sent.",
         href: buildOneLocationNotificationHref(grant.id),
         chevron: true,
         actions: [],
-        sortAt: toTimestamp(grant.createdAt) || Date.now(),
+        sortAt: resolvedAt || Date.now(),
+        displayTimestamp: resolvedAt || null,
       });
     }
 
@@ -522,6 +562,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           },
         ],
         sortAt: toTimestamp(request.requestedAt) || Date.now(),
+        displayTimestamp: toDisplayTimestamp(request.requestedAt),
       });
     }
 
@@ -575,6 +616,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           },
         ],
         sortAt: toTimestamp(invite.createdAt) || Date.now(),
+        displayTimestamp: toDisplayTimestamp(invite.createdAt),
       });
     }
 
@@ -645,6 +687,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
               },
             ],
         sortAt: Date.now(),
+        // ConnectionRequest (lib/services/connections-service.ts) carries no
+        // timestamp field at all — never fabricate one for the time label.
+        displayTimestamp: null,
       });
     }
 
@@ -708,6 +753,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
         chevron: running,
         actions,
         sortAt: toTimestamp(task.updatedAt || task.startedAt) || Date.now(),
+        displayTimestamp: toDisplayTimestamp(task.updatedAt || task.startedAt),
       });
     }
 
@@ -739,6 +785,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
         description: task.description || "Working in the background…",
         actions,
         sortAt: toTimestamp(task.updatedAt || task.startedAt) || Date.now(),
+        displayTimestamp: toDisplayTimestamp(task.updatedAt || task.startedAt),
       });
     }
 
