@@ -211,7 +211,7 @@ export function OneSetupHub() {
       return;
     }
     if (!vaultKey || !vaultOwnerToken) {
-      throw new Error("Your private vault is not ready yet. Try again.");
+      throw new Error("Not ready yet. Try again.");
     }
     if (finalizationInFlightRef.current) {
       return finalizationInFlightRef.current;
@@ -264,7 +264,7 @@ export function OneSetupHub() {
       setFinalizationError(
         error instanceof Error
           ? error.message
-          : "We could not protect your setup. Try again.",
+          : "Couldn't save your setup. Try again.",
       );
       throw error;
     } finally {
@@ -348,7 +348,7 @@ export function OneSetupHub() {
         setVaultInvitationOpen(true);
         return {
           status: "succeeded" as const,
-          summary: "Continue to set up your private vault.",
+          summary: "One step left: set a lock.",
         };
       }
       await completeSetupAfterVault();
@@ -368,11 +368,17 @@ export function OneSetupHub() {
     return handleMasterAck();
   });
 
+  // Phones get the master action as a bare header link with no supporting line
+  // under it, so the one mandatory step has to be named somewhere they can read
+  // it before they tap. The header description is the only copy both layouts
+  // share, so the blocker rides there rather than only in the desktop footer.
   const summary = hubStateLoading
     ? "Checking what's set up…"
     : allReady
       ? "Everything's set up. You're good to go."
-      : `${done} of ${total} ready, ${remaining} left to set up.`;
+      : !runtimeChoiceComplete
+        ? `${done} of ${total} ready. Choose AI access to finish.`
+        : `${done} of ${total} ready, ${remaining} left to set up.`;
   const showVaultInvitation =
     vaultInvitationOpen && Boolean(user) && !isVaultUnlocked;
 
@@ -404,11 +410,7 @@ export function OneSetupHub() {
                   ? "You're all set"
                   : "Finish setting up One"
             }
-            description={
-              showVaultInvitation
-                ? "Your vault is required to finish setup."
-                : summary
-            }
+            description={showVaultInvitation ? "One step left." : summary}
             accent="neutral"
             className={styles.setupHeader}
           />
@@ -422,12 +424,13 @@ export function OneSetupHub() {
               onClick={() => void handleMasterAck()}
               disabled={dismissing || !runtimeChoiceComplete}
               title={
-                !runtimeChoiceComplete
-                  ? "Choose an AI access option before continuing."
-                  : undefined
+                !runtimeChoiceComplete ? "Choose AI access to finish." : undefined
               }
               data-testid="one-setup-master-ack-mobile"
-              className="mt-1 shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:opacity-40 sm:hidden"
+              // Same rule as the desktop footer: the accent is reserved for a
+              // tap that can actually finish. A faded accent still reads blue,
+              // so a blocked finish goes neutral rather than dimmed.
+              className="mt-1 shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-semibold text-[var(--app-accent)] transition hover:bg-[var(--app-accent-tint)] disabled:pointer-events-none disabled:text-muted-foreground disabled:opacity-100 sm:hidden"
             >
               {masterActionLabel}
             </button>
@@ -452,11 +455,10 @@ export function OneSetupHub() {
               id="one-setup-vault-invitation-title"
               className="mt-5 text-balance type-title2 text-foreground"
             >
-              One last step: protect what you save.
+              Only you can open what you save.
             </h2>
             <p className="mt-3 max-w-[28rem] text-pretty type-subhead text-muted-foreground">
-              Your private vault gives One end-to-end encryption. Only you hold
-              the key.
+              Not even we can read it.
             </p>
             <div className="mt-8 flex w-full max-w-[24rem] flex-col gap-3">
               <Button
@@ -469,7 +471,7 @@ export function OneSetupHub() {
                 onClick={() => setVaultDialogOpen(true)}
                 data-testid="one-setup-vault-invitation-open"
               >
-                Set up private vault
+                Set a lock
               </Button>
             </div>
           </section>
@@ -586,8 +588,8 @@ export function OneSetupHub() {
                 }
                 supportingText={
                   !runtimeChoiceComplete
-                    ? "Choose an AI access option before continuing."
-                    : "Your vault is required. You can add more capabilities any time."
+                    ? "Choose AI access to finish."
+                    : "Add the rest any time."
                 }
                 variant="blue-gradient"
                 effect="fill"
@@ -619,7 +621,7 @@ export function OneSetupHub() {
           onOpenChange={setVaultDialogOpen}
           dismissible={false}
           enableGeneratedDefault
-          title="Set up your private vault"
+          title="Set a lock"
           description="Create a private place for the details you choose to save."
           onSuccess={() => undefined}
         />

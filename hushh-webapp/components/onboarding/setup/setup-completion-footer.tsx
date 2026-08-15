@@ -26,7 +26,9 @@ type SetupCompletionFooterProps = {
  * Shared terminal setup action.
  *
  * Routes may show this while a prerequisite is pending, but must keep it
- * disabled until their own completion condition is verified. The canonical
+ * disabled until their own completion condition is verified. While it is
+ * blocked it also drops the accent fill: the blue is the promise that the tap
+ * goes through, so it is spent only on an action that can. The canonical
  * bottom inset keeps it above app chrome on safe-area and keyboard-resized
  * native viewports, with the same calm full-width action cadence everywhere.
  */
@@ -49,6 +51,12 @@ export function SetupCompletionFooter({
   // action vocabulary while preventing the light-theme gray container look.
   const isQuietSetupAction = variant === "none" && effect === "fade";
   const visualVariant = isQuietSetupAction ? "blue" : variant;
+  // Accent means "this works". The stock disabled treatment only fades the
+  // accent fill to 50%, which still reads as the blue primary action on a
+  // light surface -- so a blocked finish looked tappable, absorbed the tap,
+  // and explained itself only in the supporting line underneath. A blocked
+  // action takes the same neutral container the quiet variant already uses.
+  const isBlockedFilledAction = disabled && !busy && !isQuietSetupAction;
 
   return (
     <div className="mt-6 pb-[var(--app-scroll-bottom-pad,var(--app-bottom-inset))] sm:mt-8 sm:pb-8">
@@ -72,6 +80,8 @@ export function SetupCompletionFooter({
               "h-12 text-base",
               isQuietSetupAction &&
                 "!border-0 !bg-transparent !text-[var(--app-accent)] hover:!bg-[var(--app-accent-tint)] hover:!text-[var(--app-accent)] disabled:!bg-muted/35 disabled:!text-muted-foreground disabled:!opacity-100",
+              isBlockedFilledAction &&
+                "!border-0 disabled:!bg-muted/60 disabled:!text-muted-foreground disabled:!opacity-100",
             )}
             data-testid={testId}
             data-voice-control-id={controlId}
