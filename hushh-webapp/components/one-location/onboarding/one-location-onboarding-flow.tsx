@@ -25,6 +25,7 @@ import type { ConsentNotificationDeliveryMode } from "@/components/consent/notif
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import locationOnboardingContract from "@/lib/onboarding/one-location-onboarding.contract.json";
 import { trackEvent } from "@/lib/observability/client";
+import { trackLocationFunnelStepCompleted } from "@/lib/observability/growth";
 import { resolveRouteId } from "@/lib/observability/route-map";
 import { cn } from "@/lib/utils";
 
@@ -2384,9 +2385,21 @@ export function OneLocationOnboardingFlow({
         contacts_matched: contactMatches.length,
         contacts_added: addedContactIds.length,
       });
+      // Only a finish counts as a funnel step. A skip is a real exit and is
+      // still legible on the feature event above via `exited_via`; folding it
+      // in here would flatter the funnel and hide the drop.
+      if (exitedVia === "complete") {
+        trackLocationFunnelStepCompleted("onboarding_completed");
+      }
     },
     [addedContactIds.length, contactMatches.length],
   );
+
+  // Paired with the step above so the ratio between them is the onboarding
+  // drop-off rate.
+  useEffect(() => {
+    trackLocationFunnelStepCompleted("onboarding_started");
+  }, []);
 
   // Completion is a press, not a timer. The settlement guard and retry counter
   // are unchanged -- they are what makes setup completion durable when the
@@ -2398,12 +2411,25 @@ export function OneLocationOnboardingFlow({
     completionInFlightRef.current = true;
     setCompletionBusy(true);
     reportOutcome("complete");
-    void Promise.resolve(onComplete()).catch(() => {
-      completionInFlightRef.current = false;
-      setCompletionBusy(false);
-      setSettlementRetryCount((current) => current + 1);
-    });
-  }, [leaving, onComplete, reportOutcome]);
+    void Promise.resolve(onComplete()).then(
+      () => {
+        // Only on settle. `reportOutcome` above fires when the button is
+        // pressed; this fires when setup actually took, and setup is a one-time
+        // lock — the two diverge exactly when settlement is failing, which is
+        // the case worth seeing.
+        trackEvent("one_location_setup_completed", {
+          route_id: resolveRouteId(window.location.pathname),
+          result: "success",
+          settlement_retries: settlementRetryCount,
+        });
+      },
+      () => {
+        completionInFlightRef.current = false;
+        setCompletionBusy(false);
+        setSettlementRetryCount((current) => current + 1);
+      },
+    );
+  }, [leaving, onComplete, reportOutcome, settlementRetryCount]);
 
   const runSkip = async (settleCircle = false) => {
     if (leaving || (settleCircle && completionInFlightRef.current)) return;

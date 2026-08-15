@@ -284,6 +284,14 @@ import {
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
+import {
+  trackLocationShareConfirmed,
+  trackLocationShareReceived,
+} from "@/lib/observability/location-events";
+import {
+  rememberLocationInviteSource,
+  trackLocationFunnelStepCompleted,
+} from "@/lib/observability/growth";
 import { useVault } from "@/lib/vault/vault-context";
 import { cn } from "@/lib/utils";
 import { LiveMap } from "@/components/one-location/live-map";
@@ -1159,7 +1167,11 @@ function oneLocationBackoffBucket(delayMs: number): OneLocationBackoffBucket {
   return "gte_3s";
 }
 
-function oneLocationFailureClass(error: unknown): string {
+/**
+ * Exported for the unit test that guards the ordering below. The ordering is
+ * the whole point of this function and is easy to undo by accident.
+ */
+export function oneLocationFailureClass(error: unknown): string {
   if (isTransientOneApiError(error)) return "one_api_unavailable";
   const name =
     error && typeof error === "object" && "name" in error
@@ -1174,14 +1186,29 @@ function oneLocationFailureClass(error: unknown): string {
   if (name === "aborterror" || message.includes("abort")) return "aborted";
   if (message.includes("network") || message.includes("fetch"))
     return "network";
-  if (message.includes("permission") || message.includes("location"))
-    return "permission";
+  // Encryption before permission. "location" is a substring of almost every
+  // message this surface produces — "could not decrypt location envelope"
+  // included — so matching it first labelled key and envelope failures as
+  // permission problems. In production, `permission` is 965 of 1,248 retry
+  // events on iOS, and an unknown share of those are really something else;
+  // the point of a failure class is to send you to the right cause.
   if (
     message.includes("key") ||
     message.includes("encrypt") ||
     message.includes("decrypt")
   ) {
     return "encryption";
+  }
+  // Matched on the vocabulary the platforms actually use for a denial, not on
+  // the word "location" — which appears in nearly every message this surface
+  // produces and was therefore labelling unrelated failures as permission
+  // problems.
+  if (
+    message.includes("permission") ||
+    message.includes("denied") ||
+    message.includes("authoriz")
+  ) {
+    return "permission";
   }
   return "unknown";
 }
@@ -3944,7 +3971,7 @@ export function OneLocationAgentPageContent({
       if (!successCount && lastRecipientError) {
         throw lastRecipientError;
       }
-      trackEvent("one_location_share_confirmed", {
+      trackLocationShareConfirmed({
         route_id: "one_location",
         result: oneLocationEventResult(successCount, recipientFailureCount),
         selected_count: shareReadySelectedRecipients.length,
@@ -3975,7 +4002,7 @@ export function OneLocationAgentPageContent({
         recipientFailureCount ||
         shareReadySelectedRecipients.length - successCount ||
         1;
-      trackEvent("one_location_share_confirmed", {
+      trackLocationShareConfirmed({
         route_id: "one_location",
         result: oneLocationEventResult(successCount, failureCount),
         selected_count: shareReadySelectedRecipients.length,
@@ -4212,6 +4239,48 @@ export function OneLocationAgentPageContent({
   // the app already had, which made the control read as permanently loading
   // before anyone pressed it — the lookup must stay a deliberate, on-click act.
 
+  /**
+   * Records that the emergency alert fired, on every path it can leave by.
+   *
+   * Counts only: never the note, the coordinates, or who was contacted. The
+   * number that matters is `reached_count` — an alert that reached nobody is
+   * the most serious failure this product has, and it is exactly the case that
+   * previously produced no telemetry because the emit sat on the success path.
+   *
+   * The three counts reconcile: `selected` is everyone the person chose, and
+   * `unreachable` covers both those filtered out as not-ready and those whose
+   * device was not alerted, so `reached + unreachable === selected`.
+   */
+  const trackSosTriggered = useCallback(
+    ({
+      selectedCount,
+      reachedCount,
+      unreachableCount,
+      emailedCount = 0,
+      note,
+    }: {
+      selectedCount: number;
+      reachedCount: number;
+      unreachableCount: number;
+      emailedCount?: number;
+      note?: string | null;
+    }) => {
+      trackEvent("one_location_sos_triggered", {
+        route_id: "one_location",
+        // "error", not "expected_error": reaching nobody is a genuine failure
+        // of the alert, never a normal outcome.
+        // Success if the alert landed on either channel.
+        result: reachedCount > 0 || emailedCount > 0 ? "success" : "error",
+        selected_count: selectedCount,
+        reached_count: reachedCount,
+        unreachable_count: unreachableCount,
+        emailed_count: emailedCount,
+        has_note: Boolean(note && note.trim()),
+      });
+    },
+    [],
+  );
+
   const handleTriggerSos = useCallback(
     async (note?: string | null) => {
       if (sosIncident) return; // re-entry guard: never overwrite/orphan an active incident
@@ -4222,6 +4291,16 @@ export function OneLocationAgentPageContent({
       );
       const totalSelected = smsActionRecipients.length;
       if (!readyRecipients.length) {
+        // Emitted before returning. This is an alert that reached nobody, which
+        // is precisely the case the event exists to surface; leaving it on the
+        // success path only meant the failures we most need to see were the
+        // ones that produced no telemetry at all.
+        trackSosTriggered({
+          selectedCount: totalSelected,
+          reachedCount: 0,
+          unreachableCount: 0,
+          note,
+        });
         toast.error(
           totalSelected
             ? "Your SMS contacts are not ready to receive location yet."
@@ -4233,6 +4312,12 @@ export function OneLocationAgentPageContent({
       try {
         const point = await resolveSosLocation();
         if (!point) {
+          trackSosTriggered({
+            selectedCount: totalSelected,
+            reachedCount: 0,
+            unreachableCount: readyRecipients.length,
+            note,
+          });
           toast.error(
             "Couldn't get your location — alert not sent. Check location permissions.",
           );
@@ -4288,6 +4373,19 @@ export function OneLocationAgentPageContent({
             ? ` No email on file for ${formatNameList(mail.withoutEmail)}.`
             : "");
 
+        // Emitted after the email fallback so it reports the alert's real
+        // outcome rather than the push channel's. An SOS where every push
+        // failed but two inboxes received it is not an alert that reached
+        // nobody, and recording it as one would point the investigation at
+        // exactly the wrong thing.
+        trackSosTriggered({
+          selectedCount: totalSelected,
+          reachedCount: reached,
+          unreachableCount: unreachable.length + skipped,
+          emailedCount: mail.emailed,
+          note,
+        });
+
         if (reached === 0) {
           const stillNoOne = mail.emailed === 0;
           toast.error(
@@ -4313,6 +4411,18 @@ export function OneLocationAgentPageContent({
         if (error instanceof SosPanicError && error.partialIncident) {
           setSosIncident(error.partialIncident);
         }
+        // Reported as reaching nobody, because on this path we genuinely cannot
+        // tell. `SosPanicError.partialIncident` carries only grant ids, not
+        // per-recipient delivery, so some contacts may in fact have been
+        // alerted before the throw. Biasing an unobservable emergency outcome
+        // toward failure is the right way round: it surfaces for investigation
+        // rather than being averaged away, which a guessed number would do.
+        trackSosTriggered({
+          selectedCount: totalSelected,
+          reachedCount: 0,
+          unreachableCount: totalSelected,
+          note,
+        });
         toast.error(
           error instanceof Error ? error.message : "Could not send SMS alert.",
         );
@@ -4327,6 +4437,7 @@ export function OneLocationAgentPageContent({
       smsActionRecipients,
       refresh,
       sosIncident,
+      trackSosTriggered,
       // The local emergency number is read at send time so the email can tell
       // the recipient which number to dial where the sender is.
       sosEmergency?.number,
@@ -4604,6 +4715,11 @@ export function OneLocationAgentPageContent({
           delete next[grant.id];
           return next;
         });
+        // The receiving half of activation. A person who is only ever shared
+        // with -- the invited friend, which is the whole viral loop -- is still
+        // an active user of a sharing product, and counted as un-activated
+        // until this fires.
+        trackLocationShareReceived();
         return "published";
       } catch (error) {
         const keyUnavailable =
@@ -5858,6 +5974,7 @@ export function OneLocationAgentPageContent({
         copied_to_clipboard: copiedToClipboard,
         active_invite_count: activeCircleInvites.length + 1,
       });
+      trackLocationFunnelStepCompleted("invite_shared");
       toast.success(
         copiedToClipboard
           ? "Invite to One link created and copied."
@@ -6099,6 +6216,14 @@ export function OneLocationAgentPageContent({
           kind,
         });
         scheduleNamedCircleStateRefresh();
+        // The kind, never the name — a Circle name is the user's own words and
+        // often identifies a household.
+        trackEvent("one_location_circle_created", {
+          route_id: "one_location",
+          result: "success",
+          circle_kind: kind,
+        });
+        trackLocationFunnelStepCompleted("circle_created");
         toast.success(`${circle.name} created.`);
         return circle;
       } catch (error) {
@@ -6306,6 +6431,11 @@ export function OneLocationAgentPageContent({
     if (!vaultOwnerToken || !auth.userId) return;
     const pending = readPendingCircleJoin(auth.userId);
     if (!pending) return;
+    // Recorded before the join is attempted: arriving on someone's circle code
+    // is the viral acquisition, whether or not the code turns out to be spent.
+    // Without this the invite_source dimension is never populated and viral
+    // joins cannot be told apart from cold ones.
+    rememberLocationInviteSource("circle_code");
     clearPendingCircleJoin(auth.userId);
     let cancelled = false;
     void OneLocationService.joinNamedCircle({ vaultOwnerToken, code: pending })
@@ -7199,7 +7329,7 @@ export function OneLocationAgentPageContent({
         }
         const successCount = succeededRecipientIds.length;
         const failureCount = failedRecipientIds.length;
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(successCount, failureCount),
           selected_count: selected.length,
@@ -7207,6 +7337,18 @@ export function OneLocationAgentPageContent({
           failure_count: failureCount,
           duration_bucket: oneLocationDurationBucket(durationHoursValue),
           review_required: false,
+        });
+        // Emitted alongside the share event, not instead of it: a check-in *is*
+        // a recipient-scoped share and still counts toward activation, but
+        // without its own event Check-In and live sharing are indistinguishable
+        // in reporting, so we cannot tell which feature people actually use.
+        trackEvent("one_location_check_in_completed", {
+          route_id: "one_location",
+          result: oneLocationEventResult(successCount, failureCount),
+          selected_count: selected.length,
+          success_count: successCount,
+          failure_count: failureCount,
+          circle_targeted: Boolean(request.sourceCircleId),
         });
         if (failureCount === 0) {
           toast.success(
@@ -7236,7 +7378,7 @@ export function OneLocationAgentPageContent({
           .filter(
             (recipientId) => !succeededRecipientIds.includes(recipientId),
           );
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(
             succeededRecipientIds.length,
@@ -7506,7 +7648,7 @@ export function OneLocationAgentPageContent({
           await publishEnvelopeWithRetry(grant, recipient, "manual", point);
           successCount += 1;
         }
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(successCount, 0),
           selected_count: selected.length,
@@ -7522,7 +7664,7 @@ export function OneLocationAgentPageContent({
         void refresh().catch(() => null);
       } catch (error) {
         const failureCount = selected.length - successCount || 1;
-        trackEvent("one_location_share_confirmed", {
+        trackLocationShareConfirmed({
           route_id: "one_location",
           result: oneLocationEventResult(successCount, failureCount),
           selected_count: selected.length,
