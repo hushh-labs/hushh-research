@@ -818,7 +818,7 @@ async function openShareConfirmStep() {
 async function openAskFlow() {
   fireEvent.click(screen.getByRole("button", { name: /Request location/i }));
   expect(
-    await screen.findByRole("heading", { name: "Request with context" }),
+    await screen.findByRole("heading", { name: "Request location" }),
   ).toBeTruthy();
 }
 
@@ -1155,7 +1155,7 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     const headerActions = screen.getByRole("group", {
-      name: "Location preview control",
+      name: "Location",
     });
     expect(headerActions.className).toContain("ml-auto");
     expect(headerActions.className).toContain("justify-end");
@@ -1177,8 +1177,27 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("switch", { name: "Turn location on" }),
     ).toHaveAttribute("data-size", "ios");
-    expect(screen.getByText("Location off").className).toContain("sm:inline");
-    expect(screen.getByText("Location off").className).toContain(
+    // The status text is the ONLY thing on this screen that says what the
+    // switch is for, so it has to render at every width. It used to be
+    // `hidden … sm:inline` + aria-hidden, i.e. present on a desktop browser and
+    // absent from every iPhone and from VoiceOver — which is exactly what QA
+    // hit ("location toggle kis liye hai? iOS pe how user gonna find that?").
+    const locationStatus = screen.getByTestId("one-location-header-status");
+    expect(locationStatus.className).not.toContain("hidden");
+    // Two forms of the same state, one per breakpoint, and NEITHER is hidden at
+    // every width the way the old single `hidden … sm:inline` span was. Phones
+    // get the one-word form because the 28px title has no width to spare there
+    // (the full string measured two title lines at 320/360/375/390); from `sm`
+    // up the full string renders inline exactly as it does today.
+    const compact = locationStatus.querySelector(".sm\\:hidden");
+    const full = locationStatus.querySelector(".hidden.sm\\:inline");
+    expect(compact?.textContent).toBe("Off");
+    expect(full?.textContent).toBe("Location off");
+    expect(locationStatus).not.toHaveAttribute("aria-hidden");
+    expect(
+      screen.getByRole("switch", { name: "Turn location on" }),
+    ).toHaveAttribute("aria-describedby", locationStatus.id);
+    expect(locationStatus.className).toContain(
       "text-[color:var(--app-secondary-label)]",
     );
     expect(headerActions.innerHTML).not.toContain("--app-neutral-fill");
@@ -1482,7 +1501,7 @@ describe("OneLocationAgentPage", () => {
     await openSharePersonStep();
 
     expect(screen.queryByText("Ready for private sharing")).toBeNull();
-    expect(screen.getByText("Invite first to enable sharing")).toBeTruthy();
+    expect(screen.getByText("Invite them first")).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -1534,16 +1553,16 @@ describe("OneLocationAgentPage", () => {
     fireEvent.change(note, { target: { value: "a".repeat(140) } });
     expect(screen.getByText("140/140")).toBeTruthy();
     expect(startButton).toBeEnabled();
-    expect(screen.queryByText("character limit exceed")).toBeNull();
+    expect(screen.queryByText("Note is too long")).toBeNull();
 
     fireEvent.change(note, { target: { value: "a".repeat(141) } });
     expect(screen.getByText("141/140")).toBeTruthy();
-    expect(screen.getByText("character limit exceed")).toBeTruthy();
+    expect(screen.getByText("Note is too long")).toBeTruthy();
     expect(startButton).toBeDisabled();
 
     fireEvent.change(note, { target: { value: "On my way" } });
     expect(screen.getByText("9/140")).toBeTruthy();
-    expect(screen.queryByText("character limit exceed")).toBeNull();
+    expect(screen.queryByText("Note is too long")).toBeNull();
     expect(startButton).toBeEnabled();
 
     expect(
@@ -2748,7 +2767,7 @@ describe("OneLocationAgentPage", () => {
 
     expect(screen.getAllByText("Advisor C").length).toBeGreaterThan(0);
     expect(
-      screen.getAllByText("Invite first to enable sharing").length,
+      screen.getAllByText("Invite them first").length,
     ).toBeGreaterThan(0);
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
   });
@@ -3578,7 +3597,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openSharePersonStep();
     expect(screen.getByText("Advisor C")).toBeTruthy();
-    expect(screen.getByText("Invite first to enable sharing")).toBeTruthy();
+    expect(screen.getByText("Invite them first")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /Select Advisor C/i }),
     ).toBeNull();
@@ -3688,10 +3707,12 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Requests sent" }),
     ).toBeTruthy();
-    // A live request shows a real Delete action, not a static "Active" label
-    // with no way off the list.
+    // A live request shows a real stop action, not a static "Active" label
+    // with no way off the list. The label is "Stop", not "Delete": it is the
+    // same vm.onStopGrant handler the other two revoke buttons use, and it ends
+    // access rather than erasing anything.
     expect(screen.queryByText("Active")).toBeNull();
-    const deleteButton = screen.getByRole("button", { name: "Delete" });
+    const deleteButton = screen.getByRole("button", { name: "Stop" });
     fireEvent.click(deleteButton);
     await waitFor(() =>
       expect(mockRevokeGrant).toHaveBeenCalledWith({
@@ -3942,13 +3963,13 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    // The populated People tab exposes a compact "Sync contacts" circle action.
+    // The populated People tab exposes a compact "Find contacts" circle action.
     fireEvent.click(screen.getByRole("button", { name: "People" }));
     expect(
       await screen.findByRole("button", { name: /Add people/i }),
     ).toBeTruthy();
     fireEvent.click(
-      await screen.findByRole("button", { name: /Sync contacts/i }),
+      await screen.findByRole("button", { name: /Find contacts/i }),
     );
 
     await waitFor(() =>
@@ -4045,7 +4066,7 @@ describe("OneLocationAgentPage", () => {
     // reads as the default rather than one of four equal choices.
     const addPeople = screen.getByRole("button", { name: /Add people/i });
     const syncContacts = screen.getByRole("button", {
-      name: /Sync contacts/i,
+      name: /Find contacts/i,
     });
     expect(addPeople).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Invite$/i })).toBeTruthy();
@@ -4087,7 +4108,7 @@ describe("OneLocationAgentPage", () => {
       const addPeople = screen.getByRole("button", { name: /Add people/i });
       const search = await screen.findByPlaceholderText("Search trusted people");
       const syncContacts = screen.getByRole("button", {
-        name: /Sync contacts/i,
+        name: /Find contacts/i,
       });
       const invite = screen.getByRole("button", { name: /^Invite$/i });
 
@@ -4238,7 +4259,7 @@ describe("OneLocationAgentPage", () => {
     // approval explainer must not add another card below these actions.
     expect(screen.getByRole("button", { name: /Add people/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Invite$/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Sync contacts/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Find contacts/i })).toBeTruthy();
     // "Share to contacts" is deliberately absent: it minted a PUBLIC link,
     // which is the Links tab's job, not a control belonging beside named
     // trusted people.

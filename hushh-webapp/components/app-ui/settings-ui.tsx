@@ -151,6 +151,13 @@ const SETTINGS_ICON_TONE_CLASSNAME = {
     "bg-[rgba(255,159,10,0.12)] text-[#FF9F0A] dark:bg-[rgba(255,159,10,0.20)] dark:text-[#FFD60A]",
   red:
     "bg-[rgba(255,59,48,0.12)] text-[#FF3B30] dark:bg-[rgba(255,69,58,0.20)] dark:text-[#FF6961]",
+  // People, circles and private sharing. Added because the tone vocabulary was
+  // smaller than the semantics: `accent`, `blue` and `purple` are byte-identical
+  // above, so "these are PEOPLE" had no colour of its own and every row that
+  // meant it rendered as the same action blue as "Share location". iOS system
+  // indigo (#5856D6 light / #5E5CE6 dark), same 12%/20% tile recipe as the rest.
+  indigo:
+    "bg-[rgba(88,86,214,0.12)] text-[#5856D6] dark:bg-[rgba(94,92,230,0.20)] dark:text-[#5E5CE6]",
   gray:
     "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]",
 } as const;

@@ -1269,6 +1269,25 @@ export function LocationImmersiveMap({
       // setPadding can still nudge the camera on some SDK versions.
       if (key === lastPaddingKey) return;
       lastPaddingKey = key;
+      // NATIVE ONLY. On iOS/Android `setPadding` is a true camera inset
+      // (GMSMapView.padding / GoogleMap.setPadding): the zoom is untouched and
+      // the map still paints edge to edge, it just keeps the centre and the
+      // controls clear of the floating chrome. The @capacitor/google-maps WEB
+      // shim is a different operation entirely —
+      //
+      //   async setPadding({id, padding}) {
+      //     const bounds = maps[id].map.getBounds();
+      //     if (bounds !== undefined) maps[id].map.fitBounds(bounds, padding);
+      //   }
+      //
+      // — i.e. it re-fits the already-visible world into a box shrunk by this
+      // padding. That is a ZOOM-OUT, and a raster map snaps to a whole integer
+      // zoom, so the world (z2) drops to z1 and no longer fills the container:
+      // Google's own out-of-world grey shows as a band above and below the map
+      // and the world repeats horizontally. That is the "gap at top and bottom"
+      // QA reported on uat.one.hushh.ai/one/location/map. The container itself
+      // is correct and untouched (`h-[100dvh]`, map `absolute inset-0`).
+      if (!isNative()) return;
       void map.setPadding(padding);
     };
     const schedulePadding = () => {
@@ -1711,9 +1730,9 @@ export function LocationImmersiveMap({
           });
         }),
       );
-      toast.success(
-        "Your active private recipients can see this foreground update.",
-      );
+      // Keeps the fact that other PEOPLE received it — that is the privacy-
+      // relevant half. "Location updated" would hide it.
+      toast.success("Sent to the people you share with.");
     } catch {
       // The map has already moved to the new position; what failed is telling
       // the people it is shared with.
@@ -2273,7 +2292,13 @@ export function LocationImmersiveMap({
             </span>
           ) : null}
           <span className="pl-[1.125rem] font-normal text-muted-foreground">
-            500 m {nearbyPlaceFocus?.active ? "match" : "search"} area
+            {/* "match" is the backend's word for how it pairs attendees, and it
+                also hid a real difference: the live circle is drawn around the
+                PLACE, the search circle around the PERSON (see the circle title
+                at ~1396). Naming the anchor says both things in plain words. */}
+            {nearbyPlaceFocus?.active
+              ? "500 m around your place"
+              : "500 m around you"}
           </span>
         </div>
       ) : null}
@@ -2313,16 +2338,22 @@ export function LocationImmersiveMap({
         >
           <MapPin className="h-6 w-6 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
           <h1 className="mt-3 text-xl font-semibold">Your Map</h1>
+          {/*
+            This is the renderer-consent gate: accepting it writes
+            GOOGLE_MAPS_RENDERER_CONSENT_VERSION. All three claims are
+            load-bearing and none may be dropped for brevity — private shares
+            are opened locally, Google Maps is told the minimum, and Nearby
+            Check-In is a separate opt-in. Only the wording was tightened.
+          */}
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Private shares open only on this device. Google Maps uses the
-            minimum location needed to show them. Nearby Check-In is separate
-            and starts only when you choose it.
+            Private shares open only on this device. Google Maps gets only what
+            it needs to draw them. Check-In is separate — you start it.
           </p>
           <Button
             className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
             onClick={() => void acceptRenderer()}
           >
-            Continue to Your Map
+            Continue
           </Button>
           {demoAvailable ? (
             <Button
@@ -2332,7 +2363,10 @@ export function LocationImmersiveMap({
               onClick={toggleDemoPeople}
             >
               <UsersRound className="h-4 w-4" />
-              Preview with fictional people
+              {/* "not real people" is not lost with the shorter label: tapping
+                  this raises the "Showing fictional people…" toast, and the map
+                  carries a Demo badge for as long as the preview is on. */}
+              See a demo
             </Button>
           ) : null}
         </section>
@@ -2352,13 +2386,17 @@ export function LocationImmersiveMap({
             <MapPin className="h-7 w-7" strokeWidth={2} aria-hidden />
           </span>
           <h1 className="relative font-semibold">
+            {/* "build" and "Maps key" are engineering words on a full-bleed
+                screen an ordinary person is looking at. The distinction the two
+                branches exist to make — this is our problem, not your device or
+                your permission — is what the replacement keeps. */}
             {unavailableReason === "maps-key"
-              ? "This build has no Maps key"
+              ? "Maps isn't available"
               : "The map could not start"}
           </h1>
           <p className="relative max-w-sm text-sm text-muted-foreground">
             {unavailableReason === "maps-key"
-              ? "Maps is not configured for this build."
+              ? "Nothing is wrong with your location."
               : "Check your connection and try again."}
           </p>
         </div>
@@ -2410,9 +2448,11 @@ export function LocationImmersiveMap({
               ].join(", "),
             }}
             aria-expanded={trayExpanded}
-            aria-label={
-              trayExpanded ? "Minimize map controls" : "Expand map controls"
-            }
+            // This control expands and collapses the PEOPLE list, not the map
+            // controls — the section it opens is labelled "People checked in
+            // nearby" / "Live locations shared with you". A screen-reader user
+            // was being told the wrong thing about what the button does.
+            aria-label={trayExpanded ? "Hide people" : "Show people"}
             data-testid="one-location-map-tray-toggle"
             onClick={() => setTrayExpanded((current) => !current)}
           >
@@ -2520,7 +2560,7 @@ export function LocationImmersiveMap({
               <div ref={trayContentRef} className="px-3 pb-3 pt-1">
               <label className="relative block">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <span className="sr-only">Find a person on Your Map</span>
+                <span className="sr-only">Find a person</span>
                 <Input
                   className="h-11 rounded-full border-border/60 bg-muted/80 pl-9 pr-4"
                   data-testid="one-location-map-search"
@@ -2717,7 +2757,7 @@ export function LocationImmersiveMap({
                         : // The header already says no one is sharing. This
                           // line spends itself on the part the header cannot:
                           // what it takes to appear here.
-                          "Pins appear once they share and allow maps."}
+                          "Pins appear once they share with maps on."}
                     </p>
                   ) : null}
                 </div>
