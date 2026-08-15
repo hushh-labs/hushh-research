@@ -1165,6 +1165,9 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
 
     const heading = screen.getByRole("heading", { name: "Location Agent" });
+    const pageHeader = heading.closest("header");
+    expect(pageHeader).toBeTruthy();
+    expect(pageHeader).not.toHaveClass("pt-6", "sm:pt-[52px]");
     const headerRow = heading.closest('[data-slot="page-header-row"]');
     expect(headerRow).toBeTruthy();
     expect(headerRow).toHaveClass("flex", "items-start", "justify-between");
@@ -1763,6 +1766,14 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Settings" }),
     ).toBeTruthy();
+    expect(screen.getByTestId("one-location-action-flow")).toHaveClass(
+      "[--type-section-label-size:13px]",
+      "[--type-section-label-line:17px]",
+      "[--type-section-label-weight:400]",
+      "[--type-section-label-tracking:-0.2px]",
+    );
+    expect(screen.getByRole("heading", { name: "Sharing" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Safety" })).toBeTruthy();
     expect(
       screen.getByRole("region", { name: "Saved Locations" }),
     ).toBeTruthy();

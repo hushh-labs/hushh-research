@@ -569,15 +569,15 @@ export function SavedLocationsSection() {
         className="w-full min-w-0"
         data-testid="settings-saved-locations"
       >
-        <div className="mb-3.5 flex min-h-11 items-center justify-between gap-3 px-[2px]">
-          <p className="text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
+        <div className="mb-3 flex items-baseline justify-between gap-3 px-[2px]">
+          <p className="text-[13px] font-normal leading-[17px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
             Places
           </p>
           <button
             type="button"
             onClick={() => void handleAdd()}
             disabled={!hasVaultAccess || locationControl.paused || capturing}
-            className="press-scale -mr-3 inline-flex h-11 items-center gap-1.5 rounded-full px-3 text-[15px] font-normal text-[color:var(--app-accent)] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
+            className="press-scale relative inline-flex h-auto min-h-0 items-center gap-1.5 rounded-none px-0 text-[16px] font-normal leading-[21px] tracking-[-0.3px] text-[color:var(--app-accent)] transition-opacity after:absolute after:-inset-x-3 after:-inset-y-3 after:content-[''] disabled:cursor-not-allowed disabled:opacity-45 sm:text-[15px] sm:leading-[19px] sm:tracking-[-0.24px]"
           >
             {capturing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -738,7 +738,7 @@ export function SavedLocationsSection() {
           )}
         </div>
         {hasVaultAccess ? (
-          <p className="mt-3 flex items-center gap-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
+          <p className="mt-[22px] flex items-center gap-2 px-1 text-[13px] leading-[18px] text-muted-foreground sm:mt-6">
             <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
             {locationControl.paused
               ? "Resume Location to save another place."

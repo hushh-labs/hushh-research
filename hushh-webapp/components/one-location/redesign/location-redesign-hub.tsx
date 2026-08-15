@@ -624,6 +624,13 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
 const PEOPLE_LIST_SCROLL_CLASS =
   "max-h-[340px] space-y-2.5 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/15 dark:[&::-webkit-scrollbar-thumb]:bg-white/20";
 
+// The supplied Location artboards use one quiet 13px label for every secondary
+// group heading (Sharing, Safety, Places, Circles, People, and similar labels).
+// Scope the semantic type variables to Location instead of changing the shared
+// app-wide SectionLabel role, which is intentionally larger on other surfaces.
+const LOCATION_SECTION_LABEL_SCOPE =
+  "[--type-section-label-line:17px] [--type-section-label-size:13px] [--type-section-label-tracking:-0.2px] [--type-section-label-weight:400]";
+
 export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -950,7 +957,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   if (flow !== "none") {
     return (
       <div
-        className="mx-auto w-full max-w-[720px] space-y-6 pt-8 sm:pt-[72px]"
+        className={cn(
+          "mx-auto w-full max-w-[720px] space-y-6 pt-8 [--foundation-title1-line:39px] [--foundation-title1-size:34px] [--foundation-title1-tracking:-0.8px] [--foundation-title1-weight:600] sm:pt-[72px] sm:[--foundation-title1-line:48px] sm:[--foundation-title1-size:44px] sm:[--foundation-title1-tracking:-1.1px]",
+          LOCATION_SECTION_LABEL_SCOPE,
+        )}
         data-ambient-chrome-ignore
         data-testid="one-location-action-flow"
       >
@@ -1078,7 +1088,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* Hub (Now | People | Links)                                        */
   /* ----------------------------------------------------------------- */
   return (
-    <div className="space-y-0">
+    <div className={cn("space-y-0", LOCATION_SECTION_LABEL_SCOPE)}>
       <PageHeader
         title="Location Agent"
         accent="location"
@@ -1086,7 +1096,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         actionsInlineMobile
         actions={<LocationHeaderActions vm={vm} />}
         className={cn(
-          "pt-6 [--type-agent-title-line:37px] [--type-agent-title-size:34px] [--type-agent-title-tracking:-0.9px] [--type-agent-title-weight:600] [&_h1]:max-w-[170px] sm:pt-[52px] sm:[--type-agent-title-line:48px] sm:[--type-agent-title-size:44px] sm:[--type-agent-title-tracking:-1.1px] sm:[&_h1]:max-w-none sm:[&_h1]:whitespace-nowrap",
+          "[--foundation-title1-line:37px] [--foundation-title1-size:34px] [--foundation-title1-tracking:-0.9px] [--foundation-title1-weight:600] [--type-agent-title-line:37px] [--type-agent-title-size:34px] [--type-agent-title-tracking:-0.9px] [--type-agent-title-weight:600] [&_h1]:max-w-[170px] sm:[--foundation-title1-line:48px] sm:[--foundation-title1-size:44px] sm:[--foundation-title1-tracking:-1.1px] sm:[--type-agent-title-line:48px] sm:[--type-agent-title-size:44px] sm:[--type-agent-title-tracking:-1.1px] sm:[&_h1]:max-w-none sm:[&_h1]:whitespace-nowrap",
           tab === "now" && "sm:mx-auto sm:max-w-[720px]",
         )}
       />
@@ -1655,7 +1665,7 @@ function LocationSettingsFlow({
       <SettingsGroup
         title="Sharing"
         separatorInset
-        className="mt-14 [&>div:first-child]:!mt-0"
+        className="mt-9 sm:mt-14 [&>div:first-child]:!mb-3 [&>div:first-child]:!mt-0 [&>div:first-child]:!px-0"
         shellClassName="[--settings-group-radius:var(--app-radius-md)] !bg-[color:var(--app-primary-surface)] [&_[data-testid=settings-row]>*]:min-h-[66px]"
       >
         {/* The one caveat that cannot be cut: this does not answer the people
@@ -1732,7 +1742,7 @@ function LocationSettingsFlow({
       <SettingsGroup
         title="Safety"
         separatorInset
-        className="mt-10 [&>div:first-child]:!mt-0"
+        className="mt-9 sm:mt-11 [&>div:first-child]:!mb-3 [&>div:first-child]:!mt-0 [&>div:first-child]:!px-0"
         shellClassName="[--settings-group-radius:var(--app-radius-md)] !bg-[color:var(--app-primary-surface)] [&_[data-testid=settings-row]>*]:min-h-[66px]"
       >
         <SettingsRow
@@ -1749,7 +1759,7 @@ function LocationSettingsFlow({
         />
       </SettingsGroup>
 
-      <div className="mt-10">
+      <div className="mt-9 sm:mt-11">
         <SavedLocationsSection />
       </div>
     </div>
@@ -1894,7 +1904,7 @@ function PeopleHub({
           >
             <h2
               id="one-location-connections-heading"
-              className="col-start-1 row-start-1 text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-section-label)]"
+              className="col-start-1 row-start-1 text-[13px] font-normal leading-[17px] tracking-[-0.2px] text-[color:var(--app-section-label)]"
             >
               Connections
             </h2>
@@ -2196,13 +2206,13 @@ function LinksHub({
 
   return (
     <div className="flex min-h-[clamp(430px,58dvh,580px)] flex-col pt-10 sm:min-h-0 sm:pt-[72px]">
-      <h2 className="px-[2px] text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
+      <h2 className="px-[2px] text-[13px] font-normal leading-[17px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
         Links
       </h2>
 
       {hasLinks ? (
         <div
-          className="mt-3.5 overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] px-[18px] shadow-[var(--app-card-shadow-standard)] sm:px-6"
+          className="mt-3 overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] px-[18px] shadow-[var(--app-card-shadow-standard)] sm:mt-3.5 sm:px-6"
           data-ui-role="grouped-card"
         >
           {temp ? (
@@ -2228,7 +2238,7 @@ function LinksHub({
         </div>
       ) : (
         <div
-          className="mt-3.5 flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] px-6 text-center shadow-[var(--app-card-shadow-standard)] sm:min-h-[220px]"
+          className="mt-3 flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] px-6 text-center shadow-[var(--app-card-shadow-standard)] sm:mt-3.5 sm:min-h-[220px]"
           data-ui-role="grouped-card"
         >
           <LinkIcon
@@ -2568,7 +2578,7 @@ function ShareFlow({
 
   // step === "person"
   return (
-    <div className="space-y-10 [&_header>h1]:text-[34px] [&_header>h1]:font-semibold [&_header>h1]:leading-[39px] [&_header>h1]:tracking-[-0.8px] sm:[&_header>h1]:text-[44px] sm:[&_header>h1]:leading-[48px] sm:[&_header>h1]:tracking-[-1.1px]">
+    <div className="space-y-[34px] [&_header]:space-y-2.5 [&_header>h1]:text-[34px] [&_header>h1]:font-semibold [&_header>h1]:leading-[39px] [&_header>h1]:tracking-[-0.8px] sm:space-y-11 sm:[&_header]:space-y-3.5 sm:[&_header>h1]:text-[44px] sm:[&_header>h1]:leading-[48px] sm:[&_header>h1]:tracking-[-1.1px]">
       <TaskFlowHeader eyebrow="Step 1 of 2" title="Who can see you?" />
       <PersonSearchInput
         value={vm.shareRecipientSearch}
@@ -2576,11 +2586,11 @@ function ShareFlow({
         placeholder="Search"
         voiceControlId="one-location-share-recipient-search"
         className="h-[46px] rounded-full border-0 bg-[color:var(--app-primary-surface)] pl-11 shadow-[var(--app-card-shadow-standard)] sm:h-12"
-        containerClassName="sm:!mt-16"
+        containerClassName="!mt-[30px] sm:!mt-14"
       />
       {vm.circles.length ? (
         <section>
-          <h2 className="mb-3.5 px-[2px] text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
+          <h2 className="mb-3 px-[2px] text-[13px] font-normal leading-[17px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
             Circles
           </h2>
           <div className="divide-y divide-[color:var(--app-separator)] overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]">
@@ -2650,7 +2660,7 @@ function ShareFlow({
         </section>
       ) : null}
       <section>
-        <h2 className="mb-3.5 px-[2px] text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
+        <h2 className="mb-3 px-[2px] text-[13px] font-normal leading-[17px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
           People
         </h2>
         {filtered.length ? (
@@ -2716,7 +2726,7 @@ function ShareFlow({
       <Button
         onClick={() => setStep("details")}
         disabled={!selectedReady.length}
-        className="h-[54px] w-full rounded-full bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:text-[color:var(--app-tertiary-label)] disabled:opacity-100 sm:h-[52px]"
+        className="!mt-10 h-[54px] w-full rounded-full bg-[color:var(--app-accent)] text-base font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:text-[color:var(--app-tertiary-label)] disabled:opacity-100 sm:h-[52px]"
       >
         Continue
       </Button>

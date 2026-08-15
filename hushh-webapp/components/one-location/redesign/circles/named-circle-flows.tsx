@@ -192,7 +192,7 @@ export function CirclesSection({
   return (
     <div className="space-y-[14px]" data-testid="one-location-named-circles">
       <div className="flex items-baseline justify-between gap-4">
-        <h2 className="text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
+        <h2 className="text-[13px] font-normal leading-[17px] tracking-[-0.2px] text-[color:var(--app-section-label)]">
           Circles
         </h2>
 
