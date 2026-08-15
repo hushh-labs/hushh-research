@@ -14,12 +14,15 @@
  * jump through, so there is no flash of any kind — to reveal the vault
  * screen, which only mounts once this finishes (see HushhIntroGate.tsx).
  *
- * Deliberately always near-black, in both the app's light and dark
- * themes: a cinematic open reads as a a deliberate, constant "theatre
- * goes dark" moment, not a surface that should adapt to whatever theme
- * happens to be active. Nothing else is mounted in the tree while this is
- * up (the component that owns this CSS gates `VaultLockGuard` and
- * everything below it out entirely until its own animation completes).
+ * Follows the app's own light/dark theme: near-black ("theatre goes
+ * dark") in dark mode, the app's light surface in light mode, with the
+ * streak/halo saturation and the ink colour tuned per mode too — a
+ * cinematic dark-bg treatment turned up to full saturation reads as
+ * loud/neon rather than premium on a white backdrop, so light mode dials
+ * those mixes down rather than reusing the dark-mode values verbatim.
+ * Nothing else is mounted in the tree while this is up (the component
+ * that owns this CSS gates `VaultLockGuard` and everything below it out
+ * entirely until its own animation completes).
  *
  * Every animated property here is `transform`, `opacity`, or `filter` —
  * nothing that forces layout (no `top`/`left`/`width`/`height` keyframes)
@@ -65,10 +68,11 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  /* Always near-black — not pure #000 (a hair off pure black reads as
-     considered rather than a raw CSS default) — independent of the app's
-     own light/dark theme tokens. See file header. */
-  background: #07070a;
+  /* Light mode: the app's own light surface. Dark mode overrides this
+     below to a near-black — not pure #000 (a hair off pure black reads
+     as considered rather than a raw CSS default) — for the cinematic
+     "theatre goes dark" open. */
+  background: var(--foundation-surface, #ffffff);
   pointer-events: none;
   opacity: 1;
   transition: opacity 420ms var(--motion-ease-accelerate);
@@ -76,11 +80,29 @@
   --streak-purple: #b478f5;
   --streak-pink: #ff6fa8;
   --streak-blue: #6fa4ff;
-  --intro-ink: #f5f5f7;
+  /* Light mode: dark ink text, and every streak/halo mix dialed down —
+     the dark-mode saturation values below read as loud/neon rather than
+     premium against a white backdrop. */
+  --intro-ink: #1d1d1f;
+  --streak-far-mix: 40%;
+  --streak-mid-mix: 46%;
+  --streak-near-mix: 56%;
+  --halo-mix-a: 40%;
+  --halo-mix-b: 24%;
 }
 
 .root[data-phase="exit"] {
   opacity: 0;
+}
+
+:global(.dark) .root {
+  background: #07070a;
+  --intro-ink: #f5f5f7;
+  --streak-far-mix: 70%;
+  --streak-mid-mix: 78%;
+  --streak-near-mix: 88%;
+  --halo-mix-a: 55%;
+  --halo-mix-b: 38%;
 }
 
 /* ── Light streaks: thin blurred gradient bars that sweep in from
@@ -109,8 +131,8 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in oklab, var(--streak-purple) 70%, transparent) 45%,
-    color-mix(in oklab, var(--streak-purple) 70%, transparent) 55%,
+    color-mix(in oklab, var(--streak-purple) var(--streak-far-mix), transparent) 45%,
+    color-mix(in oklab, var(--streak-purple) var(--streak-far-mix), transparent) 55%,
     transparent 100%
   );
 }
@@ -119,8 +141,8 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in oklab, var(--streak-pink) 78%, transparent) 45%,
-    color-mix(in oklab, var(--streak-pink) 78%, transparent) 55%,
+    color-mix(in oklab, var(--streak-pink) var(--streak-mid-mix), transparent) 45%,
+    color-mix(in oklab, var(--streak-pink) var(--streak-mid-mix), transparent) 55%,
     transparent 100%
   );
 }
@@ -129,8 +151,8 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in oklab, var(--streak-blue) 78%, transparent) 45%,
-    color-mix(in oklab, var(--streak-blue) 78%, transparent) 55%,
+    color-mix(in oklab, var(--streak-blue) var(--streak-mid-mix), transparent) 45%,
+    color-mix(in oklab, var(--streak-blue) var(--streak-mid-mix), transparent) 55%,
     transparent 100%
   );
 }
@@ -139,8 +161,8 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in oklab, var(--streak-purple) 88%, transparent) 45%,
-    color-mix(in oklab, var(--streak-purple) 88%, transparent) 55%,
+    color-mix(in oklab, var(--streak-purple) var(--streak-near-mix), transparent) 45%,
+    color-mix(in oklab, var(--streak-purple) var(--streak-near-mix), transparent) 55%,
     transparent 100%
   );
 }
@@ -267,9 +289,10 @@
 }
 
 /* ── Halo: the bloom the streaks converge into, and the glow the mark
-   sits inside for the rest of the sequence. Fixed bright blue/purple —
-   deliberately not the app's theme-adaptive hero tokens, since this
-   intro is always dark regardless of the app's own light/dark setting. */
+   sits inside for the rest of the sequence. Uses the same fixed streak
+   palette as the beams (not the app's theme-adaptive hero tokens) so the
+   glow always matches the streaks that fed into it; the mix percentages
+   themselves still flip per theme via --halo-mix-a/b above. */
 .halo {
   position: absolute;
   width: 280px;
@@ -277,8 +300,8 @@
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    color-mix(in oklab, var(--streak-blue) 55%, transparent) 0%,
-    color-mix(in oklab, var(--streak-purple) 38%, transparent) 46%,
+    color-mix(in oklab, var(--streak-blue) var(--halo-mix-a), transparent) 0%,
+    color-mix(in oklab, var(--streak-purple) var(--halo-mix-b), transparent) 46%,
     transparent 72%
   );
   filter: blur(30px);
