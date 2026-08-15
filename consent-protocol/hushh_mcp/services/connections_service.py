@@ -296,7 +296,8 @@ class ConnectionsService:
             WHERE user_id = :user_id
               AND {_RIA_VERIFIED_STATUS_SQL}
             LIMIT 1
-            """,
+            """,  # nosec B608 - _RIA_VERIFIED_STATUS_SQL is a module constant of
+            # static text; the only caller-supplied value here is bound.
             {"user_id": owner_user_id},
         )
         if not ria:
@@ -1895,7 +1896,8 @@ class ConnectionsService:
             FROM ria_profiles
             WHERE user_id = ANY(:user_ids)
               AND {_RIA_VERIFIED_STATUS_SQL}
-            """,
+            """,  # nosec B608 - _RIA_VERIFIED_STATUS_SQL is a module constant of
+            # static text; the user ids are bound as an array parameter.
             {"user_ids": candidates},
         )
         return {str(row.get("user_id") or "") for row in rows}
