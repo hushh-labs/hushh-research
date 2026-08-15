@@ -81,3 +81,90 @@ describe("SharedWithMeCard", () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * The card is what a recipient looks at while there is no location on it, and
+ * for a long time that was a name, a date, and nothing else. The page computed
+ * a reason on every five-second poll; the only thing that rendered it was the
+ * retired legacy UI, so the reason never reached anyone.
+ *
+ * Both tones are asserted because the failure mode runs in both directions: a
+ * silent card tells a waiting recipient nothing, and an alarming card tells a
+ * recipient on the happy path that something is wrong. The most common status
+ * here by far -- the owner has not published a first point yet -- is a success.
+ */
+describe("SharedWithMeCard view status", () => {
+  const base = {
+    name: "Trusted A",
+    statusLine: "Live until Jul 28, 11:19 PM",
+    onView: () => {},
+  };
+
+  it("says nothing when there is nothing to say", () => {
+    render(<SharedWithMeCard {...base} />);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Ask to refresh" }),
+    ).toBeNull();
+  });
+
+  it("reports waiting calmly, with no alert and no recovery action", () => {
+    const onAskReshare = vi.fn();
+    render(
+      <SharedWithMeCard
+        {...base}
+        viewStatus={{
+          message: "Waiting for Trusted A's first update.",
+          tone: "waiting",
+        }}
+        onAskReshare={onAskReshare}
+      />,
+    );
+
+    expect(
+      screen.getByText("Waiting for Trusted A's first update."),
+    ).toBeTruthy();
+    // A healthy share must never be announced as a problem. `role="alert"`
+    // interrupts a screen reader, and amber reads as "something is broken" --
+    // both wrong for a share that is working and simply has not been published
+    // to yet.
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Nothing for the recipient to do; the next poll resolves it. Offering
+    // "Ask to refresh" here would nag the owner about a share they already made.
+    expect(screen.queryByRole("button", { name: "Ask to refresh" })).toBeNull();
+    expect(onAskReshare).not.toHaveBeenCalled();
+  });
+
+  it("raises a blocked share as an alert and offers the recovery action", () => {
+    const onAskReshare = vi.fn();
+    render(
+      <SharedWithMeCard
+        {...base}
+        viewStatus={{
+          message:
+            "Couldn't open Trusted A's live location — the secure key changed. Ask them to share again.",
+          tone: "blocked",
+        }}
+        onAskReshare={onAskReshare}
+      />,
+    );
+
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("the secure key changed");
+
+    const action = screen.getByRole("button", { name: "Ask to refresh" });
+    fireEvent.click(action);
+    expect(onAskReshare).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no action when the caller supplies none", () => {
+    render(
+      <SharedWithMeCard
+        {...base}
+        viewStatus={{ message: "Could not open this share.", tone: "blocked" }}
+      />,
+    );
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Ask to refresh" })).toBeNull();
+  });
+});

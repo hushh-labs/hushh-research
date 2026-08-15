@@ -185,6 +185,7 @@ import { OneLocationActivityDashboard } from "@/components/one-location/activity
 import {
   LocationRedesignHub,
   ONE_LOCATION_SHARE_DEFAULT_DURATION_HOURS,
+  type GrantViewStatus,
   type LocationHubViewModel,
   type PrivateCheckInRequest,
   type PrivateCheckInResult,
@@ -2518,13 +2519,23 @@ export function OneLocationAgentPageContent({
     },
     [updateLocationWorkspace],
   );
-  // Per-grant, recipient-facing message shown when a received share can't be
-  // decrypted because the on-device key no longer matches (e.g. the key rotated
-  // after WKWebView storage loss). Drives the inline "ask them to share again"
-  // recovery state instead of a raw crypto error. Keyed by grant id, mirrors
-  // `decryptedPoints`.
+  // Per-grant, recipient-facing status shown when a received share has no point
+  // on screen. Keyed by grant id, mirrors `decryptedPoints`.
+  //
+  // The tone is not decoration, it is the whole point. Two very different
+  // things land here and were previously indistinguishable behind a bare
+  // string named "error":
+  //
+  //   waiting — the share is healthy and the owner simply has not published a
+  //     point yet. This is the single most common state on the receiving side
+  //     and it is a SUCCESS. Rendering it as a warning would put a scary
+  //     banner on the happy path, which is exactly the category error that
+  //     made `oneLocationFailureClass` label these as permission failures.
+  //   blocked — the recipient genuinely cannot open this share and it will not
+  //     fix itself on the next poll. Only this tone earns an alert and the
+  //     "Ask to refresh" action.
   const [grantViewErrors, setGrantViewErrors] = useState<
-    Record<string, string>
+    Record<string, GrantViewStatus>
   >({});
   const [openedGrantTick, setOpenedGrantTick] = useState(0);
   // Bumped whenever the recipient unwatches a share, so the memoized
@@ -4692,9 +4703,12 @@ export function OneLocationAgentPageContent({
           // grant to the slow cadence until the owner actually publishes.
           setGrantViewErrors((current) => {
             const waiting = awaitingFirstPublishMessage(grant);
-            return current[grant.id] === waiting
+            return current[grant.id]?.message === waiting
               ? current
-              : { ...current, [grant.id]: waiting };
+              : {
+                  ...current,
+                  [grant.id]: { message: waiting, tone: "waiting" },
+                };
           });
           if (!silent) toast.message(awaitingFirstPublishMessage(grant));
           return "awaiting";
@@ -4755,9 +4769,12 @@ export function OneLocationAgentPageContent({
           });
           setGrantViewErrors((current) => ({
             ...current,
-            [grant.id]: `Couldn't open ${receivedGrantOwnerLabel(
-              grant,
-            )}'s live location — the secure key changed. Ask them to share again.`,
+            [grant.id]: {
+              message: `Couldn't open ${receivedGrantOwnerLabel(
+                grant,
+              )}'s live location — the secure key changed. Ask them to share again.`,
+              tone: "blocked",
+            },
           }));
           return "error";
         }
@@ -4767,9 +4784,12 @@ export function OneLocationAgentPageContent({
           // appear automatically on the next poll once the owner publishes.
           const waitingMessage = awaitingFirstPublishMessage(grant);
           setGrantViewErrors((current) =>
-            current[grant.id] === waitingMessage
+            current[grant.id]?.message === waitingMessage
               ? current
-              : { ...current, [grant.id]: waitingMessage },
+              : {
+                  ...current,
+                  [grant.id]: { message: waitingMessage, tone: "waiting" },
+                },
           );
           // Only nudge with a gentle (non-error) toast on an explicit tap, and
           // never on the background poll, so the page stays quiet while waiting.
@@ -4778,13 +4798,26 @@ export function OneLocationAgentPageContent({
           }
           return "awaiting";
         }
+        const genericMessage =
+          error instanceof Error && error.message
+            ? error.message
+            : "Could not view this private location update.";
         if (!silent) {
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "Could not view this private location update.",
-          );
+          toast.error(genericMessage);
+          // The person tapped View and it failed. A toast disappears, so also
+          // leave the reason on the card itself -- otherwise tapping again is
+          // the only way to find out anything, which is how a recipient ends
+          // up retrying the same broken share over and over.
+          setGrantViewErrors((current) => ({
+            ...current,
+            [grant.id]: { message: genericMessage, tone: "blocked" },
+          }));
         } else {
+          // Stay quiet on the background poll. A transient network blip must
+          // not paint an alert every five seconds over content that is about
+          // to refresh itself; the same reasoning governs the page-level load
+          // banner. An explicit tap is what promotes this to something the
+          // person sees.
           console.warn(
             "[OneLocationAgent] Silent location refresh skipped:",
             error,
@@ -4890,7 +4923,7 @@ export function OneLocationAgentPageContent({
       return changed ? next : current;
     });
     setGrantViewErrors((current) => {
-      const next: Record<string, string> = {};
+      const next: Record<string, GrantViewStatus> = {};
       let changed = false;
       for (const [grantId, message] of Object.entries(current)) {
         if (activeGrantIds.has(grantId)) {
@@ -10048,6 +10081,11 @@ export function OneLocationAgentPageContent({
     ),
     mapLocationHref: googleMapsLocationUrl,
     decryptedPoints,
+    // The page has always computed these on every five-second poll; until now
+    // the only component that rendered them was the retired legacy UI below,
+    // so a recipient waiting on a first point — the most common receiving
+    // state — saw a card with a name, a date, and no explanation at all.
+    grantViewStatuses: grantViewErrors,
     reverseGeocodePoint: (point) =>
       reverseGeocodeForSavedLocation(point.latitude, point.longitude),
     sosRecipients: sosActionRecipients,
@@ -11184,7 +11222,7 @@ export function OneLocationAgentPageContent({
                   {visibleReceivedGrants.length ? (
                     visibleReceivedGrants.map((grant, index) => {
                       const point = decryptedPoints[grant.id];
-                      const viewError = grantViewErrors[grant.id];
+                      const viewError = grantViewErrors[grant.id]?.message;
                       return (
                         <div
                           key={grant.id}
