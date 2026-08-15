@@ -2766,7 +2766,10 @@ describe("OneLocationAgentPage", () => {
       Array.from(
         nowStatus.querySelectorAll('[data-slot="settings-row-icon"]'),
       ).map((icon) => icon.getAttribute("data-icon-tone")),
-    ).toEqual(["accent", "green", "gray", "gray", "gray", "gray"]);
+    // Row 5 is "Request location". Asking someone for their location is an
+    // action, so it carries the accent alongside share/create/navigate; grey is
+    // reserved for settings, empty, zero and off states, none of which it is.
+    ).toEqual(["accent", "green", "gray", "gray", "accent", "gray"]);
     await openSharePersonStep();
     fireEvent.change(screen.getByPlaceholderText("Search"), {
       target: { value: "advisor" },
@@ -2804,7 +2807,10 @@ describe("OneLocationAgentPage", () => {
       Array.from(
         nowStatus.querySelectorAll('[data-slot="settings-row-icon"]'),
       ).map((icon) => icon.getAttribute("data-icon-tone")),
-    ).toEqual(["accent", "gray", "gray", "orange", "gray", "gray"]);
+    // Orange at index 3 is the point of this test: "Needs my review" is the one
+    // row whose tone tracks a count. Index 4 ("Request location") is a constant
+    // accent action tone, not a status.
+    ).toEqual(["accent", "gray", "gray", "orange", "accent", "gray"]);
   });
 
   it("shows the entry flow before the main-page loader while state refresh is loading", async () => {
@@ -3668,10 +3674,16 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Send request/i }));
 
     await waitFor(() => expect(mockRequestAccess).toHaveBeenCalledTimes(1));
+    // The picked duration travels WITH the request. The Ask screen has always
+    // shown a "Duration requested" control; it used to be dropped here, so the
+    // owner was asked an unquantified question and approved from their own
+    // unrelated control.
     expect(mockRequestAccess).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
       ownerUserId: "user_b",
       message: "Safety check-in — Need pickup coordination",
+      requestedDurationHours: 1,
+      requestedDurationMode: "timed",
     });
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
@@ -3828,11 +3840,19 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
+    // The amount asked for travels with the request, and the grant it would
+    // lengthen is named. This used to send the literal string "Requesting more
+    // time." and nothing else -- the number the person had just picked from
+    // the control directly above the button was the one fact the owner never
+    // received.
     await waitFor(() =>
       expect(mockRequestAccess).toHaveBeenCalledWith({
         vaultOwnerToken: "vault-token",
         ownerUserId: "user_b",
-        message: "Requesting more time.",
+        message: "Requesting 1 hour more of your live location.",
+        requestedDurationHours: 1,
+        requestedDurationMode: "timed",
+        extendsGrantId: "grant_from_request_live",
       }),
     );
   });

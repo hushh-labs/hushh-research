@@ -1837,6 +1837,26 @@ class FourUserMemoryService(OneLocationAgentService):
             }
             self.grants[grant_id] = row
             return row
+        # "Is this owner already sharing live with this person?" -- the read
+        # that turns an ask into an ask for MORE time. Keyed on the pair, not on
+        # a grant id, so it must be matched before the by-id grant reads below.
+        if (
+            "FROM one_location_share_grants" in sql
+            and "recipient_user_id = :recipient_user_id" in sql
+            and "status = 'active'" in sql
+            and "grant_id" not in params
+        ):
+            now = datetime.now(timezone.utc)
+            live = [
+                grant
+                for grant in self.grants.values()
+                if grant["owner_user_id"] == params["owner_user_id"]
+                and grant["recipient_user_id"] == params["recipient_user_id"]
+                and grant["status"] == "active"
+                and (grant.get("expires_at") is None or grant["expires_at"] > now)
+            ]
+            live.sort(key=lambda item: item["created_at"], reverse=True)
+            return live[0] if live else None
         if "FROM one_location_share_grants" in sql and "owner_user_id = :owner_user_id" in sql:
             grant = self.grants.get(params["grant_id"])
             if (
@@ -1912,13 +1932,25 @@ class FourUserMemoryService(OneLocationAgentService):
                 "requested_at": datetime.now(timezone.utc),
                 "resolved_at": None,
                 "approved_grant_id": None,
+                "requested_duration_hours": params.get("requested_duration_hours"),
+                "requested_duration_mode": params.get("requested_duration_mode"),
+                "extends_grant_id": params.get("extends_grant_id"),
+                "request_revision": 1,
             }
             self.requests[request_id] = row
             return row
-        if "UPDATE one_location_access_requests" in sql and "SET message = :message" in sql:
+        if "UPDATE one_location_access_requests" in sql and "SET message = COALESCE" in sql:
             request = self.requests.get(params["request_id"])
             if request and request["status"] == "pending":
-                request["message"] = params["message"]
+                # COALESCE(:message, message): a re-ask that carries no note
+                # must not blank the note already on the row.
+                if params.get("message") is not None:
+                    request["message"] = params["message"]
+                request["requested_duration_hours"] = params.get("requested_duration_hours")
+                request["requested_duration_mode"] = params.get("requested_duration_mode")
+                request["extends_grant_id"] = params.get("extends_grant_id")
+                if params.get("ask_changed"):
+                    request["request_revision"] = int(request.get("request_revision") or 1) + 1
                 request["requested_at"] = datetime.now(timezone.utc)
                 return request
             return None
@@ -1937,6 +1969,17 @@ class FourUserMemoryService(OneLocationAgentService):
             request["approved_grant_id"] = params["grant_id"]
             request["resolved_at"] = datetime.now(timezone.utc)
             return request
+        if "SET status = 'denied'" in sql:
+            request = self.requests.get(params["request_id"])
+            if (
+                request
+                and request["owner_user_id"] == params["owner_user_id"]
+                and request["status"] == "pending"
+            ):
+                request["status"] = "denied"
+                request["resolved_at"] = datetime.now(timezone.utc)
+                return request
+            return None
         if (
             "WHERE id = CAST(:grant_id AS UUID)" in sql
             and "recipient_user_id = :referring_user_id" in sql

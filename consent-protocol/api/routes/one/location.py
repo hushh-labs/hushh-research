@@ -145,12 +145,29 @@ class UpdateMapPreferencesRequest(_CamelModel):
 class CreateAccessRequest(_CamelModel):
     owner_user_id: str = Field(alias="ownerUserId", min_length=1, max_length=160)
     message: str | None = Field(default=None, max_length=500)
+    # How much time the requester actually wants. Optional so an older client
+    # keeps its current behaviour (no preference -> the owner picks), and a
+    # request, never an authorization: only approve_request writes a grant.
+    requested_duration_hours: float | None = Field(
+        default=None, alias="requestedDurationHours", gt=0, le=24
+    )
+    requested_duration_mode: str | None = Field(
+        default=None,
+        alias="requestedDurationMode",
+        pattern="^(timed|until_stopped)$",
+    )
+    # The live share this ask wants lengthened. A hint the service verifies
+    # against the real grant between these two people before honouring it.
+    extends_grant_id: str | None = Field(default=None, alias="extendsGrantId", max_length=128)
 
 
 class ResolveAccessRequest(_CamelModel):
-    duration_hours: float | None = Field(default=1, alias="durationHours", gt=0, le=24)
-    duration_mode: str = Field(
-        default="timed",
+    # Both default to None so an approval with no duration means "grant what
+    # they asked for". Sending one still wins -- the owner can always give less
+    # (or more) than was asked.
+    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
+    duration_mode: str | None = Field(
+        default=None,
         alias="durationMode",
         pattern="^(timed|until_stopped)$",
     )
@@ -1474,6 +1491,9 @@ def request_location_access(
                 requester_user_id=_user_id(token_data),
                 owner_user_id=payload.owner_user_id,
                 message=payload.message,
+                requested_duration_hours=payload.requested_duration_hours,
+                requested_duration_mode=payload.requested_duration_mode,
+                extends_grant_id=payload.extends_grant_id,
             )
         }
     except Exception as exc:

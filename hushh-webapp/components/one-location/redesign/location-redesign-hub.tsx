@@ -47,6 +47,12 @@ import {
 } from "lucide-react";
 
 import { requestRecipientStatus } from "@/lib/one-location/request-recipient-status";
+import {
+  formatLocationDurationLabel,
+  locationApproveActionLabel,
+  locationAskPromptLine,
+} from "@/lib/one-location/duration-copy";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -404,6 +410,13 @@ export type LocationHubViewModel = {
   formatDateTime: (value?: string | null) => string;
   expiresLabel: (value?: string | null) => string;
   expiresCountdownLabel: (value?: string | null) => string;
+  /**
+   * The page's ticking clock. Passed down rather than read per component so
+   * every "45 more min left" on the screen moves together and agrees; a
+   * component reading its own `Date.now()` at render freezes at whatever it
+   * said when it mounted.
+   */
+  nowMs: number;
 
   /* map preview renderer (reuses page LocalMapPreview to keep crypto/view path) */
   renderMapPreview: (
@@ -1290,6 +1303,12 @@ function NowHub({
             voiceControlId="one-location-action-active-shares"
             voiceActionId="location.open_active_shares"
           />
+          {/* Deliberately neutral, even though `receivedGrants` is already
+              filtered to active grants. Turning it green put two adjacent rows
+              in the same colour for what a reader takes to be one fact, and
+              pushed this group to four coloured rows against two grey — the
+              screen has to stay mostly neutral for "Active shares" to register
+              at all. The count beside it already reports the state. */}
           <SettingsRow
             icon={MapPinCheck}
             iconTone="gray"
@@ -1323,9 +1342,16 @@ function NowHub({
             "Requests should explain why. The other person chooses whether to
             share." Radar and Crosshair were rejected for implying tracking on a
             surface built around consent. */}
+          {/* Action blue, not grey. Asking someone for their location is an
+              action, and the palette contract puts request alongside share,
+              create and navigate. Grey is reserved for settings, empty, zero
+              and off states, none of which this is. It reuses the accent
+              already on this screen rather than introducing a hue, so the
+              colour budget is unchanged -- unlike "Shared with me" above,
+              where green would have added a third. */}
           <SettingsRow
             icon={MessageCircleQuestion}
-            iconTone="gray"
+            iconTone="accent"
             title="Request location"
             density="compact"
             chevron
@@ -1349,8 +1375,14 @@ function NowHub({
       </section>
 
       <QuickActionsSection title={null} columns={2} className="mt-4 sm:mt-5">
+        {/* An entry point, not a status. This tile opens the check-in flow
+            whether or not a check-in is live, so it takes the action role like
+            every other tap-to-open affordance on this tab; green would report
+            "checked in" on a screen that has not checked anyone in. The live
+            check-in state is already carried by the map legend and the nearby
+            sheet, which is where that green belongs. */}
         <QuickActionCard
-          tone="green"
+          tone="blue"
           icon={<MapPin />}
           title="Check in"
           subtitle={checkInSubtitle}
@@ -1493,11 +1525,17 @@ function LocationDetailFlow({
       {kind === "active-shares" ? (
         vm.activeOwnerGrants.length ? (
           <SettingsGroup separatorInset>
+            {/* `iconTone` is neutral, not the accent that this row's former
+                `purple` tone actually renders: every row on this screen is one
+                active grant, so the tile has no state to distinguish, and the
+                row's single strong colour belongs to the destructive Stop
+                beside it. The true role is people/indigo, which SettingsRow has
+                no tone for — see the deferred note. */}
             {vm.activeOwnerGrants.map((grant) => (
               <SettingsRow
                 key={grant.id}
                 icon={UsersRound}
-                iconTone="purple"
+                iconTone="gray"
                 title={vm.grantRecipientLabel(grant)}
                 description={
                   grant.durationMode === "until_stopped"
@@ -1576,7 +1614,12 @@ function LocationDetailFlow({
                           size="sm"
                           onClick={() => vm.onAskReshare(grant)}
                           disabled={vm.busy === "request"}
-                          className="h-8 rounded-full border-amber-500/30 bg-white/70 px-3 text-[12px] font-semibold text-amber-800 hover:bg-white dark:border-amber-300/25 dark:bg-white/10 dark:text-amber-100 dark:hover:bg-white/15"
+                          // Asking is an action, not a warning. The amber said
+                          // "something needs your attention" about a control
+                          // that is simply the way to request a fresh point.
+                          // Translucent white ground kept: it is what makes the
+                          // chip legible over the map behind it.
+                          className="h-8 rounded-full border-[color:var(--app-accent-border)] bg-white/70 px-3 text-[12px] font-semibold text-[color:var(--app-accent-deep)] hover:bg-white dark:bg-white/10 dark:text-[color:var(--app-accent-bright)] dark:hover:bg-white/15"
                         >
                           {vm.busy === "request" ? (
                             <span
@@ -1611,8 +1654,12 @@ function LocationDetailFlow({
               <RequestCard
                 key={request.id}
                 name={vm.requesterLabel(request)}
-                promptLine="Asks to see your location"
+                // The amount, and whether it is extra time on a share already
+                // running. Every card used to read "Asks to see your location"
+                // whether the person wanted fifteen minutes or another day.
+                promptLine={locationAskPromptLine(request, vm.nowMs)}
                 reason={request.message ?? undefined}
+                approveLabel={locationApproveActionLabel(request, vm.nowMs)}
                 onApprove={() => vm.onApprove(request)}
                 onDecline={() => vm.onDeny(request.id)}
               />
@@ -2210,6 +2257,13 @@ function LinksHub({
   const temp = vm.latestActivePublicInvite;
   const invite = vm.latestActiveCircleInvite;
   const hasLinks = Boolean(temp) || Boolean(invite);
+  // The two rows of this card are opposites — anyone with the link vs one named
+  // person — so they have to be tellable apart at a 17px glyph. `--app-purple`
+  // and `--app-people` are both violets at a 10% wash and carry no role between
+  // them; a link anyone can open is a share/create affordance (action), and a
+  // private invite into your Circle is people.
+  const publicLinkRole = roleClasses("action");
+  const inviteRole = roleClasses("people");
   const createAction = (
     <Button
       type="button"
@@ -2235,9 +2289,11 @@ function LinksHub({
           {temp ? (
             <ActiveLinkRow
               first
-              tileClass="bg-[color:var(--app-purple)]/12 dark:bg-[color:var(--app-purple)]/15"
+              tileClass={publicLinkRole.tile}
               icon={
-                <LinkIcon className="h-[17px] w-[17px] text-[color:var(--app-purple)]" />
+                <LinkIcon
+                  className={cn("h-[17px] w-[17px]", publicLinkRole.glyph)}
+                />
               }
               title="Live location link"
               subtitle={`${vm.expiresCountdownLabel(temp.expiresAt)} · anyone with the link`}
@@ -2245,11 +2301,19 @@ function LinksHub({
             />
           ) : null}
           {invite ? (
+            // An invite link is a private, one-person route into your Circle —
+            // the people role. Green claimed a success state the row does not
+            // have: nothing has been accepted yet, the link is merely open.
+            // The glyph had to move with the colour, for the same reason:
+            // ShieldCheck is this app's ACCEPTED mark (approved requests, the
+            // "Request sent" receipt, a ready device), so it kept asserting the
+            // state the colour had just stopped claiming. UserPlus is the glyph
+            // the invite flow itself already uses for this object.
             <ActiveLinkRow
               first={!temp}
-              tileClass="bg-[color:var(--app-success)]/12 dark:bg-[color:var(--app-success)]/15"
+              tileClass={inviteRole.tile}
               icon={
-                <ShieldCheck className="h-[17px] w-[17px] text-[color:var(--app-success)]" />
+                <UserPlus className={cn("h-[17px] w-[17px]", inviteRole.glyph)} />
               }
               title="Invite link"
               subtitle={`${vm.expiresCountdownLabel(invite.expiresAt)} · one person`}
@@ -2386,6 +2450,11 @@ function ShareFlow({
     const intervalId = window.setInterval(() => setNowMs(Date.now()), 30_000);
     return () => window.clearInterval(intervalId);
   }, [step]);
+
+  // A Circle is people. Taken from the role layer so the tile and its glyph
+  // stay one family and the glyph keeps the legible half of it in both themes
+  // — the flat role token is a fill tone, and indigo on a dark wash is 2.9:1.
+  const circleRole = roleClasses("people");
 
   const setShareReviewOpen = vm.setShareReviewOpen;
   const backToPeople = useCallback(() => {
@@ -2634,7 +2703,17 @@ function ShareFlow({
                       : "hover:bg-[color:var(--app-neutral-fill)]",
                   )}
                 >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent)]">
+                  {/* A Circle is people, not an action: the accent belongs to
+                      the selection state around it (row wash + check), and
+                      wearing the same blue made the identity tile vanish into
+                      the row the moment it was picked. */}
+                  <span
+                    className={cn(
+                      "flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]",
+                      circleRole.tile,
+                      circleRole.glyph,
+                    )}
+                  >
                     <UsersRound className="h-[18px] w-[18px]" />
                   </span>
                   <span className="min-w-0 flex-1">
@@ -2813,6 +2892,27 @@ function shareEndsAtLabel(durationHours: string, nowMs: number): string {
 /* ASK FLOW                                                             */
 /* =================================================================== */
 
+/**
+ * Would saving the inline duration editor LENGTHEN this share?
+ *
+ * Mirrors the backend rule the save path relies on: shortening lands at once
+ * because it only ever reduces exposure, while lengthening has to go back to
+ * the owner as a request. An until-stopped share has no end to push out, so
+ * every timed pick on it is a shortening.
+ */
+function editWouldExtend(
+  grant: OneLocationGrant,
+  vm: LocationHubViewModel,
+  nowMs: number,
+): boolean {
+  const hours = Number(vm.editGrantDurationHours);
+  if (!Number.isFinite(hours) || hours <= 0) return false;
+  if (!grant.expiresAt) return false;
+  const expiresAtMs = Date.parse(grant.expiresAt);
+  if (!Number.isFinite(expiresAtMs)) return false;
+  return nowMs + hours * 3_600_000 >= expiresAtMs;
+}
+
 function AskFlow({
   vm,
   reason,
@@ -2829,17 +2929,13 @@ function AskFlow({
   // the specific request they just made, rather than popping straight back to
   // the hub. `justSent` latches the success state and blocks duplicate submits.
   const [justSent, setJustSent] = useState(false);
-  // "Asked 6m ago" is only true at the moment it renders. Without a clock the
-  // list freezes at whatever it said when the screen opened, which is how a
-  // request sent half an hour ago still reads as just now.
-  //
-  // Coarse on purpose: these labels move in minutes, so a 30s tick keeps them
-  // honest without re-rendering a list of people every second.
-  const [statusNowMs, setStatusNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setStatusNowMs(Date.now()), 30_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  // "Asked 6m ago" and "59 more min" are only true at the moment they render.
+  // Both now come off the page's single clock, so this list, the countdowns on
+  // the share cards, and the approvals screen cannot disagree about what time
+  // it is -- which they did when each surface ticked its own timer.
+  const statusNowMs = vm.nowMs;
+  // The receipt for a sent request is a settled positive fact -> success.
+  const sentRole = roleClasses("success");
   return (
     <div className="space-y-5">
       <TaskFlowHeader title="Request with context" />
@@ -2847,9 +2943,20 @@ function AskFlow({
       {justSent ? (
         <div
           role="status"
-          className="flex items-start gap-2.5 rounded-2xl border border-[color:var(--app-success)]/30 bg-[color:var(--app-success)]/10 px-3.5 py-3"
+          // One-off alphas on the flat token are exactly what the -tint and
+          // -border partners exist to stop; the same banner rendered a slightly
+          // different green on every screen that hand-rolled its own. The glyph
+          // takes the role's own legible tone for the same reason it takes the
+          // wash: the flat token is a fill, and on this tint it is ~2:1.
+          className={cn(
+            "flex items-start gap-2.5 rounded-2xl border px-3.5 py-3",
+            sentRole.tile,
+            sentRole.border,
+          )}
         >
-          <ShieldCheck className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[color:var(--app-success)]" />
+          <ShieldCheck
+            className={cn("mt-0.5 h-[18px] w-[18px] shrink-0", sentRole.glyph)}
+          />
           <p className="text-sm font-medium text-foreground">Request sent.</p>
         </div>
       ) : null}
@@ -2935,6 +3042,19 @@ function AskFlow({
                           label="New duration"
                           presentation="select"
                         />
+                        {/* Say which of the two things Save does BEFORE it is
+                            pressed. Shortening applies at once; lengthening is
+                            the owner's consent to give again, so it leaves as a
+                            request — and a control that said only "Save" for
+                            both let people believe they had just extended
+                            their own access. */}
+                        <p className="text-[13px] leading-5 text-muted-foreground">
+                          {editWouldExtend(activeGrant, vm, statusNowMs)
+                            ? `Asks ${recipientLabel} for ${formatLocationDurationLabel(
+                                Number(vm.editGrantDurationHours),
+                              )} more. They decide.`
+                            : "Ends sooner. Applies right away."}
+                        </p>
                         <Button
                           size="sm"
                           className="h-9 w-full rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
@@ -2947,7 +3067,9 @@ function AskFlow({
                           }
                           isLoading={vm.revokingGrantId === activeGrant.id}
                         >
-                          Save
+                          {editWouldExtend(activeGrant, vm, statusNowMs)
+                            ? "Ask for more time"
+                            : "Save"}
                         </Button>
                       </>
                     ) : undefined
@@ -3024,10 +3146,16 @@ function AskFlow({
             aria-disabled={!isFormValid || sending || justSent}
             isLoading={sending}
             className={cn(
-              "h-12 w-full rounded-2xl text-base font-semibold text-[color:var(--app-accent-fg)] disabled:pointer-events-none",
+              "h-12 w-full rounded-2xl text-base font-semibold disabled:pointer-events-none",
               justSent
-                ? "bg-[color:var(--app-success)] opacity-100 hover:bg-[color:var(--app-success)]"
-                : "bg-[color:var(--app-accent)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35",
+                // Latched and disabled: this is no longer a CTA, it is the
+                // receipt for one, which is the one thing green is for. It has
+                // to carry the SUCCESS foreground, though — it was borrowing
+                // the accent's, so the label was white on green (~2:1) and,
+                // under the gold accent preference, changed colour for a
+                // reason that has nothing to do with sending a request.
+                ? "bg-[color:var(--app-success)] text-[color:var(--app-success-fg)] opacity-100 hover:bg-[color:var(--app-success)]"
+                : "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90 disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35",
             )}
           >
             {justSent ? (
@@ -3068,6 +3196,7 @@ function InviteFlow({
 }) {
   const created =
     Boolean(vm.circleInviteUrl) || Boolean(vm.latestActiveCircleInvite);
+  const pendingPill = roleClasses("warning");
 
   if (created) {
     const invite = vm.latestActiveCircleInvite;
@@ -3093,7 +3222,17 @@ function InviteFlow({
                   : "Invite expires soon"}
               </p>
             </div>
-            <span className="rounded-full border border-amber-500/30 bg-amber-500/12 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
+            {/* Was a private re-typing of the shared pending pill in raw amber.
+                Same meaning — waiting on the other person — now drawn from the
+                warning role instead of a palette colour. */}
+            <span
+              className={cn(
+                "rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+                pendingPill.tile,
+                pendingPill.border,
+                pendingPill.glyph,
+              )}
+            >
               Pending
             </span>
           </div>
@@ -3119,7 +3258,10 @@ function InviteFlow({
             variant="ghost"
             onClick={() => vm.onRevokeCircleInvite(invite)}
             isLoading={vm.busy === "circleRevoke"}
-            className="h-11 w-full rounded-full text-sm text-red-600 hover:text-red-700 dark:text-red-300"
+            // Revoking really is destructive, so red is right — but through the
+            // same destructive token as every other Stop/Delete on this
+            // surface, not a raw red-600/red-300 pair of its own.
+            className="h-11 w-full rounded-full text-sm text-destructive hover:text-destructive"
           >
             Revoke invite
           </Button>
