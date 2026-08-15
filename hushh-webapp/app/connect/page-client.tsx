@@ -2207,10 +2207,28 @@ export default function ConnectPageClient() {
               variant="blue"
               effect="fill"
               className="min-w-[148px]"
-              disabled={!batchConnectDraft || isConnectingMultiple}
+              // Held until the catalogs land. Sending first is not a slower
+              // version of the same thing -- it is a send with no picks
+              // attached, reported as a success, which is the exact failure
+              // this sheet exists to end.
+              disabled={
+                !batchConnectDraft ||
+                isConnectingMultiple ||
+                batchConnectDraft.loadingCatalogs
+              }
               onClick={() => void handleConnectMultiple()}
             >
-              {isConnectingMultiple ? "Sending…" : "Send requests"}
+              {/*
+                A disabled Button in this system still renders full Action
+                Blue, so a held button that kept its ready label would look
+                tappable and read as a dead tap. The label carries the state
+                instead of the colour.
+              */}
+              {isConnectingMultiple
+                ? "Sending…"
+                : batchConnectDraft?.loadingCatalogs
+                  ? "Checking…"
+                  : "Send requests"}
             </Button>
           </DialogFooter>
         </DialogContent>
