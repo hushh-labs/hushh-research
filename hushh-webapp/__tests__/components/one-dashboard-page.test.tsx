@@ -123,13 +123,18 @@ describe("OneDashboardPage", () => {
       "--agent-icon-profile-bg": "rgba(88, 86, 214, 0.16)",
       "--agent-icon-profile-fg": "#5856D6",
     });
+    // Palette slots are assigned by roster position, so this list must track
+    // ONE_CAPABILITIES order. Location moved from sixth to second, which shifts
+    // the five agents it passed by one slot each — a deliberate consequence of
+    // the reorder, not an incidental one: the palette exists to keep adjacent
+    // rows distinguishable, and that property is preserved.
     const rosterPaletteOrder = [
       "finance",
+      "location",
       "ria",
       "gmail",
       "calendar",
       "email",
-      "location",
       "pkm",
       "consent",
       "connected-systems",
