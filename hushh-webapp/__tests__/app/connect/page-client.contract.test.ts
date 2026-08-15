@@ -21,7 +21,12 @@ describe("Connect canonical surface contract", () => {
     expect(source).toContain("<SettingsRow");
     expect(source).not.toContain("Private configuration");
     expect(source).not.toContain("icon={Sparkles}");
-    expect(source).toContain("icon={UserRound}");
+    // A person is still UserRound; a verified adviser earns the verified mark
+    // and the tone this design system already spends on a verified state. The
+    // mark rides on the row rather than on the tab, so it still means something
+    // in a search that spans both halves of the directory.
+    expect(source).toContain("person.isRia ? BadgeCheck : UserRound");
+    expect(source).toContain('person.isRia ? "green" : "blue"');
     expect(source).toContain("separatorInset");
   });
 
