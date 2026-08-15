@@ -439,7 +439,9 @@ export function SharedWithMeCard({
         {children}
       </div>
       {message ? (
-        <p className={cn(MUTED_TEXT, "px-[18px] pt-4 text-sm sm:px-6")}>{message}</p>
+        <p className={cn(MUTED_TEXT, "px-[18px] pt-4 text-sm sm:px-6")}>
+          {message}
+        </p>
       ) : null}
       <div className="grid grid-cols-1 gap-3 px-[18px] pb-[18px] pt-4 sm:px-6 sm:pb-6">
         {address || addressLoading || coordinatesFallback ? (
@@ -466,45 +468,45 @@ export function SharedWithMeCard({
             onRemove ? "grid-cols-2" : "grid-cols-1",
           )}
         >
-        {canOpenMap ? (
-          <Button
-            asChild
-            size="sm"
-            className="h-[52px] rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
-          >
-            <a
-              href={mapHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Open shared location in Google Maps"
+          {canOpenMap ? (
+            <Button
+              asChild
+              size="sm"
+              className="h-[52px] rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
+            >
+              <a
+                href={mapHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open shared location in Google Maps"
+              >
+                <MapPin className="mr-1.5 h-3.5 w-3.5" />
+                Open map
+              </a>
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              onClick={onView}
+              isLoading={viewBusy}
+              className="h-[52px] rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
             >
               <MapPin className="mr-1.5 h-3.5 w-3.5" />
-              Open map
-            </a>
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            onClick={onView}
-            isLoading={viewBusy}
-            className="h-[52px] rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
-          >
-            <MapPin className="mr-1.5 h-3.5 w-3.5" />
-            View location
-          </Button>
-        )}
-        {onRemove ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onRemove}
-            isLoading={removeBusy}
-            aria-label={`Remove ${name} from Shared with me`}
-            className="h-9 rounded-full text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
-          >
-            Remove
-          </Button>
-        ) : null}
+              View location
+            </Button>
+          )}
+          {onRemove ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onRemove}
+              isLoading={removeBusy}
+              aria-label={`Remove ${name} from Shared with me`}
+              className="h-9 rounded-full text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              Remove
+            </Button>
+          ) : null}
         </div>
       </div>
     </div>

@@ -955,12 +955,20 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* Task flows (full-screen, no local tabs)                           */
   /* ----------------------------------------------------------------- */
   if (flow !== "none") {
+    // SMS Contacts and Save My Soul were not part of the supplied redesign.
+    // Keep their existing container rhythm; the scoped title margin only
+    // replaces the now-removed empty TaskFlowHeader lead row pixel-for-pixel.
+    const flowContainerClassName =
+      flow === "sms-contacts" || flow === "sos"
+        ? "space-y-6 [&_header>h1]:mt-1.5"
+        : cn(
+            "mx-auto w-full max-w-[720px] space-y-6 pt-8 [--foundation-title1-line:39px] [--foundation-title1-size:34px] [--foundation-title1-tracking:-0.8px] [--foundation-title1-weight:600] sm:pt-[72px] sm:[--foundation-title1-line:48px] sm:[--foundation-title1-size:44px] sm:[--foundation-title1-tracking:-1.1px]",
+            LOCATION_SECTION_LABEL_SCOPE,
+          );
+
     return (
       <div
-        className={cn(
-          "mx-auto w-full max-w-[720px] space-y-6 pt-8 [--foundation-title1-line:39px] [--foundation-title1-size:34px] [--foundation-title1-tracking:-0.8px] [--foundation-title1-weight:600] sm:pt-[72px] sm:[--foundation-title1-line:48px] sm:[--foundation-title1-size:44px] sm:[--foundation-title1-tracking:-1.1px]",
-          LOCATION_SECTION_LABEL_SCOPE,
-        )}
+        className={flowContainerClassName}
         data-ambient-chrome-ignore
         data-testid="one-location-action-flow"
       >
