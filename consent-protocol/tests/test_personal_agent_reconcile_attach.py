@@ -74,10 +74,25 @@ def repo(monkeypatch):
 
 
 async def test_only_states_a_row_should_have_left_are_retried(repo):
+    """The statuses must be ones the provisioning service actually writes.
+
+    This asserted `{"provisioning", "failed"}` and passed for as long as the query and
+    this expectation were wrong together. Nothing has ever written a bare `"failed"` --
+    the service writes `"provisioning_failed"` -- so the retry sweep queried for a
+    status absent from the table and has never retried a single failed pod.
+
+    That is the shape the plan of record names: a test written against a call site
+    rather than against the thing it calls. It did not merely miss the defect, it
+    pinned it, so correcting the query turned this red.
+
+    `tests/test_pod_status_vocabulary_is_one_vocabulary.py` now asserts the JOIN
+    between the readers and the writers, which is the check neither side could make
+    alone.
+    """
     r, sink = repo
     await r.fetch_stalled_agents(stalled_before="2026-08-06T00:00:00+00:00")
 
-    assert set(sink["in_"]["status"]) == {"provisioning", "failed"}
+    assert set(sink["in_"]["status"]) == {"provisioning", "provisioning_failed"}
 
 
 async def test_connecting_is_never_retried(repo):

@@ -33,9 +33,19 @@ _TOMBSTONES = "personal_agent_deletion_tombstones"
 # Over-counting is the safe direction for a cost ceiling; under-counting spends money.
 _ACTIVE_POD_STATUSES = ("provisioning", "connecting", "provisioned")
 # States a row should have LEFT. `provisioning` is the fire-and-forget task that
-# died mid-flight; `failed` recorded its own defeat. `connecting` is excluded on
-# purpose -- see fetch_stalled_agents.
-_STALLED_POD_STATUSES = ("provisioning", "failed")
+# died mid-flight; `provisioning_failed` recorded its own defeat. `connecting` is
+# excluded on purpose -- see fetch_stalled_agents.
+#
+# This said `"failed"`, and NOTHING has ever written that string. The service writes
+# `"provisioning_failed"` (personal_agent_provisioning_service, two sites). So the
+# retry sweep has never once retried a failed pod, and could not have: it queried for
+# a status that does not exist in the table.
+#
+# Nothing reported it because a sweep that finds nothing and a sweep looking for the
+# wrong string produce identical logs -- `personal_agent_reconcile.pass stalled=0`
+# either way. The only way to see it was to compare this tuple against the writers,
+# which is exactly what the guard beside it now does on every run.
+_STALLED_POD_STATUSES = ("provisioning", "provisioning_failed")
 
 
 class PersonalAgentRegistryRepo:
