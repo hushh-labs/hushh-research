@@ -3,7 +3,7 @@ import type { RouteId } from "@/lib/observability/route-map";
 
 export type ObservabilityPlatform = "web" | "ios" | "android";
 export type ObservabilityEventCategory = "funnel" | "feature" | "system";
-export type GrowthJourney = "investor" | "ria";
+export type GrowthJourney = "investor" | "ria" | "location";
 export type GrowthEntrySurface =
   | "login"
   | "kai_home"
@@ -12,6 +12,10 @@ export type GrowthEntrySurface =
   | "marketplace"
   | "ria_home"
   | "ria_onboarding"
+  | "one_location"
+  | "one_location_onboarding"
+  | "circle_join"
+  | "public_location_link"
   | "unknown";
 export type GrowthPortfolioSource = "statement" | "plaid";
 export type GrowthWorkspaceSource =
@@ -31,6 +35,33 @@ export type GrowthRiaStep =
   | "profile_submitted"
   | "request_created"
   | "workspace_ready";
+/**
+ * The One Location acquisition funnel, ordered. Each step is emitted at most
+ * once per user per journey so drop-off between adjacent steps is readable
+ * directly as a ratio. `phone_verified` and `vault_unlocked` are the two gates
+ * imposed by the One auth gate and are the funnel's known friction points.
+ */
+export type GrowthLocationStep =
+  | "entered"
+  | "auth_started"
+  | "auth_completed"
+  | "phone_verified"
+  | "vault_unlocked"
+  | "onboarding_started"
+  | "onboarding_completed"
+  | "circle_created"
+  | "invite_shared"
+  | "first_share_sent";
+/** Which side of a share activated the user. */
+export type GrowthLocationActivationPath = "share_sent" | "share_received";
+/** How the user arrived at the location surface, for viral-loop attribution. */
+export type GrowthLocationInviteSource =
+  | "circle_code"
+  | "circle_member_invite"
+  | "public_link"
+  | "invite_to_one"
+  | "contact_sync"
+  | "direct";
 
 export type ObservabilityEventName =
   | "page_view"
@@ -97,7 +128,12 @@ export type ObservabilityEventName =
   | "one_location_circle_invite_created"
   | "one_location_recommendation_selected"
   | "one_location_share_review_opened"
-  | "one_location_onboarding_completed";
+  | "one_location_onboarding_completed"
+  | "one_location_activation_completed"
+  | "one_location_setup_completed"
+  | "one_location_check_in_completed"
+  | "one_location_circle_created"
+  | "one_location_sos_triggered";
 
 export type StatusBucket =
   | "2xx"
@@ -252,6 +288,11 @@ const EVENT_CATEGORY_BY_NAME: Record<
   one_location_circle_invite_created: "feature",
   one_location_recommendation_selected: "feature",
   one_location_share_review_opened: "feature",
+  one_location_activation_completed: "funnel",
+  one_location_setup_completed: "funnel",
+  one_location_check_in_completed: "feature",
+  one_location_circle_created: "feature",
+  one_location_sos_triggered: "feature",
 };
 
 export function resolveObservabilityEventCategory(
@@ -444,11 +485,12 @@ export interface EventPayloadMap {
   };
   growth_funnel_step_completed: {
     journey: GrowthJourney;
-    step: GrowthInvestorStep | GrowthRiaStep;
+    step: GrowthInvestorStep | GrowthRiaStep | GrowthLocationStep;
     entry_surface?: GrowthEntrySurface;
     auth_method?: AuthMethod;
     portfolio_source?: GrowthPortfolioSource;
     workspace_source?: GrowthWorkspaceSource;
+    invite_source?: GrowthLocationInviteSource;
     app_version: string;
   };
   investor_activation_completed: {
@@ -463,6 +505,25 @@ export interface EventPayloadMap {
     entry_surface?: GrowthEntrySurface;
     auth_method?: AuthMethod;
     workspace_source?: GrowthWorkspaceSource;
+    app_version: string;
+  };
+  /**
+   * The One Location north-star. A user is activated once location has actually
+   * moved between two people — sent or received. Onboarding completion alone
+   * does not count: a user who never shares has not used a sharing product.
+   * Emitted at most once per user; see LOCATION_ACTIVATION_DEDUPE_KEY.
+   */
+  one_location_activation_completed: {
+    journey: "location";
+    /** Which side of the exchange activated them. */
+    activation_path: GrowthLocationActivationPath;
+    entry_surface?: GrowthEntrySurface;
+    auth_method?: AuthMethod;
+    /** How they originally arrived, so viral joins are separable from cold ones. */
+    invite_source?: GrowthLocationInviteSource;
+    /** Bucketed, never a raw recipient list. */
+    recipient_count_bucket?: string;
+    share_duration_bucket?: string;
     app_version: string;
   };
   api_request_completed: {
@@ -566,6 +627,71 @@ export interface EventPayloadMap {
     failure_count: number;
     duration_bucket: string;
     review_required: boolean;
+  };
+  /**
+   * Finished the full One Location setup, as distinct from finishing the
+   * onboarding cards. Setup is the one-time lock — once complete the setup
+   * screen becomes unreachable — so this is the honest "fully set up" signal.
+   */
+  one_location_setup_completed: {
+    route_id: RouteId;
+    result: EventResult;
+    /**
+     * How many times settlement had to be retried before it stuck. Non-zero
+     * values mean people are pressing "finish" and being bounced back, which is
+     * invisible in a plain completion count.
+     */
+    settlement_retries: number;
+  };
+  /**
+   * A one-off "I'm here" reached at least one person. Separate from
+   * `one_location_share_confirmed` because Check-In currently also emits that
+   * event, which makes the two features indistinguishable in reporting — you
+   * cannot tell whether people share live location or just check in.
+   */
+  one_location_check_in_completed: {
+    route_id: RouteId;
+    result: EventResult;
+    selected_count: number;
+    success_count: number;
+    failure_count: number;
+    /** Whether a Circle was the target rather than hand-picked people. */
+    circle_targeted: boolean;
+  };
+  one_location_circle_created: {
+    route_id: RouteId;
+    result: EventResult;
+    /** family | friends | other — the Circle kind, never its name. */
+    circle_kind: string;
+  };
+  /**
+   * An emergency alert was sent.
+   *
+   * Deliberately minimal. This records only that the safety feature fired and
+   * whether it actually reached anyone — never the message, never the
+   * coordinates, never who was contacted, not even a bucketed hint that could
+   * narrow a household down. We instrument it because an emergency feature that
+   * silently fails to alert anybody is the most important bug this product
+   * could have, and `reached_count` of zero is how we would find out.
+   */
+  one_location_sos_triggered: {
+    route_id: RouteId;
+    result: EventResult;
+    /** People selected to alert. */
+    selected_count: number;
+    /** People whose device was actually alerted. Zero means the alert failed. */
+    reached_count: number;
+    /** Selected but not alertable by push — notifications off, or no token. */
+    unreachable_count: number;
+    /**
+     * Reached by the email fallback. Push and email are separate channels, and
+     * an alert where every push failed but inboxes received it is not an alert
+     * that reached nobody — recording it as one would send an investigation
+     * after the wrong channel.
+     */
+    emailed_count: number;
+    /** Whether a message accompanied the alert. Never the message itself. */
+    has_note: boolean;
   };
   /**
    * Location onboarding reached its end. Without this the redesign is

@@ -83,7 +83,7 @@ wait_for_http() {
   start="$(date +%s)"
 
   until curl -fsS "$url" >/dev/null 2>&1; do
-    if [ $(( "$(date +%s)" - start )) -ge "$timeout_seconds" ]; then
+    if [ $(( $(date +%s) - start )) -ge "$timeout_seconds" ]; then
       echo "Timed out waiting for ${label}: ${url}" >&2
       return 1
     fi

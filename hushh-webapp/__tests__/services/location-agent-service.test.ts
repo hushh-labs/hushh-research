@@ -172,8 +172,11 @@ describe("OneLocationService", () => {
       grantId: "grant_1",
     });
 
+    // allow_empty asks the backend to answer "live share, owner hasn't
+    // published a point yet" with 200 + a null envelope instead of a 404.
+    // Without it that ordinary state is a failed request on every poll.
     expect(mockApiJson).toHaveBeenCalledWith(
-      "/api/one/location/grants/grant_1/envelope",
+      "/api/one/location/grants/grant_1/envelope?allow_empty=1",
       {
         headers: {
           Authorization: "Bearer vault-token",
@@ -183,6 +186,21 @@ describe("OneLocationService", () => {
     );
     expect(mockApiJson.mock.calls[0]?.[0]).not.toContain("/api/kai");
     expect(mockApiJson.mock.calls[0]?.[0]).not.toContain("/location/shared");
+  });
+
+  it("keeps the grant id escaped ahead of the allow_empty query", async () => {
+    // The grant id is path data and the flag is query data; a grant id that
+    // contains a delimiter must not be able to smuggle in extra parameters.
+    mockApiJson.mockResolvedValueOnce({ grant: {}, envelope: null });
+
+    await OneLocationService.viewEnvelope({
+      vaultOwnerToken: "vault-token",
+      grantId: "grant/1?allow_empty=0",
+    });
+
+    expect(mockApiJson.mock.calls[0]?.[0]).toBe(
+      "/api/one/location/grants/grant%2F1%3Fallow_empty%3D0/envelope?allow_empty=1",
+    );
   });
 
   it("uses the authenticated One request route when asking someone to share", async () => {

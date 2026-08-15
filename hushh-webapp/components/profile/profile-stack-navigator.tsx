@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
 const STACK_TRANSITION_MS = 260;
 
@@ -51,15 +50,17 @@ function StackHeader({
 }) {
   return (
     <div
-      className="mx-auto w-full max-w-[720px] px-[var(--page-inline-gutter-standard)] pt-[var(--page-header-section-gap)]"
+      className="mx-auto flex w-full max-w-[520px] flex-col gap-1 px-[var(--page-inline-gutter-standard)] pb-1 pt-3"
       data-profile-stack-header="true"
     >
-      <PageHeader
-        title={title}
-        description={description}
-        accent="neutral"
-        testId="profile-stack-page-header"
-      />
+      <h1 className="profile-home-name ui-text-identity-name text-[32px] font-bold tracking-tight text-[color:var(--ios-account-label)]">
+        {title}
+      </h1>
+      {description ? (
+        <p className="ui-text-page-subtitle text-[color:var(--ios-account-secondary-label)]">
+          {description}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -169,42 +170,22 @@ export function ProfileStackNavigator({
 
   return (
     <div
-      className="relative min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] overflow-hidden"
+      className="relative h-[calc(100dvh-var(--top-shell-reserved-height,0px))] w-full overflow-hidden flex flex-col flex-1 bg-[color:var(--ios-account-screen-background)]"
       data-profile-stack="true"
     >
       <div
-        className="flex h-full w-full min-h-[calc(100dvh-var(--top-shell-reserved-height,0px))] transition-transform duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+        className="flex h-full w-full transition-transform duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
         style={{ transform: `translateX(-${Math.max(activeIndex, 0) * 100}%)` }}
       >
         {screens.map((entry, index) => (
           <section
             key={entry.key}
-            className="flex min-h-full min-w-full w-full shrink-0 flex-col overflow-x-hidden"
+            className="flex h-full min-h-full min-w-full w-full shrink-0 flex-col overflow-hidden"
             data-profile-stack-screen={entry.key}
           >
             {entry.isRoot ? (
-              <div className="flex min-h-full flex-1 flex-col">
+              <div className="flex h-full min-h-full flex-1 flex-col overflow-y-auto">
                 {entry.content}
-              </div>
-            ) : entry.presentation === "account" ? (
-              <div
-                ref={(node) => {
-                  scrollRegionRefs.current[index] = node;
-                }}
-                data-profile-stack-scroll="true"
-                className="flex-1 overflow-y-auto overflow-x-hidden"
-              >
-                <div
-                    className="mx-auto flex w-full max-w-[720px] flex-col px-[var(--page-inline-gutter-standard)] pb-[var(--app-bottom-content-clearance)] pt-0"
-                  data-profile-stack-content="true"
-                >
-                  <SettingsPresentationProvider
-                    separatorInset
-                    density="compact"
-                  >
-                    {entry.content}
-                  </SettingsPresentationProvider>
-                </div>
               </div>
             ) : (
               <>
@@ -217,10 +198,10 @@ export function ProfileStackNavigator({
                     scrollRegionRefs.current[index] = node;
                   }}
                   data-profile-stack-scroll="true"
-                  className="flex-1 overflow-y-auto overflow-x-hidden"
+                  className="flex flex-1 flex-col overflow-y-auto overscroll-contain"
                 >
                   <div
-                    className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-[var(--app-bottom-content-clearance)] pt-3"
+                    className="mx-auto flex w-full max-w-[520px] flex-1 flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-4 pt-1"
                     data-profile-stack-content="true"
                   >
                     <SettingsPresentationProvider

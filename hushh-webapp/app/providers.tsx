@@ -58,6 +58,7 @@ import {
   isRiaRoute,
 } from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
+import { LocationBus } from "@/lib/one-location/location-bus";
 import { PersonaProvider } from "@/lib/persona/persona-context";
 import { resolveSignedInShellContentOffset } from "@/components/app-ui/signed-in-shell-content-offset";
 import { NativeTestRouter } from "@/components/app-ui/native-test-router";
@@ -77,6 +78,29 @@ interface ProvidersProps {
 function readCustomVar(style: CSSProperties, key: string): string {
   const value = (style as Record<string, string | number | undefined>)[key];
   return value === undefined || value === null ? "" : String(value).trim();
+}
+
+/**
+ * Give the shared position store an account, once, for the whole app.
+ *
+ * The store can keep a fix across a reload, but only for somebody: a
+ * coordinate has to belong to an account before it can be sealed to their key.
+ * That attach used to happen in two places and effectively neither. The hook
+ * only attached when a caller passed a `userId` and no caller did; key
+ * bootstrap needs a vault token, so it landed after the Location page had
+ * already taken — and failed — its first capture. The restored fix was
+ * therefore missing at exactly the moment it existed to cover: the cold start.
+ *
+ * Here it runs for every signed-in route, before any surface asks. Idempotent,
+ * so key bootstrap's call stays harmless; and attaching null on sign-out is
+ * what clears one person's position before the next person's session.
+ */
+function LocationBusAccountBridge() {
+  const { userId } = useAuth();
+  useEffect(() => {
+    void LocationBus.attachUser(userId ?? null);
+  }, [userId]);
+  return null;
 }
 
 function AppShellFrame({ children }: ProvidersProps) {
@@ -197,9 +221,7 @@ function AppShellFrame({ children }: ProvidersProps) {
         // The route-body tab gap is deliberate reading space, not a chrome
         // extension. Keep it out of the mask so dark mode cannot form a band
         // beneath the tab underline.
-        "--top-shell-mask-tabs-gap": topShellMetrics.hasTabs
-          ? "var(--top-tabs-gap)"
-          : "0px",
+        "--top-shell-mask-tabs-gap": "0px",
         "--top-shell-mask-solid-height":
           "calc(var(--top-shell-reserved-height) - var(--top-shell-mask-tabs-gap) - var(--top-chrome-collapse-px, 0px))",
         "--top-shell-mask-visible-height":
@@ -470,6 +492,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                 app. Keeping it outside the route Suspense boundary prevents
                 fallback/resolved remounts from launching the same sync twice. */}
               <PostAuthOnboardingSyncBridge />
+              <LocationBusAccountBridge />
               <Suspense
                 fallback={
                   <>

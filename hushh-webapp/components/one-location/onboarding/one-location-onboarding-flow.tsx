@@ -25,6 +25,7 @@ import type { ConsentNotificationDeliveryMode } from "@/components/consent/notif
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import locationOnboardingContract from "@/lib/onboarding/one-location-onboarding.contract.json";
 import { trackEvent } from "@/lib/observability/client";
+import { trackLocationFunnelStepCompleted } from "@/lib/observability/growth";
 import { resolveRouteId } from "@/lib/observability/route-map";
 import { cn } from "@/lib/utils";
 
@@ -182,14 +183,6 @@ const WELCOME_ORBIT_ITEMS = [
 
 const ONBOARDING_IMAGE_SOURCES = WELCOME_ORBIT_ITEMS.map(({ src }) => src);
 
-function safeName(
-  value: string | null | undefined,
-  fallback = "Someone",
-): string {
-  const normalized = String(value || "").trim();
-  return normalized || fallback;
-}
-
 function PrimaryButton({
   children,
   onClick,
@@ -316,7 +309,7 @@ function OnboardingNavigation({
 function WelcomeRadar() {
   return (
     <div
-      className="relative mx-auto aspect-square w-[min(88vw,48dvh,390px)]"
+      className="relative mx-auto aspect-square w-[min(82vw,42dvh,340px)]"
       data-one-welcome-radar
       aria-hidden="true"
     >
@@ -332,8 +325,11 @@ function WelcomeRadar() {
         />
       ))}
       <span className="absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
-        <span className="flex h-[70px] w-[70px] items-center justify-center rounded-full border border-white/70 bg-white text-[#087ff5] shadow-[0_12px_32px_rgba(0,61,144,0.22)]">
-          <MapPin className="h-7 w-7 fill-current/10" strokeWidth={2.7} />
+        <span
+          className="flex h-16 w-16 items-center justify-center rounded-full border border-white/70 bg-white text-[#087ff5] shadow-[0_12px_32px_rgba(0,61,144,0.22)]"
+          data-one-welcome-core
+        >
+          <MapPin className="h-6 w-6 fill-current/10" strokeWidth={2.7} />
         </span>
         <span className="-mt-1 rounded-full bg-white px-4 py-0.5 text-[14px] font-bold text-[#087ff5] shadow-[0_5px_14px_rgba(0,61,144,0.18)]">
           You
@@ -349,7 +345,10 @@ function WelcomeRadar() {
           )}
           style={{ animationDelay: `${120 + index * 90}ms` }}
         >
-          <span className="block h-[66px] w-[66px] overflow-hidden rounded-[18px] border-[3px] border-white bg-white p-0.5 shadow-[0_12px_28px_rgba(0,40,100,0.28)]">
+          <span
+            className="block h-[58px] w-[58px] overflow-hidden rounded-[18px] border-[3px] border-white bg-white p-0.5 shadow-[0_12px_28px_rgba(0,40,100,0.28)]"
+            data-one-welcome-orbit-card
+          >
             {/* eslint-disable-next-line @next/next/no-img-element -- Local static art must render in Capacitor static export. */}
             <img
               src={item.src}
@@ -363,7 +362,10 @@ function WelcomeRadar() {
               )}
             />
           </span>
-          <span className="absolute -right-1 -top-1 h-[19px] w-[19px] rounded-full border-[3px] border-white bg-[#31c65b]" />
+          <span
+            className="absolute -right-1 -top-1 h-[17px] w-[17px] rounded-full border-[3px] border-white bg-[#31c65b]"
+            data-one-welcome-orbit-status
+          />
         </span>
       ))}
       <style>{`
@@ -387,53 +389,60 @@ function WelcomeScreen({
   leaving: boolean;
 }) {
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] text-white dark:bg-[#073d78]">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(var(--app-safe-area-top-effective,0px),10px)] text-white dark:bg-[#073d78]">
       <span className="pointer-events-none absolute -right-24 -top-32 h-72 w-72 rounded-full bg-white/[0.05]" />
       <span className="pointer-events-none absolute -bottom-28 -left-32 h-72 w-72 rounded-full bg-[#006bd9]/55" />
-      <OnboardingNavigation
-        inverse
-        onBack={onBack}
-        onSkip={onSkip}
-        disabled={leaving}
-        busy={leaving}
-        className="pt-2"
-      />
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col">
-        <div className="shrink-0 text-center">
-          <p className="inline-flex items-center gap-2 text-[17px] font-semibold leading-[22px]">
-            <MapPin
-              className="h-5 w-5"
-              strokeWidth={2.5}
-              data-testid="location-agent-heading-icon"
-            />
-            Location Agent
-          </p>
-          <h1
-            className="mx-auto mt-7 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.025em]"
-            data-one-welcome-heading
-          >
-            Share your location
-            <br />
-            easily with anyone.
-          </h1>
-        </div>
-        <div className="flex min-h-0 flex-1 items-center justify-center py-2">
-          <WelcomeRadar />
-        </div>
-        <div className="shrink-0">
-          <PrimaryButton inverse onClick={onStart}>
-            Get started
-          </PrimaryButton>
+      <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-[560px] flex-1 flex-col">
+        <OnboardingNavigation
+          inverse
+          onBack={onBack}
+          onSkip={onSkip}
+          disabled={leaving}
+          busy={leaving}
+          className="pt-2"
+        />
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="shrink-0 text-center">
+            <p className="inline-flex items-center gap-2 text-[17px] font-semibold leading-[22px]">
+              <MapPin
+                className="h-5 w-5"
+                strokeWidth={2.5}
+                data-testid="location-agent-heading-icon"
+              />
+              Location Agent
+            </p>
+            <h1
+              className="mx-auto mt-5 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.015em]"
+              data-one-welcome-heading
+            >
+              Share your location
+              <br />
+              easily with anyone.
+            </h1>
+          </div>
+          <div className="flex min-h-0 flex-1 items-center justify-center py-4">
+            <WelcomeRadar />
+          </div>
+          <div className="shrink-0">
+            <PrimaryButton inverse onClick={onStart}>
+              Get started
+            </PrimaryButton>
+          </div>
         </div>
       </div>
       <style>{`
-        @media (max-height: 720px) { [data-one-welcome-heading] { margin-top: 12px; font-size: 34px; } }
+        @media (max-height: 720px) {
+          [data-one-welcome-heading] { margin-top: 12px; font-size: 28px; line-height: 34px; }
+          [data-one-welcome-radar] { width: min(80vw, 42dvh, 320px); }
+        }
         @media (max-height: 560px) {
           [data-one-welcome-heading] { margin-top: 8px; font-size: 26px; line-height: 30px; }
-          [data-one-welcome-radar] { width: min(88vw, 30dvh, 390px); }
+          [data-one-welcome-radar] { width: min(76vw, 38dvh, 280px); }
+          [data-one-welcome-orbit-card] { width: 52px; height: 52px; }
+          [data-one-welcome-core] { width: 58px; height: 58px; }
         }
         @media (max-height: 400px) {
-          [data-one-welcome-radar] { width: min(60vw, 26dvh, 390px); }
+          [data-one-welcome-radar] { width: min(60vw, 32dvh, 220px); }
         }
       `}</style>
     </div>
@@ -630,15 +639,14 @@ function ShareLocationFeatureCard() {
           Share location
         </span>
         <TwoLineFeatureTitle
-          lines={["No more explaining", "where you are."]}
+          lines={["Can’t explain", "where you are?"]}
           className="font-[family-name:var(--font-app-display)] text-[21px]"
         />
         <p
           className="text-[15px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Share once with family, friends, your driver &mdash; or anyone in your
-          Circle.
+          Share once. Your Circle can find you safely.
         </p>
       </div>
       <div
@@ -714,7 +722,7 @@ function CheckInFeatureCard() {
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#aeb8c7]"
           data-one-feature-body
         >
-          Check in once so your Circle sees your exact spot.
+          Check in anywhere. Your Circle knows you arrived.
         </p>
       </div>
       <div
@@ -775,7 +783,7 @@ function SaveMySoulFeatureCard() {
           className="text-[14px] leading-[1.4] text-[#747b86] dark:text-[#c2aeb2]"
           data-one-feature-body
         >
-          Send an emergency SMS with your live location to trusted contacts.
+          Send your location when you need help fast.
         </p>
       </div>
       <div
@@ -868,7 +876,7 @@ function FeaturesScreen({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-white px-6 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] dark:bg-[#0c1017]"
+      className="mx-auto flex h-full min-h-0 w-full max-w-[430px] max-[431px]:max-w-none flex-1 flex-col overflow-hidden bg-white px-5 pb-[max(env(safe-area-inset-bottom,0px),18px)] pt-[max(var(--app-safe-area-top-effective,0px),12px)] dark:bg-[#0c1017] sm:px-8 md:max-w-none md:px-10 lg:px-14"
       data-one-feature-screen
     >
       <OnboardingNavigation
@@ -879,24 +887,24 @@ function FeaturesScreen({
         busy={leaving}
       />
       <div
-        className="flex min-h-0 flex-[0_1_auto] flex-col overflow-hidden"
+        className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         data-one-feature-scroll
       >
-        <header className="mt-3 shrink-0" data-one-feature-header>
+        <header className="mx-auto mt-3 w-full max-w-[700px] shrink-0" data-one-feature-header>
           <h1
             className="ui-text-agent-title text-[#111823] dark:!text-[#f6f8fc]"
             data-one-feature-heading
           >
-            Stay connected
+            Need to keep people updated?
           </h1>
           <p
             className="mt-3 text-[15px] font-normal leading-[20px] text-[#737a84] dark:text-[#aeb8c7]"
             data-one-feature-subtitle
           >
-            For everyday plans, meetups, and emergencies.
+            Share location, check in, or send help in seconds.
           </p>
         </header>
-        <div className="mt-6 grid shrink-0 gap-4" data-one-feature-grid>
+        <div className="mx-auto mt-6 grid w-full max-w-[700px] shrink-0 gap-4" data-one-feature-grid>
           <ShareLocationFeatureCard />
           <div
             className="grid grid-cols-2 items-start gap-4"
@@ -916,7 +924,7 @@ function FeaturesScreen({
           {status}
         </p>
       </div>
-      <div className="shrink-0 pt-8" data-one-feature-cta>
+      <div className="mx-auto w-full max-w-[560px] shrink-0 pt-5" data-one-feature-cta>
         <PrimaryButton
           onClick={onContinue}
           busy={permissionBusy}
@@ -943,8 +951,8 @@ function FeaturesScreen({
           [data-one-onboarding-motion] { animation: none !important; }
         }
         [data-one-feature-heading] {
-          --foundation-title1-size: clamp(36px, 3vw, 40px);
-          --foundation-title1-line: 1.05;
+          --foundation-title1-size: 34px;
+          --foundation-title1-line: 1.08;
         }
         [data-one-feature-copy] {
           --one-feature-copy-gap: 12px;
@@ -954,21 +962,20 @@ function FeaturesScreen({
           gap: var(--one-feature-copy-gap);
         }
         @media (max-width: 431px), (min-width: 432px) and (max-height: 920px) {
-          [data-one-feature-scroll] { flex: 1 1 0%; }
+          [data-one-feature-scroll] { flex: 1 1 auto; }
           [data-one-feature-grid] {
-            flex: 1 1 0%;
+            flex: 0 0 auto;
             min-height: 0;
-            grid-template-rows: minmax(0, 0.82fr) minmax(0, 1fr);
+            grid-template-rows: auto;
           }
           [data-one-feature-lower-grid] {
-            height: 100%;
+            height: auto;
             min-height: 0;
             align-items: stretch;
           }
           [data-one-feature-card] {
-            height: 100%;
+            height: auto;
             min-height: 0;
-            aspect-ratio: auto;
           }
         }
         @media (max-height: 780px) {
@@ -1020,6 +1027,109 @@ function FeaturesScreen({
           }
           [data-one-feature-card] {
             border-radius: 22px;
+          }
+        }
+        @media (min-width: 768px) {
+          [data-one-feature-scroll] {
+            align-items: center;
+            flex: 0 0 auto;
+            padding-right: 0;
+          }
+          [data-one-feature-header] {
+            margin-top: 18px;
+            max-width: 1040px;
+          }
+          [data-one-feature-heading] {
+            --foundation-title1-size: 34px;
+          }
+          [data-one-feature-grid] {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-areas:
+              "share checkin sms";
+            align-items: stretch;
+            width: 100%;
+            max-width: 1040px;
+            margin-top: 24px;
+            gap: 18px;
+          }
+          [data-one-feature-lower-grid] {
+            display: contents;
+          }
+          [data-one-feature-card] {
+            min-height: 0;
+          }
+          [data-one-feature-card="share"] {
+            grid-area: share;
+            aspect-ratio: auto;
+            min-height: 390px;
+          }
+          [data-one-feature-card="checkin"] {
+            grid-area: checkin;
+          }
+          [data-one-feature-card="sms"] {
+            grid-area: sms;
+          }
+          [data-one-feature-card="checkin"],
+          [data-one-feature-card="sms"] {
+            aspect-ratio: auto;
+            min-height: 390px;
+          }
+          [data-one-feature-card="share"] [data-one-feature-copy] {
+            width: auto;
+            padding: 20px 18px 0;
+          }
+          [data-one-feature-card="share"] [data-one-use-case-art] {
+            inset: auto 0 42px 0;
+            width: 100%;
+            height: 50%;
+          }
+          [data-one-feature-card="share"] [data-one-feature-title],
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] {
+            font-size: 20px;
+            line-height: 1.14;
+          }
+          [data-one-feature-card="share"] [data-one-feature-body],
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] {
+            font-size: 15px;
+            line-height: 1.35;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-copy],
+          [data-one-feature-card="sms"] [data-one-feature-copy] {
+            width: auto;
+            padding: 20px 18px 0;
+          }
+          [data-one-feature-card="checkin"] [data-one-use-case-art] {
+            inset: auto 0 42px 0;
+            width: 100%;
+            height: 46%;
+          }
+          [data-one-feature-card="checkin"] [data-one-checkin-art] {
+            left: 50%;
+            bottom: 20px;
+            width: 42%;
+          }
+          [data-one-feature-card="sms"] [data-one-feature-art-region] {
+            position: relative;
+            inset: auto;
+            align-items: center;
+            justify-content: center;
+          }
+          [data-one-feature-card="sms"] [data-one-sms-radar-clearance] {
+            width: 108px;
+            height: 108px;
+          }
+          [data-one-feature-card="checkin"] [data-one-feature-status-row],
+          [data-one-feature-card="sms"] [data-one-feature-status-row] {
+            padding-right: 18px;
+            padding-left: 18px;
+          }
+          [data-one-feature-cta] {
+            max-width: 430px;
+            padding-top: 22px;
+            padding-bottom: 4px;
           }
         }
         @media (max-width: 380px) {
@@ -1249,7 +1359,7 @@ function FeaturesScreen({
             line-height: 15px;
           }
           [data-one-feature-grid] {
-            grid-template-rows: minmax(0, 0.72fr) minmax(0, 1fr);
+            grid-template-rows: auto;
             margin-top: 6px;
             gap: 6px;
           }
@@ -1326,6 +1436,26 @@ function FeaturesScreen({
           [data-one-sms-radar-clearance] { width: 40px; height: 40px; }
           [data-one-sms-radar] { width: 32px; height: 32px; }
           [data-one-sms-core] { width: 28px; height: 28px; font-size: 11px; }
+        }
+        @media (min-width: 768px) {
+          [data-one-feature-card="share"] [data-one-feature-copy],
+          [data-one-feature-card="checkin"] [data-one-feature-copy],
+          [data-one-feature-card="sms"] [data-one-feature-copy] {
+            width: auto;
+            padding: 20px 18px 0;
+          }
+          [data-one-feature-card="share"] [data-one-feature-title],
+          [data-one-feature-card="checkin"] [data-one-feature-title],
+          [data-one-feature-card="sms"] [data-one-feature-title] {
+            font-size: 20px;
+            line-height: 1.14;
+          }
+          [data-one-feature-card="share"] [data-one-feature-body],
+          [data-one-feature-card="checkin"] [data-one-feature-body],
+          [data-one-feature-card="sms"] [data-one-feature-body] {
+            font-size: 15px;
+            line-height: 1.35;
+          }
         }
       `}</style>
     </div>
@@ -1540,7 +1670,7 @@ function ContactsScreen({
  * the map cannot show on its own -- that it is empty until someone joins.
  */
 function ReadyScreen({
-  currentUserName,
+  currentUserName: _currentUserName,
   mapPoint,
   invite,
   loading,
@@ -1594,12 +1724,11 @@ function ReadyScreen({
   onAcceptJoinCode: () => void;
   onClearJoinPreview: () => void;
 }) {
-  const firstName = safeName(currentUserName, "You").split(/\s+/)[0];
   const formattedCode = invite ? formatCircleCode(invite.code) : "";
 
   return (
     <div
-      className="relative flex min-h-0 flex-1 flex-col bg-white dark:bg-[#14171d]"
+      className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-white dark:bg-[#14171d] md:bg-[#eef3f8] md:dark:bg-[#070a0f]"
       data-testid="one-location-onboarding-ready-surface"
     >
       {/* The map gets its own band rather than sitting behind the copy.
@@ -1610,7 +1739,7 @@ function ReadyScreen({
           layout every map product converges on for the same reason. */}
       <OnboardingLiveMap
         point={mapPoint}
-        className="h-[34dvh] max-h-[300px] min-h-[190px] w-full shrink-0"
+        className="h-[34dvh] max-h-[300px] min-h-[190px] w-full shrink-0 md:absolute md:inset-0 md:h-full md:max-h-none md:min-h-0"
       />
 
       {/* Floats over the map: the controls stay reachable without stealing a
@@ -1632,16 +1761,20 @@ function ReadyScreen({
         </span>
       </header>
 
-      <div className="relative z-10 -mt-6 min-h-0 flex-1 overflow-y-auto rounded-t-[28px] bg-white px-6 pb-4 pt-6 shadow-[0_-8px_24px_rgba(24,57,91,0.10)] dark:bg-[#14171d]">
-        <h1
-          className="ui-text-agent-title text-[#151b26] dark:!text-[#f5f7fb]"
-          data-one-ready-title
-        >
-          You&apos;re on the map, {firstName}.
-        </h1>
-        <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
-          Only you can see this until you choose to share it.
-        </p>
+      <div
+        className="relative z-10 -mt-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-[28px] bg-white shadow-[0_-8px_24px_rgba(24,57,91,0.10)] dark:bg-[#14171d] md:absolute md:right-[max(44px,6vw)] md:top-1/2 md:mt-0 md:h-auto md:max-h-[calc(100dvh-96px)] md:w-[430px] md:-translate-y-1/2 md:rounded-[30px] md:shadow-[0_24px_80px_rgba(24,57,91,0.22)]"
+        data-testid="one-location-onboarding-ready-panel"
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 pt-6 md:px-7 md:pb-5 md:pt-7">
+          <h1
+            className="ui-text-agent-title pb-1 leading-[1.15] text-[#151b26] dark:!text-[#f5f7fb]"
+            data-one-ready-title
+          >
+            You&apos;re on the map.
+          </h1>
+          <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[#b5bfcc]">
+            Private until you share.
+          </p>
 
         <p
           className="mt-6 flex items-center gap-2 text-[14px] font-medium leading-5 text-[#5c626c] dark:text-[#aeb8c7]"
@@ -1686,7 +1819,7 @@ function ReadyScreen({
                 Bring your people to {invite.circleName}
               </p>
               <p
-                className="mt-2 select-all whitespace-nowrap font-mono text-[clamp(20px,6vw,28px)] font-bold uppercase leading-none tracking-[0.12em] text-[#151b26] dark:text-[#f5f7fb]"
+                className="mt-2 select-all whitespace-nowrap font-mono text-[clamp(20px,6vw,28px)] font-bold uppercase leading-[1.15] tracking-[0.12em] text-[#151b26] dark:text-[#f5f7fb]"
                 data-testid="one-location-onboarding-invite-code"
               >
                 {formattedCode}
@@ -1825,37 +1958,38 @@ function ReadyScreen({
             ) : null}
           </div>
         ) : null}
-      </div>
+        </div>
 
-      <footer className="relative z-10 shrink-0 bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 dark:bg-[#14171d]">
-        {settlementRetryCount > 0 ? (
-          <p
-            className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]"
-            role="status"
-          >
-            That didn&apos;t save. Tap again to finish setting up Location.
-          </p>
-        ) : null}
-        {/* Always the completion CTA. A code that failed to load is not a
-            reason to record the whole capability as skipped -- the person
-            granted permission and saved a place, so finishing is the honest
-            outcome. Retrying the code lives inside the card above. */}
-        <PrimaryButton onClick={onContinue} busy={completing} disabled={leaving}>
-          {completeLabel}
-        </PrimaryButton>
-      </footer>
+        <footer className="relative z-10 shrink-0 bg-white px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3 dark:bg-[#14171d] md:px-7 md:pb-7">
+          {settlementRetryCount > 0 ? (
+            <p
+              className="mb-3 text-center text-[13px] leading-5 text-[#96999e] dark:text-[#8d99a8]"
+              role="status"
+            >
+              That didn&apos;t save. Tap again to finish setting up Location.
+            </p>
+          ) : null}
+          {/* Always the completion CTA. A code that failed to load is not a
+              reason to record the whole capability as skipped -- the person
+              granted permission and saved a place, so finishing is the honest
+              outcome. Retrying the code lives inside the card above. */}
+          <PrimaryButton onClick={onContinue} busy={completing} disabled={leaving}>
+            {completeLabel}
+          </PrimaryButton>
+        </footer>
+      </div>
 
       <style>{`
         [data-one-ready-title] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; }
-        [data-one-ready-seat] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 900ms; }
-        [data-one-ready-code] { animation: oneReadyRise 560ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 1350ms; }
+        [data-one-ready-seat] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 80ms; }
+        [data-one-ready-code] { animation: oneReadyRise 560ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 140ms; }
         /* 34dvh of map is right on a phone, which is tall. A 1366x768 laptop is
            shorter than an iPhone, and there the same fraction pushed the join
            link below the fold -- so the last thing on the screen needed a
            scroll to discover it existed. The map yields the height instead,
            since it is atmosphere and the link is a way in. Phones are past 820px
            and keep the taller band. */
-        @media (max-height: 820px) {
+        @media (max-width: 767px) and (max-height: 820px) {
           [data-testid="onboarding-live-map"] { height: 24dvh; min-height: 150px; }
         }
         @keyframes oneReadyRise {
@@ -2251,9 +2385,21 @@ export function OneLocationOnboardingFlow({
         contacts_matched: contactMatches.length,
         contacts_added: addedContactIds.length,
       });
+      // Only a finish counts as a funnel step. A skip is a real exit and is
+      // still legible on the feature event above via `exited_via`; folding it
+      // in here would flatter the funnel and hide the drop.
+      if (exitedVia === "complete") {
+        trackLocationFunnelStepCompleted("onboarding_completed");
+      }
     },
     [addedContactIds.length, contactMatches.length],
   );
+
+  // Paired with the step above so the ratio between them is the onboarding
+  // drop-off rate.
+  useEffect(() => {
+    trackLocationFunnelStepCompleted("onboarding_started");
+  }, []);
 
   // Completion is a press, not a timer. The settlement guard and retry counter
   // are unchanged -- they are what makes setup completion durable when the
@@ -2265,12 +2411,25 @@ export function OneLocationOnboardingFlow({
     completionInFlightRef.current = true;
     setCompletionBusy(true);
     reportOutcome("complete");
-    void Promise.resolve(onComplete()).catch(() => {
-      completionInFlightRef.current = false;
-      setCompletionBusy(false);
-      setSettlementRetryCount((current) => current + 1);
-    });
-  }, [leaving, onComplete, reportOutcome]);
+    void Promise.resolve(onComplete()).then(
+      () => {
+        // Only on settle. `reportOutcome` above fires when the button is
+        // pressed; this fires when setup actually took, and setup is a one-time
+        // lock — the two diverge exactly when settlement is failing, which is
+        // the case worth seeing.
+        trackEvent("one_location_setup_completed", {
+          route_id: resolveRouteId(window.location.pathname),
+          result: "success",
+          settlement_retries: settlementRetryCount,
+        });
+      },
+      () => {
+        completionInFlightRef.current = false;
+        setCompletionBusy(false);
+        setSettlementRetryCount((current) => current + 1);
+      },
+    );
+  }, [leaving, onComplete, reportOutcome, settlementRetryCount]);
 
   const runSkip = async (settleCircle = false) => {
     if (leaving || (settleCircle && completionInFlightRef.current)) return;
@@ -2348,7 +2507,11 @@ export function OneLocationOnboardingFlow({
       <section
         className={cn(
           "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white dark:bg-[#0c1017]",
-          // One width for every screen, and deliberately a phone's width.
+          // The welcome and feature screens own the full-bleed desktop canvas,
+          // while their inner content rails keep the designed width. Expanding
+          // the canvas is fine; stretching feature cards is what creates the
+          // broken desktop collisions. Dense later steps keep the phone-width
+          // flow.
           //
           // The feature cards style themselves with `@container (max-width:
           // 420px)`, so the CARD decides its own tier, not the viewport. At a
@@ -2360,7 +2523,11 @@ export function OneLocationOnboardingFlow({
           //
           // 431px is the phone breakpoint: below it the panel goes full-bleed
           // rather than leaving side gutters on a device that has none.
-          "max-w-[430px] max-[431px]:max-w-none",
+          screen === "welcome"
+            ? "max-w-none"
+            : screen === "features" || screen === "invite"
+              ? "max-w-none"
+            : "max-w-[430px] max-[431px]:max-w-none",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >

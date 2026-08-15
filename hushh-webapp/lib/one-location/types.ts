@@ -5,6 +5,8 @@ export type LocationSourcePlatform =
   | "native"
   | "unknown";
 
+export type OneLocationShareDurationMode = "timed" | "until_stopped";
+
 export type OneLocationRecommendationTier =
   | "needs_action"
   | "trusted_circle"
@@ -145,7 +147,8 @@ export type OneLocationGrant = {
   status: "active" | "expired" | "revoked" | string;
   consentScope: string;
   capabilityScopes: string[];
-  durationHours: number;
+  durationMode?: OneLocationShareDurationMode | string | null;
+  durationHours: number | null;
   expiresAt?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;

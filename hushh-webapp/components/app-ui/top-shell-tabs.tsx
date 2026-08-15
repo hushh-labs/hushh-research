@@ -76,6 +76,7 @@ export function TopShellTabs({
   const tabWidth = `${100 / tabSet.tabs.length}%`;
   const tabSwipeState = useTopShellTabSwipeState(tabSet.id);
   const indicatorTransform = `translate3d(calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%), 0, 0)`;
+  const isLocationTabs = tabSet.id === "location";
 
   const textRefs = useRef<Array<HTMLSpanElement | null>>([]);
   const [activeTextWidth, setActiveTextWidth] = useState(0);
@@ -132,7 +133,10 @@ export function TopShellTabs({
 
   return (
     <div
-      className="top-shell-ambient-ink relative flex h-[var(--top-tabs-h)] w-full items-center text-current"
+      className={cn(
+        "top-shell-ambient-ink relative flex h-[var(--top-tabs-h)] w-full items-center text-current",
+        isLocationTabs && "justify-center",
+      )}
       data-ui-role="agent-tab-bar"
       data-top-shell-tab-set={tabSet.id}
       style={
@@ -143,7 +147,12 @@ export function TopShellTabs({
     >
       <div
         aria-label={`${tabSet.label} navigation`}
-        className="relative flex h-full w-full"
+        className={cn(
+          "relative flex",
+          isLocationTabs
+            ? "mx-5 h-9 w-[calc(100%-40px)] max-w-[720px] rounded-[10px] bg-[color:var(--app-neutral-fill)] p-0.5"
+            : "h-full w-full",
+        )}
         role="tablist"
       >
         {tabSet.tabs.map((tab, index) => {
@@ -193,9 +202,13 @@ export function TopShellTabs({
                 data-ui-role="agent-tab-label"
                 className={cn(
                   "ui-text-agent-tab-label relative truncate transition-colors duration-150",
-                  isActive
-                    ? "text-[color:var(--app-accent)]"
-                    : "text-[color:var(--app-label)] hover:text-current",
+                  isLocationTabs
+                    ? isActive
+                      ? "font-semibold text-[color:var(--app-label)]"
+                      : "font-medium text-[color:var(--app-secondary-label)] hover:text-[color:var(--app-label)]"
+                    : isActive
+                      ? "text-[color:var(--app-accent)]"
+                      : "text-[color:var(--app-label)] hover:text-current",
                 )}
               >
                 {tab.label}
@@ -208,7 +221,10 @@ export function TopShellTabs({
             aria-hidden
             data-testid="top-shell-tab-indicator"
             className={cn(
-              "pointer-events-none absolute bottom-0 left-0 z-20 flex justify-center motion-reduce:transition-none",
+              "pointer-events-none absolute left-0 flex justify-center motion-reduce:transition-none",
+              isLocationTabs
+                ? "inset-y-0.5 z-0"
+                : "bottom-0 z-20",
               tabSwipeState.isDragging
                 ? "transition-none"
                 : "transition-transform duration-[240ms] ease-[cubic-bezier(0.32,0.72,0,1)]",
@@ -219,9 +235,18 @@ export function TopShellTabs({
             }}
           >
             <span
-              className="h-[3px] rounded-full bg-[var(--app-accent)] transition-[width] duration-150"
+              className={cn(
+                "transition-[width] duration-150",
+                isLocationTabs
+                  ? "h-full w-[calc(100%-4px)] rounded-[8px] bg-[color:var(--app-card-surface-default-solid)] shadow-[0_1px_2px_rgba(0,0,0,0.10)]"
+                  : "h-[3px] rounded-full bg-[var(--app-accent)]",
+              )}
               style={{
-                width: activeTextWidth ? `${Math.max(28, activeTextWidth)}px` : 'max(28px, calc(100% - 2rem))'
+                width: isLocationTabs
+                  ? undefined
+                  : activeTextWidth
+                    ? `${Math.max(28, activeTextWidth)}px`
+                    : "max(28px, calc(100% - 2rem))",
               }}
             />
           </div>

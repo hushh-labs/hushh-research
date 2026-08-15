@@ -197,12 +197,16 @@ export function buildOneLocationActivityFallback(
 
   for (const grant of state.ownerGrants) {
     const startedAt = grant.createdAt || grant.updatedAt || grant.expiresAt;
+    const durationLabel =
+      grant.durationMode === "until_stopped" || grant.durationHours == null
+        ? "Until stopped"
+        : `${grant.durationHours}h`;
     addEvent({
       id: `owner-grant-created:${grant.id}`,
       kind: "share",
       occurredAt: startedAt,
       title: `Shared with ${grantCounterpartyLabel(grant)}`,
-      detail: `${grant.status} - ${formatDateTime(startedAt)} - ${grant.durationHours}h`,
+      detail: `${grant.status} - ${formatDateTime(startedAt)} - ${durationLabel}`,
     });
     if (grant.status !== "active") {
       const stoppedAt = grant.revokedAt || grant.updatedAt || grant.expiresAt;

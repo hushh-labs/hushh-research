@@ -102,6 +102,7 @@ export function buildOneLocationNotificationPayloads(
     );
     addValue(payload, "expires_at", grant.expiresAt);
     addValue(payload, "duration_hours", grant.durationHours);
+    addValue(payload, "duration_mode", grant.durationMode);
     addValue(payload, "share_kind", grant.shareKind);
     addValue(payload, "share_message", grant.shareMessage);
     if (grant.shareKind === "sos") {

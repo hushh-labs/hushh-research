@@ -120,8 +120,8 @@ describe("OneDashboardPage", () => {
     }
     const financeIcon = screen.getAllByTestId("one-agent-icon-finance")[0];
     expect(financeIcon).toHaveStyle({
-      "--agent-icon-profile-bg": "#F4D9FF",
-      "--agent-icon-profile-fg": "#7A1FA2",
+      "--agent-icon-profile-bg": "rgba(88, 86, 214, 0.16)",
+      "--agent-icon-profile-fg": "#5856D6",
     });
     const rosterPaletteOrder = [
       "finance",
@@ -150,15 +150,23 @@ describe("OneDashboardPage", () => {
       "7",
       "8",
     ]);
-    expect(
-      new Set(
-        rosterPaletteOrder.map((id) =>
-          screen
-            .getAllByTestId(`one-agent-icon-${id}`)[0]
-            .style.getPropertyValue("--agent-icon-profile-bg"),
-        ),
-      ).size,
-    ).toBe(rosterPaletteOrder.length);
+    const iconBackgrounds = Object.fromEntries(
+      rosterPaletteOrder.map((id) => [
+        id,
+        screen
+          .getAllByTestId(`one-agent-icon-${id}`)[0]
+          .style.getPropertyValue("--agent-icon-profile-bg"),
+      ]),
+    );
+    expect(iconBackgrounds.ria).toBe(iconBackgrounds.finance);
+    expect(iconBackgrounds.gmail).toBe(iconBackgrounds.location);
+    expect(iconBackgrounds.calendar).toBe(iconBackgrounds.location);
+    expect(iconBackgrounds.email).toBe(iconBackgrounds.location);
+    expect(iconBackgrounds["connected-systems"]).toBe(
+      iconBackgrounds.location,
+    );
+    expect(iconBackgrounds.pkm).toBe(iconBackgrounds.consent);
+    expect(new Set(Object.values(iconBackgrounds)).size).toBe(3);
     expect(financeIcon.className).toContain(
       "dark:bg-[var(--agent-icon-profile-bg-dark)]",
     );
@@ -195,9 +203,9 @@ describe("OneDashboardPage", () => {
 
     // The roster shows a concise, numeric action KPI rather than generic
     // progress words such as Ready, Open, or Explore.
-    expect(countRosterMetrics(container, "0", "actions due")).toBe(2);
+    expect(countRosterMetrics(container, "0", "actions")).toBe(2);
     expect(
-      countRosterMetrics(container, "—", "checking requests"),
+      countRosterMetrics(container, "—", "checking"),
     ).toBeGreaterThan(0);
     expect(screen.queryByText("Ready")).toBeNull();
     expect(screen.queryByText("Explore")).toBeNull();
@@ -236,7 +244,7 @@ describe("OneDashboardPage", () => {
 
     // Completed workspace setup is represented as an operational KPI rather
     // than the generic Ready label.
-    expect(countRosterMetrics(container, "0", "actions due")).toBe(7);
+    expect(countRosterMetrics(container, "0", "actions")).toBe(7);
     expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
     expect(screen.queryByText("Finish setup")).toBeNull();
   });
@@ -246,7 +254,7 @@ describe("OneDashboardPage", () => {
     expect(screen.queryAllByText("Checking...")).toHaveLength(0);
     expect(screen.queryByText("Connect Gmail")).toBeNull();
     expect(
-      countRosterMetrics(document.body, "—", "checking requests"),
+      countRosterMetrics(document.body, "—", "checking"),
     ).toBeGreaterThan(0);
   });
 
@@ -270,8 +278,8 @@ describe("OneDashboardPage", () => {
     const grid = container.querySelector(
       '[data-agent-roster-layout="grouped-icon-grid"]',
     );
-    expect(grid?.className).toContain("grid-cols-[repeat(3,minmax(96px,1fr))]");
-    expect(grid?.className).toContain("sm:grid-cols-[repeat(4,minmax(112px,1fr))]");
+    expect(grid?.className).toContain("grid-cols-[repeat(3,minmax(84px,1fr))]");
+    expect(grid?.className).not.toContain("sm:grid-cols-[repeat(4");
   });
 
   it("restores a saved list view without replaying a view-change animation", () => {

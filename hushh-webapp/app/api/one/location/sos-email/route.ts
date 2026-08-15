@@ -39,7 +39,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
-import { validateFirebaseToken } from "@/lib/auth/validate";
 import { isMailConfigured, sendMail } from "@/lib/mail/mail-client";
 
 export const dynamic = "force-dynamic";
@@ -87,6 +86,30 @@ function firstName(value: string): string {
   return value.trim().split(/\s+/)[0] ?? "";
 }
 
+/**
+ * ", measured at 21:42 UTC" — or "" for a position taken moments ago.
+ *
+ * Empty for a fresh fix so the ordinary emergency, which is nearly all of
+ * them, reads exactly as it did. The stamp appears only when there is
+ * something the reader genuinely needs to know.
+ */
+export function sosFixAgeLabel(capturedAt: string | null | undefined): string {
+  if (!capturedAt) return "";
+  const capturedMs = Date.parse(capturedAt);
+  if (!Number.isFinite(capturedMs)) return "";
+  const ageMs = Date.now() - capturedMs;
+  // Two minutes: below it, a stamp is noise on a message that has to be read
+  // in a hurry. A clock-skewed future timestamp is treated as current rather
+  // than reported as negative.
+  if (ageMs < 0 || ageMs <= 2 * 60 * 1_000) return "";
+  const time = new Date(capturedMs).toISOString().slice(11, 16);
+  const minutes = Math.round(ageMs / 60_000);
+  const ago = minutes < 60
+    ? `${minutes} min ago`
+    : `${Math.round(minutes / 60)} hr ago`;
+  return ` — measured ${ago}, at ${time} UTC`;
+}
+
 export function renderSosEmail(input: {
   recipientDisplayName: string;
   ownerDisplayName: string;
@@ -94,6 +117,17 @@ export function renderSosEmail(input: {
   latitude: number;
   longitude: number;
   accuracyM: number | null;
+  /**
+   * When the position was measured.
+   *
+   * Present so the email can stop claiming "live" for a fix it is not sure
+   * about. Save my Soul sends the last known position rather than nothing when
+   * the device will not produce a new one — the right call in an emergency,
+   * but only if the person reading it is told how old it is. An unstamped
+   * twenty-minute-old coordinate presented as "now" sends help to the wrong
+   * place with complete confidence.
+   */
+  capturedAt?: string | null;
   openInOneUrl: string;
   emergencyNumber: string | null;
   expiresAtLabel: string | null;
@@ -108,6 +142,7 @@ export function renderSosEmail(input: {
       : "";
   const map = mapsUrl(input.latitude, input.longitude);
   const note = input.note?.trim() || "";
+  const measuredAt = sosFixAgeLabel(input.capturedAt);
   const expiry = input.expiresAtLabel
     ? `Their live location stays shared until ${input.expiresAtLabel}.`
     : "Their live location is shared with you now.";
@@ -120,7 +155,7 @@ export function renderSosEmail(input: {
   const text = [
     `${greeting}${owner} triggered a Save my Soul alert.`,
     note ? `\n  "${note}"\n` : "",
-    `Location: ${coords}${accuracy}`,
+    `Location: ${coords}${accuracy}${measuredAt}`,
     `Map: ${map}`,
     "",
     expiry,
@@ -141,7 +176,7 @@ export function renderSosEmail(input: {
     `<h1 style="margin:0 0 16px;font-size:24px;line-height:1.2;">${escapeHtml(owner)} needs help</h1>`,
     `<p style="margin:0 0 20px;font-size:16px;line-height:1.5;">${escapeHtml(greeting.trim())} They triggered an emergency alert and shared their live location with you.</p>`,
     noteHtml,
-    `<p style="margin:0 0 8px;font-size:16px;line-height:1.5;"><strong>Location:</strong> ${escapeHtml(coords)}${escapeHtml(accuracy)}</p>`,
+    `<p style="margin:0 0 8px;font-size:16px;line-height:1.5;"><strong>Location:</strong> ${escapeHtml(coords)}${escapeHtml(accuracy)}${escapeHtml(measuredAt)}</p>`,
     `<p style="margin:0 0 24px;"><a href="${escapeHtml(map)}" style="display:inline-block;padding:12px 20px;border-radius:9999px;background:#ff3b30;color:#ffffff;text-decoration:none;font-weight:600;font-size:16px;">Open in Google Maps</a></p>`,
     `<p style="margin:0 0 8px;font-size:15px;line-height:1.5;color:#3c3c43;">${escapeHtml(expiry)}</p>`,
     `<p style="margin:0 0 24px;font-size:15px;"><a href="${escapeHtml(input.openInOneUrl)}" style="color:#007aff;">See their live position in One</a></p>`,
@@ -153,9 +188,21 @@ export function renderSosEmail(input: {
 }
 
 export async function POST(request: NextRequest) {
+  // The caller sends the SAME credential every other /api/one/location/* call
+  // sends: a VAULT_OWNER consent token, via jsonAuthHeaders() in
+  // lib/one-location/service.ts. This route used to run that through the
+  // Firebase ID-token validator, which cannot accept a consent token, so every
+  // real request was rejected 401 before reaching the backend — the SOS alert
+  // went out and the email leg never even tried.
+  //
+  // There is exactly one authority for this call and it is the backend:
+  // /api/one/location/sos-email-recipients validates the token with
+  // require_vault_owner_token AND checks the grants belong to that caller.
+  // Re-validating here with a different credential type was not defence in
+  // depth, it was a second, wrong opinion. The header is forwarded untouched
+  // and a non-2xx upstream means "no recipients".
   const authHeader = request.headers.get("authorization");
-  const auth = await validateFirebaseToken(authHeader);
-  if (!auth.valid) {
+  if (!authHeader) {
     return noStore({ error: "Unauthorized" }, 401);
   }
   if (!isMailConfigured()) {
@@ -168,6 +215,7 @@ export async function POST(request: NextRequest) {
     latitude?: unknown;
     longitude?: unknown;
     accuracyM?: unknown;
+    capturedAt?: unknown;
     note?: unknown;
     emergencyNumber?: unknown;
   };
@@ -204,6 +252,7 @@ export async function POST(request: NextRequest) {
   const emergencyNumber = String(payload.emergencyNumber ?? "")
     .trim()
     .slice(0, 16);
+  const capturedAt = String(payload.capturedAt ?? "").trim() || null;
 
   // The backend is the authorization: it returns contacts only for live SOS
   // grants this caller's own account just created.
@@ -254,6 +303,7 @@ export async function POST(request: NextRequest) {
         latitude,
         longitude,
         accuracyM,
+        capturedAt,
         openInOneUrl: String(resolved.openInOneUrl ?? ""),
         emergencyNumber: emergencyNumber || null,
         expiresAtLabel: recipient.expiresAt

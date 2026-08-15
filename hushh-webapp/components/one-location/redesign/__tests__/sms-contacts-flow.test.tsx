@@ -69,7 +69,7 @@ const baseProps = {
 
 
 describe("SmsContactsFlow", () => {
-  it("grows past phone width and pairs the two lists on a wide screen", () => {
+  it("grows past phone width and keeps contacts in one calm column", () => {
     // The column used to be pinned at 430px at every size, so a tablet or a
     // desktop window rendered a narrow ribbon in a field of grey. Asserting the
     // breakpoint classes is how this file already checks layout, and it is the
@@ -79,20 +79,21 @@ describe("SmsContactsFlow", () => {
     const column = screen.getByTestId("sms-contacts-screen")
       .firstElementChild as HTMLElement;
     expect(column).toHaveClass("max-w-[430px]");
-    expect(column).toHaveClass("md:max-w-[720px]", "xl:max-w-[960px]");
+    expect(column).toHaveClass("md:max-w-[680px]", "xl:max-w-[720px]");
 
-    // "Alerted on SMS" and "Add from your circle" share one grid, so moving a
-    // person between them stays visible in a single glance.
-    const lists = screen.getByText("Alerted on SMS").closest("div")
+    // SMS contacts are a simple contact-management task. A forced two-column
+    // desktop split made the page feel scattered.
+    const lists = screen.getByText("Contacts").closest("div")
       ?.parentElement as HTMLElement;
-    expect(lists).toHaveClass("md:grid", "md:grid-cols-2");
+    expect(lists).toHaveClass("grid", "gap-6");
+    expect(lists).not.toHaveClass("md:grid-cols-2");
   });
 
   it("separates selected and available circle members", () => {
     render(<SmsContactsFlow {...baseProps} />);
 
-    expect(screen.getByText("Alerted on SMS")).toBeInTheDocument();
-    expect(screen.getByText("Add from your circle")).toBeInTheDocument();
+    expect(screen.getByText("Contacts")).toBeInTheDocument();
+    expect(screen.getByText("Add contacts")).toBeInTheDocument();
     expect(screen.getByText("Kushal")).toBeInTheDocument();
     expect(screen.getByText("Neelesh")).toBeInTheDocument();
   });
@@ -101,7 +102,7 @@ describe("SmsContactsFlow", () => {
     const onAdd = vi.fn();
     render(<SmsContactsFlow {...baseProps} onAdd={onAdd} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Neelesh" }));
     expect(onAdd).toHaveBeenCalledWith("available");
   });
 
@@ -111,12 +112,10 @@ describe("SmsContactsFlow", () => {
       <SmsContactsFlow {...baseProps} onAddCircle={onAddCircle} />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Add Circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Family" }));
 
     expect(onAddCircle).toHaveBeenCalledWith("circle-1");
-    expect(
-      screen.getByText(/Adds current ready members only/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText("3 members")).toBeInTheDocument();
   });
 
   it("requires confirmation and waits for successful removal", async () => {
@@ -217,7 +216,6 @@ describe("SmsContactsFlow", () => {
     ).not.toBeInTheDocument();
 
     // The contact lists it exists for are untouched.
-    expect(screen.getByText("Add a Circle")).toBeInTheDocument();
+    expect(screen.getByText("Circles")).toBeInTheDocument();
   });
 });
-

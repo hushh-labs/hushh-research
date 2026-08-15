@@ -9,6 +9,8 @@ import {
 import { Children, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "@/lib/services/api-client";
+
 const {
   mockUseRequireAuth,
   mockUseVault,
@@ -21,6 +23,8 @@ const {
   mockOpenLocationSettings,
   mockOpenAppSettings,
   mockCaptureCurrentPosition,
+  mockBusGetState,
+  mockBusEnsure,
   mockReverseGeocode,
   mockPlacesAutocomplete,
   mockPlaceDetails,
@@ -36,6 +40,7 @@ const {
   mockStoreEnvelope,
   mockViewEnvelope,
   mockRevokeGrant,
+  mockShortenGrant,
   mockRequestAccess,
   mockCreatePublicInvite,
   mockCreateCircleInvite,
@@ -68,6 +73,8 @@ const {
   mockOpenLocationSettings: vi.fn(),
   mockOpenAppSettings: vi.fn(),
   mockCaptureCurrentPosition: vi.fn(),
+  mockBusGetState: vi.fn(),
+  mockBusEnsure: vi.fn(),
   mockReverseGeocode: vi.fn(),
   mockPlacesAutocomplete: vi.fn(),
   mockPlaceDetails: vi.fn(),
@@ -83,6 +90,7 @@ const {
   mockStoreEnvelope: vi.fn(),
   mockViewEnvelope: vi.fn(),
   mockRevokeGrant: vi.fn(),
+  mockShortenGrant: vi.fn(),
   mockRequestAccess: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
   mockCreateCircleInvite: vi.fn(),
@@ -245,6 +253,33 @@ vi.mock("@/lib/one-location/encryption", () => ({
   ensureLocationRecipientKey: mockEnsureKey,
   encryptLocationForRecipient: mockEncryptLocationForRecipient,
   decryptLocationEnvelope: mockDecryptLocationEnvelope,
+  // Mirrors the real export. The page reads this constant inside its view-error
+  // handler, so omitting it made every recipient-side failure path throw a
+  // vitest "no export is defined" error from inside the catch block — which
+  // Promise.allSettled then swallowed, hiding the whole branch from these tests.
+  RECIPIENT_KEY_UNAVAILABLE_MESSAGE:
+    "Recipient key unavailable for this location share.",
+  ensureVaultSyncedRecipientKey: vi.fn(async () => {}),
+}));
+
+// The live publisher reads the shared position store rather than reaching the
+// device itself, so the store is what these tests have to stand up. Left
+// permanently "ready" with a fix measured now: that is the state a session with
+// a running movement watch is in, and it is the precondition for every publish
+// assertion below.
+vi.mock("@/lib/one-location/location-bus", () => ({
+  LocationBus: {
+    getState: mockBusGetState,
+    ensure: mockBusEnsure,
+    subscribe: vi.fn(() => () => {}),
+    watch: vi.fn().mockResolvedValue(() => {}),
+    attachUser: vi.fn().mockResolvedValue(undefined),
+    syncPermission: vi.fn().mockResolvedValue("granted"),
+    request: vi.fn(),
+    invalidate: vi.fn(),
+    getLastCaptureError: vi.fn(() => null),
+    __resetForTests: vi.fn(),
+  },
 }));
 
 vi.mock("@/lib/one-location/service", () => ({
@@ -277,6 +312,7 @@ vi.mock("@/lib/one-location/service", () => ({
       .mockResolvedValue({ background: "unavailable" }),
     viewEnvelope: mockViewEnvelope,
     revokeGrant: mockRevokeGrant,
+    shortenGrant: mockShortenGrant,
     requestAccess: mockRequestAccess,
     approveRequest: vi.fn(),
     denyRequest: vi.fn(),
@@ -575,7 +611,7 @@ async function openLocationFeatureStep() {
   fireEvent.click(screen.getByRole("button", { name: "Get started" }));
   expect(
     await screen.findByRole("heading", {
-      name: "Stay connected",
+      name: "Need to keep people updated?",
     }),
   ).toBeTruthy();
 }
@@ -782,7 +818,7 @@ async function openShareConfirmStep() {
 async function openAskFlow() {
   fireEvent.click(screen.getByRole("button", { name: /Request location/i }));
   expect(
-    await screen.findByRole("heading", { name: "Ask clearly" }),
+    await screen.findByRole("heading", { name: "Request with context" }),
   ).toBeTruthy();
 }
 
@@ -799,6 +835,23 @@ async function openTemporaryLinkFlow() {
 describe("OneLocationAgentPage", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    // The shared store, holding a fix measured now — what a session with a
+    // live movement watch looks like, and the precondition for the publisher.
+    const busSnapshot = {
+      latitude: 28.6139,
+      longitude: 77.209,
+      accuracyM: 12,
+      capturedAt: new Date().toISOString(),
+      sourcePlatform: "web" as const,
+    };
+    mockBusGetState.mockReturnValue({
+      status: "ready",
+      permission: "granted",
+      snapshot: busSnapshot,
+      snapshotOrigin: "fresh",
+      error: null,
+    });
+    mockBusEnsure.mockResolvedValue(busSnapshot);
     Element.prototype.scrollIntoView = vi.fn();
     window.localStorage.clear();
     // Most page-flow tests are not about the optional saved-place prompt.
@@ -982,6 +1035,7 @@ describe("OneLocationAgentPage", () => {
       sourcePlatform: "web",
     });
     mockRevokeGrant.mockResolvedValue({});
+    mockShortenGrant.mockResolvedValue({});
     mockRequestAccess.mockResolvedValue({});
     mockCopyToClipboard.mockResolvedValue(true);
     mockCreatePublicInvite.mockResolvedValue({
@@ -1459,19 +1513,19 @@ describe("OneLocationAgentPage", () => {
     expect(within(people).getByText("Trusted B")).toBeTruthy();
 
     const duration = screen.getByRole("combobox", { name: "Duration" });
-    expect(duration.textContent).toContain("30 min");
+    expect(duration.textContent).toContain("15 min");
     fireEvent.click(duration);
     const options = await screen.findAllByRole("option");
     expect(options.map((option) => option.textContent)).toEqual([
-      "30 min",
+      "15 min",
       "1 hour",
-      "4 hours",
-      "24 hours",
+      "Today",
+      "Until I stop",
     ]);
-    fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
-    expect(duration.textContent).toContain("4 hours");
+    fireEvent.click(screen.getByRole("option", { name: "1 hour" }));
+    expect(duration.textContent).toContain("1 hour");
     // The duration reads back as a clock time on the same screen that set it.
-    expect(screen.getByText(/^Access ends around /)).toBeTruthy();
+    expect(screen.getByText(/^Access ends at /)).toBeTruthy();
 
     const note = screen.getByRole("textbox", { name: "Optional note" });
     const startButton = screen.getByRole("button", { name: "Start sharing" });
@@ -1500,7 +1554,8 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
     expect(mockCreateGrant).toHaveBeenCalledWith(
       expect.objectContaining({
-        durationHours: 4,
+        durationHours: 1,
+        durationMode: "timed",
         reason: "On my way",
         shareKind: "share",
       }),
@@ -1594,7 +1649,7 @@ describe("OneLocationAgentPage", () => {
       await screen.findByRole("heading", { name: "Ready to share?" }),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("combobox", { name: "Duration" }));
-    fireEvent.click(screen.getByRole("option", { name: "4 hours" }));
+    fireEvent.click(screen.getByRole("option", { name: "1 hour" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Optional note" }), {
       target: { value: "Meet me by the entrance" },
     });
@@ -1678,7 +1733,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
     expect(
       screen.getByRole("combobox", { name: "Duration" }).textContent,
-    ).toContain("30 min");
+    ).toContain("15 min");
     expect(screen.getByRole("textbox", { name: "Optional note" })).toHaveValue(
       "",
     );
@@ -2655,7 +2710,7 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
-          name: "Stay connected",
+          name: "Need to keep people updated?",
         }),
       ).toBeNull();
       expect(
@@ -2784,6 +2839,236 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText(/8012|4455|9911/)).toBeNull();
   });
 
+  /**
+   * Recipient-side polling. The page reads every visible received share on an
+   * interval so a shared dot moves in near real time. These cover the states
+   * that used to make that loop misbehave: a live share with nothing published
+   * yet (which the backend reported as 404 on every single tick), a share that
+   * keeps failing, and a read that never settles.
+   */
+  describe("received-share polling", () => {
+    const waitingGrant = {
+      id: "grant_waiting",
+      ownerUserId: "user_a",
+      recipientUserId: "user_b",
+      ownerDisplayName: "Trusted A",
+      recipientKeyId: "key_b",
+      status: "active",
+      consentScope: "cap.location.live.view",
+      capabilityScopes: ["cap.location.live.view"],
+      durationHours: 1,
+      expiresAt: "2099-05-20T08:00:00.000Z",
+      latestEnvelopeId: null,
+    };
+
+    const renderAsRecipient = async () => {
+      mockUseRequireAuth.mockReturnValue({
+        loading: false,
+        isAuthenticated: true,
+        userId: "user_b",
+        user: { uid: "user_b" },
+      });
+      window.localStorage.setItem(
+        "one_location_opened_grants_v1:user_b",
+        JSON.stringify(["grant_waiting"]),
+      );
+      window.localStorage.setItem("one_location_onboarding_v2:user_b", "1");
+      mockGetState.mockResolvedValue({
+        ...locationState(),
+        ownerGrants: [],
+        receivedGrants: [waitingGrant],
+      });
+
+      render(<OneLocationAgentPage />);
+      expect(
+        await screen.findByRole("heading", { name: "Location Agent" }),
+      ).toBeTruthy();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+      fireEvent.click(screen.getByRole("button", { name: /Shared with me/i }));
+      await waitFor(() => expect(mockViewEnvelope).toHaveBeenCalled());
+    };
+
+    it("treats a null envelope as a normal state, not a failure", async () => {
+      // The backend answers 200 with a null envelope (allow_empty) rather than
+      // 404 LOCATION_ENVELOPE_MISSING. Nothing failed, so nothing may be handed
+      // to the crypto layer and nothing may be shouted at the user.
+      mockViewEnvelope.mockResolvedValue({
+        grant: waitingGrant,
+        envelope: null,
+        status: "awaiting_first_publish",
+      });
+
+      await renderAsRecipient();
+
+      expect(mockDecryptLocationEnvelope).not.toHaveBeenCalled();
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it("paces a legacy 404 as waiting, not as a failure", async () => {
+      // During a rollout the webapp can reach a Python service that predates
+      // allow_empty and still answers 404. That must map to the slow waiting
+      // cadence (30s), NOT the error backoff (10s after one failure) — the
+      // difference proves the legacy branch is still classified correctly.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        // Verbatim message from the pre-allow_empty backend. `apiErrorCode`
+        // only reads a real ApiError, so a legacy 404 surfaced through any
+        // other error shape is classified by this string — which is exactly the
+        // fallback path this test needs to hold.
+        mockViewEnvelope.mockRejectedValue(
+          new Error(
+            "The owner has not published an encrypted location envelope yet.",
+          ),
+        );
+
+        await renderAsRecipient();
+        const afterFirstRead = mockViewEnvelope.mock.calls.length;
+
+        // An error-classified grant would have retried by now; a waiting one
+        // must not.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(20_000);
+        });
+        expect(mockViewEnvelope).toHaveBeenCalledTimes(afterFirstRead);
+        expect(toast.error).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("drops a waiting share off the live cadence instead of asking every tick", async () => {
+      // The bug this fixes: 5s polling for an answer only the owner can change,
+      // which produced a request (and a console line) every tick, forever.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        mockViewEnvelope.mockResolvedValue({
+          grant: waitingGrant,
+          envelope: null,
+          status: "awaiting_first_publish",
+        });
+
+        await renderAsRecipient();
+        const afterFirstRead = mockViewEnvelope.mock.calls.length;
+
+        // Four live ticks pass. A waiting share must not be re-read on any of
+        // them; it is parked on the 30s heartbeat.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(20_000);
+        });
+        expect(mockViewEnvelope).toHaveBeenCalledTimes(afterFirstRead);
+
+        // Past the slow heartbeat it is asked exactly once more.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(15_000);
+        });
+        expect(mockViewEnvelope.mock.calls.length).toBe(afterFirstRead + 1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("backs a repeatedly failing share off exponentially", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        mockViewEnvelope.mockRejectedValue(new Error("backend unavailable"));
+
+        await renderAsRecipient();
+        const afterFirstRead = mockViewEnvelope.mock.calls.length;
+
+        // First failure parks the grant for 10s (5s * 2^1), so the 5s tick in
+        // between is skipped rather than retried at full rate.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(6_000);
+        });
+        expect(mockViewEnvelope).toHaveBeenCalledTimes(afterFirstRead);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(6_000);
+        });
+        expect(mockViewEnvelope.mock.calls.length).toBe(afterFirstRead + 1);
+
+        // Second failure doubles again to 20s: 12s of ticks buys no retry.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(12_000);
+        });
+        expect(mockViewEnvelope.mock.calls.length).toBe(afterFirstRead + 1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("returns a recovered share to the live cadence", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        mockViewEnvelope.mockRejectedValueOnce(new Error("transient"));
+        mockViewEnvelope.mockResolvedValue({
+          grant: waitingGrant,
+          envelope: {
+            recipientKeyId: "key_b",
+            algorithm: "ECDH-P256-AES256-GCM",
+            ciphertext: "ciphertext",
+            iv: "iv",
+            senderEphemeralPublicKeyJwk: {
+              kty: "EC",
+              crv: "P-256",
+              x: "x",
+              y: "y",
+            },
+            capturedAt: "2099-01-01T00:00:00.000Z",
+            sourcePlatform: "web",
+          },
+          status: "published",
+        });
+
+        await renderAsRecipient();
+
+        // Clear the one failure's backoff, then confirm the share is read on
+        // consecutive live ticks again — backoff must not be sticky.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(11_000);
+        });
+        const afterRecovery = mockViewEnvelope.mock.calls.length;
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5_500);
+        });
+        expect(mockViewEnvelope.mock.calls.length).toBeGreaterThan(
+          afterRecovery,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("recovers polling after a read that never settles", async () => {
+      // Without the watchdog the in-flight guard latches forever and live
+      // tracking dies silently for the rest of the session.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        mockViewEnvelope.mockImplementation(() => new Promise(() => {}));
+
+        await renderAsRecipient();
+        const wedged = mockViewEnvelope.mock.calls.length;
+
+        // Ticks during the watchdog window are correctly suppressed.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(20_000);
+        });
+        expect(mockViewEnvelope).toHaveBeenCalledTimes(wedged);
+
+        // Past the watchdog the guard is released and polling resumes.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(20_000);
+        });
+        expect(mockViewEnvelope.mock.calls.length).toBeGreaterThan(wedged);
+      } finally {
+        warn.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it("warns the recipient when the decrypted location update is stale", async () => {
     const staleGrant = {
       id: "grant_stale",
@@ -2850,12 +3135,11 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     await waitFor(() => expect(mockViewEnvelope).toHaveBeenCalled());
     expect(
-      await screen.findByText(
-        "Location update may be stale. Ask them to refresh sharing.",
-      ),
+      await screen.findByText("Location may be stale."),
     ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ask to refresh" })).toBeTruthy();
 
-    expect(screen.getByText("Access active")).toBeTruthy();
+    expect(screen.getByText("Active")).toBeTruthy();
     expect(screen.getByText(/^Access until /)).toBeTruthy();
     expect(screen.queryByText(/^Live$/)).toBeNull();
     expect(screen.queryByText(/^Live until /)).toBeNull();
@@ -2902,7 +3186,7 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(collapseButton);
 
     expect(screen.queryByTitle("Live location map preview")).toBeNull();
-    expect(screen.getByText("Trusted A is sharing with you")).toBeTruthy();
+    expect(screen.getByText("Trusted A")).toBeTruthy();
     expect(screen.getByRole("button", { name: "View location" })).toBeTruthy();
     const expandButton = screen.getByRole("button", {
       name: "Expand shared location from Trusted A",
@@ -2923,6 +3207,21 @@ describe("OneLocationAgentPage", () => {
         name: "Start Google Maps navigation to shared live location",
       }),
     ).toBeNull();
+
+    // A received share must be removable by the recipient, not just the
+    // owner: revoke is symmetric on the backend, but until now no control in
+    // "Shared with me" ever called it, so the only way off this list was
+    // waiting for expiry or asking the owner to stop it themselves.
+    const removeButton = screen.getByRole("button", {
+      name: "Remove Trusted A from Shared with me",
+    });
+    fireEvent.click(removeButton);
+    await waitFor(() =>
+      expect(mockRevokeGrant).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        grantId: "grant_stale",
+      }),
+    );
   });
 
   it("tracks public location link creation without analytics identity payloads", async () => {
@@ -2996,9 +3295,11 @@ describe("OneLocationAgentPage", () => {
       vaultOwnerToken: "vault-token",
       recipientUserId: "user_b",
       recipientKeyId: "key_b",
-      durationHours: 0.5,
+      durationHours: 0.25,
+      durationMode: "timed",
       reason: undefined,
       shareKind: "share",
+      sourceCircleId: undefined,
     });
     expect(mockCaptureCurrentPosition).toHaveBeenCalled();
     expect(mockEncryptLocationForRecipient).toHaveBeenCalledWith(
@@ -3025,7 +3326,7 @@ describe("OneLocationAgentPage", () => {
         route_id: "one_location",
         result: "success",
         selected_count: 1,
-        duration_bucket: "30m",
+        duration_bucket: "15m",
       }),
       expect.any(Object),
     );
@@ -3233,7 +3534,7 @@ describe("OneLocationAgentPage", () => {
     ).toEqual(["user_b", "user_d"]);
     expect(
       mockCreateGrant.mock.calls.map(([payload]) => payload.durationHours),
-    ).toEqual([0.5, 0.5]);
+    ).toEqual([0.25, 0.25]);
     expect(
       mockEncryptLocationForRecipient.mock.calls.map(
         ([payload]) => payload.recipientKeyId,
@@ -3361,6 +3662,202 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getAllByText("Trusted B").length).toBeGreaterThan(0);
     expect(screen.queryByText("user_b")).toBeNull();
     expect(screen.queryByText("request_1")).toBeNull();
+  });
+
+  it("lets the requester delete a live (approved) request they sent", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      requests: [
+        {
+          id: "request_live",
+          ownerUserId: "user_b",
+          requesterUserId: "user_a",
+          status: "approved",
+          approvedGrantId: "grant_from_request_live",
+          requestedAt: "2026-05-20T07:30:00.000Z",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    expect(
+      await screen.findByRole("heading", { name: "Requests sent" }),
+    ).toBeTruthy();
+    // A live request shows a real Delete action, not a static "Active" label
+    // with no way off the list.
+    expect(screen.queryByText("Active")).toBeNull();
+    const deleteButton = screen.getByRole("button", { name: "Delete" });
+    fireEvent.click(deleteButton);
+    await waitFor(() =>
+      expect(mockRevokeGrant).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        grantId: "grant_from_request_live",
+      }),
+    );
+  });
+
+  it("shortens a live request's duration immediately, with no re-approval", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      requests: [
+        {
+          id: "request_live",
+          ownerUserId: "user_b",
+          requesterUserId: "user_a",
+          status: "approved",
+          approvedGrantId: "grant_from_request_live",
+          requestedAt: "2026-05-20T07:30:00.000Z",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    await screen.findByRole("heading", { name: "Requests sent" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(mockShortenGrant).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        grantId: "grant_from_request_live",
+        durationHours: 1,
+      }),
+    );
+    // Shortening never needs the owner's approval -- no new request goes out.
+    expect(mockRequestAccess).not.toHaveBeenCalled();
+  });
+
+  it("falls back to re-asking the owner when the new duration would extend access", async () => {
+    // shorten_grant's whole reason to exist is refusing to move expiry
+    // later. The UI has no idea what the current expiry is, so it always
+    // tries shorten first and lets this rejection decide whether a fresh,
+    // owner-approved request goes out instead.
+    mockShortenGrant.mockRejectedValueOnce(
+      new ApiError("shorten only", 422, {
+        code: "LOCATION_GRANT_SHORTEN_ONLY",
+      }),
+    );
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      requests: [
+        {
+          id: "request_live",
+          ownerUserId: "user_b",
+          requesterUserId: "user_a",
+          status: "approved",
+          approvedGrantId: "grant_from_request_live",
+          requestedAt: "2026-05-20T07:30:00.000Z",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    await screen.findByRole("heading", { name: "Requests sent" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(mockRequestAccess).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        ownerUserId: "user_b",
+        message: "Requesting more time.",
+      }),
+    );
+  });
+
+  it("removes an already-live person's access from the Ask flow's own list", async () => {
+    // Ask's person list already showed "Live" for someone sharing with you --
+    // it just gave you nothing to do about that but leave the screen and
+    // hunt through Shared with me / Requests sent instead.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [
+        {
+          id: "grant_live_ask",
+          ownerUserId: "user_b",
+          recipientUserId: "user_a",
+          ownerDisplayName: "Trusted B",
+          recipientKeyId: "key_a",
+          status: "active",
+          consentScope: "cap.location.live.view",
+          capabilityScopes: ["cap.location.live.view"],
+          durationHours: 1,
+          expiresAt: "2099-05-20T08:00:00.000Z",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Trusted B's access" }),
+    );
+    await waitFor(() =>
+      expect(mockRevokeGrant).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        grantId: "grant_live_ask",
+      }),
+    );
+  });
+
+  it("edits an already-live person's duration from the Ask flow's own list", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [
+        {
+          id: "grant_live_ask",
+          ownerUserId: "user_b",
+          recipientUserId: "user_a",
+          ownerDisplayName: "Trusted B",
+          recipientKeyId: "key_a",
+          status: "active",
+          consentScope: "cap.location.live.view",
+          capabilityScopes: ["cap.location.live.view"],
+          durationHours: 1,
+          expiresAt: "2099-05-20T08:00:00.000Z",
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit access for Trusted B" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(mockShortenGrant).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        grantId: "grant_live_ask",
+        durationHours: 1,
+      }),
+    );
   });
 
   it("fans out approval-first requests to multiple selected owners without coordinates", async () => {

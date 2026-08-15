@@ -94,7 +94,8 @@ export function FeedPage() {
   }, [clearedStorageKey]);
 
 
-  const { actionables } = useFeedActionables();
+  const { actionables, hasClearableSmsEmergencies, clearSmsEmergencies } =
+    useFeedActionables();
 
   const {
     data,
@@ -187,24 +188,30 @@ export function FeedPage() {
     if (!user || clearing) return;
     setClearing(true);
     try {
-      // Persist what the backend supports today: mark everything read so the
-      // unread badge is cleared durably. Hiding the history rows is
-      // session-scoped until a real feed-delete endpoint exists.
-      const idToken = await user.getIdToken();
-      const latestId = items[0]?.id;
-      await FeedService.markRead({ idToken, upToId: latestId ?? null });
-      dispatchFeedStateChanged();
-      setAdditionalItems([]);
-      setNextCursor(null);
-      // Persist the clear as a timestamp watermark so it survives tab
-      // switches and refreshes (the old session flag reset on remount).
-      const nowIso = new Date().toISOString();
-      setClearedAt(nowIso);
-      if (clearedStorageKey) {
-        try {
-          window.localStorage.setItem(clearedStorageKey, nowIso);
-        } catch {
-          // Storage disabled: clear still applies for this session.
+      // Revoked/expired SOS cards have nothing left to act on — this is the
+      // one "Needs you" actionable type Clear also reaches.
+      if (hasClearableSmsEmergencies) clearSmsEmergencies();
+
+      if (items.length > 0) {
+        // Persist what the backend supports today: mark everything read so
+        // the unread badge is cleared durably. Hiding the history rows is
+        // session-scoped until a real feed-delete endpoint exists.
+        const idToken = await user.getIdToken();
+        const latestId = items[0]?.id;
+        await FeedService.markRead({ idToken, upToId: latestId ?? null });
+        dispatchFeedStateChanged();
+        setAdditionalItems([]);
+        setNextCursor(null);
+        // Persist the clear as a timestamp watermark so it survives tab
+        // switches and refreshes (the old session flag reset on remount).
+        const nowIso = new Date().toISOString();
+        setClearedAt(nowIso);
+        if (clearedStorageKey) {
+          try {
+            window.localStorage.setItem(clearedStorageKey, nowIso);
+          } catch {
+            // Storage disabled: clear still applies for this session.
+          }
         }
       }
       toast.success("Feed notifications cleared");
@@ -213,7 +220,14 @@ export function FeedPage() {
     } finally {
       setClearing(false);
     }
-  }, [user, clearing, items, clearedStorageKey]);
+  }, [
+    user,
+    clearing,
+    items,
+    clearedStorageKey,
+    hasClearableSmsEmergencies,
+    clearSmsEmergencies,
+  ]);
 
 
   // Present strictly newest-first by wall-clock time, then club into day
@@ -227,15 +241,29 @@ export function FeedPage() {
     );
     return groupItemsByDay(sorted);
   }, [items]);
+  // Emergency SMS cards are individually framed (rounded + bordered), so
+  // stacking them in the same divide-y list as plain rows leaves them
+  // flush against each other with only a hairline between — two SOS alerts
+  // read as one merged block. Render them in their own gapped stack instead;
+  // the sort in useFeedActionables already keeps all "emergency" items
+  // contiguous at the top, so this split never reorders anything.
+  const emergencyActionables = actionables.filter(
+    (item) => item.emphasis === "emergency",
+  );
+  const regularActionables = actionables.filter(
+    (item) => item.emphasis !== "emergency",
+  );
   const hasActionables = actionables.length > 0;
   // Once cleared this session, the loaded history rows are hidden even though
   // `items` still holds them (no backend delete yet), so the empty state shows.
   const hasHistory = items.length > 0;
   const showEmpty = !loading && !hasActionables && !hasHistory && !error;
   // The Clear affordance only makes sense when there is dismissable history
-  // showing. Actionables ("Needs you") are deliberately NOT cleared: they are
-  // pending tasks the user must still act on, not passive notifications.
-  const canClear = hasHistory;
+  // showing. Actionables ("Needs you") are otherwise deliberately NOT
+  // cleared — they're pending tasks the user must still act on — except a
+  // revoked SOS card, which has nothing left to act on and is the one
+  // actionable type Clear also removes.
+  const canClear = hasHistory || hasClearableSmsEmergencies;
 
 
   return (
@@ -248,11 +276,20 @@ export function FeedPage() {
           {hasActionables ? (
             <section aria-label="Needs you" className="bg-accent/[0.03]">
               <SectionLabel>Needs you</SectionLabel>
-              <div className="divide-y divide-[color:var(--foundation-hairline)]">
-                {actionables.map((item) => (
-                  <FeedActionableRow key={item.id} item={item} />
-                ))}
-              </div>
+              {emergencyActionables.length ? (
+                <div className="flex flex-col gap-2 px-[6px] pb-2">
+                  {emergencyActionables.map((item) => (
+                    <FeedActionableRow key={item.id} item={item} />
+                  ))}
+                </div>
+              ) : null}
+              {regularActionables.length ? (
+                <div className="divide-y divide-[color:var(--foundation-hairline)]">
+                  {regularActionables.map((item) => (
+                    <FeedActionableRow key={item.id} item={item} />
+                  ))}
+                </div>
+              ) : null}
             </section>
           ) : null}
 

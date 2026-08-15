@@ -55,7 +55,7 @@ function titleizeSegment(segment: string): string {
 function oneLocationActionLabel(action: string): string {
   const labels: Record<string, string> = {
     share: "Share location",
-    ask: "Ask someone",
+    ask: "Request Location",
     invite: "Invite to Circle",
     "temp-link": "Public link",
     "check-in": "Check-In",

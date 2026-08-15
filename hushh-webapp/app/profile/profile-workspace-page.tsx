@@ -3055,23 +3055,23 @@ function ProfilePageContent() {
   };
 
   const accountContent = (
-    <div className="profile-account-content space-y-4">
+    <div className="profile-account-content">
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={User}
-          iconTone="blue"
+          iconTone="gray"
           title="Display name"
           description={user.displayName || "Not available"}
         />
         <SettingsRow
           icon={Mail}
-          iconTone="blue"
+          iconTone="gray"
           title="Email"
           description={user.email || "Not available"}
         />
         <SettingsRow
           icon={Phone}
-          iconTone="green"
+          iconTone="gray"
           title="Phone number"
           description={phoneSummaryText}
           trailing={
@@ -3086,7 +3086,7 @@ function ProfilePageContent() {
         />
         <SettingsRow
           icon={Fingerprint}
-          iconTone="green"
+          iconTone="gray"
           title="Sign-in provider"
           description={provider.name}
         />
@@ -3105,7 +3105,7 @@ function ProfilePageContent() {
       <SettingsGroup title="Account actions">
         <SettingsRow
           icon={RefreshCw}
-          iconTone="orange"
+          iconTone="gray"
           className="profile-account-reset-row"
           title="Reset account"
           description={resetRowDescription}
@@ -3728,6 +3728,7 @@ function ProfilePageContent() {
       title: "Account",
       description: "Email, phone, and sign-in.",
       content: accountContent,
+      presentation: "account",
     });
     if (activeDetail === "phone") {
       profileStackEntries.push({
@@ -3986,17 +3987,17 @@ function ProfilePageContent() {
     <div className="profile-home-screen">
       <AppPageHeaderRegion>
         <header
-          className="profile-home-hero flex w-full min-w-0 flex-col items-center gap-2.5 px-0 text-center sm:px-6"
+          className="profile-home-hero flex w-full min-w-0 flex-col items-center gap-2 px-0 text-center sm:px-6"
           data-slot="page-header"
           data-page-primary="true"
         >
           <ProfileAvatarEditor />
-          <div className="profile-home-copy w-full min-w-0 max-w-full space-y-1.5">
+          <div className="profile-home-copy flex w-full min-w-0 max-w-full flex-col items-center justify-center gap-1">
             <h1 className="profile-home-name ui-text-identity-name [overflow-wrap:anywhere]">
               {user.displayName || "User"}
             </h1>
             <div
-              className="profile-home-meta flex w-full min-w-0 items-center justify-center gap-2 text-sm text-muted-foreground"
+              className="profile-home-meta flex w-full min-w-0 items-center justify-center gap-2 text-xs font-normal text-muted-foreground"
               title={provider.name}
             >
               <ProviderIcon providerId={provider.id} />
@@ -4010,11 +4011,11 @@ function ProfilePageContent() {
 
       <AppPageContentRegion>
         <SurfaceStack compact>
-          <div className="profile-home-content space-y-4 sm:space-y-5">
+          <div className="profile-home-content">
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
                 icon={UserRound}
-                iconTone="blue"
+                iconTone="gray"
                 title={PROFILE_LABELS.account}
                 chevron
                 density="compact"
@@ -4022,7 +4023,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={SlidersHorizontal}
-                iconTone="purple"
+                iconTone="gray"
                 title={PROFILE_LABELS.preferences}
                 chevron
                 density="compact"
@@ -4042,7 +4043,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={MessageCircleQuestion}
-                iconTone="orange"
+                iconTone="gray"
                 title={PROFILE_LABELS.support}
                 chevron
                 density="compact"
@@ -4088,7 +4089,7 @@ function ProfilePageContent() {
       data-testid="profile-primary"
       as="div"
       width="reading"
-      className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      className="relative isolate pb-3"
       nativeTest={{
         routeId: profileNativeRouteId,
         marker: "native-route-profile",

@@ -6,6 +6,10 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import {
+  LocationFunnelObserver,
+  LocationVaultUnlockedObserver,
+} from "@/components/observability/location-funnel-observer";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -93,8 +97,18 @@ function SignedInGate({ children }: { children: ReactNode }) {
 export function OneAuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
+  // Mounted outside the guards on purpose: the observer needs to see the
+  // pre-authentication state too, and anything rendered as a child of
+  // VaultLockGuard is unmounted while the gate is redirecting.
+  const funnelObserver = <LocationFunnelObserver />;
+
   if (isPublicRoute(pathname ?? "")) {
-    return <>{children}</>;
+    return (
+      <>
+        {funnelObserver}
+        {children}
+      </>
+    );
   }
 
   if (
@@ -102,15 +116,22 @@ export function OneAuthGate({ children }: { children: ReactNode }) {
     isOneSetupSurfaceRoute(pathname ?? "")
   ) {
     return (
-      <SignedInGate>
-        <PhoneMandateGuard>{children}</PhoneMandateGuard>
-      </SignedInGate>
+      <>
+        {funnelObserver}
+        <SignedInGate>
+          <PhoneMandateGuard>{children}</PhoneMandateGuard>
+        </SignedInGate>
+      </>
     );
   }
 
   return (
-    <VaultLockGuard>
-      <PhoneMandateGuard>{children}</PhoneMandateGuard>
-    </VaultLockGuard>
+    <>
+      {funnelObserver}
+      <VaultLockGuard>
+        <LocationVaultUnlockedObserver />
+        <PhoneMandateGuard>{children}</PhoneMandateGuard>
+      </VaultLockGuard>
+    </>
   );
 }
