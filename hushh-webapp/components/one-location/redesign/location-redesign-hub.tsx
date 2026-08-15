@@ -2929,6 +2929,36 @@ function AskFlow({
   // the specific request they just made, rather than popping straight back to
   // the hub. `justSent` latches the success state and blocks duplicate submits.
   const [justSent, setJustSent] = useState(false);
+  // A submit is out but its outcome is not known yet. `onSendRequest` is
+  // fire-and-forget, so the outcome is read off the page instead of awaited:
+  // the send path resets the composer only after every request landed, so an
+  // emptied selection is success and a still-populated one once the work stops
+  // is failure. Latching on the click alone claimed "Sent" for requests that
+  // never went.
+  const [awaitingResult, setAwaitingResult] = useState(false);
+  const sending = vm.busy === "request";
+  const selectedCount = vm.selectedRequestOwnerIds.length;
+  useEffect(() => {
+    if (!awaitingResult) return;
+    if (selectedCount === 0) {
+      setAwaitingResult(false);
+      setJustSent(true);
+      return;
+    }
+    if (!sending) {
+      // Work stopped (or never started) with the selection still sitting
+      // there: nothing was sent. Re-arm so it can be retried rather than
+      // leaving a receipt for a request that failed.
+      setAwaitingResult(false);
+    }
+  }, [awaitingResult, selectedCount, sending]);
+  // The receipt belongs to the request that produced it. As soon as there is a
+  // fresh selection the person is composing a NEW request, so the latch has to
+  // let go -- it never did, which left Send stuck on "Sent" for the life of the
+  // screen once a first request succeeded.
+  useEffect(() => {
+    if (justSent && selectedCount > 0) setJustSent(false);
+  }, [justSent, selectedCount]);
   // "Asked 6m ago" and "59 more min" are only true at the moment they render.
   // Both now come off the page's single clock, so this list, the countdowns on
   // the share cards, and the approvals screen cannot disagree about what time
@@ -3126,24 +3156,25 @@ function AskFlow({
           that extra gating is intentionally removed here. The "Request Sent"
           success latch below is preserved. */}
       {(() => {
-        const isFormValid = vm.selectedRequestOwnerIds.length > 0;
-        const sending = vm.busy === "request";
+        const isFormValid = selectedCount > 0;
         return (
           <Button
             onClick={() => {
               // Never submit an incomplete form even if the click somehow
               // reaches the handler (e.g. keyboard/AT), and never double-fire
-              // once it has already succeeded.
-              if (!isFormValid || sending || justSent) return;
+              // while one is out or once it has already succeeded.
+              if (!isFormValid || sending || awaitingResult || justSent) return;
               vm.onSendRequest(reason);
               // Stay on this screen and show inline confirmation tied to THIS
               // request instead of popping straight back to the hub. The button
-              // latches to a disabled "Request Sent" success state so a second
-              // tap cannot fire a duplicate request.
-              setJustSent(true);
+              // stays disabled until the outcome is known, then latches to
+              // "Sent" only if the request actually landed.
+              setAwaitingResult(true);
             }}
-            disabled={!isFormValid || sending || justSent}
-            aria-disabled={!isFormValid || sending || justSent}
+            disabled={!isFormValid || sending || awaitingResult || justSent}
+            aria-disabled={
+              !isFormValid || sending || awaitingResult || justSent
+            }
             isLoading={sending}
             className={cn(
               "h-12 w-full rounded-2xl text-base font-semibold disabled:pointer-events-none",
