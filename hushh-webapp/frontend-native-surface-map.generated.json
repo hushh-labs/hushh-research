@@ -609,11 +609,11 @@
       },
       "native": null,
       "shell": {
-        "app_page_shell": false,
-        "page_header": false,
+        "app_page_shell": true,
+        "page_header": true,
         "settings_ui": false,
         "shared_loader": false,
-        "back_button_pattern": "route-local-check-required"
+        "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
@@ -8518,5 +8518,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "da51d36218e4f4627f8ead6ed7feabc4b6e0ea84bfc7a6f832c37782fbe4f37a"
+  "content_sha256": "dd0b474b9c2792fda810c480e21c3d3635aaf13df57c600b54b52087c2257f8b"
 }
