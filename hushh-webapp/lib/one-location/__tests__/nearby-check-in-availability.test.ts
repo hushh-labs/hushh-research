@@ -1,10 +1,21 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const nativeTestHarness = vi.hoisted(() => ({ enabled: false }));
+
+vi.mock("@/lib/testing/native-test", () => ({
+  isNativeUiTestSession: () => nativeTestHarness.enabled,
+}));
 
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
 
 describe("nearby check-in availability", () => {
+  beforeEach(() => {
+    nativeTestHarness.enabled = false;
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
+    nativeTestHarness.enabled = false;
   });
 
   it("is available in local development without a flag", () => {
@@ -61,6 +72,36 @@ describe("nearby check-in availability", () => {
         );
       }
     }
+  });
+
+  /**
+   * The half of this change that protects the people building the product.
+   *
+   * A UAT-stamped build is not only a store binary — it is also every local UAT
+   * profile and every iOS simulator build, because
+   * `prepare-ios-ui-test-build.mjs` reads `.env.uat.local`. Tightening the gate
+   * without writing the opt-in into those profiles would have taken the feature
+   * away from the team with no error and nothing to grep for, which is a worse
+   * outcome than the bug being fixed.
+   *
+   * `scripts/env/bootstrap_profiles.sh` writes the flag for every non-production
+   * local profile, so this is the shape those builds actually have.
+   */
+  it("stays available for local UAT profiles and simulator builds", () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    vi.stubEnv("NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN", "true");
+    expect(isOneLocationNearbyCheckInAvailable()).toBe(true);
+  });
+
+  it("stays available during native UI automation whatever the stamp", () => {
+    // XCUITest / Espresso inject launch args a store user cannot set, so this
+    // never widens the store case it is paired with.
+    nativeTestHarness.enabled = true;
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    expect(isOneLocationNearbyCheckInAvailable()).toBe(true);
+
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+    expect(isOneLocationNearbyCheckInAvailable()).toBe(true);
   });
 
   it("keeps local development open regardless of the flag", () => {

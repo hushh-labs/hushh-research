@@ -1,4 +1,5 @@
 import { resolveAppEnvironment } from "@/lib/app-env";
+import { isNativeUiTestSession } from "@/lib/testing/native-test";
 
 /**
  * Hard ceiling for a usable check-in fix, mirroring the backend's
@@ -52,6 +53,11 @@ export const ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS = 200;
  * unless that account is admitted.
  */
 export function isOneLocationNearbyCheckInAvailable(): boolean {
+  // XCUITest / Espresso automation, which is launch-arg gated and unreachable
+  // for a real store user. Native UI tests build from `.env.uat.local` and are
+  // therefore UAT-stamped like a store binary; without this a nearby test added
+  // later would fail for a reason that has nothing to do with the feature.
+  if (isNativeUiTestSession()) return true;
   if (resolveAppEnvironment() === "development") return true;
   return (
     String(process.env.NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN ?? "")
