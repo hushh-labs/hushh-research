@@ -21,11 +21,15 @@ import {
   Pencil,
   RefreshCw,
   Share2,
+  ShieldAlert,
   ShieldCheck,
+  ShieldOff,
+  ShieldX,
   User,
   X,
 } from "lucide-react";
 
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Button } from "@/components/ui/button";
@@ -263,6 +267,15 @@ export function RequestCard({
   const [decision, setDecision] = useState<"approved" | "declined" | null>(null);
   const decided = decision !== null;
 
+  // Approved is a settled YES -> success. Declined is a settled NO: nothing
+  // failed and nothing was destroyed, so by the state rule it reads neutral,
+  // never red. Both outcomes used to render the identical green ShieldCheck,
+  // so on a request that had just been refused the tint AND the glyph said
+  // "granted" and the word was the only thing telling the truth.
+  const approved = decision === "approved";
+  const outcome = roleClasses(approved ? "success" : "neutral");
+  const OutcomeIcon = approved ? ShieldCheck : ShieldX;
+
   return (
     <div className={cn(SUBCARD_SURFACE, "p-4")}>
       <div className="flex items-center gap-3">
@@ -286,10 +299,14 @@ export function RequestCard({
       {decided ? (
         <p
           role="status"
-          className="mt-3.5 flex h-11 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-success)]/12 text-sm font-semibold text-[color:var(--app-success)]"
+          className={cn(
+            "mt-3.5 flex h-11 items-center justify-center gap-1.5 rounded-full text-sm font-semibold",
+            outcome.tile,
+            outcome.glyph,
+          )}
         >
-          <ShieldCheck className="h-[17px] w-[17px]" aria-hidden />
-          {decision === "approved" ? "Approved" : "Declined"}
+          <OutcomeIcon className="h-[17px] w-[17px]" aria-hidden />
+          {approved ? "Approved" : "Declined"}
         </p>
       ) : (
         <div className="mt-3.5 flex gap-2.5">
@@ -388,6 +405,11 @@ export function SharedWithMeCard({
           </p>
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
             <p className={cn(MUTED_TEXT, "min-w-0 truncate")}>{statusLine}</p>
+            {/* Tone and label read from the same fact by construction: this
+                card is only ever rendered for a grant that is active, so the
+                pill cannot say "Active" in grey. A `statusTone` prop would let
+                colour and copy contradict each other with no caller able to
+                mean it. */}
             <StatusPill tone="ready" className="shrink-0">
               Active
             </StatusPill>
@@ -610,14 +632,27 @@ export function DeviceReadinessCard({
   refreshBusy?: boolean;
   refreshLabel?: string;
 }) {
-  const iconWrap =
+  // This was a private copy of the shared PILL_* ladder, written in raw
+  // palette colours (emerald / amber / red), so device readiness rendered a
+  // slightly different green, orange and red from the same four states
+  // everywhere else. The roles are the same four; only the source changes.
+  const roleForTone = {
+    ready: "success",
+    warning: "warning",
+    blocked: "danger",
+    checking: "action",
+  } as const;
+  const { tile, glyph } = roleClasses(roleForTone[tone]);
+  const iconWrap = cn(tile, glyph);
+  // Colour is never the only signal, so each state gets its own glyph. A red
+  // ShieldCheck for "blocked" said "verified" in the shape and "broken" in the
+  // colour, which left the tint doing all the work.
+  const ToneIcon =
     tone === "ready"
-      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+      ? ShieldCheck
       : tone === "warning"
-        ? "bg-amber-500/15 text-amber-600 dark:text-amber-300"
-        : tone === "blocked"
-          ? "bg-red-500/15 text-red-600 dark:text-red-300"
-          : "bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]";
+        ? ShieldAlert
+        : ShieldOff;
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
@@ -630,7 +665,7 @@ export function DeviceReadinessCard({
           {tone === "checking" ? (
             <Loader2 className="h-5 w-5 animate-spin" />
           ) : (
-            <ShieldCheck className="h-5 w-5" />
+            <ToneIcon className="h-5 w-5" />
           )}
         </span>
         <div className="min-w-0 flex-1">

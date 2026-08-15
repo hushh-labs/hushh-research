@@ -14,7 +14,9 @@
 import { Clock, Loader2, Lock, Navigation } from "lucide-react";
 
 import { LiveMap } from "@/components/one-location/live-map";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
+import { cn } from "@/lib/utils";
 
 export type StatusMarkerPerson = { id: string; name: string };
 
@@ -25,8 +27,23 @@ const MARKER_SLOTS = [
   { top: 206, right: 104 },
 ] as const;
 
-// Distinct avatar tints (we render initials — the app has names, not photos).
-const MARKER_TINTS = ["#8b5cf6", "#3b82f6", "#f59e0b"] as const;
+/**
+ * Avatar treatment for the map markers (we render initials — the app has
+ * names, not photos).
+ *
+ * ONE value, not a rotation. Every marker means the same thing — a member of
+ * your circle — so they all take `--app-people`, the role that owns circles
+ * and trusted contacts, and the initials inside them are what tell people
+ * apart. The old rotation was a raw violet / blue / amber, so a person's
+ * avatar could read as this product's location blue or as "needs attention"
+ * depending only on where they sat in the list; a shade that varies by
+ * position (or by a hash of the id) still encodes nothing, and both drift
+ * away from the one token that carries the meaning.
+ *
+ * The initials sit ON the solid role colour, so they take its `-fg` partner.
+ */
+const MARKER_TINT_CLASS =
+  "bg-[color:var(--app-people)] text-[color:var(--app-people-fg)]";
 
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -69,9 +86,19 @@ function MapBackdrop() {
         <path d="M150 90H362" />
         <path d="M150 196H362" />
       </g>
-      {/* Soft geofence circle + your blue self-marker. */}
-      <circle cx="252" cy="150" r="66" fill="#3b82f6" opacity="0.12" />
-      <circle cx="252" cy="150" r="10" fill="#2563eb" stroke="#ffffff" strokeWidth="3" />
+      {/* Soft geofence circle + your self-marker. Both take the location accent
+          token: the self pin, the geofence and the map chips are one
+          established convention here, and hardcoding blue-500/blue-600 forked
+          it away from the real map's pin. */}
+      <circle cx="252" cy="150" r="66" fill="var(--app-accent)" opacity="0.12" />
+      <circle
+        cx="252"
+        cy="150"
+        r="10"
+        fill="var(--app-accent)"
+        stroke="#ffffff"
+        strokeWidth="3"
+      />
     </svg>
   );
 }
@@ -137,7 +164,6 @@ export function SharingStatusCard({
         {/* Circle members as avatar markers. */}
         {markers.map((person, i) => {
           const slot = MARKER_SLOTS[i] ?? MARKER_SLOTS[0]!;
-          const tint = MARKER_TINTS[i % MARKER_TINTS.length] ?? MARKER_TINTS[0]!;
           return (
             <div
               key={person.id}
@@ -145,12 +171,16 @@ export function SharingStatusCard({
               style={{ top: slot.top, right: slot.right }}
             >
               <span
-                className="flex h-11 w-11 items-center justify-center rounded-full border-[3px] border-white text-[13px] font-semibold text-white shadow-[0_2px_8px_rgba(0,0,0,0.15)]"
-                style={{ backgroundColor: tint }}
+                className={cn(
+                  "flex h-11 w-11 items-center justify-center rounded-full border-[3px] border-white text-[13px] font-semibold shadow-[0_2px_8px_rgba(0,0,0,0.15)]",
+                  MARKER_TINT_CLASS,
+                )}
               >
                 {initialsOf(person.name)}
               </span>
-              <span className="absolute bottom-0.5 right-0.5 h-[11px] w-[11px] rounded-full border-2 border-white bg-[#34c759]" />
+              {/* Live dot: a real "this person is active" fact, so it takes the
+                  success role token rather than a hardcoded green. */}
+              <span className="absolute bottom-0.5 right-0.5 h-[11px] w-[11px] rounded-full border-2 border-white bg-[color:var(--app-success)]" />
             </div>
           );
         })}
@@ -172,16 +202,30 @@ export function SharingStatusCard({
             className="inline-flex items-center gap-[7px] rounded-full bg-white px-3 py-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.08)] transition active:scale-95 disabled:opacity-70 enabled:cursor-pointer dark:bg-[#2f2f35] dark:shadow-[0_2px_8px_rgba(0,0,0,0.4)]"
           >
             {toggleBusy ? (
-              <Loader2 className="h-[11px] w-[11px] animate-spin text-[#6b7280]" />
+              <Loader2 className="h-[11px] w-[11px] animate-spin text-[color:var(--app-secondary-label)]" />
             ) : (
               <span
                 className="h-[9px] w-[9px] rounded-full"
-                style={{ backgroundColor: showLive ? "#34c759" : "#9ca3af" }}
+                style={{
+                  // LIVE is a settled positive fact -> success. OFF is not a
+                  // failure, so it stays the neutral label tone, never red.
+                  backgroundColor: showLive
+                    ? "var(--app-success)"
+                    : "var(--app-secondary-label)",
+                }}
               />
             )}
+            {/* Same success family as the dot, but the READABLE half of it:
+                the flat token is a fill tone (~2:1 on this white pill), and
+                the role layer already owns the legible pair (-deep on light,
+                -bright on dark). Mixing one down here made a fourth private
+                green that no other surface could reuse. OFF is not a failure,
+                so it stays the neutral label tone, never red. */}
             <span
-              className="text-xs font-bold tracking-[0.5px]"
-              style={{ color: showLive ? "#12a150" : "#6b7280" }}
+              className={cn(
+                "text-xs font-bold tracking-[0.5px]",
+                roleClasses(showLive ? "success" : "neutral").glyph,
+              )}
             >
               {showLive ? "LIVE" : "OFF"}
             </span>
@@ -196,8 +240,13 @@ export function SharingStatusCard({
 
           {isSharing ? (
             <div className="mt-[18px] inline-flex items-center gap-[11px] rounded-[14px] bg-white px-3.5 py-[11px] shadow-[0_2px_8px_rgba(0,0,0,0.06)] dark:bg-[#2f2f35] dark:shadow-[0_2px_8px_rgba(0,0,0,0.4)]">
-              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-[#efe9fb] dark:bg-[#7c5cff]/20">
-                <Clock className="h-[15px] w-[15px] text-[#7c5cff] dark:text-[#a78bfa]" />
+              {/* A countdown, not a state: the LIVE badge above already carries
+                  this card's one strong colour. Violet meant nothing here (it
+                  is the link/share tile tone), and orange would read as
+                  "expiring — look at this" on every ordinary share. A clock is
+                  a utility glyph, so it stays neutral. */}
+              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)]">
+                <Clock className="h-[15px] w-[15px] text-[color:var(--app-secondary-label)]" />
               </span>
               <span className="block">
                 <span className="block text-[15px] font-bold text-[#1c1c2e] dark:text-white">

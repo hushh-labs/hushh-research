@@ -32,6 +32,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import {
@@ -76,16 +77,19 @@ function initialsOf(label: string): string {
   return (words[0]?.slice(0, 1) || "?").toUpperCase();
 }
 
-function avatarTone(index: number): string {
-  const tones = [
-    "bg-red-500 text-white",
-    "bg-sky-500 text-white",
-    "bg-violet-500 text-white",
-    "bg-emerald-500 text-white",
-    "bg-amber-500 text-white",
-  ];
-  return tones[index % tones.length]!;
-}
+/**
+ * A person avatar reports no state, so it renders in the NEUTRAL role and lets
+ * the initials do the identifying.
+ *
+ * It used to rotate five raw palette colours by list position, which meant the
+ * same contact changed colour whenever the search filter reordered the list,
+ * and put danger red on a row that carries no danger.
+ */
+const CONTACT_AVATAR_TONE = cn(
+  roleClasses("neutral").tile,
+  roleClasses("neutral").glyph,
+);
+
 
 function accuracyLine(point: PlainLocationPoint | null): string | null {
   if (!point) return null;
@@ -132,7 +136,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 function ContactRow({
-  index,
   checked,
   ready,
   locked,
@@ -141,7 +144,6 @@ function ContactRow({
   isLast,
   onToggle,
 }: {
-  index: number;
   checked: boolean;
   ready: boolean;
   locked: boolean;
@@ -166,7 +168,7 @@ function ContactRow({
       <span
         className={cn(
           "flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full text-sm font-semibold",
-          avatarTone(index),
+          CONTACT_AVATAR_TONE,
         )}
         aria-hidden
       >
@@ -480,7 +482,7 @@ export function CheckInFlow({
           className="mt-4 flex gap-3 rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-accent)]/10 p-4"
           data-testid="nearby-private-share-disclosure"
         >
-          <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]" />
+          <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]" />
           <div>
             <p className="text-[15px] font-semibold leading-5 text-foreground">
               Nearby and private sharing are separate
@@ -574,6 +576,14 @@ export function CheckInFlow({
           {vm.circles.map((circle, index) => {
             const selected =
               circleSelection?.circle.id === circle.id && circleFullySelected;
+            // STATE BEATS CATEGORY: a circle is the people role, but one
+            // holding nobody except the viewer has nothing to report and
+            // stays neutral. `memberCount` includes the viewer, so the count
+            // that decides this is `memberCount - 1` — the same test the
+            // Circles list and the SMS contacts list apply.
+            const circleRole = roleClasses("people", {
+              inactive: Math.max(0, circle.memberCount - 1) === 0,
+            });
             return (
               <button
                 key={circle.id}
@@ -589,7 +599,13 @@ export function CheckInFlow({
                     "bg-[color:var(--app-accent-soft)]",
                 )}
               >
-                <span className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+                <span
+                  className={cn(
+                    "flex h-[34px] w-[34px] items-center justify-center rounded-[10px]",
+                    circleRole.tile,
+                    circleRole.glyph,
+                  )}
+                >
                   <UsersRound className="h-[17px] w-[17px]" />
                 </span>
                 <span className="min-w-0 flex-1">
@@ -673,7 +689,6 @@ export function CheckInFlow({
             {filtered.map((recipient, index) => (
               <ContactRow
                 key={recipient.userId}
-                index={index}
                 checked={checkedIds.includes(recipient.userId)}
                 ready={vm.isRecipientShareReady(recipient)}
                 locked={retryLocked}
@@ -696,7 +711,7 @@ export function CheckInFlow({
       )}
       {completedRecipientIds.length > 0 ? (
         <section
-          className="mt-3 rounded-[12px] border border-emerald-500/20 bg-emerald-500/10 px-4 py-3"
+          className="mt-3 rounded-[12px] border border-[color:var(--app-success-border)] bg-[color:var(--app-success-tint)] px-4 py-3"
           data-testid="private-check-in-partial-success"
         >
           <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">

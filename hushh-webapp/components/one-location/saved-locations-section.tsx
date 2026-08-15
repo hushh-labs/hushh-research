@@ -39,6 +39,7 @@ import {
 } from "@/lib/one-location/saved-location-address";
 
 import { readOneLocationControlState } from "@/lib/one-location/location-control-state";
+import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
@@ -48,12 +49,15 @@ import { useVault } from "@/lib/vault/vault-context";
 function CategoryIcon({ category }: { category: SavedLocationCategory }) {
   const Icon =
     category === "home" ? Home : category === "work" ? Briefcase : MapPin;
+  // Home keeps the location accent this product uses for every place
+  // affordance. Work and Other share the neutral icon tile: a saved place has
+  // no state to report, and "other" was previously painted the success green,
+  // which claimed a status that a bookmark can neither reach nor fail. The
+  // three categories stay distinguishable by their glyphs, as before.
   const tone =
     category === "home"
-      ? "bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]/15"
-      : category === "work"
-        ? "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]"
-        : "bg-[color:var(--app-success)]/12 text-[color:var(--app-success)] dark:bg-[color:var(--app-success)]/15";
+      ? cn(SEMANTIC_ROLE_CLASSES.action.tile, SEMANTIC_ROLE_CLASSES.action.glyph)
+      : "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]";
   return (
     <span
       className={cn(

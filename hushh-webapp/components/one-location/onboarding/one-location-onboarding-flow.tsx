@@ -27,7 +27,17 @@ import locationOnboardingContract from "@/lib/onboarding/one-location-onboarding
 import { trackEvent } from "@/lib/observability/client";
 import { trackLocationFunnelStepCompleted } from "@/lib/observability/growth";
 import { resolveRouteId } from "@/lib/observability/route-map";
+import {
+  SEMANTIC_ROLE_CLASSES,
+  SEMANTIC_ROLE_SOLID,
+} from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
+
+// The two meanings this flow expresses in colour, named once so the feature
+// tags, the SOS art and the join confirmation cannot drift apart.
+const SUCCESS_ROLE = SEMANTIC_ROLE_CLASSES.success;
+const DANGER_ROLE = SEMANTIC_ROLE_CLASSES.danger;
+const DANGER_SOLID = SEMANTIC_ROLE_SOLID.danger;
 
 type OnboardingScreen = "welcome" | "features" | "contacts" | "invite";
 
@@ -709,7 +719,15 @@ function CheckInFeatureCard() {
     >
       <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
         <span
-          className="inline-flex rounded-full bg-[#dff4e7] px-3 py-1 text-[11px] font-semibold text-[#27884f] dark:bg-[#1c3f2b] dark:text-[#78d69a]"
+          className={cn(
+            "inline-flex rounded-full px-3 py-1 text-[11px] font-semibold",
+            // Checking in is the "you arrived" status, so the wash reads as
+            // success rather than as a fourth hand-mixed green. The word keeps
+            // the label tone: --app-success is a glyph tint, and as 11px text
+            // on its own wash it measures ~2:1.
+            SUCCESS_ROLE.tile,
+            "text-[color:var(--app-label)]",
+          )}
           data-one-use-case-tag
         >
           Check in
@@ -770,7 +788,14 @@ function SaveMySoulFeatureCard() {
     >
       <div className="relative z-20 px-4 pt-4" data-one-feature-copy>
         <span
-          className="inline-flex rounded-full bg-[#ffe0df] px-3 py-1 text-[11px] font-semibold text-[#d44442] dark:bg-[#55252a] dark:text-[#ff9a98]"
+          className={cn(
+            "inline-flex rounded-full px-3 py-1 text-[11px] font-semibold",
+            // Emergency SMS is the product's one true danger surface, carried
+            // by the wash. The words keep the label tone, like the check-in tag
+            // above: --app-destructive as 11px text on its own wash is ~3:1.
+            DANGER_ROLE.tile,
+            "text-[color:var(--app-label)]",
+          )}
           data-one-use-case-tag
         >
           SMS &middot; Save My Soul
@@ -802,21 +827,35 @@ function SaveMySoulFeatureCard() {
             <span
               data-one-onboarding-motion
               data-one-sms-radar-ring
-              className="absolute inset-0 rounded-full border-2 border-[#ef302f]/30 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite]"
+              className={cn(
+                "absolute inset-0 rounded-full border-2 [animation:oneSmsRadar_2.4s_ease-out_infinite]",
+                DANGER_ROLE.border,
+                DANGER_ROLE.tile,
+              )}
             />
             <span
               data-one-onboarding-motion
               data-one-sms-radar-ring
-              className="absolute inset-[10px] rounded-full border-2 border-[#ef302f]/25 bg-[#ef302f]/10 [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]"
+              className={cn(
+                "absolute inset-[10px] rounded-full border-2 [animation:oneSmsRadar_2.4s_ease-out_infinite] [animation-delay:1.2s]",
+                DANGER_ROLE.border,
+                DANGER_ROLE.tile,
+              )}
             />
             <span
               data-one-sms-core
-              className="relative z-10 flex h-14 w-14 items-center justify-center text-[15px] font-semibold text-white"
+              className={cn(
+                "relative z-10 flex h-14 w-14 items-center justify-center text-[15px] font-semibold",
+                DANGER_SOLID.fg,
+              )}
             >
               <span
                 data-one-onboarding-motion
                 data-one-sms-core-pulse
-                className="absolute inset-0 rounded-full bg-[#ef302f] shadow-[0_12px_22px_rgba(239,48,47,0.34)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]"
+                className={cn(
+                  "absolute inset-0 rounded-full shadow-[0_12px_22px_color-mix(in_srgb,var(--app-destructive)_34%,transparent)] [animation:oneSmsCore_2.4s_ease-in-out_infinite]",
+                  DANGER_SOLID.fill,
+                )}
               />
               <span className="relative z-10" data-one-sms-label>
                 SMS
@@ -951,8 +990,8 @@ function FeaturesScreen({
           100% { transform: scale(1.35); opacity: 0; }
         }
         @keyframes oneSmsCore {
-          0%, 100% { transform: scale(1); box-shadow: 0 14px 26px rgba(239,48,47,0.34); }
-          50% { transform: scale(1.06); box-shadow: 0 18px 34px rgba(239,48,47,0.46); }
+          0%, 100% { transform: scale(1); box-shadow: 0 14px 26px color-mix(in srgb, var(--app-destructive) 34%, transparent); }
+          50% { transform: scale(1.06); box-shadow: 0 18px 34px color-mix(in srgb, var(--app-destructive) 46%, transparent); }
         }
         @media (prefers-reduced-motion: reduce) {
           [data-one-onboarding-motion] { animation: none !important; }
@@ -1651,6 +1690,11 @@ function ContactsScreen({
           </div>
         ) : null}
 
+        {/* A failure is not the same thing as finding nobody, but this card is
+            not the place to say so in colour: a full card and its body copy are
+            outside the slots a colour pass may paint, and the message copy plus
+            the "Open Settings" recovery button already separate the two states.
+            Left neutral on purpose. */}
         {state.kind === "failed" ? (
           <div className="mt-7 rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] p-6 text-center shadow-[var(--app-card-shadow-standard)] ring-1 ring-[color:var(--app-separator)]">
             <p className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
@@ -1830,6 +1874,10 @@ function ReadyScreen({
               </div>
             ) : error ? (
               <div className="flex min-h-24 flex-col items-center justify-center gap-3 text-center">
+                {/* Body copy keeps the neutral hierarchy tone: the "Try again"
+                    button beside it is what marks this apart from the loading
+                    and empty states, and it stays action blue because retrying
+                    is not a destructive act. */}
                 <p className="max-w-[260px] text-sm leading-5 text-[color:var(--app-secondary-label)]">
                   {error}
                 </p>
@@ -1889,14 +1937,21 @@ function ReadyScreen({
           {joinEnabled ? (
             <div className="mt-4" data-testid="onboarding-join-circle">
               {joinAccepted ? (
+                // Accepted is a settled outcome, not an offer to act on. It sat
+                // in the action accent while its sibling failure sat in the
+                // error tone, so the pair read as "do this" / "that broke"
+                // instead of as two results of the same attempt. The wash and
+                // the hairline carry the success; the check keeps the label
+                // tone, because --app-success on its own surface is ~1.9:1 and
+                // would fall under the 3:1 floor a glyph has to clear.
                 <p
-                  className="flex items-center gap-2 rounded-[var(--app-radius-md)] border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] px-4 py-3 text-[14px] font-normal leading-5 text-[color:var(--app-label)]"
+                  className={cn(
+                    "flex items-center gap-2 rounded-[var(--app-radius-md)] border bg-[color:var(--app-success-surface)] px-4 py-3 text-[14px] font-normal leading-5 text-[color:var(--app-label)]",
+                    SUCCESS_ROLE.border,
+                  )}
                   role="status"
                 >
-                  <Check
-                    className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
-                    strokeWidth={2.5}
-                  />
+                  <Check className="h-4 w-4 shrink-0" strokeWidth={2.5} />
                   You&apos;ll join {joinPreview?.name ?? "their circle"} as soon
                   as One finishes setting up.
                 </p>

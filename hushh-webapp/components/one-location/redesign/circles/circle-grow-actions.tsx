@@ -343,7 +343,8 @@ export function CircleInvitePeopleSheet({
                       <SettingsRow
                         key={invite.id}
                         icon={Send}
-                        iconTone="blue"
+                        // Awaiting acceptance is PENDING, not an action.
+                        iconTone="orange"
                         title={invite.inviteeDisplayName || "One connection"}
                         description="Waiting for them to join"
                         trailing={

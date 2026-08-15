@@ -84,6 +84,7 @@ import {
 } from "@/lib/testing/location-map-demo";
 import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { motionDurations, motionEasings } from "@/lib/morphy-ux/motion";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   claimNativeMap,
@@ -118,6 +119,8 @@ const MAP_ACCENT_CONTROL_CLASSNAME =
   "!border-[var(--app-accent-border)] !bg-[var(--app-accent-surface)] !text-[var(--app-accent-deep)] hover:!bg-[var(--app-accent-surface-strong)] dark:!text-[var(--app-accent-bright)]";
 const MAP_ACCENT_ACTIVE_CLASSNAME =
   "border-[var(--app-accent)] bg-[var(--app-accent)] text-[var(--app-accent-fg)] hover:bg-[var(--app-accent-hover)]";
+/** No map, nothing to act on — the resting tone, not an accent and not red. */
+const UNAVAILABLE_TONE = roleClasses("neutral");
 
 function activeShareLabels(grants: OneLocationGrant[]): string[] {
   return grants
@@ -151,8 +154,38 @@ type RenderMarker = {
   capturedAt?: string | null;
 };
 
-/** Grey. A pin whose owner has gone quiet stops claiming to be live. */
+/**
+ * Pin tints for the Capacitor Google Maps bridge.
+ *
+ * `tintColor` takes a literal {r,g,b,a} and is resolved by the native SDK, so
+ * a CSS custom property cannot reach it — these mirror the light-theme value
+ * of the semantic token named beside each one, and must be kept in step with
+ * app/globals.css.
+ *
+ * The on-map legend reads these SAME constants (see `tintCss` below) instead
+ * of the CSS tokens. That is deliberate: the accent token follows the user's
+ * accent preference, so a token-painted swatch would turn gold while the pin
+ * it names stayed blue — a legend that lies. One source, no drift.
+ */
+/** Grey (--app-tertiary-label). A pin whose owner has gone quiet stops claiming to be live. */
 const STALE_TINT = { r: 142, g: 142, b: 147, a: 255 } as const;
+/** Location blue (--app-accent). The established map accent — never cyan. */
+const SELF_TINT = { r: 0, g: 122, b: 255, a: 255 } as const;
+/** Green (--app-success). A live check-in is a settled positive fact. */
+const PLACE_ACTIVE_TINT = { r: 52, g: 199, b: 89, a: 255 } as const;
+/**
+ * Orange (--app-warning). The venue is chosen but the check-in has not
+ * happened yet — "Checking in at", not "Checked in at". Deliberately not the
+ * neutral grey, which on this same map already means "gone quiet", and not
+ * the accent, which would make the place pin indistinguishable from the
+ * "you" pin the legend exists to tell it apart from.
+ */
+const PLACE_PENDING_TINT = { r: 255, g: 149, b: 0, a: 255 } as const;
+
+/** The CSS form of a pin tint, so a legend swatch cannot drift from its pin. */
+function tintCss(tint: { r: number; g: number; b: number }): string {
+  return `rgb(${tint.r}, ${tint.g}, ${tint.b})`;
+}
 
 /** "last seen 7m ago" -- a fact about their signal, not their intent. */
 function lastSeenLabel(
@@ -746,7 +779,7 @@ export function LocationImmersiveMap({
         kind: "self",
         label: "You",
         point,
-        tint: { r: 0, g: 122, b: 255, a: 255 },
+        tint: SELF_TINT,
       };
       setSelfMarker(currentLocation);
       if (options.select) setSelected(currentLocation);
@@ -775,7 +808,7 @@ export function LocationImmersiveMap({
       kind: "self",
       label: "You",
       point,
-      tint: { r: 0, g: 122, b: 255, a: 255 },
+      tint: SELF_TINT,
     });
   }, [auth.userId, demoMode]);
 
@@ -1207,9 +1240,7 @@ export function LocationImmersiveMap({
         capturedAt: new Date(0).toISOString(),
         sourcePlatform: "unknown",
       },
-      tint: nearbyPlaceFocus.active
-        ? { r: 16, g: 185, b: 129, a: 255 }
-        : { r: 139, g: 92, b: 246, a: 255 },
+      tint: nearbyPlaceFocus.active ? PLACE_ACTIVE_TINT : PLACE_PENDING_TINT,
     };
   }, [nearbyCheckInOpen, nearbyPlaceFocus]);
 
@@ -2121,7 +2152,8 @@ export function LocationImmersiveMap({
           {nearbySearchPoint ? (
             <span className="flex items-center gap-2">
               <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full bg-[rgb(0,122,255)]"
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: tintCss(SELF_TINT) }}
                 aria-hidden="true"
               />
               <span className="truncate text-foreground">You are here</span>
@@ -2133,11 +2165,14 @@ export function LocationImmersiveMap({
               data-testid="one-location-nearby-place-legend"
             >
               <span
-                className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                  nearbyPlaceFocus.active
-                    ? "bg-emerald-500"
-                    : "bg-violet-500"
-                }`}
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{
+                  backgroundColor: tintCss(
+                    nearbyPlaceFocus.active
+                      ? PLACE_ACTIVE_TINT
+                      : PLACE_PENDING_TINT,
+                  ),
+                }}
                 aria-hidden="true"
               />
               <span className="truncate text-foreground">
@@ -2180,7 +2215,7 @@ export function LocationImmersiveMap({
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 opacity-[0.5] [background-image:linear-gradient(to_right,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px)] [background-size:32px_32px]"
           />
-          <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-background text-[color:var(--app-accent,#087ff5)] shadow-lg">
+          <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-background text-[color:var(--app-accent)] shadow-lg">
             <Loader2 className="h-7 w-7 animate-spin" strokeWidth={2} aria-hidden />
           </span>
           <p className="relative text-sm font-medium text-muted-foreground">
@@ -2231,7 +2266,13 @@ export function LocationImmersiveMap({
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 opacity-[0.5] [background-image:linear-gradient(to_right,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--foreground)_8%,transparent)_1px,transparent_1px)] [background-size:32px_32px]"
           />
-          <span className="relative flex h-14 w-14 items-center justify-center rounded-full bg-background text-[color:var(--app-accent,#087ff5)] shadow-lg">
+          {/* There is no map and nothing to tap: an unavailable surface takes
+              the resting neutral, not the accent that promises an action.
+              Red would be wrong too — this placeholder exists precisely so
+              the screen never reads as broken. */}
+          <span
+            className={`relative flex h-14 w-14 items-center justify-center rounded-full bg-background shadow-lg ${UNAVAILABLE_TONE.glyph}`}
+          >
             <MapPin className="h-7 w-7" strokeWidth={2} aria-hidden />
           </span>
           <h1 className="relative font-semibold">

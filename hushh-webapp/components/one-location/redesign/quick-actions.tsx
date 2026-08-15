@@ -15,30 +15,32 @@ import {
   RowLabel,
   SectionTitle,
 } from "@/components/app-ui/typography";
+import {
+  resolveRole,
+  SEMANTIC_ROLE_CLASSES,
+  type SemanticRole,
+} from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
 
 export type QuickActionTone = "green" | "red" | "blue" | "violet" | "slate";
 
 /**
- * Per-tone semantic icon palette. The tile owns service/action color; labels
- * stay neutral through the shared typography roles.
+ * Tone name -> the MEANING the tile is claiming. The class strings come from
+ * the app-wide semantic role layer, so a tile cannot render a colour that
+ * disagrees with the same status elsewhere in the app.
+ *
+ * `green` is a settled STATE, so it is only honest on a tile that is actually
+ * reporting one. A tile whose job is to OPEN a flow is an action and takes
+ * `blue`, however green the thing behind it eventually turns: green is a
+ * status colour, never a CTA colour, and `resolveRole` below is what stops a
+ * tile from claiming a state it cannot see.
  */
-const TONE_STYLES: Record<QuickActionTone, { icon: string }> = {
-  green: {
-    icon: "text-[color:var(--app-secondary-label)]",
-  },
-  red: {
-    icon: "text-[color:var(--app-destructive)]",
-  },
-  blue: {
-    icon: "text-[color:var(--app-accent)]",
-  },
-  violet: {
-    icon: "text-[color:var(--app-purple)]",
-  },
-  slate: {
-    icon: "text-[color:var(--app-secondary-label)]",
-  },
+const TONE_ROLE: Record<QuickActionTone, SemanticRole> = {
+  green: "success",
+  red: "danger",
+  blue: "action",
+  violet: "people",
+  slate: "neutral",
 };
 
 export type QuickActionCardProps = {
@@ -69,8 +71,14 @@ export function QuickActionCard({
   disabled = false,
   controlId,
 }: QuickActionCardProps) {
-  const palette = TONE_STYLES[tone];
   const interactive = !comingSoon && !disabled;
+  // STATE BEATS CATEGORY. A tile that cannot be tapped — not wired up yet, or
+  // disabled for this person — has no state to report, so it renders neutral
+  // however strong its category is. "Unavailable" is grey, never red.
+  const iconClass =
+    SEMANTIC_ROLE_CLASSES[
+      resolveRole(TONE_ROLE[tone], { inactive: !interactive })
+    ].glyph;
 
   return (
     <button
@@ -88,7 +96,7 @@ export function QuickActionCard({
       )}
     >
       <div className="flex w-full items-start">
-        <span className={cn("flex h-6 w-6 items-center justify-center [&_svg]:h-5 [&_svg]:w-5", palette.icon)}>
+        <span className={cn("flex h-6 w-6 items-center justify-center [&_svg]:h-5 [&_svg]:w-5", iconClass)}>
           {icon}
         </span>
       </div>

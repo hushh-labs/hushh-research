@@ -46,6 +46,7 @@ import {
   TrustNoteCard,
 } from "@/components/one-location/redesign/primitives";
 import { MUTED_TEXT } from "@/components/one-location/redesign/tokens";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import type {
   OneLocationCircleDetail,
   OneLocationCircleEligibleConnection,
@@ -64,6 +65,23 @@ const CIRCLES_GROUP_SURFACE =
 
 const CIRCLES_EMPTY_STATE_WRAPPER =
   "[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)]";
+
+/**
+ * A circle is a group of trusted people, so its glyph carries the PEOPLE role
+ * rather than the accent used for things you can DO. The action controls that
+ * sit alongside it (New circle, Join, Share, Add people) stay accent, which is
+ * what keeps "this is a group" and "this is a button" from looking alike.
+ *
+ * Glyph only. The wells this sits in ask for `--app-accent-soft`, a token that
+ * is defined nowhere, so they have always rendered unpainted — giving them a
+ * tint would add painted area rather than recolour it, so the recolour stops
+ * at the icon.
+ *
+ * Used on the two surfaces where the viewer is NOT yet a member (an incoming
+ * invite, a join preview), so the "nobody but you in here" neutral state the
+ * circle LIST applies cannot arise and there is nothing to resolve.
+ */
+const CIRCLE_PEOPLE_GLYPH = roleClasses("people").glyph;
 
 function circleInitials(value: string): string {
   return value
@@ -279,7 +297,12 @@ export function CirclesSection({
                 data-focused={isFocused || undefined}
                 data-testid={`one-location-circle-invite-${invite.id}`}
               >
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+                <span
+                  className={cn(
+                    "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[color:var(--app-accent-soft)]",
+                    CIRCLE_PEOPLE_GLYPH,
+                  )}
+                >
                   <UsersRound className="h-5 w-5" />
                 </span>
                 <div className="min-w-0 flex-1">
@@ -345,31 +368,48 @@ export function CirclesSection({
           shellClassName={CIRCLES_GROUP_SURFACE}
           testId="one-location-circle-list"
         >
-          {circles.map((circle) => (
-            <SettingsRow
-              key={circle.id}
-              leading={
-                <span className="flex h-11 w-11 items-center justify-center rounded-[12px] bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]">
-                  <UsersRound className="h-5 w-5" />
-                </span>
-              }
-              title={circle.name}
-              description={circleListMemberCountLabel(
-                circle.kind,
-                circle.memberCount,
-              )}
-              trailing={circle.role === "owner" ? "Owner" : "Member"}
-              chevron
-              onClick={() => onOpen(circle.id)}
-              className={cn(
-                "[--settings-row-gap:16px] [--settings-row-px:20px] [--settings-row-py:20px] sm:[--settings-row-gap:18px] sm:[--settings-row-px:24px] sm:[--settings-row-py:22px]",
-                "[&>button]:min-h-[84px] sm:[&>button]:min-h-[92px]",
-                "[&_[data-slot=settings-row-title]]:!text-[18px] [&_[data-slot=settings-row-title]]:!font-semibold [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.35px] sm:[&_[data-slot=settings-row-title]]:!text-[19px] sm:[&_[data-slot=settings-row-title]]:!leading-6 sm:[&_[data-slot=settings-row-title]]:!tracking-[-0.4px]",
-                "[&_[data-slot=settings-row-description]]:!text-[14px] [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px] sm:[&_[data-slot=settings-row-description]]:!text-[15px] sm:[&_[data-slot=settings-row-description]]:!leading-5 sm:[&_[data-slot=settings-row-description]]:!tracking-[-0.24px]",
-              )}
-              testId={`one-location-circle-${circle.id}`}
-            />
-          ))}
+          {circles.map((circle) => {
+            // STATE BEATS CATEGORY: a circle is the people role, but one
+            // holding nobody except the viewer has nothing to report and
+            // stays neutral. `memberCount` includes the viewer, so the count
+            // that decides this is `memberCount - 1` — the same test the
+            // check-in flow and the SMS contacts list apply, and the same
+            // count this row's own subtitle already shows.
+            const circleRole = roleClasses("people", {
+              inactive: Math.max(0, circle.memberCount - 1) === 0,
+            });
+            return (
+              <SettingsRow
+                key={circle.id}
+                leading={
+                  <span
+                    className={cn(
+                      "flex h-11 w-11 items-center justify-center rounded-[12px]",
+                      circleRole.tile,
+                      circleRole.glyph,
+                    )}
+                  >
+                    <UsersRound className="h-5 w-5" />
+                  </span>
+                }
+                title={circle.name}
+                description={circleListMemberCountLabel(
+                  circle.kind,
+                  circle.memberCount,
+                )}
+                trailing={circle.role === "owner" ? "Owner" : "Member"}
+                chevron
+                onClick={() => onOpen(circle.id)}
+                className={cn(
+                  "[--settings-row-gap:16px] [--settings-row-px:20px] [--settings-row-py:20px] sm:[--settings-row-gap:18px] sm:[--settings-row-px:24px] sm:[--settings-row-py:22px]",
+                  "[&>button]:min-h-[84px] sm:[&>button]:min-h-[92px]",
+                  "[&_[data-slot=settings-row-title]]:!text-[18px] [&_[data-slot=settings-row-title]]:!font-semibold [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.35px] sm:[&_[data-slot=settings-row-title]]:!text-[19px] sm:[&_[data-slot=settings-row-title]]:!leading-6 sm:[&_[data-slot=settings-row-title]]:!tracking-[-0.4px]",
+                  "[&_[data-slot=settings-row-description]]:!text-[14px] [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px] sm:[&_[data-slot=settings-row-description]]:!text-[15px] sm:[&_[data-slot=settings-row-description]]:!leading-5 sm:[&_[data-slot=settings-row-description]]:!tracking-[-0.24px]",
+                )}
+                testId={`one-location-circle-${circle.id}`}
+              />
+            );
+          })}
         </SettingsGroup>
       ) : (
         <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
@@ -453,6 +493,13 @@ export function CreateCircleFlow({
         {CIRCLE_KIND_OPTIONS.map((option) => (
           <SettingsRow
             key={option.value}
+            // Stays on SettingsRow's own `icon` slot: that slot is what carries
+            // `data-slot="settings-row-icon"` (global CSS thins the glyph
+            // stroke through it), the `data-ui-role`/`data-icon-tone` hooks,
+            // and the group's density switch. A people tone is missing from the
+            // shared tone map, so the row keeps the tones it already had and
+            // the missing entry is recorded as deferred rather than worked
+            // around by re-implementing the slot here.
             icon={UsersRound}
             iconTone={option.value === "family" ? "purple" : "blue"}
             title={option.label}
@@ -589,7 +636,12 @@ export function JoinCircleFlow({
       {preview ? (
         <div className="rounded-[22px] border border-border bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-sm">
           <div className="flex items-center gap-3">
-            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+            <span
+              className={cn(
+                "flex h-12 w-12 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)]",
+                CIRCLE_PEOPLE_GLYPH,
+              )}
+            >
               <UsersRound className="h-6 w-6" />
             </span>
             <div className="min-w-0 flex-1">
@@ -1098,7 +1150,11 @@ export function CircleDetailFlow({
       {loadError ? (
         <div
           role="alert"
-          className="rounded-2xl border border-destructive/25 bg-destructive/10 p-4 text-sm text-destructive"
+          // Wash and hairline move onto the destructive family; the message
+          // itself keeps `text-destructive`, which is the dark red this size
+          // needs. The flat --app-destructive is the glyph tone and measures
+          // ~3.5:1 here, under the 4.5:1 a 14px sentence requires.
+          className="rounded-2xl border border-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)] p-4 text-sm text-destructive"
         >
           {loadError}
           <Button
@@ -1441,7 +1497,8 @@ export function CircleDetailFlow({
                             <SettingsRow
                               key={invite.id}
                               icon={Send}
-                              iconTone="blue"
+                              // Awaiting acceptance is PENDING, not an action.
+                              iconTone="orange"
                               title={
                                 invite.inviteeDisplayName || "One connection"
                               }

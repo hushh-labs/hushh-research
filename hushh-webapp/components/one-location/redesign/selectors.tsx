@@ -178,7 +178,10 @@ export function LocationTypeSelector({
                 )}
               >
                 {active ? (
-                  <span className="h-2 w-2 rounded-full bg-white" />
+                  // The dot sits ON the solid accent, so it takes the accent's
+                  // own foreground token. Hardcoded white disappears under the
+                  // gold accent preference, where --app-accent-fg is near-black.
+                  <span className="h-2 w-2 rounded-full bg-[color:var(--app-accent-fg)]" />
                 ) : null}
               </span>
             </button>
