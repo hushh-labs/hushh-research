@@ -641,19 +641,28 @@ textarea {
   --settings-row-py: 11px;
   --settings-row-gap: 12px;
   --settings-row-stack-gap: 10px;
-  --ios-account-screen-background: #f2f2f7;
-  --ios-account-card-background: #ffffff;
-  --ios-account-label: #1d1d1f;
-  --ios-account-secondary-label: #8e8e93;
+  /* Profile surface tokens are ALIASES onto the app-wide design system, not a
+   * second palette. They used to hardcode their own hexes (#007aff accent,
+   * #f2f2f7/#000 canvases), which meant Profile silently opted out of the
+   * accent preference — Molten Gold changed every screen except this one —
+   * and painted card surfaces the One Location screens do not use. Keeping the
+   * token NAMES lets the existing Profile rules stay untouched while the
+   * VALUES now resolve through --app-* exactly like SurfaceCard and the
+   * morphy-ux surface primitives. Fallbacks preserve the old values if a
+   * token is ever missing. Never reintroduce a literal accent hex here. */
+  --ios-account-screen-background: var(--background, #f2f2f7);
+  --ios-account-card-background: var(--app-card-surface-default-solid, #ffffff);
+  --ios-account-label: var(--foreground, #1d1d1f);
+  --ios-account-secondary-label: var(--muted-foreground, #8e8e93);
   --ios-account-tertiary-label: #aeaeb2;
-  --ios-account-separator: rgba(60, 60, 67, 0.1);
+  --ios-account-separator: var(--app-card-border-standard, rgba(60, 60, 67, 0.1));
   --ios-account-icon-tile-background: rgba(120, 120, 128, 0.12);
-  --ios-account-utility-icon-tile-background: #8e8e93;
-  --ios-account-utility-icon-glyph: #ffffff;
+  --ios-account-utility-icon-tile-background: var(--app-icon-tile-background, #8e8e93);
+  --ios-account-utility-icon-glyph: var(--app-icon-tile-foreground, #ffffff);
   --ios-account-service-icon-tile-background: #1c1c1e;
   --ios-account-service-icon-glyph: #ffffff;
-  --ios-account-accent: #007aff;
-  --ios-account-destructive: #ff3b30;
+  --ios-account-accent: var(--app-accent, #007aff);
+  --ios-account-destructive: var(--app-destructive, #ff3b30);
   --ios-account-on-accent: #ffffff;
   --ios-account-title-size: var(--type-page-title-size);
   --ios-account-title-line: var(--type-page-title-line);
@@ -949,19 +958,23 @@ textarea {
   --app-glass-surface: rgba(28, 28, 30, 0.78);
   --app-glass-border: rgba(84, 84, 88, 0.65);
   --app-glass-shadow: 0 12px 32px -24px rgba(0, 0, 0, 0.85);
-  --ios-account-screen-background: #000000;
-  --ios-account-card-background: #1c1c1e;
-  --ios-account-label: #ffffff;
-  --ios-account-secondary-label: #98989d;
+  /* Dark Profile aliases — same rule as the light block above. The literals
+   * here were the visible dark-mode divergence: a pure #000 canvas with
+   * #1c1c1e cards, where every One Location screen uses the shared
+   * --app-card-surface-default-solid (#2c2c2e) on the app canvas. */
+  --ios-account-screen-background: var(--background, #000000);
+  --ios-account-card-background: var(--app-card-surface-default-solid, #1c1c1e);
+  --ios-account-label: var(--foreground, #ffffff);
+  --ios-account-secondary-label: var(--muted-foreground, #98989d);
   --ios-account-tertiary-label: #636366;
-  --ios-account-separator: rgba(84, 84, 88, 0.65);
+  --ios-account-separator: var(--app-card-border-standard, rgba(84, 84, 88, 0.65));
   --ios-account-icon-tile-background: rgba(120, 120, 128, 0.24);
-  --ios-account-utility-icon-tile-background: #636366;
-  --ios-account-utility-icon-glyph: #ffffff;
+  --ios-account-utility-icon-tile-background: var(--app-icon-tile-background, #636366);
+  --ios-account-utility-icon-glyph: var(--app-icon-tile-foreground, #ffffff);
   --ios-account-service-icon-tile-background: #3a3a3c;
   --ios-account-service-icon-glyph: #ffffff;
-  --ios-account-accent: #0a84ff;
-  --ios-account-destructive: #ff453a;
+  --ios-account-accent: var(--app-accent, #0a84ff);
+  --ios-account-destructive: var(--app-destructive, #ff453a);
   --ios-account-on-accent: #ffffff;
   --ios-account-nav-material-background: rgba(28, 28, 30, 0.82);
   --ios-account-nav-material-border: rgba(84, 84, 88, 0.65);
@@ -996,12 +1009,14 @@ textarea {
   font-optical-sizing: auto;
 }
 
+/* The account screen no longer overrides the shared measure or the header gap.
+ * It used to force a 560px column and `padding-top: 0`, so it sat at a
+ * different width and header offset than every sibling Profile screen; the
+ * navigator now supplies the 720px measure, the header gap, and the bottom
+ * clearance uniformly. Only the inline gutter stays pinned here. */
 [data-profile-stack-screen="account"] [data-profile-stack-content],
 [data-profile-stack-screen="panel:account"] [data-profile-stack-content] {
-  max-width: 560px !important;
-  padding-inline: var(--page-inline-gutter-standard) !important;
-  padding-top: 0 !important;
-  padding-bottom: var(--app-bottom-content-clearance) !important;
+  padding-inline: var(--page-inline-gutter-standard);
 }
 
 [data-profile-stack-screen="account"] [data-profile-stack-header],
@@ -1441,15 +1456,14 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   padding-bottom: var(--app-bottom-content-clearance);
 }
 
-.profile-home-screen .app-page-header-region {
-  margin-inline: auto;
-  max-width: 520px;
-  width: 100%;
-}
-
+/* Measure is owned by AppPageShell (width="reading" → 720px) so the Profile
+ * root, the pushed Profile screens, and the One Location screens all share one
+ * column. These used to re-cap themselves at 520px, which made Profile a
+ * visibly narrower page than every other route on the same breakpoint. */
+.profile-home-screen .app-page-header-region,
 .profile-home-screen .app-page-content-region {
   margin-inline: auto;
-  max-width: 520px;
+  max-width: 720px;
   width: 100%;
 }
 
@@ -1459,7 +1473,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-screen [data-profile-avatar-frame="true"] {
-  background: #d1d1d6 !important;
+  /* Was a literal #d1d1d6, which stayed a light-grey disc in dark mode. Uses
+   * the same muted surface token as AVATAR_BUBBLE in surface-primitives. */
+  background: var(--app-card-surface-muted, #d1d1d6) !important;
   box-shadow: none !important;
   display: inline-flex;
   height: 88px !important;

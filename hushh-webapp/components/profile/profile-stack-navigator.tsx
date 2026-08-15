@@ -3,6 +3,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import { cn } from "@/lib/utils";
+
 const STACK_TRANSITION_MS = 260;
 
 export type ProfileStackEntry = {
@@ -41,30 +44,6 @@ function stackPrefixMatches(
   return true;
 }
 
-function StackHeader({
-  title,
-  description,
-}: {
-  title: ReactNode;
-  description?: ReactNode;
-}) {
-  return (
-    <div
-      className="mx-auto flex w-full max-w-[520px] flex-col gap-1 px-[var(--page-inline-gutter-standard)] pb-1 pt-3"
-      data-profile-stack-header="true"
-    >
-      <h1 className="profile-home-name ui-text-identity-name text-[32px] font-bold tracking-tight text-[color:var(--ios-account-label)]">
-        {title}
-      </h1>
-      {description ? (
-        <p className="ui-text-page-subtitle text-[color:var(--ios-account-secondary-label)]">
-          {description}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 export function ProfileStackNavigator({
   rootContent,
   entries,
@@ -75,7 +54,6 @@ export function ProfileStackNavigator({
   const [activeIndex, setActiveIndex] = useState(entries.length);
   const [renderedEntries, setRenderedEntries] = useState(entries);
   const pruneTimerRef = useRef<number | null>(null);
-  const scrollRegionRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   useEffect(() => {
     return () => {
@@ -131,20 +109,15 @@ export function ProfileStackNavigator({
     setActiveIndex(nextLength);
   }, [entries, renderedEntries]);
 
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow =
-      activeIndex > 0 ? "hidden" : previousOverflow;
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [activeIndex]);
-
+  /* Pushing a screen starts the reader at its header rather than wherever the
+   * previous screen was scrolled to. The stack no longer owns a scroll
+   * container (see below), so this scrolls the document — the same thing a
+   * route change does everywhere else in the app. */
   useEffect(() => {
     if (activeIndex <= 0) return;
+    if (typeof window === "undefined") return;
     const frame = window.requestAnimationFrame(() => {
-      scrollRegionRefs.current[activeIndex]?.scrollTo({ top: 0 });
+      window.scrollTo({ top: 0 });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [activeIndex, renderedEntries]);
@@ -168,54 +141,69 @@ export function ProfileStackNavigator({
     }),
   ];
 
+  /* Panes are stacked in a single grid cell instead of laid out as a 100%-wide
+   * horizontal track inside a `100dvh` box.
+   *
+   * The old shape gave Profile its own viewport-height scroller nested inside
+   * the document scroll, so the page rendered two scrollbars and stranded the
+   * last rows ("Account access" → "Sign out") in a dead region under the
+   * floating Talk to One bar. Here only the active pane is in flow, so the
+   * stack is exactly as tall as the screen being shown and the document does
+   * all the scrolling — the same model every other route (One Location
+   * included) already uses. Inactive panes stay mounted so their state and
+   * in-flight data survive a push/pop; they are transparent and out of flow,
+   * so they cost no height and still slide. */
   return (
     <div
-      className="relative h-[calc(100dvh-var(--top-shell-reserved-height,0px))] w-full overflow-hidden flex flex-col flex-1 bg-[color:var(--ios-account-screen-background)]"
+      className="relative w-full overflow-x-clip"
       data-profile-stack="true"
     >
-      <div
-        className="flex h-full w-full transition-transform duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
-        style={{ transform: `translateX(-${Math.max(activeIndex, 0) * 100}%)` }}
-      >
-        {screens.map((entry, index) => (
-          <section
-            key={entry.key}
-            className="flex h-full min-h-full min-w-full w-full shrink-0 flex-col overflow-hidden"
-            data-profile-stack-screen={entry.key}
-          >
-            {entry.isRoot ? (
-              <div className="flex h-full min-h-full flex-1 flex-col overflow-y-auto">
-                {entry.content}
-              </div>
-            ) : (
-              <>
-                <StackHeader
-                  title={entry.title}
-                  description={entry.description}
-                />
+      <div className="grid w-full grid-cols-1 [grid-template-areas:'stack']">
+        {screens.map((entry, index) => {
+          const offset = index - Math.max(activeIndex, 0);
+          const isActive = offset === 0;
+          return (
+            <section
+              key={entry.key}
+              className={cn(
+                "w-full min-w-0 [grid-area:stack] transition-[transform,opacity] duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+                isActive
+                  ? "relative z-10 opacity-100"
+                  : "pointer-events-none absolute inset-x-0 top-0 opacity-0",
+              )}
+              style={{ transform: `translateX(${offset * 100}%)` }}
+              aria-hidden={isActive ? undefined : true}
+              data-profile-stack-screen={entry.key}
+              data-profile-stack-active={isActive ? "true" : undefined}
+            >
+              {entry.isRoot ? (
+                entry.content
+              ) : (
                 <div
-                  ref={(node) => {
-                    scrollRegionRefs.current[index] = node;
-                  }}
-                  data-profile-stack-scroll="true"
-                  className="flex flex-1 flex-col overflow-y-auto overscroll-contain"
+                  data-profile-stack-content="true"
+                  /* pb reserves room for BOTH fixed bottom bars (nav + the
+                   * floating Talk to One bar) via the runtime-measured
+                   * clearance token. Only the account screen used to get this,
+                   * so every other pushed screen ended with its last row
+                   * underneath the agent bar. */
+                  className="mx-auto flex w-full max-w-[720px] flex-col gap-[var(--page-header-section-gap)] px-[var(--page-inline-gutter-standard)] pb-[var(--app-bottom-content-clearance)] pt-[var(--page-header-section-gap)]"
                 >
-                  <div
-                    className="mx-auto flex w-full max-w-[520px] flex-1 flex-col gap-4 px-[var(--page-inline-gutter-standard)] pb-4 pt-1"
-                    data-profile-stack-content="true"
+                  <PageHeader
+                    title={entry.title}
+                    description={entry.description}
+                    testId="profile-stack-page-header"
+                  />
+                  <SettingsPresentationProvider
+                    separatorInset
+                    density="compact"
                   >
-                    <SettingsPresentationProvider
-                      separatorInset
-                      density="compact"
-                    >
-                      {entry.content}
-                    </SettingsPresentationProvider>
-                  </div>
+                    {entry.content}
+                  </SettingsPresentationProvider>
                 </div>
-              </>
-            )}
-          </section>
-        ))}
+              )}
+            </section>
+          );
+        })}
       </div>
     </div>
   );

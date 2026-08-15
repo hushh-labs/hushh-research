@@ -4089,6 +4089,7 @@ function ProfilePageContent() {
       data-testid="profile-primary"
       as="div"
       width="reading"
+      fitContent
       className="relative isolate pb-3"
       nativeTest={{
         routeId: profileNativeRouteId,
