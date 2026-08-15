@@ -8,6 +8,7 @@ import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { formatFeedTimestamp } from "@/lib/feed/feed-timestamp";
 import type {
   FeedActionButton,
   FeedActionable,
@@ -99,13 +100,37 @@ function ActionButtons({ actions }: { actions: FeedActionButton[] }) {
  * trailing buttons from nesting.
  */
 export function FeedActionableRow({ item }: { item: FeedActionable }) {
-  const description = item.spinning ? (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent animate-pulse motion-reduce:animate-none" />
-      {item.description}
+  const timeLabel =
+    item.displayTimestamp != null
+      ? formatFeedTimestamp(item.displayTimestamp)
+      : null;
+  const isLive = item.emphasis === "emergency";
+
+  const descriptionBody =
+    item.spinning || isLive ? (
+      <span className="inline-flex min-w-0 items-center gap-1.5">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "h-1.5 w-1.5 shrink-0 rounded-full animate-pulse motion-reduce:animate-none",
+            isLive ? "bg-emerald-500" : "bg-accent",
+          )}
+        />
+        <span className="truncate">{item.description}</span>
+      </span>
+    ) : (
+      <span className="min-w-0 truncate">{item.description}</span>
+    );
+
+  const description = timeLabel ? (
+    <span className="flex items-center gap-2">
+      <span className="min-w-0 flex-1">{descriptionBody}</span>
+      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+        {timeLabel}
+      </span>
     </span>
   ) : (
-    item.description
+    descriptionBody
   );
 
   const shared = {

@@ -1,0 +1,79 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { MapPin } from "lucide-react";
+
+import { FeedRow } from "@/components/feed/feed-row";
+import type { FeedItem } from "@/lib/services/feed-service";
+
+vi.mock("@/lib/feed/feed-item-renderers", () => ({
+  presentFeedItem: (item: FeedItem) => ({
+    icon: MapPin,
+    domainLabel: "Location",
+    label: "Someone shared their location",
+    description: "A routine location share.",
+    href: item.metadata.hrefEnabled ? "/one/location" : null,
+  }),
+}));
+
+function feedItem(overrides: Partial<FeedItem> = {}): FeedItem {
+  return {
+    id: "item-1",
+    source_domain: "location",
+    event_type: "location_share_created",
+    actor_label: "A contact",
+    metadata: {},
+    read: false,
+    created_at: "2026-08-12T15:45:00.000Z",
+    ...overrides,
+  };
+}
+
+describe("FeedRow", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-12T15:50:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows the absolute day/time label next to the description", () => {
+    render(<FeedRow item={feedItem()} onOpen={() => {}} />);
+
+    expect(screen.getByText(/^Today - \d{1,2}:\d{2}\s?[AP]M$/i)).toBeInTheDocument();
+    expect(screen.getByText("A routine location share.")).toBeInTheDocument();
+  });
+
+  it("never renders the old relative time format", () => {
+    render(<FeedRow item={feedItem()} onOpen={() => {}} />);
+
+    expect(screen.queryByText(/^\d+[mhd]$/)).toBeNull();
+    expect(screen.queryByText("now")).toBeNull();
+  });
+
+  it("shows the unread dot when the item is unread", () => {
+    render(<FeedRow item={feedItem({ read: false })} onOpen={() => {}} />);
+
+    expect(screen.getByLabelText("Unread")).toBeInTheDocument();
+  });
+
+  it("does not show the unread dot when the item is read", () => {
+    render(<FeedRow item={feedItem({ read: true })} onOpen={() => {}} />);
+
+    expect(screen.queryByLabelText("Unread")).toBeNull();
+  });
+
+  it("shows a chevron and opens the item when a href is present", () => {
+    const onOpen = vi.fn();
+    render(
+      <FeedRow
+        item={feedItem({ metadata: { hrefEnabled: true } })}
+        onOpen={onOpen}
+      />,
+    );
+
+    screen.getByText("Someone shared their location").closest("button")?.click();
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+});
