@@ -865,17 +865,57 @@ class PersonalAgentProvisioningService:
         hushh_id = (row or {}).get("hushh_id")
         external_agent_id = (row or {}).get("external_agent_id")
 
-        # Route host teardown through the selected compute backend. Inert in Phase 0:
-        # external_agent_id is NULL until a real backend provisions a host, so the
-        # backend is never even called here (and NullBackend is a no-op regardless).
+        # Route host teardown through the backend that BUILT this pod, read from the
+        # row, not from the one this process happens to be configured with.
+        #
+        # This used to be `self._backend`, and the asymmetry with `provision()` -- which
+        # has always routed per person via `_backend_for(spec)` -- was an erasure defect
+        # rather than an inconsistency. For someone on their own cloud, teardown ran
+        # against hushh's default backend or NullBackend, which answers success without
+        # doing anything. The registry row was then deleted, so the only record of WHERE
+        # that person's pod lived went with it: a live, billing Cloud Run service left in
+        # a customer's own project that nothing in the system could name afterwards.
+        #
+        # It reaches account deletion (`api/routes/account.py`), which is the one path
+        # where "we deleted everything" has to be true.
+        teardown_spec = PodSpec(
+            hushh_id=str(hushh_id or ""),
+            phone_e164_hash="",
+            pod_pubkey="",
+            deployment_target=(row or {}).get("deployment_target"),
+            user_cloud_project=(row or {}).get("user_cloud_project"),
+            user_cloud_region=(row or {}).get("user_cloud_region"),
+            user_cloud_bootstrap_sa=(row or {}).get("user_cloud_bootstrap_sa"),
+        )
+        teardown_reached_the_host = False
         if external_agent_id:
             try:
-                await self._backend.deprovision(external_agent_id)
+                await self._backend_for(teardown_spec).deprovision(external_agent_id)
+                teardown_reached_the_host = True
             except Exception as exc:  # best-effort: teardown must still complete
                 logger.warning(
-                    "personal_agent.deprovision backend_teardown_failed err=%s",
+                    "personal_agent.deprovision backend_teardown_failed err=%s target=%s",
                     type(exc).__name__,
+                    str((row or {}).get("deployment_target") or "default"),
                 )
+
+        # An orphan must stay NAMEABLE after the row is gone. Teardown into a project
+        # hushh holds no standing credential in can genuinely fail -- the person may have
+        # revoked the grant already, which is their right and not an error -- and once
+        # the row is deleted there is otherwise nothing left that knows a billing service
+        # exists in their cloud. The tenant reference is retained ONLY when there is a
+        # real orphan to name, so a clean teardown still writes the minimal tombstone the
+        # erasure guarantee expects.
+        unreclaimed = bool(external_agent_id) and not teardown_reached_the_host
+        if unreclaimed:
+            logger.warning(
+                "personal_agent.deprovision_unreclaimed hushh_id=%s target=%s project=%s "
+                "service=%s -- resources remain in a project hushh cannot reach",
+                hushh_id,
+                str((row or {}).get("deployment_target") or "default"),
+                str((row or {}).get("user_cloud_project") or ""),
+                external_agent_id,
+            )
 
         await self._registry.tombstone(
             hushh_id=hushh_id,
