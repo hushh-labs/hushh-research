@@ -131,4 +131,51 @@ if [ "$((provider_timeout_seconds * 1000))" -ge "$onboarding_proxy_timeout_ms" ]
   exit 1
 fi
 
+# --- Location map demo fixture -------------------------------------------
+#
+# `?demo=people` renders fifty fabricated people on the location map. It is an
+# operator preview, and in a product whose entire promise is that the map shows
+# only people who chose to share with you, showing it to a real user is the
+# worst bug the surface has.
+#
+# The client gate (`lib/testing/location-map-demo.ts`) is an explicit opt-in
+# rather than `APP_ENV !== "production"`, because the App Store and Play Store
+# binaries are stamped `NEXT_PUBLIC_APP_ENV=uat` — an environment-shaped check
+# reads every store install as non-production. An opt-in is only as good as the
+# plumbing that carries it, so assert the whole chain here: a build arg that is
+# declared but never passed leaves the flag permanently false and the preview
+# silently gone, and a production lane that passes `true` is the incident.
+webapp_dockerfile="$REPO_ROOT/hushh-webapp/Dockerfile"
+deploy_production_workflow="$REPO_ROOT/.github/workflows/deploy-production.yml"
+
+if ! grep -q '^ARG NEXT_PUBLIC_LOCATION_MAP_DEMO$' "$webapp_dockerfile"; then
+  echo "❌ webapp Dockerfile must declare the NEXT_PUBLIC_LOCATION_MAP_DEMO build arg."
+  exit 1
+fi
+
+if ! grep -q '^ENV NEXT_PUBLIC_LOCATION_MAP_DEMO=\$NEXT_PUBLIC_LOCATION_MAP_DEMO$' "$webapp_dockerfile"; then
+  echo "❌ webapp Dockerfile must promote NEXT_PUBLIC_LOCATION_MAP_DEMO into the build env."
+  exit 1
+fi
+
+if ! grep -q -- '--build-arg NEXT_PUBLIC_LOCATION_MAP_DEMO=${_LOCATION_MAP_DEMO}' "$frontend_cloudbuild"; then
+  echo "❌ frontend Cloud Build must pass NEXT_PUBLIC_LOCATION_MAP_DEMO from the _LOCATION_MAP_DEMO substitution."
+  exit 1
+fi
+
+location_map_demo_default="$(
+  grep -E '^[[:space:]]*_LOCATION_MAP_DEMO:' "$frontend_cloudbuild" |
+    head -n 1 |
+    sed -E 's/.*"([^"]*)".*/\1/'
+)"
+if [ "$location_map_demo_default" != "false" ]; then
+  echo "❌ _LOCATION_MAP_DEMO must default to \"false\" so a lane has to opt in deliberately."
+  exit 1
+fi
+
+if grep -q '_LOCATION_MAP_DEMO=true' "$deploy_production_workflow"; then
+  echo "❌ the production lane must never enable the fabricated-people map fixture."
+  exit 1
+fi
+
 echo "✅ Runtime contract check passed."
