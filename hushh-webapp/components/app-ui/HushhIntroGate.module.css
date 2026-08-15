@@ -391,7 +391,7 @@
 
 .label1Accent {
   font-weight: 700;
-  color: var(--app-accent, #007aff);
+  color: var(--app-accent);
 }
 
 .label2 {
@@ -443,7 +443,7 @@
 
 .greetingAccent {
   font-weight: 700;
-  color: var(--app-accent, #007aff);
+  color: var(--app-accent);
 }
 
 @media (max-width: 420px) {
