@@ -275,6 +275,22 @@ vi.mock("sonner", () => ({
   },
 }));
 
+// Only reached by cases that put real (non-demo) markers on the map. Every
+// other case leaves `getMapState` returning no markers, so this never runs for
+// them.
+vi.mock("@/lib/one-location/encryption", () => ({
+  decryptLocationEnvelope: vi.fn(
+    async ({ envelope }: { envelope: { plainPointForTest: unknown } }) =>
+      envelope.plainPointForTest,
+  ),
+  encryptLocationForRecipient: vi.fn(async () => ({
+    id: "envelope-id",
+    capturedAt: "2026-07-23T00:00:00.000Z",
+  })),
+}));
+
+import { toast } from "sonner";
+
 import { LocationImmersiveMap } from "@/components/one-location/location-immersive-map";
 import { beginNearbyPrivateReturn } from "@/lib/one-location/nearby-private-navigation";
 import {
@@ -1670,5 +1686,278 @@ describe("LocationImmersiveMap remount triggers", () => {
       "true",
     );
     expect(mapHarness.map.destroy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The five things QA reported on the shipped Location map, each locked by the
+ * behaviour a person actually performs. They are grouped because they share one
+ * root: a control that is visible but cannot answer is indistinguishable from a
+ * broken one, and every one of these was reported as "it is not working".
+ */
+describe("LocationImmersiveMap reported map defects", () => {
+  const ANKIT = "Ankit Kumar Singh";
+  const ABDUL = "Abdul Rashid";
+
+  function activeGrant(recipientDisplayName: string, id: string) {
+    return {
+      id,
+      ownerUserId: "test-user",
+      recipientUserId: `${id}-recipient`,
+      recipientDisplayName,
+      recipientKeyId: `${id}-key`,
+      status: "active",
+      consentScope: "location",
+      capabilityScopes: ["location.read"],
+      durationHours: 1,
+    };
+  }
+
+  /** An incoming pin: someone who shares their location back with this account. */
+  function incomingMarker(ownerDisplayName: string, lat: number, lng: number) {
+    return {
+      grant: { id: `${ownerDisplayName}-incoming`, ownerDisplayName },
+      envelope: {
+        id: `${ownerDisplayName}-envelope`,
+        capturedAt: "2026-07-23T00:00:00.000Z",
+        plainPointForTest: {
+          latitude: lat,
+          longitude: lng,
+          capturedAt: "2026-07-23T00:00:00.000Z",
+          sourcePlatform: "ios",
+        },
+      },
+    };
+  }
+
+  async function renderReadyMap() {
+    render(<LocationImmersiveMap />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Continue to Your Map" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+  }
+
+  beforeEach(() => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "source=map";
+  });
+
+  it("takes you to a person on the map when you tap their name in Sharing with", async () => {
+    // The reported flow: tap "Sharing with 2", see the people, tap one. The
+    // rows used to be inert <li> text, so the tap answered nothing.
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [activeGrant(ANKIT, "share-ankit")],
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      // Mutual: Ankit both receives this account's location and shares back, so
+      // he has a pin to fly to.
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-map-sharing-status"),
+      ).toHaveTextContent("Sharing with 1");
+    });
+    fireEvent.click(screen.getByTestId("one-location-map-sharing-status"));
+
+    const row = await screen.findByTestId("one-location-map-sharing-person");
+    // A real control, not decorated text.
+    expect(row.tagName).toBe("BUTTON");
+    expect(row).toHaveAttribute("data-has-pin", "true");
+    expect(row).toHaveAccessibleName(`Show ${ANKIT} on your map`);
+
+    mapHarness.map.setCamera.mockClear();
+    fireEvent.click(row);
+
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coordinate: { lat: 25.4358, lng: 81.8463 },
+        }),
+      );
+    });
+  });
+
+  it("sends you to Location to manage a share when that person has no pin", async () => {
+    // Sharing with someone does not put them on your map -- that only happens
+    // if they share back. Tapping the row still has to go somewhere, or it is
+    // the same dead control in a different place.
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [activeGrant(ABDUL, "share-abdul")],
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-map-sharing-status"),
+      ).toHaveTextContent("Sharing with 1");
+    });
+    fireEvent.click(screen.getByTestId("one-location-map-sharing-status"));
+
+    const row = await screen.findByTestId("one-location-map-sharing-person");
+    expect(row).toHaveAttribute("data-has-pin", "false");
+    expect(row).toHaveAccessibleName(
+      `Manage your location share with ${ABDUL}`,
+    );
+
+    navigationHarness.beginRouteTransition.mockClear();
+    fireEvent.click(row);
+
+    await waitFor(() => {
+      expect(navigationHarness.beginRouteTransition).toHaveBeenCalledWith(
+        "/one/location",
+        expect.any(Function),
+        "tap",
+        "full",
+      );
+    });
+  });
+
+  it("gives every Sharing with row a 44px touch target", async () => {
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [
+        activeGrant(ANKIT, "share-ankit"),
+        activeGrant(ABDUL, "share-abdul"),
+      ],
+    });
+
+    await renderReadyMap();
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-map-sharing-status"),
+      ).toHaveTextContent("Sharing with 2");
+    });
+    fireEvent.click(screen.getByTestId("one-location-map-sharing-status"));
+
+    const rows = await screen.findAllByTestId(
+      "one-location-map-sharing-person",
+    );
+    expect(rows).toHaveLength(2);
+    // min-h-11 is 44px, the platform minimum. Below it these rows are the kind
+    // of target that needs two or three tries on a phone.
+    for (const row of rows) expect(row).toHaveClass("min-h-11");
+  });
+
+  it("keeps Check in's whole label by giving Sharing its own row on phone widths", async () => {
+    // The break in the report: at 375px the header's symmetric `1fr auto 1fr`
+    // made the left column (one 56px X) as wide as Check-in + Locate, and the
+    // squeezed centre truncated the Check-in pill to the single letter "C".
+    // A product-owned action word is not a truncatable string.
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [activeGrant(ANKIT, "share-ankit")],
+    });
+
+    await renderReadyMap();
+
+    const header = screen.getByRole("banner", {
+      name: "Location map controls",
+    });
+    // Phone: two rows, columns sized to their content. Desktop keeps the
+    // true-centre three-column layout.
+    expect(header).toHaveClass("grid-cols-[auto_minmax(0,1fr)]");
+    expect(header).toHaveClass("sm:grid-cols-[1fr_auto_1fr]");
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-location-map-sharing-status"),
+      ).toBeInTheDocument();
+    });
+    const sharingRow = screen.getByTestId("one-location-map-sharing-status")
+      .parentElement as HTMLElement;
+    expect(sharingRow).toHaveClass("row-start-2", "col-span-2");
+    expect(sharingRow).toHaveClass("sm:row-start-1", "sm:col-start-2");
+
+    // The label survives intact -- this is the assertion that fails if anyone
+    // reintroduces a squeeze that ellipsises it.
+    expect(
+      screen.getByTestId("one-location-map-nearby-check-in"),
+    ).toHaveTextContent("Check in");
+    expect(
+      screen.getByTestId("one-location-map-nearby-check-in"),
+    ).toHaveAccessibleName("Check in nearby");
+  });
+
+  it("answers Everyone instead of sitting disabled when no one shares with you", async () => {
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [],
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+
+    const everyone = screen.getByTestId("one-location-map-show-everyone");
+    // Never disabled: a disabled control gives no reason, and on a touch screen
+    // is indistinguishable from a broken one.
+    expect(everyone).not.toBeDisabled();
+
+    vi.mocked(toast.message).mockClear();
+    fireEvent.click(everyone);
+
+    await waitFor(() => {
+      expect(toast.message).toHaveBeenCalledWith(
+        "No one is sharing a live location with you yet.",
+      );
+    });
+  });
+
+  it("frames the people who do share with you when Everyone is pressed", async () => {
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [],
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [
+        incomingMarker(ANKIT, 25.4358, 81.8463),
+        incomingMarker(ABDUL, 25.4501, 81.8201),
+      ],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-marker-count",
+        "2",
+      );
+    });
+
+    vi.mocked(toast.message).mockClear();
+    mapHarness.map.fitBounds.mockClear();
+    fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
+
+    await waitFor(() => {
+      expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+    });
+    // With people to show it frames them and says nothing -- the message is
+    // reserved for the empty case it explains.
+    expect(toast.message).not.toHaveBeenCalledWith(
+      "No one is sharing a live location with you yet.",
+    );
   });
 });
