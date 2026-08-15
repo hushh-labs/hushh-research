@@ -3824,7 +3824,9 @@ class OneLocationAgentService:
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
                 "duration_hours": str(duration) if duration is not None else "",
-                "duration_mode": str(grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE),
+                "duration_mode": str(
+                    grant.get("durationMode") or TIMED_LOCATION_SHARE_DURATION_MODE
+                ),
                 "expires_at": grant.get("expiresAt"),
                 "share_kind": resolved_kind,
                 **(
