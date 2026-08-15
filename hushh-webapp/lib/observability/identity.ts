@@ -21,8 +21,23 @@ import { resolveAnalyticsMeasurementId } from "@/lib/observability/env";
  * requires; a stronger unlinkable mapping would have to be minted server-side.
  */
 
-const USER_ID_SALT =
-  process.env.NEXT_PUBLIC_ANALYTICS_USER_ID_SALT || "hushh-observability-v1";
+/**
+ * Deliberately a constant, not a `NEXT_PUBLIC_*` build arg.
+ *
+ * The value has to be identical on every surface or the stitching inverts: the
+ * same person would resolve to a different analytics id on web than in the
+ * store build, and web-plus-app would count as two users — the exact bug this
+ * module exists to prevent. Four independent build lanes write client env
+ * (web Cloud Build, TestFlight, App Store, Play Store), so a per-lane value is
+ * a standing opportunity for them to drift apart silently.
+ *
+ * Nothing is lost by fixing it here. Per the note above, the salt ships in the
+ * client bundle regardless, so a build arg buys no confidentiality, and because
+ * `NEXT_PUBLIC_*` is inlined at build time, rotating a substitution costs the
+ * same redeploy as rotating this line. Rotate by bumping the version suffix,
+ * which also documents in git history when the identity space was reset.
+ */
+const USER_ID_SALT = "hushh-observability-v1";
 
 let lastAppliedUserId: string | null | undefined;
 
