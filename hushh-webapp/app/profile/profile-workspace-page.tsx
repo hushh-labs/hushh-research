@@ -3992,7 +3992,7 @@ function ProfilePageContent() {
           data-page-primary="true"
         >
           <ProfileAvatarEditor />
-          <div className="profile-home-copy w-full min-w-0 max-w-full space-y-2">
+          <div className="profile-home-copy flex w-full min-w-0 max-w-full flex-col items-center justify-center gap-1">
             <h1 className="profile-home-name ui-text-identity-name [overflow-wrap:anywhere]">
               {user.displayName || "User"}
             </h1>
