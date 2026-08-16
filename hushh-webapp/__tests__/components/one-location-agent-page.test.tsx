@@ -879,6 +879,13 @@ describe("OneLocationAgentPage", () => {
     // snapshot cannot leak into the next test's initial render.
     const { CacheService } = await import("@/lib/services/cache-service");
     CacheService.getInstance().clear();
+    // Clearing the cache does not clear the resource's in-flight map. A test
+    // that leaves a request pending would otherwise hand its dead promise to
+    // the next test, which then never calls getState at all.
+    const { OneLocationStateResource } = await import(
+      "@/lib/one-location/one-location-state-resource"
+    );
+    OneLocationStateResource.invalidate("user_a");
     const { forgetOneLocationControlPreference } =
       await import("@/lib/one-location/location-control-state");
     forgetOneLocationControlPreference("user_a");
@@ -2306,7 +2313,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockReverseGeocode).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -2396,7 +2403,7 @@ describe("OneLocationAgentPage", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Second user's home" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -2576,7 +2583,7 @@ describe("OneLocationAgentPage", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -2774,13 +2781,13 @@ describe("OneLocationAgentPage", () => {
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Tower 2, Floor 4" },
     });
     fireEvent.change(screen.getByLabelText(/Building colour/), {
       target: { value: "White gate" },
     });
-    fireEvent.change(screen.getByLabelText(/Nearby landmark/), {
+    fireEvent.change(screen.getByLabelText(/Landmark/), {
       target: { value: "India Gate" },
     });
 
@@ -4792,5 +4799,138 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.queryByTestId("one-location-onboarding-contacts"),
     ).toBeNull();
+  });
+
+  /* ------------------------------------------------------------------ *
+   * Live share continuity
+   *
+   * Choosing "1 hour" is a promise, and the screen has to keep showing it
+   * being kept. Before this, the Now screen reported "Active shares: 1" and
+   * nothing else — and for the first second or two after re-entering the
+   * route, with the memory-only state snapshot expired, it reported 0.
+   * ------------------------------------------------------------------ */
+
+  /** Fixture grant `grant_1` ends at 08:00, so this leaves exactly 30 minutes. */
+  const DURING_A_LIVE_SHARE = "2026-05-20T07:30:00.000Z";
+
+  function countdownSeconds(): number {
+    const text =
+      screen.getByTestId("one-location-live-share-countdown").textContent ?? "";
+    const [minutes = "0", seconds = "0"] = text.split(":");
+    return Number(minutes) * 60 + Number(seconds);
+  }
+
+  it("keeps a running share on screen with a countdown that moves", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+      const card = await screen.findByTestId("one-location-live-share");
+      expect(within(card).getByText("Sharing with Trusted B")).toBeTruthy();
+
+      const first = countdownSeconds();
+      expect(first).toBeGreaterThan(29 * 60);
+      expect(first).toBeLessThanOrEqual(30 * 60);
+
+      await act(async () => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(countdownSeconds()).toBeLessThanOrEqual(first - 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("remembers the running share on the device, and only ids and times", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+      await waitFor(() => {
+        const raw = window.localStorage.getItem(
+          "one_location_live_share_v1:user_a",
+        );
+        expect(raw).toBeTruthy();
+        expect(JSON.parse(raw ?? "[]")).toEqual([
+          {
+            grantId: "grant_1",
+            startedAt: expect.any(String),
+            expiresAt: "2026-05-20T08:00:00.000Z",
+          },
+        ]);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the running share on re-entry before the network answers", async () => {
+    // The regression this fixes: the state snapshot is memory-only and expires
+    // after a minute, so coming back to Location a few minutes later rendered a
+    // screen that believed nothing was live until getState resolved.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    try {
+      window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+      window.localStorage.setItem(
+        "one_location_live_share_v1:user_a",
+        JSON.stringify([
+          {
+            grantId: "grant_1",
+            startedAt: "2026-05-20T07:00:00.000Z",
+            expiresAt: "2026-05-20T08:00:00.000Z",
+          },
+        ]),
+      );
+      mockGetState.mockImplementation(() => new Promise(() => {}));
+
+      render(<OneLocationAgentPage />);
+
+      const card = await screen.findByTestId("one-location-live-share");
+      // No server state means no names — the count still has to be true.
+      expect(within(card).getByText("Sharing with 1 person")).toBeTruthy();
+      expect(countdownSeconds()).toBeGreaterThan(29 * 60);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not resurrect a share the server has already stopped", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    try {
+      window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+      window.localStorage.setItem(
+        "one_location_live_share_v1:user_a",
+        JSON.stringify([
+          {
+            grantId: "grant_1",
+            startedAt: "2026-05-20T07:00:00.000Z",
+            expiresAt: "2026-05-20T08:00:00.000Z",
+          },
+        ]),
+      );
+      mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+
+      render(<OneLocationAgentPage />);
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+      await waitFor(() =>
+        expect(screen.queryByTestId("one-location-live-share")).toBeNull(),
+      );
+      await waitFor(() =>
+        expect(
+          window.localStorage.getItem("one_location_live_share_v1:user_a"),
+        ).toBeNull(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

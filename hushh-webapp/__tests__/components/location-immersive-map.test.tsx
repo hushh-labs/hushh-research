@@ -1679,9 +1679,11 @@ describe("LocationImmersiveMap remount triggers", () => {
   });
 
   it("redirects the legacy check-in entry point off the map route", async () => {
-    // The Location hub still pushes /one/location/map?action=check-in, and the
-    // map route bounces it to the check-in route. That bounce is a second
-    // mount of this same component on the same native map id.
+    // Nothing inside the app sends check-in here any more -- the hub, the
+    // breadcrumb back button and the resume href all name the check-in route
+    // directly. What is left arriving on `?action=check-in` is links we do not
+    // own: notifications, bookmarks, anything already shared. They still work,
+    // at the cost of this one bounce.
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     experienceHarness.query = "action=check-in";
@@ -1695,6 +1697,7 @@ describe("LocationImmersiveMap remount triggers", () => {
       );
     });
   });
+
 
   it("leaves a usable map behind when check-in is opened and dismissed", async () => {
     experienceHarness.demoMode = false;

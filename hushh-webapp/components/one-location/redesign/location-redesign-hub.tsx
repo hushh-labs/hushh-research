@@ -103,6 +103,11 @@ import {
   ReasonChips,
   type ReasonValue,
 } from "./selectors";
+import {
+  LiveShareStatusCard,
+  ShareCountdownText,
+  type LiveShareStatus,
+} from "@/components/one-location/redesign/live-share-status-card";
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import {
@@ -237,6 +242,15 @@ export type LocationHubViewModel = {
   visibleRecipients: OneLocationRecipient[];
   visibleShareRecipients: OneLocationRecipient[];
   activeOwnerGrants: OneLocationGrant[];
+  /**
+   * Your running shares, restored from the device before the server answers.
+   * The Location screen has to keep showing the hour you chose after you leave
+   * and come back, so this survives the memory-only state snapshot expiring.
+   * `null` when nothing of yours is live.
+   */
+  liveShare: LiveShareStatus | null;
+  /** Called once when the live share's countdown reaches zero. */
+  onLiveShareEnded: () => void;
   receivedGrants: OneLocationGrant[];
   pendingOwnerRequests: OneLocationAccessRequest[];
   requestedByMe: OneLocationAccessRequest[];
@@ -695,7 +709,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const nearbyCheckInReturnHref =
     nearbyPrivateCheckIn && isNearbyPrivateReturnToken(nearbyReturnToken)
       ? buildNearbyCheckInResumeHref(nearbyReturnToken)
-      : `${ROUTES.ONE_LOCATION_MAP}?action=check-in`;
+      : ROUTES.ONE_LOCATION_CHECK_IN;
   const [tab, setTabState] = useState<LocationHubTab>(() =>
     resolveLocationHubTab(searchParams.get(LOCATION_HUB_TAB_PARAM)),
   );
@@ -715,11 +729,12 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       if (next === tab) return;
       setTabState(next);
       const params = new URLSearchParams(searchParams.toString());
-      if (next === "now") {
-        params.delete(LOCATION_HUB_TAB_PARAM);
-      } else {
-        params.set(LOCATION_HUB_TAB_PARAM, next);
-      }
+      // Always name the tab, including the default one. Returning to Now by
+      // deleting the parameter can leave the query empty, and the App Router
+      // will not perform a navigation whose only change is that the whole
+      // query string disappears -- the tab would highlight while the URL, and
+      // anything reading it, stayed on the previous tab.
+      params.set(LOCATION_HUB_TAB_PARAM, next);
       const query = params.toString();
       const href = query ? `${pathname}?${query}` : pathname;
       beginRouteTransition(
@@ -761,15 +776,17 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     if (detailAction || nextTab || legacyInbox) {
       setFlow("none");
       const params = new URLSearchParams(searchParams.toString());
-      params.delete(LOCATION_HUB_TAB_PARAM);
       params.delete("section");
       if (detailAction) {
+        params.delete(LOCATION_HUB_TAB_PARAM);
         params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[detailAction]);
       } else {
         params.delete(FLOW_ACTION_PARAM);
-        if (nextTab) {
-          params.set(LOCATION_HUB_TAB_PARAM, nextTab);
-        }
+        // Name the tab, default included: a notification that resolves to the
+        // plain hub would otherwise leave an empty query, which the App Router
+        // declines to navigate to, stranding the person on the notification's
+        // own URL.
+        params.set(LOCATION_HUB_TAB_PARAM, nextTab ?? "now");
       }
       const query = params.toString();
       router.replace(query ? `${pathname}?${query}` : pathname, {
@@ -859,17 +876,18 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       params.delete(FLOW_ACTION_PARAM);
       params.delete("circleId");
       params.delete(FLOW_SOURCE_PARAM);
-      if (nextTab === "now") {
-        params.delete(LOCATION_HUB_TAB_PARAM);
-      } else if (nextTab) {
-        params.set(LOCATION_HUB_TAB_PARAM, nextTab);
-      }
+      // Name the tab the flow is closing onto, default included. Dropping
+      // `?action=` was often the only change left, and the App Router will not
+      // perform a navigation whose only change is that the whole query string
+      // disappears -- Cancel and Done would clear the flow's local state while
+      // the URL kept it open, and re-render it straight back.
+      params.set(LOCATION_HUB_TAB_PARAM, nextTab ?? tab);
       const query = params.toString();
       router.replace(query ? `${pathname}?${query}` : pathname, {
         scroll: false,
       });
     },
-    [flow, pathname, router, searchParams, vm],
+    [flow, pathname, router, searchParams, tab, vm],
   );
 
   const dismissFocusedCircleMemberInvite = useCallback(() => {
@@ -911,7 +929,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     if (RETIRED_ACTIONS.has(action)) {
       const params = new URLSearchParams(searchParams.toString());
       params.delete(FLOW_ACTION_PARAM);
-      params.delete(LOCATION_HUB_TAB_PARAM);
+      // Same reason as everywhere else in this file: dropping `?action=` was
+      // often the only change, and that navigation does not happen. The toast
+      // said the action was gone while the retired screen stayed on screen.
+      params.set(LOCATION_HUB_TAB_PARAM, "now");
       const query = params.toString();
       toast.message("That's no longer there.");
       router.replace(query ? `${pathname}?${query}` : pathname, {
@@ -927,7 +948,16 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       nearbyCheckInAvailable &&
       (action === "check-in" || action === "event-check-in")
     ) {
-      router.replace(`${ROUTES.ONE_LOCATION_MAP}?action=check-in`, {
+      // Straight to the screen that owns the flow. This used to hand off to
+      // `/one/location/map?action=check-in`, which mounts Your Map -- a screen
+      // that structurally cannot show check-in, since the sheet and the place
+      // list are withheld unless `surface="check-in"` -- and lets its own
+      // redirect carry on to the same destination. The person saw the wrong
+      // map appear and jump away, the Google renderer was built and torn down
+      // for nothing, and an extra history entry was left behind. Anyone
+      // arriving on `?action=check-in` from outside the app still gets that
+      // legacy redirect; nothing inside the app should be using it.
+      router.replace(ROUTES.ONE_LOCATION_CHECK_IN, {
         scroll: false,
       });
       return;
@@ -1179,7 +1209,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               }}
               onCheckIn={() =>
                 nearbyCheckInAvailable
-                  ? router.push(`${ROUTES.ONE_LOCATION_MAP}?action=check-in`)
+                  ? router.push(ROUTES.ONE_LOCATION_CHECK_IN)
                   : openFlow("check-in")
               }
               checkInSubtitle={
@@ -1273,10 +1303,15 @@ function NowHub({
   // and left nothing for the rows that did.
   const reviewIconTone =
     vm.pendingOwnerRequests.length > 0 ? "orange" : "gray";
+  // The device record keeps counting while the server state reloads, so the row
+  // no longer drops to 0 for the second or two after you re-enter the screen.
+  const activeShareCount = Math.max(
+    vm.activeOwnerGrants.length,
+    vm.liveShare?.count ?? 0,
+  );
   // Green = sharing is live right now (the same meaning the header switch and
   // Check-In carry).
-  const activeSharesIconTone =
-    vm.activeOwnerGrants.length > 0 ? "green" : "gray";
+  const activeSharesIconTone = activeShareCount > 0 ? "green" : "gray";
   // Indigo = other people, matching the People tab's circles and trusted
   // contacts, rather than the blue reserved for actions you initiate.
   const sharedWithMeIconTone =
@@ -1284,6 +1319,24 @@ function NowHub({
 
   return (
     <div className="space-y-4" data-testid="one-location-now-hub">
+      {/* Sharing is the one thing on this screen that keeps running after you
+          leave it, so it reports itself first and keeps its own clock. */}
+      {vm.liveShare ? (
+        <LiveShareStatusCard
+          status={vm.liveShare}
+          onManage={onOpenActiveShares}
+          onStop={
+            vm.liveShare.stoppableGrantId
+              ? () => vm.onStopGrant(vm.liveShare?.stoppableGrantId ?? "")
+              : undefined
+          }
+          stopBusy={
+            Boolean(vm.liveShare.stoppableGrantId) &&
+            vm.revokingGrantId === vm.liveShare.stoppableGrantId
+          }
+          onEnded={vm.onLiveShareEnded}
+        />
+      ) : null}
       {/* Every row and tile below carries the `control_ids` / `action_id` pair
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
@@ -1333,7 +1386,7 @@ function NowHub({
           iconTone={activeSharesIconTone}
           title="Active shares"
           density="compact"
-          trailing={vm.activeOwnerGrants.length}
+          trailing={activeShareCount}
           chevron
           onClick={onOpenActiveShares}
           voiceControlId="one-location-action-active-shares"
@@ -1539,9 +1592,13 @@ function LocationDetailFlow({
                 iconTone="green"
                 title={vm.grantRecipientLabel(grant)}
                 description={
-                  grant.durationMode === "until_stopped"
-                    ? "Until stopped"
-                    : vm.expiresCountdownLabel(grant.expiresAt)
+                  grant.durationMode === "until_stopped" ? (
+                    "Until you stop"
+                  ) : (
+                    // Was a string computed once per render, so it froze the
+                    // moment the screen stopped re-rendering.
+                    <ShareCountdownText expiresAt={grant.expiresAt} />
+                  )
                 }
                 trailing={
                   <Button
