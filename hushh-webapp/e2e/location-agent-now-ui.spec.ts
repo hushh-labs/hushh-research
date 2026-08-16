@@ -2,8 +2,19 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const REQUIRED_VALUES = ["REVIEWER_UID", "REVIEWER_VAULT_PASSPHRASE"] as const;
 
+/**
+ * Credentials are only half of reviewer sign-in. The other half is a
+ * "Continue as reviewer" control on /login, which this repository does not
+ * have -- it appears in e2e specs and nowhere else. Gating on the secrets
+ * alone made this file skip on a machine without them (looking like
+ * coverage) and time out on a machine with them. E2E_REVIEWER_SIGNIN=1 is
+ * the opt-in for once a sign-in path for automation actually exists.
+ */
 function hasReviewerAuthority() {
-  return REQUIRED_VALUES.every((key) => Boolean(process.env[key]?.trim()));
+  if (!REQUIRED_VALUES.every((key) => Boolean(process.env[key]?.trim()))) {
+    return false;
+  }
+  return process.env.E2E_REVIEWER_SIGNIN === "1";
 }
 
 async function openReviewerLocation(page: Page) {
@@ -54,7 +65,10 @@ async function expectTypography(
 }
 
 test.describe("Location Agent Now visual contract", () => {
-  test.skip(!hasReviewerAuthority(), "reviewer UAT authority is required");
+  test.skip(
+    !hasReviewerAuthority(),
+    "needs reviewer credentials AND a /login sign-in path for automation (E2E_REVIEWER_SIGNIN=1); the 'Continue as reviewer' control this spec clicks does not exist in this repository",
+  );
 
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true });
 
