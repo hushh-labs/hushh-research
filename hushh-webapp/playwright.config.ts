@@ -48,7 +48,7 @@ export default defineConfig({
       name: "webkit",
       use: { ...devices["Desktop Safari"] },
       testMatch:
-        /(circle-join-responsive-contract|connect-circle-cta\.layout)\.spec\.ts/,
+        /(circle-join-responsive-contract|connect-circle-cta\.layout|one-location-onboarding-copy\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",
