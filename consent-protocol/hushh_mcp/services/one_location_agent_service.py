@@ -450,6 +450,27 @@ def _circle_invite_url(token: str) -> str:
     return f"/one/location/invite/{token}"
 
 
+#: Characters that separate one word of a name from the next, folded to spaces
+#: before a directory search compares anything. Names are not stored tidily --
+#: "Abdul-Rashid", "Abdul R.", "O'Brien" -- and a reader treats all of these as
+#: two words, so the search has to as well.
+#:
+#: Both sides of the comparison MUST use this one list: the stored name is
+#: folded by ``_DIRECTORY_SEPARATOR_SQL`` inside the statement, the typed query
+#: by ``_DIRECTORY_SEPARATOR_FOLD`` in Python. When only one side was folded,
+#: every name carrying punctuation became unsearchable.
+_DIRECTORY_SEPARATORS = "-'._/,"
+_DIRECTORY_SEPARATOR_FOLD = str.maketrans(_DIRECTORY_SEPARATORS, " " * len(_DIRECTORY_SEPARATORS))
+#: The SQL half of the same fold, written out so a test can assert the
+#: statement below still contains exactly this and nothing has drifted.
+_DIRECTORY_SEPARATOR_SQL = (
+    "TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '{}', '{}')".format(
+        _DIRECTORY_SEPARATORS.replace("'", "''"),
+        " " * len(_DIRECTORY_SEPARATORS),
+    )
+)
+
+
 def _identity_display_label(row: dict[str, Any] | None, fallback: str = "A trusted person") -> str:
     if not row:
         return fallback
@@ -3266,7 +3287,23 @@ class OneLocationAgentService:
         # here, so it cannot use this to request an unbounded directory.
         limit = max(1, min(int(limit or 20), 100))
         offset = (page - 1) * limit
-        needle = (query or "").strip().lower()
+        # Fold the typed query exactly the way the stored name is folded.
+        #
+        # Only one side of the comparison used to be folded. The statement
+        # below rewrites a stored name's separators to spaces, so "O'Brien" is
+        # matched as "o brien" -- but the query kept its punctuation, and
+        # "o'brien%" cannot match "o brien". Typing a name the way it is
+        # actually spelled returned nothing, and every apostrophe, hyphen and
+        # initial did it: O'Brien, D'Souza, Jean-Luc, Smith-Jones, "K.R.".
+        # Deleting the punctuation instead ("obrien") failed too, so the search
+        # box looked broken for these names with no way to type around it.
+        #
+        # Fold first, then escape. "_" is on both lists -- a separator here and
+        # a LIKE wildcard below -- and folding settles which one it is: the
+        # stored side has already turned it into a space, so matching it as a
+        # literal could only ever return nothing. Once folded it is a space, so
+        # it reaches LIKE as a space and cannot act as a wildcard either.
+        needle = (query or "").strip().lower().translate(_DIRECTORY_SEPARATOR_FOLD).strip()
         target = (candidate_user_id or "").strip() or None
         # An unrecognised audience widens to "all" rather than narrowing: a typo
         # in a caller must not silently hide people who are really there.
@@ -3275,8 +3312,8 @@ class OneLocationAgentService:
             requested_audience = "all"
         # LIKE metacharacters in a typed name are literal characters, not
         # wildcards. Unescaped, a single "%" typed into Connect matches every
-        # row in the directory and "_" matches any letter, so the escape is
-        # what keeps the pattern describing the name the person actually typed.
+        # row in the directory, so the escape is what keeps the pattern
+        # describing the name the person actually typed.
         #
         # "!" is the escape character rather than the conventional backslash on
         # purpose: a backslash would have to survive both Python's string

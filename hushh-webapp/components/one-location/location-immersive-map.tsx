@@ -58,7 +58,10 @@ import {
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
-import { filterPeopleByQuery } from "@/lib/one-location/people-search";
+import {
+  filterPeopleByQuery,
+  sortPeopleByName,
+} from "@/lib/one-location/people-search";
 import {
   LOCATION_COPY,
   isLocationPermissionDeniedError,
@@ -1749,8 +1752,17 @@ export function LocationImmersiveMap({
     vaultOwnerToken,
   ]);
 
+  // A–Z before the query, so the tray has somewhere to start looking; the
+  // filter then keeps that order inside each of its relevance groups. Applied
+  // here rather than to `markers` itself, because the pin layer and the
+  // three-avatar preview above read that list positionally.
   const filteredPeople = useMemo(
-    () => filterPeopleByQuery(markers, searchQuery, (marker) => marker.label),
+    () =>
+      filterPeopleByQuery(
+        sortPeopleByName(markers, (marker) => marker.label),
+        searchQuery,
+        (marker) => marker.label,
+      ),
     [markers, searchQuery],
   );
 
@@ -1759,13 +1771,20 @@ export function LocationImmersiveMap({
     [nearbyPresenceState],
   );
 
-  const filteredNearbyAttendees = useMemo(() => {
-    const query = searchQuery.trim().toLocaleLowerCase();
-    if (!query) return nearbyAttendees;
-    return nearbyAttendees.filter((attendee) =>
-      attendee.displayName.toLocaleLowerCase().includes(query),
-    );
-  }, [nearbyAttendees, searchQuery]);
+  // One search box sits above both lists, so both have to narrow the same way.
+  // This one kept a private `includes()` after the pins moved to
+  // `filterPeopleByQuery`, which left a single box behaving as two: typing "n"
+  // narrowed the pins to Neelesh and left every "n"-containing name standing in
+  // Around you.
+  const filteredNearbyAttendees = useMemo(
+    () =>
+      filterPeopleByQuery(
+        sortPeopleByName(nearbyAttendees, (attendee) => attendee.displayName),
+        searchQuery,
+        (attendee) => attendee.displayName,
+      ),
+    [nearbyAttendees, searchQuery],
+  );
 
   const drawerEntryCount = markers.length + nearbyAttendees.length;
 

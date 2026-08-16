@@ -12,6 +12,9 @@ import hushh_mcp.services.one_location_agent_service as one_location_agent_modul
 import hushh_mcp.services.one_location_agent_service as one_location_service_module
 from hushh_mcp.operons.location.policy import normalize_duration_hours
 from hushh_mcp.services.one_location_agent_service import (
+    _DIRECTORY_SEPARATOR_FOLD,
+    _DIRECTORY_SEPARATOR_SQL,
+    _DIRECTORY_SEPARATORS,
     OneLocationAgentError,
     OneLocationAgentService,
     _contains_plaintext_location_key,
@@ -2619,9 +2622,14 @@ def test_directory_search_folds_separators_so_tiering_is_about_the_name() -> Non
     ("typed", "expected_name_prefix"),
     [
         ("%", "!%%"),
-        ("_", "!_%"),
         ("!", "!!%"),
-        ("50%_off", "50!%!_off%"),
+        # "_" is a separator before it is ever a wildcard: the stored name has
+        # already had it folded to a space, so matching it literally could only
+        # return nothing. Folded and trimmed, a lone "_" carries no letters at
+        # all and reads as an unfilled box -- never as the match-anything
+        # wildcard it would be unescaped.
+        ("_", "%"),
+        ("50%_off", "50!% off%"),
     ],
 )
 def test_directory_search_escapes_like_metacharacters(
@@ -2630,11 +2638,70 @@ def test_directory_search_escapes_like_metacharacters(
     service = RecipientDirectoryProbe()
     service.search_directory_candidates(owner_user_id="owner", query=typed)
 
-    # Unescaped, a typed "%" is a wildcard that matches the entire directory
-    # and "_" matches any single character. They are characters someone typed
-    # into a name box, not query syntax.
+    # Unescaped, a typed "%" is a wildcard that matches the entire directory.
+    # It is a character someone typed into a name box, not query syntax.
     assert service.params["name_prefix"] == expected_name_prefix
     assert service.params["word_prefix"] == f"% {expected_name_prefix}"
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected_needle"),
+    [
+        ("O'Brien", "o brien"),
+        ("Jean-Luc", "jean luc"),
+        ("K.R.", "k r"),
+        ("Smith-Jones", "smith jones"),
+        ("de/la", "de la"),
+        ("Singh, Ankit", "singh  ankit"),
+    ],
+)
+def test_directory_search_folds_the_typed_name_the_same_way_as_the_stored_one(
+    typed: str, expected_needle: str
+) -> None:
+    """Typing a name the way it is spelled has to find it.
+
+    The statement folds a stored name's separators to spaces before matching,
+    so "O'Brien" is compared as "o brien". The query used to keep its
+    punctuation, so the pattern "o'brien%" was tested against "o brien" and
+    could never match -- and deleting the punctuation ("obrien") could not
+    match either. Every name with an apostrophe, a hyphen or an initial was
+    unreachable through the search box.
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query=typed)
+
+    assert service.params["query"] == expected_needle
+    assert service.params["name_prefix"] == f"{expected_needle}%"
+    assert service.params["word_prefix"] == f"% {expected_needle}%"
+
+
+def test_directory_search_folds_both_sides_with_one_separator_list() -> None:
+    """The Python fold and the SQL fold cannot drift apart.
+
+    They are two halves of one comparison. If either list of separators is
+    edited alone, names carrying the character that was added or removed stop
+    matching, and nothing else in the suite would notice.
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="n")
+
+    assert service.sql.count(_DIRECTORY_SEPARATOR_SQL) == 3
+    # The Python side folds exactly the characters the SQL side names.
+    for separator in _DIRECTORY_SEPARATORS:
+        assert f"a{separator}b".translate(_DIRECTORY_SEPARATOR_FOLD) == "a b"
+
+
+def test_directory_search_treats_a_query_of_only_separators_as_empty() -> None:
+    """A box holding "-" is a box the reader has not filled in yet.
+
+    Folded, it carries no letters at all. Matching it literally would search
+    for a name beginning with a space and return nothing, which reads as "you
+    have no connections" rather than "keep typing".
+    """
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query="-.")
+
+    assert service.params["query"] == ""
 
 
 def test_directory_search_preserves_sql_order_against_recommendation_ranking() -> None:

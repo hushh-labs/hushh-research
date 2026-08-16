@@ -33,7 +33,10 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
-import { filterPeopleByQuery } from "@/lib/one-location/people-search";
+import {
+  filterPeopleByQuery,
+  sortPeopleByName,
+} from "@/lib/one-location/people-search";
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import {
   isCircleSelectionFullySelected,
@@ -308,8 +311,19 @@ export function CheckInFlow({
     }
   }, [contacts, seeded, vm]);
 
+  // `contacts` is two lists merged (trusted contacts, then whichever Circle is
+  // selected), so its order is "wherever each person happened to come from" —
+  // and it changes the moment a Circle is picked. Ordering the rendered list
+  // A–Z gives it a fixed place to look instead. Only the rendered list is
+  // reordered: seeding, the ready count and every lookup below still read
+  // `contacts`, so which person is pre-ticked does not move.
   const filtered = useMemo(
-    () => filterPeopleByQuery(contacts, search, (r) => vm.recipientLabel(r)),
+    () =>
+      filterPeopleByQuery(
+        sortPeopleByName(contacts, (r) => vm.recipientLabel(r)),
+        search,
+        (r) => vm.recipientLabel(r),
+      ),
     [contacts, search, vm],
   );
 

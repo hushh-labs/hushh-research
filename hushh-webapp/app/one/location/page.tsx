@@ -2656,22 +2656,30 @@ export function OneLocationAgentPageContent({
       ),
     [rankedRecipients, selectedShareCircleSelection],
   );
+  // A typed search matches the NAME, and nothing else on the row.
+  //
+  // These two boxes used to search `recommendationSearchText`, which appends
+  // every recipient's headline, relationship, category and reason labels to
+  // their name. Those labels are boilerplate — each person carries one of
+  // "Needs action", "Trusted Circle", "One Network", "Contact match",
+  // "Ready for private location sharing" — so most letters begin a word on
+  // EVERY row: "n" hit "Needs", "t" hit "Trusted", "o" hit "One", "r" hit
+  // "Ready", "c" hit "Contact" and "Circle". Typing the first letter of a
+  // person's name returned the entire list, which is exactly the complaint
+  // that word-prefix matching was added to answer. The matcher was already
+  // right; it was being handed a haystack with the same words in every straw.
+  //
+  // Connect settled this rule first: matching on anything other than the name
+  // is how a search returns a person nobody asked for. `recommendationSearchText`
+  // stays for the voice path below, where the input is a whole spoken phrase
+  // rather than one letter and the extra context helps rather than swamps.
   const visibleRecipients = useMemo(
-    () =>
-      filterPeopleByQuery(
-        rankedRecipients,
-        recipientSearch,
-        recommendationSearchText,
-      ),
+    () => filterPeopleByQuery(rankedRecipients, recipientSearch, recipientLabel),
     [rankedRecipients, recipientSearch],
   );
   const visibleShareRecipients = useMemo(
     () =>
-      filterPeopleByQuery(
-        rankedRecipients,
-        shareRecipientSearch,
-        recommendationSearchText,
-      ),
+      filterPeopleByQuery(rankedRecipients, shareRecipientSearch, recipientLabel),
     [rankedRecipients, shareRecipientSearch],
   );
   const hasMoreVisibleRecipients =
