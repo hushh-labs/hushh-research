@@ -52,16 +52,21 @@ function metadataBool(metadata: Record<string, unknown>, key: string): boolean {
 }
 
 /**
- * True when this copy of a shared row belongs to the OTHER party — the person
- * who asked, not the person whose location it is.
+ * Whose side of the event this row is.
  *
- * A request-lifecycle row is written to both people, so the same event has to
- * render as "You asked for 3 hours more" on one feed and "Asked for 3 hours
- * more" on the other. Rows written before the two-sided fan-out carry no role
- * and correctly default to the owner wording they were written for.
+ * A location event can be written to both people, and each side needs its own
+ * sentence: "You asked for 3 hours more" on one feed, "Asked for 3 hours more"
+ * on the other. `feed_audience` is the marker the backend triggers stamp —
+ * `"recipient"` on a share-lifecycle row (migration 152) and `"requester"` on a
+ * request-lifecycle row (migration 153). One key, asked once, rather than a
+ * second parallel convention per fan-out.
+ *
+ * Rows written before either fan-out carry no marker and correctly stay on the
+ * owner wording they were written for.
  */
 function isCounterpartyView(metadata: Record<string, unknown>): boolean {
-  return metadataString(metadata, "viewer_role") === "counterparty";
+  const audience = metadataString(metadata, "feed_audience");
+  return audience === "requester" || audience === "recipient";
 }
 
 /**
@@ -149,13 +154,17 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     // name (falling back to "Location" only when no name is resolvable), and the
     // subtitle is the action. The name arrives via `counterpart_label` in the
     // backend feed metadata (one_location_agent_service.py).
+    // The share lifecycle reaches the recipient through its own fan-out
+    // (migration 152), so these three also render from both sides.
     case "location_share_created": {
       const hasWho = who !== "Someone";
       return {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: "Started sharing location",
+        description: isCounterpartyView(item.metadata)
+          ? "Shared their location with you"
+          : "Started sharing location",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -166,7 +175,15 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: ownerRevoked ? "You stopped sharing location" : "Stopped sharing location",
+        // `reason` describes what the OWNER did, so on the recipient's row
+        // "owner_revoke" is still true and "You stopped sharing location" would
+        // be shown to the one person who did not stop anything. Audience
+        // decides the sentence; reason only refines the owner's.
+        description: isCounterpartyView(item.metadata)
+          ? "Stopped sharing their location"
+          : ownerRevoked
+            ? "You stopped sharing location"
+            : "Stopped sharing location",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -176,7 +193,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: "Location share expired",
+        // No audience split: this line names no subject, and the row's title is
+        // already the other person, so it reads correctly from both sides.
+        description: "Stopped sharing - time ran out",
         href: ROUTES.ONE_LOCATION,
       };
     }

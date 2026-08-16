@@ -58,32 +58,15 @@ ALTER TABLE one_location_events
     )
   ) NOT VALID;
 
--- Back to the owner-scoped fan-out exactly as migration 117 defined it.
-CREATE OR REPLACE FUNCTION feed_events_from_one_location_events()
-RETURNS TRIGGER AS $$
-BEGIN
-  IF NEW.event_type IN (
-    'location_share_created',
-    'location_share_revoked',
-    'location_share_expired',
-    'location_access_request',
-    'location_access_approved',
-    'location_access_denied'
-  ) THEN
-    INSERT INTO feed_events (user_id, source_domain, event_type, metadata, source_row_id)
-    VALUES (
-      NEW.owner_user_id,
-      'location',
-      NEW.event_type,
-      NEW.metadata,
-      NEW.id::TEXT
-    );
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+-- Drop the requester fan-out and its trigger. Crucially this does NOT touch
+-- feed_events_from_one_location_events() or 152's recipient function: the
+-- forward migration never replaced them, so a rollback that "restored" either
+-- would be reverting somebody else's migration, which is the exact failure the
+-- separate-function split exists to prevent.
+DROP TRIGGER IF EXISTS one_location_events_feed_fanout_requester ON one_location_events;
+DROP FUNCTION IF EXISTS feed_events_requester_from_one_location_events();
 
-COMMENT ON FUNCTION feed_events_from_one_location_events() IS
-  'Fans out feed-worthy one_location_events inserts into feed_events, owner-scoped.';
+-- Requester-side rows already written stay. They are presentation-only history,
+-- and deleting another person's feed to undo a schema change is the larger harm.
 
 COMMIT;

@@ -33,8 +33,7 @@ describe("the owner's side of the exchange", () => {
       item({
         metadata: {
           counterpart_label: "Ankit",
-          viewer_role: "owner",
-          is_extension: true,
+                    is_extension: true,
           requested_duration_hours: 3,
         },
       }),
@@ -48,8 +47,7 @@ describe("the owner's side of the exchange", () => {
       item({
         metadata: {
           counterpart_label: "Ankit",
-          viewer_role: "owner",
-          requested_duration_hours: 0.5,
+                    requested_duration_hours: 0.5,
         },
       }),
     );
@@ -62,8 +60,7 @@ describe("the owner's side of the exchange", () => {
         event_type: "location_access_approved",
         metadata: {
           counterpart_label: "Ankit",
-          viewer_role: "owner",
-          is_extension: true,
+                    is_extension: true,
           duration_hours: 4,
         },
       }),
@@ -97,14 +94,15 @@ describe("the requester's side of the same exchange", () => {
       item({
         metadata: {
           counterpart_label: "Neelesh",
-          viewer_role: "counterparty",
+          feed_audience: "requester",
           is_extension: true,
           requested_duration_hours: 3,
         },
       }),
     );
     // The fan-out swaps counterpart_label to the OTHER person, so neither side
-    // reads its own name back as the actor.
+    // reads its own name back as the actor. The marker is `feed_audience`,
+    // shared with migration 152 rather than a second parallel convention.
     expect(presented.label).toBe("Neelesh");
     expect(presented.description).toBe("You asked for 3 hours more");
     expect(presented.href).toContain("section=my_requests");
@@ -116,7 +114,7 @@ describe("the requester's side of the same exchange", () => {
         event_type: "location_access_approved",
         metadata: {
           counterpart_label: "Neelesh",
-          viewer_role: "counterparty",
+          feed_audience: "requester",
           is_extension: true,
           duration_hours: 4,
         },
@@ -131,7 +129,7 @@ describe("the requester's side of the same exchange", () => {
         event_type: "location_access_denied",
         metadata: {
           counterpart_label: "Neelesh",
-          viewer_role: "counterparty",
+          feed_audience: "requester",
           is_extension: true,
         },
       }),
@@ -145,7 +143,7 @@ describe("the requester's side of the same exchange", () => {
 
 describe("rows written before any of this existed", () => {
   it("keeps the owner wording they were written for", () => {
-    // No viewer_role and no duration: the old copy is still the true copy.
+    // No feed_audience marker and no duration: the old copy is still the true copy.
     expect(presentFeedItem(item()).description).toBe("Requested your location");
     expect(
       presentFeedItem(item({ event_type: "location_access_approved" }))

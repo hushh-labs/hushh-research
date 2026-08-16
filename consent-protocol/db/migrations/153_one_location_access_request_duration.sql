@@ -69,9 +69,13 @@ ALTER TABLE one_location_access_requests
 ALTER TABLE one_location_access_requests
   DROP CONSTRAINT IF EXISTS one_location_access_requests_revision_positive;
 
+-- NOT VALID like the contract above it. The column was just added with a
+-- constant default, so every existing row already satisfies this -- but a
+-- validating CHECK still scans the whole table under ACCESS EXCLUSIVE, and this
+-- statement is the only one in the file whose cost grows with row count.
 ALTER TABLE one_location_access_requests
   ADD CONSTRAINT one_location_access_requests_revision_positive
-    CHECK (request_revision >= 1);
+    CHECK (request_revision >= 1) NOT VALID;
 
 -- Answering "is this person already asking for more time on this share?" is a
 -- read on every render of the owner's approvals list and the requester's people
@@ -93,8 +97,14 @@ COMMENT ON COLUMN one_location_access_requests.request_revision IS
 -- feature landed, but was never added to this CHECK -- so every one of those
 -- inserts violated the constraint, and _insert_event swallowed the error as a
 -- warning. The audit trail simply had no record that anyone ever shortened a
--- share. Extending is the mirror of shortening and lands in the same feed, so
--- the row that records it has to be insertable before that feed can be trusted.
+-- share.
+--
+-- Only the AUDIT row is unblocked here. Adding the event to the presentation
+-- fan-out is deliberately left out: a reader that has no line for it renders
+-- the default "Activity" with an empty description, so switching the fan-out on
+-- at migration time would put blank rows on the feeds of everyone still running
+-- older code. The renderer for it ships in this branch; the fan-out entry
+-- belongs to the migration that follows that deploy.
 ALTER TABLE one_location_events
   DROP CONSTRAINT IF EXISTS one_location_events_event_type_check;
 
@@ -122,86 +132,82 @@ ALTER TABLE one_location_events
     )
   ) NOT VALID;
 
--- The feed fan-out was owner-scoped: only the person whose location it is ever
--- got a feed row. So the person who ASKED for three more hours could read the
--- whole exchange nowhere -- not the ask, not the answer -- and had only a
+-- The request fan-out was owner-scoped: only the person whose location it is
+-- ever got a feed row. So the person who ASKED for three more hours could read
+-- the whole exchange nowhere -- not the ask, not the answer -- and had only a
 -- transient toast, which is gone the moment it is dismissed. Both parties are
 -- in this conversation, so both get the row.
 --
--- Fan-out to the counterparty is limited to the request lifecycle (ask,
--- approve, decline). The share lifecycle already reaches the recipient as its
--- own notification, and widening every event here would double up rows for
--- things they were told about twice.
+-- This gets its OWN function and its OWN trigger rather than editing
+-- feed_events_from_one_location_events(). Migration 152 spelled out why, and
+-- an earlier draft of this file learned it the hard way: two migrations doing
+-- CREATE OR REPLACE on one function means whichever lands second silently
+-- reverts the other, and the one that lost was 151's skip of the duplicate
+-- approval row. A different audience is an independent concern from different
+-- filtering, so the three compose in any merge order.
 --
--- viewer_role is what keeps the copy honest: the same row renders "You approved
--- 3 hours more" for the owner and "Gave you 3 hours more" for the requester,
--- and counterpart_label is swapped to the OTHER person for the counterparty's
--- copy so neither side reads their own name back as the actor.
+-- Scope is the request lifecycle only (ask, approve, decline). The share
+-- lifecycle already reaches the recipient through 152's own recipient trigger;
+-- mirroring it here would write that person two rows for one event.
 --
--- The whole second side is gated on owner_label so this function stays a no-op
--- for code that predates it. A schema migration lands ahead of the deploy that
--- uses it, and on a shared database it lands ahead of OTHER people's deploys
--- too; a fan-out that switched on at migration time would put owner-worded rows
--- on requesters' feeds until every reader caught up.
-CREATE OR REPLACE FUNCTION feed_events_from_one_location_events()
+-- feed_audience is 152's marker, reused rather than reinvented, so a reader has
+-- exactly one question to ask about whose side a row is on. counterpart_label
+-- is swapped to the OTHER person so neither side reads their own name back as
+-- the actor.
+--
+-- Gated on owner_label, which only the backend that understands this fan-out
+-- writes. A schema migration lands ahead of the deploy that uses it, and on a
+-- shared database ahead of OTHER people's deploys too; without the gate a
+-- requester would start receiving rows their still-deployed frontend renders
+-- from the owner's point of view -- "You approved the location request", on the
+-- feed of the person who did the asking.
+CREATE OR REPLACE FUNCTION feed_events_requester_from_one_location_events()
 RETURNS TRIGGER AS $$
 DECLARE
-  counterparty_metadata JSONB;
+  owner_label TEXT;
 BEGIN
-  IF NEW.event_type IN (
-    'location_share_created',
-    'location_share_revoked',
-    'location_share_shortened',
-    'location_share_expired',
+  IF NEW.event_type NOT IN (
     'location_access_request',
     'location_access_approved',
     'location_access_denied'
   ) THEN
-    INSERT INTO feed_events (user_id, source_domain, event_type, metadata, source_row_id)
-    VALUES (
-      NEW.owner_user_id,
-      'location',
-      NEW.event_type,
-      NEW.metadata || jsonb_build_object('viewer_role', 'owner'),
-      NEW.id::TEXT
-    );
+    RETURN NEW;
   END IF;
 
-  -- Gated on owner_label, which ONLY the backend that understands this fan-out
-  -- writes. That makes the migration a no-op for whatever code is already
-  -- deployed against this database: an older backend never sets the key, so it
-  -- keeps the exact owner-only behaviour it has today, and no requester starts
-  -- receiving feed rows that their frontend would render from the owner's point
-  -- of view ("You approved the location request", on the feed of the person who
-  -- did the asking). The second side switches on when the code that labels both
-  -- parties ships, not when the column does.
-  IF NEW.event_type IN (
-    'location_access_request',
-    'location_access_approved',
-    'location_access_denied'
-  )
-    AND NEW.metadata ? 'owner_label'
-    AND NEW.recipient_user_id IS NOT NULL
-    AND NEW.recipient_user_id <> NEW.owner_user_id
-  THEN
-    counterparty_metadata := NEW.metadata
-      || jsonb_build_object('viewer_role', 'counterparty')
-      || jsonb_build_object('counterpart_label', NEW.metadata -> 'owner_label');
-    INSERT INTO feed_events (user_id, source_domain, event_type, metadata, source_row_id)
-    VALUES (
-      NEW.recipient_user_id,
-      'location',
-      NEW.event_type,
-      counterparty_metadata,
-      NEW.id::TEXT
-    );
+  IF NEW.recipient_user_id IS NULL
+     OR NEW.recipient_user_id = NEW.owner_user_id THEN
+    RETURN NEW;
   END IF;
+
+  owner_label := NULLIF(BTRIM(COALESCE(NEW.metadata ->> 'owner_label', '')), '');
+  IF owner_label IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  INSERT INTO feed_events (user_id, source_domain, event_type, metadata, source_row_id)
+  VALUES (
+    NEW.recipient_user_id,
+    'location',
+    NEW.event_type,
+    COALESCE(NEW.metadata, '{}'::jsonb)
+      || jsonb_build_object(
+           'feed_audience', 'requester',
+           'counterpart_label', owner_label
+         ),
+    NEW.id::TEXT
+  );
 
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION feed_events_from_one_location_events() IS
-  'Fans out feed-worthy one_location_events into feed_events. Request-lifecycle rows reach BOTH parties, tagged with viewer_role so each side reads its own side of the exchange.';
+COMMENT ON FUNCTION feed_events_requester_from_one_location_events() IS
+  'Fans request-lifecycle one_location_events out to the REQUESTER feed, with the owner as counterpart. Companion to the owner-scoped feed_events_from_one_location_events() and to 152''s recipient fan-out; never replaces either.';
+
+DROP TRIGGER IF EXISTS one_location_events_feed_fanout_requester ON one_location_events;
+CREATE TRIGGER one_location_events_feed_fanout_requester
+  AFTER INSERT ON one_location_events
+  FOR EACH ROW
+  EXECUTE FUNCTION feed_events_requester_from_one_location_events();
 
 COMMIT;
