@@ -20,6 +20,12 @@ import {
   type LocationPickerMapHandle,
   type PickedLocation,
 } from "@/components/one-location/onboarding/location-picker-map";
+import {
+  SHEET_BODY_CLASSNAME,
+  SHEET_DETAILS_SHELL_CLASSNAME,
+  SHEET_FOOTER_CLASSNAME,
+  SHEET_HEADER_CLASSNAME,
+} from "@/components/one-location/onboarding/save-location-sheet-layout";
 import { isNative } from "@/lib/capacitor/platform";
 import { cn } from "@/lib/utils";
 import {
@@ -52,6 +58,16 @@ const touchTargetClassName =
 const iconButtonClassName =
   `press-scale absolute flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45 ${touchTargetClassName}`;
 
+/**
+ * The same control, laid out instead of absolutely positioned. Written as its
+ * own string rather than merged from the one above, because dropping
+ * `absolute` through tailwind-merge needs a competing utility from the same
+ * key and `relative` is the only one -- which is exactly the trap documented
+ * on `touchTargetClassName`.
+ */
+const inlineIconButtonClassName =
+  `press-scale relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45 ${touchTargetClassName}`;
+
 const controlLabelClassName =
   "mb-1.5 block text-[13px] font-semibold leading-[18px] text-muted-foreground";
 
@@ -83,12 +99,20 @@ function CarouselDots({
   labels,
   onSelect,
   canAdvance,
+  compact = false,
 }: {
   index: number;
   count: number;
   labels: string[];
   onSelect: (next: number) => void;
   canAdvance: boolean;
+  /**
+   * Sits where an iOS sheet's grabber sits, doing both jobs at once. Half the
+   * height, so the pinned header stays a header -- the touch target is given
+   * back vertically by the painted `::after` box, and the 44px of horizontal
+   * separation that keeps a tap off the wrong dot is untouched.
+   */
+  compact?: boolean;
 }) {
   return (
     <div
@@ -111,19 +135,33 @@ function CarouselDots({
             // A real 44x44 each, laid out rather than faked, because two dots
             // sit side by side and overlapping hit regions would send a tap
             // near the boundary to the wrong slide.
-            className="flex h-11 w-11 items-center justify-center disabled:cursor-not-allowed"
+            className={cn(
+              "flex w-11 items-center justify-center disabled:cursor-not-allowed",
+              compact
+                ? `relative h-[18px] after:h-11 after:w-11 ${touchTargetClassName}`
+                : "h-11",
+            )}
           >
             <span
               className={cn(
-                "block h-[7px] rounded-full transition-all duration-200",
+                "block h-[5px] rounded-full transition-all duration-200",
                 active
-                  ? "w-[22px] bg-[color:var(--app-accent)]"
+                  ? "w-[24px] bg-[color:var(--app-accent)]"
                   : "w-[7px] bg-[color:var(--app-neutral-fill-strong)]",
               )}
             />
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/** The plain iOS grabber, for a sheet with only one slide to be on. */
+function SheetGrabber() {
+  return (
+    <div className="flex h-[18px] items-center justify-center" aria-hidden>
+      <span className="block h-[5px] w-9 rounded-full bg-[color:var(--app-neutral-fill-strong)]" />
     </div>
   );
 }
@@ -263,9 +301,7 @@ function SavedLocationCategoryPicker({
 }) {
   return (
     <div role="group" aria-label="Saved location category">
-      <p className={controlLabelClassName}>
-        What kind of place is this?
-      </p>
+      <p className={controlLabelClassName}>Kind of place</p>
       <div className="grid grid-cols-3 gap-2.5">
         {CATEGORY_OPTIONS.map(({ category, label, Icon }) => {
           const selected = value === category;
@@ -565,10 +601,10 @@ export function SaveLocationModal({
             "Add a house, landmark or PIN."
           : postalCodeInvalid
             ? // Not the field's own wording. The invalid PIN already says
-              // "Enter a valid PIN or postal code." right next to itself, and
+              // "Enter a valid PIN or postcode." right next to itself, and
               // the same sentence twice on one screen reads as a stutter
               // rather than as two places worth looking.
-              "Check the PIN or postal code above."
+              "Check the PIN or postcode above."
             : null;
   const canSave =
     category !== null &&
@@ -599,6 +635,13 @@ export function SaveLocationModal({
   };
   const carouselIndex = flowStep === "details" ? 1 : 0;
   const carouselLabels = ["Pin your entrance", "Address details"];
+  /**
+   * The details pane owns its own scrolling, so the sheet around it stops
+   * being a scroll box and becomes a frame: pinned header, one scroller,
+   * pinned footer. Scoped to this pane so the map and summary panes keep the
+   * plain scrolling sheet they were built against.
+   */
+  const detailsPaneActive = flowStep === "details" && collectAddressDetails;
 
   const goToSlide = (next: number) => {
     if (interactionBusy || next === carouselIndex) return;
@@ -750,11 +793,14 @@ export function SaveLocationModal({
           if (interactionBusy || flowStep === "map") event.preventDefault();
         }}
         className={cn(
-          "z-[601] bottom-[var(--kb-height,0px)] top-auto max-h-[min(92dvh,760px)] w-full max-w-[420px] translate-y-0 gap-5 overflow-y-auto",
+          "z-[601] bottom-[var(--kb-height,0px)] top-auto max-h-[min(92dvh,760px)] w-full max-w-[420px] translate-y-0",
           "rounded-b-none rounded-t-[24px] sm:bottom-auto sm:top-[50%] sm:translate-y-[-50%] sm:rounded-[20px]",
           // A real edge and a real lift, so the sheet reads as a layer above
           // the screen rather than a rectangle pasted onto it.
-          "border border-black/[0.06] bg-[color:var(--app-card-surface-default-solid)] p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] dark:border-white/[0.08] sm:p-6 sm:pb-6",
+          "border border-black/[0.06] bg-[color:var(--app-card-surface-default-solid)] dark:border-white/[0.08]",
+          detailsPaneActive
+            ? SHEET_DETAILS_SHELL_CLASSNAME
+            : "gap-5 overflow-y-auto p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] sm:p-6 sm:pb-6",
           // `!` because the sheet's arbitrary shadow does not merge away the
           // dialog primitive's own `shadow-[var(--app-card-shadow-feature)]`:
           // tailwind-merge leaves both classes on the element and the base one
@@ -808,284 +854,312 @@ export function SaveLocationModal({
             ) : null}
           </div>
         ) : flowStep === "details" && collectAddressDetails ? (
-          <div {...paneProps}>
-            <button
-              type="button"
-              onClick={() =>
-                canPickOnMap ? goToSlide(0) : setFlowStep("summary")
-              }
-              disabled={interactionBusy}
-              aria-label={canPickOnMap ? "Back to map" : "Back"}
-              className={cn(iconButtonClassName, "left-4 top-4")}
-            >
-              <ArrowLeft className="h-4.5 w-4.5" strokeWidth={2.4} />
-            </button>
-            <button
-              type="button"
-              onClick={onSkip}
-              disabled={interactionBusy}
-              aria-label="Close"
-              className={cn(iconButtonClassName, "right-4 top-4")}
-            >
-              <X className="h-4.5 w-4.5" strokeWidth={2.4} />
-            </button>
-
-            <header className="px-9 text-center">
-              <DialogTitle
-                ref={detailsTitleRef}
-                tabIndex={-1}
-                className="text-[28px] font-bold leading-[1.12] tracking-normal text-foreground outline-none"
-              >
-                Add your address details
-              </DialogTitle>
-              <p
-                id={descriptionId}
-                className="mt-2 text-[15px] leading-5 text-muted-foreground"
-              >
-                Only the address is needed. The rest helps at the door.
+          <div
+            {...paneProps}
+            className={cn(paneProps.className, "flex-1 gap-0")}
+          >
+            {/* Pinned. The controls are laid out beside the title rather than
+                floated over it, which is what let a 36px button starting at
+                16px cover a header padded to 36px. */}
+            <header className={SHEET_HEADER_CLASSNAME}>
+              {carouselMode ? (
+                <CarouselDots
+                  compact
+                  index={1}
+                  count={2}
+                  labels={carouselLabels}
+                  canAdvance
+                  onSelect={goToSlide}
+                />
+              ) : (
+                <SheetGrabber />
+              )}
+              <div className="mt-1 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    canPickOnMap ? goToSlide(0) : setFlowStep("summary")
+                  }
+                  disabled={interactionBusy}
+                  aria-label={canPickOnMap ? "Back to map" : "Back"}
+                  className={inlineIconButtonClassName}
+                >
+                  <ArrowLeft className="h-4.5 w-4.5" strokeWidth={2.4} />
+                </button>
+                <DialogTitle
+                  ref={detailsTitleRef}
+                  tabIndex={-1}
+                  className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold leading-[22px] tracking-normal text-foreground outline-none"
+                >
+                  Address details
+                </DialogTitle>
+                <button
+                  type="button"
+                  onClick={onSkip}
+                  disabled={interactionBusy}
+                  aria-label="Close"
+                  className={inlineIconButtonClassName}
+                >
+                  <X className="h-4.5 w-4.5" strokeWidth={2.4} />
+                </button>
+              </div>
+              {/* The sentence that used to sit under the title. The card below
+                  shows the address and the group label below that says the
+                  fields are optional, so on screen it only repeated them. */}
+              <p id={descriptionId} className="sr-only">
+                Optional details that help someone reach your door.
               </p>
             </header>
 
-            {/* The detected address, shown as the thing the fields below were
-                filled from. */}
-            <div className="flex items-start gap-2.5 rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3">
-              <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
-                <MapPin className="h-[17px] w-[17px]" strokeWidth={1.9} aria-hidden />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
-                  Pinned location
-                </p>
-                <p className="mt-0.5 line-clamp-2 text-[15px] font-semibold leading-5 text-foreground">
-                  {loadingAddress
-                    ? "Finding your address…"
-                    : detectedAddress || "Your selected map point"}
-                </p>
+            <div className={SHEET_BODY_CLASSNAME}>
+              {/* The detected address, shown as the thing the fields below were
+                  filled from. */}
+              <div className="flex items-start gap-2.5 rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3">
+                <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+                  <MapPin className="h-[17px] w-[17px]" strokeWidth={1.9} aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+                    Pinned
+                  </p>
+                  <p className="mt-0.5 line-clamp-2 text-[15px] font-semibold leading-5 text-foreground">
+                    {loadingAddress
+                      ? "Finding address…"
+                      : detectedAddress || "No address found"}
+                  </p>
+                </div>
+                {canPickOnMap ? (
+                  <button
+                    type="button"
+                    onClick={() => goToSlide(0)}
+                    disabled={interactionBusy}
+                    // One visible word; the pin is what the icon and the line
+                    // above it already say. The accessible name keeps the phrase.
+                    aria-label="Edit pin"
+                    className={cn(
+                      "press-scale shrink-0 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45",
+                      "relative after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']",
+                    )}
+                  >
+                    Edit
+                  </button>
+                ) : null}
               </div>
-              {canPickOnMap ? (
-                <button
-                  type="button"
-                  onClick={() => goToSlide(0)}
-                  disabled={interactionBusy}
-                  className={cn(
-                    "press-scale shrink-0 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45",
-                    "relative after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']",
-                  )}
-                >
-                  Edit pin
-                </button>
-              ) : null}
-            </div>
 
-            <div>
-              <label
-                htmlFor="saved-location-address-line"
-                className={controlLabelClassName}
-              >
-                Address line
-              </label>
-              <input
-                id="saved-location-address-line"
-                type="text"
-                value={effectiveAddressLine}
-                onChange={(event) => {
-                  addressLineEditedRef.current = true;
-                  setAddressLineValue(event.target.value);
-                }}
-                disabled={interactionBusy}
-                maxLength={300}
-                autoComplete={deferredUntilVault ? "off" : "street-address"}
-                placeholder={
-                  loadingAddress
-                    ? "Finding your address…"
-                    : "e.g. 12 MG Road, Bengaluru"
-                }
-                className={controlInputClassName}
-              />
-            </div>
-
-            {/* Ticked, the fields below are filled from that address and keep
-                following the pin. Unticked, they are cleared and left alone.
-                Anything typed by hand survives either way. */}
-            <label className="flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={useDetectedAddress}
-                onChange={(event) => {
-                  const next = event.target.checked;
-                  setUseDetectedAddress(next);
-                  // Both directions act now rather than at the next pin move,
-                  // so the box never reads as on while the fields disagree
-                  // with it. Unticking forgets that anything was typed, which
-                  // is what makes re-ticking a clean redo.
-                  houseOrFlatEditedRef.current = false;
-                  postalCodeEditedRef.current = false;
-                  setAddressDetails((current) =>
-                    detectedAddressDetails(current, next ? detectedAddress : null, {
-                      houseOrFlat: false,
-                      postalCode: false,
-                    }),
-                  );
-                }}
-                disabled={interactionBusy}
-                className="h-[15px] w-[15px] shrink-0 accent-[color:var(--app-accent)] disabled:opacity-45"
-              />
-              Fill the fields below from this address
-            </label>
-
-            <div className="space-y-3.5">
+              {/* Added on main while this sheet was being rebuilt: the
+                  address itself is editable, because a pin that resolves to
+                  the wrong line left no way to correct it. */}
               <div>
                 <label
-                  htmlFor="saved-location-house-or-flat"
+                  htmlFor="saved-location-address-line"
                   className={controlLabelClassName}
                 >
-                  House, flat, floor or block{" "}
-                  <span className="font-normal">(optional)</span>
+                  Address
                 </label>
                 <input
-                  id="saved-location-house-or-flat"
+                  id="saved-location-address-line"
                   type="text"
-                  value={addressDetails.houseOrFlat}
-                  onChange={(event) =>
-                    updateAddressDetail("houseOrFlat", event.target.value)
-                  }
+                  value={effectiveAddressLine}
+                  onChange={(event) => {
+                    addressLineEditedRef.current = true;
+                    setAddressLineValue(event.target.value);
+                  }}
                   disabled={interactionBusy}
-                  maxLength={80}
-                  autoComplete={deferredUntilVault ? "off" : "address-line1"}
-                  placeholder="e.g. Flat 4B, Tower 2"
+                  maxLength={300}
+                  autoComplete={deferredUntilVault ? "off" : "street-address"}
+                  placeholder={
+                    loadingAddress ? "Finding address…" : "12 MG Road, Bengaluru"
+                  }
                   className={controlInputClassName}
                 />
               </div>
 
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {/* Ticked, the fields below are filled from that address and keep
+                  following the pin. Unticked, they are cleared and left alone.
+                  Anything typed by hand survives either way. */}
+              <label className="flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={useDetectedAddress}
+                  onChange={(event) => {
+                    const next = event.target.checked;
+                    setUseDetectedAddress(next);
+                    // Both directions act now rather than at the next pin move,
+                    // so the box never reads as on while the fields disagree
+                    // with it. Unticking forgets that anything was typed, which
+                    // is what makes re-ticking a clean redo.
+                    houseOrFlatEditedRef.current = false;
+                    postalCodeEditedRef.current = false;
+                    setAddressDetails((current) =>
+                      detectedAddressDetails(current, next ? detectedAddress : null, {
+                        houseOrFlat: false,
+                        postalCode: false,
+                      }),
+                    );
+                  }}
+                  disabled={interactionBusy}
+                  className="h-[15px] w-[15px] shrink-0 accent-[color:var(--app-accent)] disabled:opacity-45"
+                />
+                Fill from this address
+              </label>
+
+              <div className="space-y-3.5">
+                {/* Said once, for the group, instead of an "(optional)" tag
+                    hanging off all four labels. */}
+                <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
+                  Optional — helps at the door.
+                </p>
                 <div>
                   <label
-                    htmlFor="saved-location-building-color"
+                    htmlFor="saved-location-house-or-flat"
                     className={controlLabelClassName}
                   >
-                    Building colour{" "}
-                    <span className="font-normal">(optional)</span>
+                    House or flat
                   </label>
                   <input
-                    id="saved-location-building-color"
+                    id="saved-location-house-or-flat"
                     type="text"
-                    value={addressDetails.buildingColor}
+                    value={addressDetails.houseOrFlat}
                     onChange={(event) =>
-                      updateAddressDetail("buildingColor", event.target.value)
+                      updateAddressDetail("houseOrFlat", event.target.value)
                     }
                     disabled={interactionBusy}
-                    maxLength={40}
-                    autoComplete="off"
-                    placeholder="e.g. Blue gate"
+                    maxLength={80}
+                    autoComplete={deferredUntilVault ? "off" : "address-line1"}
+                    placeholder="Flat 4B, Tower 2"
                     className={controlInputClassName}
                   />
                 </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label
+                      htmlFor="saved-location-building-color"
+                      className={controlLabelClassName}
+                    >
+                      Building colour
+                    </label>
+                    <input
+                      id="saved-location-building-color"
+                      type="text"
+                      value={addressDetails.buildingColor}
+                      onChange={(event) =>
+                        updateAddressDetail("buildingColor", event.target.value)
+                      }
+                      disabled={interactionBusy}
+                      maxLength={40}
+                      autoComplete="off"
+                      placeholder="Blue gate"
+                      className={controlInputClassName}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="saved-location-postal-code"
+                      className={controlLabelClassName}
+                    >
+                      PIN / postcode
+                    </label>
+                    <input
+                      id="saved-location-postal-code"
+                      type="text"
+                      value={addressDetails.postalCode}
+                      onChange={(event) =>
+                        updateAddressDetail("postalCode", event.target.value)
+                      }
+                      disabled={interactionBusy}
+                      maxLength={12}
+                      inputMode="text"
+                      autoComplete={deferredUntilVault ? "off" : "postal-code"}
+                      aria-describedby={
+                        addressDetails.postalCode.length > 0 &&
+                        !isValidPostalCode(addressDetails.postalCode)
+                          ? postalCodeErrorId
+                          : undefined
+                      }
+                      aria-invalid={
+                        addressDetails.postalCode.length > 0 &&
+                        !isValidPostalCode(addressDetails.postalCode)
+                      }
+                      placeholder="560001"
+                      className={cn(
+                        controlInputClassName,
+                        "aria-[invalid=true]:border-[color:var(--app-destructive)]",
+                      )}
+                    />
+                    {addressDetails.postalCode.length > 0 &&
+                    !isValidPostalCode(addressDetails.postalCode) ? (
+                      <p
+                        id={postalCodeErrorId}
+                        role="alert"
+                        className="mt-1.5 text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
+                      >
+                        Enter a valid PIN or postcode.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
                 <div>
                   <label
-                    htmlFor="saved-location-postal-code"
+                    htmlFor="saved-location-landmark"
                     className={controlLabelClassName}
                   >
-                    PIN / postal code{" "}
-                    <span className="font-normal">(optional)</span>
+                    Landmark
                   </label>
                   <input
-                    id="saved-location-postal-code"
+                    id="saved-location-landmark"
                     type="text"
-                    value={addressDetails.postalCode}
+                    value={addressDetails.landmark}
                     onChange={(event) =>
-                      updateAddressDetail("postalCode", event.target.value)
+                      updateAddressDetail("landmark", event.target.value)
                     }
                     disabled={interactionBusy}
-                    maxLength={12}
-                    inputMode="text"
-                    autoComplete={deferredUntilVault ? "off" : "postal-code"}
-                    aria-describedby={
-                      addressDetails.postalCode.length > 0 &&
-                      !isValidPostalCode(addressDetails.postalCode)
-                        ? postalCodeErrorId
-                        : undefined
-                    }
-                    aria-invalid={
-                      addressDetails.postalCode.length > 0 &&
-                      !isValidPostalCode(addressDetails.postalCode)
-                    }
-                    placeholder="e.g. 560001"
-                    className={cn(
-                      controlInputClassName,
-                      "aria-[invalid=true]:border-[color:var(--app-destructive)]",
-                    )}
+                    maxLength={100}
+                    autoComplete={deferredUntilVault ? "off" : "address-line2"}
+                    placeholder="Opposite City Mall"
+                    className={controlInputClassName}
                   />
-                  {addressDetails.postalCode.length > 0 &&
-                  !isValidPostalCode(addressDetails.postalCode) ? (
-                    <p
-                      id={postalCodeErrorId}
-                      role="alert"
-                      className="mt-1.5 text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
-                    >
-                      Enter a valid PIN or postal code.
-                    </p>
-                  ) : null}
                 </div>
               </div>
 
-              <div>
-                <label
-                  htmlFor="saved-location-landmark"
-                  className={controlLabelClassName}
-                >
-                  Nearby landmark{" "}
-                  <span className="font-normal">(optional)</span>
-                </label>
-                <input
-                  id="saved-location-landmark"
-                  type="text"
-                  value={addressDetails.landmark}
-                  onChange={(event) =>
-                    updateAddressDetail("landmark", event.target.value)
-                  }
-                  disabled={interactionBusy}
-                  maxLength={100}
-                  autoComplete={deferredUntilVault ? "off" : "address-line2"}
-                  placeholder="e.g. Opposite City Mall"
-                  className={controlInputClassName}
-                />
-              </div>
+              <SavedLocationCategoryPicker
+                value={category}
+                disabled={interactionBusy}
+                onChange={setCategory}
+              />
+
+              {category === "other" ? (
+                <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
+                  <label
+                    htmlFor="saved-location-details-custom-label"
+                    className={controlLabelClassName}
+                  >
+                    Name it
+                  </label>
+                  <input
+                    id="saved-location-details-custom-label"
+                    type="text"
+                    value={customLabel}
+                    onChange={(event) => setCustomLabel(event.target.value)}
+                    disabled={interactionBusy}
+                    maxLength={40}
+                    placeholder="Gym, parents' house"
+                    className={controlInputClassName}
+                  />
+                </div>
+              ) : null}
+
+              {/* A caption, not a card. It reassures; it is not a control, and
+                  the panel it used to sit in gave it a control's weight. */}
+              <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
+                {deferredUntilVault
+                  ? "Saves once your lock is set."
+                  : "Private to you."}
+              </p>
             </div>
 
-            <SavedLocationCategoryPicker
-              value={category}
-              disabled={interactionBusy}
-              onChange={setCategory}
-            />
-
-            {category === "other" ? (
-              <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
-                <label
-                  htmlFor="saved-location-details-custom-label"
-                  className={controlLabelClassName}
-                >
-                  Give it a name <span className="font-normal">(optional)</span>
-                </label>
-                <input
-                  id="saved-location-details-custom-label"
-                  type="text"
-                  value={customLabel}
-                  onChange={(event) => setCustomLabel(event.target.value)}
-                  disabled={interactionBusy}
-                  maxLength={40}
-                  placeholder="e.g. Gym, parents' house"
-                  className={controlInputClassName}
-                />
-              </div>
-            ) : null}
-
-            <p className="rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3 text-[13px] leading-[18px] text-muted-foreground">
-              {deferredUntilVault
-                ? "Saved after your vault is ready."
-                : "Saved in your private vault."}
-            </p>
-
-            <div className="sticky bottom-0 z-20 -mx-3 mt-1 flex flex-col gap-2.5 rounded-t-[18px] border-t border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)]/95 px-3 pb-1 pt-3 backdrop-blur">
+            <div className={SHEET_FOOTER_CLASSNAME}>
               {/* A disabled primary button with no explanation is the whole of
                   "saving is not working" from the outside. When it is off, say
                   which single thing turns it on. */}
@@ -1119,15 +1193,6 @@ export function SaveLocationModal({
               >
                 Skip for now
               </button>
-              {carouselMode ? (
-                <CarouselDots
-                  index={1}
-                  count={2}
-                  labels={carouselLabels}
-                  canAdvance
-                  onSelect={goToSlide}
-                />
-              ) : null}
             </div>
           </div>
         ) : (
@@ -1154,7 +1219,7 @@ export function SaveLocationModal({
                 id={descriptionId}
                 className="mt-2 text-[15px] leading-5 text-muted-foreground"
               >
-                Tag where you are. It stays encrypted in your vault.
+                Tag where you are. It stays private to you.
               </p>
             </header>
 
@@ -1212,10 +1277,10 @@ export function SaveLocationModal({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-[15px] font-semibold leading-5 text-[color:var(--app-accent)]">
-                    Pin your entrance on the map
+                    Pin your entrance
                   </span>
                   <span className="block text-[13px] leading-[18px] text-muted-foreground">
-                    GPS can be off by a few meters — drag the pin to your door.
+                    GPS lands near, not at, your door.
                   </span>
                 </span>
               </button>
@@ -1314,7 +1379,7 @@ export function SaveLocationModal({
                   htmlFor="saved-location-custom-label"
                   className={controlLabelClassName}
                 >
-                  Give it a name <span className="font-normal">(optional)</span>
+                  Name it
                 </label>
                 <input
                   id="saved-location-custom-label"
@@ -1323,7 +1388,7 @@ export function SaveLocationModal({
                   onChange={(event) => setCustomLabel(event.target.value)}
                   disabled={interactionBusy}
                   maxLength={40}
-                  placeholder="e.g. Gym, Mom's house, Cafe"
+                  placeholder="Gym, Mom's house"
                   className={controlInputClassName}
                 />
               </div>
