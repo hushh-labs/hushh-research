@@ -2196,7 +2196,10 @@ class FourUserMemoryService(OneLocationAgentService):
             ):
                 grant["expires_at"] = params["new_expires_at"]
                 grant["duration_hours"] = params.get("duration_hours")
-                grant["duration_mode"] = "timed"
+                # `shorten` hard-codes 'timed' in its own SQL and sends no
+                # param; `set_grant_duration` sends the mode because it can
+                # also put a share on "until I stop".
+                grant["duration_mode"] = params.get("duration_mode") or "timed"
                 grant["updated_at"] = datetime.now(timezone.utc)
                 return grant
             return None
@@ -3256,6 +3259,190 @@ def test_shorten_grant_rejects_any_attempt_to_extend() -> None:
         service.shorten_grant(caller_user_id="user_b", grant_id=grant["id"], duration_hours=24)
     assert extend_attempt.value.code == "LOCATION_GRANT_SHORTEN_ONLY"
     assert service.grants[grant["id"]]["expires_at"] == original_expires_at
+
+
+def _duration_service_with_grant(duration_hours: float = 0.5):
+    """A live user_a -> user_b share, and the service holding it."""
+    service = FourUserMemoryService()
+    for user_id in ("user_a", "user_b", "user_c"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=duration_hours,
+    )
+    return service, grant
+
+
+def test_owner_may_lengthen_their_own_running_share() -> None:
+    """The reported bug: 30 minutes could be stopped, never extended.
+
+    Nobody's consent is missing when the owner adds time to their own share --
+    the owner is the person being seen. `shorten_grant` refusing it was a rule
+    written for the recipient that ended up applying to everyone, and it left
+    Stop as the only thing the live card could offer.
+    """
+    service, grant = _duration_service_with_grant(0.5)
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    extended = service.set_grant_duration(
+        owner_user_id="user_a", grant_id=grant["id"], duration_hours=2
+    )
+
+    assert extended["status"] == "active"
+    assert service.grants[grant["id"]]["expires_at"] > original_expires_at
+    assert service.grants[grant["id"]]["duration_hours"] == 2
+
+
+def test_changing_the_duration_keeps_the_same_grant() -> None:
+    """The row is mutated, never replaced.
+
+    Re-creating the grant to add fifteen minutes hands the recipient a new id:
+    their subscription is keyed on the old one, the stored envelope goes with
+    it, and they get a share-ended alert for a share that never ended.
+    """
+    service, grant = _duration_service_with_grant(1)
+    service.grants[grant["id"]]["latest_envelope_id"] = "envelope-1"
+
+    updated = service.set_grant_duration(
+        owner_user_id="user_a", grant_id=grant["id"], duration_hours=4
+    )
+
+    assert updated["id"] == grant["id"]
+    assert len(service.grants) == 1
+    row = service.grants[grant["id"]]
+    assert row["latest_envelope_id"] == "envelope-1"
+    assert row["recipient_key_id"] == grant["recipientKeyId"]
+    assert row["status"] == "active"
+
+
+def test_owner_may_also_shorten_through_the_same_call() -> None:
+    # One control on the card, so one call has to answer both directions.
+    service, grant = _duration_service_with_grant(4)
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=0.5)
+
+    assert service.grants[grant["id"]]["expires_at"] < original_expires_at
+    events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_duration_changed"
+    ]
+    assert events[-1]["metadata"]["direction"] == "shortened"
+
+
+def test_the_recipient_cannot_reach_the_owner_duration_call() -> None:
+    """The invariant the shorten-only rule existed to protect, kept exactly.
+
+    A recipient lengthening a grant is someone deciding how long they get to
+    watch another person. That is still refused -- here by never matching the
+    row at all, so there is no path to the write.
+    """
+    service, grant = _duration_service_with_grant(1)
+    original_expires_at = service.grants[grant["id"]]["expires_at"]
+
+    with pytest.raises(OneLocationAgentError) as refused:
+        service.set_grant_duration(owner_user_id="user_b", grant_id=grant["id"], duration_hours=24)
+    assert refused.value.code == "LOCATION_GRANT_NOT_FOUND"
+    assert service.grants[grant["id"]]["expires_at"] == original_expires_at
+
+    # And a stranger fares no better.
+    with pytest.raises(OneLocationAgentError) as unrelated:
+        service.set_grant_duration(owner_user_id="user_c", grant_id=grant["id"], duration_hours=1)
+    assert unrelated.value.code == "LOCATION_GRANT_NOT_FOUND"
+
+
+def test_the_duration_change_event_names_which_way_it_went() -> None:
+    # One event type carries both directions, so the direction has to be
+    # recorded rather than read off the name.
+    service, grant = _duration_service_with_grant(0.5)
+
+    service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=3)
+
+    events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_duration_changed"
+    ]
+    assert events, "no duration-changed event was written"
+    assert events[-1]["actor_user_id"] == "user_a"
+    assert events[-1]["metadata"]["direction"] == "extended"
+    assert events[-1]["metadata"]["duration_hours"] == 3
+    # The person being watched changed the terms, so the watcher is told.
+    assert service.notifications[-1]["user_id"] == "user_b"
+
+
+def test_a_share_can_be_moved_to_until_stopped_and_back() -> None:
+    service, grant = _duration_service_with_grant(1)
+
+    service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=None,
+        duration_mode="until_stopped",
+    )
+    row = service.grants[grant["id"]]
+    # The duration contract in migration 150 allows exactly two shapes; this is
+    # the open-ended one, and both columns have to be null for it.
+    assert row["duration_mode"] == "until_stopped"
+    assert row["duration_hours"] is None
+    assert row["expires_at"] is None
+
+    service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=1)
+    row = service.grants[grant["id"]]
+    assert row["duration_mode"] == "timed"
+    assert row["expires_at"] is not None
+    events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_duration_changed"
+    ]
+    # Giving an open-ended share an end is less exposure, not more.
+    assert events[-1]["metadata"]["direction"] == "shortened"
+
+
+def test_the_duration_change_obeys_the_same_bounds_as_creating_a_share() -> None:
+    """A share must not become, by editing, a shape it could not be created in."""
+    service, grant = _duration_service_with_grant(1)
+
+    with pytest.raises(OneLocationAgentError) as too_short:
+        service.set_grant_duration(
+            owner_user_id="user_a", grant_id=grant["id"], duration_hours=0.05
+        )
+    assert too_short.value.code == "LOCATION_DURATION_INVALID"
+
+    with pytest.raises(OneLocationAgentError) as too_long:
+        service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=30)
+    assert too_long.value.code == "LOCATION_DURATION_INVALID"
+
+    with pytest.raises(OneLocationAgentError) as bad_mode:
+        service.set_grant_duration(
+            owner_user_id="user_a",
+            grant_id=grant["id"],
+            duration_hours=1,
+            duration_mode="forever",
+        )
+    assert bad_mode.value.code == "LOCATION_DURATION_MODE_INVALID"
+
+
+def test_changing_the_duration_of_a_stopped_share_does_nothing() -> None:
+    # Racing Stop must not resurrect a share, and must not raise either -- the
+    # editor may still be open when the countdown reaches zero.
+    service, grant = _duration_service_with_grant(1)
+    service.revoke_grant(owner_user_id="user_a", grant_id=grant["id"])
+
+    result = service.set_grant_duration(
+        owner_user_id="user_a", grant_id=grant["id"], duration_hours=4
+    )
+
+    assert result["status"] == "revoked"
+    assert service.grants[grant["id"]]["status"] == "revoked"
 
 
 def test_location_request_creation_does_not_require_requester_key_material() -> None:

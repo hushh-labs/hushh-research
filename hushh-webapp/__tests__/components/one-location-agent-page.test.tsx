@@ -41,6 +41,7 @@ const {
   mockViewEnvelope,
   mockRevokeGrant,
   mockShortenGrant,
+  mockSetGrantDuration,
   mockRequestAccess,
   mockCreatePublicInvite,
   mockCreateCircleInvite,
@@ -91,6 +92,7 @@ const {
   mockViewEnvelope: vi.fn(),
   mockRevokeGrant: vi.fn(),
   mockShortenGrant: vi.fn(),
+  mockSetGrantDuration: vi.fn(),
   mockRequestAccess: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
   mockCreateCircleInvite: vi.fn(),
@@ -313,6 +315,7 @@ vi.mock("@/lib/one-location/service", () => ({
     viewEnvelope: mockViewEnvelope,
     revokeGrant: mockRevokeGrant,
     shortenGrant: mockShortenGrant,
+    setGrantDuration: mockSetGrantDuration,
     requestAccess: mockRequestAccess,
     approveRequest: vi.fn(),
     denyRequest: vi.fn(),
@@ -1053,6 +1056,7 @@ describe("OneLocationAgentPage", () => {
     });
     mockRevokeGrant.mockResolvedValue({});
     mockShortenGrant.mockResolvedValue({});
+    mockSetGrantDuration.mockResolvedValue({});
     mockRequestAccess.mockResolvedValue({});
     mockCopyToClipboard.mockResolvedValue(true);
     mockCreatePublicInvite.mockResolvedValue({
@@ -4860,6 +4864,103 @@ describe("OneLocationAgentPage", () => {
         vi.advanceTimersByTime(5_000);
       });
       expect(countdownSeconds()).toBeLessThanOrEqual(first - 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets the owner change a running share's time without stopping it", async () => {
+    // The report: "I can only stop, can't increase or decrease the duration".
+    // This is the whole path -- the control on the card, the editor it opens,
+    // and the one call it makes -- against the same grant, which is the part
+    // that matters: the share is edited, not ended and restarted.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+      const card = await screen.findByTestId("one-location-live-share");
+      const change = within(card).getByTestId(
+        "one-location-live-share-change-time",
+      );
+
+      await act(async () => {
+        fireEvent.click(change);
+      });
+
+      const editor = await screen.findByTestId(
+        "one-location-live-share-duration-editor",
+      );
+
+      await act(async () => {
+        fireEvent.click(
+          within(editor).getByTestId("one-location-live-share-duration-save"),
+        );
+      });
+
+      // The wheel opened on the 30 minutes this share has left and nothing was
+      // touched, so there is nothing to save -- an untouched picker must not
+      // spend a call or push the recipient an alert.
+      expect(mockSetGrantDuration).not.toHaveBeenCalled();
+      expect(mockRevokeGrant).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(
+          screen.queryByTestId("one-location-live-share-duration-editor"),
+        ).toBeNull(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends the new time on the same grant, and never a stop", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+      const card = await screen.findByTestId("one-location-live-share");
+      await act(async () => {
+        fireEvent.click(
+          within(card).getByTestId("one-location-live-share-change-time"),
+        );
+      });
+      const editor = await screen.findByTestId(
+        "one-location-live-share-duration-editor",
+      );
+
+      // "Until I stop" is the largest increase there is, and the direction the
+      // shorten-only endpoint refused outright. It is also a plain button
+      // rather than a carousel slide, so this drives the real control and not
+      // a scroll position JSDOM cannot lay out.
+      await act(async () => {
+        fireEvent.click(
+          within(editor).getByRole("button", { name: "Until I stop" }),
+        );
+      });
+      await act(async () => {
+        fireEvent.click(
+          within(editor).getByTestId("one-location-live-share-duration-save"),
+        );
+      });
+
+      await waitFor(() =>
+        expect(mockSetGrantDuration).toHaveBeenCalledWith(
+          expect.objectContaining({
+            grantId: "grant_1",
+            durationHours: null,
+            durationMode: "until_stopped",
+          }),
+        ),
+      );
+      // Extending must never go out as end-and-recreate: that hands the
+      // recipient a new grant id and a share-ended alert.
+      expect(mockRevokeGrant).not.toHaveBeenCalled();
+      expect(mockCreateGrant).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

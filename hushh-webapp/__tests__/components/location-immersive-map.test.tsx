@@ -1775,8 +1775,8 @@ describe("LocationImmersiveMap reported map defects", () => {
     };
   }
 
-  async function renderReadyMap() {
-    render(<LocationImmersiveMap />);
+  async function renderReadyMap(props: { surface?: "map" | "check-in" } = {}) {
+    render(<LocationImmersiveMap {...props} />);
     fireEvent.click(
       screen.getByRole("button", { name: "Continue" }),
     );
@@ -1903,11 +1903,10 @@ describe("LocationImmersiveMap reported map defects", () => {
     for (const row of rows) expect(row).toHaveClass("min-h-11");
   });
 
-  it("keeps Check in's whole label by giving Sharing its own row on phone widths", async () => {
+  it("gives Sharing its own row on phone widths", async () => {
     // The break in the report: at 375px the header's symmetric `1fr auto 1fr`
-    // made the left column (one 56px X) as wide as Check-in + Locate, and the
-    // squeezed centre truncated the Check-in pill to the single letter "C".
-    // A product-owned action word is not a truncatable string.
+    // made the left column (one 56px X) as wide as the right one, and the
+    // squeezed centre could not hold "Sharing with 2".
     serviceHarness.getState.mockResolvedValue({
       recipients: [],
       ownerGrants: [activeGrant(ANKIT, "share-ankit")],
@@ -1932,15 +1931,58 @@ describe("LocationImmersiveMap reported map defects", () => {
       .parentElement as HTMLElement;
     expect(sharingRow).toHaveClass("row-start-2", "col-span-2");
     expect(sharingRow).toHaveClass("sm:row-start-1", "sm:col-start-2");
+  });
 
-    // The label survives intact -- this is the assertion that fails if anyone
-    // reintroduces a squeeze that ellipsises it.
+  it("keeps Check in out of Your Map's header and puts it in the tray", async () => {
+    // The report: "when i want to view my map, checkin could be shifted below
+    // at right place". Check in used to float top-right beside Locate, so the
+    // top of a screen whose whole job is showing a map carried two pills and a
+    // status. It reads its full label down in the tray, and the header is left
+    // with the two controls that act on the map itself.
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [activeGrant(ANKIT, "share-ankit")],
+    });
+
+    await renderReadyMap();
+
+    const header = screen.getByRole("banner", {
+      name: "Location map controls",
+    });
     expect(
-      screen.getByTestId("one-location-map-nearby-check-in"),
-    ).toHaveTextContent("Check in");
+      header.querySelector('[data-testid="one-location-map-nearby-check-in"]'),
+    ).toBeNull();
     expect(
-      screen.getByTestId("one-location-map-nearby-check-in"),
-    ).toHaveAccessibleName("Check in nearby");
+      header.querySelector('[data-testid="one-location-map-locate"]'),
+    ).not.toBeNull();
+
+    const checkIn = screen.getByTestId("one-location-map-nearby-check-in");
+    expect(checkIn).toHaveTextContent("Check in");
+    expect(checkIn).toHaveAccessibleName("Check in nearby");
+    // Inside the tray body, so the sheet's own height math already accounts
+    // for it and nothing new has to be measured.
+    expect(
+      screen.getByTestId("one-location-map-tray-scroll").contains(checkIn),
+    ).toBe(true);
+  });
+
+  it("keeps Check in in the header on check-in's own route", async () => {
+    // That surface renders no tray at all, and this pill is the only way back
+    // into the sheet after dismissing it. Removing it everywhere strands the
+    // person on a map with nothing to do.
+    serviceHarness.getState.mockResolvedValue({
+      recipients: [],
+      ownerGrants: [],
+    });
+
+    await renderReadyMap({ surface: "check-in" });
+
+    const header = screen.getByRole("banner", {
+      name: "Check in map controls",
+    });
+    expect(
+      header.querySelector('[data-testid="one-location-map-nearby-check-in"]'),
+    ).not.toBeNull();
   });
 
   it("answers Everyone instead of sitting disabled when no one shares with you", async () => {
