@@ -43,6 +43,7 @@ import type {
   OneLocationCircleMemberInvite,
 } from "@/lib/one-location/types";
 import { filterPeopleByQuery } from "@/lib/one-location/people-search";
+import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { cn } from "@/lib/utils";
 
 function circleInitials(value: string): string {
@@ -383,7 +384,10 @@ export function CircleInvitePeopleSheet({
             }
             isLoading={submitting}
             onClick={() => void sendInvites()}
-            className="h-12 w-full shrink-0 rounded-full text-base font-semibold"
+            className={cn(
+              "h-12 w-full shrink-0 rounded-full text-base font-semibold",
+              BLOCKED_CTA,
+            )}
           >
             {selectedIds.size
               ? `Invite ${selectedIds.size} ${

@@ -20,10 +20,17 @@
  * follow, so `ingh` still finds Singh.
  */
 
-/** Anything that is not a letter or a digit separates one word from the next,
- *  which keeps "Jean-Luc", "O'Brien" and "R. Meena" splitting the way a reader
- *  would split them. */
-const WORD_BOUNDARY = /[^\p{L}\p{N}]+/u;
+/** Anything that is not a letter, a digit, or a combining mark separates one
+ *  word from the next, which keeps "Jean-Luc", "O'Brien" and "R. Meena"
+ *  splitting the way a reader would split them.
+ *
+ *  `\p{M}` is what makes this work for Indic names. A matra is a combining
+ *  mark, not a letter, so without it "झुम्मा" splits into ["झ","म","म",""] and
+ *  "नीलेश" into ["न","ल","श"] — every syllable read as a separate word. Word
+ *  beginnings then mean nothing, and a one-letter query can rank a mid-word
+ *  hit as a beginning and drop a real match. With `\p{M}` both stay whole.
+ *  `normalizeSpokenName` in the Location page already treats marks this way. */
+const WORD_BOUNDARY = /[^\p{L}\p{N}\p{M}]+/u;
 
 function normalize(value: string): string {
   return value.trim().toLocaleLowerCase();
