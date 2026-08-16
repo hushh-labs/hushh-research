@@ -471,74 +471,98 @@ class ActorIdentityService:
         pool = await get_pool()
         try:
             async with pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    """
-                    INSERT INTO actor_identity_cache (
-                      user_id,
-                      display_name,
-                      email,
-                      phone_number,
-                      photo_url,
-                      email_verified,
-                      phone_verified,
-                      source,
-                      last_synced_at,
-                      created_at,
-                      updated_at
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        INSERT INTO actor_profiles (
+                          user_id,
+                          personas,
+                          last_active_persona,
+                          investor_marketplace_opt_in,
+                          created_at,
+                          updated_at
+                        )
+                        VALUES (
+                          $1,
+                          ARRAY['investor']::text[],
+                          'investor',
+                          FALSE,
+                          NOW(),
+                          NOW()
+                        )
+                        ON CONFLICT (user_id) DO NOTHING
+                        """,
+                        normalized_user_id,
                     )
-                    VALUES (
-                      $1,
-                      $2,
-                      $3,
-                      $4,
-                      $5,
-                      COALESCE($6, FALSE),
-                      COALESCE($7, FALSE),
-                      $8,
-                      NOW(),
-                      NOW(),
-                      NOW()
+                    row = await conn.fetchrow(
+                        """
+                        INSERT INTO actor_identity_cache (
+                          user_id,
+                          display_name,
+                          email,
+                          phone_number,
+                          photo_url,
+                          email_verified,
+                          phone_verified,
+                          source,
+                          last_synced_at,
+                          created_at,
+                          updated_at
+                        )
+                        VALUES (
+                          $1,
+                          $2,
+                          $3,
+                          $4,
+                          $5,
+                          COALESCE($6, FALSE),
+                          COALESCE($7, FALSE),
+                          $8,
+                          NOW(),
+                          NOW(),
+                          NOW()
+                        )
+                        ON CONFLICT (user_id) DO UPDATE SET
+                          display_name = COALESCE(EXCLUDED.display_name, actor_identity_cache.display_name),
+                          email = COALESCE(EXCLUDED.email, actor_identity_cache.email),
+                          phone_number = COALESCE(EXCLUDED.phone_number, actor_identity_cache.phone_number),
+                          photo_url = COALESCE(EXCLUDED.photo_url, actor_identity_cache.photo_url),
+                          email_verified = COALESCE($6, actor_identity_cache.email_verified),
+                          phone_verified = COALESCE($7, actor_identity_cache.phone_verified),
+                          source = CASE
+                            WHEN EXCLUDED.source IS NULL OR EXCLUDED.source = '' THEN actor_identity_cache.source
+                            ELSE EXCLUDED.source
+                          END,
+                          last_synced_at = NOW(),
+                          updated_at = NOW()
+                        RETURNING
+                          user_id,
+                          display_name,
+                          email,
+                          phone_number,
+                          COALESCE(custom_photo_url, photo_url) AS photo_url,
+                          email_verified,
+                          phone_verified,
+                          source,
+                          last_synced_at,
+                          created_at,
+                          updated_at
+                        """,
+                        normalized_user_id,
+                        str(display_name or "").strip() or None,
+                        str(email or "").strip().lower() or None,
+                        str(phone_number or "").strip() or None,
+                        str(photo_url or "").strip() or None,
+                        email_verified,
+                        phone_verified,
+                        str(source or "").strip() or "unknown",
                     )
-                    ON CONFLICT (user_id) DO UPDATE SET
-                      display_name = COALESCE(EXCLUDED.display_name, actor_identity_cache.display_name),
-                      email = COALESCE(EXCLUDED.email, actor_identity_cache.email),
-                      phone_number = COALESCE(EXCLUDED.phone_number, actor_identity_cache.phone_number),
-                      photo_url = COALESCE(EXCLUDED.photo_url, actor_identity_cache.photo_url),
-                      email_verified = COALESCE($6, actor_identity_cache.email_verified),
-                      phone_verified = COALESCE($7, actor_identity_cache.phone_verified),
-                      source = CASE
-                        WHEN EXCLUDED.source IS NULL OR EXCLUDED.source = '' THEN actor_identity_cache.source
-                        ELSE EXCLUDED.source
-                      END,
-                      last_synced_at = NOW(),
-                      updated_at = NOW()
-                    RETURNING
-                      user_id,
-                      display_name,
-                      email,
-                      phone_number,
-                      COALESCE(custom_photo_url, photo_url) AS photo_url,
-                      email_verified,
-                      phone_verified,
-                      source,
-                      last_synced_at,
-                      created_at,
-                      updated_at
-                    """,
-                    normalized_user_id,
-                    str(display_name or "").strip() or None,
-                    str(email or "").strip().lower() or None,
-                    str(phone_number or "").strip() or None,
-                    str(photo_url or "").strip() or None,
-                    email_verified,
-                    phone_verified,
-                    str(source or "").strip() or "unknown",
-                )
         except Exception as exc:
-            logger.debug(
-                "actor_identity_cache upsert skipped for %s: %s",
+            logger.error(
+                "actor_identity_cache upsert failed for %s: %s",
                 normalized_user_id,
                 exc,
+                exc_info=True,
             )
             return None
 
