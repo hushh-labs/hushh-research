@@ -565,7 +565,7 @@ describe("top shell breadcrumbs", () => {
       const params = new URLSearchParams();
       params.set("action", action);
       expect(resolveTopShellBreadcrumb("/one/location", params)).toEqual({
-        backHref: "/one/location",
+        backHref: "/one/location?view=now",
         width: "profile",
         align: "center",
         items: [
@@ -607,7 +607,7 @@ describe("top shell breadcrumbs", () => {
     fromProfile.set("from", "/one/profile");
     fromProfile.set("action", "check-in");
     expect(resolveTopShellBreadcrumb("/one/location", fromProfile)).toEqual({
-      backHref: "/one/location",
+      backHref: "/one/location?view=now",
       width: "profile",
       align: "center",
       items: [
