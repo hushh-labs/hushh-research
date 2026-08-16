@@ -689,6 +689,49 @@ cd hushh-webapp && npx playwright test e2e/tab-title-integrity.spec.ts \
 Add every new strip's labels to `TAB_STRIPS` in that spec; a strip that is not
 listed is simply unmeasured.
 
+### R19 — A CSS rule that "obviously" wins may not. Read the computed value off the running app
+
+**Incident (2026-08-16, chasing a "header overlaying" report on the Feed).**
+`hushh-webapp/app/globals.css` gates the top chrome's background on an attribute:
+`html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask { --ambient-chrome-wash: 0% }`.
+Every supporting fact checked out — `grep -rn data-ambient-chrome-primed` returns
+that line and nothing else (no code sets it), the top bar element really does
+carry the bare `ambient-chrome-mask` class, and the gate's specificity (0,2,1)
+really does beat `.ambient-chrome-mask--top` (0,1,0). The conclusion drawn —
+"the top bar is permanently transparent, that is the overlap report" — was still
+wrong. Signed into UAT and measured, `--ambient-chrome-wash` computes to **94%**
+and the bar paints solidly; cascade layers decide it, not specificity. A
+subagent RCA lane reached the same wrong answer at "high" confidence, so reader
+agreement was not evidence either. The change was written and would have shipped
+a global-stylesheet edit — every screen in the app — for a defect that does not
+exist.
+
+**Rule.** Never edit `globals.css`, a theme token, or any global chrome rule on
+the strength of reading the cascade. Sign in and read the value back off the
+running app first. If the measurement contradicts the code reading, the
+measurement wins — revert, do not rationalise.
+
+**Check.** Credentials are in Secret Manager; the login page only auto-signs-in
+when the native test bridge is installed as an init script before the first
+`goto`. From `hushh-webapp/` (so the `playwright` import resolves):
+```bash
+export REVIEWER_UID=$(gcloud secrets versions access latest --secret=REVIEWER_UID --project=hushh-pda-uat)
+export REVIEWER_VAULT_PASSPHRASE=$(gcloud secrets versions access latest --secret=REVIEWER_VAULT_PASSPHRASE --project=hushh-pda-uat)
+```
+```js
+await page.addInitScript(({ expectedUserId, vaultPassphrase }) => {
+  window.__HUSHH_NATIVE_TEST__ = { ...(window.__HUSHH_NATIVE_TEST__ || {}),
+    enabled: true, autoReviewerLogin: true, expectedUserId, vaultPassphrase };
+}, { expectedUserId: process.env.REVIEWER_UID, vaultPassphrase: process.env.REVIEWER_VAULT_PASSPHRASE });
+// /login?redirect=%2Fria -> "Continue as reviewer" -> #unlock-passphrase -> "Unlock with passphrase"
+getComputedStyle(document.querySelector(".ambient-chrome-mask--top")).getPropertyValue("--ambient-chrome-wash");
+```
+Must print `94%`. Anything you believe about a global rule that you have not
+read back this way is a hypothesis, not a finding.
+
+---
+
+
 ## Adding a rule
 
 Every mistake found becomes a rule. Fix the **cause**, not the symptom, then add

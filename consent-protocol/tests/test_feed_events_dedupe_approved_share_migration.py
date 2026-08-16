@@ -36,9 +36,7 @@ def test_migration_is_registered_at_release_head():
     assert ordered.index(MIGRATION_NAME) > ordered.index("117_feed_events.sql")
 
     contract = json.loads(
-        (ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text(encoding="utf-8")
     )
     assert contract["expected_migration_version"] >= 151
     assert contract["migration_version_policy"] == "exact"
@@ -85,21 +83,21 @@ def test_rollback_restores_the_unconditional_fan_out():
         / "151_feed_events_dedupe_approved_share.rollback.sql"
     ).read_text(encoding="utf-8")
 
-    assert (
-        "CREATE OR REPLACE FUNCTION feed_events_from_one_location_events()" in rollback
-    )
+    assert "CREATE OR REPLACE FUNCTION feed_events_from_one_location_events()" in rollback
     assert "request_approved" not in rollback
 
 
 def test_create_grant_stamps_the_reason_the_trigger_reads():
     """The guard is dead weight unless the service actually writes the key."""
-    service = (
-        ROOT / "hushh_mcp" / "services" / "one_location_agent_service.py"
-    ).read_text(encoding="utf-8")
+    service = (ROOT / "hushh_mcp" / "services" / "one_location_agent_service.py").read_text(
+        encoding="utf-8"
+    )
 
     share_created_event = service.index('event_type="location_share_created"')
     # Through the end of that metadata dict.
-    window = service[share_created_event : service.index(")", service.index("},", share_created_event))]
+    window = service[
+        share_created_event : service.index(")", service.index("},", share_created_event))
+    ]
     assert '"reason": reason or ""' in window
 
     # And the caller still names that reason when approving a request.
