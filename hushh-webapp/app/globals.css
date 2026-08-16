@@ -347,6 +347,11 @@ textarea {
   --app-accent-deep: #007aff; /* TEXT / icons on light = same system blue */
   --app-accent-bright: #4a9eff; /* dark-mode solid partner */
   --app-accent-tint: rgba(0, 122, 255, 0.1);
+  /* Soft accent well behind an accent glyph. Eight call sites across Location
+     have asked for this since the redesign landed and it was defined nowhere,
+     so every one of those wells rendered unpainted in BOTH themes. Aliased to
+     the tint rather than given its own literal, so it tracks the accent. */
+  --app-accent-soft: var(--app-accent-tint);
   --app-accent-surface: #e6f0ff; /* Location's active-pill fill */
   --app-accent-surface-strong: #d4e5ff;
   --app-accent-border: rgba(0, 122, 255, 0.32);
@@ -3507,6 +3512,7 @@ html.native-ios [data-testid="one-location-onboarding"] {
   --app-accent-deep: #007aff; /* TEXT / icons = same system blue */
   --app-accent-bright: #4a9eff;
   --app-accent-tint: rgba(0, 122, 255, 0.15);
+  --app-accent-soft: var(--app-accent-tint);
   --app-accent-surface: rgba(0, 122, 255, 0.15);
   --app-accent-surface-strong: rgba(0, 122, 255, 0.24);
   --app-accent-border: rgba(0, 122, 255, 0.35);

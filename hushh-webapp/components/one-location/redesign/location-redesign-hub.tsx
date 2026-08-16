@@ -1579,7 +1579,7 @@ function LocationDetailFlow({
     },
     "shared-with-me": {
       title: "Shared with me",
-      description: undefined,
+      description: "Locations people are sharing with you.",
     },
     "needs-review": {
       title: "Needs my review",
@@ -1589,7 +1589,11 @@ function LocationDetailFlow({
 
   return (
     <div className="space-y-5" data-testid={`one-location-${kind}`}>
-      <TaskFlowHeader title={copy.title} description={copy.description} />
+      <TaskFlowHeader
+        eyebrow="Location"
+        title={copy.title}
+        description={copy.description}
+      />
       {kind === "active-shares" ? (
         vm.activeOwnerGrants.length ? (
           <SettingsGroup separatorInset>
@@ -2986,7 +2990,11 @@ function AskFlow({
   }, []);
   return (
     <div className="space-y-5">
-      <TaskFlowHeader title="Request location" />
+      <TaskFlowHeader
+        eyebrow="Location"
+        title="Request location"
+        description="Ask someone to share their location with you."
+      />
 
       {justSent ? (
         <div

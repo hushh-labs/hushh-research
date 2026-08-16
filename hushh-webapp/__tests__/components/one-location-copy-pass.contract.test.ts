@@ -97,8 +97,13 @@ describe("One Location — the Request location trail agrees with the screen", (
     const last = crumbs?.items.at(-1)?.label;
 
     expect(last).toBe("Request location");
-    // The header contract: the last crumb IS the screen's title.
-    expect(HUB_SOURCE).toContain(`<TaskFlowHeader title="${last}" />`);
+    // The header contract: the last crumb IS the screen's title. Matched on
+    // the title prop rather than a whole single-line element, so the guard
+    // survives the header gaining an eyebrow or a description and wrapping
+    // across lines -- the spelling is what this test is about.
+    expect(HUB_SOURCE).toMatch(
+      new RegExp(`<TaskFlowHeader[^>]*title="${last}"`, "s"),
+    );
     // …and the hub row that opens it names the same thing.
     expect(HUB_SOURCE).toContain(`title="${last}"`);
     expect(HUB_SOURCE).not.toContain('title="Request Location"');
