@@ -1016,6 +1016,25 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
+  // Voice's changelog is a third level nested under the Voice detail screen,
+  // one deeper than the generic panel/detail breadcrumb below can express (it
+  // only carries a single detail label). Back must retrace to Voice itself,
+  // not to Preferences.
+  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG) {
+    const preferencesHref = profilePanelHref("preferences");
+    return {
+      backHref: ROUTES.PROFILE_PREFERENCES_VOICE,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Profile", href: ROUTES.PROFILE },
+        { label: "Preferences", href: preferencesHref },
+        { label: "Voice", href: ROUTES.PROFILE_PREFERENCES_VOICE },
+        { label: "What's new" },
+      ],
+    };
+  }
+
   if (pathname === ROUTES.PROFILE_RECEIPTS) {
     return {
       backHref: ROUTES.GMAIL,
