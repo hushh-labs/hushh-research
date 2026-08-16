@@ -164,13 +164,17 @@ function WheelColumn({
   // `disabled` is deliberately NOT wired into any Embla option. Either one
   // changing the options object would make embla-carousel-react reInit the
   // whole engine (it reInits whenever the options it's passed are no longer
-  // deep-equal) -- reInitializing mid-interaction, or the instant "Until I
-  // stop" is toggled, is the exact failure mode swipe-views.tsx's
-  // measurement comments warn against. Drag is fully blocked by the
-  // ancestor's `pointer-events-none` while disabled, wheel-scroll
-  // unsubscribes itself, and keyboard checks `disabled` directly -- so Embla
+  // deep-equal) -- reInitializing mid-interaction is the exact failure mode
+  // swipe-views.tsx's measurement comments warn against. Wheel-scroll
+  // unsubscribes itself and keyboard checks `disabled` directly -- so Embla
   // never needs to know, these options stay frozen for the component's
   // whole life, and Embla reInits only where this file asks it to.
+  //
+  // `disabled` no longer has a live caller: toggling "Until I stop" now
+  // UNMOUNTS both columns rather than fading them behind a
+  // `pointer-events-none` ancestor, so this prop is the belt to that
+  // braces -- it keeps the column non-interactive on its own terms if it is
+  // ever rendered in that state again.
   // `align: "start"`, not `"center"`: with `containScroll: false` (see
   // below), Embla's own `"center"` alignment measures against the SLIDE
   // CONTAINER's full size (here, all N+2*pad slides stacked) rather than the
@@ -481,14 +485,27 @@ export function DurationWheelPicker({
     [hoursIndex],
   );
 
+  /**
+   * The open-ended state, gated on the caller actually offering it.
+   *
+   * `untilStop` alone was enough to grey the wheel out and emit the sentinel,
+   * but it is seeded from `value` -- so a lane that sets `showUntilStop={false}`
+   * (the Request screen: you cannot ask to watch someone until THEY stop) and
+   * is handed the sentinel anyway got a dead control with no toggle to escape
+   * it, and kept emitting the non-numeric sentinel into a field that lane later
+   * runs `Number()` over. Reading both means such a value is recovered to a
+   * real duration on the first emit instead.
+   */
+  const openEnded = showUntilStop && untilStop;
+
   useEffect(() => {
-    const next = untilStop
+    const next = openEnded
       ? untilStopValue
       : formatDurationHours(hoursIndex, effectiveMinutesValue);
     if (next === lastEmittedRef.current) return;
     lastEmittedRef.current = next;
     onChange(next);
-  }, [untilStop, hoursIndex, effectiveMinutesValue, untilStopValue, onChange]);
+  }, [openEnded, hoursIndex, effectiveMinutesValue, untilStopValue, onChange]);
 
   useEffect(() => {
     if (value === lastEmittedRef.current) return;
@@ -505,11 +522,21 @@ export function DurationWheelPicker({
 
   return (
     <div className={cn("mx-auto max-w-[260px]", showUntilStop && "space-y-3")}>
+      {/* Choosing the open-ended option COLLAPSES the wheel rather than
+          greying it out. It used to stay mounted at `opacity-40` with a chip
+          reading "Until you stop" laid over it -- and because that chip was a
+          child of the faded wrapper, the one label meant to state the choice
+          was itself rendered at 40%: a grey sentence floating in the middle of
+          a grey control, disagreeing with the blue "Until I stop" button
+          directly under it. Two labels, two voices, one state.
+
+          Collapsing is also what the preset ladder already does (`pickRung`
+          closes its Custom panel), so the two duration controls behave the
+          same way, and the pressed button is the single place the state is
+          stated. */}
+      {openEnded ? null : (
       <div
-        className={cn(
-          "relative mx-auto flex items-center justify-center gap-6",
-          untilStop && "pointer-events-none opacity-40",
-        )}
+        className="relative mx-auto flex items-center justify-center gap-6"
         style={{ height: viewportHeight }}
       >
         <div
@@ -528,7 +555,7 @@ export function DurationWheelPicker({
             selectedIndex={hoursIndex}
             onSettledIndex={setHoursIndex}
             apiRef={hoursApiRef}
-            disabled={untilStop}
+            disabled={openEnded}
             ariaLabel="Hours"
             unitSuffix="hr"
             resyncToken={hoursResync}
@@ -545,7 +572,7 @@ export function DurationWheelPicker({
             selectedIndex={minutesIndex}
             onSettledIndex={onMinutesSettled}
             apiRef={minutesApiRef}
-            disabled={untilStop}
+            disabled={openEnded}
             ariaLabel="Minutes"
             unitSuffix="min"
             resyncToken={minutesResync}
@@ -555,23 +582,17 @@ export function DurationWheelPicker({
             min
           </span>
         </div>
-        {showUntilStop && untilStop ? (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <span className="rounded-full bg-background/90 px-3 py-1 text-sm font-semibold text-foreground shadow-sm">
-              Until you stop
-            </span>
-          </div>
-        ) : null}
       </div>
+      )}
 
       {showUntilStop ? (
         <button
           type="button"
-          aria-pressed={untilStop}
+          aria-pressed={openEnded}
           onClick={() => setUntilStop((prev) => !prev)}
           className={cn(
             "min-h-11 rounded-full border px-4 text-sm font-medium transition-colors touch-manipulation",
-            untilStop
+            openEnded
               ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
               : "border-border/70 bg-background text-foreground hover:border-[color:var(--app-accent-ring)]",
           )}
@@ -580,9 +601,12 @@ export function DurationWheelPicker({
         </button>
       ) : null}
 
+      {/* Says the same words the button says. It used to announce "until you
+          stop" against a button reading "Until I stop", so the screen reader
+          and the screen described the same choice differently. */}
       <p className="sr-only" aria-live="polite">
-        {untilStop
-          ? "Duration: until you stop"
+        {openEnded
+          ? "Duration: until I stop"
           : `Duration: ${hoursIndex} hours ${effectiveMinutesValue} minutes`}
       </p>
     </div>

@@ -1592,6 +1592,87 @@ describe("OneLocationAgentPage", () => {
     });
   });
 
+  it("separates people who can already see you from people who cannot", async () => {
+    // Reported from UAT: "3 logon ko location share kiya… phir revisit kiya
+    // share location page par toh abhi bhi yeh same hi list dekha rha… long
+    // list hoga toh user struggle karega." The picker rendered every trusted
+    // person as an identical row with an identical Select control, so the
+    // screen you reach straight after sharing with three people looked exactly
+    // like the one where you had shared with nobody.
+    //
+    // It is not only a display problem. Picking someone who already holds an
+    // active grant does not extend it — the backend revokes the old row and
+    // inserts a new one — so a re-pick silently restarts a timer that was
+    // already running. The remaining time on the row is what makes that
+    // consequence visible before it is chosen.
+    const sharing = locationState();
+    const [trustedB] = sharing.recipients;
+    mockGetState.mockResolvedValue({
+      ...sharing,
+      recipients: [
+        trustedB,
+        {
+          ...trustedB,
+          userId: "user_c",
+          displayName: "Trusted C",
+          keyId: "key_c",
+        },
+      ],
+      // Only Trusted B is live. Trusted C is reachable but not yet shared with.
+      ownerGrants: [
+        {
+          ...sharing.ownerGrants[0],
+          durationMode: "until_stopped",
+          expiresAt: null,
+        },
+      ],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openSharePersonStep();
+
+    const alreadySharing = await screen.findByTestId(
+      "one-location-share-already-sharing",
+    );
+    expect(within(alreadySharing).getByText("Already sharing (1)")).toBeTruthy();
+    expect(within(alreadySharing).getByText("Trusted B")).toBeTruthy();
+    // The same words the Active shares screen uses for the same grant. Two
+    // screens describing one share must not disagree about how long is left.
+    expect(within(alreadySharing).getByText("Until you stop")).toBeTruthy();
+    expect(within(alreadySharing).queryByText("Trusted C")).toBeNull();
+
+    const notSharing = screen.getByTestId("one-location-share-people");
+    expect(within(notSharing).getByText("Trusted C")).toBeTruthy();
+    expect(within(notSharing).queryByText("Trusted B")).toBeNull();
+
+    // Still selectable — you may genuinely want to restart a share. The row
+    // states what is already true; it does not take the choice away.
+    expect(
+      screen.getByRole("button", {
+        name: /Select Trusted B for private sharing/i,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("keeps one flat list when nobody can see you yet", async () => {
+    // The grouping must appear only when it is carrying information. An
+    // "Already sharing (0)" heading over an empty group is noise on the most
+    // common state of this screen.
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openSharePersonStep();
+
+    expect(await screen.findByTestId("one-location-share-people")).toBeTruthy();
+    expect(
+      screen.queryByTestId("one-location-share-already-sharing"),
+    ).toBeNull();
+  });
+
   it("renders a focused, validated share flow with a 15-minute default", async () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
@@ -3725,6 +3806,39 @@ describe("OneLocationAgentPage", () => {
       screen.queryByRole("button", { name: /Select Advisor C/i }),
     ).toBeNull();
     expect(mockCreateGrant).not.toHaveBeenCalled();
+  });
+
+  // Lives here, with the other Request-flow tests, and not up beside the share
+  // tests where it was first written. This is the earliest test in the file to
+  // mount the duration WHEEL, and Embla measures asynchronously; opening the
+  // Ask flow hundreds of tests earlier leaked that work into the onboarding
+  // permission test, which then failed about one run in two. Same assertions,
+  // same flow, stable placement.
+  it("never offers an open-ended duration when asking someone else", async () => {
+    // Reported from UAT: "request location mein bhi 'Until I stop' hain. main
+    // dusron se req karungi, and duration 'until i stop' meaningful rahega??"
+    // Asking to watch someone until *I* stop is not a thing you can ask for:
+    // it is their location, so only they can stop it, and the request lane has
+    // no open-ended mode server-side at all.
+    //
+    // The prop that removes it (`allowUntilStop={false}`) landed with the
+    // duration-ladder change and had no test of its own, on either half — so
+    // the screen was one prop deletion away from offering it again, and the
+    // value it emits is a non-numeric sentinel this lane later runs Number()
+    // over. That would post NaN to a `gt=0` field.
+    mockGetState.mockResolvedValue({ ...locationState(), ownerGrants: [] });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    await openAskFlow();
+
+    expect(screen.queryByRole("button", { name: "Until I stop" })).toBeNull();
+    expect(screen.queryByText("Until you stop")).toBeNull();
+    // The timed control itself is still there — this removes one option, not
+    // the ability to say how long.
+    expect(screen.getByRole("spinbutton", { name: "Hours" })).toBeTruthy();
+    expect(screen.getByRole("spinbutton", { name: "Minutes" })).toBeTruthy();
   });
 
   it("sends an approval-first location request without sharing coordinates", async () => {

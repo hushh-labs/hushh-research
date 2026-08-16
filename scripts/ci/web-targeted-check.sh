@@ -79,8 +79,27 @@ fi
 # That asymmetry is why a red contract test sat unnoticed on main for a day.
 # Run them wherever the behaviour can be touched, including from the backend
 # half, because the client contract is "render the page you were handed".
-if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
+#
+# `lib/services/connections-service.ts` is in this list because the payload
+# shape is half the contract: the RIAs tab filters its connections on a row
+# flag that has to survive the service type on its way from the Python half to
+# the screen, and a change confined to that file used to match no pack at all.
+if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|lib/services/connections-service\.ts)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
   run_check "Connect people search" npm run verify:connect-search
+  ran=1
+fi
+
+# One Location's share and request flows. Until this pack existed, NOTHING in
+# components/one-location/ matched any targeted glob above -- so the duration
+# pickers, the share recipient picker and the whole hub could be changed on a
+# pull request with no vitest running at all. (app/one/location/ matched the
+# surface-map pack, but that verifies routes, not behaviour.) Three of the four
+# defects this pack was written for were reported by a tester rather than
+# caught here, and one of them -- an open-ended duration offered on the Request
+# screen -- emits a non-numeric sentinel into a field the same lane runs
+# Number() over.
+if has_match '^hushh-webapp/(components/one-location/|__tests__/components/one-location|app/one/location/|lib/one-location/)'; then
+  run_check "One Location flows" npm run verify:one-location
   ran=1
 fi
 

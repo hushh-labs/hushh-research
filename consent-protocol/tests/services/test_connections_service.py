@@ -875,6 +875,80 @@ def test_list_connections_maps_rows():
     assert out[0]["connectionId"] == "conn-1"
 
 
+def test_list_connections_annotates_ria_status_per_row():
+    """The RIAs tab lists your connections above its search results.
+
+    Without a per-row flag it had nothing to filter them by, so it listed every
+    connection you have -- and someone who never finished RIA onboarding was
+    shown under "RIAs", which is the one claim that tab makes.
+    """
+    svc = _svc()
+    connection_rows = [
+        {
+            "connection_id": "conn-1",
+            "user_id": "user-advisor",
+            "display_name": "Ada",
+            "photo_url": None,
+            "created_at": "2026-07-09T00:00:00Z",
+        },
+        {
+            "connection_id": "conn-2",
+            "user_id": "user-plain",
+            "display_name": "Bob",
+            "photo_url": None,
+            "created_at": "2026-07-08T00:00:00Z",
+        },
+    ]
+    # Second call is _verified_ria_user_ids: only the advisor comes back.
+    db = _RecordingDB([connection_rows, [{"user_id": "user-advisor"}]])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.list_connections("user-a")
+
+    by_id = {row["userId"]: row for row in out}
+    assert by_id["user-advisor"]["isRia"] is True
+    assert by_id["user-plain"]["isRia"] is False
+
+
+def test_list_connections_uses_the_same_verified_gate_as_the_directory():
+    """One definition of "verified", or the two lists on the RIAs tab disagree.
+
+    The directory half already gates on `_RIA_VERIFIED_STATUS_SQL`; the
+    connections half must resolve through the same helper rather than growing a
+    second status list that can drift.
+    """
+    svc = _svc()
+    connection_rows = [
+        {
+            "connection_id": "conn-1",
+            "user_id": "user-advisor",
+            "display_name": "Ada",
+            "photo_url": None,
+            "created_at": "2026-07-09T00:00:00Z",
+        }
+    ]
+    db = _RecordingDB([connection_rows, []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        svc.list_connections("user-a")
+
+    from hushh_mcp.services.ria_iam_service import RIAIAMService
+
+    annotation_sql = db.calls[1][0]
+    assert "ria_profiles" in annotation_sql
+    for status in RIAIAMService._RIA_VERIFIED_STATUSES:
+        assert f"'{status}'" in annotation_sql, f"annotation gate omits '{status}'"
+
+
+def test_list_connections_makes_no_ria_query_when_you_have_none():
+    """No connections means no ids to annotate, so no second round trip."""
+    svc = _svc()
+    db = _RecordingDB([[]])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.list_connections("user-a")
+
+    assert out == []
+    assert len(db.calls) == 1
+
+
 def test_remove_connection_revokes_connection_and_trusted_edges():
     svc = _svc()
     # Call sequence: SELECT, revoke proposals/grants, demote stale RIA relation, trusted edges, connection.

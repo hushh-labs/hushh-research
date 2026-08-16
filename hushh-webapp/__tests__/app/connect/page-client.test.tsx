@@ -896,6 +896,73 @@ describe("Connect — People", () => {
       ),
     );
   });
+
+  it("lists only verified advisers under My connections on the RIAs tab", async () => {
+    // Reported from UAT: "RIAs mein People tab mein jo connection(4) ke under
+    // hain, same aa rahe… unhone RIA onboarding complete nahi kiya."
+    //
+    // The directory half below was already audience-split server-side. The
+    // connections list above it was not split at all — it rendered the same
+    // rows in both tabs — so the RIAs tab listed people who had never finished
+    // RIA onboarding under the one heading that claims they had.
+    mocks.listConnections.mockResolvedValue([
+      {
+        connectionId: "c-adviser",
+        userId: "u-adviser",
+        displayName: "Verified Adviser",
+        photoUrl: null,
+        createdAt: null,
+        isRia: true,
+      },
+      {
+        connectionId: "c-plain",
+        userId: "u-plain",
+        displayName: "Ordinary Person",
+        photoUrl: null,
+        createdAt: null,
+        isRia: false,
+      },
+    ]);
+
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("My connections (2)")).toBeTruthy();
+    expect(screen.getByText("Verified Adviser")).toBeTruthy();
+    expect(screen.getByText("Ordinary Person")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "RIAs" }));
+
+    // The heading counts the list it is actually showing. Counting one list
+    // and rendering another is the exact shape of the original Connect search
+    // bug, so the count is asserted here alongside the rows.
+    expect(await screen.findByText("My RIAs (1)")).toBeTruthy();
+    expect(screen.getByText("Verified Adviser")).toBeTruthy();
+    expect(screen.queryByText("Ordinary Person")).toBeNull();
+  });
+
+  it("treats a connection with no RIA annotation as not an adviser", async () => {
+    // A cached page written before the field existed, or any payload the
+    // server has not annotated, must fail CLOSED — hidden from the RIAs tab
+    // rather than promoted into it.
+    mocks.listConnections.mockResolvedValue([
+      {
+        connectionId: "c-legacy",
+        userId: "u-legacy",
+        displayName: "Unannotated Person",
+        photoUrl: null,
+        createdAt: null,
+      },
+    ]);
+
+    render(<ConnectPageClient />);
+    expect(await screen.findByText("My connections (1)")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "RIAs" }));
+
+    expect(await screen.findByText("My RIAs (0)")).toBeTruthy();
+    expect(screen.queryByText("Unannotated Person")).toBeNull();
+    expect(screen.getByText("No RIAs yet")).toBeTruthy();
+  });
 });
 
 describe("Connect — removing a connection", () => {

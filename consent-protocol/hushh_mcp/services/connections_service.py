@@ -2090,6 +2090,14 @@ class ConnectionsService:
             """,
             {"user_id": user_id},
         )
+        # The same annotation `search_directory` puts on every row, for the same
+        # reason. The RIAs tab lists your existing connections above its search
+        # results, and without this flag it had nothing to filter them by -- so
+        # it listed every connection you have, advisor or not, and someone who
+        # never finished RIA onboarding showed up under "RIAs". One statement
+        # for the whole list, not one lookup per row; no statement at all when
+        # you have no connections.
+        ria_user_ids = self._verified_ria_user_ids([str(r.get("user_id") or "") for r in rows])
         return [
             {
                 "connectionId": str(r.get("connection_id") or ""),
@@ -2097,6 +2105,7 @@ class ConnectionsService:
                 "displayName": r.get("display_name"),
                 "photoUrl": r.get("photo_url"),
                 "createdAt": r.get("created_at"),
+                "isRia": str(r.get("user_id") or "") in ria_user_ids,
             }
             for r in rows
         ]

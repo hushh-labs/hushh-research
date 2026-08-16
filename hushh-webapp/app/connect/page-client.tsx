@@ -954,16 +954,27 @@ export default function ConnectPageClient() {
   // indistinguishable from "8 rows" to every guard on the screen. With one
   // list there is nothing left to disagree.
 
+  // ONE list, for the same reason the search results above are one list: the
+  // heading's count, the empty state, and the rows must all be counting the
+  // same thing. The RIAs tab used to render this list unfiltered, so it
+  // repeated the People tab exactly -- someone who had not finished RIA
+  // onboarding was listed under "RIAs", which is the one claim this tab makes.
+  //
+  // Filter before sort, and read `isRia` rather than the tab: a row says what
+  // it is, so a connection the server has not annotated is simply not an
+  // advisor, instead of becoming one by sitting under the advisor tab.
   const sortedConnections = useMemo(
     () =>
-      [...connections].sort((a, b) =>
-        (a.displayName || a.userId).localeCompare(
-          b.displayName || b.userId,
-          undefined,
-          { sensitivity: "base" },
+      connections
+        .filter((connection) => (isAdvisorTab ? connection.isRia === true : true))
+        .sort((a, b) =>
+          (a.displayName || a.userId).localeCompare(
+            b.displayName || b.userId,
+            undefined,
+            { sensitivity: "base" },
+          ),
         ),
-      ),
-    [connections],
+    [connections, isAdvisorTab],
   );
 
   // Voice surface for Connect. Until this existed the route derived the
@@ -1432,13 +1443,22 @@ export default function ConnectPageClient() {
             ) : (
               <div className="space-y-4 sm:space-y-5">
             <SettingsGroup
-              title={`My connections (${connections.length})`}
+              title={
+                isAdvisorTab
+                  ? `My RIAs (${sortedConnections.length})`
+                  : `My connections (${sortedConnections.length})`
+              }
               separatorInset
             >
-              {connections.length === 0 ? (
+              {sortedConnections.length === 0 ? (
                 <SettingsRow
-                  title="No connections yet"
-                  description="Connections appear here."
+                  // No description. "Connections appear here." explained what
+                  // an empty list already showed, and the obvious replacement
+                  // -- pointing at the search box -- is the sentence the
+                  // directory section directly below already carries. Saying
+                  // it twice on one screen is what made it noise the first
+                  // time. The title is the whole message.
+                  title={isAdvisorTab ? "No RIAs yet" : "No connections yet"}
                   density="compact"
                   disabled
                 />
@@ -1446,8 +1466,13 @@ export default function ConnectPageClient() {
                 sortedConnections.map((connection) => (
                   <SettingsRow
                     key={connection.connectionId}
-                    icon={Users}
-                    iconTone="blue"
+                    // Same mark, same tone, same meaning as the results list
+                    // below: verified is a state, and this screen already
+                    // spends green on it. Both lists are on screen together,
+                    // so a person cannot carry one icon in one and another in
+                    // the other.
+                    icon={connection.isRia ? BadgeCheck : Users}
+                    iconTone={connection.isRia ? "green" : "blue"}
                     // Deliberately NOT stackTrailingOnMobile. That prop drops
                     // the trailing control onto its own line below the name on
                     // every phone (`sm:` is 640px, so "mobile" here is every
