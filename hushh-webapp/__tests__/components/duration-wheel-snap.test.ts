@@ -29,14 +29,18 @@ describe("snapToWheelDurationHours", () => {
     expect(snapToWheelDurationHours(1.92)).toBe("2");
   });
 
-  it("clamps to what the wheel can actually offer", () => {
+  it("clamps to the grid's own ends, not to a written-down number", () => {
     // A share with three minutes left still has to open on a valid value; the
     // wheel's floor is 15 minutes and the server's is the same.
     expect(snapToWheelDurationHours(0.05)).toBe("0.25");
-    // 24h exactly is excluded on purpose -- the backend caps at 24 and any
-    // minute past it fails that check, so 23h45m is the real ceiling.
-    expect(snapToWheelDurationHours(30)).toBe("23.75");
-    expect(snapToWheelDurationHours(24)).toBe("23.75");
+    // 24h0m is the ceiling: the backend caps at `le=24`, which 24.0 exactly
+    // satisfies and 24h15m does not.
+    //
+    // This pair is the regression guard. The clamp was first written against a
+    // 23h45m ceiling, the wheel gained 24h0m days later, and a hardcoded bound
+    // would have quietly snapped a real 24-hour share down to 23.75.
+    expect(snapToWheelDurationHours(24)).toBe("24");
+    expect(snapToWheelDurationHours(30)).toBe("24");
   });
 
   it("falls to the shortest step for a number it cannot read", () => {
@@ -48,5 +52,6 @@ describe("snapToWheelDurationHours", () => {
     // longest share the product allows.
     expect(snapToWheelDurationHours(Number.NaN)).toBe("0.25");
     expect(snapToWheelDurationHours(Number.POSITIVE_INFINITY)).toBe("0.25");
+    expect(snapToWheelDurationHours(Number.NEGATIVE_INFINITY)).toBe("0.25");
   });
 });

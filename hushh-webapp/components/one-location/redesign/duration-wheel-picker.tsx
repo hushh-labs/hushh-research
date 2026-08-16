@@ -82,13 +82,22 @@ function formatDurationHours(hoursIndex: number, minutesIndex: number): string {
  * screen reads 30 min and Save sends 0.53, which is a change the person never
  * made and did not see.
  *
- * Clamped to the same grid the wheel offers: 15 minutes at the bottom, 23h45m
- * at the top.
+ * Clamped to the grid's own ends rather than to written-down numbers: this
+ * clamp was authored against a 23h45m ceiling and the wheel gained 24h0m in
+ * the same week, which would have snapped a genuine 24-hour share down to
+ * 23.75 with nothing failing. Reading the bounds off `ALL_GRID_MINUTES` means
+ * the next change to the grid carries this with it.
+ *
+ * A number it cannot read falls to the shortest step, never the longest: a
+ * duration nobody could parse must not open the editor pre-loaded on the
+ * longest share the product allows.
  */
 export function snapToWheelDurationHours(hours: number): string {
-  const requested = Number.isFinite(hours) ? Math.round(hours * 60) : 15;
+  const floor = Math.min(...ALL_GRID_MINUTES);
+  const ceiling = Math.max(...ALL_GRID_MINUTES);
+  const requested = Number.isFinite(hours) ? Math.round(hours * 60) : floor;
   const minutes = nearestGridMinutes(
-    Math.min(Math.max(requested, 15), 23 * 60 + 45),
+    Math.min(Math.max(requested, floor), ceiling),
   );
   return String(Math.round((minutes / 60) * 100) / 100);
 }
