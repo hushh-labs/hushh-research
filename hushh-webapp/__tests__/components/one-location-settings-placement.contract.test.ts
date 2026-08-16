@@ -49,35 +49,30 @@ describe("One Location settings placement", () => {
     expect(HUB_SOURCE).toContain('onRequestLocation={() => openFlow("ask")}');
   });
 
-  it("gives every Now navigation row one distinct semantic icon", () => {
-    // The current product direction intentionally adds scan-friendly icons to
-    // the formerly text-only reference rows. They stay inside the shared
-    // SettingsRow wells so light/dark/accent themes and row geometry remain
-    // owned by the design system.
+  it("gives Request Location an icon distinct from Share location", () => {
+    // These two rows are opposites -- give a location out, ask for one in --
+    // and sit three apart in the same list. `Send` was used first and reads as
+    // the same paper-plane silhouette as `Navigation` at row size, so the pair
+    // looked like one repeated icon.
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
-    const groupStart = nowSource.indexOf(
-      'data-testid="one-location-now-primary"',
-    );
-    const groupEnd = nowSource.indexOf("</section>", groupStart);
-    const groupSource = nowSource.slice(groupStart, groupEnd);
 
-    expect(groupSource).toContain('title="Request location"');
-    expect(groupSource).toContain('title="Settings"');
-    expect(groupSource.match(/icon=\{/gu)).toHaveLength(6);
-    expect(groupSource).toContain("icon={Map}");
-    expect(groupSource).toContain("icon={RadioTower}");
-    expect(groupSource).toContain("icon={MapPinCheck}");
-    expect(groupSource).toContain("icon={ShieldQuestion}");
-    expect(groupSource).toContain("icon={MessageCircleQuestion}");
-    expect(groupSource).toContain("icon={Settings2}");
-    expect(groupSource).toMatch(
-      /icon=\{RadioTower\}[\s\S]*?iconTone=\{vm\.activeOwnerGrants\.length > 0 \? "green" : "gray"\}/u,
-    );
-    expect(groupSource).toMatch(
-      /icon=\{ShieldQuestion\}[\s\S]*?iconTone=\{vm\.pendingOwnerRequests\.length > 0 \? "orange" : "gray"\}/u,
-    );
+    const iconFor = (title: string) => {
+      const titleIndex = nowSource.indexOf(`title="${title}"`);
+      expect(titleIndex).toBeGreaterThan(-1);
+      const rowStart = nowSource.lastIndexOf("<SettingsRow", titleIndex);
+      return /icon=\{(\w+)\}/.exec(nowSource.slice(rowStart, titleIndex))?.[1];
+    };
+
+    const requestIcon = iconFor("Request location");
+    const shareIcon = iconFor("Share location");
+
+    expect(requestIcon).toBeTruthy();
+    expect(shareIcon).toBeTruthy();
+    expect(requestIcon).not.toBe(shareIcon);
+    // Both plane glyphs are interchangeable at this size; neither belongs here.
+    expect(["Send", "Navigation"]).not.toContain(requestIcon);
   });
 
   it("owns Saved Locations and does not duplicate it in Profile preferences", () => {

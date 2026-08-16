@@ -10,37 +10,45 @@
  */
 
 import type { ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
+
 import {
   RowDescription,
   RowLabel,
   SectionTitle,
 } from "@/components/app-ui/typography";
-import {
-  resolveRole,
-  SEMANTIC_ROLE_CLASSES,
-  type SemanticRole,
-} from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
 
 export type QuickActionTone = "green" | "red" | "blue" | "violet" | "slate";
 
 /**
- * Tone name -> the MEANING the tile is claiming. The class strings come from
- * the app-wide semantic role layer, so a tile cannot render a colour that
- * disagrees with the same status elsewhere in the app.
- *
- * `green` is a settled STATE, so it is only honest on a tile that is actually
- * reporting one. A tile whose job is to OPEN a flow is an action and takes
- * `blue`, however green the thing behind it eventually turns: green is a
- * status colour, never a CTA colour, and `resolveRole` below is what stops a
- * tile from claiming a state it cannot see.
+ * Per-tone semantic icon palette. The tile owns service/action color; labels
+ * stay neutral through the shared typography roles.
  */
-const TONE_ROLE: Record<QuickActionTone, SemanticRole> = {
-  green: "success",
-  red: "danger",
-  blue: "action",
-  violet: "people",
-  slate: "neutral",
+const TONE_STYLES: Record<QuickActionTone, { tile: string; icon: string }> = {
+  // Tokens, not literals: these hard-coded the LIGHT hex, so in dark mode the
+  // glyphs stayed at the light-appearance shade while every other semantic
+  // colour on the screen switched.
+  green: {
+    tile: "bg-[color:var(--app-success)]/12",
+    icon: "text-[color:var(--app-success)]",
+  },
+  red: {
+    tile: "bg-[color:var(--app-destructive)]/12",
+    icon: "text-[color:var(--app-destructive)]",
+  },
+  blue: {
+    tile: "bg-[color:var(--app-accent-surface)]",
+    icon: "text-[color:var(--app-accent-deep)]",
+  },
+  violet: {
+    tile: "bg-[color:var(--app-accent-surface)]",
+    icon: "text-[color:var(--app-accent-deep)]",
+  },
+  slate: {
+    tile: "bg-[#E5E5EA]",
+    icon: "text-[#6E6E73]",
+  },
 };
 
 export type QuickActionCardProps = {
@@ -71,14 +79,8 @@ export function QuickActionCard({
   disabled = false,
   controlId,
 }: QuickActionCardProps) {
+  const palette = TONE_STYLES[tone];
   const interactive = !comingSoon && !disabled;
-  // STATE BEATS CATEGORY. A tile that cannot be tapped — not wired up yet, or
-  // disabled for this person — has no state to report, so it renders neutral
-  // however strong its category is. "Unavailable" is grey, never red.
-  const iconClass =
-    SEMANTIC_ROLE_CLASSES[
-      resolveRole(TONE_ROLE[tone], { inactive: !interactive })
-    ].glyph;
 
   return (
     <button
@@ -89,23 +91,32 @@ export function QuickActionCard({
       aria-disabled={!interactive}
       data-voice-control-id={controlId}
       className={cn(
-        "group flex min-h-[140px] w-full min-w-0 flex-col gap-4 rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] p-5 text-left shadow-[var(--app-card-shadow-standard)] transition-[background-color,transform] duration-200 motion-reduce:transition-none sm:min-h-[132px] sm:p-[22px]",
+        "group flex min-h-[112px] w-full min-w-0 flex-col gap-2.5 rounded-[18px] border border-[rgba(60,60,67,0.10)] bg-white p-3.5 text-left shadow-none transition-colors duration-150 dark:border-white/10 dark:bg-[color:var(--app-card-surface-default-solid)]",
         interactive
-          ? "cursor-pointer hover:bg-[color:var(--app-neutral-fill)] active:scale-[0.98] motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          ? "cursor-pointer active:bg-[rgba(120,120,128,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
           : "cursor-not-allowed",
       )}
     >
-      <div className="flex w-full items-start">
-        <span className={cn("flex h-6 w-6 items-center justify-center [&_svg]:h-5 [&_svg]:w-5", iconClass)}>
+      <div className="flex w-full items-start justify-between gap-2">
+        <span
+          className={cn(
+            "flex h-9 w-9 items-center justify-center rounded-[9px] [&_svg]:h-[18px] [&_svg]:w-[18px] [&_svg]:stroke-[1.8]",
+            palette.tile,
+            palette.icon,
+          )}
+        >
           {icon}
+        </span>
+        <span className="flex h-6 w-6 shrink-0 items-center justify-end">
+          <ChevronRight className="h-3.5 w-3.5 text-[#C7C7CC] [stroke-width:1.8]" />
         </span>
       </div>
 
       <div className="mt-auto w-full min-w-0">
-        <RowLabel as="p" className="text-[18px] font-semibold leading-[23px] tracking-[-0.35px] sm:text-[19px] sm:leading-6 sm:tracking-[-0.4px]">
+        <RowLabel as="p" className="truncate !font-medium">
           {title}
         </RowLabel>
-        <RowDescription as="span" className="mt-0.5 block text-[14px] leading-[19px] sm:mt-1 sm:text-[15px] sm:leading-5">
+        <RowDescription as="span" className="mt-1 block truncate">
           {subtitle}
         </RowDescription>
       </div>
@@ -120,24 +131,20 @@ export function QuickActionsSection({
   columns = 3,
   className,
 }: {
-  title?: ReactNode;
+  title?: string;
   children: ReactNode;
   columns?: 2 | 3;
   className?: string;
 }) {
   return (
-    <section className={cn(title ? "space-y-3" : "space-y-0", className)}>
-      {title ? (
-        <div className="flex items-center px-1">
-          <SectionTitle>{title}</SectionTitle>
-        </div>
-      ) : null}
+    <section className={cn("space-y-3", className)}>
+      <div className="flex items-center px-1">
+        <SectionTitle>{title}</SectionTitle>
+      </div>
       <div
         className={cn(
-          "grid auto-rows-fr gap-3.5 sm:gap-4",
-          columns === 2
-            ? "grid-cols-2 max-[359px]:grid-cols-1"
-            : "grid-cols-3 max-[359px]:grid-cols-1",
+          "grid auto-rows-fr gap-3",
+          columns === 2 ? "grid-cols-2" : "grid-cols-3",
         )}
       >
         {children}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mapPickerMockState = vi.hoisted(() => ({
   picked: {
@@ -8,50 +8,87 @@ const mapPickerMockState = vi.hoisted(() => ({
     longitude: 77.2091,
     address: "Kartavya Path, New Delhi, Delhi 110001, India",
   },
+  /** Mirrors a settled pin whose address lookup has finished. */
+  canConfirm: true,
 }));
 
-vi.mock("@/components/one-location/onboarding/location-picker-map", () => ({
-  LocationPickerMap: ({
-    onConfirm,
-    onCancel,
-    confirmLabel,
-    cancelLabel,
-    rendererDisclosureAccepted,
-    onAcceptRendererDisclosure,
-  }: {
-    onConfirm: (picked: {
-      latitude: number;
-      longitude: number;
-      address: string;
-    }) => void;
-    onCancel: () => void;
-    confirmLabel: string;
-    cancelLabel: string;
-    rendererDisclosureAccepted: boolean;
-    onAcceptRendererDisclosure: () => Promise<void>;
-  }) => {
-    if (!rendererDisclosureAccepted) {
-      return (
-        <button type="button" onClick={() => void onAcceptRendererDisclosure()}>
-          Use Google Maps
-        </button>
-      );
-    }
-    return (
-      <div aria-label="Mock location picker">
-        <button
-          type="button"
-          onClick={() => onConfirm(mapPickerMockState.picked)}
-        >
-          {confirmLabel}
-        </button>
-        <button type="button" onClick={onCancel}>
-          {cancelLabel}
-        </button>
-      </div>
-    );
-  },
+const platformMockState = { native: false };
+
+vi.mock("@/lib/capacitor/platform", () => ({
+  isNative: () => platformMockState.native,
+  getPlatform: () => (platformMockState.native ? "ios" : "web"),
 }));
+
+vi.mock("@/components/one-location/onboarding/location-picker-map", async () => {
+  const { useEffect, useImperativeHandle } = await import("react");
+  return {
+    LocationPickerMap: ({
+      ref,
+      onConfirm,
+      onReadyChange,
+      onCancel,
+      confirmLabel,
+      cancelLabel,
+      rendererDisclosureAccepted,
+      onAcceptRendererDisclosure,
+    }: {
+      ref?: React.Ref<{ canConfirm: () => boolean; confirm: () => boolean }>;
+      onConfirm: (picked: {
+        latitude: number;
+        longitude: number;
+        address: string;
+      }) => void;
+      onReadyChange?: (ready: boolean) => void;
+      onCancel: () => void;
+      confirmLabel: string;
+      cancelLabel: string;
+      rendererDisclosureAccepted: boolean;
+      onAcceptRendererDisclosure: () => Promise<void>;
+    }) => {
+      // The real picker owns the pin, its settle state and its address, so a
+      // swipe or a dot tap has to ask it whether it may commit. The mock has
+      // to answer the same question or the carousel is untested.
+      useImperativeHandle(
+        ref,
+        () => ({
+          canConfirm: () => mapPickerMockState.canConfirm,
+          confirm: () => {
+            if (!mapPickerMockState.canConfirm) return false;
+            onConfirm(mapPickerMockState.picked);
+            return true;
+          },
+        }),
+        [onConfirm],
+      );
+      useEffect(() => {
+        onReadyChange?.(mapPickerMockState.canConfirm);
+      }, [onReadyChange]);
+      if (!rendererDisclosureAccepted) {
+        return (
+          <button
+            type="button"
+            onClick={() => void onAcceptRendererDisclosure()}
+          >
+            Use Google Maps
+          </button>
+        );
+      }
+      return (
+        <div aria-label="Mock location picker">
+          <button
+            type="button"
+            onClick={() => onConfirm(mapPickerMockState.picked)}
+          >
+            {confirmLabel}
+          </button>
+          <button type="button" onClick={onCancel}>
+            {cancelLabel}
+          </button>
+        </div>
+      );
+    },
+  };
+});
 
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
 
@@ -71,6 +108,147 @@ describe("SaveLocationModal", () => {
       longitude: 77.2091,
       address: "Kartavya Path, New Delhi, Delhi 110001, India",
     };
+    mapPickerMockState.canConfirm = true;
+  });
+
+  describe("the scrim must not paint over the native map", () => {
+    // @capacitor/google-maps draws the map BELOW the WebView and punches a hole
+    // through to it. The Radix overlay is a SIBLING of the sheet, so the rule
+    // that clears backgrounds inside [data-testid="save-location-modal"] never
+    // reached it -- and a 55% black scrim with a 10px blur covered the whole
+    // screen. The map was rendering the entire time, behind the scrim: the
+    // reported "no map behind it, just one pin" was the HTML pin sitting on top.
+    const mapProps = {
+      address: "Kartavya Path, New Delhi, Delhi 110001, India",
+      mapInitial: { latitude: 28.6139, longitude: 77.209 },
+      reverseGeocode: vi.fn(),
+      onPickExactLocation: vi.fn(),
+      startWithMapPicker: true,
+      collectAddressDetails: true,
+    } as const;
+
+    const overlay = () =>
+      document.querySelector('[data-slot="dialog-overlay"]');
+
+    afterEach(() => {
+      platformMockState.native = false;
+    });
+
+    it("drops the scrim and blur while the native map is on screen", () => {
+      platformMockState.native = true;
+      render(<SaveLocationModal {...baseProps} {...mapProps} />);
+
+      const className = overlay()?.className ?? "";
+      expect(className).toContain("bg-transparent");
+      expect(className).not.toMatch(/bg-black\//u);
+      expect(className).not.toMatch(/backdrop-blur-\[/u);
+    });
+
+    it("keeps the scrim on web, where the map is an ordinary element", () => {
+      platformMockState.native = false;
+      render(<SaveLocationModal {...baseProps} {...mapProps} />);
+
+      const className = overlay()?.className ?? "";
+      expect(className).toMatch(/bg-black\//u);
+      expect(className).toContain("backdrop-blur-[10px]");
+    });
+
+    it("restores the scrim on native once the map step is left", () => {
+      platformMockState.native = true;
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          {...mapProps}
+          startWithMapPicker={false}
+        />,
+      );
+
+      // No map on screen, so the sheet gets its normal separation back.
+      const className = overlay()?.className ?? "";
+      expect(className).toMatch(/bg-black\//u);
+    });
+  });
+
+  it("opens on Home so the primary button is live without a tap", () => {
+    render(
+      <SaveLocationModal
+        {...baseProps}
+        address="Kartavya Path, New Delhi, Delhi 110001, India"
+        collectAddressDetails
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: "Save location" }),
+    ).toBeEnabled();
+    expect(
+      screen.queryByText("Pick Home, Work or Other first."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not pre-select a label that would overwrite a saved place", () => {
+    // Home and Work are singletons, so opening on Home for someone who already
+    // has one would replace their Home the moment they pressed Save.
+    render(
+      <SaveLocationModal
+        {...baseProps}
+        address="Kartavya Path, New Delhi, Delhi 110001, India"
+        collectAddressDetails
+        existingLocations={[{ category: "home" }]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Work" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(
+      screen.getByRole("button", { name: "Save location" }),
+    ).toBeEnabled();
+  });
+
+  it("still opens live when both singletons are taken", () => {
+    render(
+      <SaveLocationModal
+        {...baseProps}
+        address="Kartavya Path, New Delhi, Delhi 110001, India"
+        collectAddressDetails
+        existingLocations={[{ category: "home" }, { category: "work" }]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Other" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: "Save location" }),
+    ).toBeEnabled();
+  });
+
+  it("keeps the place's own label when editing", () => {
+    render(
+      <SaveLocationModal
+        {...baseProps}
+        address="Kartavya Path, New Delhi, Delhi 110001, India"
+        collectAddressDetails
+        initialCategory="work"
+        existingLocations={[{ category: "home" }]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Work" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   it("shows address lookup progress without exposing coordinates", () => {
@@ -233,9 +411,12 @@ describe("SaveLocationModal", () => {
     ).toBeInTheDocument();
 
     const saveButton = screen.getByRole("button", { name: "Save location" });
-    // Still off, but now for the one reason that remains, and it says so.
-    expect(saveButton).toBeDisabled();
-    expect(screen.getByText("Pick Home, Work or Other first.")).toBeInTheDocument();
+    // Live on arrival: nothing is saved yet, so it opens on Home and the one
+    // remaining reason to be off no longer applies.
+    expect(saveButton).toBeEnabled();
+    expect(
+      screen.queryByText("Pick Home, Work or Other first."),
+    ).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
       target: { value: " Flat 4B, Tower 2 " },
@@ -396,14 +577,12 @@ describe("SaveLocationModal", () => {
       />,
     );
 
-    expect(
-      screen.getByText("Pick Home, Work or Other first."),
-    ).toBeInTheDocument();
+    // Home is already selected, so the only way to a dead button now is
+    // something the person actually typed.
     expect(
       screen.getByRole("button", { name: "Save location" }),
-    ).toBeDisabled();
+    ).toBeEnabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Home" }));
     fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
       target: { value: "!" },
     });
@@ -638,5 +817,389 @@ describe("SaveLocationModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /skip for now/i }));
 
     expect(baseProps.onSkip).not.toHaveBeenCalled();
+  });
+
+  describe("the pin and the details as one carousel", () => {
+    const carouselProps = {
+      ...baseProps,
+      address: "Kartavya Path, New Delhi, Delhi 110001, India",
+      mapInitial: { latitude: 28.6139, longitude: 77.209 },
+      onPickExactLocation: vi.fn(),
+      startWithMapPicker: true,
+      collectAddressDetails: true,
+    };
+
+    /**
+     * jsdom's synthetic pointer events carry no coordinates, and a swipe is
+     * nothing but coordinates. Dispatching a real MouseEvent under the
+     * pointer event's name gives React the clientX/clientY the handler reads.
+     */
+    const pointer = (
+      element: Element,
+      type: "pointerdown" | "pointerup",
+      x: number,
+      y: number,
+    ) => {
+      const event = new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        clientY: y,
+      });
+      Object.defineProperty(event, "pointerType", { value: "touch" });
+      fireEvent(element, event);
+    };
+
+    const drag = (element: Element, deltaX: number, deltaY = 0) => {
+      pointer(element, "pointerdown", 200, 300);
+      pointer(element, "pointerup", 200 + deltaX, 300 + deltaY);
+    };
+
+    const swipe = (element: Element, deltaX: number) => drag(element, deltaX);
+
+    it("counts slides with dots instead of announcing extra steps", () => {
+      render(<SaveLocationModal {...carouselProps} />);
+
+      expect(screen.queryByText("Step 1 of 2")).not.toBeInTheDocument();
+      expect(screen.getAllByRole("tab")).toHaveLength(2);
+      expect(
+        screen.getByRole("tab", { name: "Pin your entrance" }),
+      ).toHaveAttribute("aria-selected", "true");
+
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+
+      expect(screen.queryByText("Step 2 of 2")).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("tab", { name: "Address details" }),
+      ).toHaveAttribute("aria-selected", "true");
+    });
+
+    it("moves between slides by swiping", () => {
+      render(<SaveLocationModal {...carouselProps} />);
+      const sheet = screen.getByTestId("save-location-modal");
+
+      swipe(sheet, -120);
+      expect(
+        screen.getByRole("dialog", { name: "Add your address details" }),
+      ).toBeInTheDocument();
+
+      swipe(sheet, 120);
+      expect(
+        screen.getByRole("dialog", { name: "Pin your entrance" }),
+      ).toBeInTheDocument();
+    });
+
+    it("leaves a gesture that started on the map to the map", () => {
+      // Panning to place the pin is a horizontal drag too. Stealing it would
+      // make the pin impossible to move.
+      render(<SaveLocationModal {...carouselProps} />);
+      const sheet = screen.getByTestId("save-location-modal");
+      const mapSurface = document.createElement("div");
+      mapSurface.setAttribute("data-location-picker-surface", "");
+      sheet.appendChild(mapSurface);
+
+      swipe(mapSurface, -120);
+
+      expect(
+        screen.getByRole("dialog", { name: "Pin your entrance" }),
+      ).toBeInTheDocument();
+    });
+
+    it("ignores a short drag and a vertical scroll", () => {
+      render(<SaveLocationModal {...carouselProps} />);
+      const sheet = screen.getByTestId("save-location-modal");
+
+      swipe(sheet, -30);
+      expect(
+        screen.getByRole("dialog", { name: "Pin your entrance" }),
+      ).toBeInTheDocument();
+
+      drag(sheet, -80, 300);
+      expect(
+        screen.getByRole("dialog", { name: "Pin your entrance" }),
+      ).toBeInTheDocument();
+    });
+
+    it("commits the pin when the second dot is tapped", () => {
+      const onPickExactLocation = vi.fn();
+      render(
+        <SaveLocationModal
+          {...carouselProps}
+          onPickExactLocation={onPickExactLocation}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("tab", { name: "Address details" }));
+
+      expect(onPickExactLocation).toHaveBeenCalledTimes(1);
+      expect(
+        screen.getByRole("dialog", { name: "Add your address details" }),
+      ).toBeInTheDocument();
+    });
+
+    it("will not advance while the pin is still settling", () => {
+      mapPickerMockState.canConfirm = false;
+      render(<SaveLocationModal {...carouselProps} />);
+
+      expect(
+        screen.getByRole("tab", { name: "Address details" }),
+      ).toBeDisabled();
+
+      swipe(screen.getByTestId("save-location-modal"), -120);
+      expect(
+        screen.getByRole("dialog", { name: "Pin your entrance" }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  describe("controls stay tappable without moving", () => {
+    const detailProps = {
+      ...baseProps,
+      address: "Kartavya Path, New Delhi, Delhi 110001, India",
+      mapInitial: { latitude: 28.6139, longitude: 77.209 },
+      onPickExactLocation: vi.fn(),
+      startWithMapPicker: true,
+      collectAddressDetails: true,
+    };
+
+    it("keeps the corner buttons absolutely positioned while growing their hit area", () => {
+      // The hit area is grown with a painted `::after` box, which must NOT
+      // bring `relative` with it: two positioning utilities in one class
+      // string make tailwind-merge keep the last, which drops these out of
+      // absolute positioning and collapsed them from 36px to 18px.
+      render(<SaveLocationModal {...detailProps} />);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+
+      for (const name of ["Back to map", "Close"]) {
+        const button = screen.getByRole("button", { name });
+        expect(button.className).toContain("absolute");
+        expect(button.className).not.toMatch(/(^|\s)relative(\s|$)/);
+        expect(button.className).toContain("after:h-11");
+        expect(button.className).toContain("after:w-11");
+        // The painted circle is unchanged.
+        expect(button.className).toContain("h-9");
+        expect(button.className).toContain("w-9");
+      }
+    });
+
+    it("gives each carousel dot a real 44x44 instead of a grown one", () => {
+      // Two dots sit side by side, so faking the region with a `::after` box
+      // would overlap them and send an edge tap to the wrong slide.
+      render(<SaveLocationModal {...detailProps} />);
+
+      for (const dot of screen.getAllByRole("tab")) {
+        expect(dot.className).toContain("h-11");
+        expect(dot.className).toContain("w-11");
+        expect(dot.className).not.toContain("after:");
+      }
+    });
+  });
+
+  describe("the sheet reads as a layer, not a patch", () => {
+    it("puts its scrim above the full-screen onboarding takeover", () => {
+      // Location onboarding is an OPAQUE fixed layer at z-560. The scrim used
+      // to sit at z-559, underneath it, so the dim and the blur were painted
+      // where nothing could see them and the sheet landed on a fully lit
+      // screen with no separation at all.
+      render(
+        <SaveLocationModal {...baseProps} address="Bengaluru, India" />,
+      );
+
+      const overlay = document.querySelector('[data-slot="dialog-overlay"]');
+      const sheet = screen.getByTestId("save-location-modal");
+      const layerOf = (element: Element | null) =>
+        Number(
+          /z-\[(\d+)\]/.exec(element?.className?.toString() ?? "")?.[1] ?? "0",
+        );
+
+      expect(layerOf(overlay)).toBeGreaterThan(560);
+      expect(layerOf(sheet)).toBeGreaterThan(layerOf(overlay));
+      expect(overlay?.className).toContain("backdrop-blur");
+    });
+  });
+
+  describe("the primary button only looks live when it is", () => {
+    it("goes neutral while it cannot take you forward", () => {
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address="Kartavya Path, New Delhi, Delhi 110001, India"
+          collectAddressDetails
+        />,
+      );
+
+      // It now opens live, so block it the only way left -- something the
+      // person typed -- and check the styling follows the state.
+      const save = screen.getByRole("button", { name: "Save location" });
+      expect(save).toBeEnabled();
+      expect(save.className).toContain("var(--app-accent)");
+
+      // A dimmed blue still reads as the live primary action and earns a dead
+      // tap, so a blocked CTA must not be blue at all.
+      fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
+        target: { value: "!" },
+      });
+      expect(save).toBeDisabled();
+      expect(save.className).not.toContain("var(--app-accent)");
+
+      fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
+        target: { value: "110001" },
+      });
+      expect(save).toBeEnabled();
+      expect(save.className).toContain("var(--app-accent)");
+    });
+  });
+
+  describe("when the pin is good but no address comes back", () => {
+    // On the native build before the vault exists there is no server
+    // reverse-geocode and no browser geocoder either, so the lookup returns
+    // nothing however good the pin is. Blocking the save on a resolved STRING
+    // left that person pinned, correct, and permanently unable to finish.
+    const strandedProps = {
+      ...baseProps,
+      address: null,
+      collectAddressDetails: true,
+    };
+
+    it("asks for one thing it can actually use", () => {
+      render(<SaveLocationModal {...strandedProps} />);
+      fireEvent.click(screen.getByRole("button", { name: "Home" }));
+
+      expect(
+        screen.getByText("Add a house, landmark or PIN."),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Save location" }),
+      ).toBeDisabled();
+    });
+
+    it("saves once the person supplies it themselves", () => {
+      render(<SaveLocationModal {...strandedProps} />);
+      fireEvent.click(screen.getByRole("button", { name: "Home" }));
+      fireEvent.change(screen.getByLabelText(/Nearby landmark/), {
+        target: { value: "Opposite City Mall" },
+      });
+
+      const save = screen.getByRole("button", { name: "Save location" });
+      expect(save).toBeEnabled();
+      fireEvent.click(save);
+
+      expect(baseProps.onSave).toHaveBeenCalledWith(
+        "home",
+        "",
+        expect.objectContaining({ landmark: "Opposite City Mall" }),
+        null,
+      );
+    });
+
+    it("unblocks the save once the person types an address line themselves", () => {
+      render(<SaveLocationModal {...strandedProps} />);
+      fireEvent.click(screen.getByRole("button", { name: "Home" }));
+
+      expect(
+        screen.getByRole("button", { name: "Save location" }),
+      ).toBeDisabled();
+
+      fireEvent.change(screen.getByLabelText(/Address line/), {
+        target: { value: "12 MG Road, Bengaluru" },
+      });
+
+      const save = screen.getByRole("button", { name: "Save location" });
+      expect(save).toBeEnabled();
+      fireEvent.click(save);
+
+      expect(baseProps.onSave).toHaveBeenCalledWith(
+        "home",
+        "",
+        expect.anything(),
+        "12 MG Road, Bengaluru",
+      );
+    });
+  });
+
+  describe("the Address line box", () => {
+    const HOUSE_NUMBER_ADDRESS =
+      "B-284/3, Rd Number 1, Chhatarpur Enclave Phase 2, New Delhi, Delhi 110074, India";
+
+    it("auto-populates from the detected address", () => {
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address={HOUSE_NUMBER_ADDRESS}
+          collectAddressDetails
+        />,
+      );
+
+      expect(screen.getByLabelText(/Address line/)).toHaveValue(
+        HOUSE_NUMBER_ADDRESS,
+      );
+    });
+
+    it("keeps what the person typed instead of the address that arrives later", () => {
+      const { rerender } = render(
+        <SaveLocationModal
+          {...baseProps}
+          address={HOUSE_NUMBER_ADDRESS}
+          collectAddressDetails
+        />,
+      );
+
+      fireEvent.change(screen.getByLabelText(/Address line/), {
+        target: { value: "My corrected street address" },
+      });
+
+      // A later reverse-geocode (or a repicked pin) must not take it back.
+      rerender(
+        <SaveLocationModal
+          {...baseProps}
+          address="C-11/2, Somewhere Else, Delhi 110088, India"
+          collectAddressDetails
+        />,
+      );
+
+      expect(screen.getByLabelText(/Address line/)).toHaveValue(
+        "My corrected street address",
+      );
+    });
+
+    it("saves the typed address line, not the raw detected address", () => {
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address={HOUSE_NUMBER_ADDRESS}
+          collectAddressDetails
+        />,
+      );
+
+      fireEvent.change(screen.getByLabelText(/Address line/), {
+        target: { value: "My corrected street address" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Home" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+
+      expect(baseProps.onSave).toHaveBeenCalledWith(
+        "home",
+        "",
+        expect.anything(),
+        "My corrected street address",
+      );
+    });
+  });
+
+  it("shows a plus-code address without the plus code", () => {
+    render(
+      <SaveLocationModal
+        {...baseProps}
+        address="FVJ7+JR2, Teliarganj, Prayagraj, Uttar Pradesh 211004, India"
+        collectAddressDetails
+      />,
+    );
+
+    expect(
+      screen.getByText("Teliarganj, Prayagraj, Uttar Pradesh 211004, India"),
+    ).toBeInTheDocument();
+    // And it is not offered as a house number.
+    expect(screen.getByLabelText(/House, flat, floor or block/)).toHaveValue("");
+    expect(screen.getByLabelText(/PIN \/ postal code/)).toHaveValue("211004");
   });
 });

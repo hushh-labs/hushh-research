@@ -92,7 +92,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
               onClick={handleSkip}
               className="w-16 justify-end text-[14px] font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground rounded-full px-3 py-1.5 h-auto transition-colors"
               showRipple={false}
-              aria-label="Skip KYC setup"
+              aria-label="Skip identity checks"
             >
               Skip
             </Button>

@@ -87,7 +87,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    expect(screen.getByText("Hussh managed Gemini")).toBeTruthy();
+    expect(screen.getByText("Use Hussh's AI")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Gemini" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Coming soon" })).toBeTruthy();
     for (const provider of [
@@ -122,7 +122,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("button", { name: /Hussh managed Gemini/i }),
+      screen.getByRole("button", { name: /Use Hussh's AI/i }),
     );
 
     await waitFor(() => expect(onSelectionReadyChange).toHaveBeenCalledTimes(1));
@@ -147,7 +147,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Use my Gemini access/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Use my own key/i }));
 
     expect(onSelectionReadyChange).not.toHaveBeenCalled();
     expect(onRequestVaultCreation).not.toHaveBeenCalled();
@@ -174,7 +174,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Use my Gemini access/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Use my own key/i }));
     fireEvent.change(screen.getByLabelText("Gemini API key"), {
       target: { value: "test-gemini-key" },
     });
@@ -217,11 +217,11 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: /Use my Gemini access/i }),
+        screen.getByRole("button", { name: /Use my own key/i }),
       ).toHaveAttribute("aria-pressed", "true"),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /Hussh managed Gemini/i }),
+      screen.getByRole("button", { name: /Use Hussh's AI/i }),
     );
 
     await waitFor(() =>
@@ -230,7 +230,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       ),
     );
     expect(
-      screen.getByRole("button", { name: /Use my Gemini access/i }),
+      screen.getByRole("button", { name: /Use my own key/i }),
     ).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -251,7 +251,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Use my Gemini access/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Use my own key/i }));
     const keyInput = screen.getByLabelText("Gemini API key");
     fireEvent.change(keyInput, { target: { value: "test-gemini-key" } });
 
@@ -288,7 +288,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Use my Gemini access/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Use my own key/i }));
     const keyInput = screen.getByLabelText("Gemini API key");
     fireEvent.change(keyInput, { target: { value: "first-key" } });
     fireEvent.click(screen.getByRole("button", { name: "Validate key" }));

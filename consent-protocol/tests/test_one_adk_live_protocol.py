@@ -278,11 +278,14 @@ def test_live_context_intersects_actions_and_screen_with_generated_route_policy(
 
     assert context["screen"] == "one_setup_gmail"
     # Navigation actions (route.*, allow_direct) survive on every route so
-    # cross-screen requests like "go to profile" stay proposable; the
-    # route-declared local action survives through the index intersection.
-    # Gmail setup is dormant, so only the globally-admitted navigation action
-    # remains after generated-contract intersection.
-    assert context["available_action_ids"] == ["route.profile"]
+    # cross-screen requests like "go to profile" stay proposable. Gmail setup
+    # now declares real local actions in the generated index (it was dormant
+    # when this test was written), so its own route-declared action survives
+    # the intersection too.
+    assert context["available_action_ids"] == [
+        "route.profile",
+        "setup.connect_gmail",
+    ]
 
 
 def test_live_context_keeps_navigation_actions_on_routes_without_local_actions():

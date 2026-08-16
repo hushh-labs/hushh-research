@@ -52,24 +52,6 @@ function metadataBool(metadata: Record<string, unknown>, key: string): boolean {
 }
 
 /**
- * Whose side of the event this row is.
- *
- * A location event can be written to both people, and each side needs its own
- * sentence: "You asked for 3 hours more" on one feed, "Asked for 3 hours more"
- * on the other. `feed_audience` is the marker the backend triggers stamp —
- * `"recipient"` on a share-lifecycle row (migration 152) and `"requester"` on a
- * request-lifecycle row (migration 153). One key, asked once, rather than a
- * second parallel convention per fan-out.
- *
- * Rows written before either fan-out carry no marker and correctly stay on the
- * owner wording they were written for.
- */
-function isCounterpartyView(metadata: Record<string, unknown>): boolean {
-  const audience = metadataString(metadata, "feed_audience");
-  return audience === "requester" || audience === "recipient";
-}
-
-/**
  * "3 hours" / "as long as they need" for a `<prefix>_hours` + `<prefix>_mode`
  * metadata pair, or "" when no real amount was recorded.
  *
@@ -122,6 +104,18 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   // "Someone" last). Used to turn vague, subjectless lines like "A live
   // location share was revoked" into explicit subject-action-object sentences.
   const who = resolveCounterpartName(item.metadata);
+  // Whose side of the event this row is. A location share writes one row to
+  // the person sharing and one to the person shared with (migration 152); only
+  // the second carries this marker, and only the second reads as "someone did
+  // this to me" rather than "I did this". Rows written before that migration
+  // have no marker and stay on the owner's wording, which is what they were.
+  const sharedWithMe =
+    metadataString(item.metadata, "feed_audience") === "recipient";
+  // The same marker on a request-lifecycle row (migration 153), naming the
+  // person who did the asking. One key, two named facts -- not a second
+  // convention per fan-out.
+  const iAskedForThis =
+    metadataString(item.metadata, "feed_audience") === "requester";
 
   switch (item.event_type) {
     case "consent_requested":
@@ -162,7 +156,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: isCounterpartyView(item.metadata)
+        description: sharedWithMe
           ? "Shared their location with you"
           : "Started sharing location",
         href: ROUTES.ONE_LOCATION,
@@ -176,10 +170,10 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         domainLabel,
         label: hasWho ? who : "Location",
         // `reason` describes what the OWNER did, so on the recipient's row
-        // "owner_revoke" is still true and "You stopped sharing location" would
-        // be shown to the one person who did not stop anything. Audience
-        // decides the sentence; reason only refines the owner's.
-        description: isCounterpartyView(item.metadata)
+        // "owner_revoke" is still true and "You stopped sharing location"
+        // would be shown to the one person who did not stop anything.
+        // Audience decides the sentence; reason only refines the owner's.
+        description: sharedWithMe
           ? "Stopped sharing their location"
           : ownerRevoked
             ? "You stopped sharing location"
@@ -212,7 +206,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       const hasWho = who !== "Someone";
       const isExtension = metadataBool(item.metadata, "is_extension");
       const amount = metadataDurationLabel(item.metadata, "requested_duration");
-      const asRequester = isCounterpartyView(item.metadata);
+      const asRequester = iAskedForThis;
       const description = asRequester
         ? isExtension
           ? amount
@@ -243,7 +237,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       const hasWho = who !== "Someone";
       const isExtension = metadataBool(item.metadata, "is_extension");
       const amount = metadataDurationLabel(item.metadata, "duration");
-      const asRequester = isCounterpartyView(item.metadata);
+      const asRequester = iAskedForThis;
       const description = asRequester
         ? isExtension
           ? amount
@@ -257,8 +251,13 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             ? `You gave them ${amount} more`
             : "You gave them more location time"
           : amount
-            ? `You approved ${amount} of location access`
-            : "You approved the location request";
+            // Migration 151 stopped forwarding the approval-born
+            // location_share_created row, so this line is now the only report
+            // of that whole tap. It has to say the share STARTED, not just
+            // that a request was answered -- main's wording, carrying the
+            // amount this branch adds.
+            ? `You approved ${amount}. Now sharing.`
+            : "You approved. Now sharing.";
       return {
         icon,
         domainLabel,
@@ -270,7 +269,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     case "location_access_denied": {
       const hasWho = who !== "Someone";
       const isExtension = metadataBool(item.metadata, "is_extension");
-      const asRequester = isCounterpartyView(item.metadata);
+      const asRequester = iAskedForThis;
       const description = asRequester
         ? isExtension
           ? "Declined the extra time — your current access is unchanged"
@@ -336,7 +335,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "KYC status updated",
-        description: status ? `Your KYC workflow is now ${status}.` : "Your KYC workflow status changed.",
+        description: status
+          ? `Your KYC check is now ${status}.`
+          : "Your KYC check moved on.",
         href: ROUTES.ONE_KYC,
       };
     }
@@ -345,24 +346,24 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       return {
         icon,
         domainLabel,
-        label: "System connected",
-        description: "A connected system finished syncing.",
+        label: "App connected",
+        description: "Your data finished coming in.",
         href: ROUTES.CONNECTED_SYSTEMS,
       };
     case "connected_systems_rejected":
       return {
         icon,
         domainLabel,
-        label: "System connection rejected",
-        description: "A connected-system request was rejected.",
+        label: "Connection turned down",
+        description: "That app wasn't connected.",
         href: ROUTES.CONNECTED_SYSTEMS,
       };
     case "connected_systems_failed":
       return {
         icon,
         domainLabel,
-        label: "System sync failed",
-        description: "A connected-system action failed.",
+        label: "Couldn't get your data",
+        description: "Something went wrong bringing it in.",
         href: ROUTES.CONNECTED_SYSTEMS,
       };
     // Connection events use the same person-first layout: title is the other
@@ -418,7 +419,10 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Activity",
-        description: "Something happened in your account.",
+        // No pretend explanation for an event this build has no line for.
+        // "Something happened in your account." told the reader nothing and
+        // read like a bug.
+        description: "",
         href: null,
       };
   }

@@ -18,7 +18,7 @@
  * evaluates correctly in both environments.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   BriefcaseBusiness,
@@ -534,6 +534,18 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const tabsOnlyChrome =
     model.mode === "bar-with-tabs" && topChromeFullyCollapsed;
 
+  /**
+   * Whether this screen's only way back is the arrow in this bar.
+   *
+   * Read inside the scroll handler, so it is a ref rather than a dependency —
+   * re-subscribing the scroll listener on every breadcrumb change would undo
+   * the measured-scroll-progress state the handler accumulates.
+   */
+  const hasBackControlRef = useRef(false);
+  hasBackControlRef.current = Boolean(
+    topShellBreadcrumb && !topShellBreadcrumb.hideBack,
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -581,6 +593,19 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
               nextY: scrollY,
             });
       lastScrollY = scrollY;
+      // A screen that has a back arrow does not collapse its bar.
+      //
+      // The collapse clips this row away: measured on a 393px viewport, the
+      // back control stops being the element under its own coordinates once
+      // progress passes ~0.75, and at full collapse the row is behind
+      // `overflow: hidden` at opacity 0. Reclaiming that strip is a fair
+      // trade against a page title. It is not a fair trade against the only
+      // way off the screen — Location deliberately draws no in-content back
+      // control, so a collapsed bar there leaves nothing to press, which is
+      // exactly how "I keep tapping the top and nothing happens" happened.
+      if (hasBackControlRef.current) {
+        topChromeProgress = 0;
+      }
       if (!barRow?.isConnected) {
         barRow = document.querySelector<HTMLElement>(
           '[data-testid="top-app-bar-row"]',
@@ -821,7 +846,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           replace: action.mode === "replace",
           scroll: false,
           source: "tap",
-          transitionMode: "full",
+          transitionMode: action.transitionMode,
         });
       },
     });

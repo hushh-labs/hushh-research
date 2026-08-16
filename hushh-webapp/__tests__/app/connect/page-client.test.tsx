@@ -132,7 +132,12 @@ describe("Connect — People", () => {
         "Search by name.",
       ),
     ).toBeTruthy();
-    expect(screen.getByText("Page 1")).toBeTruthy();
+    // The pager paints a tick after the empty-state copy, so a synchronous
+    // read here fails whenever the machine is loaded -- it went 3-for-5 under
+    // parallel CI load while passing 4-for-4 on an idle laptop. This file is
+    // now a required check on every Connect PR, so an assertion that depends
+    // on scheduler luck would train people to re-run CI instead of reading it.
+    expect(await screen.findByText("Page 1")).toBeTruthy();
     expect(screen.getByLabelText("People per page")).toBeTruthy();
     // hasMore is true in the fixture, so forward is offered and back is not.
     expect(screen.getByText("Next").closest("button")?.disabled).toBe(false);
@@ -285,6 +290,65 @@ describe("Connect — People", () => {
       order[1].compareDocumentPosition(order[2]) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("renders one letter's whole page, in the server's sequence, with nothing dropped", async () => {
+    // The two tests above each hold half of the bug and neither holds it
+    // whole. "shows every match for a single typed letter" hands back three
+    // names that ALL begin with N, so the client-side prefix filter that
+    // caused the original bug passes it untouched. "preserves the directory's
+    // A-Z order" names three rows but never counts them, so a filter that
+    // drops a row nobody named goes unseen.
+    //
+    // This is the real server page for "n": a substring-only name the server
+    // sends and the old client hid (Anand), the first-name tier A-Z, then the
+    // surname tier below it. The contract is that the client renders the page
+    // it was handed -- so the COUNT is asserted alongside the SEQUENCE. A
+    // re-introduced filter fails the count; a re-introduced sort fails the
+    // sequence. Neither can pass by naming the right rows.
+    const PAGE_FOR_N = [
+      person("u-anand", "Anand"),
+      person("u-nilesh", "Nilesh"),
+      person("u-nirmal", "Nirmal"),
+      person("u-nolan", "Nolan"),
+      person("u-abdul", "Abdul Nasser"),
+    ];
+    mocks.searchDirectory.mockResolvedValue({
+      items: PAGE_FOR_N,
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "n" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+    expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({
+      query: "n",
+      page: 1,
+    });
+
+    // Every row the server sent is on screen. Counting the per-row action
+    // rather than the names is what catches a row nobody thought to name.
+    await screen.findByText("Abdul Nasser");
+    expect(screen.getAllByRole("button", { name: "Connect" })).toHaveLength(
+      PAGE_FOR_N.length,
+    );
+
+    // ...and in the server's sequence, not a locally-sorted one. A client
+    // alphabetical sort would hoist "Abdul Nasser" to the top and drop
+    // "Anand" below the N-names; both are pinned here.
+    const rendered = PAGE_FOR_N.map((p) => screen.getByText(p.displayName));
+    for (let i = 0; i < rendered.length - 1; i += 1) {
+      expect(
+        rendered[i].compareDocumentPosition(rendered[i + 1]) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+
+    expect(screen.queryByText('No one matches "n"')).toBeNull();
   });
 
   it("says so when a search matches nobody", async () => {
@@ -595,14 +659,14 @@ describe("Connect — People", () => {
     fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
 
     expect(
-      screen.getByText("Pick up to 8 people. Send requests together."),
+      screen.getByText("Pick up to 8, across pages."),
     ).toBeTruthy();
 
     for (let index = 0; index < 8; index += 1) {
       fireEvent.click(screen.getByLabelText(`Select Bulk person ${index}`));
     }
 
-    expect(screen.getByText("Send requests (8/8)")).toBeTruthy();
+    expect(screen.getByText("Review 8 of 8")).toBeTruthy();
     expect(
       (screen.getByLabelText("Select Bulk person 8") as HTMLButtonElement)
         .disabled,
@@ -615,10 +679,18 @@ describe("Connect — People", () => {
     ).toBe(false);
     fireEvent.click(screen.getByLabelText("Select Bulk person 0"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Send requests (8/8)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review 8 of 8" }));
     expect(await screen.findByRole("heading", { name: "Send connection requests" })).toBeTruthy();
-    expect(screen.getByText("This only sends a connection request.")).toBeTruthy();
+    // Not "This only sends a connection request." any more: the bulk path can
+    // now carry RIA Picks, so that sentence would be false the moment one is
+    // ticked. This wording is accurate whether or not any are.
+    expect(
+      screen.getByText("Start safe. Add sharing only if you choose."),
+    ).toBeTruthy();
     expect(screen.queryByText("Included now")).toBeNull();
+    // Nobody here has a capability to grant, and the sheet says so rather than
+    // leaving the reader to infer it from an absent section.
+    expect(await screen.findByText("No access yet")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Send requests" }));
 
     await waitFor(() => expect(mocks.sendRequest).toHaveBeenCalledTimes(8));
@@ -631,13 +703,21 @@ describe("Connect — People", () => {
     );
   }, 10_000);
 
-  it("drops a selection that is no longer visible in the directory", async () => {
+  it("keeps a selection after the reader pages away from it", async () => {
+    // The reported bug, exactly: pick four on page one, go to page two, pick
+    // two more, and the counter reads "2 of 8" -- the first four were dropped
+    // the moment their page stopped being rendered, and the send that followed
+    // asked two people instead of six.
+    //
+    // Selections used to be a set of ids re-read against whatever the current
+    // page happened to show, so a selection only existed while its own row did.
+    // Paging is not deselecting.
     render(<ConnectPageClient />);
     expect(await screen.findByText("Person 0")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
     fireEvent.click(screen.getByLabelText("Select Person 0"));
-    expect(screen.getByText("Send requests (1/8)")).toBeTruthy();
+    expect(screen.getByText("Review 1 of 8")).toBeTruthy();
 
     mocks.searchDirectory.mockResolvedValue({
       items: [person("u9", "Person 9")],
@@ -649,9 +729,22 @@ describe("Connect — People", () => {
     });
 
     expect(await screen.findByText("Person 9")).toBeTruthy();
+    // Still one, and still counted, though its row is nowhere on screen.
+    expect(screen.getByText("Review 1 of 8")).toBeTruthy();
+
+    // Picking someone from the new result set adds to the first, and the sheet
+    // names both -- nothing is promised that the reader cannot see listed.
+    fireEvent.click(screen.getByLabelText("Select Person 9"));
+    expect(screen.getByText("Review 2 of 8")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Review 2 of 8" }));
     await waitFor(() =>
-      expect(screen.queryByText("Send requests (1/8)")).toBeNull(),
+      expect(screen.getByText("Selected people")).toBeTruthy(),
     );
+    const sheet = screen.getByText("Selected people").closest("div");
+    expect(sheet).toBeTruthy();
+    expect(screen.getAllByText("Person 0").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Person 9").length).toBeGreaterThan(0);
   });
 
   it("says why an ineligible person's checkbox can't be checked, instead of a mute disabled box", async () => {
@@ -692,20 +785,116 @@ describe("Connect — People", () => {
     expect(screen.queryByLabelText("Select Requested Rita")).toBeNull();
   });
 
-  it("sends a one-person request directly when no optional offers are available", async () => {
+  it("says a one-person request grants nothing, instead of sending it silently", async () => {
+    // This used to send straight through whenever the catalog came back empty,
+    // which made the two outcomes indistinguishable from the outside: a request
+    // that carried access and a request that carried none were both one tap and
+    // a toast. So "the sheet didn't come up" read as a broken sheet rather than
+    // as the answer, and the page's own surface contract -- an explicit
+    // capability review for every connection request -- was failing against it.
     render(<ConnectPageClient />);
     expect(await screen.findByText("Person 0")).toBeTruthy();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Connect" })[0]!);
 
+    expect(
+      await screen.findByRole("heading", { name: "Send connection request" }),
+    ).toBeTruthy();
+    expect(screen.getByText("No access yet")).toBeTruthy();
+    expect(screen.getByText("This only sends a request.")).toBeTruthy();
+    // Nothing is sent until the reader says so.
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     await waitFor(() => expect(mocks.sendRequest).toHaveBeenCalledTimes(1));
     expect(mocks.sendRequest).toHaveBeenCalledWith(
       expect.objectContaining({ addresseeUserId: "u0" }),
     );
-    expect(screen.queryByRole("heading", { name: "Send connection request" })).toBeNull();
-    expect(screen.queryByText("Included now")).toBeNull();
-    expect(screen.queryByText("Location & safety")).toBeNull();
-    expect(screen.queryByText("Finance & RIA")).toBeNull();
+  });
+
+  it("asks each advisor for their own capability, with their own handle", async () => {
+    // A capability handle is derived per owner: the same "RIA Picks" has a
+    // different handle for every advisor, and the server drops an unrecognised
+    // handle and still answers 200. So reusing one advisor's handle for another
+    // reports eight asks and delivers one, with nothing anywhere saying so.
+    //
+    // The bulk path used to send `requestedScopeHandles: []` outright -- no
+    // catalog fetched, no sheet, no picks -- which is why selecting several
+    // advisors could never ask any of them for Picks.
+    const advisors = [
+      { ...person("ria-1", "Ada Advisor"), isRia: true },
+      { ...person("ria-2", "Ben Advisor"), isRia: true },
+    ];
+    mocks.searchDirectory.mockResolvedValue({
+      items: advisors,
+      hasMore: false,
+      page: 1,
+    });
+    mocks.getScopeCatalog.mockImplementation(
+      async ({ counterpartUserId }: { counterpartUserId: string }) => ({
+        counterpartUserId,
+        items: [
+          {
+            handle: `scp-${counterpartUserId}`,
+            label: "RIA Picks",
+            description: "Their published picks.",
+          },
+        ],
+        offerableItems: [],
+      }),
+    );
+    mocks.sendRequest.mockResolvedValue({ id: "request" });
+
+    render(<ConnectPageClient />);
+    expect(await screen.findByText("Ada Advisor")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
+    fireEvent.click(screen.getByLabelText("Select Ada Advisor"));
+    fireEvent.click(screen.getByLabelText("Select Ben Advisor"));
+    fireEvent.click(screen.getByRole("button", { name: "Review 2 of 8" }));
+
+    // One row per advisor, because each is a separate ask.
+    expect(
+      await screen.findByLabelText("Ask Ada Advisor for RIA Picks"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Ask Ada Advisor for RIA Picks"));
+    fireEvent.click(screen.getByLabelText("Ask Ben Advisor for RIA Picks"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Send requests" }));
+    await waitFor(() => expect(mocks.sendRequest).toHaveBeenCalledTimes(2));
+
+    expect(mocks.sendRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        addresseeUserId: "ria-1",
+        requestedScopeHandles: ["scp-ria-1"],
+      }),
+    );
+    expect(mocks.sendRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        addresseeUserId: "ria-2",
+        requestedScopeHandles: ["scp-ria-2"],
+      }),
+    );
+  }, 10_000);
+
+  it("pages advisors as their own audience, not as a filter over everyone", async () => {
+    // A filter applied after the page is cut can only subtract from a page that
+    // was already chosen wrongly: uneven pages, and every advisor past the
+    // first one unreachable. The tab therefore asks the server for its own
+    // half of the directory.
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    expect(mocks.searchDirectory).toHaveBeenLastCalledWith(
+      expect.objectContaining({ audience: "people" }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "RIAs" }));
+
+    await waitFor(() =>
+      expect(mocks.searchDirectory).toHaveBeenLastCalledWith(
+        expect.objectContaining({ audience: "ria", page: 1 }),
+      ),
+    );
   });
 });
 

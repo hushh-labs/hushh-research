@@ -155,7 +155,7 @@ describe("VaultFlow create validation", () => {
 
     const passphraseInput = await screen.findByLabelText("Passphrase");
     const confirmInput = screen.getByLabelText("Confirm passphrase");
-    const createButton = screen.getByRole("button", { name: "Create private vault" }) as HTMLButtonElement;
+    const createButton = screen.getByRole("button", { name: "Create passphrase" }) as HTMLButtonElement;
 
     // iOS renders `enterKeyHint="done"` as a checkmark on the keyboard.
     // Vault confirmation uses normal submit behavior without adding that glyph.
@@ -205,7 +205,7 @@ describe("VaultFlow create validation", () => {
   it("opens fresh vault creation directly in the canonical credential layout", async () => {
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    expect(await screen.findByRole("heading", { name: "Create your private vault" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Create your passphrase" })).toBeTruthy();
     expect(screen.getByLabelText("Passphrase")).toBeTruthy();
     expect(screen.getByLabelText("Confirm passphrase")).toBeTruthy();
     expect(screen.queryByText("Secure Your Digital Vault")).toBeNull();
@@ -228,7 +228,7 @@ describe("VaultFlow create validation", () => {
     expect(
       await screen.findByRole("heading", { name: "Finish setup first" }),
     ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Create private vault" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create passphrase" })).toBeNull();
     expect(createVaultMock).not.toHaveBeenCalled();
   });
 

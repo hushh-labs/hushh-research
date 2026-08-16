@@ -5,6 +5,7 @@ import { Capacitor } from "@capacitor/core";
 import { Share } from "@capacitor/share";
 
 import {
+  buildCircleInviteShareText,
   circleShareLabel,
   isShareCancellationError,
   shareNamedCircleCode,
@@ -147,6 +148,58 @@ describe("Circle code sharing parity", () => {
     expect(
       occurrences(vi.mocked(copyToClipboard).mock.calls[0]![0]!),
     ).toBe(1);
+  });
+});
+
+describe("buildCircleInviteShareText", () => {
+  const withLink = buildCircleInviteShareText({
+    circleLabel: "JHUMMA's Circle",
+    code: "SWDX-ENDP-B954",
+    hasJoinLink: true,
+  });
+
+  it("sends only whose Circle it is and the code", () => {
+    expect(withLink).toBe("Join my JHUMMA's Circle on One. Code SWDX-ENDP-B954");
+  });
+
+  it("stays short enough to read at a glance in a chat thread", () => {
+    // The previous copy ran to three sentences / 219 characters, all of which
+    // the join screen repeats the moment the link opens.
+    expect(withLink.length).toBeLessThanOrEqual(60);
+    expect(withLink.split(". ").length).toBeLessThanOrEqual(2);
+  });
+
+  it("drops the walkthrough the join screen already gives", () => {
+    for (const removed of [
+      "tap the link",
+      "Set up One",
+      "filled in",
+      "stay private",
+      "Location and SMS",
+    ]) {
+      expect(withLink).not.toContain(removed);
+    }
+  });
+
+  it("keeps the code, since some targets drop the url field", () => {
+    expect(withLink).toContain("SWDX-ENDP-B954");
+  });
+
+  it("never embeds a link, which would deliver it twice", () => {
+    // Share targets append `url` to `text`; a link inside the text is a dupe.
+    expect(withLink).not.toMatch(/https?:\/\//);
+  });
+
+  it("says where the code goes when there is no link to tap", () => {
+    const noLink = buildCircleInviteShareText({
+      circleLabel: "K Family Circle",
+      code: "ABCD-EFGH-IJKL",
+      hasJoinLink: false,
+    });
+
+    expect(noLink).toBe(
+      "Join my K Family Circle on One. Enter code ABCD-EFGH-IJKL under Location → People.",
+    );
   });
 });
 

@@ -12,6 +12,7 @@
 
 import { useId, useState, type ReactNode } from "react";
 import {
+  AlertTriangle,
   ChevronDown,
   Clock3,
   Copy,
@@ -21,15 +22,11 @@ import {
   Pencil,
   RefreshCw,
   Share2,
-  ShieldAlert,
   ShieldCheck,
-  ShieldOff,
-  ShieldX,
   User,
   X,
 } from "lucide-react";
 
-import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { Button } from "@/components/ui/button";
@@ -267,15 +264,6 @@ export function RequestCard({
   const [decision, setDecision] = useState<"approved" | "declined" | null>(null);
   const decided = decision !== null;
 
-  // Approved is a settled YES -> success. Declined is a settled NO: nothing
-  // failed and nothing was destroyed, so by the state rule it reads neutral,
-  // never red. Both outcomes used to render the identical green ShieldCheck,
-  // so on a request that had just been refused the tint AND the glyph said
-  // "granted" and the word was the only thing telling the truth.
-  const approved = decision === "approved";
-  const outcome = roleClasses(approved ? "success" : "neutral");
-  const OutcomeIcon = approved ? ShieldCheck : ShieldX;
-
   return (
     <div className={cn(SUBCARD_SURFACE, "p-4")}>
       <div className="flex items-center gap-3">
@@ -299,14 +287,10 @@ export function RequestCard({
       {decided ? (
         <p
           role="status"
-          className={cn(
-            "mt-3.5 flex h-11 items-center justify-center gap-1.5 rounded-full text-sm font-semibold",
-            outcome.tile,
-            outcome.glyph,
-          )}
+          className="mt-3.5 flex h-11 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-success)]/12 text-sm font-semibold text-[color:var(--app-success)]"
         >
-          <OutcomeIcon className="h-[17px] w-[17px]" aria-hidden />
-          {approved ? "Approved" : "Declined"}
+          <ShieldCheck className="h-[17px] w-[17px]" aria-hidden />
+          {decision === "approved" ? "Approved" : "Declined"}
         </p>
       ) : (
         <div className="mt-3.5 flex gap-2.5">
@@ -344,6 +328,24 @@ export function RequestCard({
 /* SharedWithMeCard (focused received-share detail)                   */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Why a received share has nothing on the map yet.
+ *
+ * `waiting` is a healthy share whose owner has not published a point yet —
+ * the most common state on the receiving side, and a success. It gets calm
+ * muted copy and no action, because it resolves itself on the next poll.
+ *
+ * `blocked` is a share the recipient genuinely cannot open and that will not
+ * fix itself. Only this earns the alert treatment and the recovery action.
+ *
+ * Collapsing these two into one "error" string is what left recipients staring
+ * at a card with a name, a date, and no explanation of any kind.
+ */
+export type GrantViewStatus = {
+  message: string;
+  tone: "waiting" | "blocked";
+};
+
 export function SharedWithMeCard({
   name,
   statusLine,
@@ -360,6 +362,9 @@ export function SharedWithMeCard({
   address,
   addressLoading,
   coordinatesFallback,
+  viewStatus,
+  onAskReshare,
+  askReshareBusy,
 }: {
   name: string;
   statusLine: string;
@@ -382,6 +387,15 @@ export function SharedWithMeCard({
   addressLoading?: boolean;
   /** "lat, lng" shown when no street address is available. */
   coordinatesFallback?: string;
+  /**
+   * Why there is no location on screen. Rendered only while nothing has been
+   * decrypted yet — once a point arrives it is the answer, and a stale status
+   * line underneath it would contradict what the person is looking at.
+   */
+  viewStatus?: GrantViewStatus | null;
+  /** Re-request access from the owner. Offered only for the `blocked` tone. */
+  onAskReshare?: () => void;
+  askReshareBusy?: boolean;
 }) {
   const canOpenMap = Boolean(previewExpanded && mapHref);
   const previewRegionId = useId();
@@ -396,20 +410,15 @@ export function SharedWithMeCard({
   };
 
   return (
-    <div className="overflow-hidden rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] shadow-[var(--app-card-shadow-standard)]">
-      <div className="flex min-h-[84px] items-start gap-3 px-[18px] pt-[18px] sm:min-h-[92px] sm:px-6 sm:pt-[22px]">
-        <Avatar initials={initialsFrom(name)} size={40} />
+    <div className={cn(SUBCARD_SURFACE, "space-y-3 p-3.5")}>
+      <div className="flex items-start gap-3">
+        <Avatar initials={initialsFrom(name)} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-semibold text-foreground">
             {name}
           </p>
           <div className="mt-0.5 flex min-w-0 items-center gap-2">
             <p className={cn(MUTED_TEXT, "min-w-0 truncate")}>{statusLine}</p>
-            {/* Tone and label read from the same fact by construction: this
-                card is only ever rendered for a grant that is active, so the
-                pill cannot say "Active" in grey. A `statusTone` prop would let
-                colour and copy contradict each other with no caller able to
-                mean it. */}
             <StatusPill tone="ready" className="shrink-0">
               Active
             </StatusPill>
@@ -453,83 +462,114 @@ export function SharedWithMeCard({
           ) : null}
         </div>
       </div>
-      <div
-        id={previewRegionId}
-        hidden={!isPreviewExpanded}
-        className="min-h-[200px] overflow-hidden bg-[color:var(--app-neutral-fill)] [&>*]:min-h-[200px] sm:min-h-[240px] sm:[&>*]:min-h-[240px]"
-      >
+      {address || addressLoading || coordinatesFallback ? (
+        <div className="flex items-start gap-1.5">
+          <MapPin
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+          {addressLoading && !address ? (
+            <span
+              className="mt-0.5 h-3.5 w-40 max-w-full animate-pulse rounded bg-muted"
+              aria-hidden="true"
+            />
+          ) : (
+            <p className={cn(MUTED_TEXT, "min-w-0 break-words text-sm")}>
+              {address ?? coordinatesFallback}
+            </p>
+          )}
+        </div>
+      ) : null}
+      {viewStatus ? (
+        viewStatus.tone === "waiting" ? (
+          // Deliberately not `role="alert"`, not amber, not an icon that reads
+          // as a problem. Nothing is wrong: the share is live and the first
+          // point simply has not arrived. `aria-live="polite"` announces it
+          // once without interrupting, which is what a status is.
+          <p
+            aria-live="polite"
+            className={cn(MUTED_TEXT, "flex items-start gap-1.5 text-sm")}
+          >
+            <Clock3
+              className="mt-0.5 h-3.5 w-3.5 shrink-0"
+              aria-hidden="true"
+            />
+            <span className="min-w-0 break-words">{viewStatus.message}</span>
+          </p>
+        ) : (
+          <div
+            role="alert"
+            className="flex flex-col gap-2.5 rounded-2xl border border-[#ff9f0a]/25 bg-[#ff9f0a]/[0.08] p-3 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle
+                className="mt-0.5 h-4 w-4 shrink-0 text-[#c77700] dark:text-[#ffb340]"
+                aria-hidden="true"
+              />
+              <p className="min-w-0 break-words text-[12.5px] font-medium leading-snug text-[#8a5a00] [overflow-wrap:anywhere] dark:text-[#ffcf8a]">
+                {viewStatus.message}
+              </p>
+            </div>
+            {onAskReshare ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onAskReshare}
+                isLoading={askReshareBusy}
+                className="w-full shrink-0 rounded-full border-[#ff9f0a]/30 bg-white/70 text-[#8a5a00] hover:bg-white sm:w-auto dark:border-[#ffb340]/25 dark:bg-white/10 dark:text-[#ffcf8a] dark:hover:bg-white/15"
+              >
+                Ask to refresh
+              </Button>
+            ) : null}
+          </div>
+        )
+      ) : null}
+      <div id={previewRegionId} hidden={!isPreviewExpanded}>
         {children}
       </div>
       {message ? (
-        <p className={cn(MUTED_TEXT, "px-[18px] pt-4 text-sm sm:px-6")}>
-          {message}
-        </p>
+        <p className={cn(MUTED_TEXT, "text-sm")}>{message}</p>
       ) : null}
-      <div className="grid grid-cols-1 gap-3 px-[18px] pb-[18px] pt-4 sm:px-6 sm:pb-6">
-        {address || addressLoading || coordinatesFallback ? (
-          <div className="flex min-w-0 items-start gap-1.5">
-            <MapPin
-              className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground"
-              aria-hidden="true"
-            />
-            {addressLoading && !address ? (
-              <span
-                className="mt-0.5 h-3.5 w-40 max-w-full animate-pulse rounded bg-muted motion-reduce:animate-none"
-                aria-hidden="true"
-              />
-            ) : (
-              <p className={cn(MUTED_TEXT, "min-w-0 break-words text-sm")}>
-                {address ?? coordinatesFallback}
-              </p>
-            )}
-          </div>
-        ) : null}
-        <div
-          className={cn(
-            "grid gap-2",
-            onRemove ? "grid-cols-2" : "grid-cols-1",
-          )}
-        >
-          {canOpenMap ? (
-            <Button
-              asChild
-              size="sm"
-              className="h-[52px] rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
-            >
-              <a
-                href={mapHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Open shared location in Google Maps"
-              >
-                <MapPin className="mr-1.5 h-3.5 w-3.5" />
-                Open map
-              </a>
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              onClick={onView}
-              isLoading={viewBusy}
-              className="h-[52px] rounded-full bg-[color:var(--app-accent)] text-[15px] font-semibold text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
+      <div className={cn("grid gap-2", onRemove ? "grid-cols-2" : "grid-cols-1")}>
+        {canOpenMap ? (
+          <Button
+            asChild
+            size="sm"
+            className="h-9 rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+          >
+            <a
+              href={mapHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open shared location in Google Maps"
             >
               <MapPin className="mr-1.5 h-3.5 w-3.5" />
-              View location
-            </Button>
-          )}
-          {onRemove ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onRemove}
-              isLoading={removeBusy}
-              aria-label={`Remove ${name} from Shared with me`}
-              className="h-9 rounded-full text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
-            >
-              Remove
-            </Button>
-          ) : null}
-        </div>
+              Open map
+            </a>
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            onClick={onView}
+            isLoading={viewBusy}
+            className="h-9 rounded-full bg-[color:var(--app-accent)] text-sm text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+          >
+            <MapPin className="mr-1.5 h-3.5 w-3.5" />
+            View location
+          </Button>
+        )}
+        {onRemove ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onRemove}
+            isLoading={removeBusy}
+            aria-label={`Remove ${name} from Shared with me`}
+            className="h-9 rounded-full text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
+          >
+            Remove
+          </Button>
+        ) : null}
       </div>
     </div>
   );
@@ -632,27 +672,14 @@ export function DeviceReadinessCard({
   refreshBusy?: boolean;
   refreshLabel?: string;
 }) {
-  // This was a private copy of the shared PILL_* ladder, written in raw
-  // palette colours (emerald / amber / red), so device readiness rendered a
-  // slightly different green, orange and red from the same four states
-  // everywhere else. The roles are the same four; only the source changes.
-  const roleForTone = {
-    ready: "success",
-    warning: "warning",
-    blocked: "danger",
-    checking: "action",
-  } as const;
-  const { tile, glyph } = roleClasses(roleForTone[tone]);
-  const iconWrap = cn(tile, glyph);
-  // Colour is never the only signal, so each state gets its own glyph. A red
-  // ShieldCheck for "blocked" said "verified" in the shape and "broken" in the
-  // colour, which left the tint doing all the work.
-  const ToneIcon =
+  const iconWrap =
     tone === "ready"
-      ? ShieldCheck
+      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
       : tone === "warning"
-        ? ShieldAlert
-        : ShieldOff;
+        ? "bg-amber-500/15 text-amber-600 dark:text-amber-300"
+        : tone === "blocked"
+          ? "bg-red-500/15 text-red-600 dark:text-red-300"
+          : "bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]";
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
@@ -665,7 +692,7 @@ export function DeviceReadinessCard({
           {tone === "checking" ? (
             <Loader2 className="h-5 w-5 animate-spin" />
           ) : (
-            <ToneIcon className="h-5 w-5" />
+            <ShieldCheck className="h-5 w-5" />
           )}
         </span>
         <div className="min-w-0 flex-1">

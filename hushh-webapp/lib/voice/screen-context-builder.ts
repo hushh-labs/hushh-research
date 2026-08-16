@@ -25,8 +25,27 @@ import type {
 } from "@/lib/voice/voice-ui-state-machine";
 
 export const STRUCTURED_CONTEXT_ARRAY_CAP = 10;
+/**
+ * The screen-owned segment of available_action_ids specifically, separate
+ * from STRUCTURED_CONTEXT_ARRAY_CAP because that constant is also the default
+ * bound for arrays with their own, independent backend limit (visible_modules
+ * and visible_control_ids are both truncated server-side at 10 regardless of
+ * what this file sends) -- widening it there would not add capacity, only
+ * hide where the real truncation happens.
+ *
+ * This has been wrong twice before at the generic 10: Location outgrew it at
+ * 19 published controls, then again as its own actions grew past 21 to 30 --
+ * both times as new local handlers (`add_to_circle`, `remove_from_circle`,
+ * ...) fell off the end of a list already full of route openers, and every
+ * one of them returned action_unavailable, indistinguishable from a broken
+ * feature. 14 covers Location's current 12 screen-owned local handlers with
+ * two spares, while AVAILABLE_ACTION_IDS_CAP (18) still bounds the total, so
+ * a crowded screen trades a few of the 8 GLOBAL_NAV_ACTION_IDS slots for
+ * commands that actually do something on it.
+ */
+export const ACTION_ID_SCREEN_SEGMENT_CAP = 14;
 // A surface's own declared inventory before ranking. Deliberately far above
-// what any surface declares today (Location, the largest, publishes 21), so it
+// what any surface declares today (Location, the largest, publishes 30), so it
 // bounds a runaway publisher without ever deciding which actions the model is
 // allowed to see. That decision belongs to prioritizeAvailableActionIds and the
 // two caps applied after it.
@@ -438,8 +457,13 @@ function sanitizeRouteQuery(pathname: string): string {
   return pairs.sort().join("&");
 }
 
-function readStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? uniqueStrings(value) : [];
+function readStringArray(
+  value: unknown,
+  maximumDimensionCap = STRUCTURED_CONTEXT_ARRAY_CAP,
+): string[] {
+  return Array.isArray(value)
+    ? uniqueStrings(value, maximumDimensionCap)
+    : [];
 }
 
 /**
@@ -504,7 +528,7 @@ function prioritizeAvailableActionIds(
     .sort((left, right) => left.rank - right.rank || left.index - right.index)
     .map((entry) => entry.actionId);
   if (
-    ranked.length > STRUCTURED_CONTEXT_ARRAY_CAP &&
+    ranked.length > ACTION_ID_SCREEN_SEGMENT_CAP &&
     process.env.NODE_ENV !== "production"
   ) {
     // Loud, and it names what was lost. This was a console.debug, and the
@@ -517,18 +541,22 @@ function prioritizeAvailableActionIds(
     // admits navigation from any screen whether or not it was submitted here.
     // So the ids that genuinely go missing are the local handlers, which is
     // what naming them makes obvious.
-    const dropped = ranked.slice(STRUCTURED_CONTEXT_ARRAY_CAP);
+    const dropped = ranked.slice(ACTION_ID_SCREEN_SEGMENT_CAP);
     console.warn(
       `[VOICE_CONTEXT] ${screen || "unknown screen"} declared ${ranked.length} ` +
-        `action ids but only ${STRUCTURED_CONTEXT_ARRAY_CAP} fit. ` +
+        `action ids but only ${ACTION_ID_SCREEN_SEGMENT_CAP} fit. ` +
         `Dropped: ${dropped.join(", ")}`,
     );
   }
-  // Screen-ranked segment first (original cap), then the reserved global
+  // Screen-ranked segment first (own cap, wider than the generic array
+  // default -- see ACTION_ID_SCREEN_SEGMENT_CAP), then the reserved global
   // navigation segment so cross-agent navigation is always proposable. The
   // combined list stays within AVAILABLE_ACTION_IDS_CAP, which the backend
   // accepts (Pydantic max_length is kept in sync).
-  const screenSegment = enforceArrayDimensionCap(ranked).items;
+  const screenSegment = enforceArrayDimensionCap(
+    ranked,
+    ACTION_ID_SCREEN_SEGMENT_CAP,
+  ).items;
   if (!includeGlobalNavigation) return screenSegment;
   const combined = [...screenSegment];
   for (const navId of GLOBAL_NAV_ACTION_IDS) {
@@ -905,8 +933,16 @@ export function buildOneVoiceContextSnapshot(args: {
       surfaceMetadata: publishedSurface,
     });
   const app = args.appRuntimeState;
+  // available_action_ids already comes out of buildStructuredScreenContext
+  // ranked and bounded at AVAILABLE_ACTION_IDS_CAP (18), not the generic
+  // 10-item default -- re-reading it through the default here silently
+  // re-truncated an already-correct 14-item screen segment back down to 10,
+  // in plain Set-insertion order rather than by rank, and cost the two
+  // lowest-index local handlers (add_to_circle, remove_from_circle) their
+  // slot a second time even after the ranking-side cap was fixed.
   const publishedAvailableActionIds = readStringArray(
     structured.screen_metadata.available_action_ids,
+    AVAILABLE_ACTION_IDS_CAP,
   );
   const vaultReady = Boolean(
     structured.vault.unlocked &&

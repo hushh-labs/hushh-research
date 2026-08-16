@@ -146,7 +146,6 @@ fi
 # declared but never passed leaves the flag permanently false and the preview
 # silently gone, and a production lane that passes `true` is the incident.
 webapp_dockerfile="$REPO_ROOT/hushh-webapp/Dockerfile"
-deploy_production_workflow="$REPO_ROOT/.github/workflows/deploy-production.yml"
 
 if ! grep -q '^ARG NEXT_PUBLIC_LOCATION_MAP_DEMO$' "$webapp_dockerfile"; then
   echo "❌ webapp Dockerfile must declare the NEXT_PUBLIC_LOCATION_MAP_DEMO build arg."
@@ -173,9 +172,19 @@ if [ "$location_map_demo_default" != "false" ]; then
   exit 1
 fi
 
-if grep -q '_LOCATION_MAP_DEMO=true' "$deploy_production_workflow"; then
-  echo "❌ the production lane must never enable the fabricated-people map fixture."
-  exit 1
-fi
+# No deploy lane may enable the fixture. Guarding production alone was not
+# enough: UAT shipped `_LOCATION_MAP_DEMO=true`, and UAT is not a private
+# sandbox — it is the frontend every reviewer, tester, and demo audience sees,
+# and the backend the store builds point at. Fifty fabricated people on a map
+# whose entire promise is "only the people who chose to share with you appear
+# here" is the same incident wherever it lands, so the ban is lane-wide and a
+# lane that genuinely wants the fixture has to say so outside CI.
+for workflow in "$REPO_ROOT"/.github/workflows/*.yml; do
+  if grep -q '_LOCATION_MAP_DEMO=true' "$workflow"; then
+    echo "❌ $(basename "$workflow") enables the fabricated-people map fixture (_LOCATION_MAP_DEMO=true)."
+    echo "   No deploy lane may ship it. Real users cannot tell a fixture from a person."
+    exit 1
+  fi
+done
 
 echo "✅ Runtime contract check passed."

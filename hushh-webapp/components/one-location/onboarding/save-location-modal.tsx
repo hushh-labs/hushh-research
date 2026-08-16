@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type PointerEvent } from "react";
 import {
   ArrowLeft,
   Briefcase,
@@ -17,26 +17,137 @@ import {
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   LocationPickerMap,
+  type LocationPickerMapHandle,
   type PickedLocation,
 } from "@/components/one-location/onboarding/location-picker-map";
+import { isNative } from "@/lib/capacitor/platform";
 import { cn } from "@/lib/utils";
-import type { SavedLocationCategory } from "@/lib/one-location/saved-locations";
+import {
+  defaultSavedLocationCategory,
+  type SavedLocation,
+  type SavedLocationCategory,
+} from "@/lib/one-location/saved-locations";
 import {
   EMPTY_SAVED_LOCATION_ADDRESS_DETAILS,
   inferSavedLocationAddressDetails,
   isValidPostalCode,
   normalizeSavedLocationAddressDetails,
+  stripPlusCodeSegment,
   type SavedLocationAddressDetails,
 } from "@/lib/one-location/saved-location-address";
 
+/**
+ * Grows the tappable region to 44x44 while the visible control keeps its size,
+ * because the `::after` box is painted rather than laid out.
+ *
+ * Deliberately does NOT include `relative`. Adding it to an element that is
+ * already `absolute` puts two positioning utilities in one class string, and
+ * tailwind-merge keeps the last — which drops the element out of absolute
+ * positioning entirely. That collapsed the sheet's corner buttons from 36px
+ * to 18px. Elements that are not already positioned add `relative` themselves.
+ */
+const touchTargetClassName =
+  "after:absolute after:left-1/2 after:top-1/2 after:h-11 after:w-11 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']";
+
 const iconButtonClassName =
-  "press-scale absolute flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45";
+  `press-scale absolute flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45 ${touchTargetClassName}`;
 
 const controlLabelClassName =
   "mb-1.5 block text-[13px] font-semibold leading-[18px] text-muted-foreground";
 
 const controlInputClassName =
   "h-12 w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] px-4 text-[15px] leading-5 text-foreground outline-none transition-colors placeholder:text-[color:var(--app-tertiary-label)] focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent)]/25 disabled:opacity-60";
+
+/**
+ * Blue is a promise that the tap moves you forward. When it cannot, the button
+ * goes neutral instead of dimming the same blue -- a 45%-opacity primary still
+ * reads as the live action and earns a dead tap.
+ */
+function primaryActionClassName(enabled: boolean): string {
+  return cn(
+    "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[17px] font-semibold transition-colors disabled:cursor-not-allowed",
+    enabled
+      ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
+      : "bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-tertiary-label)]",
+  );
+}
+
+/**
+ * Where you are in the pin-then-details pair, and a way to move without
+ * hunting for the button. Replaces the "Step 1 of 2" / "Step 2 of 2" labels,
+ * which announced the flow as longer than it is.
+ */
+function CarouselDots({
+  index,
+  count,
+  labels,
+  onSelect,
+  canAdvance,
+}: {
+  index: number;
+  count: number;
+  labels: string[];
+  onSelect: (next: number) => void;
+  canAdvance: boolean;
+}) {
+  return (
+    <div
+      className="flex items-center justify-center gap-1"
+      role="tablist"
+      aria-label="Save this place"
+    >
+      {Array.from({ length: count }, (_, dot) => {
+        const active = dot === index;
+        const reachable = dot <= index || canAdvance;
+        return (
+          <button
+            key={dot}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            aria-label={labels[dot]}
+            disabled={!reachable}
+            onClick={() => onSelect(dot)}
+            // A real 44x44 each, laid out rather than faked, because two dots
+            // sit side by side and overlapping hit regions would send a tap
+            // near the boundary to the wrong slide.
+            className="flex h-11 w-11 items-center justify-center disabled:cursor-not-allowed"
+          >
+            <span
+              className={cn(
+                "block h-[7px] rounded-full transition-all duration-200",
+                active
+                  ? "w-[22px] bg-[color:var(--app-accent)]"
+                  : "w-[7px] bg-[color:var(--app-neutral-fill-strong)]",
+              )}
+            />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Distance a horizontal drag must cover before it counts as a slide. */
+const CAROUSEL_SWIPE_THRESHOLD_PX = 56;
+
+/**
+ * Only the sheet's CONTENT travels. The sheet itself is centred with a
+ * translate, so animating it would fight its own positioning.
+ */
+const CAROUSEL_KEYFRAMES = `
+@keyframes saveLocSlideFromRight {
+  from { opacity: 0; transform: translate3d(14px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes saveLocSlideFromLeft {
+  from { opacity: 0; transform: translate3d(-14px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-save-location-pane] { animation: none !important; }
+}
+`;
 
 export type SavedLocationPlaceSuggestion = {
   placeId: string;
@@ -72,6 +183,12 @@ export type SaveLocationModalProps = {
   collectAddressDetails?: boolean;
   /** Pre-select a category when editing an existing saved place. */
   initialCategory?: SavedLocationCategory | null;
+  /**
+   * Places already saved. Only their categories are read, to pre-select a label
+   * that is still free -- Home and Work are singletons, so pre-selecting an
+   * occupied one would overwrite that place on save.
+   */
+  existingLocations?: readonly Pick<SavedLocation, "category">[];
   /** Pre-fill the custom label (for an "Other" place) when editing. */
   initialCustomLabel?: string | null;
   /** Pre-fill the structured address detail fields when editing. */
@@ -198,6 +315,7 @@ export function SaveLocationModal({
   startWithMapPicker = false,
   collectAddressDetails = false,
   initialCategory = null,
+  existingLocations = [],
   initialCustomLabel = null,
   initialDetails = null,
   saveLabel = "Save location",
@@ -232,16 +350,29 @@ export function SaveLocationModal({
   const [rendererDisclosureReady, setRendererDisclosureReady] = useState(
     rendererDisclosureAccepted,
   );
+  /** Which edge the incoming slide travels from, so back reads as back. */
+  const [slideFrom, setSlideFrom] = useState<"right" | "left" | null>(null);
+  /** Mirrors the picker's own "this pin is ready to commit". */
+  const [mapReady, setMapReady] = useState(false);
   const rendererReady = rendererDisclosureReady || rendererDisclosureAccepted;
   const descriptionId = useId();
   const postalCodeErrorId = useId();
   const mapTitleRef = useRef<HTMLHeadingElement | null>(null);
   const detailsTitleRef = useRef<HTMLHeadingElement | null>(null);
+  // The pin, its settle state and its resolved address all live inside the
+  // picker, so a swipe or a dot tap has to ask it whether it may commit.
+  const mapPickerRef = useRef<LocationPickerMapHandle | null>(null);
+  const swipeOriginRef = useRef<{ x: number; y: number } | null>(null);
   // A field the person has typed in is theirs. The pin may fill a blank field
   // and refill it as it moves, but it must never overwrite an answer someone
   // gave -- a prefill that fights the typing is worse than no prefill.
   const postalCodeEditedRef = useRef(false);
   const houseOrFlatEditedRef = useRef(false);
+  // The address line itself, editable and separate from the entrance-detail
+  // fields below it -- it IS the detected address, not something inferred
+  // from it, so it is not governed by the "fill the fields below" checkbox.
+  const addressLineEditedRef = useRef(false);
+  const [addressLineValue, setAddressLineValue] = useState("");
 
   // Reset internal selection each time the modal (re)opens. When editing an
   // existing saved place, seed the category/label/detail fields from the
@@ -256,7 +387,14 @@ export function SaveLocationModal({
       houseOrFlatEditedRef.current = Boolean(
         initialDetails && initialDetails.houseOrFlat,
       );
-      setCategory(initialCategory ?? null);
+      addressLineEditedRef.current = false;
+      setAddressLineValue("");
+      // Editing keeps the place's own label; a new place opens on the first
+      // label still free, so the primary button is live on arrival instead of
+      // waiting behind "Pick Home, Work or Other first."
+      setCategory(
+        initialCategory ?? defaultSavedLocationCategory(existingLocations),
+      );
       setCustomLabel(initialCustomLabel ?? "");
       setEditingPlace(false);
       setPickedAddress(null);
@@ -272,6 +410,8 @@ export function SaveLocationModal({
       setPlaceSearchError(null);
       setSelectingPlaceId(null);
       setRendererDisclosureReady(false);
+      setSlideFrom(null);
+      setMapReady(false);
     }
     // Initial* props are read once per open; excluded to avoid mid-session
     // resets while the modal is open.
@@ -317,7 +457,9 @@ export function SaveLocationModal({
     };
   }, [editingPlace, onSearchPlaces, open, placeQuery]);
 
-  const resolvedAddress = (address && address.trim()) || null;
+  // A leading plus code is a coordinate wearing an address's clothes. Dropped
+  // once, here, so every place this line is shown or saved says the same thing.
+  const resolvedAddress = stripPlusCodeSegment(address);
   const changingPlace = selectingPlaceId !== null;
   const interactionBusy = saving || changingPlace;
   const canEditPlace = Boolean(onSearchPlaces && onSelectPlace);
@@ -327,6 +469,12 @@ export function SaveLocationModal({
     Number.isFinite(mapInitial.latitude) &&
     Number.isFinite(mapInitial.longitude),
   );
+  /**
+   * The native map is on screen, which means anything painted over the sheet is
+   * painted over the map itself. Only true on device: on web the map is an
+   * ordinary element inside the sheet and the scrim belongs there.
+   */
+  const nativeMapShowing = isNative() && flowStep === "map" && canPickOnMap;
   useEffect(() => {
     if (!open) return;
     if (startWithMapPicker && canPickOnMap) {
@@ -366,7 +514,28 @@ export function SaveLocationModal({
 
   const normalizedAddressDetails =
     normalizeSavedLocationAddressDetails(addressDetails);
-  const detectedAddress = pickedAddress || resolvedAddress || "";
+  const detectedAddress =
+    stripPlusCodeSegment(pickedAddress) || resolvedAddress || "";
+  /**
+   * The Address line box tracks the detected address until the person types
+   * over it -- the same "typed wins" rule as House/flat and PIN, just for the
+   * line those fields are extracted from rather than for one piece of it.
+   */
+  const effectiveAddressLine = addressLineEditedRef.current
+    ? addressLineValue
+    : detectedAddress;
+  /**
+   * Something the person put in themselves. This matters because a pinned
+   * point does not always come back with an address: on the native build
+   * before the vault exists there is no server reverse-geocode and no browser
+   * geocoder either, so the lookup returns nothing however good the pin is.
+   * Blocking the save on a resolved STRING left that person pinned, correct,
+   * and permanently unable to finish.
+   */
+  const hasOwnAddressAnswer =
+    normalizedAddressDetails.houseOrFlat.length > 0 ||
+    normalizedAddressDetails.landmark.length > 0 ||
+    normalizedAddressDetails.postalCode.length > 0;
   const postalCodeInvalid =
     normalizedAddressDetails.postalCode.length > 0 &&
     !isValidPostalCode(normalizedAddressDetails.postalCode);
@@ -385,8 +554,15 @@ export function SaveLocationModal({
       ? null
       : category === null
         ? "Pick Home, Work or Other first."
-        : collectAddressDetails && detectedAddress.length === 0
-          ? "Pin a spot on the map first."
+        : collectAddressDetails &&
+            effectiveAddressLine.length === 0 &&
+            !hasOwnAddressAnswer
+          ? // The pin is fine; only its address lookup came back empty. Name
+            // the way out that is actually open, rather than sending someone
+            // back to a map they already got right. The line above already
+            // shows there is no address, so this only has to carry the action
+            // -- and it matches the shape of its two siblings.
+            "Add a house, landmark or PIN."
           : postalCodeInvalid
             ? // Not the field's own wording. The invalid PIN already says
               // "Enter a valid PIN or postal code." right next to itself, and
@@ -402,6 +578,70 @@ export function SaveLocationModal({
     flowStep !== "map" &&
     !changingPlace &&
     saveBlockedReason === null;
+
+  /**
+   * The pin and the address details are two slides of one thing, not two
+   * steps of a longer setup. Only true when both slides genuinely exist for
+   * this caller; a modal with a single pane keeps its plain layout.
+   */
+  const carouselMode = collectAddressDetails && canPickOnMap;
+  const paneProps = {
+    "data-save-location-pane": "",
+    // Restores the gap the fragment used to inherit from the sheet, so the
+    // wrapper is a pure animation host and changes no spacing.
+    className: cn(
+      "flex min-h-0 flex-col gap-5",
+      slideFrom === "right" &&
+        "[animation:saveLocSlideFromRight_260ms_cubic-bezier(0.2,0,0,1)_both]",
+      slideFrom === "left" &&
+        "[animation:saveLocSlideFromLeft_260ms_cubic-bezier(0.2,0,0,1)_both]",
+    ),
+  };
+  const carouselIndex = flowStep === "details" ? 1 : 0;
+  const carouselLabels = ["Pin your entrance", "Address details"];
+
+  const goToSlide = (next: number) => {
+    if (interactionBusy || next === carouselIndex) return;
+    if (next === 1) {
+      // Moving forward commits the pin, exactly as the Confirm button does.
+      // The picker decides whether that is safe right now.
+      mapPickerRef.current?.confirm();
+      return;
+    }
+    setSlideFrom("left");
+    setMapReady(false);
+    setFlowStep("map");
+  };
+
+  /**
+   * Horizontal drags on the sheet move between the two slides. Gestures that
+   * begin on the map surface belong to the map -- panning to place a pin is a
+   * horizontal drag too, and stealing it would make the pin impossible to
+   * move. Vertical-dominant drags are left to the scroll container.
+   */
+  const handleSwipeStart = (event: PointerEvent<HTMLDivElement>) => {
+    if (!carouselMode || event.pointerType === "mouse") {
+      swipeOriginRef.current = null;
+      return;
+    }
+    const target = event.target as HTMLElement | null;
+    if (target?.closest?.("[data-location-picker-surface]")) {
+      swipeOriginRef.current = null;
+      return;
+    }
+    swipeOriginRef.current = { x: event.clientX, y: event.clientY };
+  };
+
+  const handleSwipeEnd = (event: PointerEvent<HTMLDivElement>) => {
+    const origin = swipeOriginRef.current;
+    swipeOriginRef.current = null;
+    if (!origin) return;
+    const deltaX = event.clientX - origin.x;
+    const deltaY = event.clientY - origin.y;
+    if (Math.abs(deltaX) < CAROUSEL_SWIPE_THRESHOLD_PX) return;
+    if (Math.abs(deltaX) <= Math.abs(deltaY)) return;
+    goToSlide(deltaX < 0 ? carouselIndex + 1 : carouselIndex - 1);
+  };
 
   const handleSelectPlace = async (placeId: string) => {
     if (!onSelectPlace || changingPlace) return;
@@ -430,6 +670,8 @@ export function SaveLocationModal({
         }),
       );
     }
+    setSlideFrom("right");
+    setMapReady(false);
     setFlowStep(collectAddressDetails ? "details" : "summary");
   };
 
@@ -447,7 +689,7 @@ export function SaveLocationModal({
         category,
         label ?? "",
         normalizedAddressDetails,
-        detectedAddress || null,
+        effectiveAddressLine.trim() || null,
       );
       return;
     }
@@ -475,7 +717,32 @@ export function SaveLocationModal({
         showCloseButton={false}
         data-testid="save-location-modal"
         aria-describedby={descriptionId}
-        overlayClassName="z-[559] bg-black/45 backdrop-blur-[6px]"
+        onPointerDown={handleSwipeStart}
+        onPointerUp={handleSwipeEnd}
+        onPointerCancel={() => {
+          swipeOriginRef.current = null;
+        }}
+        // Location onboarding is a full-screen takeover at z-560 with an OPAQUE
+        // background. The scrim used to sit at z-559 -- underneath it -- so the
+        // dim and the blur were painted where nothing could see them, and the
+        // sheet landed on a fully lit screen with no separation at all. That is
+        // the "it looks like a patch": not a missing blur, a buried one.
+        // Above the takeover, below the app's sheets/drawers at z-711.
+        overlayClassName={cn(
+          "z-[600]",
+          nativeMapShowing
+            ? // The native map is not part of the page: @capacitor/google-maps
+              // draws it BELOW the WebView and the WebView is punched through to
+              // reveal it. This overlay is a Radix sibling of the sheet, so the
+              // rule that clears backgrounds inside [data-testid=
+              // "save-location-modal"] never reached it -- and a 55% black scrim
+              // with a 10px blur sat over the whole screen, hiding the map while
+              // the HTML pin and cards stayed crisp on top. That is exactly the
+              // "no map behind it, just one pin" report: the map was rendering
+              // the whole time, behind the scrim.
+              "bg-transparent backdrop-blur-none [-webkit-backdrop-filter:none]"
+            : "bg-black/55 backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)]",
+        )}
         onEscapeKeyDown={(event) => {
           if (interactionBusy) event.preventDefault();
         }}
@@ -483,13 +750,21 @@ export function SaveLocationModal({
           if (interactionBusy || flowStep === "map") event.preventDefault();
         }}
         className={cn(
-          "z-[560] bottom-[var(--kb-height,0px)] top-auto max-h-[min(92dvh,760px)] w-full max-w-[420px] translate-y-0 gap-5 overflow-y-auto",
+          "z-[601] bottom-[var(--kb-height,0px)] top-auto max-h-[min(92dvh,760px)] w-full max-w-[420px] translate-y-0 gap-5 overflow-y-auto",
           "rounded-b-none rounded-t-[24px] sm:bottom-auto sm:top-[50%] sm:translate-y-[-50%] sm:rounded-[20px]",
-          "border border-border/60 bg-[color:var(--app-card-surface-default-solid)] p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] shadow-none sm:p-6 sm:pb-6",
+          // A real edge and a real lift, so the sheet reads as a layer above
+          // the screen rather than a rectangle pasted onto it.
+          "border border-black/[0.06] bg-[color:var(--app-card-surface-default-solid)] p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)] dark:border-white/[0.08] sm:p-6 sm:pb-6",
+          // `!` because the sheet's arbitrary shadow does not merge away the
+          // dialog primitive's own `shadow-[var(--app-card-shadow-feature)]`:
+          // tailwind-merge leaves both classes on the element and the base one
+          // wins on stylesheet order, so the lift never actually rendered.
+          "!shadow-[0_24px_60px_-12px_rgba(16,24,40,0.35),0_8px_20px_-8px_rgba(16,24,40,0.24)] dark:!shadow-[0_24px_60px_-12px_rgba(0,0,0,0.7)]",
         )}
       >
+        <style>{CAROUSEL_KEYFRAMES}</style>
         {flowStep === "map" && canPickOnMap ? (
-          <>
+          <div {...paneProps}>
             <DialogTitle ref={mapTitleRef} tabIndex={-1} className="sr-only">
               {rendererReady ? "Pin your entrance" : "Before Google Maps opens"}
             </DialogTitle>
@@ -498,12 +773,8 @@ export function SaveLocationModal({
                 ? "Move the pin to the entrance."
                 : "Review before opening Maps."}
             </p>
-            {collectAddressDetails ? (
-              <p className="text-[13px] font-normal leading-[18px] tracking-normal text-[color:var(--app-accent-deep,#0b62c4)] dark:text-[#9bc7f5]">
-                Step 1 of 2
-              </p>
-            ) : null}
             <LocationPickerMap
+              ref={mapPickerRef}
               initialLatitude={mapInitial!.latitude}
               initialLongitude={mapInitial!.longitude}
               initialAddress={pickedAddress || resolvedAddress}
@@ -511,6 +782,7 @@ export function SaveLocationModal({
               reverseGeocode={reverseGeocode}
               onLocateMe={onLocateMe}
               onConfirm={handleConfirmMapPick}
+              onReadyChange={setMapReady}
               onCancel={() => {
                 if (startWithMapPicker) {
                   onSkip();
@@ -525,13 +797,22 @@ export function SaveLocationModal({
               }
               cancelLabel={startWithMapPicker ? "Skip for now" : "Cancel"}
             />
-          </>
+            {carouselMode ? (
+              <CarouselDots
+                index={0}
+                count={2}
+                labels={carouselLabels}
+                canAdvance={mapReady}
+                onSelect={goToSlide}
+              />
+            ) : null}
+          </div>
         ) : flowStep === "details" && collectAddressDetails ? (
-          <>
+          <div {...paneProps}>
             <button
               type="button"
               onClick={() =>
-                canPickOnMap ? setFlowStep("map") : setFlowStep("summary")
+                canPickOnMap ? goToSlide(0) : setFlowStep("summary")
               }
               disabled={interactionBusy}
               aria-label={canPickOnMap ? "Back to map" : "Back"}
@@ -550,13 +831,10 @@ export function SaveLocationModal({
             </button>
 
             <header className="px-9 text-center">
-              <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
-                Step 2 of 2
-              </p>
               <DialogTitle
                 ref={detailsTitleRef}
                 tabIndex={-1}
-                className="mt-1 text-[28px] font-bold leading-[1.12] tracking-normal text-foreground outline-none"
+                className="text-[28px] font-bold leading-[1.12] tracking-normal text-foreground outline-none"
               >
                 Add your address details
               </DialogTitle>
@@ -587,19 +865,49 @@ export function SaveLocationModal({
               {canPickOnMap ? (
                 <button
                   type="button"
-                  onClick={() => setFlowStep("map")}
+                  onClick={() => goToSlide(0)}
                   disabled={interactionBusy}
-                  className="press-scale shrink-0 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45"
+                  className={cn(
+                    "press-scale shrink-0 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45",
+                    "relative after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']",
+                  )}
                 >
                   Edit pin
                 </button>
               ) : null}
             </div>
 
+            <div>
+              <label
+                htmlFor="saved-location-address-line"
+                className={controlLabelClassName}
+              >
+                Address line
+              </label>
+              <input
+                id="saved-location-address-line"
+                type="text"
+                value={effectiveAddressLine}
+                onChange={(event) => {
+                  addressLineEditedRef.current = true;
+                  setAddressLineValue(event.target.value);
+                }}
+                disabled={interactionBusy}
+                maxLength={300}
+                autoComplete={deferredUntilVault ? "off" : "street-address"}
+                placeholder={
+                  loadingAddress
+                    ? "Finding your address…"
+                    : "e.g. 12 MG Road, Bengaluru"
+                }
+                className={controlInputClassName}
+              />
+            </div>
+
             {/* Ticked, the fields below are filled from that address and keep
                 following the pin. Unticked, they are cleared and left alone.
                 Anything typed by hand survives either way. */}
-            <label className="flex cursor-pointer items-center gap-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
+            <label className="flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
               <input
                 type="checkbox"
                 checked={useDetectedAddress}
@@ -794,10 +1102,7 @@ export function SaveLocationModal({
                 onClick={handleSave}
                 disabled={!canSave}
                 aria-busy={saving || undefined}
-                className={cn(
-                  "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[17px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45",
-                  "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
-                )}
+                className={primaryActionClassName(canSave)}
               >
                 {saving ? (
                   <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
@@ -814,11 +1119,20 @@ export function SaveLocationModal({
               >
                 Skip for now
               </button>
+              {carouselMode ? (
+                <CarouselDots
+                  index={1}
+                  count={2}
+                  labels={carouselLabels}
+                  canAdvance
+                  onSelect={goToSlide}
+                />
+              ) : null}
             </div>
-          </>
+          </div>
         ) : (
 
-          <>
+          <div {...paneProps}>
             <button
               type="button"
               onClick={onSkip}
@@ -873,7 +1187,10 @@ export function SaveLocationModal({
                     setPlaceSearchError(null);
                   }}
                   disabled={interactionBusy}
-                  className="press-scale inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45"
+                  className={cn(
+                    "press-scale inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45",
+                    "relative after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']",
+                  )}
                   aria-label="Change captured location"
                 >
                   <Pencil className="h-3.5 w-3.5" aria-hidden />
@@ -1018,10 +1335,7 @@ export function SaveLocationModal({
                 onClick={handleSave}
                 disabled={!canSave}
                 aria-busy={saving || undefined}
-                className={cn(
-                  "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[17px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45",
-                  "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
-                )}
+                className={primaryActionClassName(canSave)}
               >
                 {saving ? (
                   <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
@@ -1039,7 +1353,7 @@ export function SaveLocationModal({
                 Skip for now
               </button>
             </div>
-          </>
+          </div>
         )}
 
       </DialogContent>

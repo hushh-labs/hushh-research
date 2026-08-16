@@ -34,6 +34,10 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
+import {
+  filterPeopleByQuery,
+  sortPeopleByName,
+} from "@/lib/one-location/people-search";
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import {
   isCircleSelectionFullySelected,
@@ -184,7 +188,7 @@ function ContactRow({
           </span>
         ) : !ready ? (
           <span className="block truncate text-[13px] leading-[18px] text-[#8E8E93]">
-            Not ready to receive location
+            Hasn't set up sharing yet
           </span>
         ) : null}
       </span>
@@ -279,7 +283,7 @@ export function CheckInFlow({
       setSeeded(true);
       if (!selection.ready.length) {
         toast.error(
-          "No current Circle members are ready to receive encrypted location.",
+          "No one in this Circle can receive it yet.",
         );
       }
     } catch (error) {
@@ -309,13 +313,21 @@ export function CheckInFlow({
     }
   }, [contacts, seeded, vm]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return contacts;
-    return contacts.filter((r) =>
-      vm.recipientLabel(r).toLowerCase().includes(q),
-    );
-  }, [contacts, search, vm]);
+  // `contacts` is two lists merged (trusted contacts, then whichever Circle is
+  // selected), so its order is "wherever each person happened to come from" —
+  // and it changes the moment a Circle is picked. Ordering the rendered list
+  // A–Z gives it a fixed place to look instead. Only the rendered list is
+  // reordered: seeding, the ready count and every lookup below still read
+  // `contacts`, so which person is pre-ticked does not move.
+  const filtered = useMemo(
+    () =>
+      filterPeopleByQuery(
+        sortPeopleByName(contacts, (r) => vm.recipientLabel(r)),
+        search,
+        (r) => vm.recipientLabel(r),
+      ),
+    [contacts, search, vm],
+  );
 
   const selectedReadyCount = useMemo(
     () =>
@@ -506,14 +518,14 @@ export function CheckInFlow({
                   ? pointIsFresh
                     ? "Live location ready"
                     : "Location needs a refresh"
-                  : "Location not captured yet"}
+                  : "No location yet"}
             </p>
             <p className="mt-1 text-[15px] leading-[20px] text-[#8E8E93]">
               {point
                 ? confirmedPoint
-                  ? `${accuracy ?? "Location captured"} · Retrying the exact point you reviewed`
-                  : `${accuracy ?? "Location captured"} · ${vm.formatDateTime(point.capturedAt)}`
-                : "Capture your current location to check in."}
+                  ? `${accuracy ?? "Location found"} · Using the spot you confirmed`
+                  : `${accuracy ?? "Location found"} · ${vm.formatDateTime(point.capturedAt)}`
+                : "Find your location to check in."}
             </p>
           </div>
           <button
@@ -537,13 +549,13 @@ export function CheckInFlow({
                 vm.busy === "selfLocation" && "animate-spin",
               )}
             />
-            {confirmedPoint ? "Recenter" : point ? "Refresh" : "Capture"}
+            {confirmedPoint ? "Recenter" : point ? "Refresh" : "Find"}
           </button>
         </div>
         {point && !pointIsFresh ? (
           <p className="px-4 pb-3 text-xs font-medium text-amber-700 dark:text-amber-300">
             {confirmationExpired
-              ? "This confirmation expired. Edit details and reconfirm to continue."
+              ? "That expired. Edit and confirm again."
               : "Refresh so the location you review is no more than one minute old."}
           </p>
         ) : null}
@@ -705,7 +717,7 @@ export function CheckInFlow({
           className={cn(CARD, "p-5 text-center text-sm text-muted-foreground")}
         >
           {contacts.length === 0
-            ? "No trusted contacts yet. Add people to your Circle first."
+            ? "No contacts yet. Add people to your Circle."
           : "No matching contacts."}
         </div>
       )}
@@ -770,7 +782,7 @@ export function CheckInFlow({
       </div>
       <p className="mb-[18px] mt-2 px-1 text-[15px] leading-[20px] text-[#8E8E93]">
         {retryLocked
-          ? "Retry sends only to failed people."
+          ? "Encrypted. Sends again to the people it missed."
           : "Encrypted with your location."}
       </p>
       {retryLocked ? (
@@ -780,9 +792,7 @@ export function CheckInFlow({
           disabled={busy}
           onClick={editAndReconfirm}
         >
-          {completedRecipientIds.length > 0
-            ? "Edit remaining details and reconfirm"
-            : "Edit details and reconfirm"}
+          Edit and confirm again
         </button>
       ) : null}
 
@@ -803,21 +813,21 @@ export function CheckInFlow({
         )}
         {point
           ? recipientKeyChanged
-            ? "Secure key changed — reconfirm"
+            ? "Their security key changed - confirm again"
             : confirmationExpired
-            ? "Confirmation expired"
+            ? "Confirm your location again"
             : !pointIsFresh
             ? "Refresh your location first"
             : selectedReadyCount > 0
               ? entrySource === "nearby"
-                ? `Share encrypted location with ${selectedReadyCount} ${
+                ? `Share location with ${selectedReadyCount} ${
                     selectedReadyCount === 1 ? "person" : "people"
                   }`
                 : `Check in with ${selectedReadyCount} ${
                     selectedReadyCount === 1 ? "person" : "people"
                   }`
-              : "Select who should know"
-          : "Capture your location first"}
+              : "Choose who to tell"
+          : "Get your location first"}
       </button>
     </div>
   );

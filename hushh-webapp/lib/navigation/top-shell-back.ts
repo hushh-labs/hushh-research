@@ -14,7 +14,25 @@ type SearchParamsLike = { get(name: string): string | null } | null | undefined;
 export type TopShellBackAction = {
   href: string;
   mode: "push" | "replace";
+  /**
+   * `full` crossfades the whole app shell; `contextual` commits in place.
+   *
+   * Leaving a Location flow (`?action=…` → the hub) never changes the
+   * pathname — it is the same screen with a different query, which the route
+   * transition driver already refuses to fade for links and history writes.
+   * Sending it through the full envelope made back cost a 300ms exit beat
+   * before the router was even called, and any navigation that arrived inside
+   * that window superseded the back and dropped it. So the rule that decides
+   * whether a href is a screen switch lives here, next to the rule that
+   * decides where back goes.
+   */
+  transitionMode: "full" | "contextual";
 };
+
+function pathnameOf(href: string): string {
+  const path = href.split("#")[0]?.split("?")[0] ?? href;
+  return path || href;
+}
 
 /**
  * The one deterministic back action shared by the visible top-bar control and
@@ -60,17 +78,27 @@ export function resolveTopShellBackAction(params: {
     params.pathname === ROUTES.ONE_LOCATION &&
     Boolean(params.searchParams?.get("action")?.trim());
 
+  const action = (
+    href: string,
+    mode: TopShellBackAction["mode"],
+  ): TopShellBackAction => ({
+    href,
+    mode,
+    transitionMode:
+      pathnameOf(href) === params.pathname ? "contextual" : "full",
+  });
+
   // An open panel or action sheet closes in place. It is a query-only state on
   // the same screen, never a step in the trail, so it must not retrace.
   if (profilePanelOpen || locationActionOpen) {
-    return { href: breadcrumb.backHref, mode: "replace" };
+    return action(breadcrumb.backHref, "replace");
   }
 
   // Only the section root leaves the section. Everywhere else the declared
   // parent already climbs the hierarchy correctly, which is why nothing is
   // stored for moves inside a section.
   if (!isDestinationRoot(params.pathname)) {
-    return { href: breadcrumb.backHref, mode: "push" };
+    return action(breadcrumb.backHref, "push");
   }
 
   const origin =
@@ -78,7 +106,7 @@ export function resolveTopShellBackAction(params: {
       ? readDestinationOrigin(params.pathname)
       : params.sectionOrigin;
 
-  return { href: origin || breadcrumb.backHref, mode: "push" };
+  return action(origin || breadcrumb.backHref, "push");
 }
 
 export function navigateTopShellBack(params: {

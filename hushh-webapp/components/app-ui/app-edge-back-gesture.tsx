@@ -160,7 +160,7 @@ export function AppEdgeBackGesture() {
             replace: action.mode === "replace",
             scroll: false,
             source: "native_back",
-            transitionMode: "full",
+            transitionMode: action.transitionMode,
           });
         },
       });

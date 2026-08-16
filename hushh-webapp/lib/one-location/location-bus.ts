@@ -533,7 +533,16 @@ export const LocationBus = {
             return;
           }
           if (!error) return;
-          const denied = error.code === 1;
+          // `error.code === 1` is the BROWSER contract (GeolocationPositionError
+          // .PERMISSION_DENIED). Capacitor's native reject carries a `String?`
+          // code and HushhLocationPlugin passes none, so on iOS and Android that
+          // comparison could never be true: a person who revoked location while
+          // a watch was live was reported as a generic "error" — and, because
+          // the branch below swallows non-denials whenever a snapshot is held,
+          // usually not reported at all. The one-shot path already uses the
+          // helper (line 180); this is the same check, and it still matches the
+          // browser code because the helper tests `code === 1` first.
+          const denied = isLocationPermissionDeniedError(error);
           if (!denied && state.snapshot) {
             // A live watch reports POSITION_UNAVAILABLE/TIMEOUT routinely
             // between fixes. We already hold a position, so this is noise, not

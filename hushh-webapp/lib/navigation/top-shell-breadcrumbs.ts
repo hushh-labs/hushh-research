@@ -55,7 +55,11 @@ function titleizeSegment(segment: string): string {
 function oneLocationActionLabel(action: string): string {
   const labels: Record<string, string> = {
     share: "Share location",
-    ask: "Request Location",
+    // Sentence case, matching every sibling crumb ("Share location", "Active
+    // shares", "Public link") and the screen's own TaskFlowHeader title. The
+    // crumb and the title must read as the same words or the trail and the
+    // screen stop agreeing.
+    ask: "Request location",
     invite: "Invite to Circle",
     "temp-link": "Public link",
     "check-in": "Check-In",
@@ -258,7 +262,9 @@ function resolveTopShellBreadcrumbInner(
       align: "center",
       items: [
         { label: "Set up", href: ROUTES.ONE_SETUP },
-        { label: "AI access" },
+        // Matches the on-screen title; a crumb that disagrees with the heading
+        // reads as two different screens.
+        { label: "Choose your AI" },
       ],
     };
   }

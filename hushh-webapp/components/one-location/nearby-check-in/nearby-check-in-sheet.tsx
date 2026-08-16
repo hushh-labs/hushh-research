@@ -1494,13 +1494,41 @@ export function NearbyCheckInSheet({
     }
   };
 
+  // Deliberately NOT modal, and deliberately without a scrim.
+  //
+  // Check-in is a question about the map -- "which of these nearby places are
+  // you at?" -- so the map has to stay readable and pannable to answer it. The
+  // map already proves that intent elsewhere: it publishes camera padding from
+  // this sheet's own rect so the pins stay framed above it. A modal sheet
+  // contradicted that with a `fixed inset-0 z-[711] touch-none` scrim over the
+  // whole screen, which blurred the very map it was asking about and left the
+  // map's close X, Locate and Check-in controls visible but completely
+  // untappable underneath it.
+  //
+  // Outside interactions are swallowed instead of dismissing, so panning or
+  // zooming to find a place cannot close the sheet mid-answer. That makes the
+  // close X the dismissal, which is why it needed a real 44px target (see
+  // SheetContent).
   return (
-    <Sheet modal open={open} onOpenChange={onOpenChange}>
+    <Sheet modal={false} open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
         dragDismiss={false}
         showDragHandle={false}
-        className="gap-0 overflow-hidden px-0 pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[26rem] md:rounded-none md:rounded-l-[var(--app-card-radius-feature)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right"
+        showOverlay={false}
+        onInteractOutside={(event) => event.preventDefault()}
+        // The map is a native view below the WebView, so a tap that lands on it
+        // never reaches Radix as a normal outside-pointer event on some
+        // platforms and does on others. Refusing both keeps dismissal identical
+        // on web and on device instead of platform-dependent.
+        onPointerDownOutside={(event) => event.preventDefault()}
+        // Stop short of the map header instead of the default 85dvh. With the
+        // scrim gone the controls behind are live again, so the sheet must not
+        // be the thing covering them: 8.5rem clears the header's real stack
+        // (56px control row + 8px gap + the Sharing row + its 16px padding)
+        // plus the top safe area, and leaves a visible strip of map between the
+        // two. Phone-only; the md rail is a side sheet and sets max-h-none.
+        className="max-h-[calc(100dvh-env(safe-area-inset-top)-8.5rem-var(--kb-height,0px))] gap-0 overflow-hidden px-0 pb-[max(1rem,env(safe-area-inset-bottom))] md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:w-[26rem] md:rounded-none md:rounded-l-[var(--app-card-radius-feature)] md:border-l md:border-t-0 md:data-[state=closed]:slide-out-to-right md:data-[state=open]:slide-in-from-right"
         data-testid="one-location-nearby-check-in-sheet"
         data-one-location-nearby-check-in-sheet=""
       >

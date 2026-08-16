@@ -386,6 +386,10 @@ textarea {
   --system-red: var(--app-destructive);
   --system-orange: var(--app-warning);
   --app-purple: #af52de;
+  /* People, circles, private sharing. Sits beside the other five semantic
+     hues rather than inline in a component, and gives the profile screens'
+     existing [data-icon-tone="indigo"] rules something to reference. */
+  --app-indigo: #5856d6;
   --app-info: var(--app-accent);
 
   /* ── Semantic role families (light) ──────────────────────────────
@@ -1050,6 +1054,10 @@ textarea {
   --app-success: #30d158;
   --app-warning: #ff9f0a;
   --app-purple: #bf5af2;
+  /* Brightened for dark exactly like --app-warning and --app-destructive are.
+     The raw system value (#5e5ce6) measures 2.77:1 on the 20% tile — the only
+     tone in the map under 3:1 — where every sibling sits above 4.7. */
+  --app-indigo: #7d7aff;
   --app-info: var(--app-accent);
 
   /* ── Semantic role families (dark) ───────────────────────────────
@@ -1382,7 +1390,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 [data-profile-stack-screen="panel:account"] [data-icon-tone="indigo"],
 .profile-account-content [data-icon-tone="indigo"],
 .profile-home-content [data-icon-tone="indigo"] {
-  background: #5856d6 !important;
+  background: var(--app-indigo) !important;
 }
 
 [data-profile-stack-screen="account"] [data-icon-tone="purple"],

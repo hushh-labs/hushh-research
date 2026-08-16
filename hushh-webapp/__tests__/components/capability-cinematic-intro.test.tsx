@@ -24,7 +24,7 @@ describe("CapabilityCinematicIntroGate", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: "A clearer way to understand your money.",
+        name: "See your money clearly.",
       }),
     ).toBeTruthy();
     expect(screen.queryByText("Finance preferences")).toBeNull();
@@ -98,33 +98,29 @@ describe("CapabilityCinematicIntroGate", () => {
     expect(screen.getByText("Finance preferences")).toBeTruthy();
   });
 
-  it("uses the shared prologue for AI access without promoting it to a capability", () => {
-    render(
-      <CapabilityCinematicIntroGate capabilityId="connections">
-        <p>Connections settings</p>
-      </CapabilityCinematicIntroGate>,
+  it("does not gate AI access behind the prologue", () => {
+    // AI access is the mandatory step that blocks finishing setup, so it opens
+    // its real two-option choice directly. The gate does not know about it at
+    // all -- neither as a copy fallback nor as a provider-mark special case.
+    const gateSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        "components/onboarding/setup/capability-cinematic-intro.tsx",
+      ),
+      "utf8",
+    );
+    const aiAccessPage = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        "components/connections/gemini-runtime-configuration-page.tsx",
+      ),
+      "utf8",
     );
 
-    expect(
-      screen.getByRole("heading", {
-        name: "Choose the intelligence behind your private agent.",
-      }),
-    ).toBeTruthy();
-    const providerLane = screen.getByRole("list", { name: "AI providers" });
-    expect(providerLane).toBeTruthy();
-    for (const provider of ["Google Gemini", "OpenAI", "Claude", "Grok", "Meta Muse Spark"]) {
-      expect(screen.getByLabelText(provider)).toBeTruthy();
-    }
-    expect(screen.queryByText("Connections settings")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
-    expect(screen.getByText("Connections settings")).toBeTruthy();
-    expect(
-      window.sessionStorage.getItem(
-        capabilityCinematicIntroSessionKey("connections"),
-      ),
-    ).toBe("1");
+    expect(gateSource).not.toContain('"connections"');
+    expect(gateSource).not.toContain("Choose the intelligence behind");
+    expect(gateSource).not.toContain("RUNTIME_PROVIDER_CATALOG");
+    expect(aiAccessPage).not.toContain("CapabilityCinematicIntroGate");
   });
 
   it("keeps the Continue action centered and full-width on compact viewports", () => {
@@ -178,18 +174,20 @@ describe("CapabilityCinematicIntroGate", () => {
   });
 
   it("uses transparent, fixed provider mark cells rather than filled brand tiles", () => {
-    const gateSource = fs.readFileSync(
+    // The provider lane moved onto the AI access screen itself when its
+    // prologue was removed; the treatment contract travelled with it.
+    const source = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        "components/onboarding/setup/capability-cinematic-intro.tsx",
+        "components/connections/gemini-runtime-configuration-page.tsx",
       ),
       "utf8",
     );
 
-    expect(gateSource).toContain("data-runtime-provider-lane");
-    expect(gateSource).toContain('className="inline-flex h-12 w-12 items-center justify-center"');
-    expect(gateSource).not.toContain("bg-[color:var(--app-card-surface-compact)]");
-    expect(gateSource).not.toContain("shadow-[var(--shadow-xs)]");
+    expect(source).toContain("data-runtime-provider-lane");
+    expect(source).toContain('className="inline-flex h-9 w-9 items-center justify-center"');
+    expect(source).not.toContain("bg-[color:var(--app-card-surface-compact)]");
+    expect(source).not.toContain("shadow-[var(--shadow-xs)]");
   });
 
   it("keeps every authored setup journey on the shared, non-durable gate", () => {
@@ -201,18 +199,13 @@ describe("CapabilityCinematicIntroGate", () => {
         "app/one/setup/connected-systems/connected-systems-onboarding-setup-client.tsx",
         "connected-systems",
       ],
-      [
-        "app/one/setup/location/location-onboarding-setup-client.tsx",
-        "location",
-      ],
+      // Location deliberately dropped the prologue (see the comment in
+      // location-onboarding-setup-client.tsx: "five taps; it is now three"),
+      // so it is not on this list. AI access dropped it for the same reason.
       ["app/one/setup/gmail/gmail-onboarding-setup-client.tsx", "gmail"],
       [
         "app/one/setup/calendar/calendar-onboarding-setup-client.tsx",
         "calendar",
-      ],
-      [
-        "components/connections/gemini-runtime-configuration-page.tsx",
-        "connections",
       ],
     ] as const;
 

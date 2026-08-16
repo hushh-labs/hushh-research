@@ -581,6 +581,204 @@ First must be empty — any hit is a raw `tel:` template that skipped the helper
 Second must list both directory surfaces (`advisor-detail-surface.tsx` and
 `insurance-agent-detail-surface.tsx`).
 
+### R15 — An overlay's z-index is meaningless until you name what it must sit above
+
+**Incident (2026-08-16, the Location onboarding "save a place" sheet).**
+The sheet's scrim was `z-[559]` with `bg-black/45 backdrop-blur-[6px]` — correct
+CSS, correct intent, and completely invisible. Location onboarding renders as a
+full-screen **opaque** takeover at `z-[560]`, so the dim and the blur were painted
+underneath it. The sheet's own content tied at `z-[560]` and won on portal order,
+which is why it appeared at all: a white rectangle pasted onto a fully lit screen
+with no separation. Reported as "it's looking like a patch — background should be
+blur", which reads as a missing blur and is actually a buried one. Adding more
+blur would have changed nothing.
+
+**Rule.** A modal layered over a takeover, drawer, or any other full-screen
+surface must be checked against **that surface's** z-index, not against the app's
+default chrome. Before setting one, grep the z-indexes it must clear and the ones
+it must stay under, and write both into the comment. Here: above the onboarding
+takeover at 560, below the shared sheet/drawer layer at 711.
+
+**Check.**
+```bash
+git grep -nE 'fixed inset-0 z-\[[0-9]{3}\]' -- hushh-webapp/components hushh-webapp/app \
+  | grep -E 'bg-(white|\[#)' 
+git grep -nE 'overlayClassName="z-\[([0-9]{3})\]' -- hushh-webapp/components
+```
+Every overlay in the second list must outrank every opaque full-screen layer in
+the first that it can appear over. The Location pair is 600/601 vs 560.
+
+### R16 — A Tailwind arbitrary value does not always beat the class it is meant to replace
+
+**Incident (2026-08-16, giving that same sheet a real elevation.)**
+`cn(...)` merged `shadow-[var(--app-card-shadow-feature)]` from the dialog
+primitive with `shadow-[0_24px_60px_-12px_rgba(16,24,40,0.35),...]` from the
+caller. tailwind-merge kept **both** classes on the element — it cannot compare
+two opaque arbitrary values — and the base one won on stylesheet order. Typecheck,
+lint and the unit tests were all green; the class was present in the DOM; the
+shadow simply never rendered. Only reading `getComputedStyle(...).boxShadow` in a
+real browser exposed it.
+
+**Rule.** When an arbitrary-value utility overrides another arbitrary-value
+utility of the same property, assert the **computed** style, not the class list.
+If it loses, mark it `!`. This applies to any comma-bearing arbitrary value
+(`shadow-[…]`, `transition-[…]`, `bg-[image:…]`, `grid-template-columns-[…]`).
+
+**Check.**
+```bash
+# Every shared primitive that ships its own arbitrary shadow.
+git grep -lE 'shadow-\[' -- hushh-webapp/components/ui
+# Every caller trying to override one of those from the outside.
+git grep -nE 'shadow-\[0_' -- hushh-webapp/components hushh-webapp/app \
+  | grep -v 'components/ui/' | grep -v '!shadow-'
+```
+The first lists the base layers (`dialog`, `sheet`, `alert-dialog`, `card`,
+`tabs`, `sidebar`). Any hit in the second is a caller whose shadow may be silently
+losing to one of them — read `getComputedStyle(el).boxShadow` in a browser before
+believing it rendered.
+
+### R17 — `git stash` is shared by every worktree; never use it to take a baseline
+
+**Incident (2026-08-16, proving a test failure was pre-existing on main.)**
+The plan was ordinary: `git stash -u`, run the suite at the base, `git stash
+pop`. But there was nothing local to stash — the work was already committed — so
+`stash -u` created no entry, and `pop` therefore popped **another agent's**
+wallet-card WIP into this worktree. It conflicted across 17 files. Nothing was
+lost (their two entries survived, because a conflicting pop does not drop the
+entry, and the real work was in a commit), but the tree had to be reset and the
+"baseline" proved nothing.
+
+The stash is a property of the **repository**, not the worktree or the branch.
+In a checkout several agents share, it is someone else's inbox.
+
+**Rule.** To compare against a base, add a throwaway worktree at that commit and
+run there. Never `git stash` in this repo — not to park work, not to peek at
+main. Commit to a branch instead; a commit is yours, a stash entry is everyone's.
+
+**Check.**
+```bash
+# Anything here belongs to somebody. If it is non-empty, do not pop.
+git stash list
+# The safe baseline instead:
+git worktree add /tmp/base-$$ origin/main && \
+  echo "run the check in /tmp/base-$$, then: git worktree remove /tmp/base-$$ --force"
+```
+
+### R18 — A width that "looks fine" is unmeasured; product titles need a number, not a glance
+
+**Incident (2026-08-16, adding a third tab to Connect.)** Three tabs plus the
+strip's stock 16px option padding left `Around you` 77px of the 80px it needs on
+a 375px screen, so it rendered `Around yo…`. Typecheck, lint, the full unit
+suite and every governance verifier were green: jsdom performs no layout, so a
+`truncate` class is invisible to it, and there was no horizontal scrollbar to
+notice. Measuring the real class strings against the built stylesheet in headless
+Chromium found it in seconds — and the same run found `Insurance` had been
+shipping as `Insuranc…` at 320px in the already-released *Around you* strip.
+
+**Rule.** A product-owned title may never resolve to an ellipsis. Adding an
+option to any segmented/tab strip, or lengthening a label, requires a measured
+width at 320-430px before it ships. Unbounded user content may truncate; copy we
+wrote may not.
+
+**Check.**
+```bash
+# Needs a build first — it measures the real stylesheet, not a copy of it.
+cd hushh-webapp && npx playwright test e2e/tab-title-integrity.spec.ts \
+  --project=chromium --reporter=line
+```
+Add every new strip's labels to `TAB_STRIPS` in that spec; a strip that is not
+listed is simply unmeasured.
+
+### R19 — A CSS rule that "obviously" wins may not. Read the computed value off the running app
+
+**Incident (2026-08-16, chasing a "header overlaying" report on the Feed).**
+`hushh-webapp/app/globals.css` gates the top chrome's background on an attribute:
+`html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask { --ambient-chrome-wash: 0% }`.
+Every supporting fact checked out — `grep -rn data-ambient-chrome-primed` returns
+that line and nothing else (no code sets it), the top bar element really does
+carry the bare `ambient-chrome-mask` class, and the gate's specificity (0,2,1)
+really does beat `.ambient-chrome-mask--top` (0,1,0). The conclusion drawn —
+"the top bar is permanently transparent, that is the overlap report" — was still
+wrong. Signed into UAT and measured, `--ambient-chrome-wash` computes to **94%**
+and the bar paints solidly; cascade layers decide it, not specificity. A
+subagent RCA lane reached the same wrong answer at "high" confidence, so reader
+agreement was not evidence either. The change was written and would have shipped
+a global-stylesheet edit — every screen in the app — for a defect that does not
+exist.
+
+**Rule.** Never edit `globals.css`, a theme token, or any global chrome rule on
+the strength of reading the cascade. Sign in and read the value back off the
+running app first. If the measurement contradicts the code reading, the
+measurement wins — revert, do not rationalise.
+
+**Check.** Credentials are in Secret Manager; the login page only auto-signs-in
+when the native test bridge is installed as an init script before the first
+`goto`. From `hushh-webapp/` (so the `playwright` import resolves):
+```bash
+export REVIEWER_UID=$(gcloud secrets versions access latest --secret=REVIEWER_UID --project=hushh-pda-uat)
+export REVIEWER_VAULT_PASSPHRASE=$(gcloud secrets versions access latest --secret=REVIEWER_VAULT_PASSPHRASE --project=hushh-pda-uat)
+```
+```js
+await page.addInitScript(({ expectedUserId, vaultPassphrase }) => {
+  window.__HUSHH_NATIVE_TEST__ = { ...(window.__HUSHH_NATIVE_TEST__ || {}),
+    enabled: true, autoReviewerLogin: true, expectedUserId, vaultPassphrase };
+}, { expectedUserId: process.env.REVIEWER_UID, vaultPassphrase: process.env.REVIEWER_VAULT_PASSPHRASE });
+// /login?redirect=%2Fria -> "Continue as reviewer" -> #unlock-passphrase -> "Unlock with passphrase"
+getComputedStyle(document.querySelector(".ambient-chrome-mask--top")).getPropertyValue("--ambient-chrome-wash");
+```
+Must print `94%`. Anything you believe about a global rule that you have not
+read back this way is a hypothesis, not a finding.
+
+---
+
+### R20 — A word-boundary regex built from `\p{L}\p{N}` silently shreds every Indic name
+
+**Incident (2026-08-16, making one-letter people search work — PR #5317, fixed
+in #5325).** A new people-search helper split names on `/[^\p{L}\p{N}]+/u` to
+find word beginnings, so typing `n` would surface "Neelesh" rather than every
+name merely containing an "n". It worked perfectly in Latin and shipped green:
+13 unit tests, typecheck, lint, a full-suite baseline comparison, and a verified
+UAT deploy. A matra is a combining mark (`\p{M}`) — neither a letter nor a
+digit — so the regex treated every one as a **word separator**. `झुम्मा` became
+`["झ","म","म",""]` and `नीलेश` became `["न","ल","श"]`: every syllable read as a
+separate word. "Begins a word" therefore meant nothing for exactly the names
+this product's users have. Because a one-character query keeps only
+word-beginning matches, it could **drop** a real match — `म` over `[सुमन, कमल]`
+returned `सुमन` alone. Nothing caught it because every fixture was Latin.
+
+**Rule.** Any regex that splits or tokenizes **user-supplied names or text**
+must include `\p{M}` with the `u` flag — `/[^\p{L}\p{N}\p{M}]+/u`, never
+`/[^\p{L}\p{N}]+/u`. Combining marks belong *inside* a word, never between
+words. Add at least one Devanagari fixture: a Latin-only fixture set cannot fail
+this. (`normalizeSpokenName` in `app/one/location/page.tsx` already had this
+right — copy it rather than re-deriving it.)
+
+Scope this to regexes that **split**. A deliberately lossy comparison key may
+strip marks on purpose — `comparable()` in
+`lib/one-location/saved-location-address.ts` strips spaces and punctuation too,
+so dropping marks matches its intent — and a postal-code validator is fine
+without `\p{M}` because Devanagari digits are already `\p{N}` (`११००११`
+validates). Both are expected hits below; neither is a bug.
+
+**Check.**
+```bash
+cd hushh-webapp
+# Boundary regexes missing \p{M}. Expect only the two known-benign hits in
+# saved-location-address.ts; anything else that SPLITS a name is the bug.
+grep -rnE '\\p\{L\}\\p\{N\}\]' --include='*.ts' --include='*.tsx' lib components app \
+  | grep -v '\\p{M}'
+
+# Prove the difference on a real name before trusting either form:
+node -e '
+const bad=/[^\p{L}\p{N}]+/u, good=/[^\p{L}\p{N}\p{M}]+/u;
+for (const n of ["झुम्मा","नीलेश","सुमन"])
+  console.log(n, JSON.stringify(n.split(bad)), "->", JSON.stringify(n.split(good)));'
+# bad splits each name into single consonants; good keeps it whole.
+```
+
+---
+
+
 ## Adding a rule
 
 Every mistake found becomes a rule. Fix the **cause**, not the symptom, then add

@@ -25,6 +25,7 @@ import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { FeedRow } from "@/components/feed/feed-row";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { useFeedActionables } from "@/lib/feed/use-feed-actionables";
+import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import {
   FeedService,
@@ -64,8 +65,20 @@ export function FeedPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
-  const markedReadRef = useRef(false);
+  // The newest item id this visit has already reported as read. A live refresh
+  // brings genuinely new rows in while the page is open, and those must clear
+  // the tab badge too — a boolean latch marked read exactly once and then let
+  // the badge count up over a list the user was looking straight at.
+  const markedReadUpToRef = useRef<string | null>(null);
   const paginationInitializedRef = useRef(false);
+  // Ids that arrived unread at any point during this visit.
+  //
+  // The Feed marks itself read on open but deliberately keeps those rows styled
+  // unread until the next visit (see the mark-read effect below). Now that the
+  // list actually re-fetches, the server would return those same rows as read
+  // and the accent tint would drain out from under the reader mid-scroll.
+  // Remembering them preserves the intended behaviour through a live refresh.
+  const visitUnreadIdsRef = useRef<Set<string>>(new Set());
   // Durable clear. There is no backend feed-delete endpoint yet, so "Clear"
   // (a) marks everything read (which the server persists) and (b) records a
   // per-user "cleared up to this timestamp" watermark in localStorage. Every
@@ -100,15 +113,34 @@ export function FeedPage() {
     data,
     loading,
     error: resourceError,
+    refresh,
   } = useStaleResource<FeedListResponse>({
     cacheKey: user?.uid ? CACHE_KEYS.FEED_LIST(user.uid) : "feed_list_signed_out",
     enabled: Boolean(user?.uid),
     resourceLabel: "feed_list",
-    load: async () => {
+    // `force` must reach FeedService: it keeps its own short-TTL cache in front
+    // of the request, so dropping the flag here made a forced refresh return the
+    // same page it already had and the list looked live without being live.
+    load: async (options) => {
       const idToken = await user!.getIdToken();
-      return FeedService.list({ idToken, userId: user!.uid, limit: 20 });
+      return FeedService.list({
+        idToken,
+        userId: user!.uid,
+        limit: 20,
+        force: options?.force,
+      });
     },
   });
+
+  // Keep the open list live. `force` is required: without it a cache entry that
+  // is still inside its TTL short-circuits the load, which is exactly how the
+  // Feed could sit open showing activity that had already been answered.
+  useFeedLiveRefresh(
+    useCallback(() => {
+      void refresh({ force: true });
+    }, [refresh]),
+    Boolean(user?.uid),
+  );
 
   useEffect(() => {
     if (!data || paginationInitializedRef.current) return;
@@ -116,22 +148,43 @@ export function FeedPage() {
     setNextCursor(data.next_cursor);
   }, [data]);
 
-  // Opening the feed clears the unread badge (Instagram/Twitter convention),
-  // but we deliberately do NOT force-refresh the list: the rows the user is
-  // looking at keep their unread styling for this visit, and only read as
-  // "seen" on the next open. The badge (a separate unread-count) still clears
-  // immediately via the dispatched event.
+  // Looking at the feed clears the unread badge (Instagram/Twitter convention).
+  // The rows themselves keep their unread styling for this visit and only read
+  // as "seen" on the next open — `visitUnreadIdsRef` holds that, so a live
+  // refresh cannot restyle a row the user is mid-scroll through.
+  //
+  // This re-runs as new activity lands rather than firing once, so anything that
+  // arrives while the page is open is marked read too and the badge does not
+  // count up over a list being read.
   useEffect(() => {
-    if (!user || !data || markedReadRef.current) return;
+    if (!user || !data) return;
     const latestId = data.items[0]?.id;
-    if (!latestId) return;
-    markedReadRef.current = true;
+    if (!latestId || markedReadUpToRef.current === latestId) return;
+    markedReadUpToRef.current = latestId;
     void (async () => {
       const idToken = await user.getIdToken();
       await FeedService.markRead({ idToken, upToId: latestId });
-      dispatchFeedStateChanged();
+      // `read`: only unread flags moved, so the badge recounts but no list
+      // re-fetches what it just finished rendering.
+      dispatchFeedStateChanged("read");
     })();
   }, [user, data]);
+
+  // Record every row that has been unread this visit, before the mark-read above
+  // takes effect on the server. Covers paged-in rows too, which arrive unread on
+  // their own request.
+  useEffect(() => {
+    for (const item of [...(data?.items ?? []), ...additionalItems]) {
+      if (!item.read) visitUnreadIdsRef.current.add(item.id);
+    }
+  }, [data, additionalItems]);
+
+  // A new signed-in user is a new visit: neither the read watermark nor the
+  // unread set belongs to them.
+  useEffect(() => {
+    markedReadUpToRef.current = null;
+    visitUnreadIdsRef.current = new Set();
+  }, [user?.uid]);
 
   const items = useMemo(() => {
     // The cached first page can revalidate and shift after "load more" has
@@ -157,7 +210,7 @@ export function FeedPage() {
     return merged;
   }, [data, additionalItems, clearedAt]);
   const error = resourceError
-    ? "Feed could not be loaded right now."
+    ? "Couldn't load your feed."
     : loadMoreError;
 
   const loadMore = useCallback(async () => {
@@ -169,7 +222,7 @@ export function FeedPage() {
       setAdditionalItems((current) => [...current, ...response.items]);
       setNextCursor(response.next_cursor);
     } catch {
-      setLoadMoreError("Couldn't load more activity.");
+      setLoadMoreError("Couldn't load more.");
     } finally {
       setLoadingMore(false);
     }
@@ -198,7 +251,7 @@ export function FeedPage() {
         const idToken = await user.getIdToken();
         const latestId = items[0]?.id;
         await FeedService.markRead({ idToken, upToId: latestId ?? null });
-        dispatchFeedStateChanged();
+        dispatchFeedStateChanged("read");
         setAdditionalItems([]);
         setNextCursor(null);
         // Persist the clear as a timestamp watermark so it survives tab
@@ -213,9 +266,9 @@ export function FeedPage() {
           }
         }
       }
-      toast.success("Feed notifications cleared");
+      toast.success("Feed cleared");
     } catch {
-      toast.error("Failed to clear feed notifications");
+      toast.error("Couldn't clear your feed.");
     } finally {
       setClearing(false);
     }
@@ -334,7 +387,14 @@ export function FeedPage() {
                   <SectionLabel>{group.label}</SectionLabel>
                   <div className="divide-y divide-[color:var(--foundation-hairline)]">
                     {group.items.map((item) => (
-                      <FeedRow key={item.id} item={item} onOpen={openItem} />
+                      <FeedRow
+                        key={item.id}
+                        item={item}
+                        unread={
+                          !item.read || visitUnreadIdsRef.current.has(item.id)
+                        }
+                        onOpen={openItem}
+                      />
                     ))}
                   </div>
                 </section>

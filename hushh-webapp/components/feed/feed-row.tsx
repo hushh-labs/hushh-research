@@ -25,12 +25,19 @@ const DOMAIN_TONE: Record<FeedSourceDomain, FeedIconTone> = {
 export function FeedRow({
   item,
   onOpen,
+  unread,
 }: {
   item: FeedItem;
   onOpen: (item: FeedItem) => void;
+  /**
+   * Overrides `item.read` for styling only. The Feed marks itself read on open
+   * but keeps those rows looking unread for the rest of the visit; without this
+   * the page's live refresh would restyle them the moment the server agreed.
+   */
+  unread?: boolean;
 }) {
   const presentation = presentFeedItem(item);
-  const read = item.read;
+  const read = unread === undefined ? item.read : !unread;
   const tone = DOMAIN_TONE[item.source_domain] ?? "gray";
 
   return (

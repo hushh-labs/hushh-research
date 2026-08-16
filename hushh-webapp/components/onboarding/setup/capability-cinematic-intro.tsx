@@ -2,8 +2,6 @@
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
-import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
-import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   getCapabilitySetupCopy,
@@ -14,11 +12,11 @@ import { type OneSetupCapabilityId } from "@/lib/onboarding/setup-capability-ids
 const INTRO_SESSION_KEY_PREFIX = "one_capability_intro_seen_v1";
 
 /**
- * AI access is a root setup prerequisite, not an agent capability. It uses
- * the same presentational prologue without entering the capability catalog or
- * generated action registry.
+ * AI access is deliberately NOT in this union. It is the one mandatory step
+ * that blocks finishing setup, so it opens its real choice directly from the
+ * hub instead of a prologue with its own Continue button in front of it.
  */
-export type CapabilityCinematicIntroId = OneSetupCapabilityId | "connections";
+export type CapabilityCinematicIntroId = OneSetupCapabilityId;
 
 export function capabilityCinematicIntroSessionKey(
   capabilityId: CapabilityCinematicIntroId,
@@ -57,20 +55,6 @@ function markCapabilityIntroSeen(capabilityId: CapabilityCinematicIntroId) {
 function fallbackCopy(
   capabilityId: CapabilityCinematicIntroId,
 ): CapabilitySetupCopy {
-  if (capabilityId === "connections") {
-    return {
-      id: capabilityId,
-      title: "AI access",
-      setupTitle: "Choose how One reaches Gemini",
-      setupBlurb: "Start with Gemini today. More models are on the way.",
-      actionLabel: "Continue",
-      resumeActionLabel: "Continue",
-      href: "/one/setup/connections",
-      introPremise: "Choose the intelligence behind your private agent.",
-      introPromise: "Gemini is ready today. More models are coming soon.",
-    };
-  }
-
   return {
     id: capabilityId,
     title: capabilityId,
@@ -194,36 +178,6 @@ export function CapabilityCinematicIntroGate({
       aria-labelledby={`capability-intro-${capabilityId}`}
       data-capability-cinematic-intro={capabilityId}
     >
-      {capabilityId === "connections" ? (
-        <ul
-          className="mb-5 flex flex-wrap items-center gap-2"
-          aria-label="AI providers"
-          data-runtime-provider-lane
-        >
-          {RUNTIME_PROVIDER_CATALOG.map((provider) => (
-            <li key={provider.id} className="relative">
-              <span
-                className="inline-flex h-12 w-12 items-center justify-center"
-                title={
-                  provider.availability === "available"
-                    ? `${provider.name} is available now`
-                    : `${provider.name} is coming soon`
-                }
-              >
-                <RuntimeProviderMark
-                  provider={provider}
-                  className={provider.id === "gemini" ? "h-12 w-12" : undefined}
-                />
-              </span>
-              <span className="sr-only">
-                {provider.availability === "available"
-                  ? `${provider.name} is available now.`
-                  : `${provider.name} is coming soon.`}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
       {/* Eyebrow was `text-muted-foreground`, which reads as heavily faded /
           low-contrast on the light onboarding background. Use the primary
           foreground token at reduced weight so it stays legible in both themes

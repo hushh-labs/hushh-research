@@ -17063,9 +17063,11 @@
     {
       "action_id": "setup.open_connections",
       "surface_id": "one_setup_hub",
-      "label": "Set up AI access",
+      "label": "Choose your AI",
       "aliases": [
+        "choose my ai",
         "set up AI access",
+        "ai access",
         "choose gemini",
         "configure one",
         "use my gemini key"
@@ -17077,7 +17079,7 @@
         "key",
         "setup"
       ],
-      "meaning": "Opens AI access setup so the person can choose Hussh managed Gemini or validate and protect their own Gemini access.",
+      "meaning": "Opens the AI access choice so the person can use Hussh's Gemini or add their own Gemini key.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -17141,7 +17143,7 @@
           {
             "type": "action",
             "action_id": "setup.open_connections",
-            "label": "Set up AI access",
+            "label": "Choose your AI",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/connections",
@@ -17493,8 +17495,10 @@
     {
       "action_id": "setup.open_email",
       "surface_id": "one_setup_hub",
-      "label": "KYC",
+      "label": "Identity checks",
       "aliases": [
+        "identity checks",
+        "kyc",
         "set up kyc",
         "open kyc setup",
         "let one draft for me",
@@ -17571,7 +17575,7 @@
           {
             "type": "action",
             "action_id": "setup.open_email",
-            "label": "KYC",
+            "label": "Identity checks",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/email",
@@ -17602,9 +17606,10 @@
     {
       "action_id": "setup.open_finance",
       "surface_id": "one_setup_hub",
-      "label": "Set up your finances",
+      "label": "Set up your money",
       "aliases": [
         "set up finance",
+        "set up my money",
         "open finance setup",
         "set up investing"
       ],
@@ -17678,7 +17683,7 @@
           {
             "type": "action",
             "action_id": "setup.open_finance",
-            "label": "Set up your finances",
+            "label": "Set up your money",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/finance",
@@ -17709,7 +17714,7 @@
     {
       "action_id": "setup.open_ria",
       "surface_id": "one_setup_hub",
-      "label": "Set up RIA",
+      "label": "Set up your advisor profile",
       "aliases": [
         "set up ria",
         "set up my advisor profile",
@@ -17786,7 +17791,7 @@
           {
             "type": "action",
             "action_id": "setup.open_ria",
-            "label": "Set up RIA",
+            "label": "Set up your advisor profile",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/ria",
@@ -17817,14 +17822,15 @@
     {
       "action_id": "setup.open_connected_systems",
       "surface_id": "one_setup_hub",
-      "label": "CRM",
+      "label": "Connect your CRM",
       "aliases": [
         "link my record to external systems",
         "link my record",
         "link my tools",
         "set up connected systems",
         "show crm systems",
-        "connect crm"
+        "connect crm",
+        "connect my crm"
       ],
       "search_keywords": [
         "link tools",
@@ -17897,7 +17903,7 @@
           {
             "type": "action",
             "action_id": "setup.open_connected_systems",
-            "label": "CRM",
+            "label": "Connect your CRM",
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/setup/connected-systems",

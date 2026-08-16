@@ -145,10 +145,13 @@ describe("rows written before any of this existed", () => {
   it("keeps the owner wording they were written for", () => {
     // No feed_audience marker and no duration: the old copy is still the true copy.
     expect(presentFeedItem(item()).description).toBe("Requested your location");
+    // Migration 151 stopped forwarding the approval-born share row, so this
+    // line is now the only report of that whole tap and has to say the share
+    // started -- not merely that a request was answered.
     expect(
       presentFeedItem(item({ event_type: "location_access_approved" }))
         .description,
-    ).toBe("You approved the location request");
+    ).toBe("You approved. Now sharing.");
   });
 });
 
