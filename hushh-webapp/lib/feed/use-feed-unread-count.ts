@@ -3,8 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/hooks/use-auth";
-import { FEED_STATE_CHANGED_EVENT } from "@/lib/feed/feed-events";
+import {
+  FEED_STATE_CHANGED_EVENT,
+  feedStateChangeReason,
+} from "@/lib/feed/feed-events";
 import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
+import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { FeedService } from "@/lib/services/feed-service";
 
 /**
@@ -61,7 +65,19 @@ export function useFeedUnreadCount(): number | null {
   // For the badge it is the whole point: it is the number that has to drop.
   useEffect(() => {
     if (!user?.uid) return;
-    const recount = () => void load(true);
+    const recount = (event: Event) => {
+      const reason = feedStateChangeReason(event);
+      if (reason === "read") {
+        const cached = CacheService.getInstance().get<number>(
+          CACHE_KEYS.FEED_UNREAD_COUNT(user.uid),
+        );
+        if (cached != null) {
+          setCount(cached);
+          return;
+        }
+      }
+      void load(true);
+    };
     window.addEventListener(FEED_STATE_CHANGED_EVENT, recount);
     return () => window.removeEventListener(FEED_STATE_CHANGED_EVENT, recount);
   }, [user?.uid, load]);
