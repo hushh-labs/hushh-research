@@ -146,7 +146,7 @@ describe("back leaves a destination by its origin", () => {
     });
 
     expect(navigate).toHaveBeenCalledWith({
-      href: LOCATION,
+      href: `${LOCATION}?view=now`,
       mode: "replace",
       transitionMode: "contextual",
     });

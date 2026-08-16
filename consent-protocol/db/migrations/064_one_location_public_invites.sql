@@ -77,6 +77,11 @@ ALTER TABLE one_location_events
       'location_envelope_updated',
       'location_share_viewed',
       'location_share_revoked',
+      -- Emitted by one_location_agent_service when the owner shortens a live
+      -- share (the Edit action on a duration). It was never added here, so the
+      -- first person to use it wrote a row this constraint rejects -- and this
+      -- ADD is validating, so every replay after that died on it.
+      'location_share_shortened',
       'location_share_expired',
       'location_access_request',
       'location_access_approved',
