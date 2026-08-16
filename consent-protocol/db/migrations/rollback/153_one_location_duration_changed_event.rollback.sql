@@ -33,6 +33,8 @@ ALTER TABLE one_location_events
       'location_access_request',
       'location_access_approved',
       'location_access_denied',
+      -- Kept: it is not this migration's value to remove.
+      'location_access_request_withdrawn',
       'location_referral_invite',
       'location_public_invite_created',
       'location_public_invite_revoked',

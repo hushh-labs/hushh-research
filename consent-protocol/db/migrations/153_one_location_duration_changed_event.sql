@@ -37,6 +37,11 @@ ALTER TABLE one_location_events
       'location_access_request',
       'location_access_approved',
       'location_access_denied',
+      -- Not this branch's value: it landed on main in parallel, added to 064
+      -- and 068 only. Re-adding the constraint without it would drop it from
+      -- every environment this migration reaches, which is the same outage in
+      -- the other direction. Any new value has to appear here too.
+      'location_access_request_withdrawn',
       'location_referral_invite',
       'location_public_invite_created',
       'location_public_invite_revoked',
