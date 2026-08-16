@@ -3132,37 +3132,57 @@ function AskFlow({
         )}
       </section>
 
-      <SectionCard title="How long">
-        {/* Dropdown picker (not chips) to match the Share location screen's
-            duration field — same shared DurationSelector `select` presentation. */}
-        <DurationSelector
-          value={vm.durationHours}
-          onChange={vm.setDurationHours}
-          label=""
-          presentation="wheel"
-        />
-      </SectionCard>
+      {/* Three separate cards stood here, one per field, each with its heading
+          inside its own frame. Settings puts a set of related fields in ONE
+          grouped card under a single label, with each field a row — which is
+          the same shape this screen's Circles and People lists already use, and
+          the reason Ask read as a different screen from the rest of Location.
 
-      <SectionCard title="Reason">
-        {/* Dropdown (not chips) to match the Duration field's select
-            presentation on this same screen. */}
-        <ReasonChips
-          value={reason}
-          onChange={setReason}
-          label=""
-          presentation="select"
+          Message keeps its own labelled block: a two-row textarea is not a row
+          control, and forcing it into a trailing slot would squeeze it into a
+          third of the width for the sake of matching a shape. */}
+      <SettingsGroup title="Details" separatorInset>
+        <SettingsRow
+          title="How long"
+          description="How much of their time you are asking for."
+          trailing={
+            <DurationSelector
+              value={vm.durationHours}
+              onChange={vm.setDurationHours}
+              label=""
+              presentation="wheel"
+            />
+          }
+          stackTrailingOnMobile
         />
-      </SectionCard>
+        <SettingsRow
+          title="Reason"
+          description="Says why, so the answer is not a guess."
+          trailing={
+            <ReasonChips
+              value={reason}
+              onChange={setReason}
+              label=""
+              presentation="select"
+            />
+          }
+          stackTrailingOnMobile
+        />
+      </SettingsGroup>
 
-      <SectionCard title="Message">
+      <section className="space-y-3">
+        <AppSectionLabel as="h2">Message</AppSectionLabel>
         <textarea
           value={vm.requestMessage}
           onChange={(e) => vm.setRequestMessage(e.target.value)}
           rows={2}
           placeholder="Hey, can you share your location until we meet?"
-          className="w-full rounded-[14px] border border-border/70 bg-background p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
+          /* bg-background is the light canvas colour, so on this screen the
+             field disappeared into the page exactly as the search input did.
+             Same surface as the group above it, in both themes. */
+          className="w-full rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-[color:var(--app-accent-ring)]"
         />
-      </SectionCard>
+      </section>
 
       {/* Send is enabled once at least one recipient is chosen. Duration and
           reason default to sensible values, so gating Send on them too (added
