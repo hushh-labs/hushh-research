@@ -135,6 +135,11 @@ import {
   publishPointFrom,
   shouldWarnOnPublishFailure,
 } from "@/lib/one-location/live-publish-decision";
+import {
+  isShareReadyRecipient,
+  recipientSelectionFromIds,
+  resolveEffectiveShareRecipients,
+} from "@/lib/one-location/share-recipient-selection";
 
 
 import {
@@ -858,20 +863,6 @@ function enrichRecipientsWithContactSignal(
   });
 }
 
-function recipientSelectionFromIds(
-  recipients: OneLocationRecipient[],
-  selectedIds: string[],
-): OneLocationRecipient[] {
-  const recipientById = new Map(
-    recipients.map((recipient) => [recipient.userId, recipient]),
-  );
-  return selectedIds
-    .map((recipientId) => recipientById.get(recipientId))
-    .filter((recipient): recipient is OneLocationRecipient =>
-      Boolean(recipient),
-    );
-}
-
 function addSelectedId(selectedIds: string[], recipientId: string): string[] {
   if (selectedIds.includes(recipientId)) return selectedIds;
   return [...selectedIds, recipientId];
@@ -912,19 +903,6 @@ function useShareRecipientSelectionState(): readonly [
     [],
   );
   return [selectedIds, updateSelectedIds, latestSelectedIdsRef] as const;
-}
-
-type ShareReadyRecipient = OneLocationRecipient & {
-  keyId: string;
-  publicKeyJwk: JsonWebKey;
-};
-
-function isShareReadyRecipient(
-  recipient: OneLocationRecipient,
-): recipient is ShareReadyRecipient {
-  return Boolean(
-    recipient.canReceiveLocation && recipient.keyId && recipient.publicKeyJwk,
-  );
 }
 
 function peopleCountLabel(count: number): string {
@@ -3927,17 +3905,14 @@ export function OneLocationAgentPageContent({
     if (!vaultOwnerToken) {
       return { status: "blocked", summary: "Unlock One before sharing your location." };
     }
-    // Voice picks someone and immediately says "share" in the same breath --
-    // faster than the render that would make the pick visible in
-    // selectedShareRecipients, a value React has not recomputed yet. Falling
-    // back to shareRecipientIdsRef (updated synchronously by the same select,
-    // ahead of the render) is what lets this see a pick that just happened
-    // rather than the not-yet-committed empty selection. A tap-driven Share
-    // never hits the fallback: by the time a person can tap, a render has
-    // long since happened.
-    const effectiveSelectedShareRecipients = selectedShareRecipients.length
-      ? selectedShareRecipients
-      : recipientSelectionFromIds(shareRecipientPool, selectedRecipientIdsRef.current);
+    // See resolveEffectiveShareRecipients' doc comment for why an empty
+    // selectedShareRecipients falls back to the ref instead of being trusted
+    // as "nobody picked".
+    const effectiveSelectedShareRecipients = resolveEffectiveShareRecipients(
+      selectedShareRecipients,
+      shareRecipientPool,
+      selectedRecipientIdsRef.current,
+    );
     const effectiveSetupNeededSelectedRecipients =
       effectiveSelectedShareRecipients.filter(
         (recipient) => !isShareReadyRecipient(recipient),
