@@ -33,6 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
+import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import {
   isCircleSelectionFullySelected,
@@ -307,13 +308,10 @@ export function CheckInFlow({
     }
   }, [contacts, seeded, vm]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return contacts;
-    return contacts.filter((r) =>
-      vm.recipientLabel(r).toLowerCase().includes(q),
-    );
-  }, [contacts, search, vm]);
+  const filtered = useMemo(
+    () => filterPeopleByQuery(contacts, search, (r) => vm.recipientLabel(r)),
+    [contacts, search, vm],
+  );
 
   const selectedReadyCount = useMemo(
     () =>

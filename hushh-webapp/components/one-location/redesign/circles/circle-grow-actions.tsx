@@ -42,6 +42,7 @@ import type {
   OneLocationCircleEligibleConnections,
   OneLocationCircleMemberInvite,
 } from "@/lib/one-location/types";
+import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { cn } from "@/lib/utils";
 
 function circleInitials(value: string): string {
@@ -109,13 +110,15 @@ export function CircleInvitePeopleSheet({
   const submitInFlightRef = useRef(false);
   const cancelInFlightRef = useRef(false);
 
-  const filtered = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase();
-    if (!query) return eligibleConnections;
-    return eligibleConnections.filter((connection) =>
-      connection.displayName.toLocaleLowerCase().includes(query),
-    );
-  }, [eligibleConnections, search]);
+  const filtered = useMemo(
+    () =>
+      filterPeopleByQuery(
+        eligibleConnections,
+        search,
+        (connection) => connection.displayName,
+      ),
+    [eligibleConnections, search],
+  );
 
   const load = useCallback(async () => {
     const requestId = ++requestRef.current;
