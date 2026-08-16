@@ -142,7 +142,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: "Location share expired",
+        description: "Stopped sharing - time ran out",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -162,7 +162,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: "You approved the location request",
+        description: "You approved. Now sharing.",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -212,7 +212,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "KYC status updated",
-        description: status ? `Your KYC workflow is now ${status}.` : "Your KYC workflow status changed.",
+        description: status
+          ? `Your KYC check is now ${status}.`
+          : "Your KYC check moved on.",
         href: ROUTES.ONE_KYC,
       };
     }
@@ -221,24 +223,24 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       return {
         icon,
         domainLabel,
-        label: "System connected",
-        description: "A connected system finished syncing.",
+        label: "App connected",
+        description: "Your data finished coming in.",
         href: ROUTES.CONNECTED_SYSTEMS,
       };
     case "connected_systems_rejected":
       return {
         icon,
         domainLabel,
-        label: "System connection rejected",
-        description: "A connected-system request was rejected.",
+        label: "Connection turned down",
+        description: "That app wasn't connected.",
         href: ROUTES.CONNECTED_SYSTEMS,
       };
     case "connected_systems_failed":
       return {
         icon,
         domainLabel,
-        label: "System sync failed",
-        description: "A connected-system action failed.",
+        label: "Couldn't get your data",
+        description: "Something went wrong bringing it in.",
         href: ROUTES.CONNECTED_SYSTEMS,
       };
     // Connection events use the same person-first layout: title is the other
@@ -294,7 +296,10 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Activity",
-        description: "Something happened in your account.",
+        // No pretend explanation for an event this build has no line for.
+        // "Something happened in your account." told the reader nothing and
+        // read like a bug.
+        description: "",
         href: null,
       };
   }
