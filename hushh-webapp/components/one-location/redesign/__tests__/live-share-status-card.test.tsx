@@ -187,6 +187,61 @@ describe("LiveShareStatusCard", () => {
     expect(onManage).toHaveBeenCalledTimes(1);
   });
 
+  it("offers Change time on a single share, beside the end time", () => {
+    // The reported bug: a 30-minute share could be stopped and nothing else.
+    // The control has to be there, and it has to be the footer's sibling --
+    // beside the end time it edits, and not clustered with Stop, which is the
+    // one destructive control on this card.
+    const onChangeDuration = vi.fn();
+    render(
+      <LiveShareStatusCard
+        status={status()}
+        onManage={vi.fn()}
+        onStop={vi.fn()}
+        onChangeDuration={onChangeDuration}
+      />,
+    );
+
+    const change = screen.getByRole("button", { name: "Change time" });
+    change.click();
+    expect(onChangeDuration).toHaveBeenCalledTimes(1);
+
+    const ends = screen.getByText(/^Ends /);
+    expect(change.parentElement).toBe(ends.parentElement);
+  });
+
+  it("hides Change time when there is no single share to change", () => {
+    // Same gate as Stop. With three shares running "change the time" has no
+    // referent, and the card must not offer to act on an unnamed one.
+    render(
+      <LiveShareStatusCard
+        status={status({ count: 3, names: ["A", "B", "C"], stoppableGrantId: null })}
+        onManage={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Change time" })).toBeNull();
+    expect(screen.getByText(/^Ends /)).toBeTruthy();
+  });
+
+  it("keeps Change time on an open-ended share", () => {
+    // "Until you stop" is the footer here, not an end time. The action still
+    // belongs: giving an open share a finite end is exactly a time change.
+    const onChangeDuration = vi.fn();
+    render(
+      <LiveShareStatusCard
+        status={status({ endsAt: null })}
+        onManage={vi.fn()}
+        onStop={vi.fn()}
+        onChangeDuration={onChangeDuration}
+      />,
+    );
+
+    screen.getByRole("button", { name: "Change time" }).click();
+    expect(onChangeDuration).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Until you stop")).toBeTruthy();
+  });
+
   it("tells the page exactly once when the share runs out", () => {
     const onEnded = vi.fn();
     render(

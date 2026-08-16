@@ -89,6 +89,7 @@ ALTER TABLE one_location_events
       'location_share_viewed',
       'location_share_revoked',
       'location_share_shortened',
+      'location_share_duration_changed',
       'location_share_expired',
       'location_access_request',
       'location_access_approved',

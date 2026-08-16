@@ -2200,7 +2200,21 @@ export function LocationImmersiveMap({
         </div>
         {rendererReady ? (
           <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-3 sm:col-start-3">
-            {rendererReady && nearbyCheckInAvailable && !demoMode ? (
+            {/*
+              Your Map keeps this control in the tray below, not up here. Two
+              floating pills plus the Sharing status is a second row of chrome
+              across the top of a screen whose whole job is to show the map,
+              and it is the arrangement that has been truncating "Check in" to
+              "C" on phone widths for as long as it has existed.
+
+              Check-in's own route still needs it here: that surface renders no
+              tray (see the `!isCheckInSurface` gate on the tray section), and
+              this pill is the only way back into the sheet after dismissing it.
+            */}
+            {rendererReady &&
+            nearbyCheckInAvailable &&
+            !demoMode &&
+            isCheckInSurface ? (
               <ShellActionSurface
                 variant="pill"
                 // ShellActionSurface's own wrapper is shrink-0 by default (a
@@ -2864,6 +2878,38 @@ export function LocationImmersiveMap({
                   Everyone
                 </Button>
               </div>
+              {/*
+                Check in, moved down off the map.
+
+                It used to float in the top-right corner beside Locate, which
+                put two pills and a Sharing status over the top of the map on
+                every phone -- the reporter's "when i want to view my map".
+                Down here it is full width and under the thumb, sitting with
+                the people it is about rather than over the map it obscured.
+
+                Last in the sheet on purpose: the row above it is toggles
+                (Demo / Visible / Everyone), and this is the one thing on the
+                screen a person actually goes somewhere to do.
+              */}
+              {!isCheckInSurface && nearbyCheckInAvailable && !demoMode ? (
+                <Button
+                  className="mt-3 h-12 w-full rounded-2xl"
+                  aria-label={
+                    nearbyPresenceState.presence
+                      ? `Nearby check-in active with ${nearbyPresenceState.attendees.length} people`
+                      : "Check in nearby"
+                  }
+                  data-testid="one-location-map-nearby-check-in"
+                  onClick={openNearbyCheckIn}
+                >
+                  <UsersRound className="h-4 w-4 shrink-0" />
+                  <span className="truncate">
+                    {nearbyPresenceState.presence
+                      ? `Nearby ${nearbyPresenceState.attendees.length}`
+                      : "Check in"}
+                  </span>
+                </Button>
+              ) : null}
               {status === "error" ? (
                 <p className="mt-2 text-center text-xs text-destructive">
                   Some locations didn&apos;t refresh.

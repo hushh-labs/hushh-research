@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 152,
+  "expected_migration_version": 153,
   "migration_version_policy": "minimum",
   "required_functions": [
     "merge_domain_summary",

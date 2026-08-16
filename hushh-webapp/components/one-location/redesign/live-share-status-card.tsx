@@ -35,6 +35,7 @@ import {
   LIVE_SHARE_CLOCK_CLASSNAME,
   LIVE_SHARE_CLOCK_ROW_CLASSNAME,
   LIVE_SHARE_FOOTER_CLASSNAME,
+  LIVE_SHARE_FOOTER_ROW_CLASSNAME,
   LIVE_SHARE_HEADER_CLASSNAME,
   LIVE_SHARE_PROGRESS_FILL_CLASSNAME,
   LIVE_SHARE_PROGRESS_TRACK_CLASSNAME,
@@ -102,6 +103,7 @@ export function LiveShareStatusCard({
   onManage,
   onStop,
   stopBusy,
+  onChangeDuration,
   onEnded,
 }: {
   status: LiveShareStatus;
@@ -110,6 +112,15 @@ export function LiveShareStatusCard({
   /** Ends the single live share. Omitted when more than one is running. */
   onStop?: () => void;
   stopBusy?: boolean;
+  /**
+   * Opens the editor for a new end time. Same single-share gate as `onStop`:
+   * with several running there is no one share to change.
+   *
+   * Stop used to be the only thing this card offered. Choosing 30 minutes and
+   * then wanting 45 meant ending the share and starting it again, which is a
+   * different share to the person watching.
+   */
+  onChangeDuration?: () => void;
   /** Fired once when the countdown reaches zero, so the page can reconcile. */
   onEnded?: () => void;
 }) {
@@ -254,16 +265,38 @@ export function LiveShareStatusCard({
         </div>
       ) : null}
 
-      {footer ? (
-        <p
-          data-ui-contract="required-copy"
-          data-ui-id="location-live-share-ends"
-          data-ui-truncation="forbid"
-          data-ui-role="description"
-          className={cn(MUTED_TEXT, LIVE_SHARE_FOOTER_CLASSNAME)}
-        >
-          {footer}
-        </p>
+      {footer || onChangeDuration ? (
+        <div className={LIVE_SHARE_FOOTER_ROW_CLASSNAME}>
+          {footer ? (
+            <p
+              data-ui-contract="required-copy"
+              data-ui-id="location-live-share-ends"
+              data-ui-truncation="forbid"
+              data-ui-role="description"
+              className={cn(MUTED_TEXT, LIVE_SHARE_FOOTER_CLASSNAME)}
+            >
+              {footer}
+            </p>
+          ) : null}
+
+          {onChangeDuration ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onChangeDuration}
+              className={cn(
+                LIVE_SHARE_ACTION_CLASSNAME,
+                "text-[color:var(--app-accent)]",
+              )}
+              data-ui-contract="occlusion-sensitive"
+              data-ui-role="control"
+              data-ui-id="location-live-share-duration"
+              data-testid="one-location-live-share-change-time"
+            >
+              Change time
+            </Button>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );

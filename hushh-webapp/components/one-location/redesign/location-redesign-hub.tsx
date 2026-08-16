@@ -353,6 +353,21 @@ export type LocationHubViewModel = {
     grantId: string;
     ownerLabel: string;
   }) => void;
+  /*
+   * The same edit, for the share you are giving rather than the one you are
+   * receiving. It is separate state because it is a different consent: the
+   * block above asks someone else for more of their location, this one revises
+   * your own, so it applies straight away and never turns into a request.
+   */
+  /** True while the live share card's inline time editor is open. */
+  liveShareDurationEditing: boolean;
+  /** Wheel value, in decimal hours, or "until_stopped". */
+  liveShareDurationHours: string;
+  setLiveShareDurationHours: (v: string) => void;
+  liveShareDurationSaving: boolean;
+  onEditLiveShareDurationStart: () => void;
+  onEditLiveShareDurationCancel: () => void;
+  onSaveLiveShareDuration: () => void;
   onCreatePublicInvite: () => void;
   onCopyPublicInvite: () => void;
   onSharePublicInvite: () => void;
@@ -1354,7 +1369,23 @@ function NowHub({
             Boolean(vm.liveShare.stoppableGrantId) &&
             vm.revokingGrantId === vm.liveShare.stoppableGrantId
           }
+          // Same gate as Stop, for the same reason: with several shares
+          // running there is no single one for "change time" to mean.
+          onChangeDuration={
+            vm.liveShare.stoppableGrantId
+              ? vm.onEditLiveShareDurationStart
+              : undefined
+          }
           onEnded={vm.onLiveShareEnded}
+        />
+      ) : null}
+      {vm.liveShare && vm.liveShareDurationEditing ? (
+        <LiveShareDurationEditor
+          value={vm.liveShareDurationHours}
+          onChange={vm.setLiveShareDurationHours}
+          onCancel={vm.onEditLiveShareDurationCancel}
+          onSave={vm.onSaveLiveShareDuration}
+          saving={vm.liveShareDurationSaving}
         />
       ) : null}
       {/* Every row and tile below carries the `control_ids` / `action_id` pair
@@ -2888,7 +2919,78 @@ function ShareFlow({
 }
 
 /**
- * "Sharing ends at 4:35 PM" — the confirm step's read-back of the duration.
+ * The new-end-time editor that opens under the live share card.
+ *
+ * Inline rather than a sheet: the card it edits stays on screen above it, so
+ * "27:03 left" and the time being picked are readable together, and there is
+ * no overlay to trap focus in or size against a fresh set of widths.
+ *
+ * The wheel, not the four-option select the received-shares editor uses. This
+ * one opens on what the share actually has left, and 32 minutes snapped to
+ * "1 hour" would silently offer to double a share the person meant to trim.
+ */
+function LiveShareDurationEditor({
+  value,
+  onChange,
+  onCancel,
+  onSave,
+  saving,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  onCancel: () => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  // Same 30-second tick as the share confirm step: an editor left open must
+  // not keep quoting an end time that has already gone past.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  return (
+    <div
+      className={cn(SUBCARD_SURFACE, "space-y-4 p-4")}
+      data-testid="one-location-live-share-duration-editor"
+      data-ui-contract="control-group"
+      data-ui-id="location-live-share-duration-editor"
+    >
+      <DurationSelector
+        value={value}
+        onChange={onChange}
+        presentation="wheel"
+        untilStopValue="until_stopped"
+        label="New time"
+      />
+      <p className={MUTED_TEXT} aria-live="polite">
+        {shareEndsAtLabel(value, nowMs)}
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          variant="ghost"
+          className="h-11 rounded-full"
+          onClick={onCancel}
+          data-testid="one-location-live-share-duration-cancel"
+        >
+          Cancel
+        </Button>
+        <Button
+          className="h-11 rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+          onClick={onSave}
+          isLoading={saving}
+          data-testid="one-location-live-share-duration-save"
+        >
+          Save
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "Sharing ends at 4:35 PM" — the read-back under a duration picker.
  *
  * A duration is a promise about a moment, and "4 hours" makes the reader do the
  * arithmetic. Stating the clock time is what lets someone notice that a share
