@@ -774,6 +774,12 @@ export function SavedLocationsSection() {
         collectAddressDetails
         startWithMapPicker
         initialCategory={editingLocation?.category ?? null}
+        // Excluding the place being edited: its own label is still free to it.
+        existingLocations={
+          editingLocation
+            ? locations.filter((location) => location.id !== editingLocation.id)
+            : locations
+        }
 
         initialCustomLabel={
           editingLocation?.category === "other" ? editingLocation.label : null

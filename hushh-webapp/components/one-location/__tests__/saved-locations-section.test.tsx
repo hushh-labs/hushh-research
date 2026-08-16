@@ -36,6 +36,16 @@ vi.mock("@/lib/vault/vault-context", () => ({
 
 vi.mock("@/lib/one-location/saved-locations", () => ({
   DuplicateSavedLocationError: class DuplicateSavedLocationError extends Error {},
+  // Real behaviour, not a stub: the modal opens on whatever this returns, and
+  // a stub would hide a label being pre-selected over a saved place.
+  defaultSavedLocationCategory: (
+    existing: ReadonlyArray<{ category: string }> = [],
+  ) => {
+    const taken = new Set(existing.map((location) => location.category));
+    if (!taken.has("home")) return "home";
+    if (!taken.has("work")) return "work";
+    return "other";
+  },
   duplicateSavedLocationMessage: (location: {
     category: string;
     label: string;

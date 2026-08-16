@@ -28,6 +28,29 @@ const SAVED_LOCATION_CATEGORY_PRIORITY: Record<SavedLocationCategory, number> = 
   other: 2,
 };
 
+/**
+ * Which label to pre-select when someone saves a place.
+ *
+ * The picker used to open with nothing chosen, so the primary button sat dead
+ * behind "Pick Home, Work or Other first." -- an extra tap demanded before the
+ * screen would do the one thing it exists for. On the first save the answer is
+ * almost always Home, so ask for nothing and pre-select it.
+ *
+ * It cannot simply always be Home: `generateId` gives Home and Work fixed ids,
+ * so they are singletons, and pre-selecting an occupied one would quietly
+ * overwrite a place already saved when the person pressed Save. So this walks
+ * Home -> Work -> Other and returns the first that is still free. "Other" holds
+ * many places, so there is always an answer and the button is never dead.
+ */
+export function defaultSavedLocationCategory(
+  existing: readonly Pick<SavedLocation, "category">[] = [],
+): SavedLocationCategory {
+  const taken = new Set(existing.map((location) => location.category));
+  if (!taken.has("home")) return "home";
+  if (!taken.has("work")) return "work";
+  return "other";
+}
+
 export type SavedLocation = {
   id: string;
   category: SavedLocationCategory;

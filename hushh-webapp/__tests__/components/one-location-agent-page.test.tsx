@@ -1609,18 +1609,22 @@ describe("OneLocationAgentPage", () => {
     });
     expect(within(people).getByText("Trusted B")).toBeTruthy();
 
-    const duration = screen.getByRole("combobox", { name: "Duration" });
-    expect(duration.textContent).toContain("15 min");
-    fireEvent.click(duration);
-    const options = await screen.findAllByRole("option");
-    expect(options.map((option) => option.textContent)).toEqual([
-      "15 min",
-      "1 hour",
-      "Today",
-      "Until I stop",
-    ]);
-    fireEvent.click(screen.getByRole("option", { name: "1 hour" }));
-    expect(duration.textContent).toContain("1 hour");
+    // The quick-pick dropdown is gone -- duration is a scroll wheel now, so
+    // the default is read off its Hours/Minutes spinbuttons directly.
+    const durationHoursWheel = screen.getByRole("spinbutton", {
+      name: "Hours",
+    });
+    const durationMinutesWheel = screen.getByRole("spinbutton", {
+      name: "Minutes",
+    });
+    expect(durationHoursWheel).toHaveAttribute("aria-valuetext", "0 hr");
+    expect(durationMinutesWheel).toHaveAttribute("aria-valuetext", "15 min");
+    // One step on the Hours wheel (0 -> 1hr). Minutes has no exact "on the
+    // hour" mark -- the grid floors at 15 minutes -- so this lands on
+    // 1h15m, not a clean 1h, per DurationWheelPicker's own rounding
+    // contract (see duration-wheel-picker.tsx's `nearestGridMinutes`).
+    fireEvent.keyDown(durationHoursWheel, { key: "ArrowDown" });
+    expect(durationHoursWheel).toHaveAttribute("aria-valuetext", "1 hr");
     // The duration reads back as a clock time on the same screen that set it.
     expect(screen.getByText(/^Sharing ends at /)).toBeTruthy();
 
@@ -1651,7 +1655,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockCreateGrant).toHaveBeenCalledTimes(1));
     expect(mockCreateGrant).toHaveBeenCalledWith(
       expect.objectContaining({
-        durationHours: 1,
+        durationHours: 1.25,
         durationMode: "timed",
         reason: "On my way",
         shareKind: "share",
@@ -1745,8 +1749,11 @@ describe("OneLocationAgentPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Ready to share?" }),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("combobox", { name: "Duration" }));
-    fireEvent.click(screen.getByRole("option", { name: "1 hour" }));
+    // Move the duration wheel off its default so the reset below has
+    // something to actually reset.
+    fireEvent.keyDown(screen.getByRole("spinbutton", { name: "Hours" }), {
+      key: "ArrowDown",
+    });
     fireEvent.change(screen.getByRole("textbox", { name: "Optional note" }), {
       target: { value: "Meet me by the entrance" },
     });
@@ -1829,8 +1836,11 @@ describe("OneLocationAgentPage", () => {
       screen.queryByRole("radio", { name: /Approximate area/i }),
     ).toBeNull();
     expect(
-      screen.getByRole("combobox", { name: "Duration" }).textContent,
-    ).toContain("15 min");
+      screen.getByRole("spinbutton", { name: "Hours" }),
+    ).toHaveAttribute("aria-valuetext", "0 hr");
+    expect(
+      screen.getByRole("spinbutton", { name: "Minutes" }),
+    ).toHaveAttribute("aria-valuetext", "15 min");
     expect(screen.getByRole("textbox", { name: "Optional note" })).toHaveValue(
       "",
     );

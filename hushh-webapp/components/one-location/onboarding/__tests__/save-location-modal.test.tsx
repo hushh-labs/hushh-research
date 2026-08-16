@@ -104,6 +104,88 @@ describe("SaveLocationModal", () => {
     mapPickerMockState.canConfirm = true;
   });
 
+  it("opens on Home so the primary button is live without a tap", () => {
+    render(
+      <SaveLocationModal
+        {...baseProps}
+        address="Kartavya Path, New Delhi, Delhi 110001, India"
+        collectAddressDetails
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: "Save location" }),
+    ).toBeEnabled();
+    expect(
+      screen.queryByText("Pick Home, Work or Other first."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not pre-select a label that would overwrite a saved place", () => {
+    // Home and Work are singletons, so opening on Home for someone who already
+    // has one would replace their Home the moment they pressed Save.
+    render(
+      <SaveLocationModal
+        {...baseProps}
+        address="Kartavya Path, New Delhi, Delhi 110001, India"
+        collectAddressDetails
+        existingLocations={[{ category: "home" }]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Work" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(
+      screen.getByRole("button", { name: "Save location" }),
+    ).toBeEnabled();
+  });
+
+  it("still opens live when both singletons are taken", () => {
+    render(
+      <SaveLocationModal
+        {...baseProps}
+        address="Kartavya Path, New Delhi, Delhi 110001, India"
+        collectAddressDetails
+        existingLocations={[{ category: "home" }, { category: "work" }]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Other" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: "Save location" }),
+    ).toBeEnabled();
+  });
+
+  it("keeps the place's own label when editing", () => {
+    render(
+      <SaveLocationModal
+        {...baseProps}
+        address="Kartavya Path, New Delhi, Delhi 110001, India"
+        collectAddressDetails
+        initialCategory="work"
+        existingLocations={[{ category: "home" }]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Work" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("shows address lookup progress without exposing coordinates", () => {
     render(<SaveLocationModal {...baseProps} address={null} loadingAddress />);
 
@@ -264,9 +346,12 @@ describe("SaveLocationModal", () => {
     ).toBeInTheDocument();
 
     const saveButton = screen.getByRole("button", { name: "Save location" });
-    // Still off, but now for the one reason that remains, and it says so.
-    expect(saveButton).toBeDisabled();
-    expect(screen.getByText("Pick Home, Work or Other first.")).toBeInTheDocument();
+    // Live on arrival: nothing is saved yet, so it opens on Home and the one
+    // remaining reason to be off no longer applies.
+    expect(saveButton).toBeEnabled();
+    expect(
+      screen.queryByText("Pick Home, Work or Other first."),
+    ).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
       target: { value: " Flat 4B, Tower 2 " },
@@ -427,14 +512,12 @@ describe("SaveLocationModal", () => {
       />,
     );
 
-    expect(
-      screen.getByText("Pick Home, Work or Other first."),
-    ).toBeInTheDocument();
+    // Home is already selected, so the only way to a dead button now is
+    // something the person actually typed.
     expect(
       screen.getByRole("button", { name: "Save location" }),
-    ).toBeDisabled();
+    ).toBeEnabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Home" }));
     fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
       target: { value: "!" },
     });
@@ -880,13 +963,23 @@ describe("SaveLocationModal", () => {
         />,
       );
 
+      // It now opens live, so block it the only way left -- something the
+      // person typed -- and check the styling follows the state.
+      const save = screen.getByRole("button", { name: "Save location" });
+      expect(save).toBeEnabled();
+      expect(save.className).toContain("var(--app-accent)");
+
       // A dimmed blue still reads as the live primary action and earns a dead
       // tap, so a blocked CTA must not be blue at all.
-      const save = screen.getByRole("button", { name: "Save location" });
+      fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
+        target: { value: "!" },
+      });
       expect(save).toBeDisabled();
       expect(save.className).not.toContain("var(--app-accent)");
 
-      fireEvent.click(screen.getByRole("button", { name: "Home" }));
+      fireEvent.change(screen.getByLabelText(/PIN \/ postal code/), {
+        target: { value: "110001" },
+      });
       expect(save).toBeEnabled();
       expect(save.className).toContain("var(--app-accent)");
     });
