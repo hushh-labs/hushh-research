@@ -304,6 +304,12 @@ export type LocationHubViewModel = {
   onStopGrant: (grantId: string) => void;
   /** Grant currently showing the inline duration editor, or null. */
   editingGrantId: string | null;
+  /**
+   * Grant whose duration is being saved, or null. Deliberately not
+   * `revokingGrantId`: one flag for both made Save and Remove spin together,
+   * and left Save stuck spinning on the next Edit of the same person.
+   */
+  savingGrantId: string | null;
   onEditGrantStart: (grantId: string) => void;
   onEditGrantCancel: () => void;
   editGrantDurationHours: string;
@@ -2167,7 +2173,7 @@ function PeopleHub({
                                 ownerLabel,
                               })
                             }
-                            isLoading={vm.revokingGrantId === grantId}
+                            isLoading={vm.savingGrantId === grantId}
                           >
                             Save
                           </Button>
@@ -2931,7 +2937,7 @@ function AskFlow({
                               ownerLabel: recipientLabel,
                             })
                           }
-                          isLoading={vm.revokingGrantId === activeGrant.id}
+                          isLoading={vm.savingGrantId === activeGrant.id}
                         >
                           Save
                         </Button>
