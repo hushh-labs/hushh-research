@@ -549,7 +549,7 @@ describe("top shell breadcrumbs", () => {
       // one flow whose back target is not the hub (it retraces to whoever
       // opened it), so its label and back href are asserted separately below.
       ["share", "Share location"],
-      ["ask", "Ask someone"],
+      ["ask", "Request location"],
       ["invite", "Invite to Circle"],
       ["temp-link", "Public link"],
       ["settings", "Settings"],

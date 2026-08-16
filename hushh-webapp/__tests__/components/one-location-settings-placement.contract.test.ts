@@ -36,9 +36,9 @@ describe("One Location settings placement", () => {
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
 
     expect(nowSource).toContain('testId="one-location-request-row"');
-    expect(nowSource).toContain('title="Request Location"');
+    expect(nowSource).toContain('title="Request location"');
 
-    const requestIndex = nowSource.indexOf('title="Request Location"');
+    const requestIndex = nowSource.indexOf('title="Request location"');
     const settingsIndex = nowSource.indexOf('title="Settings"');
     expect(requestIndex).toBeGreaterThan(-1);
     expect(settingsIndex).toBeGreaterThan(requestIndex);
@@ -65,7 +65,7 @@ describe("One Location settings placement", () => {
       return /icon=\{(\w+)\}/.exec(nowSource.slice(rowStart, titleIndex))?.[1];
     };
 
-    const requestIcon = iconFor("Request Location");
+    const requestIcon = iconFor("Request location");
     const shareIcon = iconFor("Share location");
 
     expect(requestIcon).toBeTruthy();
