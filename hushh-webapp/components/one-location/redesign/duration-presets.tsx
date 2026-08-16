@@ -38,6 +38,13 @@ export const SHARE_DURATION_UNTIL_STOP_VALUE = "until_stopped";
 /** What `Custom` opens on when it is reached from the open-ended rung. */
 const CUSTOM_SEED_VALUE = "1";
 
+/**
+ * Rows the on-demand wheel shows. 3, not the standalone 5: this panel opens
+ * on a screen that was already too tall, and 5 rows is 200px. Must stay odd
+ * — see the `pad` note in duration-wheel-picker's WheelColumn.
+ */
+export const DURATION_CUSTOM_VISIBLE_ROWS = 3;
+
 /*
  * Exported so e2e/one-location-duration-ladder.layout.spec.ts measures the
  * SAME class strings this component ships, rather than a hand-copied harness
@@ -193,11 +200,10 @@ export function DurationPresetPicker({
             /* The toggle lives on the ladder above now — one piece of state,
                one control. */
             showUntilStop={false}
-            /* 3 rows, not 5. This panel is on demand, and 5 rows cost 200px
-               on a screen that was already too tall. The mask stops (30%/70%)
-               still clear the centre row completely at 3 rows: full alpha
-               spans 36–84px, the centre row spans 40–80px. */
-            visibleRows={3}
+            /* The mask stops (30%/70%) still clear the centre row completely
+               at 3 rows: full alpha spans 36–84px, the centre row spans
+               40–80px. */
+            visibleRows={DURATION_CUSTOM_VISIBLE_ROWS}
           />
           <button
             type="button"

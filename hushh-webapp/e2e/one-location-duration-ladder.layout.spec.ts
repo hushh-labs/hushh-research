@@ -4,7 +4,9 @@ import os from "node:os";
 import path from "node:path";
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
+import { DURATION_WHEEL_ITEM_HEIGHT_PX } from "../components/one-location/redesign/duration-wheel-picker";
 import {
+  DURATION_CUSTOM_VISIBLE_ROWS,
   DURATION_CELL_CLASS,
   DURATION_CELL_OFF_CLASS,
   DURATION_CELL_ON_CLASS,
@@ -44,11 +46,23 @@ const WIDTHS = [320, 375, 390, 430] as const;
  */
 const COLLAPSED_MAX_HEIGHT_PX = 182;
 
+/**
+ * Custom open: the collapsed ladder + gap 8 + pt-1 4 + a 3-row wheel 120 +
+ * gap 8 + a 44px Done row = 362. This state is the one that can push
+ * "Start sharing" back down the page, so it gets its own ceiling. Shipping
+ * the Custom wheel at the default 5 rows would be 442 and fail here.
+ */
+const EXPANDED_MAX_HEIGHT_PX = 366;
+
+/** Derived from the component, never hand-copied: 3 rows x 40px = 120. */
+const CUSTOM_WHEEL_HEIGHT_PX =
+  DURATION_CUSTOM_VISIBLE_ROWS * DURATION_WHEEL_ITEM_HEIGHT_PX;
+
 /** The longest string the hint can ever render — a >=12h share on a Sunday. */
 const LONGEST_HINT = "Ends 11:59 PM Sun";
 
 /** Compile just the utilities this fixture uses, with the real Tailwind. */
-async function buildFixture(): Promise<string> {
+async function buildFixture(customOpen = false): Promise<string> {
   // Playwright runs from the webapp root (its config lives there).
   const webappRoot = process.cwd();
   const { compile } = (await import(
@@ -106,6 +120,14 @@ async function buildFixture(): Promise<string> {
       <div data-ladder class="space-y-2">
         <div class="${DURATION_GRID_CLASS}" data-grid>${gridCells}</div>
         ${cell("Until I stop", false, "w-full")}
+        ${
+          customOpen
+            ? `<div class="space-y-2 pt-1">
+                 <div data-wheel style="height:${CUSTOM_WHEEL_HEIGHT_PX}px"></div>
+                 ${cell("Done", false, "w-full")}
+               </div>`
+            : ""
+        }
       </div>
     </div>
   </section>
@@ -217,6 +239,37 @@ test.describe("One Location duration ladder layout", () => {
 
       // L10 — no React/ARIA warnings from the new markup.
       expect(consoleErrors).toEqual([]);
+    });
+
+    test(`keeps the Custom panel inside its own budget at ${width}px`, async ({
+      page,
+    }) => {
+      // The expanded state is what can push "Start sharing" further down the
+      // page, so it is measured rather than assumed. Rendered as markup here,
+      // not by clicking, because this fixture is CSS-only — the click path is
+      // covered by the sibling JSDOM test ("does not mount the wheel until
+      // Custom is tapped").
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(await buildFixture(true));
+
+      const measured = await page.evaluate(() => {
+        const control = document.querySelector("[data-control]")!.getBoundingClientRect();
+        const wheel = document.querySelector("[data-wheel]")!.getBoundingClientRect();
+        const root = document.documentElement;
+        return {
+          controlHeight: control.height,
+          wheelHeight: wheel.height,
+          pageOverflow:
+            Math.max(root.scrollWidth, document.body.scrollWidth) - root.clientWidth,
+        };
+      });
+
+      // 3 rows x 40px. The default 5-row wheel is 200 and would blow the
+      // budget below by 80px.
+      expect(measured.wheelHeight).toBe(CUSTOM_WHEEL_HEIGHT_PX);
+      expect(CUSTOM_WHEEL_HEIGHT_PX).toBeLessThanOrEqual(120);
+      expect(measured.controlHeight).toBeLessThanOrEqual(EXPANDED_MAX_HEIGHT_PX);
+      expect(measured.pageOverflow).toBeLessThanOrEqual(1);
     });
   }
 });

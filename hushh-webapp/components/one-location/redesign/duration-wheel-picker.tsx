@@ -36,7 +36,10 @@ const ALL_GRID_MINUTES = HOURS_VALUES.flatMap((h) =>
   minuteItemsForHour(h).map((m) => h * 60 + m),
 ); // 15..1440 in 15-minute steps, minus the two impossible ends
 
-const ITEM_HEIGHT = 40;
+/** Exported so a layout fixture can derive the wheel's height instead of
+ *  hand-copying it and silently drifting when this changes. */
+export const DURATION_WHEEL_ITEM_HEIGHT_PX = 40;
+const ITEM_HEIGHT = DURATION_WHEEL_ITEM_HEIGHT_PX;
 const DEFAULT_VISIBLE_ROWS = 5;
 
 function nearestGridMinutes(totalMinutes: number): number {
