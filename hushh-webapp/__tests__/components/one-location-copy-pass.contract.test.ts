@@ -131,3 +131,57 @@ describe("Connect — no dead Scopes viewer", () => {
     expect(CONNECT_SOURCE).toContain("pendingRemoveId");
   });
 });
+
+describe("One Location — the Share confirm step is a measured column", () => {
+  // This screen has been reported twice for the same thing, and the first fix
+  // made it worse: the duration control was clamped to 420px inside a card that
+  // was still 824px, so the card had 372px of dead space and its two fields
+  // disagreed by 108px. Nothing caught it because every layout spec on this
+  // surface tops out at 430px — there is no desktop viewport anywhere in the
+  // Location contracts, so a desktop-only regression is invisible.
+  //
+  // These are source assertions, not geometry. They pin the two decisions that
+  // were wrong, so a future edit has to be deliberate about both.
+
+  it("measures the column, so the card cannot stretch to the shell", () => {
+    const confirmStep = HUB_SOURCE.slice(
+      HUB_SOURCE.indexOf('title="Ready to share?"') - 1200,
+      HUB_SOURCE.indexOf('title="Ready to share?"'),
+    );
+    expect(confirmStep).toContain("max-w-[560px]");
+  });
+
+  it("lets the duration control fill that measured column", () => {
+    // Inside a column that is already measured, a second clamp on the control
+    // only makes it disagree with the note field beside it.
+    expect(HUB_SOURCE).toContain("maxWidthClassName={null}");
+  });
+
+  it("keeps the default clamp for the two editors that have no column", () => {
+    // The live-share "New time" editor and the People tab's "New duration"
+    // render straight into the 880px shell. Without the default they stretch to
+    // ~792px and their duration cells reach 258px — the exact state an earlier
+    // round was fixing.
+    const selectors = repoFile(
+      "components/one-location/redesign/selectors.tsx",
+    );
+    expect(selectors).toContain('maxWidthClassName = "max-w-[420px]"');
+  });
+
+  it("keeps the duration read-back beside its label, not pushed to the edge", () => {
+    // `justify-between` orphaned "Ends 4:03 AM" 277px from the "How long" it
+    // reads back, and every widening made that worse. They are one statement.
+    const selectors = repoFile(
+      "components/one-location/redesign/selectors.tsx",
+    );
+    // The className only — the comment above it names the class it removed.
+    const classNames = [...selectors.matchAll(/className=\{?"([^"]+)"/g)].map(
+      (m) => m[1],
+    );
+    const labelRowClass = classNames.find((c) => c.includes("items-baseline"));
+    expect(labelRowClass).toBeTruthy();
+    expect(labelRowClass).not.toContain("justify-between");
+    // And the hint is no longer right-aligned into the far corner.
+    expect(classNames.some((c) => c.includes("text-right"))).toBe(false);
+  });
+});

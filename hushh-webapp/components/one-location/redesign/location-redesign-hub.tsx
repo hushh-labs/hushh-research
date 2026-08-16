@@ -2727,7 +2727,17 @@ function ShareFlow({
       : null;
     const peopleNoun = selectedReady.length === 1 ? "person" : "people";
     return (
-      <div className="space-y-5">
+      // A single-column consent form does not get wider just because the window
+      // does. Measured at 1440 this step rendered an 824px card holding a 420px
+      // control and a 792px note field — three widths in one card, and 372px of
+      // empty card to the right of the duration ladder.
+      //
+      // 560px is this feature's own column measure (the Location onboarding
+      // flow uses it at two places), so this adds no new number. Scoped to the
+      // Share confirm step rather than the shared flow root on purpose: that
+      // root also carries SmsContactsFlow, whose 680/720 desktop widths are
+      // deliberate and documented, plus two map previews.
+      <div className="mx-auto w-full max-w-[560px] space-y-5">
         {/* No description: the summary card directly below states who can see
             you, for how long and when it ends. Repeating that in prose above it
             is the design explaining itself. */}
@@ -2803,6 +2813,9 @@ function ShareFlow({
             <DurationSelector
               value={vm.shareDurationHours}
               onChange={vm.setShareDurationHours}
+              // The column above is already measured, so the control fills the
+              // card instead of stopping 108px short of the note field beside it.
+              maxWidthClassName={null}
               label="How long"
               hint={shareEndsAtLabel(vm.shareDurationHours, nowMs)}
               presentation="ladder"
