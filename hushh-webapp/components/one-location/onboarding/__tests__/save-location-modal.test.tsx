@@ -1091,6 +1091,99 @@ describe("SaveLocationModal", () => {
         null,
       );
     });
+
+    it("unblocks the save once the person types an address line themselves", () => {
+      render(<SaveLocationModal {...strandedProps} />);
+      fireEvent.click(screen.getByRole("button", { name: "Home" }));
+
+      expect(
+        screen.getByRole("button", { name: "Save location" }),
+      ).toBeDisabled();
+
+      fireEvent.change(screen.getByLabelText(/Address line/), {
+        target: { value: "12 MG Road, Bengaluru" },
+      });
+
+      const save = screen.getByRole("button", { name: "Save location" });
+      expect(save).toBeEnabled();
+      fireEvent.click(save);
+
+      expect(baseProps.onSave).toHaveBeenCalledWith(
+        "home",
+        "",
+        expect.anything(),
+        "12 MG Road, Bengaluru",
+      );
+    });
+  });
+
+  describe("the Address line box", () => {
+    const HOUSE_NUMBER_ADDRESS =
+      "B-284/3, Rd Number 1, Chhatarpur Enclave Phase 2, New Delhi, Delhi 110074, India";
+
+    it("auto-populates from the detected address", () => {
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address={HOUSE_NUMBER_ADDRESS}
+          collectAddressDetails
+        />,
+      );
+
+      expect(screen.getByLabelText(/Address line/)).toHaveValue(
+        HOUSE_NUMBER_ADDRESS,
+      );
+    });
+
+    it("keeps what the person typed instead of the address that arrives later", () => {
+      const { rerender } = render(
+        <SaveLocationModal
+          {...baseProps}
+          address={HOUSE_NUMBER_ADDRESS}
+          collectAddressDetails
+        />,
+      );
+
+      fireEvent.change(screen.getByLabelText(/Address line/), {
+        target: { value: "My corrected street address" },
+      });
+
+      // A later reverse-geocode (or a repicked pin) must not take it back.
+      rerender(
+        <SaveLocationModal
+          {...baseProps}
+          address="C-11/2, Somewhere Else, Delhi 110088, India"
+          collectAddressDetails
+        />,
+      );
+
+      expect(screen.getByLabelText(/Address line/)).toHaveValue(
+        "My corrected street address",
+      );
+    });
+
+    it("saves the typed address line, not the raw detected address", () => {
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address={HOUSE_NUMBER_ADDRESS}
+          collectAddressDetails
+        />,
+      );
+
+      fireEvent.change(screen.getByLabelText(/Address line/), {
+        target: { value: "My corrected street address" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Home" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+
+      expect(baseProps.onSave).toHaveBeenCalledWith(
+        "home",
+        "",
+        expect.anything(),
+        "My corrected street address",
+      );
+    });
   });
 
   it("shows a plus-code address without the plus code", () => {
