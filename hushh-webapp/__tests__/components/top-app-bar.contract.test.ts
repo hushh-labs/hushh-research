@@ -136,16 +136,20 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain("const handleTopShellBack");
     expect(source).toContain("onClick={handleTopShellBack}");
     expect(back).toContain("resolveTopShellBreadcrumb");
-    expect(back).toContain(
-      'mode: profilePanelOpen || locationActionOpen ? "replace" : "push"',
-    );
+    // An open panel or Location action closes in place; everything else is a
+    // step in the trail and retraces.
+    expect(back).toContain("if (profilePanelOpen || locationActionOpen)");
+    expect(back).toContain('return action(breadcrumb.backHref, "replace")');
     expect(back).toContain("params.navigate(action);");
     expect(source).toContain("replace: action.mode === \"replace\"");
     expect(source).toContain('source: "tap"');
-    expect(source).toContain('transitionMode: "full"');
+    // The resolver owns whether back is a screen change or an in-place close.
+    // Both call sites pass its answer through; neither hardcodes a mode.
+    expect(back).toContain('? "contextual"');
+    expect(source).toContain("transitionMode: action.transitionMode");
     expect(edgeBack).toContain("requestInternalAppNavigation({");
     expect(edgeBack).toContain('source: "native_back"');
-    expect(edgeBack).toContain('transitionMode: "full"');
+    expect(edgeBack).toContain("transitionMode: action.transitionMode");
     expect(source).not.toContain("router.back();");
   });
 
@@ -423,6 +427,13 @@ describe("Top app bar responsive contract", () => {
       source.indexOf("const updateHeaderVisibility"),
       source.indexOf("const detachListeners"),
     );
+
+    // Measured on a 393px viewport: past ~0.75 progress the back control is no
+    // longer the element under its own coordinates, and at full collapse the
+    // row sits behind `overflow: hidden` at opacity 0. A screen whose only way
+    // back is this arrow must therefore not collapse at all.
+    expect(update).toContain("if (hasBackControlRef.current)");
+    expect(update).toContain("topChromeProgress = 0;");
 
     expect(update).toContain("if (nextProgress !== lastWrittenProgress)");
     expect(update).toContain("if (nextCollapsePx !== lastWrittenCollapsePx)");
