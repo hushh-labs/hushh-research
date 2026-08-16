@@ -325,10 +325,10 @@ describe("SavedLocationsSection", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
     expect(
-      await screen.findByRole("heading", { name: "Add your address details" }),
+      await screen.findByRole("heading", { name: "Address details" }),
     ).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B, Tower 2" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
@@ -376,9 +376,9 @@ describe("SavedLocationsSection", () => {
       }),
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    await screen.findByRole("heading", { name: "Add your address details" });
+    await screen.findByRole("heading", { name: "Address details" });
 
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
@@ -389,7 +389,7 @@ describe("SavedLocationsSection", () => {
       "This place is already saved as Home. Choose a different place or remove it first.",
     );
     expect(
-      screen.getByRole("dialog", { name: "Add your address details" }),
+      screen.getByRole("dialog", { name: "Address details" }),
     ).toBeInTheDocument();
   });
 
@@ -408,9 +408,9 @@ describe("SavedLocationsSection", () => {
       name: /pin your entrance|before google maps opens/i,
     });
     fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
-    await screen.findByRole("heading", { name: "Add your address details" });
+    await screen.findByRole("heading", { name: "Address details" });
 
-    fireEvent.change(screen.getByLabelText(/House, flat, floor or block/), {
+    fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
@@ -422,7 +422,7 @@ describe("SavedLocationsSection", () => {
       ),
     );
     expect(
-      screen.getByRole("dialog", { name: "Add your address details" }),
+      screen.getByRole("dialog", { name: "Address details" }),
     ).toBeInTheDocument();
   });
 

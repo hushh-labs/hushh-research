@@ -565,7 +565,7 @@ describe("top shell breadcrumbs", () => {
       const params = new URLSearchParams();
       params.set("action", action);
       expect(resolveTopShellBreadcrumb("/one/location", params)).toEqual({
-        backHref: "/one/location",
+        backHref: "/one/location?view=now",
         width: "profile",
         align: "center",
         items: [
@@ -576,13 +576,17 @@ describe("top shell breadcrumbs", () => {
       });
     }
 
+    // Back from a private check-in returns to check-in's own route. It must
+    // never name Your Map: that screen withholds the check-in sheet, so
+    // pointing back at it made the one control whose job is to retrace a step
+    // land on a screen the flow is not on, which then redirected away again.
     const fromNearbyCheckIn = new URLSearchParams();
     fromNearbyCheckIn.set("action", "private-check-in");
     fromNearbyCheckIn.set("source", "nearby");
     expect(
       resolveTopShellBreadcrumb("/one/location", fromNearbyCheckIn),
     ).toEqual({
-      backHref: "/one/location/map?action=check-in",
+      backHref: "/one/location/check-in",
       width: "profile",
       align: "center",
       items: [
@@ -598,7 +602,7 @@ describe("top shell breadcrumbs", () => {
     expect(
       resolveTopShellBreadcrumb("/one/location", fromNearbyCheckIn)?.backHref,
     ).toBe(
-      "/one/location/map?action=check-in&resume=123e4567-e89b-12d3-a456-426614174000",
+      "/one/location/check-in?resume=123e4567-e89b-12d3-a456-426614174000",
     );
 
     // Opened from Profile: the leading crumb reflects the real origin, but back
@@ -607,7 +611,7 @@ describe("top shell breadcrumbs", () => {
     fromProfile.set("from", "/one/profile");
     fromProfile.set("action", "check-in");
     expect(resolveTopShellBreadcrumb("/one/location", fromProfile)).toEqual({
-      backHref: "/one/location",
+      backHref: "/one/location?view=now",
       width: "profile",
       align: "center",
       items: [
