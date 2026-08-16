@@ -2038,7 +2038,18 @@ function PeopleHub({
                       <PersonRow
                         key={r.userId}
                         name={name}
-                        subtitle={vm.recipientSubtitle(r)}
+                        // Someone sharing their location with you right now
+                        // used to read "Ready for private location sharing" —
+                        // the recommendation line, which describes what COULD
+                        // happen and so says the opposite of what is. The row
+                        // already knew (`receiving`), and spent it on an accent
+                        // colour. Two people with the same name, one sharing
+                        // and one not, were then indistinguishable except by a
+                        // tint, which is the whole reason "is this the same
+                        // person or a different one" is hard to answer here.
+                        subtitle={
+                          receiving ? "Sharing with you" : vm.recipientSubtitle(r)
+                        }
                         active={sharing || receiving}
                         first={i === 0}
                         action={
@@ -2752,6 +2763,11 @@ function ShareFlow({
             );
           })}
         </div>
+      ) : vm.shareRecipientSearch.trim() ? (
+        // A typo used to be reported as "you have no contacts", which sends a
+        // person with twenty of them off to invite people they already have.
+        // The list being empty and the QUERY being empty are different facts.
+        <EmptyState title="No matching people" description="Try a different name." />
       ) : (
         <EmptyState
           title="No trusted people yet"
@@ -2991,10 +3007,17 @@ function AskFlow({
           </div>
         ) : (
           <div className="mt-3">
-            <EmptyState
-              title="No one to request from yet"
-              description="Invite someone first."
-            />
+            {vm.recipientSearch.trim() ? (
+              <EmptyState
+                title="No matching people"
+                description="Try a different name."
+              />
+            ) : (
+              <EmptyState
+                title="No one to request from yet"
+                description="Invite someone first."
+              />
+            )}
           </div>
         )}
       </SectionCard>

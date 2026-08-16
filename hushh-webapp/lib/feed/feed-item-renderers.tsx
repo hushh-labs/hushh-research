@@ -83,6 +83,13 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   // "Someone" last). Used to turn vague, subjectless lines like "A live
   // location share was revoked" into explicit subject-action-object sentences.
   const who = resolveCounterpartName(item.metadata);
+  // Whose side of the event this row is. A location share writes one row to
+  // the person sharing and one to the person shared with (migration 152); only
+  // the second carries this marker, and only the second reads as "someone did
+  // this to me" rather than "I did this". Rows written before that migration
+  // have no marker and stay on the owner's wording, which is what they were.
+  const sharedWithMe =
+    metadataString(item.metadata, "feed_audience") === "recipient";
 
   switch (item.event_type) {
     case "consent_requested":
@@ -121,7 +128,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: "Started sharing location",
+        description: sharedWithMe
+          ? "Shared their location with you"
+          : "Started sharing location",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -132,7 +141,15 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
-        description: ownerRevoked ? "You stopped sharing location" : "Stopped sharing location",
+        // `reason` describes what the OWNER did, so on the recipient's row
+        // "owner_revoke" is still true and "You stopped sharing location"
+        // would be shown to the one person who did not stop anything.
+        // Audience decides the sentence; reason only refines the owner's.
+        description: sharedWithMe
+          ? "Stopped sharing their location"
+          : ownerRevoked
+            ? "You stopped sharing location"
+            : "Stopped sharing location",
         href: ROUTES.ONE_LOCATION,
       };
     }
@@ -142,6 +159,8 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: hasWho ? who : "Location",
+        // No audience split: this line names no subject, and the row's title is
+        // already the other person, so it reads correctly from both sides.
         description: "Stopped sharing - time ran out",
         href: ROUTES.ONE_LOCATION,
       };
