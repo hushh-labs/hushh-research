@@ -2304,6 +2304,27 @@ describe("OneLocationAgentPage", () => {
     vi.useRealTimers();
   });
 
+  it("still knows where you are on the finale after the save-place prompt closes", async () => {
+    // THE REGRESSION. The last onboarding screen -- "You're on the map." -- took
+    // its camera from the save-place modal's DRAFT point, and both of that
+    // modal's exits null it. The modal runs two screens earlier, so the finale
+    // was handed null on every single run, `useGoogleMaps` was never enabled,
+    // and the screen always drew its stylised fallback. The map feature shipped
+    // and nobody, on any platform or in any environment, ever saw it.
+    //
+    // `reachLocationOnboardingFinalStep` dismisses that prompt with
+    // "Skip for now" -- precisely the exit that used to destroy the point.
+    render(<OneLocationAgentPage mode="setup" onSetupComplete={vi.fn()} />);
+
+    await reachLocationOnboardingFinalStep();
+
+    const map = screen.getByTestId("onboarding-live-map");
+    // `data-map-state` cannot answer this: jsdom has no Google Maps, so it
+    // reads "stylised" whether or not a point survived. That ambiguity is what
+    // hid the bug, which is why the component reports the two separately.
+    expect(map.getAttribute("data-map-point")).toBe("ready");
+  });
+
   it("does not finish web Location setup while permission is denied", async () => {
     const onSetupComplete = vi.fn();
     mockGetPermissionState.mockResolvedValue({

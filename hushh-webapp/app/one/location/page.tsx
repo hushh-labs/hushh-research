@@ -228,6 +228,7 @@ import {
   isOneLocationNearbyCheckInAvailable,
   ONE_LOCATION_NEARBY_COARSE_ACCURACY_METERS,
 } from "@/lib/one-location/nearby-check-in-availability";
+import { resolveOnboardingMapPoint } from "@/lib/one-location/onboarding-map-point";
 
 import {
   clearLiveShareEntries,
@@ -2370,6 +2371,22 @@ export function OneLocationAgentPageContent({
   const [saveLocationModalOpen, setSaveLocationModalOpen] = useState(false);
   const [saveLocationPoint, setSaveLocationPoint] =
     useState<PlainLocationPoint | null>(null);
+  /**
+   * The point onboarding confirmed, kept ALIVE past the save-place modal.
+   *
+   * `saveLocationPoint` above is that modal's draft, and both of its exits null
+   * it -- the save at `saveOnboardingLocation` and the skip at
+   * `handleSkipSaveOnboardingLocation`. That is right for a draft and was fatal
+   * for the finale: "You're on the map." renders two screens later, so it
+   * received null every single time and always drew its stylised fallback. The
+   * feature shipped and nobody could see it, in any environment.
+   *
+   * So the finale gets its own state. Written wherever a real fix is
+   * established, never cleared by the modal closing, cleared only when the
+   * account changes (below, with the rest of that reset).
+   */
+  const [onboardingConfirmedPoint, setOnboardingConfirmedPoint] =
+    useState<PlainLocationPoint | null>(null);
   const [saveLocationAddress, setSaveLocationAddress] = useState<string | null>(
     null,
   );
@@ -2554,6 +2571,9 @@ export function OneLocationAgentPageContent({
     savedLocationPointUserIdRef.current = null;
     setSaveLocationModalOpen(false);
     setSaveLocationPoint(null);
+    // The one place the finale's point IS cleared. A coordinate belongs to the
+    // account that produced it, and must never be inherited across a switch.
+    setOnboardingConfirmedPoint(null);
     setSaveLocationAddress(null);
     setSaveLocationAddressLoading(false);
     setSaveLocationSaving(false);
@@ -2585,6 +2605,24 @@ export function OneLocationAgentPageContent({
     [auth.userId],
   );
   const myLocationPoint = locationWorkspace.myLocationPoint;
+  /**
+   * Where the last onboarding screen puts its camera.
+   *
+   * Three sources, freshest first, resolved by a named function with its own
+   * tests rather than inline here -- see `resolveOnboardingMapPoint`. The
+   * workspace point at the end is what covers the person who reached the finale
+   * without the save-place step running at all: a returning account, or a
+   * workspace run where Location was already granted.
+   */
+  const onboardingFinaleMapPoint = useMemo(
+    () =>
+      resolveOnboardingMapPoint({
+        draft: saveLocationPoint,
+        confirmed: onboardingConfirmedPoint,
+        workspace: myLocationPoint,
+      }),
+    [myLocationPoint, onboardingConfirmedPoint, saveLocationPoint],
+  );
   const setMyLocationPoint = useCallback(
     (next: SetStateAction<PlainLocationPoint | null>) => {
       updateLocationWorkspace((current) => ({
@@ -9691,6 +9729,9 @@ export function OneLocationAgentPageContent({
           savedLocationAddressResolutionIdRef.current + 1;
         savedLocationAddressResolutionIdRef.current = addressResolutionId;
         setSaveLocationPoint(point);
+        // The finale's copy. Same value, different lifetime: this one has to
+        // outlive the modal below, because the map that uses it comes after it.
+        setOnboardingConfirmedPoint(point);
         setSaveLocationAddress(null);
         setSaveLocationAddressLoading(true);
         setSaveLocationModalOpen(true);
@@ -9957,13 +9998,17 @@ export function OneLocationAgentPageContent({
         throw new Error("The selected place did not return an address.");
       }
       savedLocationAddressResolutionIdRef.current += 1;
-      setSaveLocationPoint({
+      const selectedPoint: PlainLocationPoint = {
         ...saveLocationPoint,
         latitude: place.latitude,
         longitude: place.longitude,
         accuracyM: null,
         capturedAt: new Date().toISOString(),
-      });
+      };
+      setSaveLocationPoint(selectedPoint);
+      // Choosing a different address moves the finale's camera too: the point
+      // the person confirmed is the one the last screen should show.
+      setOnboardingConfirmedPoint(selectedPoint);
       setSaveLocationAddress(label);
       setSaveLocationAddressLoading(false);
     },
@@ -9986,13 +10031,27 @@ export function OneLocationAgentPageContent({
       ) {
         return;
       }
+      // Stamped once, outside the updater: a state updater has to be pure, and
+      // one that reads the clock hands back a different point each time React
+      // chooses to re-run it.
+      const pickedAt = new Date().toISOString();
       setSaveLocationPoint((current) => ({
         latitude: picked.latitude,
         longitude: picked.longitude,
         accuracyM: null,
-        capturedAt: new Date().toISOString(),
+        capturedAt: pickedAt,
         sourcePlatform: current?.sourcePlatform ?? "web",
       }));
+      // Dragging the pin is the most deliberate statement of "I am here" this
+      // flow ever gets, so the finale honours it. Only the coordinate is read
+      // there, which is why this copy does not need the platform above.
+      setOnboardingConfirmedPoint({
+        latitude: picked.latitude,
+        longitude: picked.longitude,
+        accuracyM: null,
+        capturedAt: pickedAt,
+        sourcePlatform: "web",
+      });
       savedLocationAddressResolutionIdRef.current += 1;
       setSaveLocationAddress(picked.address);
       setSaveLocationAddressLoading(false);
@@ -10333,14 +10392,13 @@ export function OneLocationAgentPageContent({
           // same fix costs a second permission round-trip and a visible delay
           // on the one screen that has to feel instant. Null renders the
           // stylised map, which is a composed screen rather than an error.
-          mapPoint={
-            saveLocationPoint
-              ? {
-                  lat: saveLocationPoint.latitude,
-                  lng: saveLocationPoint.longitude,
-                }
-              : null
-          }
+          //
+          // It reads `onboardingConfirmedPoint`, NOT `saveLocationPoint`. That
+          // is the whole fix: the modal's draft is nulled when the modal
+          // closes, two screens before this map exists, so feeding the finale
+          // from it meant the finale was fed null on every run. See the state
+          // declaration above for the full account.
+          mapPoint={onboardingFinaleMapPoint}
           contactsStepAvailable={contactsStepAvailable}
           onPreviewCircleCode={handlePreviewCircleCode}
           onAcceptCircleCode={handleAcceptCircleCode}

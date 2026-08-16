@@ -72,6 +72,12 @@ export function OnboardingLiveMap({
       className={cn("relative overflow-hidden", className)}
       data-testid="onboarding-live-map"
       data-map-state={live ? "live" : "stylised"}
+      // Two very different reasons produce the same stylised picture: nobody
+      // gave this screen a coordinate, or the Maps script never became usable.
+      // For two months they were indistinguishable from the outside, which is
+      // most of why the first one went unnoticed -- the screen looked composed
+      // and said nothing. Saying which is which costs one attribute.
+      data-map-point={point ? "ready" : "none"}
       aria-hidden="true"
     >
       <div ref={hostRef} className="absolute inset-0" />
