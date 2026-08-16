@@ -137,6 +137,12 @@ ALTER TABLE one_location_events
 -- 3 hours more" for the owner and "Gave you 3 hours more" for the requester,
 -- and counterpart_label is swapped to the OTHER person for the counterparty's
 -- copy so neither side reads their own name back as the actor.
+--
+-- The whole second side is gated on owner_label so this function stays a no-op
+-- for code that predates it. A schema migration lands ahead of the deploy that
+-- uses it, and on a shared database it lands ahead of OTHER people's deploys
+-- too; a fan-out that switched on at migration time would put owner-worded rows
+-- on requesters' feeds until every reader caught up.
 CREATE OR REPLACE FUNCTION feed_events_from_one_location_events()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -161,19 +167,26 @@ BEGIN
     );
   END IF;
 
+  -- Gated on owner_label, which ONLY the backend that understands this fan-out
+  -- writes. That makes the migration a no-op for whatever code is already
+  -- deployed against this database: an older backend never sets the key, so it
+  -- keeps the exact owner-only behaviour it has today, and no requester starts
+  -- receiving feed rows that their frontend would render from the owner's point
+  -- of view ("You approved the location request", on the feed of the person who
+  -- did the asking). The second side switches on when the code that labels both
+  -- parties ships, not when the column does.
   IF NEW.event_type IN (
     'location_access_request',
     'location_access_approved',
     'location_access_denied'
   )
+    AND NEW.metadata ? 'owner_label'
     AND NEW.recipient_user_id IS NOT NULL
     AND NEW.recipient_user_id <> NEW.owner_user_id
   THEN
-    counterparty_metadata := NEW.metadata || jsonb_build_object('viewer_role', 'counterparty');
-    IF NEW.metadata ? 'owner_label' THEN
-      counterparty_metadata := counterparty_metadata
-        || jsonb_build_object('counterpart_label', NEW.metadata -> 'owner_label');
-    END IF;
+    counterparty_metadata := NEW.metadata
+      || jsonb_build_object('viewer_role', 'counterparty')
+      || jsonb_build_object('counterpart_label', NEW.metadata -> 'owner_label');
     INSERT INTO feed_events (user_id, source_domain, event_type, metadata, source_row_id)
     VALUES (
       NEW.recipient_user_id,
