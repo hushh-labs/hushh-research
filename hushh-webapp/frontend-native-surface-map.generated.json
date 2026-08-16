@@ -3990,7 +3990,10 @@
         "location.add_connections",
         "location.add_emergency_contact",
         "location.add_to_circle",
+        "location.approve_request",
+        "location.change_share_duration",
         "location.create_circle",
+        "location.decline_request",
         "location.open_active_shares",
         "location.open_ask",
         "location.open_check_in",
@@ -4016,6 +4019,7 @@
         "location.select_share_recipient",
         "location.set_auto_share",
         "location.share_selected",
+        "location.stop_share",
         "location.stop_sos"
       ],
       "api_dependencies": [
@@ -8628,5 +8632,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "abffe02c63b4bbd6d400a9804f06375462cdd7a24444962f73feed3dfc74ccbb"
+  "content_sha256": "062ddae7ed1ca7949f43e904058ceb0241fabbac87b511e2a18602ead70d4631"
 }

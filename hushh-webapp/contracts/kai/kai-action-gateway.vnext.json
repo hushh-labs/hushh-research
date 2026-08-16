@@ -6958,6 +6958,490 @@
       }
     },
     {
+      "action_id": "location.stop_share",
+      "surface_id": "one_location",
+      "label": "Stop sharing with someone",
+      "aliases": [
+        "stop sharing with",
+        "stop sharing my location with",
+        "revoke access for",
+        "take away their access",
+        "stop letting them see me"
+      ],
+      "search_keywords": [
+        "stop",
+        "revoke",
+        "remove",
+        "share",
+        "access"
+      ],
+      "meaning": "Stops an active share with the named person immediately, so your location no longer updates for them. It only ends the one share you named; every other active share is untouched.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.stop_share"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active share count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.stop_share",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Whose access do you want to stop?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Stop sharing with someone",
+            "failure_behavior": "stop",
+            "action_id": "location.stop_share",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.approve_request",
+      "surface_id": "one_location",
+      "label": "Approve a location request",
+      "aliases": [
+        "approve",
+        "approve their request",
+        "let them see my location",
+        "accept the request from",
+        "say yes to"
+      ],
+      "search_keywords": [
+        "approve",
+        "accept",
+        "request",
+        "grant"
+      ],
+      "meaning": "Approves the named person's pending request to see your location, starting a share for it. It only acts on a request already waiting; it never invites someone new.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.approve_request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending request count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.approve_request",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Whose request do you want to approve?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Approve a location request",
+            "failure_behavior": "stop",
+            "action_id": "location.approve_request",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.decline_request",
+      "surface_id": "one_location",
+      "label": "Decline a location request",
+      "aliases": [
+        "decline",
+        "decline their request",
+        "say no to",
+        "deny the request from",
+        "turn down"
+      ],
+      "search_keywords": [
+        "decline",
+        "deny",
+        "reject",
+        "request"
+      ],
+      "meaning": "Declines the named person's pending request to see your location. It only acts on a request already waiting and does not stop any share already in place with them.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.decline_request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending request count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.decline_request",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Whose request do you want to decline?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Decline a location request",
+            "failure_behavior": "stop",
+            "action_id": "location.decline_request",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "location.change_share_duration",
+      "surface_id": "one_location",
+      "label": "Change how long a share lasts",
+      "aliases": [
+        "change their time",
+        "give them more time",
+        "extend their access",
+        "change the duration for",
+        "shorten their access"
+      ],
+      "search_keywords": [
+        "change",
+        "extend",
+        "duration",
+        "time",
+        "share"
+      ],
+      "meaning": "Changes how much longer the named person can see your live location, without stopping and restarting the share. It only acts on a share already active with them.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "location.change_share_duration"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active share count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.change_share_duration",
+        "required_inputs": [
+          {
+            "name": "person",
+            "prompt": "Whose access time do you want to change?",
+            "required": true,
+            "slot": "person",
+            "resolver": "spoken_person_name"
+          },
+          {
+            "name": "duration_hours",
+            "prompt": "How long should it last now? You can say 30 minutes, 1 hour, 4 hours or 24 hours.",
+            "required": true,
+            "slot": "duration_hours",
+            "resolver": "location_share_duration",
+            "options": [
+              "0.5",
+              "1",
+              "4",
+              "24"
+            ]
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "person": "spoken_person_name",
+          "duration_hours": "location_share_duration"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Change how long a share lasts",
+            "failure_behavior": "stop",
+            "action_id": "location.change_share_duration",
+            "settlement_target": {
+              "route": "/one/location",
+              "screen": "one_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "location.stop_sos",
       "surface_id": "one_location",
       "label": "Stop the active SOS",
