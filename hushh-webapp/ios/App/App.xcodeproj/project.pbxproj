@@ -33,6 +33,7 @@
 		A2774DC0614D2A490F85042E /* HushhConsentPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99D0CE383269D3D6B23A9A02 /* HushhConsentPlugin.swift */; };
 		ABCDEF000000000000000002 /* HusshIMessageSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCDEF000000000000000001 /* HusshIMessageSessionStore.swift */; };
 		B54CF1772B3BDD70BFEC7B19 /* AppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423141872FACCBA5C6BB6BE5 /* AppUITests.swift */; };
+		AA11BB22CC33DD44EE55FF66 /* LocationPickerLocateMeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66FF55EE44DD33CC22BB11AA /* LocationPickerLocateMeTests.swift */; };
 		D1F9F9122F0E966A009FC3FB /* KaiPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F9F90F2F0E966A009FC3FB /* KaiPlugin.swift */; };
 		E1F2A3B42F0E966A009FC3FE /* HushhProxyClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1F2A3B52F0E966A009FC3FE /* HushhProxyClient.swift */; };
 		E8B31D0870530F4CFA77B50B /* HushhSettingsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 695EAEF496545F6564EEC117 /* HushhSettingsPlugin.swift */; };
@@ -69,6 +70,7 @@
 		2A7FDF5F68507FD8EE707E81 /* HushhAuthPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhAuthPlugin.swift; path = Plugins/HushhAuthPlugin.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		423141872FACCBA5C6BB6BE5 /* AppUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppUITests.swift; sourceTree = "<group>"; };
+		66FF55EE44DD33CC22BB11AA /* LocationPickerLocateMeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocationPickerLocateMeTests.swift; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -136,6 +138,7 @@
 			isa = PBXGroup;
 			children = (
 				423141872FACCBA5C6BB6BE5 /* AppUITests.swift */,
+				66FF55EE44DD33CC22BB11AA /* LocationPickerLocateMeTests.swift */,
 				14D3E927F8363CA903B58341 /* AppUITestsLaunchTests.swift */,
 			);
 			path = AppUITests;
@@ -439,6 +442,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B54CF1772B3BDD70BFEC7B19 /* AppUITests.swift in Sources */,
+				AA11BB22CC33DD44EE55FF66 /* LocationPickerLocateMeTests.swift in Sources */,
 				139101184C4F226D678D2C5B /* AppUITestsLaunchTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
