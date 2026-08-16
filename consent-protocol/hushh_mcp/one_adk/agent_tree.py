@@ -840,6 +840,17 @@ async def _specialist_turn(
                 "consent and TrustLink checks still apply."
             ),
         }
+    if availability.state == "domain_disabled":
+        return {
+            "status": availability.state,
+            "reason": availability.reason_code,
+            "availability": availability_payload,
+            "message": (
+                f"Voice control is turned off for {specialist_label(agent_id)} "
+                "in your settings. Turn it back on in Profile, Preferences, "
+                "Voice, or do this by tap instead."
+            ),
+        }
     if availability.state in {"needs_auth", "vault_locked"}:
         return {
             "status": availability.state,

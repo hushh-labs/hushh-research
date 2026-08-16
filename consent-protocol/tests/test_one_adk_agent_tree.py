@@ -343,6 +343,60 @@ class TestSpecialistTurn:
         assert result["status"] == "unavailable"
 
     @pytest.mark.asyncio
+    async def test_refuses_a_specialist_the_user_turned_off_in_voice_settings(self):
+        result = await _specialist_turn(
+            "agent_location",
+            "share my location with Sarah",
+            _tool_context(
+                {
+                    STATE_USER_ID: "u1",
+                    STATE_CONSENT_TOKEN: "t1",
+                    STATE_VOICE_CONTEXT: {
+                        "voice_settings": {"disabled_domains": ["location"]},
+                    },
+                }
+            ),
+        )
+        assert result["status"] == "domain_disabled"
+        assert result["reason"] == "voice_domain_disabled_by_user"
+        assert "Location" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_domain_disabled_takes_priority_over_missing_auth(self):
+        # The restriction is a fact about the request itself (which specialist,
+        # which domain), not about the session -- it must refuse the same way
+        # whether or not the person is signed in yet.
+        result = await _specialist_turn(
+            "agent_location",
+            "share my location",
+            _tool_context(
+                {
+                    STATE_VOICE_CONTEXT: {
+                        "voice_settings": {"disabled_domains": ["location"]},
+                    },
+                }
+            ),
+        )
+        assert result["status"] == "domain_disabled"
+
+    @pytest.mark.asyncio
+    async def test_does_not_restrict_a_domain_the_user_left_enabled(self):
+        result = await _specialist_turn(
+            "agent_location",
+            "where am I sharing my location",
+            _tool_context(
+                {
+                    STATE_USER_ID: "u1",
+                    STATE_CONSENT_TOKEN: "t1",
+                    STATE_VOICE_CONTEXT: {
+                        "voice_settings": {"disabled_domains": ["kyc"]},
+                    },
+                }
+            ),
+        )
+        assert result["status"] != "domain_disabled"
+
+    @pytest.mark.asyncio
     async def test_connected_systems_unavailable_result_is_user_grounded(self):
         result = await _specialist_turn(
             "agent_connected_systems",

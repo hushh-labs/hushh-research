@@ -12,6 +12,10 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from hushh_mcp.adk_bridge.dispatch import is_wired_specialist
+from hushh_mcp.one_adk.voice_domain_policy import (
+    is_voice_domain_disabled,
+    resolve_voice_domain_for_specialist,
+)
 from hushh_mcp.services.route_orchestration_index import is_one_delegate_admitted
 
 SpecialistAvailabilityState = Literal[
@@ -24,6 +28,7 @@ SpecialistAvailabilityState = Literal[
     "route_not_admitted",
     "runtime_unavailable",
     "unavailable",
+    "domain_disabled",
 ]
 
 
@@ -95,6 +100,17 @@ def resolve_specialist_availability(
 
     if agent_id not in _SPECIALIST_LABELS:
         return result("unavailable", "specialist_unknown")
+
+    # Checked before every other state, deployment facts included: this is
+    # the person's own explicit choice, and it is more relevant and more
+    # actionable than any of the readiness facts below it -- "Email needs
+    # approved task-specific authority" is true but not the point when the
+    # actual reason is that the person turned Email off themselves.
+    voice_settings = context.get("voice_settings")
+    voice_settings = voice_settings if isinstance(voice_settings, dict) else {}
+    voice_domain = resolve_voice_domain_for_specialist(agent_id)
+    if is_voice_domain_disabled(voice_domain, voice_settings.get("disabled_domains")):
+        return result("domain_disabled", "voice_domain_disabled_by_user")
 
     # `/one/setup/location` deliberately admits only generated onboarding
     # actions. Returning setup_required here makes an accidental tool call
