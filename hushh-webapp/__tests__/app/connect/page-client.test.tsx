@@ -656,7 +656,7 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
     expect(await screen.findByText("Bulk person 0")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select several people" }));
 
     expect(
       screen.getByText("Pick up to 8, across pages."),
@@ -715,7 +715,7 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
     expect(await screen.findByText("Person 0")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select several people" }));
     fireEvent.click(screen.getByLabelText("Select Person 0"));
     expect(screen.getByText("Review 1 of 8")).toBeTruthy();
 
@@ -768,7 +768,7 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
     expect(await screen.findByText("Connected Carl")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select several people" }));
 
     // Eligible: a real, enabled checkbox.
     expect(
@@ -848,7 +848,7 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
     expect(await screen.findByText("Ada Advisor")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Select multiple" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select several people" }));
     fireEvent.click(screen.getByLabelText("Select Ada Advisor"));
     fireEvent.click(screen.getByLabelText("Select Ben Advisor"));
     fireEvent.click(screen.getByRole("button", { name: "Review 2 of 8" }));
@@ -974,5 +974,109 @@ describe("Connect — removing a connection", () => {
     const card = parseVoiceCard(result.data);
     expect(card?.kind).toBe("choice");
     expect(parseVoiceConfirm(result.data)).toBeNull();
+  });
+});
+
+describe("Connect — the phone-width geometry QA reported", () => {
+  // What a class assertion can and cannot do is the whole point of this block.
+  // JSDOM applies no CSS, so none of these prove a pixel. They prove the
+  // component still hands the browser the geometry that
+  // `e2e/connect-circle-cta.layout.spec.ts` measured and found correct. Neither
+  // half is sufficient on its own; that spec is the other half.
+
+  it("keeps a connection's Remove beside the name, not under it", async () => {
+    // `stackTrailingOnMobile` puts the trailing control on its own line below
+    // `sm:` -- which is 640px, so on every iPhone. It was set here for a single
+    // 72px "Remove", and QA read the result as a broken row: "remove neeche aa
+    // rha". The People list on the same screen has never stacked.
+    mocks.listConnections.mockResolvedValue([
+      {
+        connectionId: "c-1",
+        userId: "u-rashid",
+        displayName: "Abdul Rashid",
+        maskedEmail: "r***d@gmail.com",
+      },
+    ]);
+    render(<ConnectPageClient />);
+
+    const remove = await screen.findByRole("button", {
+      name: "Remove connection with Abdul Rashid",
+    });
+    const trailing = remove.closest("div");
+    expect(trailing).toBeTruthy();
+
+    // Whole class tokens, not substrings: this wrapper already carries
+    // `max-w-full`, which contains "w-full" and would make a `toContain` check
+    // pass or fail for the wrong reason.
+    const classes = new Set(trailing!.className.split(/\s+/));
+
+    // The classes SettingsRow adds only when it is stacking.
+    expect(classes.has("justify-between")).toBe(false);
+    expect(classes.has("pt-1")).toBe(false);
+    expect(classes.has("w-full")).toBe(false);
+    // And the one it keeps when it is not.
+    expect(classes.has("justify-end")).toBe(true);
+  });
+
+  it("asks for the search field in two words", async () => {
+    render(<ConnectPageClient />);
+    expect(await screen.findByPlaceholderText("Search people")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Search people by name")).toBeNull();
+  });
+
+  it("reserves the clear-button gutter only once there is something to clear", async () => {
+    // 44px of right padding held back from a field whose only content is its
+    // placeholder is 44px the placeholder does not get.
+    render(<ConnectPageClient />);
+    const field = (await screen.findByPlaceholderText(
+      "Search people",
+    )) as HTMLInputElement;
+
+    expect(field.className).toContain("pr-3.5");
+    expect(field.className).not.toContain("pr-11");
+
+    fireEvent.change(field, { target: { value: "ada" } });
+    expect(field.className).toContain("pr-11");
+  });
+
+  it("spends one word on cancelling a request, and says whose in the label", async () => {
+    // "Cancel request" under a 100px floor sized for "Cancelling…" made the
+    // least common row state the widest control on the screen. The visible word
+    // is short; the accessible name still carries the whole meaning, and names
+    // the person -- which the old fixed label never did.
+    mocks.searchDirectory.mockResolvedValue({
+      items: [
+        {
+          ...person("u1", "Smirthika Dharmalingam"),
+          relationship: "pending_outgoing" as const,
+        },
+      ],
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+
+    const cancel = await screen.findByRole("button", {
+      name: "Cancel your request to Smirthika Dharmalingam",
+    });
+    expect(cancel.textContent).toBe("Cancel");
+    expect(screen.queryByText("Cancel request")).toBeNull();
+
+    // WCAG 2.5.3: the accessible name has to contain the visible label, or
+    // "tap Cancel" is an instruction voice control cannot follow.
+    expect(
+      cancel.getAttribute("aria-label")!.includes(cancel.textContent!),
+    ).toBe(true);
+  });
+
+  it("keeps the selection toggle to one word, without hiding what it does", async () => {
+    render(<ConnectPageClient />);
+    const toggle = await screen.findByRole("button", {
+      name: "Select several people",
+    });
+    expect(toggle.textContent).toBe("Select");
+    expect(toggle.getAttribute("aria-label")!.startsWith(toggle.textContent!)).toBe(
+      true,
+    );
   });
 });
