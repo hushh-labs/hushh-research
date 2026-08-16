@@ -214,6 +214,20 @@ import {
 } from "@/lib/one-location/nearby-check-in-availability";
 
 import {
+  clearLiveShareEntries,
+  liveShareEntriesEqual,
+  loadLiveShareEntries,
+  pruneLiveShareEntries,
+  reconcileLiveShareEntries,
+  saveLiveShareEntries,
+  summarizeLiveShareEntries,
+  type LiveShareSessionEntry,
+} from "@/lib/one-location/live-share-session";
+import {
+  LiveShareStatusCard,
+  type LiveShareStatus,
+} from "@/components/one-location/redesign/live-share-status-card";
+import {
   clearSosIncident,
   loadSosIncident,
   reconcileSosIncident,
@@ -2831,6 +2845,77 @@ export function OneLocationAgentPageContent({
       (state?.ownerGrants ?? []).filter((grant) => grant.status === "active"),
     [state?.ownerGrants],
   );
+
+  /* ------------------------------------------------------------------ *
+   * Live share continuity
+   *
+   * `state` is a memory-only snapshot that expires after a minute, so leaving
+   * this route and returning re-entered the screen believing nothing was live
+   * until the network answered — a share deliberately set to "1 hour" appeared
+   * to have been forgotten. The device record below restores the running window
+   * on the first frame; the server stays the authority and reconciles into it.
+   * ------------------------------------------------------------------ */
+  const [liveShareEntries, setLiveShareEntries] = useState<
+    LiveShareSessionEntry[]
+  >(() => loadLiveShareEntries(auth.userId ?? ""));
+  const liveShareEntriesRef = useRef(liveShareEntries);
+  useEffect(() => {
+    liveShareEntriesRef.current = liveShareEntries;
+  }, [liveShareEntries]);
+
+  useEffect(() => {
+    const userId = auth.userId;
+    // Another account's shares must never render as yours, not even for one
+    // frame, so the record is keyed per owner and cleared on the way out.
+    setLiveShareEntries(userId ? loadLiveShareEntries(userId) : []);
+  }, [auth.userId]);
+
+  const commitLiveShareEntries = useCallback(
+    (next: LiveShareSessionEntry[]) => {
+      const userId = auth.userId;
+      if (liveShareEntriesEqual(next, liveShareEntriesRef.current)) return;
+      liveShareEntriesRef.current = next;
+      setLiveShareEntries(next);
+      if (!userId) return;
+      if (next.length) saveLiveShareEntries(userId, next);
+      else clearLiveShareEntries(userId);
+    },
+    [auth.userId],
+  );
+
+  useEffect(() => {
+    // Guarded on `state`: reconciling against an empty grant list before the
+    // first load lands would erase a genuinely running share.
+    if (!auth.userId || !state) return;
+    commitLiveShareEntries(
+      reconcileLiveShareEntries(liveShareEntriesRef.current, activeOwnerGrants),
+    );
+  }, [activeOwnerGrants, auth.userId, commitLiveShareEntries, state]);
+
+  const liveShareStatus = useMemo<LiveShareStatus | null>(() => {
+    const shareWindow = summarizeLiveShareEntries(liveShareEntries);
+    if (!shareWindow) return null;
+    const liveGrantIds = new Set(
+      liveShareEntries.map((entry) => entry.grantId),
+    );
+    return {
+      count: shareWindow.count,
+      // Names come from the server state only. The device record stays
+      // coordinate- and identity-free, so a cold start shows "2 people" rather
+      // than inventing who they are.
+      names: activeOwnerGrants
+        .filter((grant) => liveGrantIds.has(grant.id))
+        .map((grant) => grantCounterpartyLabel(grant))
+        .filter(Boolean),
+      startedAt: shareWindow.startedAt,
+      endsAt: shareWindow.endsAt,
+      stoppableGrantId:
+        liveShareEntries.length === 1
+          ? (liveShareEntries[0]?.grantId ?? null)
+          : null,
+    };
+  }, [activeOwnerGrants, liveShareEntries]);
+
   const locationEnabled =
     !locationControl.paused &&
     (locationControl.selfPreviewEnabled ||
@@ -3259,6 +3344,20 @@ export function OneLocationAgentPageContent({
       vaultOwnerToken,
     ],
   );
+
+  // The countdown hitting zero is the first moment anyone knows the share is
+  // over — the backend expires it silently. Drop the local record and pull the
+  // authoritative state so the screen agrees with the server within one round
+  // trip instead of sitting at 00:00.
+  const handleLiveShareEnded = useCallback(() => {
+    const userId = auth.userId;
+    commitLiveShareEntries(
+      pruneLiveShareEntries(liveShareEntriesRef.current, Date.now()),
+    );
+    if (!userId) return;
+    OneLocationStateResource.invalidate(userId);
+    void refresh({ background: true });
+  }, [auth.userId, commitLiveShareEntries, refresh]);
 
   const refreshLocationPermission = useCallback(async () => {
     // A failed read means we do not know, which is a reason to ask the device
@@ -10080,6 +10179,8 @@ export function OneLocationAgentPageContent({
     visibleRecipients,
     visibleShareRecipients,
     activeOwnerGrants,
+    liveShare: liveShareStatus,
+    onLiveShareEnded: handleLiveShareEnded,
     // Received grants stay reachable in their focused detail view. Dismissing
     // a preview never mutates the durable grant or its revocation state.
     receivedGrants: activeReceivedGrants,
@@ -10275,7 +10376,35 @@ export function OneLocationAgentPageContent({
           ) : null}
 
           {showInitialSkeleton ? (
-            <HushhLoader variant="page" label="Loading location..." />
+            <>
+              {/* A running share is the one thing here that cannot wait for the
+                  network — it is already happening. Hiding a live privacy state
+                  behind a spinner is exactly what made a one-hour share look
+                  forgotten on the way back to this screen. Stopping works from
+                  here too; it needs the grant id, not the workspace. */}
+              {liveShareStatus ? (
+                <LiveShareStatusCard
+                  status={liveShareStatus}
+                  onManage={() =>
+                    router.push("/one/location?action=active-shares")
+                  }
+                  onStop={
+                    liveShareStatus.stoppableGrantId
+                      ? () =>
+                          void handleRevoke(
+                            liveShareStatus.stoppableGrantId ?? "",
+                          )
+                      : undefined
+                  }
+                  stopBusy={
+                    Boolean(liveShareStatus.stoppableGrantId) &&
+                    revokingGrantId === liveShareStatus.stoppableGrantId
+                  }
+                  onEnded={handleLiveShareEnded}
+                />
+              ) : null}
+              <HushhLoader variant="page" label="Loading location..." />
+            </>
           ) : (
             <LocationRedesignHub vm={locationHubVm} />
           )}
