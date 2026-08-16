@@ -74,6 +74,13 @@ class TestVoiceDomainLabel:
     def test_unknown_domain_falls_back_to_the_raw_key(self):
         assert voice_domain_label("not_a_real_domain") == "not_a_real_domain"
 
+    def test_none_stays_total_rather_than_raising(self):
+        # Every real call site only reaches this after is_voice_domain_disabled
+        # has confirmed the domain is not None, but that narrowing does not
+        # cross the function boundary for the type checker -- this must still
+        # behave sanely if ever called directly with None.
+        assert voice_domain_label(None) == "this"
+
 
 def test_every_enforceable_domain_has_at_least_one_action_prefix():
     for domain, prefixes in VOICE_DOMAIN_ACTION_PREFIXES.items():

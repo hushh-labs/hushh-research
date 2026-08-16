@@ -58,7 +58,17 @@ VOICE_DOMAIN_LABELS: dict[str, str] = {
 }
 
 
-def voice_domain_label(domain: str) -> str:
+def voice_domain_label(domain: str | None) -> str:
+    """A spoken-safe name for a domain key.
+
+    Accepts None because every real call site resolves it from
+    resolve_voice_domain() first (typed str | None) and only reaches this
+    function once is_voice_domain_disabled() has already confirmed it is
+    not None -- but that narrowing does not cross the function boundary, so
+    this stays total rather than asserting a fact the type checker cannot see.
+    """
+    if not domain:
+        return "this"
     return VOICE_DOMAIN_LABELS.get(domain, domain)
 
 
