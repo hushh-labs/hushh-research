@@ -366,12 +366,12 @@ describe("SosPanel", () => {
     fireEvent.change(composer, { target: { value: "a".repeat(140) } });
     expect(screen.getByText("140/140")).toBeInTheDocument();
     expect(hold).toBeEnabled();
-    expect(screen.queryByText("character limit exceed")).toBeNull();
+    expect(screen.queryByText("Message is too long")).toBeNull();
 
     fireEvent.change(composer, { target: { value: "a".repeat(141) } });
     expect(screen.getByText("141/140")).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "character limit exceed",
+      "Message is too long",
     );
     expect(hold).toBeDisabled();
 

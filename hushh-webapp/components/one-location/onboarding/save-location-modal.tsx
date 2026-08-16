@@ -31,8 +31,21 @@ import {
   type SavedLocationAddressDetails,
 } from "@/lib/one-location/saved-location-address";
 
+/**
+ * Grows the tappable region to 44x44 while the visible control keeps its size,
+ * because the `::after` box is painted rather than laid out.
+ *
+ * Deliberately does NOT include `relative`. Adding it to an element that is
+ * already `absolute` puts two positioning utilities in one class string, and
+ * tailwind-merge keeps the last — which drops the element out of absolute
+ * positioning entirely. That collapsed the sheet's corner buttons from 36px
+ * to 18px. Elements that are not already positioned add `relative` themselves.
+ */
+const touchTargetClassName =
+  "after:absolute after:left-1/2 after:top-1/2 after:h-11 after:w-11 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']";
+
 const iconButtonClassName =
-  "press-scale absolute flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45";
+  `press-scale absolute flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45 ${touchTargetClassName}`;
 
 const controlLabelClassName =
   "mb-1.5 block text-[13px] font-semibold leading-[18px] text-muted-foreground";
@@ -74,7 +87,7 @@ function CarouselDots({
 }) {
   return (
     <div
-      className="flex items-center justify-center gap-2 pt-0.5"
+      className="flex items-center justify-center gap-1"
       role="tablist"
       aria-label="Save this place"
     >
@@ -90,7 +103,10 @@ function CarouselDots({
             aria-label={labels[dot]}
             disabled={!reachable}
             onClick={() => onSelect(dot)}
-            className="flex h-6 items-center px-0.5 disabled:cursor-not-allowed"
+            // A real 44x44 each, laid out rather than faked, because two dots
+            // sit side by side and overlapping hit regions would send a tap
+            // near the boundary to the wrong slide.
+            className="flex h-11 w-11 items-center justify-center disabled:cursor-not-allowed"
           >
             <span
               className={cn(
@@ -505,8 +521,10 @@ export function SaveLocationModal({
             !hasOwnAddressAnswer
           ? // The pin is fine; only its address lookup came back empty. Name
             // the way out that is actually open, rather than sending someone
-            // back to a map they already got right.
-            "Add a house, landmark or PIN so this place can be found."
+            // back to a map they already got right. The line above already
+            // shows there is no address, so this only has to carry the action
+            // -- and it matches the shape of its two siblings.
+            "Add a house, landmark or PIN."
           : postalCodeInvalid
             ? // Not the field's own wording. The invalid PIN already says
               // "Enter a valid PIN or postal code." right next to itself, and
@@ -797,7 +815,10 @@ export function SaveLocationModal({
                   type="button"
                   onClick={() => goToSlide(0)}
                   disabled={interactionBusy}
-                  className="press-scale shrink-0 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45"
+                  className={cn(
+                    "press-scale shrink-0 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45",
+                    "relative after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']",
+                  )}
                 >
                   Edit pin
                 </button>
@@ -807,7 +828,7 @@ export function SaveLocationModal({
             {/* Ticked, the fields below are filled from that address and keep
                 following the pin. Unticked, they are cleared and left alone.
                 Anything typed by hand survives either way. */}
-            <label className="flex cursor-pointer items-center gap-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
+            <label className="flex min-h-11 cursor-pointer items-center gap-2 px-1 text-[13px] leading-[18px] text-muted-foreground">
               <input
                 type="checkbox"
                 checked={useDetectedAddress}
@@ -1087,7 +1108,10 @@ export function SaveLocationModal({
                     setPlaceSearchError(null);
                   }}
                   disabled={interactionBusy}
-                  className="press-scale inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45"
+                  className={cn(
+                    "press-scale inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45",
+                    "relative after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']",
+                  )}
                   aria-label="Change captured location"
                 >
                   <Pencil className="h-3.5 w-3.5" aria-hidden />

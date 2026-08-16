@@ -192,7 +192,7 @@ export async function runSosPanic(
     normalizedNote &&
     normalizedNote.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH
   ) {
-    throw new SosPanicError("character limit exceed", null);
+    throw new SosPanicError("Message is too long", null);
   }
 
   if (!recipients.length) {

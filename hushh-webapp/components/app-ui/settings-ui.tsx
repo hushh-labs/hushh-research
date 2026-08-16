@@ -154,10 +154,15 @@ const SETTINGS_ICON_TONE_CLASSNAME = {
   // People, circles and private sharing. Added because the tone vocabulary was
   // smaller than the semantics: `accent`, `blue` and `purple` are byte-identical
   // above, so "these are PEOPLE" had no colour of its own and every row that
-  // meant it rendered as the same action blue as "Share location". iOS system
-  // indigo (#5856D6 light / #5E5CE6 dark), same 12%/20% tile recipe as the rest.
+  // meant it rendered as the same action blue as "Share location".
+  //
+  // Reads --app-indigo rather than carrying its own literals: the value already
+  // existed a second time in globals.css (the profile screens' icon-tone
+  // override), so a hardcoded pair here made one colour live in two files with
+  // nothing binding them. Same 12%/20% tile recipe as the rest, and the token
+  // brightens for dark the way --app-warning and --app-destructive do.
   indigo:
-    "bg-[rgba(88,86,214,0.12)] text-[#5856D6] dark:bg-[rgba(94,92,230,0.20)] dark:text-[#5E5CE6]",
+    "bg-[color-mix(in_srgb,var(--app-indigo)_12%,transparent)] text-[color:var(--app-indigo)] dark:bg-[color-mix(in_srgb,var(--app-indigo)_20%,transparent)] dark:text-[color:var(--app-indigo)]",
   gray:
     "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]",
 } as const;

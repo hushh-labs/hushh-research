@@ -590,7 +590,12 @@ export function LocationPickerMap({
           type="button"
           onClick={onCancel}
           aria-label="Close map"
-          className="press-scale flex h-8 w-8 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] dark:bg-white/[0.08] dark:text-[#aeb8c7]"
+          className={cn(
+            "press-scale flex h-8 w-8 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] dark:bg-white/[0.08] dark:text-[#aeb8c7]",
+            // 32px circle, 44x44 tappable. The `::after` box is painted, not
+            // laid out, so the header row does not move.
+            "relative after:absolute after:left-1/2 after:top-1/2 after:h-11 after:w-11 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']",
+          )}
         >
           <X className="h-4 w-4" strokeWidth={2.4} />
         </button>
