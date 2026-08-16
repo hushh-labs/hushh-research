@@ -226,7 +226,7 @@ export function GeminiRuntimeSettingsCard({
       setMode("hushh_managed_vertex");
       setHasExplicitSelection(true);
       notifyGeminiRuntimeConfigurationChanged();
-      toast.success("Hussh managed Gemini is selected.");
+      toast.success("Using Hussh's AI.");
     } catch (error) {
       setMode(previousMode);
       setHasExplicitSelection(previousSelection);
@@ -498,12 +498,17 @@ export function GeminiRuntimeSettingsCard({
         <SettingsRow
         asChild
         leading={<GeminiLogo className="h-8 w-8" />}
-        title="Hussh managed Gemini"
-        description="Ready now with Hussh-managed Gemini. No personal key is needed."
+        title="Use Hussh's AI"
+        description="No key needed."
+        // The default we want people to take. Until it is chosen the row says
+        // so out loud, so the fast path is the obvious one rather than the one
+        // you work out by elimination.
         trailing={
           mode === "hushh_managed_vertex" && hasExplicitSelection ? (
             <Badge variant="secondary">Selected</Badge>
-          ) : null
+          ) : (
+            <Badge variant="outline">Recommended</Badge>
+          )
         }
         testId="profile-managed-runtime"
       >
@@ -517,11 +522,11 @@ export function GeminiRuntimeSettingsCard({
         <SettingsRow
         asChild
         leading={<GeminiLogo className="h-8 w-8" />}
-        title="Use my Gemini access"
+        title="Use my own key"
         description={
           requiresExplicitSelection && !vaultReady
-            ? "Add a Gemini key now. It stays only in this session until your private vault is ready."
-            : "Use a Google AI Studio key encrypted only in your private vault."
+            ? "Add your own Gemini key."
+            : "Your key stays locked to you."
         }
         trailing={
           mode === "byok" && hasExplicitSelection ? (
@@ -659,7 +664,6 @@ export function GeminiRuntimeSettingsCard({
 
       <SettingsGroup
         title="Coming soon"
-        description="More model choices will appear here when they are ready."
         testId="profile-coming-soon-runtime"
         separatorInset
       >

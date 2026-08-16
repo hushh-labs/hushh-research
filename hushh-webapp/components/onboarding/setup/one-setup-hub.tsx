@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { LockKeyhole, PlugZap } from "lucide-react";
+import { PlugZap } from "lucide-react";
 
 import {
   AppPageContentRegion,
@@ -340,12 +340,17 @@ export function OneSetupHub() {
       if (!runtimeChoiceConfirmed) {
         return {
           status: "blocked" as const,
-          summary: "Choose AI access before continuing.",
+          summary: "Choose your AI first.",
         };
       }
 
       if (!isVaultUnlocked) {
+        // No screen in between. Finish setup opens the lock step itself; the
+        // reassurance the old invitation screen carried ("only you can open
+        // what you save") now lives on the lock step's own first screen, so
+        // nothing is lost and a whole tap disappears.
         setVaultInvitationOpen(true);
+        setVaultDialogOpen(true);
         return {
           status: "succeeded" as const,
           summary: "One step left: set a lock.",
@@ -372,15 +377,17 @@ export function OneSetupHub() {
   // under it, so the one mandatory step has to be named somewhere they can read
   // it before they tap. The header description is the only copy both layouts
   // share, so the blocker rides there rather than only in the desktop footer.
+  //
+  // It carries ONLY that. The segmented progress bar below already renders
+  // "done of total"; repeating the count in words was two facts competing for
+  // the one line people actually read.
   const summary = hubStateLoading
-    ? "Checking what's set up…"
+    ? "One moment…"
     : allReady
-      ? "Everything's set up. You're good to go."
+      ? "Add more any time."
       : !runtimeChoiceComplete
-        ? `${done} of ${total} ready. Choose AI access to finish.`
-        : `${done} of ${total} ready, ${remaining} left to set up.`;
-  const showVaultInvitation =
-    vaultInvitationOpen && Boolean(user) && !isVaultUnlocked;
+        ? "Choose your AI first."
+        : `${remaining} left.`;
 
   return (
     <AppPageShell
@@ -415,13 +422,9 @@ export function OneSetupHub() {
           <div className="min-w-[8rem] flex-1">
           <PageHeader
             title={
-              showVaultInvitation
-                ? "A private place for what matters"
-                : !hubStateLoading && allReady
-                  ? "You're all set"
-                  : "Finish setting up One"
+              !hubStateLoading && allReady ? "You're all set" : "Set up One"
             }
-            description={showVaultInvitation ? "One step left." : summary}
+            description={summary}
             accent="neutral"
             className={styles.setupHeader}
           />
@@ -429,13 +432,13 @@ export function OneSetupHub() {
           {/* Mobile surfaces the master Skip/Finish action top-right in the
               header so it is always reachable and never hides behind the fixed
               "Talk to One" agent bar. Desktop keeps the in-flow footer below. */}
-          {!hubStateLoading && !showVaultInvitation ? (
+          {!hubStateLoading ? (
             <button
               type="button"
               onClick={() => void handleMasterAck()}
               disabled={dismissing || !runtimeChoiceComplete}
               title={
-                !runtimeChoiceComplete ? "Choose AI access to finish." : undefined
+                !runtimeChoiceComplete ? "Choose your AI first." : undefined
               }
               data-testid="one-setup-master-ack-mobile"
               // Same rule as the desktop footer: the accent is reserved for a
@@ -450,43 +453,7 @@ export function OneSetupHub() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        {showVaultInvitation ? (
-          <section
-            className="motion-step-enter mx-auto flex min-h-[18rem] w-full max-w-[30rem] flex-col items-center justify-center text-center"
-            aria-labelledby="one-setup-vault-invitation-title"
-            data-testid="one-setup-vault-invitation"
-          >
-            <div
-              className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--app-accent-tint)] text-[var(--app-accent-deep)]"
-              aria-hidden="true"
-            >
-              <LockKeyhole className="h-6 w-6" />
-            </div>
-            <h2
-              id="one-setup-vault-invitation-title"
-              className="mt-5 text-balance type-title2 text-foreground"
-            >
-              Only you can open what you save.
-            </h2>
-            <p className="mt-3 max-w-[28rem] text-pretty type-subhead text-muted-foreground">
-              Not even we can read it.
-            </p>
-            <div className="mt-8 flex w-full max-w-[24rem] flex-col gap-3">
-              <Button
-                type="button"
-                variant="blue-gradient"
-                effect="fill"
-                size="lg"
-                fullWidth
-                className="min-h-14 justify-center text-center"
-                onClick={() => setVaultDialogOpen(true)}
-                data-testid="one-setup-vault-invitation-open"
-              >
-                Set a lock
-              </Button>
-            </div>
-          </section>
-        ) : hubStateLoading ? (
+        {hubStateLoading ? (
           <SetupHubLoadingState />
         ) : (
           <>
@@ -516,13 +483,18 @@ export function OneSetupHub() {
                 {!runtimeChoiceComplete ? (
                   <SetupNavigationTile
                     id="connections"
-                    title="AI access"
-                    description="Choose Hussh managed Gemini or your own Gemini access."
+                    title="Choose your AI"
+                    description="Use ours, or bring your own."
                     href={ROUTES.ONE_SETUP_CONNECTIONS}
                     voiceControlId="one_setup_tile_connections"
                     icon={lucideCapabilityIcon(PlugZap)}
                     tone="connected"
                     statusLabel="Required"
+                    // The one row that blocks the exit. A muted grey "Required"
+                    // reads like every other trailing label, so it gets the
+                    // accent pill and the current-step role instead.
+                    statusTone="required"
+                    isCurrent
                   />
                 ) : null}
                 {remainingItems.map((item) => (
@@ -552,8 +524,8 @@ export function OneSetupHub() {
                   {runtimeChoiceComplete ? (
                     <SetupNavigationTile
                       id="connections"
-                      title="AI access"
-                      description="Change how One reaches Gemini."
+                      title="Choose your AI"
+                      description="Change this any time."
                       href={ROUTES.ONE_SETUP_CONNECTIONS}
                       voiceControlId="one_setup_tile_connections"
                       icon={lucideCapabilityIcon(PlugZap)}
@@ -599,7 +571,7 @@ export function OneSetupHub() {
                 }
                 supportingText={
                   !runtimeChoiceComplete
-                    ? "Choose AI access to finish."
+                    ? "Choose your AI first."
                     : "Add the rest any time."
                 }
                 variant="blue-gradient"
@@ -633,7 +605,7 @@ export function OneSetupHub() {
           dismissible={false}
           enableGeneratedDefault
           title="Set a lock"
-          description="Create a private place for the details you choose to save."
+          description="Only you can open what you save. Not even we can read it."
           onSuccess={() => undefined}
         />
       ) : null}
@@ -649,7 +621,7 @@ function SetupHubLoadingState() {
       aria-busy="true"
       aria-label="Checking setup progress"
     >
-      Checking your setup choices…
+      Checking your setup…
     </div>
   );
 }
