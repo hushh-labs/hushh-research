@@ -57,9 +57,9 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Hussh One uses the microphone only when you start a voice command.</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Hussh One uses Face ID only when you choose to unlock your Vault on this device.</string>
+	<string>Hussh One uses Face ID only when you choose to unlock your private place on this device.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Hussh One uses foreground location only when you choose to share an encrypted live-location update.</string>
+	<string>Hussh One uses your location only when you choose to share it.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Hussh One keeps sharing your live location with people you choose even when the app is in the background, until you stop sharing.</string>
 	<key>NSContactsUsageDescription</key>

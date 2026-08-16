@@ -1608,7 +1608,7 @@ export function LocationImmersiveMap({
       setAcceptedRenderer(true);
       writeCachedRendererConsentAccepted(auth.userId, true);
     } catch {
-      toast.error("Your Map could not be prepared.");
+      toast.error("Couldn't load your map. Try again.");
     }
   }, [auth.userId, vaultOwnerToken]);
 

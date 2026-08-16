@@ -189,7 +189,7 @@ export function PhoneMandatePageContent() {
       await signOut({ redirectTo: ROUTES.HOME });
     } catch (error) {
       console.error("[RegisterPhonePage] Failed to sign out:", error);
-      toast.error("Couldn't sign out. Please retry.");
+      toast.error("Couldn't sign out. Try again.");
     }
   }, [signOut]);
 
@@ -241,7 +241,7 @@ export function PhoneMandatePageContent() {
                   {
                     id: "phone_mandate.submit_number",
                     actionId: "phone_mandate.submit_number",
-                    label: "Send verification code",
+                    label: "Send code",
                     purpose: "Send a code after the phone form is completed.",
                   },
                 ]
@@ -282,7 +282,7 @@ export function PhoneMandatePageContent() {
 
   if (loading || !user) {
     return (
-      <HushhLoader label="Loading phone verification..." variant="fullscreen" />
+      <HushhLoader label="Loading…" variant="fullscreen" />
     );
   }
 
@@ -363,13 +363,13 @@ export function PhoneMandatePageContent() {
           <h1
             role="heading"
             aria-level={1}
-            aria-label="Verify your phone number"
+            aria-label="Verify your phone"
             className="font-[family-name:var(--font-app-display)] text-[28px] font-extrabold leading-[1.1] tracking-[-0.9px] text-[#17130C] dark:text-[#FAF6EE]"
           >
-            Verify your phone number
+            Verify your phone
           </h1>
           <p className="mx-auto mt-1.5 max-w-[20rem] text-[15px] leading-[1.4] text-[rgba(23,19,12,0.6)] dark:text-[rgba(250,246,238,0.62)]">
-            Add your phone number to continue.
+            We&rsquo;ll text you a code.
           </p>
         </div>
 
@@ -393,7 +393,7 @@ export function PhoneMandatePageContent() {
             onCompleted={continueToNextRoute}
             onContinueExisting={continueToNextRoute}
             onStepChange={setVerificationStep}
-            confirmLabel="Verify and continue"
+            confirmLabel="Verify"
             className="gap-5"
           />
           <div id="recaptcha-container" className="mt-3 min-h-0" />

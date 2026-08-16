@@ -431,6 +431,7 @@ vi.mock("sonner", () => {
 import OneLocationAgentPage from "@/app/one/location/page";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { toast } from "sonner";
+import { LOCATION_ONBOARDING_COPY } from "@/components/one-location/onboarding/one-location-onboarding-copy";
 
 if (!window.localStorage) {
   const localStorageStore = new Map<string, string>();
@@ -615,13 +616,13 @@ function locationActivity() {
 async function openLocationFeatureStep() {
   expect(
     await screen.findByRole("heading", {
-      name: "Share your location easily with anyone.",
+      name: LOCATION_ONBOARDING_COPY.welcome.heading,
     }),
   ).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+  fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
   expect(
     await screen.findByRole("heading", {
-      name: "Need to keep people updated?",
+      name: LOCATION_ONBOARDING_COPY.features.heading,
     }),
   ).toBeTruthy();
 }
@@ -2126,7 +2127,7 @@ describe("OneLocationAgentPage", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "Share your location easily with anyone.",
+        name: LOCATION_ONBOARDING_COPY.welcome.heading,
       }),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
@@ -2159,7 +2160,7 @@ describe("OneLocationAgentPage", () => {
     ).toBeTruthy();
     expect(
       screen.queryByRole("heading", {
-        name: "Share your location easily with anyone.",
+        name: LOCATION_ONBOARDING_COPY.welcome.heading,
       }),
     ).toBeNull();
   });
@@ -2693,7 +2694,7 @@ describe("OneLocationAgentPage", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "Share your location easily with anyone.",
+        name: LOCATION_ONBOARDING_COPY.welcome.heading,
       }),
     ).toBeTruthy();
 
@@ -2834,12 +2835,12 @@ describe("OneLocationAgentPage", () => {
       ).toBeTruthy();
       expect(
         screen.queryByRole("heading", {
-          name: "Need to keep people updated?",
+          name: LOCATION_ONBOARDING_COPY.features.heading,
         }),
       ).toBeNull();
       expect(
         screen.queryByRole("heading", {
-          name: "Share your location easily with anyone.",
+          name: LOCATION_ONBOARDING_COPY.welcome.heading,
         }),
       ).toBeNull();
     },
@@ -2891,7 +2892,7 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockRegisterKey).toHaveBeenCalled());
     expect(
       await screen.findByRole("heading", {
-        name: "Share your location easily with anyone.",
+        name: LOCATION_ONBOARDING_COPY.welcome.heading,
       }),
     ).toBeTruthy();
     const onboardingShellClass =

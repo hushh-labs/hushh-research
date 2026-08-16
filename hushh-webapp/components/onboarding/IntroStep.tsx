@@ -26,8 +26,7 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
     if (!onLogin) {
       return {
         status: "blocked" as const,
-        summary:
-          "Sign-in is not available yet. Please wait a moment and try again.",
+        summary: "Sign-in isn't ready. Try again.",
       };
     }
     // Voice and tap intentionally share this one navigation path so a valid
@@ -138,9 +137,7 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
               the legal term; "locked" and "your yes" are what a person actually
               pictures. "Vault" is a code noun and never appears in copy. */}
           <p className={styles.description}>
-            Everything you save stays locked.
-            <br />
-            Nothing moves without your yes.
+            Locked. Nothing moves without your yes.
           </p>
         </div>
 

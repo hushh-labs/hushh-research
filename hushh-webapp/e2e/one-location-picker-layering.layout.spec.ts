@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 
+import { LOCATION_ONBOARDING_COPY } from "../components/one-location/onboarding/one-location-onboarding-copy";
+
 /**
  * The entrance picker's layering, measured against the real compiled CSS.
  *
@@ -40,7 +42,7 @@ function builtStylesheet(): string {
 
 const PAGE = `
   <div data-app-scroll-root="true"><p>saved places behind</p></div>
-  <div data-testid="one-location-onboarding"><h1>Need to keep people updated?</h1></div>
+  <div data-testid="one-location-onboarding"><h1>${LOCATION_ONBOARDING_COPY.features.heading}</h1></div>
   <div id="dialog-portal"></div>
 `;
 

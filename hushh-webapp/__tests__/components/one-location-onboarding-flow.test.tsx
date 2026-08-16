@@ -10,6 +10,7 @@ import { toast } from "sonner";
 
 import { OneLocationOnboardingFlow } from "@/components/one-location/onboarding/one-location-onboarding-flow";
 import { READY_PANEL_CLASSNAME } from "@/components/one-location/onboarding/ready-panel-layout";
+import { LOCATION_ONBOARDING_COPY } from "@/components/one-location/onboarding/one-location-onboarding-copy";
 
 vi.mock("sonner", () => ({
   toast: {
@@ -71,8 +72,8 @@ function renderFlow(
 
 /** welcome -> features -> contacts. */
 function openContactsScreen() {
-  fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-  fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+  fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
+  fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta }));
 }
 
 /** ...and on to the invite screen, declining the contacts step. */
@@ -98,7 +99,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "Share your location easily with anyone.",
+        name: LOCATION_ONBOARDING_COPY.welcome.heading,
       }),
     ).toBeTruthy();
     expect(screen.getByTestId("location-agent-heading-icon")).toBeTruthy();
@@ -138,8 +139,8 @@ describe("OneLocationOnboardingFlow", () => {
       screen.getByTestId(testId).querySelector("nav");
 
     const advance = [
-      ["one-location-onboarding-welcome", "Get started"],
-      ["one-location-onboarding-features", "Find my people"],
+      ["one-location-onboarding-welcome", LOCATION_ONBOARDING_COPY.welcome.cta],
+      ["one-location-onboarding-features", LOCATION_ONBOARDING_COPY.features.cta],
       ["one-location-onboarding-contacts", "Not now"],
       ["one-location-onboarding-invite", null],
     ] as const;
@@ -168,9 +169,9 @@ describe("OneLocationOnboardingFlow", () => {
     };
 
     record("one-location-onboarding-welcome");
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
     record("one-location-onboarding-features");
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta }));
     record("one-location-onboarding-contacts");
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     record("one-location-onboarding-invite");
@@ -185,7 +186,7 @@ describe("OneLocationOnboardingFlow", () => {
 
   it("keeps the mobile feature screen readable without forced card compression", () => {
     renderFlow();
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
 
     const featureShell = screen.getByTestId("one-location-onboarding-features");
     expect(featureShell.className).toContain("max-w-none");
@@ -212,12 +213,9 @@ describe("OneLocationOnboardingFlow", () => {
     expect(featureGrid?.className).toContain("shrink-0");
     const lowerGrid = document.querySelector("[data-one-feature-lower-grid]");
     expect(lowerGrid?.className).toContain("grid-cols-2");
-    // mt-3, not mt-4. The subtitle spacing was tightened in the shipped
-    // component but this assertion was never updated, so it has been failing
-    // on main independently of this change. Matched to what actually renders.
-    expect(
-      document.querySelector("[data-one-feature-subtitle]")?.className,
-    ).toContain("mt-3");
+    // The feature header has no subtitle: the three cards below already say
+    // "share location, check in, send help", so the line only repeated them.
+    expect(document.querySelector("[data-one-feature-subtitle]")).toBeNull();
     const featureCta = document.querySelector("[data-one-feature-cta]");
     expect(featureCta?.className).not.toContain("mt-auto");
     expect(featureCta?.querySelector("button")?.className).toContain(
@@ -308,29 +306,24 @@ describe("OneLocationOnboardingFlow", () => {
           .getByTestId("location-use-case-trip")
           .querySelectorAll("[data-one-feature-title-line]"),
       ).map((line) => line.textContent),
-    ).toEqual(["Can\u2019t explain", "where you are?"]);
+    ).toEqual([...LOCATION_ONBOARDING_COPY.features.share.titleLines]);
     expect(
       Array.from(
         screen
           .getByTestId("location-use-case-checkin")
           .querySelectorAll("[data-one-feature-title-line]"),
       ).map((line) => line.textContent),
-    ).toEqual(["At the venue, but", "can\u2019t find each other?"]);
+    ).toEqual([...LOCATION_ONBOARDING_COPY.features.checkIn.titleLines]);
     expect(
       Array.from(
         screen
           .getByTestId("location-use-case-sos")
           .querySelectorAll("[data-one-feature-title-line]"),
       ).map((line) => line.textContent),
-    ).toEqual(["Need help but can\u2019t", "call or speak?"]);
+    ).toEqual([...LOCATION_ONBOARDING_COPY.features.sos.titleLines]);
 
     expect(
-      screen.getByRole("heading", { name: "Need to keep people updated?" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Share location, check in, or send help in seconds.",
-      ),
+      screen.getByRole("heading", { name: LOCATION_ONBOARDING_COPY.features.heading }),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
@@ -338,16 +331,16 @@ describe("OneLocationOnboardingFlow", () => {
       }),
     ).toBeTruthy();
     expect(
-      screen.getByText("Share once. Your Circle can find you safely."),
+      screen.getByText(LOCATION_ONBOARDING_COPY.features.share.body),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "At the venue, but can\u2019t find each other?",
+        name: "Can\u2019t find each other?",
       }),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", {
-        name: "Need help but can\u2019t call or speak?",
+        name: "Can\u2019t call for help?",
       }),
     ).toBeTruthy();
 
@@ -418,7 +411,7 @@ describe("OneLocationOnboardingFlow", () => {
     }
     expect(shareCard.querySelector('img[src*="/orbit-person-"]')).toBeNull();
 
-    expect(screen.getByRole("button", { name: "Find my people" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
     expect(screen.queryByText("Connected Person")).toBeNull();
@@ -428,12 +421,12 @@ describe("OneLocationOnboardingFlow", () => {
   it("requests only missing permissions as screen two opens", () => {
     const props = renderFlow();
 
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     expect(props.onLocationReady).not.toHaveBeenCalled();
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     expect(props.onRequestNotifications).toHaveBeenCalledTimes(1);
@@ -450,17 +443,17 @@ describe("OneLocationOnboardingFlow", () => {
       notificationDeliveryMode: "push_active",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
     expect(props.onRequestLocation).not.toHaveBeenCalled();
     await waitFor(() => expect(props.onLocationReady).toHaveBeenCalledTimes(1));
     expect(props.onRequestNotifications).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Find my people" }),
+        screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta }),
       ).toBeEnabled(),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta }));
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(props.onLocationReady).toHaveBeenCalledTimes(1);
   });
@@ -476,7 +469,7 @@ describe("OneLocationOnboardingFlow", () => {
       notificationDeliveryMode: "push_active",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     expect(props.onLocationReady).not.toHaveBeenCalled();
 
@@ -493,7 +486,7 @@ describe("OneLocationOnboardingFlow", () => {
     expect(props.onRequestLocation).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Find my people" }),
+        screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta }),
       ).toBeEnabled(),
     );
   });
@@ -517,11 +510,11 @@ describe("OneLocationOnboardingFlow", () => {
       onLocationReady,
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
 
     await waitFor(() => expect(onLocationReady).toHaveBeenCalledTimes(1));
     expect(
-      screen.getByRole("button", { name: "Find my people" }),
+      screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta }),
     ).toBeDisabled();
     expect(screen.queryByTestId("one-location-onboarding-people")).toBeNull();
 
@@ -531,7 +524,7 @@ describe("OneLocationOnboardingFlow", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Find my people" }),
+        screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta }),
       ).toBeEnabled(),
     );
   });
@@ -539,9 +532,9 @@ describe("OneLocationOnboardingFlow", () => {
   it("keeps setup on screen two until required Location access is ready", () => {
     const props = renderFlow({ requireLocationToComplete: true });
 
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-    expect(screen.getByRole("button", { name: "Find my people" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
+    expect(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta }));
 
     expect(props.onRequestLocation).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
@@ -619,11 +612,11 @@ describe("OneLocationOnboardingFlow", () => {
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
 
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta }));
 
     expect(screen.getByRole("button", { name: "Go back" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
@@ -632,7 +625,7 @@ describe("OneLocationOnboardingFlow", () => {
 
   it("uses Back to return to the preceding onboarding screen", () => {
     renderFlow();
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
 
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
     expect(screen.getByTestId("one-location-onboarding-welcome")).toBeTruthy();
@@ -721,13 +714,13 @@ describe("OneLocationOnboardingFlow", () => {
     const welcome = screen.getByTestId("one-location-onboarding-welcome");
     expect(welcome.firstElementChild?.className).toContain("dark:bg-[#073d78]");
 
-    fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
     const features = screen.getByTestId("one-location-onboarding-features");
     expect(features.firstElementChild?.className).toContain(
       "dark:bg-[#0c1017]",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+    fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta }));
     const contactsScreen = screen.getByTestId(
       "one-location-onboarding-contacts",
     );
@@ -1134,8 +1127,8 @@ describe("OneLocationOnboardingFlow", () => {
       const onSyncOnboardingContacts = vi.fn();
       renderFlow({ contactsStepAvailable: false, onSyncOnboardingContacts });
 
-      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+      fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
+      fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta }));
 
       expect(screen.getByTestId("one-location-onboarding-invite")).toBeTruthy();
       expect(
@@ -1147,8 +1140,8 @@ describe("OneLocationOnboardingFlow", () => {
     it("sends Back to the features screen when the step is skipped", () => {
       renderFlow({ contactsStepAvailable: false });
 
-      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+      fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
+      fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta }));
       fireEvent.click(screen.getByRole("button", { name: "Go back" }));
 
       // Back must not land on a screen that was never shown.
@@ -1158,8 +1151,8 @@ describe("OneLocationOnboardingFlow", () => {
     it("still completes when the step is skipped", () => {
       const props = renderFlow({ contactsStepAvailable: false });
 
-      fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-      fireEvent.click(screen.getByRole("button", { name: "Find my people" }));
+      fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.welcome.cta }));
+      fireEvent.click(screen.getByRole("button", { name: LOCATION_ONBOARDING_COPY.features.cta }));
       fireEvent.click(finishButton());
 
       expect(props.onComplete).toHaveBeenCalledTimes(1);

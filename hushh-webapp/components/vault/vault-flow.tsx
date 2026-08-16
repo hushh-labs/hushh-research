@@ -101,7 +101,9 @@ function VaultFlowHeader({
 }: {
   icon: LucideIcon;
   title: string;
-  description: string;
+  // Null when the title, the field label and the button already say it. A
+  // screen is not required to carry a supporting line.
+  description?: string | null;
   hint?: string | null;
 }) {
   return (
@@ -123,7 +125,9 @@ function VaultFlowHeader({
       >
         {title}
       </div>
-      <p className="mt-1 type-subhead text-muted-foreground">{description}</p>
+      {description ? (
+        <p className="mt-1 type-subhead text-muted-foreground">{description}</p>
+      ) : null}
       {hint ? (
         <p className="mx-auto mt-3 max-w-[19rem] text-balance rounded-[14px] bg-[color:var(--app-accent-tint)] px-3.5 py-2.5 type-footnote text-muted-foreground">
           {hint}
@@ -588,7 +592,7 @@ export function VaultFlow({
         }
         await finalizeUnlock(decryptedKey);
       } else {
-        const message = "That passphrase did not match. Please try again.";
+        const message = "Wrong passphrase. Try again.";
         setError(message);
         toast.error(message);
       }
@@ -748,7 +752,7 @@ export function VaultFlow({
         await VaultService.assertVaultKeyMatchesState(vaultData, decryptedKey);
         await finalizeUnlock(decryptedKey);
       } else {
-        const message = "That recovery key did not match. Please try again.";
+        const message = "Wrong recovery key. Try again.";
         setError(message);
         toast.error(message);
       }
@@ -854,7 +858,7 @@ export function VaultFlow({
       // If auto-unlock fails, send user to unlock screen to try manually.
       toast.error(
         vaultMode === "passphrase"
-          ? "Quick unlock was not available. Enter your passphrase."
+          ? "Quick unlock didn't work. Enter your passphrase."
           : "Quick unlock was not available. Try passphrase or recovery key."
       );
       setStep("unlock");
@@ -1158,9 +1162,9 @@ export function VaultFlow({
                 icon={isGeneratedVaultMode ? Fingerprint : Lock}
                 title="Open your private place"
                 description={
-                  isGeneratedVaultMode
-                    ? "Confirm with your device."
-                    : "Enter your passphrase."
+                  // Passphrase mode needs no line: the field label says
+                  // "Passphrase" and the button says "Unlock".
+                  isGeneratedVaultMode ? "Confirm with your device." : null
                 }
                 hint={unlockHint}
               />
@@ -1449,14 +1453,11 @@ export function VaultFlow({
                     ? Key
                     : Fingerprint
                 }
-                title="Enable quicker unlock?"
-                description={`You can keep passphrase unlock, or enable ${
-                  recommendedQuickMethod === "generated_default_web_prf" ||
-                  recommendedQuickMethod ===
-                    "generated_default_native_passkey_prf"
-                    ? "passkey"
-                    : "device biometric"
-                } and still retain passphrase and recovery-key backup.`}
+                title="Unlock faster?"
+                // Kept at six words on purpose: people decline a new unlock
+                // method when they fear losing the old one. The reassurance
+                // that both backups survive is the whole decision.
+                description="Passphrase and recovery key still work."
               />
 
               <div className="flex flex-col gap-3 pt-2">
@@ -1502,11 +1503,11 @@ export function VaultFlow({
                       Enabling...
                     </>
                   ) : (
-                    `Enable ${
+                    `Use ${
                       recommendedQuickMethod === "generated_default_web_prf" ||
                       recommendedQuickMethod === "generated_default_native_passkey_prf"
-                        ? "Passkey"
-                        : "Biometric"
+                        ? "passkey"
+                        : "biometrics"
                     }`
                   )}
                 </Button>
@@ -1537,7 +1538,7 @@ export function VaultFlow({
                     await finalizeUnlock(pendingUnlockKey);
                   }}
                 >
-                  Not now, continue with passphrase
+                  Not now
                 </Button>
               </div>
             </div>
