@@ -2877,17 +2877,6 @@ function ShareFlow({
 }
 
 /**
- * "Sharing ends at 4:35 PM" — the confirm step's read-back of the duration.
- *
- * A duration is a promise about a moment, and "4 hours" makes the reader do the
- * arithmetic. Stating the clock time is what lets someone notice that a share
- * they meant to end before a meeting actually runs past it. Over 12 hours the
- * weekday is included, because "8:00 AM" alone is ambiguous by then.
- *
- * Rounded to the nearest minute and hedged with "around": the share starts when
- * the button is pressed, not when the label rendered.
- */
-/**
  * The new-end-time editor that opens under the live share card.
  *
  * Inline rather than a sheet: the card it edits stays on screen above it, so
@@ -2958,6 +2947,17 @@ function LiveShareDurationEditor({
   );
 }
 
+/**
+ * "Sharing ends at 4:35 PM" — the read-back under a duration picker.
+ *
+ * A duration is a promise about a moment, and "4 hours" makes the reader do the
+ * arithmetic. Stating the clock time is what lets someone notice that a share
+ * they meant to end before a meeting actually runs past it. Over 12 hours the
+ * weekday is included, because "8:00 AM" alone is ambiguous by then.
+ *
+ * Rounded to the nearest minute and hedged with "around": the share starts when
+ * the button is pressed, not when the label rendered.
+ */
 function shareEndsAtLabel(durationHours: string, nowMs: number): string {
   if (durationHours === "until_stopped") {
     return "Stays on until you stop it.";
