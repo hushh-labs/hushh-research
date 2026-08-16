@@ -6,24 +6,40 @@ import type { EmblaCarouselType, EmblaOptionsType } from "embla-carousel";
 
 import { cn } from "@/lib/utils";
 
-/** Mirrors check-in-flow.tsx's UNTIL_STOP_VALUE — the max accepted grant window. */
-export const DURATION_WHEEL_UNTIL_STOP_VALUE = "24";
+// Not "24" -- once a literal 24 hours became reachable on the wheel (see
+// MAX_HOURS_INDEX below), the wheel could legitimately emit the string
+// "24" itself (24h + 0min), which would collide with this sentinel on a
+// fresh mount and get misread as "Until I stop" instead of a real 24-hour
+// selection. Confirmed unused anywhere else in the codebase, so changing
+// it is fully self-contained to this file.
+export const DURATION_WHEEL_UNTIL_STOP_VALUE = "until_stopped";
 
-const HOURS_VALUES = Array.from({ length: 24 }, (_, i) => i); // 0..23
-// A literal 24 is deliberately excluded: the backend caps duration at
-// `le=24` (consent-protocol/api/routes/one/location.py), and any nonzero
-// minute past a 24th hour (e.g. 24h15m) would fail that check. 23h45m is
-// the real ceiling.
+const HOURS_VALUES = Array.from({ length: 25 }, (_, i) => i); // 0..24
+// 24 is only ever valid paired with 0 minutes: the backend caps duration at
+// `le=24` (consent-protocol/api/routes/one/location.py), and 24h + any
+// nonzero minute (e.g. 24h15m = 24.25h) would fail that check. 24h0m = 24.0
+// exactly satisfies it, so it's the real ceiling -- both ALL_GRID_MINUTES
+// below and DurationWheelPicker's own live guard enforce that minutes locks
+// to 0 once hours reaches this index, mirroring the 0h0m guard at the other
+// end (see MAX_HOURS_INDEX usages).
+const MAX_HOURS_INDEX = HOURS_VALUES.length - 1; // 24
 //
 // "00" is now on the grid -- exact hours (1h, 2h, ...) are representable --
 // but 0h0m never is: it's filtered out of ALL_GRID_MINUTES below, and
 // DurationWheelPicker separately guards against reaching it by direct
 // interaction (the two wheels scroll independently, so 0h + 00min is
-// otherwise reachable by scrolling either one).
+// otherwise reachable by scrolling either one). Same treatment applies at
+// the top end: MAX_HOURS_INDEX (24h) is only ever valid paired with 0.
 const MINUTE_VALUES = [0, 15, 30, 45];
-const ALL_GRID_MINUTES = HOURS_VALUES.flatMap((h) =>
-  MINUTE_VALUES.filter((m) => h > 0 || m > 0).map((m) => h * 60 + m),
-); // 15..1425 in 15-minute steps (plus every exact hour); 0h0m excluded
+const ALL_GRID_MINUTES = HOURS_VALUES.flatMap((h) => {
+  const validMinutesForHour =
+    h === 0
+      ? MINUTE_VALUES.filter((m) => m > 0)
+      : h === MAX_HOURS_INDEX
+        ? MINUTE_VALUES.filter((m) => m === 0)
+        : MINUTE_VALUES;
+  return validMinutesForHour.map((m) => h * 60 + m);
+}); // 15..1440 in 15-minute steps (plus every exact hour); 0h0m excluded, 24h capped at :00
 
 const ITEM_HEIGHT = 40;
 const VISIBLE_ROWS = 5;
@@ -359,7 +375,7 @@ function WheelColumn({
 }
 
 /**
- * Apple-style two-column duration wheel (hours 0-23, minutes 00/15/30/45)
+ * Apple-style two-column duration wheel (hours 0-24, minutes 00/15/30/45)
  * plus an "Until I stop" toggle. Keeps the same `value`/`onChange`
  * decimal-hours string contract as the DurationSelector it replaces, so
  * callers need no other changes.
@@ -391,18 +407,22 @@ export function DurationWheelPicker({
   const hoursApiRef = useRef<EmblaCarouselType | null>(null);
   const minutesApiRef = useRef<EmblaCarouselType | null>(null);
 
-  // The two wheels scroll independently, so 0h + 00min is reachable by
-  // direct interaction (scrolling Hours to 0 while Minutes sits on 00, or
-  // the reverse) even though 0h0m isn't a real duration. `minutesIndex`
-  // itself is corrected below (with a resync so the wheel visually catches
-  // up), but `effectiveMinutesIndex` is what's actually emitted and
-  // rendered as selected -- computed fresh every render, so the invalid
-  // combination is never emitted even for the one render before the
-  // correction effect runs.
+  // The two wheels scroll independently, so both ends of the range are
+  // reachable by direct interaction even though they aren't real durations:
+  // 0h + 00min (scrolling Hours to 0 while Minutes sits on 00, or the
+  // reverse), and MAX_HOURS_INDEX (24h) + any nonzero minute (24h15m would
+  // exceed the backend's 24h cap). `minutesIndex` itself is corrected below
+  // (with a resync so the wheel visually catches up), but
+  // `effectiveMinutesIndex` is what's actually emitted and rendered as
+  // selected -- computed fresh every render, so neither invalid combination
+  // is ever emitted, even for the one render before the correction effect
+  // runs.
   const effectiveMinutesIndex =
     hoursIndex === 0 && MINUTE_VALUES[minutesIndex] === 0
       ? MINUTE_VALUES.indexOf(15)
-      : minutesIndex;
+      : hoursIndex === MAX_HOURS_INDEX && MINUTE_VALUES[minutesIndex] !== 0
+        ? MINUTE_VALUES.indexOf(0)
+        : minutesIndex;
 
   useEffect(() => {
     if (effectiveMinutesIndex === minutesIndex) return;
