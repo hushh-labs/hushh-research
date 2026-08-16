@@ -50,6 +50,14 @@ ONBOARDING_PHASES = frozenset(
     }
 )
 ONBOARDING_CALLBACK_STATES = frozenset({"none", "pending", "succeeded", "cancelled", "failed"})
+# Mirrors VOICE_ENGINE_DOMAINS' `enforced: true` entries in
+# hushh-webapp/lib/agent/voice-engine-domains.ts; keep in sync. Finance and
+# Calendar are deliberately excluded -- neither routes through a choke point
+# this server can gate on (see voice_domain_policy.py), so accepting them
+# here would let a client believe a restriction is enforced when it is not.
+VOICE_SCOPED_DOMAIN_KEYS = frozenset(
+    {"location", "email", "connected_systems", "consent", "connections", "kyc"}
+)
 # Use the same canonical setup catalog that validates durable onboarding state.
 # A browser-provided capability must not be accepted here if the persistence
 # contract would reject it later.
@@ -240,6 +248,7 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
             or cache.get("portfolio_ready") is True,
             "busy_operations": payload.get("busy_operations") or cache.get("busy_operations"),
             "onboarding": payload.get("onboarding") or snapshot_map.get("onboarding"),
+            "voice_settings": payload.get("voice_settings") or snapshot_map.get("voice_settings"),
         }
     cache_freshness = bounded_text(payload.get("cache_freshness"), 32)
     route_family = bounded_text(payload.get("route_family"))
@@ -341,6 +350,7 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         "portfolio_ready": payload.get("portfolio_ready") is True,
         "busy_operations": bounded_text_list(payload.get("busy_operations"), LIVE_MODULE_CAP),
         "onboarding": sanitize_onboarding_context(payload.get("onboarding")),
+        "voice_settings": sanitize_voice_settings(payload.get("voice_settings")),
     }
 
 
@@ -474,6 +484,29 @@ def sanitize_onboarding_context(value: Any) -> dict[str, Any]:
                 payload.get("setup_capability_ids"), LIVE_CAPABILITY_CAP
             )
             if capability in ONBOARDING_CAPABILITIES
+        ],
+    }
+
+
+def sanitize_voice_settings(value: Any) -> dict[str, Any]:
+    """Bound the person's own restrictions on their already-authorized voice agent.
+
+    Every field here narrows a capability the person already has, never grants
+    one -- unlike onboarding phase or cache freshness, there is no authority
+    risk in trusting a bounded, allowlisted version of what the browser sends,
+    because the two places this actually changes behavior (run_app_action's
+    domain gate, _directive_flags' tap-confirmation gate) independently
+    re-derive their own decision from these same bounded values, never from
+    payload passed straight through.
+    """
+    payload = value if isinstance(value, dict) else {}
+    return {
+        "voice_enabled": payload.get("voice_enabled") is not False,
+        "require_tap_confirmation": payload.get("require_tap_confirmation") is True,
+        "disabled_domains": [
+            domain
+            for domain in bounded_text_list(payload.get("disabled_domains"), LIVE_MODULE_CAP)
+            if domain in VOICE_SCOPED_DOMAIN_KEYS
         ],
     }
 
