@@ -103,6 +103,11 @@ import {
   ReasonChips,
   type ReasonValue,
 } from "./selectors";
+import {
+  LiveShareStatusCard,
+  ShareCountdownText,
+  type LiveShareStatus,
+} from "@/components/one-location/redesign/live-share-status-card";
 import { SosPanel } from "@/components/one-location/redesign/sos-panel";
 import { SmsContactsFlow } from "@/components/one-location/redesign/sms-contacts-flow";
 import {
@@ -237,6 +242,15 @@ export type LocationHubViewModel = {
   visibleRecipients: OneLocationRecipient[];
   visibleShareRecipients: OneLocationRecipient[];
   activeOwnerGrants: OneLocationGrant[];
+  /**
+   * Your running shares, restored from the device before the server answers.
+   * The Location screen has to keep showing the hour you chose after you leave
+   * and come back, so this survives the memory-only state snapshot expiring.
+   * `null` when nothing of yours is live.
+   */
+  liveShare: LiveShareStatus | null;
+  /** Called once when the live share's countdown reaches zero. */
+  onLiveShareEnded: () => void;
   receivedGrants: OneLocationGrant[];
   pendingOwnerRequests: OneLocationAccessRequest[];
   requestedByMe: OneLocationAccessRequest[];
@@ -1273,10 +1287,15 @@ function NowHub({
   // and left nothing for the rows that did.
   const reviewIconTone =
     vm.pendingOwnerRequests.length > 0 ? "orange" : "gray";
+  // The device record keeps counting while the server state reloads, so the row
+  // no longer drops to 0 for the second or two after you re-enter the screen.
+  const activeShareCount = Math.max(
+    vm.activeOwnerGrants.length,
+    vm.liveShare?.count ?? 0,
+  );
   // Green = sharing is live right now (the same meaning the header switch and
   // Check-In carry).
-  const activeSharesIconTone =
-    vm.activeOwnerGrants.length > 0 ? "green" : "gray";
+  const activeSharesIconTone = activeShareCount > 0 ? "green" : "gray";
   // Indigo = other people, matching the People tab's circles and trusted
   // contacts, rather than the blue reserved for actions you initiate.
   const sharedWithMeIconTone =
@@ -1284,6 +1303,24 @@ function NowHub({
 
   return (
     <div className="space-y-4" data-testid="one-location-now-hub">
+      {/* Sharing is the one thing on this screen that keeps running after you
+          leave it, so it reports itself first and keeps its own clock. */}
+      {vm.liveShare ? (
+        <LiveShareStatusCard
+          status={vm.liveShare}
+          onManage={onOpenActiveShares}
+          onStop={
+            vm.liveShare.stoppableGrantId
+              ? () => vm.onStopGrant(vm.liveShare?.stoppableGrantId ?? "")
+              : undefined
+          }
+          stopBusy={
+            Boolean(vm.liveShare.stoppableGrantId) &&
+            vm.revokingGrantId === vm.liveShare.stoppableGrantId
+          }
+          onEnded={vm.onLiveShareEnded}
+        />
+      ) : null}
       {/* Every row and tile below carries the `control_ids` / `action_id` pair
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
@@ -1333,7 +1370,7 @@ function NowHub({
           iconTone={activeSharesIconTone}
           title="Active shares"
           density="compact"
-          trailing={vm.activeOwnerGrants.length}
+          trailing={activeShareCount}
           chevron
           onClick={onOpenActiveShares}
           voiceControlId="one-location-action-active-shares"
@@ -1539,9 +1576,13 @@ function LocationDetailFlow({
                 iconTone="green"
                 title={vm.grantRecipientLabel(grant)}
                 description={
-                  grant.durationMode === "until_stopped"
-                    ? "Until stopped"
-                    : vm.expiresCountdownLabel(grant.expiresAt)
+                  grant.durationMode === "until_stopped" ? (
+                    "Until you stop"
+                  ) : (
+                    // Was a string computed once per render, so it froze the
+                    // moment the screen stopped re-rendering.
+                    <ShareCountdownText expiresAt={grant.expiresAt} />
+                  )
                 }
                 trailing={
                   <Button
