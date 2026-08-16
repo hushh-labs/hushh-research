@@ -1312,7 +1312,19 @@ export function CircleDetailFlow({
           >
             <SheetContent
               side="bottom"
-              className="mx-auto flex max-h-[88dvh] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
+              // Swiping down through the results is how a phone scrolls a list
+              // back up. Left on, it drags the sheet away instead and can close
+              // it outright, losing the query and every person already ticked.
+              dragDismiss={false}
+              // The keyboard height MUST stay in this max-height. SheetContent's
+              // default is `max-h-[calc(85dvh-var(--kb-height,0px))]` paired with
+              // `bottom-[var(--kb-height,0px)]`: the sheet lifts above the
+              // keyboard and shrinks by the same amount. A bare dvh max-height
+              // wins the tailwind-merge and drops only the shrink — so the sheet
+              // still lifts, and the title and the search field the person just
+              // tapped slide off the top of the screen. They then type into a
+              // field they cannot see.
+              className="mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
             >
               <SheetHeader className="text-left">
                 <SheetTitle>Add people to {circle.name}</SheetTitle>
