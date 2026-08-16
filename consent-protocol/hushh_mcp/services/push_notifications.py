@@ -172,6 +172,7 @@ def send_connection_request_push(addressee_user_id: str, requester_user_id: str)
     requester_name = _lookup_display_name(requester_user_id)
     try:
         import asyncio
+
         from api.consent_listener import _push_to_consent_queue
 
         sse_payload = {
