@@ -504,17 +504,32 @@ export function LocationPickerMap({
         setResolving(true);
         centerRef.current = { lat: fix.latitude, lng: fix.longitude };
         if (native) {
-          const map = nativeMapRef.current;
-          if (map) {
+          // `setCamera` reads `mapViewController.GMapView`, which the plugin
+          // declares as an implicitly unwrapped `GMSMapView!`. Calling it while
+          // the native map is being created or destroyed hits a nil there and
+          // traps -- EXC_BREAKPOINT in Map.setCamera(config:), which kills the
+          // app outright rather than throwing something JS could catch. The
+          // teardown above clears `nativeMapRef` synchronously but destroys the
+          // map asynchronously inside the lock, and the create effect re-runs
+          // when the theme resolves, so a tap landing in that window crashed.
+          //
+          // Take the same lock the create and destroy take, and re-read the ref
+          // inside it, so this can never overlap either one.
+          let moved = false;
+          await withNativeMapLock(PICKER_NATIVE_MAP_ID, async () => {
+            const map = nativeMapRef.current;
+            if (!map || status !== "ready") return;
             // The camera-idle listener re-resolves the address after the move.
             await map.setCamera({
               coordinate: { lat: fix.latitude, lng: fix.longitude },
               zoom: 17,
               animate: true,
             });
-          } else {
-            scheduleResolve(fix.latitude, fix.longitude);
-          }
+            moved = true;
+          }).catch(() => undefined);
+          // No map to move (torn down, or still coming up): resolve the address
+          // for the fix directly so the pin still follows the person.
+          if (!moved) scheduleResolve(fix.latitude, fix.longitude);
         } else {
           const map = mapRef.current;
           if (map) {
@@ -532,7 +547,7 @@ export function LocationPickerMap({
     } finally {
       setLocating(false);
     }
-  }, [locating, native, onLocateMe, scheduleResolve]);
+  }, [locating, native, onLocateMe, scheduleResolve, status]);
 
   // Treat a hard SDK error OR the 5s load timeout as "unavailable" so the owner
   // is never trapped behind an infinite "Loading map…"; both fall back to the
