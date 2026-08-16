@@ -141,6 +141,106 @@
           ]
         }
       ]
+    },
+    {
+      "name": "connect-rias-tab-lists-only-verified-advisers",
+      "summary": "The RIAs tab shows only connections the server has annotated as verified RIAs, and the heading count, the empty state and the rows all read that one filtered list. A connection carrying no annotation is NOT an adviser.",
+      "fixed_by": "#5362",
+      "why_it_needs_a_lock": [
+        "The directory half of this tab was audience-split server-side from the",
+        "start; the 'My connections' list above it was never split at all, so the",
+        "RIAs tab repeated the People tab exactly and listed people who had never",
+        "finished RIA onboarding. A tester found it, not CI.",
+        "",
+        "The filter is one clause on a useMemo and the annotation is one key on a",
+        "dict two repos apart. Either can be dropped in a conflict resolution with",
+        "nothing in review to notice -- the tab simply goes back to listing",
+        "everyone, which looks like a populated tab rather than a broken one.",
+        "",
+        "The fail-closed direction matters as much as the filter: an unannotated",
+        "row must be hidden from the tab, never promoted into it."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/__tests__/app/connect/page-client.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 60,
+          "required_titles": [
+            "lists only verified advisers under My connections on the RIAs tab",
+            "treats a connection with no RIA annotation as not an adviser"
+          ]
+        },
+        {
+          "path": "consent-protocol/tests/services/test_connections_service.py",
+          "assertion_pattern": "assert ",
+          "min_assertions": 60,
+          "required_titles": [
+            "test_list_connections_annotates_ria_status_per_row",
+            "test_list_connections_uses_the_same_verified_gate_as_the_directory"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "one-location-duration-states-itself-once",
+      "summary": "Choosing the open-ended share duration collapses the timed wheel instead of fading it behind a second, contradicting label; and the Request lane never offers an open-ended option at all, because you cannot ask to watch someone until THEY stop.",
+      "fixed_by": "#5362",
+      "why_it_needs_a_lock": [
+        "The faded remains of the wheel WERE the defect: the chip stating the",
+        "choice was a child of an opacity-40 wrapper, so it rendered grey in the",
+        "middle of a grey control while a blue button under it said the opposite",
+        "words. Restoring the fade is a one-line change.",
+        "",
+        "The Request half is worse than cosmetic. `allowUntilStop={false}` is a",
+        "single prop with no test on either half before this entry, and the value",
+        "it suppresses is a non-numeric sentinel that this lane later runs",
+        "Number() over -- deleting the prop posts NaN to a `gt=0` field."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/components/one-location/redesign/__tests__/duration-wheel-picker.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 40,
+          "required_titles": [
+            "emits the until-stop alias and removes the wheel while toggled on",
+            "recovers a sentinel value into a real duration on a lane that hides the option"
+          ]
+        },
+        {
+          "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 400,
+          "required_titles": [
+            "never offers an open-ended duration when asking someone else"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "one-location-share-picker-says-who-can-already-see-you",
+      "summary": "The share recipient picker separates people who already hold an active grant into their own group, showing the same remaining time the Active shares screen shows for that grant. The grouping appears only when there is something to group.",
+      "fixed_by": "#5362",
+      "why_it_needs_a_lock": [
+        "Picking someone who already holds an active grant does not extend it --",
+        "`_create_enforced_grant_row` revokes the old row and inserts a new one --",
+        "so a re-pick silently restarts a running timer. Before this, every row",
+        "looked identical, so that was invisible at the moment of choosing.",
+        "",
+        "The whole feature is one read of `vm.activeOwnerGrants`, a field that sat",
+        "on the same view-model unread for the life of the screen. Dropping the",
+        "read returns the picker to a flat list that looks correct."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 400,
+          "required_titles": [
+            "separates people who can already see you from people who cannot",
+            "keeps one flat list when nobody can see you yet"
+          ]
+        }
+      ]
     }
   ]
 }
