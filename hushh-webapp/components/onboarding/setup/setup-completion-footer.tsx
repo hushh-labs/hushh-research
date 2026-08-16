@@ -56,6 +56,14 @@ export function SetupCompletionFooter({
   // light surface -- so a blocked finish looked tappable, absorbed the tap,
   // and explained itself only in the supporting line underneath. A blocked
   // action takes the same neutral container the quiet variant already uses.
+  //
+  // It keeps a border, and the border is the whole reason it stays a control.
+  // In the light theme `muted` and the page surface are the same colour to
+  // within 1:1 contrast (measured: rgb(242,242,245) on rgb(242,242,247)), so
+  // the fill alone draws nothing -- the pill vanished and left a grey label
+  // floating on the page. `border-border` is the same hairline every card on
+  // this surface uses, and the enabled state already reserves 1px for a
+  // transparent one, so making it visible costs no geometry.
   const isBlockedFilledAction = disabled && !busy && !isQuietSetupAction;
 
   return (
@@ -81,7 +89,7 @@ export function SetupCompletionFooter({
               isQuietSetupAction &&
                 "!border-0 !bg-transparent !text-[var(--app-accent)] hover:!bg-[var(--app-accent-tint)] hover:!text-[var(--app-accent)] disabled:!bg-muted/35 disabled:!text-muted-foreground disabled:!opacity-100",
               isBlockedFilledAction &&
-                "!border-0 disabled:!bg-muted/60 disabled:!text-muted-foreground disabled:!opacity-100",
+                "disabled:!border-border disabled:!bg-muted/60 disabled:!text-muted-foreground disabled:!opacity-100",
             )}
             data-testid={testId}
             data-voice-control-id={controlId}
