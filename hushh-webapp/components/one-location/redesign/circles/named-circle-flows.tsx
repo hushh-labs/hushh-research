@@ -57,6 +57,7 @@ import type {
   OneLocationCircleMemberInvite,
   OneLocationCircleSummary,
 } from "@/lib/one-location/types";
+import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { cn } from "@/lib/utils";
 
 const CIRCLES_GROUP_SURFACE =
@@ -64,6 +65,17 @@ const CIRCLES_GROUP_SURFACE =
 
 const CIRCLES_EMPTY_STATE_WRAPPER =
   "[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)]";
+
+/**
+ * A primary action that cannot fire yet has to LOOK like it cannot fire.
+ * The shared button only dims to 50% opacity, and half-opacity accent over
+ * these light sheets still reads as a live button — so "Create circle" and
+ * "Select people" were reported as broken rather than understood as blocked.
+ * This is the neutral disabled fill the Location hub's own primary CTAs
+ * already use, so nothing new is being invented here.
+ */
+const BLOCKED_CTA =
+  "disabled:bg-black/10 disabled:text-black/35 disabled:opacity-100 dark:disabled:bg-white/10 dark:disabled:text-white/35";
 
 function circleInitials(value: string): string {
   return value
@@ -414,7 +426,9 @@ export function CreateCircleFlow({
 }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<OneLocationCircleKind>("family");
-  const canSubmit = name.trim().length >= 2 && !busy;
+  // One typed character is a name. Requiring two silently withheld the button
+  // from anyone naming a circle "A", with nothing on screen saying why.
+  const canSubmit = name.trim().length >= 1 && !busy;
 
   const submit = async () => {
     try {
@@ -478,7 +492,10 @@ export function CreateCircleFlow({
         disabled={!canSubmit}
         isLoading={busy}
         onClick={() => void submit()}
-        className="h-12 w-full rounded-full text-base font-semibold"
+        className={cn(
+          "h-12 w-full rounded-full text-base font-semibold",
+          BLOCKED_CTA,
+        )}
       >
         Create circle
       </Button>
@@ -624,7 +641,10 @@ export function JoinCircleFlow({
           disabled={normalizedLength !== 12 || busy}
           isLoading={busy}
           onClick={() => void resolve()}
-          className="h-12 w-full rounded-full text-base font-semibold"
+          className={cn(
+            "h-12 w-full rounded-full text-base font-semibold",
+            BLOCKED_CTA,
+          )}
         >
           Preview circle
         </Button>
@@ -869,7 +889,7 @@ export function CircleDetailFlow({
   const circleNameDirty =
     Boolean(circle) && trimmedCircleName !== circle?.name;
   const canSaveCircleName =
-    circleNameDirty && trimmedCircleName.length >= 2 && !savingName && !busy;
+    circleNameDirty && trimmedCircleName.length >= 1 && !savingName && !busy;
   const canInviteMembers =
     circle?.viewerCapabilities?.canInviteMembers ?? Boolean(isOwner);
   const canViewInviteCode =
@@ -892,13 +912,15 @@ export function CircleDetailFlow({
     [members, currentUserId],
   );
 
-  const filteredEligibleConnections = useMemo(() => {
-    const query = peopleSearch.trim().toLocaleLowerCase();
-    if (!query) return eligibleConnections;
-    return eligibleConnections.filter((connection) =>
-      connection.displayName.toLocaleLowerCase().includes(query),
-    );
-  }, [eligibleConnections, peopleSearch]);
+  const filteredEligibleConnections = useMemo(
+    () =>
+      filterPeopleByQuery(
+        eligibleConnections,
+        peopleSearch,
+        (connection) => connection.displayName,
+      ),
+    [eligibleConnections, peopleSearch],
+  );
 
   const loadEligibleConnections = async () => {
     if (!circle || !canInviteMembers) return;
@@ -1029,7 +1051,7 @@ export function CircleDetailFlow({
   // waiting for a refetch.
   const renameCircle = async () => {
     const nextName = circleName.trim();
-    if (!circle || savingName || nextName.length < 2 || nextName === circle.name)
+    if (!circle || savingName || nextName.length < 1 || nextName === circle.name)
       return;
     setSavingName(true);
     try {
@@ -1168,8 +1190,8 @@ export function CircleDetailFlow({
                 )}
               </div>
               <p className={cn(MUTED_TEXT, "mt-2")}>
-                {circleNameDirty && trimmedCircleName.length < 2
-                  ? "Use at least 2 characters."
+                {circleNameDirty && trimmedCircleName.length < 1
+                  ? "Enter a name."
                   : circleNameDirty
                     ? "Tap Save — everyone in this Circle will see the new name."
                     : "Everyone in this Circle sees this name."}
@@ -1479,7 +1501,10 @@ export function CircleDetailFlow({
                   }
                   isLoading={peopleSubmitting}
                   onClick={() => void sendMemberInvites()}
-                  className="h-12 w-full shrink-0 rounded-full text-base font-semibold"
+                  className={cn(
+                    "h-12 w-full shrink-0 rounded-full text-base font-semibold",
+                    BLOCKED_CTA,
+                  )}
                 >
                   {selectedConnectionIds.size
                     ? `Invite ${selectedConnectionIds.size} ${

@@ -173,6 +173,11 @@ import {
   locationReadiness as resolveLocationReadiness,
   shouldSurfaceLocationError,
 } from "@/lib/one-location/location-readiness";
+import {
+  GRANT_EDIT_DURATION_FALLBACK,
+  defaultEditDurationHours,
+  grantDurationEditIntent,
+} from "@/lib/one-location/grant-duration-edit";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   describeContactSyncOutcome,
@@ -259,6 +264,7 @@ import type {
   OneLocationState,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
+import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import {
   isCircleSelectionFullySelected,
@@ -2189,7 +2195,11 @@ export function OneLocationAgentPageContent({
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
   /** Which grant is showing the inline duration editor, wherever it's listed. */
   const [editingGrantId, setEditingGrantId] = useState<string | null>(null);
-  const [editGrantDurationHours, setEditGrantDurationHours] = useState("1");
+  /** Which grant's duration is being saved. Separate from revoke on purpose. */
+  const [savingGrantId, setSavingGrantId] = useState<string | null>(null);
+  const [editGrantDurationHours, setEditGrantDurationHours] = useState(
+    GRANT_EDIT_DURATION_FALLBACK,
+  );
   // Opt-in: keep publishing location while the app is backgrounded (native only).
   const [backgroundShareEnabled, setBackgroundShareEnabled] = useState(false);
   // Monotonic counter bumped each time a share completes successfully, so the
@@ -2646,20 +2656,24 @@ export function OneLocationAgentPageContent({
       ),
     [rankedRecipients, selectedShareCircleSelection],
   );
-  const visibleRecipients = useMemo(() => {
-    const query = recipientSearch.trim().toLowerCase();
-    if (!query) return rankedRecipients;
-    return rankedRecipients.filter((recipient) =>
-      recommendationSearchText(recipient).includes(query),
-    );
-  }, [rankedRecipients, recipientSearch]);
-  const visibleShareRecipients = useMemo(() => {
-    const query = shareRecipientSearch.trim().toLowerCase();
-    if (!query) return rankedRecipients;
-    return rankedRecipients.filter((recipient) =>
-      recommendationSearchText(recipient).includes(query),
-    );
-  }, [rankedRecipients, shareRecipientSearch]);
+  const visibleRecipients = useMemo(
+    () =>
+      filterPeopleByQuery(
+        rankedRecipients,
+        recipientSearch,
+        recommendationSearchText,
+      ),
+    [rankedRecipients, recipientSearch],
+  );
+  const visibleShareRecipients = useMemo(
+    () =>
+      filterPeopleByQuery(
+        rankedRecipients,
+        shareRecipientSearch,
+        recommendationSearchText,
+      ),
+    [rankedRecipients, shareRecipientSearch],
+  );
   const hasMoreVisibleRecipients =
     visibleRecipients.length > ONE_NETWORK_PREVIEW_LIMIT;
   const showExpandedOneNetworkList =
@@ -5438,9 +5452,16 @@ export function OneLocationAgentPageContent({
    * Shortening is self-limiting -- the owner already agreed to be seen at
    * least this long -- so it applies immediately. Extending is a different
    * question: it grows how long the recipient can see the owner, and that
-   * is the owner's consent to give again. This tries shorten_grant first,
-   * and on the backend's explicit "that would extend it" rejection, falls
-   * back to a fresh request_access the owner has to approve like any other.
+   * is the owner's consent to give again, via a fresh request_access the
+   * owner approves like any other.
+   *
+   * Which one this is gets decided here, from the same expiry the row is
+   * already rendering as "30 more min". It used to be decided by calling
+   * shorten_grant and waiting for the backend to refuse: every ask-for-more
+   * -time paid for a doomed round trip before the real one, which is the
+   * "Save is slow" report. The refusal is still handled -- a client clock
+   * can disagree with the server's near the boundary -- but it is now the
+   * rare correction rather than the normal path.
    */
   const handleEditGrantDuration = useCallback(
     async (
@@ -5449,48 +5470,75 @@ export function OneLocationAgentPageContent({
     ) => {
       if (!vaultOwnerToken) return;
       const { ownerUserId, grantId, ownerLabel } = params;
-      setRevokingGrantId(grantId);
+      const grant = activeReceivedGrants.find((row) => row.id === grantId);
+      // Its own flag, not the revoke one. Sharing `revokingGrantId` made
+      // saving a duration disable that row's Remove button, and a save that
+      // returned early left the flag set for good -- so the next Edit on
+      // that person opened with Save already spinning and permanently
+      // disabled. That is the "save button takes more time" report.
+      setSavingGrantId(grantId);
       try {
-        await OneLocationService.shortenGrant({
-          vaultOwnerToken,
-          grantId,
+        const intent = grantDurationEditIntent({
+          grant,
           durationHours,
+          nowMs: Date.now(),
         });
-        toast.success("Access shortened.");
-        setEditingGrantId(null);
-        void refresh().catch(() => null);
-        return;
-      } catch (error) {
-        if (apiErrorCode(error) !== "LOCATION_GRANT_SHORTEN_ONLY") {
-          toast.error(
-            error instanceof Error ? error.message : "Could not update access.",
-          );
-          setRevokingGrantId(null);
+        // Save on a picker still showing what the share already has left is
+        // not a change. It used to spend a refused shorten and then ask the
+        // owner for one more minute of their location, and report that as
+        // "Asked ... for more time" over a row whose time never moved.
+        if (intent === "unchanged") {
+          setEditingGrantId(null);
           return;
         }
-      }
-      // Extending needs the owner's approval again -- send a new request
-      // rather than silently lengthening the existing grant.
-      try {
-        await OneLocationService.requestAccess({
-          vaultOwnerToken,
-          ownerUserId,
-          message: "Requesting more time.",
-        });
-        toast.success(`Asked ${ownerLabel} for more time.`);
-        setEditingGrantId(null);
-        void refresh().catch(() => null);
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : `Could not ask ${ownerLabel} for more time.`,
-        );
+        if (intent === "shorten") {
+          try {
+            await OneLocationService.shortenGrant({
+              vaultOwnerToken,
+              grantId,
+              durationHours,
+            });
+            toast.success("Access shortened.");
+            setEditingGrantId(null);
+            // Held until the list has actually reconciled, so this grant is
+            // not savable again against the expiry it just replaced.
+            await refresh({ background: true }).catch(() => null);
+            return;
+          } catch (error) {
+            if (apiErrorCode(error) !== "LOCATION_GRANT_SHORTEN_ONLY") {
+              toast.error(
+                error instanceof Error
+                  ? error.message
+                  : "Couldn't change the time. Try again.",
+              );
+              return;
+            }
+            // The backend read the clock differently. Fall through and ask.
+          }
+        }
+        // Extending needs the owner's approval again -- send a new request
+        // rather than silently lengthening the existing grant.
+        try {
+          await OneLocationService.requestAccess({
+            vaultOwnerToken,
+            ownerUserId,
+            message: "Requesting more time.",
+          });
+          toast.success(`Asked ${ownerLabel} for more time.`);
+          setEditingGrantId(null);
+          await refresh({ background: true }).catch(() => null);
+        } catch (error) {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : `Couldn't ask ${ownerLabel} for more time. Try again.`,
+          );
+        }
       } finally {
-        setRevokingGrantId(null);
+        setSavingGrantId(null);
       }
     },
-    [refresh, vaultOwnerToken],
+    [activeReceivedGrants, refresh, vaultOwnerToken],
   );
 
   const handleStopSos = useCallback(async () => {
@@ -10047,8 +10095,18 @@ export function OneLocationAgentPageContent({
     onStopGrant: (grantId) => void handleRevoke(grantId),
     onAskReshare: (grant) => void handleAskReshare(grant),
     editingGrantId,
+    savingGrantId,
     onEditGrantStart: (grantId) => {
-      setEditGrantDurationHours("1");
+      // Open on what the share actually has left, not on a constant. The
+      // editor used to say "1 hour" above a row reading "30 more min", so
+      // the field was never the current duration and Save on the untouched
+      // default asked for MORE time instead of changing anything.
+      setEditGrantDurationHours(
+        defaultEditDurationHours(
+          activeReceivedGrants.find((grant) => grant.id === grantId),
+          Date.now(),
+        ),
+      );
       setEditingGrantId(grantId);
     },
     onEditGrantCancel: () => setEditingGrantId(null),

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
@@ -49,6 +49,32 @@ describe("SetupCompletionFooter blocked state", () => {
     expect(button.className).toContain("disabled:!bg-muted/60");
     expect(button.className).toContain("disabled:!text-muted-foreground");
     expect(button.className).toContain("disabled:!opacity-100");
+  });
+
+  it("keeps a visible edge, because the muted fill alone draws nothing in light theme", () => {
+    const { button } = renderFooter({ disabled: true });
+
+    // Measured on the built stylesheet: `muted` over the light page surface is
+    // rgb(242,242,245) on rgb(242,242,247) -- 1:1. Without a border the pill
+    // disappears and leaves a grey label floating on the page, which is a
+    // worse control than the blue one this state replaced. The border is the
+    // only thing keeping it a button, so it is the thing under test.
+    expect(button.className).toContain("disabled:!border-border");
+    expect(button.className).not.toContain("!border-0");
+  });
+
+  it("does not spend geometry to look disabled", () => {
+    const enabled = renderFooter().button.className;
+    cleanup();
+    const blocked = renderFooter({ disabled: true }).button.className;
+
+    // Both states reserve the same 1px. Only the border COLOUR changes, so the
+    // button cannot resize between states -- a zero-drift requirement, and the
+    // reason `!border-0` (which removes the reserved px) does not belong here.
+    for (const state of [enabled, blocked]) {
+      expect(state).toContain("border border-transparent");
+      expect(state).not.toContain("!border-0");
+    }
   });
 
   it("does not absorb a tap while blocked", () => {

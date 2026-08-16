@@ -143,6 +143,9 @@ describe("One setup hub terminal action contract", () => {
       "const isBlockedFilledAction = disabled && !busy && !isQuietSetupAction",
     );
     expect(footer).toContain("disabled:!bg-muted/60");
+    // ...and a visible edge with it. `muted` is the page surface in the light
+    // theme, so the fill alone leaves no control on screen.
+    expect(footer).toContain("disabled:!border-border");
     expect(hub).toContain("disabled:text-muted-foreground");
     expect(hub).not.toContain("disabled:opacity-40");
 

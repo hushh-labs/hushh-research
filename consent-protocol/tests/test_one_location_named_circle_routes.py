@@ -408,13 +408,28 @@ def test_circle_bootstrap_cannot_be_pointed_at_another_circle(monkeypatch) -> No
 def test_circle_bootstrap_requires_a_usable_name(monkeypatch) -> None:
     client, _service = _bootstrap_client(monkeypatch)
 
-    assert client.post("/api/one/location/circles/bootstrap", json={"name": "x"}).status_code == 422
+    # A single character is a usable name; only nothing at all, or something
+    # longer than the column, is refused.
+    assert (
+        client.post(
+            "/api/one/location/circles/bootstrap",
+            json={"name": ""},
+        ).status_code
+        == 422
+    )
     assert (
         client.post(
             "/api/one/location/circles/bootstrap",
             json={"name": "x" * 81},
         ).status_code
         == 422
+    )
+    assert (
+        client.post(
+            "/api/one/location/circles/bootstrap",
+            json={"name": "x"},
+        ).status_code
+        != 422
     )
 
 

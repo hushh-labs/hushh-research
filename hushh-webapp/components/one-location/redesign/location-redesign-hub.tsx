@@ -21,6 +21,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   type ReactNode,
@@ -303,6 +304,12 @@ export type LocationHubViewModel = {
   onStopGrant: (grantId: string) => void;
   /** Grant currently showing the inline duration editor, or null. */
   editingGrantId: string | null;
+  /**
+   * Grant whose duration is being saved, or null. Deliberately not
+   * `revokingGrantId`: one flag for both made Save and Remove spin together,
+   * and left Save stuck spinning on the next Edit of the same person.
+   */
+  savingGrantId: string | null;
   onEditGrantStart: (grantId: string) => void;
   onEditGrantCancel: () => void;
   editGrantDurationHours: string;
@@ -576,19 +583,34 @@ export function resolveLocationDeepLinkFocus(input: {
 }
 
 function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
+  const statusId = useId();
   const locationOn = vm.locationEnabled;
   const acquiring = vm.locationAcquiring;
+  const statusReadiness = vm.locationBlocked
+    ? ("blocked" as const)
+    : locationOn
+      ? ("ready" as const)
+      : ("askable" as const);
   const statusLabel = acquiring
     ? "Finding you…"
     : locationStatusLabel({
-        readiness: vm.locationBlocked
-          ? "blocked"
-          : locationOn
-            ? "ready"
-            : "askable",
+        readiness: statusReadiness,
         previewOn: locationOn,
         paused: vm.locationPaused,
         accuracyLimited: vm.locationAccuracyLimited,
+      });
+  // One word on phones. Measured, not guessed: with the full "Location blocked"
+  // in this column the 28px "Location Agent" title wraps to two lines at every
+  // iPhone width (320/360/375/390); with the compact word the column stays the
+  // width of the switch and the title keeps its single line, exactly as today.
+  const compactStatusLabel = acquiring
+    ? "Finding…"
+    : locationStatusLabel({
+        readiness: statusReadiness,
+        previewOn: locationOn,
+        paused: vm.locationPaused,
+        accuracyLimited: vm.locationAccuracyLimited,
+        compact: true,
       });
 
   const handleLocationChange = (checked: boolean) => {
@@ -603,16 +625,16 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
   return (
     <div
       role="group"
-      aria-label="Location preview control"
-      className="ml-auto flex max-w-full shrink-0 items-center justify-end"
+      aria-label="Location"
+      // Column on phones, row from `sm` up. The status text is the only thing
+      // that says what this switch is FOR, so it has to survive the compact
+      // layout; there is not enough width on a 320px screen to keep it beside
+      // the switch without wrapping the "Location Agent" title, so it moves
+      // underneath instead. From `sm` the order props restore the original
+      // single-row arrangement exactly: status, then switch.
+      className="ml-auto flex max-w-full shrink-0 flex-col items-end justify-center gap-1 sm:flex-row sm:items-center sm:justify-end sm:gap-0"
       data-testid="one-location-header-actions"
     >
-      <span
-        className="ui-text-helper-text hidden whitespace-nowrap pr-2 text-[color:var(--app-secondary-label)] sm:inline"
-        aria-hidden="true"
-      >
-        {statusLabel}
-      </span>
       <Switch
         size="ios"
         checked={locationOn}
@@ -623,14 +645,33 @@ function LocationHeaderActions({ vm }: { vm: LocationHubViewModel }) {
         // finding them, which is when they are most likely to change their
         // mind. The status text carries the waiting instead.
         aria-label={locationOn ? "Turn location off" : "Turn location on"}
+        // The status text is the switch's description, not decoration. It used
+        // to be aria-hidden, so a VoiceOver user got "Turn location on" and no
+        // way to hear whether it was blocked, paused, or still finding them.
+        aria-describedby={statusId}
         // The same pair of contract actions the Settings toggle carries.
         // Both are the same control in two places, so voice can offer
         // pause/resume from the Now tab without opening Settings first.
         data-voice-control-id="one-location-updates-toggle"
         // No colour override: the shared Switch already carries the iOS
         // system green, so this toggle reads the same as every other one.
-        className={cn(acquiring && "animate-pulse")}
+        className={cn(acquiring && "animate-pulse", "sm:order-2")}
       />
+      {/*
+        Visible at every width. It used to be `hidden … sm:inline`, which meant
+        the one label explaining the switch rendered on desktop and never on a
+        phone — the exact screen the switch was designed for. What was left on
+        iOS was a bare green switch under a title that names the agent, not the
+        control, so "what is this toggle for?" had no answer on the device.
+      */}
+      <span
+        id={statusId}
+        data-testid="one-location-header-status"
+        className="ui-text-helper-text whitespace-nowrap text-[color:var(--app-secondary-label)] sm:order-1 sm:pr-2"
+      >
+        <span className="sm:hidden">{compactStatusLabel}</span>
+        <span className="hidden sm:inline">{statusLabel}</span>
+      </span>
     </div>
   );
 }
@@ -1224,8 +1265,22 @@ function NowHub({
 }) {
   const groupedShellClassName =
     "[--settings-group-radius:16px] bg-white shadow-none dark:bg-[#1C1C1E]";
+  // State beats category on every counted row: colour here means "there is
+  // something here", never "this row exists". A zero count is a neutral row.
+  // "Needs my review" already worked this way; "Active shares" and "Shared with
+  // me" were pinned to action blue, so an empty Location screen showed three
+  // saturated blue tiles reporting 0, 0, 0 — colour that carried no information
+  // and left nothing for the rows that did.
   const reviewIconTone =
     vm.pendingOwnerRequests.length > 0 ? "orange" : "gray";
+  // Green = sharing is live right now (the same meaning the header switch and
+  // Check-In carry).
+  const activeSharesIconTone =
+    vm.activeOwnerGrants.length > 0 ? "green" : "gray";
+  // Indigo = other people, matching the People tab's circles and trusted
+  // contacts, rather than the blue reserved for actions you initiate.
+  const sharedWithMeIconTone =
+    vm.receivedGrants.length > 0 ? "indigo" : "gray";
 
   return (
     <div className="space-y-4" data-testid="one-location-now-hub">
@@ -1275,7 +1330,7 @@ function NowHub({
       >
         <SettingsRow
           icon={UsersRound}
-          iconTone="blue"
+          iconTone={activeSharesIconTone}
           title="Active shares"
           density="compact"
           trailing={vm.activeOwnerGrants.length}
@@ -1286,7 +1341,7 @@ function NowHub({
         />
         <SettingsRow
           icon={MapPin}
-          iconTone="blue"
+          iconTone={sharedWithMeIconTone}
           title="Shared with me"
           density="compact"
           trailing={vm.receivedGrants.length}
@@ -1342,8 +1397,13 @@ function NowHub({
       </SettingsGroup>
 
       <QuickActionsSection title="Quick actions" columns={2}>
+        {/* Green, not blue: Check-In is a presence state you enter, the same
+            family as the header switch being on — and it is the one tile that
+            sits beside the red SMS tile, where "safe / emergency" has to read
+            at a glance. Blue here made the two tiles differ only in the second
+            colour, not the first. */}
         <QuickActionCard
-          tone="blue"
+          tone="green"
           icon={<ShieldCheck />}
           title="Check-In"
           subtitle={checkInSubtitle}
@@ -1584,7 +1644,7 @@ function LocationDetailFlow({
         ) : (
           <EmptyState
             title="Nothing shared with you"
-            description="Live grants appear here."
+            description="Shares appear here."
           />
         )
       ) : null}
@@ -1647,13 +1707,22 @@ function LocationToggle({
       onClick={() => onChange(!checked)}
       className={cn(
         "relative h-[31px] w-[51px] shrink-0 rounded-full transition-colors duration-200",
-        checked ? "bg-[#34c759]" : "bg-black/15 dark:bg-white/20",
+        // Same tokens as the shared `Switch size="ios"`, not private literals.
+        // This used to be `bg-[#34c759]` / `bg-black/15 dark:bg-white/20`, which
+        // held the light-mode green in dark mode (where the system value is
+        // #30d158) and used an off-track grey that matched no other switch — so
+        // the Settings toggles and the header toggle, the same control in two
+        // places, did not read as the same colour. Geometry, thumb, travel and
+        // behaviour are unchanged.
+        checked
+          ? "bg-[color:var(--switch-on)]"
+          : "bg-[color:var(--switch-off)]",
         disabled && "cursor-not-allowed opacity-60",
       )}
     >
       <span
         className={cn(
-          "absolute top-[2px] h-[27px] w-[27px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-[left] duration-200",
+          "absolute top-[2px] h-[27px] w-[27px] rounded-full bg-[color:var(--switch-thumb)] shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-[left] duration-200",
           checked ? "left-[22px]" : "left-[2px]",
         )}
       />
@@ -1861,7 +1930,7 @@ function PeopleHub({
       isLoading={vm.busy === "contactSync"}
       className={PEOPLE_HEADER_ACTION}
     >
-      Sync contacts
+      Find contacts
     </Button>
   );
 
@@ -2061,7 +2130,12 @@ function PeopleHub({
                               onClick={() => vm.onStopGrant(grantId)}
                               disabled={vm.revokingGrantId === grantId}
                             >
-                              Delete
+                              {/* Same handler as the two "Stop" buttons above
+                                  (vm.onStopGrant). One revocation must not be
+                                  described with two verbs — and "Delete" also
+                                  overstates it: this ends someone's access, it
+                                  does not erase anything. */}
+                              Stop
                             </Button>
                           </div>
                         ) : isLive ? (
@@ -2099,7 +2173,7 @@ function PeopleHub({
                                 ownerLabel,
                               })
                             }
-                            isLoading={vm.revokingGrantId === grantId}
+                            isLoading={vm.savingGrantId === grantId}
                           >
                             Save
                           </Button>
@@ -2511,7 +2585,7 @@ function ShareFlow({
                   role="alert"
                   className="text-right text-xs font-medium text-destructive"
                 >
-                  character limit exceed
+                  Note is too long
                 </p>
               ) : null}
             </div>
@@ -2640,7 +2714,7 @@ function ShareFlow({
                 subtitle={
                   ready
                     ? undefined
-                    : "Invite first to enable sharing"
+                    : "Invite them first"
                 }
                 tone={ready ? "ready" : "pending"}
                 actionLabel={
@@ -2755,7 +2829,7 @@ function AskFlow({
   }, []);
   return (
     <div className="space-y-5">
-      <TaskFlowHeader title="Request with context" />
+      <TaskFlowHeader title="Request location" />
 
       {justSent ? (
         <div
@@ -2863,7 +2937,7 @@ function AskFlow({
                               ownerLabel: recipientLabel,
                             })
                           }
-                          isLoading={vm.revokingGrantId === activeGrant.id}
+                          isLoading={vm.savingGrantId === activeGrant.id}
                         >
                           Save
                         </Button>
