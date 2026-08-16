@@ -26,13 +26,16 @@ export type QuickActionTone = "green" | "red" | "blue" | "violet" | "slate";
  * stay neutral through the shared typography roles.
  */
 const TONE_STYLES: Record<QuickActionTone, { tile: string; icon: string }> = {
+  // Tokens, not literals: these hard-coded the LIGHT hex, so in dark mode the
+  // glyphs stayed at the light-appearance shade while every other semantic
+  // colour on the screen switched.
   green: {
-    tile: "bg-[rgba(52,199,89,0.12)]",
-    icon: "text-[#34C759]",
+    tile: "bg-[color:var(--app-success)]/12",
+    icon: "text-[color:var(--app-success)]",
   },
   red: {
-    tile: "bg-[rgba(255,59,48,0.12)]",
-    icon: "text-[#FF3B30]",
+    tile: "bg-[color:var(--app-destructive)]/12",
+    icon: "text-[color:var(--app-destructive)]",
   },
   blue: {
     tile: "bg-[color:var(--app-accent-surface)]",

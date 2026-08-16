@@ -79,7 +79,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     fireEvent.click(screen.getByRole("button", { name: /Aarav Mehta/ }));
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Share encrypted location with 1 person",
+        name: "Share location with 1 person",
       }),
     );
     await waitFor(() => expect(onCheckIn).toHaveBeenCalledTimes(1));
@@ -120,14 +120,14 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
       screen.getByTestId("nearby-private-share-disclosure"),
     ).toHaveTextContent(/Nearby sees your name only/i);
     expect(
-      screen.getByRole("button", { name: "Select who should know" }),
+      screen.getByRole("button", { name: "Choose who to tell" }),
     ).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: /Aarav Mehta/ }));
     fireEvent.click(screen.getByRole("button", { name: /Maya Chen/ }));
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Share encrypted location with 2 people",
+        name: "Share location with 2 people",
       }),
     );
 
@@ -150,7 +150,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     const firstRequest = onCheckIn.mock.calls[0]![0];
 
     const retry = await screen.findByRole("button", {
-      name: "Share encrypted location with 1 person",
+      name: "Share location with 1 person",
     });
     expect(screen.getByRole("button", { name: /Aarav Mehta/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "30 min" })).toBeDisabled();
@@ -158,7 +158,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
       screen.getByPlaceholderText("I've checked in here, let's catch up"),
     ).toBeDisabled();
     expect(
-      screen.getByText(/Retry sends only to failed people/i),
+      screen.getByText(/Sends again to the people it missed/i),
     ).toBeInTheDocument();
     expect(
       screen.getByTestId("private-check-in-partial-success"),
@@ -207,7 +207,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     await act(async () => {
       fireEvent.click(
         screen.getByRole("button", {
-          name: "Share encrypted location with 2 people",
+          name: "Share location with 2 people",
         }),
       );
       await Promise.resolve();
@@ -215,7 +215,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
 
     expect(
       screen.getByRole("button", {
-        name: "Edit remaining details and reconfirm",
+        name: "Edit and confirm again",
       }),
     ).toBeInTheDocument();
 
@@ -224,10 +224,10 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     });
 
     expect(
-      screen.getByRole("button", { name: "Confirmation expired" }),
+      screen.getByRole("button", { name: "Confirm your location again" }),
     ).toBeDisabled();
     expect(
-      screen.getByText(/This confirmation expired/i),
+      screen.getByText(/That expired\. Edit and confirm again/i),
     ).toBeInTheDocument();
     expect(onDiscardPrivateCheckInOperation).toHaveBeenCalledWith(
       expect.any(String),
@@ -235,7 +235,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Edit remaining details and reconfirm",
+        name: "Edit and confirm again",
       }),
     );
 
@@ -267,12 +267,12 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     fireEvent.click(screen.getByRole("button", { name: /Aarav Mehta/ }));
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Share encrypted location with 1 person",
+        name: "Share location with 1 person",
       }),
     );
     await waitFor(() => expect(onCheckIn).toHaveBeenCalledTimes(1));
     await screen.findByRole("button", {
-      name: "Edit details and reconfirm",
+      name: "Edit and confirm again",
     });
     const operationId = onCheckIn.mock.calls[0]![0].clientOperationId;
 
@@ -284,7 +284,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     rerender(<CheckInFlow vm={vm} entrySource="nearby" onClose={vi.fn()} />);
 
     expect(
-      screen.getByRole("button", { name: "Secure key changed — reconfirm" }),
+      screen.getByRole("button", { name: "Their security key changed - confirm again" }),
     ).toBeDisabled();
     expect(
       screen.getByText(/selected person's secure key changed/i),

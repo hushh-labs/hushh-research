@@ -4307,6 +4307,13 @@ class OneLocationAgentService:
                     "duration_hours": _duration_metadata_value(duration),
                     "duration_mode": resolved_duration_mode,
                     "counterpart_label": recipient_label,
+                    # Why this grant exists. The audit ledger keeps the row
+                    # either way; the Feed fan-out trigger reads this to drop
+                    # the duplicate. Approving a request already writes
+                    # `location_access_approved` right after this call, and one
+                    # tap that produces two Feed rows reads as two things
+                    # happening. Same rule the notification below applies.
+                    "reason": reason or "",
                 },
             )
         # Request approval has its own richer notification immediately after

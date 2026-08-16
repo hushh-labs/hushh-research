@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -15,6 +15,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
+import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   CACHE_KEYS,
@@ -100,7 +101,7 @@ export interface FeedActionable {
   sortAt: number;
   /**
    * Real-world instant to render as the row's "Today - 3:45 PM" label.
-   * Distinct from `sortAt` (which always falls back to `Date.now()` so
+   * Distinct from `sortAt` (which falls back to when the row was first seen so
    * ordering never breaks) — null/absent exactly when there is no real
    * timestamp to show the user (a consent entry with no `issued_at`, or any
    * connection request, whose payload carries no timestamp at all).
@@ -281,14 +282,17 @@ export function useFeedActionables(): UseFeedActionablesResult {
       : "consent_center_summary_guest",
     refreshKey: `one:consents:${consentTick}`,
     enabled: Boolean(userId),
-    load: async () => {
+    // `options.force` is honoured alongside the mutation tick: the consent
+    // services keep their own caches, so a live refresh that dropped the flag
+    // would re-read the same cached page it was trying to move past.
+    load: async (options) => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) throw new Error("Sign in to review consents");
       return ConsentCenterService.getSummary({
         idToken,
         userId: user.uid,
         mode: "consents",
-        force: consentTick > 0,
+        force: consentTick > 0 || Boolean(options?.force),
       });
     },
   });
@@ -308,7 +312,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
       : "consent_center_list_guest",
     refreshKey: `one:consents:${consentTick}:${pendingConsentCount ?? "?"}`,
     enabled: Boolean(userId) && (pendingConsentCount ?? 0) > 0,
-    load: async () => {
+    load: async (options) => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) throw new Error("Sign in to review consents");
       return ConsentCenterService.listEntries({
@@ -318,7 +322,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
         surface: "pending",
         page: 1,
         limit: CONSENT_CENTER_PAGE_SIZE,
-        force: consentTick > 0,
+        force: consentTick > 0 || Boolean(options?.force),
       });
     },
   });
@@ -393,6 +397,44 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const connectionRequests = connectionsResource.data;
   const connectionsRefresh = connectionsResource.refresh;
   const consentItems = consentListResource.data?.items;
+  const consentSummaryRefresh = consentSummaryResource.refresh;
+  const consentListRefresh = consentListResource.refresh;
+
+  // When a row genuinely has no arrival time, remember when it was first seen.
+  //
+  // These rows used to call `Date.now()` inline, inside the memo — so every
+  // recompute minted a brand-new "now" and they jumped back above rows carrying
+  // real timestamps. Harmless while the Feed only built its list once; with the
+  // live refresh above, the order would reshuffle on every tick. A first-seen
+  // stamp is stable across refreshes AND is the honest answer to "when did this
+  // reach me", so arrival order between two untimed rows is preserved.
+  const firstSeenAtRef = useRef<Map<string, number>>(new Map());
+  const firstSeenAt = useCallback((id: string) => {
+    const remembered = firstSeenAtRef.current.get(id);
+    if (remembered !== undefined) return remembered;
+    const now = Date.now();
+    firstSeenAtRef.current.set(id, now);
+    return now;
+  }, []);
+
+  // "Needs you" is the half of the Feed that is a to-do list, so a stale one is
+  // worse than a stale history: it offers Approve on a request somebody already
+  // answered elsewhere. Every source behind it re-checks on the same live signal
+  // the list and the tab badge use.
+  useFeedLiveRefresh(
+    useCallback(() => {
+      void consentSummaryRefresh({ force: true });
+      void consentListRefresh({ force: true });
+      void locationRefresh({ force: true });
+      void connectionsRefresh({ force: true });
+    }, [
+      connectionsRefresh,
+      consentListRefresh,
+      consentSummaryRefresh,
+      locationRefresh,
+    ]),
+    Boolean(userId),
+  );
 
   // Revoked/expired SOS cards stay in the feed as a historical alert instead
   // of vanishing the moment the sender cancels — but there is nothing left to
@@ -455,10 +497,11 @@ export function useFeedActionables(): UseFeedActionablesResult {
           }),
           chevron: true,
           actions: [],
-          // No reliable arrival time on a consent entry (only a future
-          // expiry), so treat pending consents as current rather than mixing
-          // future expiry into the descending recency sort.
-          sortAt: Date.now(),
+          // `issued_at` when the backend populated it — never the expiry, which
+          // is in the future and would sort this above everything. Otherwise
+          // when it was first seen, so it holds its place across refreshes.
+          sortAt:
+            toTimestamp(entry.issued_at) || firstSeenAt(`consent:${entry.id}`),
           // Real only when the backend happened to populate issued_at — never
           // fabricate a "just now" time label for this type.
           displayTimestamp: toDisplayTimestamp(entry.issued_at),
@@ -505,7 +548,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
         href: buildOneLocationNotificationHref(grant.id),
         chevron: true,
         actions: [],
-        sortAt: resolvedAt || Date.now(),
+        sortAt: resolvedAt || firstSeenAt(`sms-emergency:${grant.id}`),
         displayTimestamp: resolvedAt || null,
       });
     }
@@ -561,7 +604,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
             },
           },
         ],
-        sortAt: toTimestamp(request.requestedAt) || Date.now(),
+        sortAt:
+          toTimestamp(request.requestedAt) ||
+          firstSeenAt(`location:${request.id}`),
         displayTimestamp: toDisplayTimestamp(request.requestedAt),
       });
     }
@@ -615,7 +660,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
             },
           },
         ],
-        sortAt: toTimestamp(invite.createdAt) || Date.now(),
+        sortAt:
+          toTimestamp(invite.createdAt) ||
+          firstSeenAt(`circle-invite:${invite.id}`),
         displayTimestamp: toDisplayTimestamp(invite.createdAt),
       });
     }
@@ -686,9 +733,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
                 },
               },
             ],
-        sortAt: Date.now(),
         // ConnectionRequest (lib/services/connections-service.ts) carries no
-        // timestamp field at all — never fabricate one for the time label.
+        // timestamp field at all, so first-seen is the only honest ordering.
+        sortAt: firstSeenAt(`connection:${request.id}`),
+        // Still never fabricate a visible time label from it.
         displayTimestamp: null,
       });
     }
@@ -752,7 +800,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
         onSelect: running ? () => openAnalysis(task.runId) : undefined,
         chevron: running,
         actions,
-        sortAt: toTimestamp(task.updatedAt || task.startedAt) || Date.now(),
+        sortAt:
+          toTimestamp(task.updatedAt || task.startedAt) ||
+          firstSeenAt(`debate:${task.runId}`),
         displayTimestamp: toDisplayTimestamp(task.updatedAt || task.startedAt),
       });
     }
@@ -784,7 +834,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
         title: task.title,
         description: task.description || "Working in the background…",
         actions,
-        sortAt: toTimestamp(task.updatedAt || task.startedAt) || Date.now(),
+        sortAt:
+          toTimestamp(task.updatedAt || task.startedAt) ||
+          firstSeenAt(`task:${task.taskId}`),
         displayTimestamp: toDisplayTimestamp(task.updatedAt || task.startedAt),
       });
     }
@@ -808,6 +860,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     consentItems,
     debateState.tasks,
     dismissedSmsEmergencyIds,
+    firstSeenAt,
     locationRequests,
     receivedGrants,
     circleMemberInvites,
