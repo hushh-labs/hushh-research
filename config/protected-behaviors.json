@@ -23,6 +23,59 @@
   ],
   "protected_behaviors": [
     {
+      "name": "location-people-search-finds-a-person-from-one-letter",
+      "summary": "Every people picker on the Location surface matches a query that BEGINS a word ahead of one that merely appears inside it, so one typed letter narrows the list. One character keeps only word-beginning matches (falling back to loose ones when nothing begins with it, so it can never empty a list that has a match); two or more characters drop nothing. Combining marks are part of a word, so an Indic name is never split at its matras.",
+      "fixed_by": "aa7be6ea2",
+      "why_it_needs_a_lock": [
+        "The bug WAS a bare `includes(query)` filter, and it was duplicated at six",
+        "call sites: the add-people sheet in Circle detail, the Circle grow sheet",
+        "reached from Check-In, the check-in contact list, the map's people tray,",
+        "and both recipient searches on the hub. Every branch cut before aa7be6ea2",
+        "still carries that one-line filter verbatim in all six, so a conflict",
+        "resolved the wrong way silently restores it with nothing in review to",
+        "notice -- the list simply stops narrowing again.",
+        "",
+        "The Indic half is the part no reviewer would catch. `/[^\\p{L}\\p{N}]+/u`",
+        "reads a matra as a word separator, so it shredded every Devanagari name",
+        "and shipped green past 13 unit tests, typecheck, lint, a full-suite",
+        "baseline and a verified UAT deploy, because every fixture was Latin. See",
+        "R20 in .claude/skills/safe-changes/SKILL.md. Dropping the \\p{M} from that",
+        "character class is a one-character edit that no Latin test can fail."
+      ],
+      "tests": [
+        {
+          "path": "hushh-webapp/lib/one-location/__tests__/people-search.test.ts",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 16,
+          "required_titles": [
+            "narrows to the person whose name begins with a single typed letter",
+            "keeps every match beyond one character, word beginnings first",
+            "never empties a list that has a match, even for one character",
+            "keeps an Indic name whole instead of splitting it at every matra",
+            "still finds an Indic name by a syllable inside it"
+          ]
+        },
+        {
+          "path": "hushh-webapp/components/one-location/redesign/circles/__tests__/circle-grow-actions.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 10,
+          "required_titles": [
+            "finds a connection from the first letter here too",
+            "paints its blocked Select people CTA the same as the Circle detail copy"
+          ]
+        },
+        {
+          "path": "hushh-webapp/components/one-location/redesign/circles/__tests__/named-circle-flows.test.tsx",
+          "assertion_pattern": "expect\\(",
+          "min_assertions": 90,
+          "required_titles": [
+            "finds a connection from the first letter of any of their names",
+            "blocks Create only while the name is empty, and says so visibly"
+          ]
+        }
+      ]
+    },
+    {
       "name": "connect-people-search-is-an-alphabetical-index",
       "summary": "Typing one letter into Connect returns every person whose name matches, ranked by the server ahead of LIMIT and ordered A-Z within each tier. The client renders that page unchanged and never re-filters or re-sorts it.",
       "fixed_by": "2afe801beddacc9618c4f25328370e9232722332",
