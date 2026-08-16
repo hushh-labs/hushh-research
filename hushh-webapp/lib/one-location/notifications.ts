@@ -40,6 +40,7 @@ export type OneLocationWorkflowNotificationType =
   | "location_share_expired"
   | "location_access_request"
   | "location_access_denied"
+  | "location_access_request_withdrawn"
   | "location_referral_invite"
   | "location_public_invite_submitted"
   | "location_one_network_joined"
@@ -91,6 +92,10 @@ const WORKFLOW_COPY: Record<
   location_access_denied: {
     title: "Location request denied",
     fallbackDescription: "Your location request was denied.",
+  },
+  location_access_request_withdrawn: {
+    title: "Location request taken back",
+    fallbackDescription: "Someone took back their location request.",
   },
   location_referral_invite: {
     title: "Location referral pending",
@@ -439,6 +444,9 @@ export function oneLocationSectionForWorkflowNotificationType(
     case "location_share_expired":
       return "shared";
     case "location_access_request":
+    // Goes to the same list the ask itself did. The card there is the thing
+    // that just disappeared, so that is where the owner needs to land.
+    case "location_access_request_withdrawn":
       return "approvals";
     case "location_access_denied":
       return "my_requests";
@@ -637,6 +645,11 @@ export function locationWorkflowNotificationCopy(params: {
       return {
         title: copy.title,
         description: `${ownerLabel} denied your location request.`,
+      };
+    case "location_access_request_withdrawn":
+      return {
+        title: copy.title,
+        description: `${requesterLabel} took back their location request.`,
       };
     case "location_referral_invite":
       return {

@@ -115,6 +115,7 @@ ONE_LOCATION_ACTIVITY_EVENT_TYPES = {
     "location_access_request",
     "location_access_approved",
     "location_access_denied",
+    "location_access_request_withdrawn",
     "location_referral_invite",
     "location_public_invite_created",
     "location_public_invite_revoked",
@@ -134,6 +135,7 @@ ONE_LOCATION_REQUEST_ACTIVITY_TYPES = {
     "location_access_request",
     "location_access_approved",
     "location_access_denied",
+    "location_access_request_withdrawn",
     "location_referral_invite",
 }
 ONE_LOCATION_PUBLIC_ACTIVITY_TYPES = {
@@ -2421,6 +2423,12 @@ class OneLocationAgentService:
                 f"Denied request from {recipient_label or actor_label}"
                 if owner_user_id == user_id
                 else f"{owner_label} denied your request"
+            )
+        elif event_type == "location_access_request_withdrawn":
+            title = (
+                f"{actor_label} took back their request"
+                if owner_user_id == user_id
+                else f"You took back your request to {owner_label}"
             )
         elif event_type == "location_referral_invite":
             title = f"Referral added for {recipient_label}"
@@ -6840,6 +6848,69 @@ class OneLocationAgentService:
                 "request_id": request_id,
                 "owner_user_id": owner_user_id,
                 "owner_display_label": owner_label,
+            },
+        )
+        return self._request_payload(row) or {}
+
+    def withdraw_request(self, *, requester_user_id: str, request_id: str) -> dict[str, Any]:
+        """The asker takes back their own pending request.
+
+        Approve and deny are the owner's verbs and both are keyed on
+        ``owner_user_id``. This one is keyed on ``requester_user_id`` instead,
+        which is the whole safety property: it can only ever end a request the
+        caller themselves sent, and it can never touch a request sent TO them.
+        Ending an ask you received is still ``deny_request``.
+
+        Only ``pending`` moves. An approved request has already produced a
+        grant, and taking the ask back would not take the access back -- that
+        is ``revoke_grant``, a different act on a different object. A request
+        already denied or already withdrawn has nothing left to end, so a
+        second call is a 404 rather than a silent success.
+        """
+        row = self._execute_one(
+            """
+            UPDATE one_location_access_requests
+            SET status = 'cancelled', resolved_at = NOW()
+            WHERE id = CAST(:request_id AS UUID)
+              AND requester_user_id = :requester_user_id
+              AND status = 'pending'
+            RETURNING *
+            """,
+            {"requester_user_id": requester_user_id, "request_id": request_id},
+        )
+        if not row:
+            raise OneLocationAgentError(
+                "LOCATION_REQUEST_NOT_FOUND",
+                "Pending location access request was not found.",
+                status_code=404,
+            )
+        owner_user_id = str(row.get("owner_user_id") or "")
+        requester_label = _identity_notification_label(
+            self._identity_row(requester_user_id), fallback="Someone"
+        )
+        self._insert_event(
+            owner_user_id=owner_user_id,
+            actor_user_id=requester_user_id,
+            recipient_user_id=requester_user_id,
+            request_id=request_id,
+            event_type="location_access_request_withdrawn",
+            metadata={"counterpart_label": requester_label},
+        )
+        # Same notification tag as the original ask, so on the owner's device
+        # this REPLACES "X is asking to view your location" instead of stacking
+        # a second card under it. Leaving the first one in the tray is how
+        # somebody taps through to approve a request that no longer exists.
+        self._send_metadata_notification(
+            user_id=owner_user_id,
+            notification_type="location_access_request_withdrawn",
+            title="Location request taken back",
+            body=f"{requester_label} took back their location request.",
+            notification_tag=f"one-location-request:{request_id}",
+            request_url=_one_location_url(requestId=request_id, section="approvals"),
+            data={
+                "request_id": request_id,
+                "requester_user_id": requester_user_id,
+                "requester_display_label": requester_label,
             },
         )
         return self._request_payload(row) or {}

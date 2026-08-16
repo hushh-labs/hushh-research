@@ -1553,6 +1553,23 @@ def deny_location_access_request(
         raise _handle_error(exc) from exc
 
 
+@router.post("/location/requests/{request_id}/withdraw")
+def withdraw_location_access_request(
+    request_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Take back a pending request you sent. Only the asker can call this."""
+    try:
+        return {
+            "request": _service().withdraw_request(
+                requester_user_id=_user_id(token_data),
+                request_id=request_id,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.post("/location/grants/{grant_id}/refer")
 def refer_location_access(
     grant_id: str,
