@@ -3128,6 +3128,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "location.open_check_in",
           "location.open_map"
         ],
         "delegate_agent_ids": [],
@@ -4874,13 +4875,13 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "4e2fe49364c8d317bd3d97d3a0a68713a56ba6c7cf94f0a3321683aa33cea6ea",
+    "action_gateway": "bed21dbc32024d52d456378ab5d1eac8ca7326e7726ac38092ea036b5a47fdd8",
     "agent_registry": "8f9c669153e52a57c68ca44db8b8419c1ecc8bb489ceee21a6286ca2eba3c207",
     "cache_manifest": "704440f9aaccd05b71ddb59e904dca1525bf97fcce9ca8331cb8bcf31bd38e39",
     "data_plane": "314c1b4e33e47c02b2438aade82b0b92d09f21404e7dbff62b45463b2f51d70c",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "797c80df3cec108b4686510d6aa01c8141bc1629ededa6577498335cbf69e590",
-    "route_index": "c1a14e620fae4d7ebc4de67771c3d2c2d35bca7a4c2e6558edc6193894c4252c",
+    "route_index": "3aade9f87e36280d108639c8acd10bc62a15688cb162222f0747116b55ca3bac",
     "route_layout": "35e58ba1ad5192cf8a290456cc64b88202dc7b14f34808d1846225637125c658",
     "surface_map": "cd84aa1da9e427607fb017bd06e6629e33ab8e5f8d44dd67861f15121032ce2e",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
