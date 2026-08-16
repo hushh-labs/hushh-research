@@ -256,6 +256,24 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain('<div className="hidden sm:block">');
   });
 
+  it("lets the header action drop below the title rather than squeeze it", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+      "utf8",
+    );
+
+    // The action cannot wrap its own label and never shrinks, so whatever it
+    // needs it takes. With `min-w-0` the title column surrendered all of it:
+    // at 320px / 200% text the title had 60px to paint 180px of "Finish
+    // setting up One" and ran 96px straight through the action. The floor
+    // plus a wrapping row is what stops that -- and it has to be min-width,
+    // since `flex-1` is `flex: 1 1 0%` and overwrites a basis utility.
+    expect(source).toContain('<div className="flex flex-wrap items-start gap-3">');
+    expect(source).toContain('<div className="min-w-[8rem] flex-1">');
+    expect(source).not.toContain('<div className="min-w-0 flex-1">');
+    expect(source).not.toContain("basis-[8rem]");
+  });
+
   it("requires vault completion after master setup acknowledgement", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),

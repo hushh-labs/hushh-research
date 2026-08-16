@@ -27,6 +27,7 @@ import { downloadTextFile } from "@/lib/utils/native-download";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Switch } from "@/components/ui/switch";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { User } from "firebase/auth";
 
@@ -159,6 +160,29 @@ export function VaultFlow({
   const [pendingUnlockKey, setPendingUnlockKey] = useState<string | null>(null);
   const [recommendedQuickMethod, setRecommendedQuickMethod] =
     useState<VaultMethod | null>(null);
+  /**
+   * The quick-unlock method this device can offer a brand-new vault, probed
+   * while the passphrase is still being typed.
+   *
+   * Creating a vault used to be three screens -- passphrase, recovery key, then
+   * a whole screen asking "Enable quicker unlock?" -- and the third one asked a
+   * yes/no question the first screen had room for. Probing here is what lets
+   * the offer sit next to the passphrase fields: it is a capability check
+   * (`isUserVerifyingPlatformAuthenticatorAvailable` and its native
+   * equivalents), not an authentication, so it shows no prompt of its own.
+   */
+  const [createQuickUnlockMethod, setCreateQuickUnlockMethod] =
+    useState<VaultMethod | null>(null);
+  /**
+   * Whether the new vault should get quick unlock, chosen on the create screen.
+   *
+   * Starts on, because the screen it replaced made "Enable" the primary button
+   * and "Not now" the quiet one -- the recommendation moves with the control.
+   * Nothing is registered from this alone: the choice is applied on the next
+   * deliberate tap, and the operating system's own passkey prompt is still the
+   * gate. Passphrase and recovery-key unlock are both retained either way.
+   */
+  const [createWantsQuickUnlock, setCreateWantsQuickUnlock] = useState(true);
   // Decision about whether a usable platform authenticator exists for the web
   // passkey (PRF) path. It starts "unknown" and resolves asynchronously via
   // PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(). We use
@@ -195,6 +219,38 @@ export function VaultFlow({
   useEffect(() => {
     onStepChange?.(step);
   }, [step, onStepChange]);
+
+  // Probe once the create screen is up, so the offer is either there when the
+  // passphrase is submitted or not offered at all. A device with no platform
+  // authenticator never sees the row, which is the same outcome the separate
+  // screen reached by never appearing.
+  useEffect(() => {
+    if (step !== "create" || !enableGeneratedDefault) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const capability = await VaultMethodService.getCapabilityMatrix();
+        if (cancelled) return;
+        setCreateQuickUnlockMethod(
+          capability.recommendedMethod === "passphrase"
+            ? null
+            : capability.recommendedMethod,
+        );
+      } catch {
+        // Unavailable is the safe answer: the vault is still created with a
+        // passphrase, exactly as it is on a device that cannot do this.
+        if (!cancelled) setCreateQuickUnlockMethod(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enableGeneratedDefault, step]);
+
+  const isPasskeyQuickUnlock =
+    createQuickUnlockMethod === "generated_default_web_prf" ||
+    createQuickUnlockMethod === "generated_default_native_passkey_prf";
+  const createQuickUnlockLabel = isPasskeyQuickUnlock ? "passkey" : "Face ID or fingerprint";
 
   const recoveryKeyDisclosureActive =
     step === "recovery" && Boolean(recoveryKey);
@@ -745,20 +801,48 @@ export function VaultFlow({
         throw new Error("Auto-unlock returned empty vault key.");
       }
 
-      // Post-create optional method upsell: keep a single active KEK, but allow
-      // immediate switch to quick unlock before entering the app.
-      if (vaultMode === "passphrase" && enableGeneratedDefault) {
-        const capability = await VaultMethodService.getCapabilityMatrix();
-        if (capability.recommendedMethod !== "passphrase") {
-          const promptState = await VaultMethodPromptLocalService.load(user.uid);
-          const dismissedForRecommendedMethod =
-            promptState?.dismissed_for_method === capability.recommendedMethod &&
-            promptState?.dismissed_for_rp_id === currentRpId;
-          if (!dismissedForRecommendedMethod) {
-            setPendingUnlockKey(decryptedKey);
-            setRecommendedQuickMethod(capability.recommendedMethod);
-            setStep("method");
-            return;
+      // The answer was already given on the create screen, so this applies it
+      // rather than asking again on a third screen.
+      //
+      // Applied HERE, on this tap, and not inside the create submit: registering
+      // a passkey requires a recent user gesture, and creating the vault spends
+      // seconds on key derivation first -- long enough for browsers to consider
+      // the original tap stale and refuse the prompt. Continue is a fresh tap.
+      if (vaultMode === "passphrase" && enableGeneratedDefault && createQuickUnlockMethod) {
+        if (createWantsQuickUnlock) {
+          try {
+            const result = await VaultMethodService.switchMethod({
+              userId: user.uid,
+              currentVaultKey: decryptedKey,
+              displayName: user.displayName || user.email || "Hussh User",
+              targetMethod: createQuickUnlockMethod,
+            });
+            setVaultMode(result.method);
+            toast.success(
+              result.method === "generated_default_web_prf" ||
+                result.method === "generated_default_native_passkey_prf"
+                ? "Passkey unlock enabled."
+                : "Biometric unlock enabled."
+            );
+          } catch (quickUnlockError) {
+            // A refused or unavailable authenticator must not cost the vault
+            // that was just created. The passphrase wrapper is already written,
+            // so the only thing lost is the shortcut.
+            console.error("Quick unlock enable failed:", quickUnlockError);
+            toast.error("Couldn't turn that on. Your passphrase still works.");
+          }
+        } else {
+          try {
+            await VaultMethodPromptLocalService.dismiss(
+              user.uid,
+              createQuickUnlockMethod,
+              currentRpId
+            );
+          } catch (dismissError) {
+            console.warn(
+              "[VaultFlow] Failed to persist quick-unlock dismissal:",
+              dismissError
+            );
           }
         }
       }
@@ -1014,6 +1098,37 @@ export function VaultFlow({
               <p className="text-center type-footnote leading-snug text-muted-foreground">
                 At least 8 characters. Only you know it.
               </p>
+              {createQuickUnlockMethod ? (
+                // The whole of the screen this replaced. It asked one yes/no
+                // question after the vault already existed, so the answer cost
+                // a screen; asked here it costs a switch, and the vault is
+                // created once with the answer already known.
+                <label
+                  data-vault-quick-unlock-option
+                  htmlFor="vault-quick-unlock"
+                  className="flex items-center gap-3 rounded-2xl border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] px-4 py-3 text-left"
+                >
+                  <Icon
+                    icon={isPasskeyQuickUnlock ? Key : Fingerprint}
+                    size={18}
+                    className="shrink-0 text-[color:var(--app-accent-deep)]"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block type-subhead font-medium text-foreground">
+                      Also unlock with {createQuickUnlockLabel}
+                    </span>
+                    <span className="block type-footnote leading-snug text-muted-foreground">
+                      Your passphrase and recovery key still work.
+                    </span>
+                  </span>
+                  <Switch
+                    id="vault-quick-unlock"
+                    checked={createWantsQuickUnlock}
+                    onCheckedChange={setCreateWantsQuickUnlock}
+                    disabled={isUnlocking}
+                  />
+                </label>
+              ) : null}
               <Button
                 variant="none"
                 effect="fill"

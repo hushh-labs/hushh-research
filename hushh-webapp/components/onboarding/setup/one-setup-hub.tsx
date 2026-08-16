@@ -399,9 +399,20 @@ export function OneSetupHub() {
             was absolutely positioned over the header before, so the large
             display title ran underneath it and the two overlapped. A flex row
             with a min-w-0 title column and a shrink-0 button keeps real
-            horizontal separation; the title shrinks within its column. */}
-        <div className="flex items-start gap-3">
-          <div className="min-w-0 flex-1">
+            horizontal separation; the title shrinks within its column.
+
+            The row wraps, and the title column holds a floor before it does.
+            `min-w-0` let the title shrink to nothing while a shrink-0 action
+            whose label cannot wrap took what it needed first -- at 320px with
+            200% text that left the title 60px to paint 180px of "Finish
+            setting up One", which overflowed a visible box straight through
+            the action (measured: 96px of overlap, in every hub state). The
+            floor has to be min-width, not flex-basis: `flex-1` is
+            `flex: 1 1 0%`, so a basis utility next to it is simply overwritten
+            and the row never wraps. In rem, so it grows with the text setting
+            that causes the squeeze; above that threshold nothing moves. */}
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="min-w-[8rem] flex-1">
           <PageHeader
             title={
               showVaultInvitation

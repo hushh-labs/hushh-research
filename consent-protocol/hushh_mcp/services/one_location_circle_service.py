@@ -153,10 +153,12 @@ def _clean_user_id(value: str) -> str:
 
 def _clean_name(value: str) -> str:
     name = " ".join(str(value or "").split())
-    if len(name) < 2 or len(name) > 80:
+    # One character is a name. The old two-character floor rejected a circle
+    # called "A" from a Create button that gave no reason for staying dead.
+    if len(name) < 1 or len(name) > 80:
         raise OneLocationCircleError(
             "LOCATION_CIRCLE_NAME_INVALID",
-            "Circle name must be between 2 and 80 characters.",
+            "Circle name must be between 1 and 80 characters.",
             status_code=422,
         )
     return name

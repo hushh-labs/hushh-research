@@ -180,18 +180,18 @@ class ClaimCircleInviteRequest(_CamelModel):
 
 
 class CreateNamedCircleRequest(_CamelModel):
-    name: str = Field(min_length=2, max_length=80)
+    name: str = Field(min_length=1, max_length=80)
     kind: str = Field(default="other", pattern="^(family|friends|other)$")
 
 
 class BootstrapNamedCircleRequest(_CamelModel):
     # No circle id and no kind: onboarding may only ever create the caller their
     # own first Circle, so there is nothing for a caller to point this at.
-    name: str = Field(min_length=2, max_length=80)
+    name: str = Field(min_length=1, max_length=80)
 
 
 class UpdateNamedCircleRequest(_CamelModel):
-    name: str | None = Field(default=None, min_length=2, max_length=80)
+    name: str | None = Field(default=None, min_length=1, max_length=80)
     kind: str | None = Field(default=None, pattern="^(family|friends|other)$")
 
 

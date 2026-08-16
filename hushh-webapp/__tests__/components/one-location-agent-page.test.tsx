@@ -1145,6 +1145,84 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("keeps every counted Now-hub row neutral while its count is zero", async () => {
+    // State beats category. Colour on these three rows means "there is
+    // something here", never "this row exists" — an empty Location screen
+    // reporting 0, 0, 0 in three saturated tiles spends colour on nothing and
+    // leaves none for the rows that do carry state.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [],
+      requests: [],
+    });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    const toneOf = async (title: string) => {
+      const row = (await screen.findByText(title)).closest(
+        '[data-slot="settings-row"], button, a, div[role="button"]',
+      );
+      return row
+        ?.querySelector('[data-slot="settings-row-icon"]')
+        ?.getAttribute("data-icon-tone");
+    };
+
+    expect(await toneOf("Active shares")).toBe("gray");
+    expect(await toneOf("Shared with me")).toBe("gray");
+    expect(await toneOf("Needs my review")).toBe("gray");
+  });
+
+  it("colours each counted Now-hub row by its own state once it is non-zero", async () => {
+    // Green = sharing is live (same family as the header switch and Check-In),
+    // indigo = other people, orange = something is waiting on you. Each row
+    // reads its OWN count, so one being populated must not colour the others.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      receivedGrants: [
+        {
+          id: "grant_in",
+          ownerUserId: "user_b",
+          recipientUserId: "user_a",
+          ownerDisplayName: "Trusted B",
+          recipientKeyId: "key_a",
+          status: "active",
+          consentScope: "cap.location.live.view",
+          capabilityScopes: ["cap.location.live.view"],
+          durationHours: 1,
+          expiresAt: "2099-05-20T08:00:00.000Z",
+        },
+      ],
+      requests: [
+        {
+          id: "request_1",
+          ownerUserId: "user_a",
+          requesterUserId: "user_b",
+          status: "pending",
+          requestedAt: "2026-05-20T07:30:00.000Z",
+        },
+      ],
+    });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    const toneOf = async (title: string) => {
+      const row = (await screen.findByText(title)).closest(
+        '[data-slot="settings-row"], button, a, div[role="button"]',
+      );
+      return row
+        ?.querySelector('[data-slot="settings-row-icon"]')
+        ?.getAttribute("data-icon-tone");
+    };
+
+    // locationState() already carries one active ownerGrant.
+    expect(await toneOf("Active shares")).toBe("green");
+    expect(await toneOf("Shared with me")).toBe("indigo");
+    expect(await toneOf("Needs my review")).toBe("orange");
+  });
+
   it("keeps the heading and location toggle inline as the only header action", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),

@@ -111,6 +111,78 @@ describe("named Circle flows", () => {
     expect(onSubmit).toHaveBeenLastCalledWith("Meena Family", "family");
   });
 
+  it("blocks Create only while the name is empty, and says so visibly", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<CreateCircleFlow busy={false} onSubmit={onSubmit} />);
+
+    const create = screen.getByRole("button", { name: "Create circle" });
+    const input = screen.getByPlaceholderText("e.g. Meena Family");
+
+    // Nothing typed: the button is genuinely blocked, and it is painted as a
+    // neutral fill rather than a half-opacity accent that still reads as live.
+    expect(create).toBeDisabled();
+    expect(create.className).toContain("disabled:bg-black/10");
+    expect(create.className).toContain("disabled:opacity-100");
+
+    // Whitespace is not a name.
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(create).toBeDisabled();
+
+    // One character is.
+    fireEvent.change(input, { target: { value: "A" } });
+    expect(create).toBeEnabled();
+
+    fireEvent.click(create);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("A", "family"));
+  });
+
+  it("finds a connection from the first letter of any of their names", async () => {
+    const onLoad = vi.fn(async () => circle("circle-1", "Meena Family"));
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(onLoad)}
+        onLoadEligibleConnections={vi.fn(async () => ({
+          eligibleConnections: [
+            {
+              userId: "conn-1",
+              displayName: "Asha Meena",
+              connectionOrigin: "one" as const,
+            },
+            {
+              userId: "conn-2",
+              displayName: "Neel Shah",
+              connectionOrigin: "one" as const,
+            },
+          ],
+          pendingInvites: [],
+          remainingCapacity: 5,
+        }))}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Add people" }),
+    );
+    expect(await screen.findByText("Asha Meena")).toBeTruthy();
+
+    // "Asha Meena" and "Neel Shah" BOTH contain an "n", so a substring filter
+    // returned both and one-letter search looked broken. Only Neel's name
+    // BEGINS with one.
+    fireEvent.change(screen.getByLabelText("Search connections"), {
+      target: { value: "n" },
+    });
+    expect(screen.getByText("Neel Shah")).toBeTruthy();
+    expect(screen.queryByText("Asha Meena")).toBeNull();
+
+    // A later word counts as a beginning too.
+    fireEvent.change(screen.getByLabelText("Search connections"), {
+      target: { value: "m" },
+    });
+    expect(screen.getByText("Asha Meena")).toBeTruthy();
+    expect(screen.queryByText("Neel Shah")).toBeNull();
+  });
+
   it("previews before joining and discloses connection and location boundaries", async () => {
     const preview: OneLocationCircleInvitePreview = {
       name: "Meena Family",
@@ -828,9 +900,13 @@ describe("named Circle flows", () => {
     expect(screen.getByRole("button", { name: "Edit Circle name" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 
-    fireEvent.change(input, { target: { value: "M" } });
+    // Only an empty name blocks the write; one character is a name.
+    fireEvent.change(input, { target: { value: "   " } });
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-    expect(screen.getByText("Use at least 2 characters.")).toBeTruthy();
+    expect(screen.getByText("Enter a name.")).toBeTruthy();
+
+    fireEvent.change(input, { target: { value: "M" } });
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
 
     fireEvent.change(input, { target: { value: "  Meena Home  " } });
     const save = screen.getByRole("button", { name: "Save" });
