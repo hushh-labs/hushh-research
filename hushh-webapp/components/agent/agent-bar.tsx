@@ -1122,10 +1122,20 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           .then((confirmation) => {
             if (voiceLeaseRef.current?.id !== pending.leaseId) return;
             const authorized = { ...pending, receipt: confirmation.receipt };
-            if (
-              getKaiActionById(pending.actionId)?.activation_policy ===
-              "trusted_activation_required"
-            ) {
+            const confirmingAction = getKaiActionById(pending.actionId);
+            // trusted_activation_required forces a real tap for a platform
+            // reason (a popup needs a fresh physical gesture). require Tap
+            // Confirmation forces the same second tap for a person's own
+            // reason -- they turned off spoken "yes" for confirm_required
+            // actions in Voice settings. Same UI path either way: without
+            // this branch, a spoken yes would fully settle a directive the
+            // person specifically asked to never accept a spoken yes for.
+            const requiresRealTap =
+              confirmingAction?.activation_policy === "trusted_activation_required" ||
+              (confirmingAction?.execution_policy === "confirm_required" &&
+                runtime?.oneVoiceContextSnapshot.voice_settings.require_tap_confirmation ===
+                  true);
+            if (requiresRealTap) {
               // A popup must be opened during a fresh physical gesture. The
               // first tap only receives ledger authority; preserve the second
               // tap as the platform-required activation boundary.
