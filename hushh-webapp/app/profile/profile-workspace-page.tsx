@@ -70,6 +70,7 @@ import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-pre
 import { GeminiLogo } from "@/components/brand/gemini-logo";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
+import { VoiceChangelogPage } from "@/components/profile/voice-changelog-page";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
@@ -3918,13 +3919,28 @@ function ProfilePageContent() {
           />
         ),
       });
-    } else if (activeDetail === "voice") {
+    } else if (activeDetail === "voice" || activeDetail === "voice-changelog") {
       profileStackEntries.push({
         key: "detail:voice",
         title: "Voice",
         description: "One's voice controls.",
-        content: <VoicePreferencesPanel userId={user.uid} />,
+        content: (
+          <VoicePreferencesPanel
+            userId={user.uid}
+            onOpenChangelog={() =>
+              updateProfileView({ detail: "voice-changelog" }, "push")
+            }
+          />
+        ),
       });
+      if (activeDetail === "voice-changelog") {
+        profileStackEntries.push({
+          key: "detail:voice-changelog",
+          title: "What's new",
+          description: "Voice engine updates and fixes.",
+          content: <VoiceChangelogPage />,
+        });
+      }
     }
   } else if (!routeBlockedByVault && activePanel === "security") {
     profileStackEntries.push({
