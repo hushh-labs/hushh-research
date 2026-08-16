@@ -2674,13 +2674,20 @@ function ShareFlow({
                   : `${selectedReady.length} ${peopleNoun}`}
               </p>
             </div>
-            <Button
-              variant="ghost"
+            {/* Raw <button>, not the morphy Button: that component's
+                `size.default` carries `min-h-[50px]`, which lives in a
+                different tailwind-merge group from `h-*` and therefore
+                survives `h-9`. The control rendered 36px tall against a
+                50px min-height — under Apple's 44pt tap target on one axis
+                and over the row's own height on the other. */}
+            <button
+              type="button"
               onClick={backToPeople}
-              className="h-9 shrink-0 rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)] hover:text-[color:var(--app-accent)]"
+              aria-label="Change who can see you"
+              className="flex min-h-11 shrink-0 items-center rounded-full px-3 text-sm font-semibold text-[color:var(--app-accent)]"
             >
               Edit
-            </Button>
+            </button>
           </div>
           {selectedReady.length ? (
             /* A real <ul>, not a stack of divs: this is the read-back of who is
@@ -2716,19 +2723,18 @@ function ShareFlow({
 
         <SectionCard>
           <div className="space-y-5">
-            <div className="space-y-2.5">
-              <DurationSelector
-                value={vm.shareDurationHours}
-                onChange={vm.setShareDurationHours}
-                presentation="wheel"
-                untilStopValue="until_stopped"
-              />
-              {/* The absolute end time is the part people actually reason
-                  about; "4 hours" makes them do the arithmetic themselves. */}
-              <p className={MUTED_TEXT} aria-live="polite">
-                {shareEndsAtLabel(vm.shareDurationHours, nowMs)}
-              </p>
-            </div>
+            {/* The absolute end time is the part people actually reason
+                about; "4 hours" makes them do the arithmetic themselves. It
+                rides on the label's own line rather than a line of its own
+                under the control — together they read as one statement. */}
+            <DurationSelector
+              value={vm.shareDurationHours}
+              onChange={vm.setShareDurationHours}
+              label="How long"
+              hint={shareEndsAtLabel(vm.shareDurationHours, nowMs)}
+              presentation="ladder"
+              untilStopValue="until_stopped"
+            />
             {/* space-y-2.5 matches DurationSelector's own label→control gap
                 above. The two label/field pairs sit in the same card, so an
                 8px gap under one and 10px under the other reads as a
@@ -3021,42 +3027,41 @@ function LiveShareDurationEditor({
 }
 
 /**
- * "Sharing ends at 4:35 PM" — the read-back under a duration picker.
+/**
+ * "Ends 4:35 PM" — the read-back under a duration picker.
  *
  * A duration is a promise about a moment, and "4 hours" makes the reader do the
  * arithmetic. Stating the clock time is what lets someone notice that a share
  * they meant to end before a meeting actually runs past it. Over 12 hours the
  * weekday is included, because "8:00 AM" alone is ambiguous by then.
  *
- * Rounded to the nearest minute and hedged with "around": the share starts when
- * the button is pressed, not when the label rendered.
+ * It shares a line with the "How long" label now, so it is a fragment rather
+ * than a sentence: "Sharing ends at 4:35 PM." repeated the word already in the
+ * label and would not fit beside it at 320px.
+ *
+ * There is no "today" branch. `Number("today")` is NaN, so the picker resolves
+ * that token to 15 minutes and writes "0.25" back over it the moment it
+ * renders — the branch was unreachable, and the token is gone from every list.
  */
 function shareEndsAtLabel(durationHours: string, nowMs: number): string {
   if (durationHours === "until_stopped") {
-    return "Stays on until you stop it.";
-  }
-  if (durationHours === "today") {
-    const endOfDay = new Date(nowMs);
-    endOfDay.setHours(23, 59, 0, 0);
-    const time = endOfDay.toLocaleTimeString(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-    return `Sharing ends at ${time} today.`;
+    return "Until you stop";
   }
   const hours = Number(durationHours);
-  if (!Number.isFinite(hours) || hours <= 0)
-    return "Sharing ends when the time runs out.";
+  // Not defensive filler: a token that is neither a number nor the open-ended
+  // sentinel has no honest end time, and inventing one is worse than saying
+  // nothing. Add a branch here in the same commit as any new sentinel.
+  if (!Number.isFinite(hours) || hours <= 0) return "";
   const endsAt = new Date(nowMs + Math.round(hours * 60) * 60_000);
   const time = endsAt.toLocaleTimeString(undefined, {
     hour: "numeric",
     minute: "2-digit",
   });
   if (hours >= 12) {
-    const day = endsAt.toLocaleDateString(undefined, { weekday: "long" });
-    return `Sharing ends at ${time} on ${day}.`;
+    const day = endsAt.toLocaleDateString(undefined, { weekday: "short" });
+    return `Ends ${time} ${day}`;
   }
-  return `Sharing ends at ${time}.`;
+  return `Ends ${time}`;
 }
 
 /**
@@ -3323,6 +3328,15 @@ function AskFlow({
               onChange={vm.setDurationHours}
               label=""
               presentation="wheel"
+              /* No open-ended option on this lane. There is no such thing as
+                 asking to see someone else's location until THEY stop — the
+                 backend has no open-ended mode on a request — and this
+                 screen writes the same `durationHours` string the
+                 circle-invite and public-link lanes later run Number() over.
+                 Since the wheel's sentinel became the non-numeric
+                 "until_stopped", leaving the toggle here posts NaN to a
+                 `gt=0` field. */
+              allowUntilStop={false}
             />
           }
           stackTrailingOnMobile

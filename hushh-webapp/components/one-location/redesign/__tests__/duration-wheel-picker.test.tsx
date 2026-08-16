@@ -213,4 +213,57 @@ describe("DurationWheelPicker", () => {
       "2 hr",
     );
   });
+  it("drops the :00 row from Minutes entirely while Hours is 0", () => {
+    // Same rule as the sibling guard test above, enforced a different way:
+    // the row is not in the column, so there is nothing to snap back FROM.
+    // The bounce is what made minutes-first scrolling feel broken, and
+    // minutes-first is the natural order.
+    render(<DurationWheelPicker value="0.5" onChange={vi.fn()} />);
+
+    const minutesWheel = screen.getByRole("spinbutton", { name: "Minutes" });
+    expect(minutesWheel).toHaveAttribute("aria-valuemax", "2");
+    expect(within(minutesWheel).queryByText("0")).toBeNull();
+  });
+
+  it("drops every row but :00 from Minutes at the 24-hour ceiling", () => {
+    render(<DurationWheelPicker value="24" onChange={vi.fn()} />);
+
+    const minutesWheel = screen.getByRole("spinbutton", { name: "Minutes" });
+    expect(minutesWheel).toHaveAttribute("aria-valuemax", "0");
+    expect(within(minutesWheel).queryByText("45")).toBeNull();
+  });
+
+  it("renders a 120px viewport in 3-row mode and 200px by default", () => {
+    // The compact panel inside the preset ladder. 5 rows is 200px on a
+    // screen the founder already called too tall.
+    const { unmount } = render(
+      <DurationWheelPicker value="1" onChange={vi.fn()} visibleRows={3} />,
+    );
+    expect(
+      screen.getByRole("spinbutton", { name: "Hours" }).style.height,
+    ).toBe("120px");
+    unmount();
+
+    render(<DurationWheelPicker value="1" onChange={vi.fn()} />);
+    expect(
+      screen.getByRole("spinbutton", { name: "Hours" }).style.height,
+    ).toBe("200px");
+  });
+
+  it("removes the until-stop toggle entirely when the caller owns that option", () => {
+    // The preset ladder owns it. Two controls for one piece of state is what
+    // made the toggle read as an override sitting on top of the wheel.
+    const { container } = render(
+      <DurationWheelPicker value="1" onChange={vi.fn()} showUntilStop={false} />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Until I stop" })).toBeNull();
+    // `getByRole` skips hidden elements, so a toggle rendered with `hidden`
+    // would pass the query above while still occupying the DOM.
+    expect(container.textContent).not.toContain("Until I stop");
+    expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
+      "aria-disabled",
+      "false",
+    );
+  });
 });

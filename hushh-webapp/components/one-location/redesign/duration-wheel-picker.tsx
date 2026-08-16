@@ -1,74 +1,66 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MutableRefObject } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import type { EmblaCarouselType, EmblaOptionsType } from "embla-carousel";
 
 import { cn } from "@/lib/utils";
 
 // Not "24" -- once a literal 24 hours became reachable on the wheel (see
-// MAX_HOURS_INDEX below), the wheel could legitimately emit the string
-// "24" itself (24h + 0min), which would collide with this sentinel on a
-// fresh mount and get misread as "Until I stop" instead of a real 24-hour
+// MAX_HOURS below), the wheel could legitimately emit the string "24"
+// itself (24h + 0min), which would collide with this sentinel on a fresh
+// mount and get misread as "Until I stop" instead of a real 24-hour
 // selection. Confirmed unused anywhere else in the codebase, so changing
 // it is fully self-contained to this file.
 export const DURATION_WHEEL_UNTIL_STOP_VALUE = "until_stopped";
 
-const HOURS_VALUES = Array.from({ length: 25 }, (_, i) => i); // 0..24
-// 24 is only ever valid paired with 0 minutes: the backend caps duration at
-// `le=24` (consent-protocol/api/routes/one/location.py), and 24h + any
-// nonzero minute (e.g. 24h15m = 24.25h) would fail that check. 24h0m = 24.0
-// exactly satisfies it, so it's the real ceiling -- both ALL_GRID_MINUTES
-// below and DurationWheelPicker's own live guard enforce that minutes locks
-// to 0 once hours reaches this index, mirroring the 0h0m guard at the other
-// end (see MAX_HOURS_INDEX usages).
-const MAX_HOURS_INDEX = HOURS_VALUES.length - 1; // 24
-//
-// "00" is now on the grid -- exact hours (1h, 2h, ...) are representable --
-// but 0h0m never is: it's filtered out of ALL_GRID_MINUTES below, and
-// DurationWheelPicker separately guards against reaching it by direct
-// interaction (the two wheels scroll independently, so 0h + 00min is
-// otherwise reachable by scrolling either one). Same treatment applies at
-// the top end: MAX_HOURS_INDEX (24h) is only ever valid paired with 0.
+/** The backend caps a grant at 24 hours (`le=24`, consent-protocol/api/routes/one/location.py). */
+const MAX_HOURS = 24;
+const HOURS_VALUES = Array.from({ length: MAX_HOURS + 1 }, (_, i) => i); // 0..24
 const MINUTE_VALUES = [0, 15, 30, 45];
-const ALL_GRID_MINUTES = HOURS_VALUES.flatMap((h) => {
-  const validMinutesForHour =
-    h === 0
-      ? MINUTE_VALUES.filter((m) => m > 0)
-      : h === MAX_HOURS_INDEX
-        ? MINUTE_VALUES.filter((m) => m === 0)
-        : MINUTE_VALUES;
-  return validMinutesForHour.map((m) => h * 60 + m);
-}); // 15..1440 in 15-minute steps (plus every exact hour); 0h0m excluded, 24h capped at :00
 
-const ITEM_HEIGHT = 40;
-const VISIBLE_ROWS = 5;
-const VIEWPORT_HEIGHT = ITEM_HEIGHT * VISIBLE_ROWS;
-// Blank rows on each side, as real (empty) slides -- not container padding.
-// Embla measures every slide's own offsetTop/offsetHeight to place snap
-// points; mixing in out-of-band CSS padding on the container was fighting
-// that math (the highlight bar landing one row off from the item Embla had
-// actually settled on, and the reachable scroll range coming up short of
-// the last item). Uniform slides, all real, all the same height, is the
-// case Embla's own alignment math is built to get right.
-//
-// Also equal to the center row's own row-index within the viewport (row 2
-// of 5, 0-based) -- see the `align: "start"` note on WheelColumn's options
-// for why that equality is what makes `scrollTo(realIndex)` work with no
-// further offset.
-const PAD = Math.floor(VISIBLE_ROWS / 2); // 2
+/**
+ * Which minutes exist at a given hour. Both ends of the range are product
+ * rules, and both are now expressed by REMOVING the row rather than by
+ * letting someone land on it and yanking them off it:
+ *
+ *   0h  — 0h00m is not a duration, and 15 minutes is the floor for sharing.
+ *   24h — 24h15m (24.25) fails the backend's `le=24`; 24h0m is exactly 24.0
+ *         and is the real ceiling, so that hour has only :00.
+ *
+ * Both constraints arrived on main as live guards that let the wheel settle
+ * on the invalid row and then bounced it back — :00 at zero hours snapping
+ * to :15, and any nonzero minute at 24h snapping to :00. The rule is the
+ * same; showing it is what stops it feeling broken. The natural order is
+ * minutes-then-hours, and minutes-first is exactly the direction that
+ * bounced, which is why "1 hour" read as unreachable.
+ */
+function minuteItemsForHour(hour: number): number[] {
+  if (hour <= 0) return [15, 30, 45];
+  if (hour >= MAX_HOURS) return [0];
+  return MINUTE_VALUES;
+}
+
+const ALL_GRID_MINUTES = HOURS_VALUES.flatMap((h) =>
+  minuteItemsForHour(h).map((m) => h * 60 + m),
+); // 15..1440 in 15-minute steps, minus the two impossible ends
+
+/** Exported so a layout fixture can derive the wheel's height instead of
+ *  hand-copying it and silently drifting when this changes. */
+export const DURATION_WHEEL_ITEM_HEIGHT_PX = 40;
+const ITEM_HEIGHT = DURATION_WHEEL_ITEM_HEIGHT_PX;
+const DEFAULT_VISIBLE_ROWS = 5;
 
 function nearestGridMinutes(totalMinutes: number): number {
-  // `<=`, not `<`: on an exact tie (e.g. "1" hour sits exactly between 0h45m
-  // and 1h15m once :00 is off the grid) this rounds up to the later, larger
+  // `<=`, not `<`: on an exact tie this rounds up to the later, larger
   // candidate rather than silently shrinking a caller's requested duration.
   return ALL_GRID_MINUTES.reduce((best, candidate) =>
     Math.abs(candidate - totalMinutes) <= Math.abs(best - totalMinutes) ? candidate : best,
   );
 }
 
-function formatDurationHours(hoursIndex: number, minutesIndex: number): string {
-  const totalMinutes = hoursIndex * 60 + (MINUTE_VALUES[minutesIndex] ?? 15);
+function formatDurationHours(hoursIndex: number, minutesValue: number): string {
+  const totalMinutes = hoursIndex * 60 + minutesValue;
   return String(Math.round((totalMinutes / 60) * 100) / 100);
 }
 
@@ -105,20 +97,22 @@ export function snapToWheelDurationHours(hours: number): string {
 function parseDurationValue(
   value: string,
   untilStopValue: string,
-): { untilStop: boolean; hoursIndex: number; minutesIndex: number } {
+): { untilStop: boolean; hoursIndex: number; minutesValue: number } {
   if (value === untilStopValue) {
-    return { untilStop: true, hoursIndex: 1, minutesIndex: 0 };
+    return { untilStop: true, hoursIndex: 1, minutesValue: 0 };
   }
   const num = Number(value);
   const totalMinutes = Number.isFinite(num) ? Math.round(num * 60) : 15;
   const nearest = nearestGridMinutes(totalMinutes);
-  const hoursIndex = Math.floor(nearest / 60);
-  const minutesIndex = Math.max(0, MINUTE_VALUES.indexOf(nearest % 60));
-  return { untilStop: false, hoursIndex, minutesIndex };
+  return {
+    untilStop: false,
+    hoursIndex: Math.floor(nearest / 60),
+    minutesValue: nearest % 60,
+  };
 }
 
 /**
- * One scroll wheel of real values, framed by `PAD` blank spacer slides on
+ * One scroll wheel of real values, framed by `pad` blank spacer slides on
  * each side so the first/last real value can still center in the viewport.
  * Thanks to `align: "start"` (see the options below), Embla's own index
  * space (startIndex, scrollTo, selectedScrollSnap) already lines up with
@@ -135,6 +129,7 @@ function WheelColumn({
   ariaLabel,
   unitSuffix,
   resyncToken,
+  visibleRows,
 }: {
   items: number[];
   formatLabel: (value: number) => string;
@@ -147,7 +142,24 @@ function WheelColumn({
   /** Bumped by the parent on an EXTERNAL value change (e.g. cancel-edit
    * resetting the field) to force this wheel to jump to `selectedIndex`. */
   resyncToken: number;
+  visibleRows: number;
 }) {
+  // Blank rows on each side, as real (empty) slides -- not container padding.
+  // Embla measures every slide's own offsetTop/offsetHeight to place snap
+  // points; mixing in out-of-band CSS padding on the container was fighting
+  // that math (the highlight bar landing one row off from the item Embla had
+  // actually settled on, and the reachable scroll range coming up short of
+  // the last item). Uniform slides, all real, all the same height, is the
+  // case Embla's own alignment math is built to get right.
+  //
+  // Also equal to the center row's own row-index within the viewport -- see
+  // the `align: "start"` note below for why that equality is what makes
+  // `scrollTo(realIndex)` work with no further offset. It holds for any ODD
+  // `visibleRows` (5 standalone, 3 inside the compact panel); an even value
+  // would silently break the highlight alignment, so keep them odd.
+  const pad = Math.floor(visibleRows / 2);
+  const viewportHeight = ITEM_HEIGHT * visibleRows;
+
   // Seeded ONCE from the initial index and never touched again, and
   // `disabled` is deliberately NOT wired into any Embla option. Either one
   // changing the options object would make embla-carousel-react reInit the
@@ -158,26 +170,23 @@ function WheelColumn({
   // ancestor's `pointer-events-none` while disabled, wheel-scroll
   // unsubscribes itself, and keyboard checks `disabled` directly -- so Embla
   // never needs to know, these options stay frozen for the component's
-  // whole life, and Embla reInits exactly once, at mount, and never again.
+  // whole life, and Embla reInits only where this file asks it to.
   // `align: "start"`, not `"center"`: with `containScroll: false` (see
   // below), Embla's own `"center"` alignment measures against the SLIDE
-  // CONTAINER's full size (here, all N+2*PAD slides stacked -- 600px for
-  // the Hours column) rather than the visible viewport (200px), so it
-  // centers each slide 200px (one whole viewport) off from where it's
-  // actually rendered -- the highlighted row and the physically centered
-  // row pointing at two different numbers, on first mount and after every
-  // scroll, with no way to correct it from the outside (its own `reInit()`
-  // recomputes the exact same wrong number, since it's a measurement
-  // convention, not stale data). `"start"` sidesteps that: it flushes the
-  // REQUESTED slide's top edge to the viewport's top edge, no
+  // CONTAINER's full size (here, all N+2*pad slides stacked) rather than the
+  // visible viewport, so it centers each slide one whole viewport off from
+  // where it's actually rendered -- the highlighted row and the physically
+  // centered row pointing at two different numbers, on first mount and after
+  // every scroll, with no way to correct it from the outside (its own
+  // `reInit()` recomputes the exact same wrong number, since it's a
+  // measurement convention, not stale data). `"start"` sidesteps that: it
+  // flushes the REQUESTED slide's top edge to the viewport's top edge, no
   // container-size measurement involved at all. Requesting `realIndex`
-  // directly (not `realIndex + PAD`) still lands the right slide in the
-  // CENTER row, not the top one: `PAD` leading spacer slides already sit
-  // above every real item, and `PAD` (by construction, `floor(VISIBLE_ROWS
-  // / 2)`) is also exactly the center row's own row-index in the viewport
-  // -- flushing slide `realIndex` to the top pushes the `PAD` slides after
-  // it (the real item PAD slides later, i.e. index `realIndex + PAD`) down
-  // into exactly the center row.
+  // directly (not `realIndex + pad`) still lands the right slide in the
+  // CENTER row, not the top one: `pad` leading spacer slides already sit
+  // above every real item, and `pad` is also exactly the center row's own
+  // row-index in the viewport -- flushing slide `realIndex` to the top
+  // pushes the real item `pad` slides later down into exactly the center row.
   const [startIndex] = useState(selectedIndex);
   const options: EmblaOptionsType = {
     axis: "y",
@@ -211,15 +220,24 @@ function WheelColumn({
   // change after mount, well after Embla already settled somewhere else),
   // and doing this via a ref from the PARENT raced Embla's own async init
   // -- if the ref hadn't been populated yet the call silently no-op'd.
-  // Depending on `emblaApi` itself (not a ref) here guarantees this reruns
-  // the instant Embla actually becomes ready, no matter how the timing
-  // landed.
   useEffect(() => {
     if (!emblaApi) return;
     emblaApi.scrollTo(selectedIndexRef.current, true);
     // resyncToken drives re-runs after mount; selectedIndexRef is read
     // fresh, not depended on, so this doesn't refire on every settle.
   }, [emblaApi, resyncToken]);
+
+  // The Minutes column's row COUNT changes as Hours crosses 0 and 24 (see
+  // minuteItemsForHour). Embla measures its slides once and caches them, so
+  // without an explicit reInit the snap points -- and therefore the
+  // highlight bar -- stay pinned to the old row count. Kept separate from
+  // the resync effect above on purpose: a full remeasure on every external
+  // value change would be a remeasure mid-flight.
+  useEffect(() => {
+    if (!emblaApi) return;
+    emblaApi.reInit();
+    emblaApi.scrollTo(selectedIndexRef.current, true);
+  }, [emblaApi, items.length]);
 
   // `select` fires the INSTANT Embla commits to a new target index --
   // synchronously, the moment a drag release (or a programmatic `scrollTo`)
@@ -232,15 +250,26 @@ function WheelColumn({
   // syncing on `select` too means state is never behind the visible wheel.
   useEffect(() => {
     if (!emblaApi) return;
-    const sync = () => {
+    // `containScroll: false` plus spacer slides on both ends means Embla has
+    // more snap points than there are real values, so a hard flick can
+    // settle on one whose centred row is blank. Clamping the reported index
+    // alone (what this did before) left the wheel physically showing an
+    // empty row while state claimed the last real value. Correct on
+    // `settle` only -- doing it on `select` would fight an in-flight
+    // animation the person is still driving.
+    const syncOn = (correctPosition: boolean) => () => {
       const real = emblaApi.selectedScrollSnap();
-      onSettledIndex(Math.min(items.length - 1, Math.max(0, real)));
+      const clamped = Math.min(items.length - 1, Math.max(0, real));
+      if (correctPosition && clamped !== real) emblaApi.scrollTo(clamped);
+      onSettledIndex(clamped);
     };
-    emblaApi.on("select", sync);
-    emblaApi.on("settle", sync);
+    const onSelect = syncOn(false);
+    const onSettle = syncOn(true);
+    emblaApi.on("select", onSelect);
+    emblaApi.on("settle", onSettle);
     return () => {
-      emblaApi.off("select", sync);
-      emblaApi.off("settle", sync);
+      emblaApi.off("select", onSelect);
+      emblaApi.off("settle", onSettle);
     };
   }, [emblaApi, onSettledIndex, items.length]);
 
@@ -257,11 +286,6 @@ function WheelColumn({
   // straight into however many whole steps it covers (keeping the leftover
   // remainder for the next event, never resetting to zero) means no motion
   // is lost and a fast swipe can jump several rows in one batch.
-  //
-  // Tracks its OWN pending target locally instead of re-reading
-  // `emblaApi.selectedScrollSnap()` between events -- within one continuous
-  // gesture that's several events queued back-to-back, and reading Embla's
-  // index back out between them adds a round trip this doesn't need.
   useEffect(() => {
     if (!emblaApi || disabled) return;
     const node = emblaApi.rootNode();
@@ -324,7 +348,7 @@ function WheelColumn({
         // items-center` row wrapper (its unit label beside it), and without
         // an explicit height here it would take its content's natural
         // height instead of the fixed viewport.
-        height: VIEWPORT_HEIGHT,
+        height: viewportHeight,
         WebkitMaskImage:
           "linear-gradient(to bottom, transparent 0, black 30%, black 70%, transparent 100%)",
         maskImage:
@@ -332,8 +356,8 @@ function WheelColumn({
       }}
     >
       <div className="flex flex-col">
-        {Array.from({ length: items.length + PAD * 2 }, (_, paddedIndex) => {
-          const realIndex = paddedIndex - PAD;
+        {Array.from({ length: items.length + pad * 2 }, (_, paddedIndex) => {
+          const realIndex = paddedIndex - pad;
           const value = items[realIndex];
           // Apple-style focus, computed from distance to the settled
           // selection (React state) rather than a per-scroll-frame
@@ -347,9 +371,7 @@ function WheelColumn({
           // Blur is reserved for the immediate neighbor rows only (distance
           // 1) -- the selected row stays fully sharp and bold, rows two or
           // more away fade out via opacity (and the mask gradient above)
-          // instead of blurring, so the wheel doesn't read as a uniform,
-          // undifferentiated blur -- only the row right before/after the
-          // selection is softened.
+          // instead of blurring.
           const distance = Math.abs(realIndex - selectedIndex);
           const isSelected = distance === 0;
           const opacity = isSelected ? 1 : distance === 1 ? 0.55 : 0.28;
@@ -385,7 +407,7 @@ function WheelColumn({
 
 /**
  * Apple-style two-column duration wheel (hours 0-24, minutes 00/15/30/45)
- * plus an "Until I stop" toggle. Keeps the same `value`/`onChange`
+ * plus an optional "Until I stop" toggle. Keeps the same `value`/`onChange`
  * decimal-hours string contract as the DurationSelector it replaces, so
  * callers need no other changes.
  */
@@ -393,10 +415,24 @@ export function DurationWheelPicker({
   value,
   onChange,
   untilStopValue = DURATION_WHEEL_UNTIL_STOP_VALUE,
+  showUntilStop = true,
+  visibleRows = DEFAULT_VISIBLE_ROWS,
 }: {
   value: string;
   onChange: (next: string) => void;
   untilStopValue?: string;
+  /**
+   * False when the CALLER owns the open-ended option itself — the preset
+   * ladder does. Two controls for one piece of state is what made the
+   * toggle read as an override sitting on top of the wheel rather than as
+   * one of the durations the wheel can hold.
+   */
+  showUntilStop?: boolean;
+  /**
+   * 5 standalone, 3 inside the ladder's on-demand Custom panel. Keep it
+   * odd — see the `pad` note in WheelColumn.
+   */
+  visibleRows?: number;
 }) {
   const initial = useMemo(
     () => parseDurationValue(value, untilStopValue),
@@ -406,47 +442,53 @@ export function DurationWheelPicker({
     [],
   );
   const [hoursIndex, setHoursIndex] = useState(initial.hoursIndex);
-  const [minutesIndex, setMinutesIndex] = useState(initial.minutesIndex);
+  // The minute VALUE, not its index: the Minutes column's contents change
+  // with the hour, so an index means different things at different hours.
+  const [minutesValue, setMinutesValue] = useState(initial.minutesValue);
   const [untilStop, setUntilStop] = useState(initial.untilStop);
-  // Bumped only when `value` changes from OUTSIDE this component (each
-  // wheel already force-corrects to its own index once on mount regardless
-  // of this value -- see the resync effect in WheelColumn).
-  const [resyncToken, setResyncToken] = useState(0);
+  // One token per column. A single shared token meant a minutes-only
+  // correction also fired `scrollTo(hoursIndex, true)` — a hard teleport —
+  // on the untouched Hours wheel.
+  const [hoursResync, setHoursResync] = useState(0);
+  const [minutesResync, setMinutesResync] = useState(0);
   const lastEmittedRef = useRef(value);
   const hoursApiRef = useRef<EmblaCarouselType | null>(null);
   const minutesApiRef = useRef<EmblaCarouselType | null>(null);
 
-  // The two wheels scroll independently, so both ends of the range are
-  // reachable by direct interaction even though they aren't real durations:
-  // 0h + 00min (scrolling Hours to 0 while Minutes sits on 00, or the
-  // reverse), and MAX_HOURS_INDEX (24h) + any nonzero minute (24h15m would
-  // exceed the backend's 24h cap). `minutesIndex` itself is corrected below
-  // (with a resync so the wheel visually catches up), but
-  // `effectiveMinutesIndex` is what's actually emitted and rendered as
-  // selected -- computed fresh every render, so neither invalid combination
-  // is ever emitted, even for the one render before the correction effect
-  // runs.
-  const effectiveMinutesIndex =
-    hoursIndex === 0 && MINUTE_VALUES[minutesIndex] === 0
-      ? MINUTE_VALUES.indexOf(15)
-      : hoursIndex === MAX_HOURS_INDEX && MINUTE_VALUES[minutesIndex] !== 0
-        ? MINUTE_VALUES.indexOf(0)
-        : minutesIndex;
+  const minuteItems = minuteItemsForHour(hoursIndex);
+  // Computed fresh every render, so an invalid pairing is never emitted even
+  // for the single render before the correction effect below runs.
+  //
+  // This replaces the pair of live guards that used to bounce the wheel off
+  // 0h00m and off 24h + any nonzero minute: the invalid rows are simply not
+  // in the column, so there is nothing to bounce off.
+  const minutesIndex = Math.max(0, minuteItems.indexOf(minutesValue));
+  const effectiveMinutesValue = minuteItems[minutesIndex] ?? 15;
 
+  // Hours moved to an hour where the current minute row no longer exists
+  // (1 -> 0 while Minutes sat on :00, or 23 -> 24 while it sat on :45).
+  // Land on the nearest row that does exist and resync only that column.
   useEffect(() => {
-    if (effectiveMinutesIndex === minutesIndex) return;
-    setMinutesIndex(effectiveMinutesIndex);
-    setResyncToken((token) => token + 1);
-  }, [effectiveMinutesIndex, minutesIndex]);
+    if (effectiveMinutesValue === minutesValue) return;
+    setMinutesValue(effectiveMinutesValue);
+    setMinutesResync((token) => token + 1);
+  }, [effectiveMinutesValue, minutesValue]);
+
+  const onMinutesSettled = useCallback(
+    (index: number) => {
+      setMinutesValue(minuteItemsForHour(hoursIndex)[index] ?? 15);
+    },
+    [hoursIndex],
+  );
 
   useEffect(() => {
     const next = untilStop
       ? untilStopValue
-      : formatDurationHours(hoursIndex, effectiveMinutesIndex);
+      : formatDurationHours(hoursIndex, effectiveMinutesValue);
     if (next === lastEmittedRef.current) return;
     lastEmittedRef.current = next;
     onChange(next);
-  }, [untilStop, hoursIndex, effectiveMinutesIndex, untilStopValue, onChange]);
+  }, [untilStop, hoursIndex, effectiveMinutesValue, untilStopValue, onChange]);
 
   useEffect(() => {
     if (value === lastEmittedRef.current) return;
@@ -454,18 +496,21 @@ export function DurationWheelPicker({
     const parsed = parseDurationValue(value, untilStopValue);
     setUntilStop(parsed.untilStop);
     setHoursIndex(parsed.hoursIndex);
-    setMinutesIndex(parsed.minutesIndex);
-    setResyncToken((token) => token + 1);
+    setMinutesValue(parsed.minutesValue);
+    setHoursResync((token) => token + 1);
+    setMinutesResync((token) => token + 1);
   }, [value, untilStopValue]);
 
+  const viewportHeight = ITEM_HEIGHT * visibleRows;
+
   return (
-    <div className="mx-auto max-w-[260px] space-y-3">
+    <div className={cn("mx-auto max-w-[260px]", showUntilStop && "space-y-3")}>
       <div
         className={cn(
           "relative mx-auto flex items-center justify-center gap-6",
           untilStop && "pointer-events-none opacity-40",
         )}
-        style={{ height: VIEWPORT_HEIGHT }}
+        style={{ height: viewportHeight }}
       >
         <div
           aria-hidden
@@ -473,15 +518,9 @@ export function DurationWheelPicker({
           style={{ height: ITEM_HEIGHT }}
         />
         {/* Unit label sits INLINE, to the right of its column, not in a
-            header row above the wheel -- matches iOS's own Timer picker,
-            and gives the extra width this wheel gained (widened to close
-            up the empty gutters either side of it on a real device)
-            somewhere useful to go instead of just a bigger empty box.
+            header row above the wheel -- matches iOS's own Timer picker.
             Static/non-scrolling, and deliberately muted rather than styled
-            as part of the highlighted selection -- iOS keeps its unit
-            labels neutral too, even though the highlight bar (absolutely
-            positioned edge-to-edge on the row below) technically extends
-            behind them. */}
+            as part of the highlighted selection. */}
         <div className="flex items-center gap-2">
           <WheelColumn
             items={HOURS_VALUES}
@@ -492,7 +531,8 @@ export function DurationWheelPicker({
             disabled={untilStop}
             ariaLabel="Hours"
             unitSuffix="hr"
-            resyncToken={resyncToken}
+            resyncToken={hoursResync}
+            visibleRows={visibleRows}
           />
           <span className="text-sm font-medium text-muted-foreground">
             hours
@@ -500,21 +540,22 @@ export function DurationWheelPicker({
         </div>
         <div className="flex items-center gap-2">
           <WheelColumn
-            items={MINUTE_VALUES}
+            items={minuteItems}
             formatLabel={(m) => String(m)}
-            selectedIndex={effectiveMinutesIndex}
-            onSettledIndex={setMinutesIndex}
+            selectedIndex={minutesIndex}
+            onSettledIndex={onMinutesSettled}
             apiRef={minutesApiRef}
             disabled={untilStop}
             ariaLabel="Minutes"
             unitSuffix="min"
-            resyncToken={resyncToken}
+            resyncToken={minutesResync}
+            visibleRows={visibleRows}
           />
           <span className="text-sm font-medium text-muted-foreground">
             min
           </span>
         </div>
-        {untilStop ? (
+        {showUntilStop && untilStop ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span className="rounded-full bg-background/90 px-3 py-1 text-sm font-semibold text-foreground shadow-sm">
               Until you stop
@@ -523,24 +564,26 @@ export function DurationWheelPicker({
         ) : null}
       </div>
 
-      <button
-        type="button"
-        aria-pressed={untilStop}
-        onClick={() => setUntilStop((prev) => !prev)}
-        className={cn(
-          "h-9 rounded-full border px-4 text-sm font-medium transition-colors touch-manipulation",
-          untilStop
-            ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-            : "border-border/70 bg-background text-foreground hover:border-[color:var(--app-accent-ring)]",
-        )}
-      >
-        Until I stop
-      </button>
+      {showUntilStop ? (
+        <button
+          type="button"
+          aria-pressed={untilStop}
+          onClick={() => setUntilStop((prev) => !prev)}
+          className={cn(
+            "min-h-11 rounded-full border px-4 text-sm font-medium transition-colors touch-manipulation",
+            untilStop
+              ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+              : "border-border/70 bg-background text-foreground hover:border-[color:var(--app-accent-ring)]",
+          )}
+        >
+          Until I stop
+        </button>
+      ) : null}
 
       <p className="sr-only" aria-live="polite">
         {untilStop
           ? "Duration: until you stop"
-          : `Duration: ${hoursIndex} hours ${MINUTE_VALUES[effectiveMinutesIndex]} minutes`}
+          : `Duration: ${hoursIndex} hours ${effectiveMinutesValue} minutes`}
       </p>
     </div>
   );
