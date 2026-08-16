@@ -58,6 +58,12 @@ import {
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
 import { isOneLocationNearbyCheckInAvailable } from "@/lib/one-location/nearby-check-in-availability";
+import {
+  MAP_HEADER_ACTIONS_CELL_CLASSNAME,
+  MAP_HEADER_CLASSNAME,
+  MAP_HEADER_CLOSE_CELL_CLASSNAME,
+  MAP_HEADER_STATUS_CELL_CLASSNAME,
+} from "@/lib/one-location/map-header-layout";
 import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import {
   LOCATION_COPY,
@@ -2065,9 +2071,9 @@ export function LocationImmersiveMap({
         // widths and drops Sharing onto its own full-width row beneath them.
         // Nothing truncates, and the Sharing popover gains the room it needs to
         // open without being clipped by the screen edge.
-        className="pointer-events-none absolute inset-x-0 top-0 z-30 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:grid-cols-[1fr_auto_1fr]"
+        className={MAP_HEADER_CLASSNAME}
       >
-        <div className="col-start-1 row-start-1 flex min-w-0 items-center">
+        <div className={MAP_HEADER_CLOSE_CELL_CLASSNAME}>
           <ShellActionSurface
             className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
             aria-label="Back to Location"
@@ -2083,7 +2089,7 @@ export function LocationImmersiveMap({
             <X className="h-5 w-5 stroke-[2.25]" />
           </ShellActionSurface>
         </div>
-        <div className="col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center sm:col-span-1 sm:col-start-2 sm:row-start-1">
+        <div className={MAP_HEADER_STATUS_CELL_CLASSNAME}>
           {!demoMode && (activeShareCount ?? 0) > 0 ? (
             <Popover
               open={sharingPopoverOpen}
@@ -2180,7 +2186,7 @@ export function LocationImmersiveMap({
           ) : null}
         </div>
         {rendererReady ? (
-          <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-3 sm:col-start-3">
+          <div className={MAP_HEADER_ACTIONS_CELL_CLASSNAME}>
             {rendererReady && nearbyCheckInAvailable && !demoMode ? (
               <ShellActionSurface
                 variant="pill"
