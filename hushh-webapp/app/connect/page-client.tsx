@@ -41,7 +41,6 @@ import { Button } from "@/lib/morphy-ux/button";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import {
   ConnectionsService,
-  type ConnectionInformationScopeCatalog,
   type ConnectionRelationship,
   type ConnectionScopeCatalog,
   type ConnectionSummaryEntry,
@@ -309,11 +308,6 @@ export default function ConnectPageClient() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
-  const [informationScopeDraft, setInformationScopeDraft] = useState<{
-    connection: ConnectionSummaryEntry;
-    catalog: ConnectionInformationScopeCatalog;
-  } | null>(null);
-  const [informationScopeQuery, setInformationScopeQuery] = useState("");
   const [scopeDraft, setScopeDraft] = useState<{
     person: DirectoryPerson;
     catalog: ConnectionScopeCatalog;
@@ -633,31 +627,11 @@ export default function ConnectPageClient() {
     [user],
   );
 
-  const viewInformationScopes = useCallback(
-    async (connection: ConnectionSummaryEntry) => {
-      if (!user) return;
-      try {
-        setBusyId(connection.connectionId);
-        const idToken = await user.getIdToken();
-        const catalog = await ConnectionsService.searchInformationScopes({
-          idToken,
-          counterpartUserId: connection.userId,
-          limit: 50,
-        });
-        setInformationScopeQuery("");
-        setInformationScopeDraft({ connection, catalog });
-      } catch (scopeError) {
-        toast.error(
-          scopeError instanceof Error
-            ? scopeError.message
-            : "Could not load available scopes",
-        );
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [user],
-  );
+  // The per-connection "Scopes" viewer is deliberately absent. It opened a
+  // read-only dialog of raw scope handles with every row disabled — no action,
+  // no explanation, and mostly the internal handle string itself. Connect
+  // currently carries a single real capability, so the list told people
+  // nothing they could act on. Bring it back with the surface it describes.
 
   /**
    * The (person, capability) pairs a bulk request can ask for.
@@ -692,13 +666,6 @@ export default function ConnectPageClient() {
     }
     return [...byHandle.values()];
   }, [batchConnectDraft]);
-
-  const visibleInformationScopes = informationScopeDraft?.catalog.items.filter(
-    (item) => {
-      const query = informationScopeQuery.trim().toLowerCase();
-      return !query || `${item.label ?? ""} ${item.scope}`.toLowerCase().includes(query);
-    },
-  );
 
   /**
    * Open the review sheet for a bulk request, and load what each person can be
@@ -1479,17 +1446,6 @@ export default function ConnectPageClient() {
                     density="compact"
                     trailing={
                       <span className="flex shrink-0 items-center justify-end gap-1.5 whitespace-nowrap">
-                        <Button
-                          type="button"
-                          variant="none"
-                          effect="fade"
-                          size="sm"
-                          className={CONNECT_INLINE_BUTTON_CLASSNAME}
-                          disabled={busyId === connection.connectionId}
-                          onClick={() => void viewInformationScopes(connection)}
-                        >
-                          {busyId === connection.connectionId ? "Loading…" : "Scopes"}
-                        </Button>
                         {pendingRemoveId === connection.connectionId ? (
                           <>
                             <Button
@@ -2255,62 +2211,6 @@ export default function ConnectPageClient() {
       </Dialog>
 
 
-      <Dialog
-        open={informationScopeDraft !== null}
-        onOpenChange={(open) => {
-          if (!open) setInformationScopeDraft(null);
-        }}
-      >
-        <DialogContent className="gap-5">
-          <DialogHeader className="text-left">
-            <DialogTitle>Available details</DialogTitle>
-            <DialogDescription>
-              They choose what appears here.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            type="search"
-            value={informationScopeQuery}
-            onChange={(event) => setInformationScopeQuery(event.target.value)}
-            placeholder="Search details"
-            aria-label="Search details"
-          />
-          <div className="max-h-[45vh] overflow-y-auto">
-            {visibleInformationScopes && visibleInformationScopes.length > 0 ? (
-              <SettingsGroup title="Available" separatorInset>
-                {visibleInformationScopes.map((item) => (
-                  <SettingsRow
-                    key={item.scope}
-                    title={item.label || item.scope}
-                    description={item.scope}
-                    density="compact"
-                    disabled
-                  />
-                ))}
-              </SettingsGroup>
-            ) : (
-              <SettingsGroup title="No matches" separatorInset>
-                <SettingsRow
-                  title="Nothing found"
-                  description="Private details stay hidden."
-                  density="compact"
-                  disabled
-                />
-              </SettingsGroup>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="none"
-              effect="fade"
-              onClick={() => setInformationScopeDraft(null)}
-            >
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       {showLimitBanner && (
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[9999] w-[92%] max-w-md rounded-2xl bg-popover/95 backdrop-blur-md p-3.5 shadow-xl border border-border/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-200">
           <span className="text-xs font-medium text-foreground">

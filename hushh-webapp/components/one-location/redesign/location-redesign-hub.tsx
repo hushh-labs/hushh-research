@@ -2266,8 +2266,13 @@ function LinksHub({
     <div className="space-y-4">
       <div className="px-[6px]">
         <SectionTitle as="h2">Active links</SectionTitle>
+        {/* This section lists two different things — a live location link and
+            a Circle invite link — and the invite shares no location at all.
+            Copy that described only the first was wrong for half the list,
+            and neither told a new user what a "link" is here. */}
         <RowDescription as="p" className="mt-1">
-          Share your live location outside your Circle.
+          Links you can send to anyone — to show where you are, or to invite
+          them to a Circle.
         </RowDescription>
       </div>
 
@@ -2312,7 +2317,8 @@ function LinksHub({
       <div className="flex items-start gap-2 px-1">
         <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <p className={MUTED_TEXT}>
-          Links expire after the time you choose.
+          You choose how long — up to 1 hour for a location link, 24 hours for
+          an invite.
         </p>
       </div>
     </div>
@@ -2548,7 +2554,11 @@ function ShareFlow({
                 {shareEndsAtLabel(vm.shareDurationHours, nowMs)}
               </p>
             </div>
-            <div className="space-y-2">
+            {/* space-y-2.5 matches DurationSelector's own label→control gap
+                above. The two label/field pairs sit in the same card, so an
+                8px gap under one and 10px under the other reads as a
+                mistake. */}
+            <div className="space-y-2.5">
               <label
                 htmlFor="one-location-share-note"
                 className="text-sm font-semibold text-foreground"
@@ -3172,10 +3182,15 @@ function InviteFlow({
           value={vm.durationHours}
           onChange={vm.setDurationHours}
           label=""
+          // 24 hours is the ceiling, not a preference. The API rejects
+          // anything above it (`duration_hours … le=24` on
+          // CreateCircleInviteRequest) and `normalize_duration_hours` raises
+          // "between 15 minutes and 24 hours", so the "7 days" option that
+          // used to sit here could only ever return HTTP 422 — an invite the
+          // owner watched fail with no idea why.
           options={[
             { value: "1", label: "1 hour" },
             { value: "24", label: "24 hours" },
-            { value: "168", label: "7 days" },
           ]}
         />
       </SectionCard>
