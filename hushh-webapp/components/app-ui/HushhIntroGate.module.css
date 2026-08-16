@@ -1,49 +1,43 @@
 /* components/app-ui/HushhIntroGate.module.css
- * The `/one` section's real first screen, and its only splash: an
- * original, cinematic logo-reveal — paced like a premium streaming
- * intro's opening beat (no logo, animation, palette, or sound copied
- * from any specific one). The screen opens on a near-black background;
- * thin purple/pink/blue light streaks rise and sweep toward the centre
- * at different simulated depths (varying blur/scale/timing, so the
- * convergence reads as dimensional rather than flat); they gather into a
- * soft glow bloom, out of which the 🤫 mark and "Hushh One." wordmark
- * resolve from a blur into sharp focus, hold for 1.5s, then slowly
- * cross-dissolve — with a soft blur and a light upward drift, never an
- * instant swap — into "Hi, {name}" / "Welcome to One.", hold for another
- * 1.5s, and the whole screen fades — opacity only, no colour keyframe to
- * jump through, so there is no flash of any kind — to reveal the vault
- * screen, which only mounts once this finishes (see HushhIntroGate.tsx).
+ * The `/one` section's real first screen, and its only splash: a slow
+ * mist of blurred purple/pink/blue blobs travels from below the screen,
+ * through the centre, and out past the top over ~2.5s (Zomato-referenced
+ * motion, an original organic-cloud treatment). The 🤫 mark and
+ * "Hushh One." reveal gradually through the still-moving, still-visible
+ * mist, hold for 1.5s, then slowly cross-dissolve — with a soft blur and
+ * a light upward drift, never an instant swap — into "Hi, {name}" /
+ * "Welcome to One.", hold for another 1.5s, and the whole screen fades —
+ * gently, never a hard cut or a white flash — to reveal the vault screen,
+ * which only mounts once this finishes (see HushhIntroGate.tsx).
  *
- * Follows the app's own light/dark theme: near-black ("theatre goes
- * dark") in dark mode, the app's light surface in light mode, with the
- * streak/halo saturation and the ink colour tuned per mode too — a
- * cinematic dark-bg treatment turned up to full saturation reads as
- * loud/neon rather than premium on a white backdrop, so light mode dials
- * those mixes down rather than reusing the dark-mode values verbatim.
- * Nothing else is mounted in the tree while this is up (the component
- * that owns this CSS gates `VaultLockGuard` and everything below it out
- * entirely until its own animation completes).
+ * Follows the app's own light/dark theme: white background + dark ink in
+ * light mode, the app's near-black elevated surface + light ink in dark
+ * mode — never pure black, never a jarring flash either way. Nothing else
+ * is mounted in the tree while this is up (the component that owns this
+ * CSS gates `VaultLockGuard` and everything below it out entirely until
+ * its own animation completes).
  *
- * Every animated property here is `transform`, `opacity`, or `filter` —
- * nothing that forces layout (no `top`/`left`/`width`/`height` keyframes)
- * and nothing that forces paint (no `box-shadow` animation) — so the
- * whole sequence stays GPU/compositor-only for smooth mobile performance.
- * The streaks' "glow" comes from blurring a bright gradient against the
- * near-black backdrop, not from a box-shadow. Their apparent "motion
- * blur" comes from pairing fast `translate3d`/`rotate`/`scaleX` movement
- * with an animated `blur()` amount that's largest while a streak is
- * moving fastest and sharpens as it settles — a standard illusion, not a
- * true motion-blur render.
+ * The mist's `translate3d(vw, vh, 0)` keyframes are authored in viewport
+ * units, not `%` (which is relative to each blob's *own* huge size and
+ * would only ever graze the very bottom edge of the screen with the
+ * blob's faint outer edge — its dense, colourful centre never actually
+ * entering the viewport). `translateY(0vh)` unambiguously means "this
+ * blob's natural top edge is at the screen's top edge", so the journey
+ * from fully-below to centred to fully-above is exact — and unlike
+ * animating `top`/`left` directly, a `transform` never forces layout, so
+ * this stays GPU/compositor-only, no layout thrash, for smooth mobile
+ * performance.
  *
  * Two animation mechanisms are used, deliberately kept apart:
  *
- * - The streaks use one self-contained `@keyframes` animation each,
- *   covering their entire sweep → converge → dissolve-into-glow arc as a
- *   single timeline, applied once via `:not([data-phase="idle"])` (a
- *   selector that keeps matching uninterrupted across every later phase,
- *   so the animation is never re-triggered or reset by the phase changes
- *   driving the rest of the scene — it just plays through once on its own
- *   clock).
+ * - The mist blobs use one `@keyframes` animation each, covering their
+ *   entire rise → drift → recede arc as a single timeline, applied once
+ *   via `:not([data-phase="idle"])` (a selector that keeps matching
+ *   uninterrupted across every later phase, so the animation is never
+ *   re-triggered or reset by the phase changes driving the rest of the
+ *   scene — it just plays through once on its own clock, and stays fully
+ *   visible well past the point the mark and "Hushh One." start
+ *   appearing through it, rather than fading out beforehand).
  * - Everything else (halo, mark, both text labels) is driven by a single
  *   `data-phase` attribute on the root via plain `transition`s: every
  *   property there has exactly one transition rule, and phase changes
@@ -69,26 +63,22 @@
   justify-content: center;
   overflow: hidden;
   /* Light mode: the app's own light surface. Dark mode overrides this
-     below to a near-black — not pure #000 (a hair off pure black reads
-     as considered rather than a raw CSS default) — for the cinematic
-     "theatre goes dark" open. */
+     below to the app's near-black elevated surface — never pure black,
+     never a jarring flash either way. */
   background: var(--foundation-surface, #ffffff);
   pointer-events: none;
   opacity: 1;
   transition: opacity 420ms var(--motion-ease-accelerate);
 
-  --streak-purple: #b478f5;
-  --streak-pink: #ff6fa8;
-  --streak-blue: #6fa4ff;
-  /* Light mode: dark ink text, and every streak/halo mix dialed down —
-     the dark-mode saturation values below read as loud/neon rather than
-     premium against a white backdrop. */
+  --sweep-pink: #ec6a90;
+  --sweep-purple: #9a6fd9;
+  --sweep-blue: #7f8de0;
   --intro-ink: #1d1d1f;
-  --streak-far-mix: 40%;
-  --streak-mid-mix: 46%;
-  --streak-near-mix: 56%;
-  --halo-mix-a: 40%;
-  --halo-mix-b: 24%;
+  /* Mix percentages tuned for a white backdrop; dark mode brightens them
+     so the mist still reads as a glow instead of a faint smudge. */
+  --sweep-purple-mix: 55%;
+  --sweep-pink-mix: 52%;
+  --sweep-blue-mix: 50%;
 }
 
 .root[data-phase="exit"] {
@@ -96,220 +86,179 @@
 }
 
 :global(.dark) .root {
-  background: #07070a;
   --intro-ink: #f5f5f7;
-  --streak-far-mix: 70%;
-  --streak-mid-mix: 78%;
-  --streak-near-mix: 88%;
-  --halo-mix-a: 55%;
-  --halo-mix-b: 38%;
+  --sweep-purple-mix: 76%;
+  --sweep-pink-mix: 74%;
+  --sweep-blue-mix: 72%;
 }
 
-/* ── Light streaks: thin blurred gradient bars that sweep in from
-   different edges and converge toward centre, each at a different
-   simulated depth. No hard edges anywhere: every streak fades to
-   transparent at both ends before the blur even softens it further. ── */
-.beams {
+/* ── Mist: three large, heavily blurred radial blobs (purple, pink, soft
+   blue), each with its own size and drift path, so the rise reads as
+   organic weather, not a mechanical wipe. No blob ever shows a hard
+   edge: each radial gradient fades to transparent well inside its own
+   box, and the blur softens whatever's left. ── */
+.mist {
   position: absolute;
   inset: 0;
 }
 
-.streak {
+.blob {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 46vmax;
-  height: 3px;
-  margin-top: -1.5px;
-  margin-left: -23vmax;
-  border-radius: 999px;
+  top: 0;
+  left: 0;
+  border-radius: 50%;
   opacity: 0;
-  will-change: transform, opacity, filter;
+  filter: blur(70px);
+  will-change: transform, opacity;
 }
 
-.streakPurpleFar {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in oklab, var(--streak-purple) var(--streak-far-mix), transparent) 45%,
-    color-mix(in oklab, var(--streak-purple) var(--streak-far-mix), transparent) 55%,
-    transparent 100%
-  );
+.blobPurple {
+  width: 100vmax;
+  height: 100vmax;
+  background: radial-gradient(circle, color-mix(in oklab, var(--sweep-purple) var(--sweep-purple-mix), transparent) 0%, transparent 64%);
 }
 
-.streakPink {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in oklab, var(--streak-pink) var(--streak-mid-mix), transparent) 45%,
-    color-mix(in oklab, var(--streak-pink) var(--streak-mid-mix), transparent) 55%,
-    transparent 100%
-  );
+.blobPink {
+  width: 88vmax;
+  height: 88vmax;
+  background: radial-gradient(circle, color-mix(in oklab, var(--sweep-pink) var(--sweep-pink-mix), transparent) 0%, transparent 64%);
 }
 
-.streakBlue {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in oklab, var(--streak-blue) var(--streak-mid-mix), transparent) 45%,
-    color-mix(in oklab, var(--streak-blue) var(--streak-mid-mix), transparent) 55%,
-    transparent 100%
-  );
-}
-
-.streakPurpleNear {
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in oklab, var(--streak-purple) var(--streak-near-mix), transparent) 45%,
-    color-mix(in oklab, var(--streak-purple) var(--streak-near-mix), transparent) 55%,
-    transparent 100%
-  );
+.blobBlue {
+  width: 82vmax;
+  height: 82vmax;
+  background: radial-gradient(circle, color-mix(in oklab, var(--sweep-blue) var(--sweep-blue-mix), transparent) 0%, transparent 64%);
 }
 
 /* Applied once, the moment the phase leaves "idle", and never reassigned
-   afterwards, so each streak plays its whole sweep/converge/dissolve arc
-   on its own clock instead of being cut short or restarted by the phase
-   changes driving the mark and text. Small staggered delays (0/60/120/
-   180ms) keep the four from moving in lockstep, reading as four
-   independent trails rather than one mechanical wipe. */
-.root:not([data-phase="idle"]) .streakPurpleFar {
-  animation: streak-purple-far 1250ms var(--motion-ease-standard) forwards;
+   afterwards (every later phase value still matches `:not([data-phase=
+   "idle"])`), so each blob plays its whole rise/drift/recede arc on its
+   own ~2.5s clock instead of being cut short or restarted by the phase
+   changes driving the mark and text. Delays are small (0/40/80ms) — just
+   enough to keep the three blobs from moving in perfect lockstep, not
+   enough to read as a pause before anything happens. */
+.root:not([data-phase="idle"]) .blobPurple {
+  animation: blob-purple-drift 2500ms var(--motion-ease-standard) forwards;
 }
 
-.root:not([data-phase="idle"]) .streakPink {
-  animation: streak-pink 1250ms var(--motion-ease-standard) 60ms forwards;
+.root:not([data-phase="idle"]) .blobPink {
+  animation: blob-pink-drift 2600ms var(--motion-ease-standard) 40ms forwards;
 }
 
-.root:not([data-phase="idle"]) .streakBlue {
-  animation: streak-blue 1250ms var(--motion-ease-standard) 120ms forwards;
+.root:not([data-phase="idle"]) .blobBlue {
+  animation: blob-blue-drift 2400ms var(--motion-ease-standard) 80ms forwards;
 }
 
-.root:not([data-phase="idle"]) .streakPurpleNear {
-  animation: streak-purple-near 1250ms var(--motion-ease-standard) 180ms forwards;
-}
-
-/* Far purple: the most "distant" trail — thinner-reading via heavier
-   blur throughout, travels the longest diagonal. Blur is largest while
-   it's moving fastest (0%→35%, the "motion blur" read) and sharpens as
-   it slows into the convergence, then the whole streak dissolves into
-   the halo's glow rather than persisting as a visible line. */
-@keyframes streak-purple-far {
+/* Purple: the primary, most central blob. Position (via `translate3d`,
+   in `vw`/`vh`) and scale do almost all of the work — opacity only fades
+   briefly at each end and stays elevated through the whole middle
+   stretch, so this never reads as an opacity fade with incidental
+   movement. The rise into view is front-loaded (most of the opacity/
+   position change happens in the first quarter of the timeline) so
+   colour is visibly on screen within a couple hundred milliseconds — no
+   blank pause after the intro starts — while the 0%→10% step is still a
+   real, eased transition rather than an instant pop. */
+@keyframes blob-purple-drift {
   0% {
     opacity: 0;
-    transform: translate3d(-58vw, 42vh, 0) rotate(-32deg) scaleX(0.7);
-    filter: blur(6px);
+    transform: translate3d(26vw, 120vh, 0) scale(0.86);
   }
-  35% {
-    opacity: 0.75;
-    transform: translate3d(-22vw, 16vh, 0) rotate(-18deg) scaleX(0.5);
-    filter: blur(10px);
+  10% {
+    opacity: 0.4;
+    transform: translate3d(23vw, 68vh, 0) scale(0.92);
+  }
+  28% {
+    opacity: 0.58;
+    transform: translate3d(30vw, 28vh, 0) scale(1);
+  }
+  45% {
+    opacity: 0.62;
+    transform: translate3d(24vw, 2vh, 0) scale(1.05);
   }
   70% {
-    opacity: 0.9;
-    transform: translate3d(-4vw, 3vh, 0) rotate(-6deg) scaleX(0.28);
-    filter: blur(4px);
+    opacity: 0.5;
+    transform: translate3d(29vw, -40vh, 0) scale(1.1);
   }
   100% {
     opacity: 0;
-    transform: translate3d(0, 0, 0) rotate(0deg) scaleX(0.14);
-    filter: blur(2px);
+    transform: translate3d(25vw, -100vh, 0) scale(1.15);
   }
 }
 
-@keyframes streak-pink {
+@keyframes blob-pink-drift {
   0% {
     opacity: 0;
-    transform: translate3d(52vw, -38vh, 0) rotate(28deg) scaleX(0.6);
-    filter: blur(5px);
+    transform: translate3d(0vw, 128vh, 0) scale(0.86);
   }
-  35% {
-    opacity: 0.7;
-    transform: translate3d(20vw, -14vh, 0) rotate(16deg) scaleX(0.45);
-    filter: blur(9px);
+  10% {
+    opacity: 0.34;
+    transform: translate3d(5vw, 78vh, 0) scale(0.92);
+  }
+  28% {
+    opacity: 0.48;
+    transform: translate3d(-2vw, 38vh, 0) scale(0.98);
+  }
+  45% {
+    opacity: 0.52;
+    transform: translate3d(4vw, 12vh, 0) scale(1.03);
   }
   70% {
-    opacity: 0.88;
-    transform: translate3d(3vw, -2vh, 0) rotate(5deg) scaleX(0.26);
-    filter: blur(3px);
+    opacity: 0.42;
+    transform: translate3d(-1vw, -32vh, 0) scale(1.08);
   }
   100% {
     opacity: 0;
-    transform: translate3d(0, 0, 0) rotate(0deg) scaleX(0.14);
-    filter: blur(2px);
+    transform: translate3d(5vw, -95vh, 0) scale(1.12);
   }
 }
 
-@keyframes streak-blue {
+@keyframes blob-blue-drift {
   0% {
     opacity: 0;
-    transform: translate3d(-46vw, -34vh, 0) rotate(22deg) scaleX(0.65);
-    filter: blur(7px);
+    transform: translate3d(46vw, 124vh, 0) scale(0.86);
   }
-  35% {
-    opacity: 0.72;
-    transform: translate3d(-18vw, -12vh, 0) rotate(12deg) scaleX(0.48);
-    filter: blur(11px);
+  10% {
+    opacity: 0.3;
+    transform: translate3d(49vw, 74vh, 0) scale(0.92);
+  }
+  28% {
+    opacity: 0.44;
+    transform: translate3d(42vw, 36vh, 0) scale(0.98);
+  }
+  45% {
+    opacity: 0.48;
+    transform: translate3d(48vw, 10vh, 0) scale(1.02);
   }
   70% {
-    opacity: 0.9;
-    transform: translate3d(-3vw, -1.5vh, 0) rotate(4deg) scaleX(0.27);
-    filter: blur(4px);
+    opacity: 0.38;
+    transform: translate3d(43vw, -30vh, 0) scale(1.07);
   }
   100% {
     opacity: 0;
-    transform: translate3d(0, 0, 0) rotate(0deg) scaleX(0.14);
-    filter: blur(2px);
+    transform: translate3d(47vw, -90vh, 0) scale(1.1);
   }
 }
 
-/* Near purple: the brightest, most prominent trail — least blur, largest
-   presence — the one that reads as "closest to camera". */
-@keyframes streak-purple-near {
-  0% {
-    opacity: 0;
-    transform: translate3d(40vw, 40vh, 0) rotate(-24deg) scaleX(0.8);
-    filter: blur(3px);
-  }
-  35% {
-    opacity: 0.85;
-    transform: translate3d(15vw, 15vh, 0) rotate(-13deg) scaleX(0.55);
-    filter: blur(6px);
-  }
-  70% {
-    opacity: 1;
-    transform: translate3d(2vw, 2vh, 0) rotate(-4deg) scaleX(0.3);
-    filter: blur(2px);
-  }
-  100% {
-    opacity: 0;
-    transform: translate3d(0, 0, 0) rotate(0deg) scaleX(0.14);
-    filter: blur(1px);
-  }
-}
-
-/* ── Halo: the bloom the streaks converge into, and the glow the mark
-   sits inside for the rest of the sequence. Uses the same fixed streak
-   palette as the beams (not the app's theme-adaptive hero tokens) so the
-   glow always matches the streaks that fed into it; the mix percentages
-   themselves still flip per theme via --halo-mix-a/b above. */
+/* ── Halo: a soft accent-gradient bloom behind the mark, reusing the app's
+   own hero-gradient tokens (blue by default, gold under the Molten Gold
+   accent) instead of introducing a one-off palette. ── */
 .halo {
   position: absolute;
-  width: 280px;
-  height: 280px;
+  width: 260px;
+  height: 260px;
   border-radius: 50%;
   background: radial-gradient(
     circle,
-    color-mix(in oklab, var(--streak-blue) var(--halo-mix-a), transparent) 0%,
-    color-mix(in oklab, var(--streak-purple) var(--halo-mix-b), transparent) 46%,
+    color-mix(in oklab, var(--app-accent-hero-mid) 50%, transparent) 0%,
+    color-mix(in oklab, var(--app-accent-hero-to) 30%, transparent) 46%,
     transparent 72%
   );
-  filter: blur(30px);
+  filter: blur(28px);
   opacity: 0;
-  transform: scale(0.5);
+  transform: scale(0.6);
   transition:
-    opacity 700ms var(--motion-ease-decelerate),
-    transform 700ms var(--motion-ease-decelerate);
+    opacity 680ms var(--motion-ease-decelerate),
+    transform 680ms var(--motion-ease-decelerate);
 }
 
 .root[data-phase="greet1"] .halo,
@@ -319,9 +268,9 @@
   transform: scale(1);
 }
 
-/* ── Mark: resolves out of the converged glow — starts soft/blurred and
-   slightly small, then sharpens into focus, then stays put (settled)
-   through the rest of the sequence. ── */
+/* ── Mark: rises from just below its resting spot while fading in through
+   the still-moving mist, then stays put (settled) through the rest of the
+   sequence. ── */
 .iconWrap {
   position: relative;
   z-index: 1;
@@ -333,20 +282,17 @@
   font-size: 64px;
   line-height: 1;
   opacity: 0;
-  transform: translateY(18px) scale(0.86);
-  filter: blur(14px);
+  transform: translateY(30px);
   transition:
-    opacity 680ms var(--motion-ease-decelerate),
-    transform 680ms var(--motion-ease-decelerate),
-    filter 680ms var(--motion-ease-decelerate);
+    opacity 640ms var(--motion-ease-decelerate),
+    transform 640ms var(--motion-ease-decelerate);
 }
 
 .root[data-phase="greet1"] .icon,
 .root[data-phase="greet2"] .icon,
 .root[data-phase="exit"] .icon {
   opacity: 1;
-  transform: translateY(0) scale(1);
-  filter: blur(0);
+  transform: translateY(0);
 }
 
 /* ── Text stack: label1 ("Hushh One.") and label2 ("Hi, {name}" / "Welcome
@@ -378,24 +324,23 @@
   color: var(--intro-ink);
   letter-spacing: -0.2px;
   text-align: center;
-  /* Not-yet-shown: resolving from the same blur the mark arrives from —
-     "revealed from the light, then sharpened" is the whole point of this
-     entrance, not just the mark's. */
+  /* Not-yet-shown: sharp (no blur — the blur belongs to the retirement
+     cross-dissolve, not the first entrance), waiting just below. */
   opacity: 0;
   transform: translateY(10px);
-  filter: blur(12px);
+  filter: blur(0);
   /* Arriving: decelerate — settles in rather than coasting to a stop. */
   transition:
-    opacity 680ms var(--motion-ease-decelerate),
-    transform 680ms var(--motion-ease-decelerate),
-    filter 680ms var(--motion-ease-decelerate);
+    opacity 620ms var(--motion-ease-decelerate),
+    transform 620ms var(--motion-ease-decelerate),
+    filter 620ms var(--motion-ease-decelerate);
 }
 
 .root[data-phase="greet1"] .label1 {
   opacity: 1;
   transform: translateY(0);
   filter: blur(0);
-  transition-delay: 220ms;
+  transition-delay: 200ms;
 }
 
 /* Shown-then-retired: drifts further up and softens into a blur as it
@@ -475,13 +420,15 @@
   }
 
   .halo {
-    width: 230px;
-    height: 230px;
+    width: 220px;
+    height: 220px;
   }
 
-  .streak {
-    width: 68vmax;
-    margin-left: -34vmax;
+  /* A blur radius tuned for a desktop-sized viewport reads as an
+     undifferentiated haze on a small phone screen. Tighten it so the
+     blobs still read as soft, distinct clouds rather than a flat wash. */
+  .blob {
+    filter: blur(48px);
   }
 
   .label1,
@@ -492,10 +439,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .root,
-  .streakPurpleFar,
-  .streakPink,
-  .streakBlue,
-  .streakPurpleNear,
+  .blobPurple,
+  .blobPink,
+  .blobBlue,
   .halo,
   .icon,
   .label1,
