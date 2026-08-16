@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 
 import { OneLocationOnboardingFlow } from "@/components/one-location/onboarding/one-location-onboarding-flow";
+import { READY_PANEL_CLASSNAME } from "@/components/one-location/onboarding/ready-panel-layout";
 
 vi.mock("sonner", () => ({
   toast: {
@@ -1314,6 +1315,12 @@ describe("OneLocationOnboardingFlow", () => {
       openInviteScreen();
 
       const sheet = screen.getByTestId("one-location-onboarding-ready-panel");
+
+      // The panel must render the shared contract verbatim -- that is what
+      // e2e/one-location-ready-panel.layout.spec.ts measures in a real browser.
+      // JSDOM performs no layout, so this half only proves the classes reach
+      // the DOM; the browser half proves they actually centre the box.
+      expect(sheet.className).toBe(READY_PANEL_CLASSNAME);
 
       // It reads as a dialog over the map, so it belongs in the middle of it.
       // Anchored to the right edge it looked like a panel that had slid off.
