@@ -168,8 +168,23 @@ export function buildOneLocationActivityFallback(
 ): OneLocationActivityResponse {
   if (!state) return emptyActivity(range);
 
+  // Every list this function walks is normalised once, here.
+  //
+  // It already guarded against a null state, then assumed a non-null one
+  // carried all six arrays -- so a snapshot missing any single list (a partial
+  // cache entry, an older cached shape, a section the backend degraded to
+  // nothing) threw "Cannot read properties of undefined (reading 'map')" and
+  // took the entire Location page down through the global error boundary.
+  // A missing section should cost that section's rows, never the screen.
+  const recipients = state.recipients ?? [];
+  const ownerGrants = state.ownerGrants ?? [];
+  const receivedGrants = state.receivedGrants ?? [];
+  const requests = state.requests ?? [];
+  const publicInvites = state.publicInvites ?? [];
+  const publicInviteSubmissions = state.publicInviteSubmissions ?? [];
+
   const recipientLabels = new Map(
-    state.recipients.map((recipient) => [
+    recipients.map((recipient) => [
       recipient.userId,
       safeLabel(recipient.displayName),
     ]),
@@ -195,7 +210,7 @@ export function buildOneLocationActivityFallback(
     events.push({ id, kind, occurredAt: timestamp, title, detail });
   };
 
-  for (const grant of state.ownerGrants) {
+  for (const grant of ownerGrants) {
     const startedAt = grant.createdAt || grant.updatedAt || grant.expiresAt;
     const durationLabel =
       grant.durationMode === "until_stopped" || grant.durationHours == null
@@ -220,7 +235,7 @@ export function buildOneLocationActivityFallback(
     }
   }
 
-  for (const grant of state.receivedGrants) {
+  for (const grant of receivedGrants) {
     const startedAt = grant.createdAt || grant.updatedAt || grant.expiresAt;
     addEvent({
       id: `received-grant:${grant.id}`,
@@ -231,7 +246,7 @@ export function buildOneLocationActivityFallback(
     });
   }
 
-  for (const request of state.requests) {
+  for (const request of requests) {
     if (request.ownerUserId === currentUserId) {
       addEvent({
         id: `request-received:${request.id}`,
@@ -263,7 +278,7 @@ export function buildOneLocationActivityFallback(
     }
   }
 
-  for (const invite of state.publicInvites) {
+  for (const invite of publicInvites) {
     addEvent({
       id: `public-link-created:${invite.id}`,
       kind: "public",
@@ -283,7 +298,7 @@ export function buildOneLocationActivityFallback(
     }
   }
 
-  for (const submission of state.publicInviteSubmissions) {
+  for (const submission of publicInviteSubmissions) {
     addEvent({
       id: `public-response:${submission.id}`,
       kind: "public",
@@ -334,7 +349,7 @@ export function buildOneLocationActivityFallback(
   }
 
   const sharedWithCount = new Set(
-    state.ownerGrants
+    ownerGrants
       .filter((grant) =>
         isDateInActivityRange(
           grant.createdAt || grant.updatedAt || grant.expiresAt,
@@ -358,28 +373,28 @@ export function buildOneLocationActivityFallback(
     buckets: sortedBuckets,
     summary: {
       sharedWithCount,
-      activeShareCount: state.ownerGrants.filter(
+      activeShareCount: ownerGrants.filter(
         (grant) => grant.status === "active",
       ).length,
-      requestsReceivedCount: state.requests.filter(
+      requestsReceivedCount: requests.filter(
         (request) =>
           request.ownerUserId === currentUserId &&
           isDateInActivityRange(request.requestedAt, range),
       ).length,
-      requestsSentCount: state.requests.filter(
+      requestsSentCount: requests.filter(
         (request) =>
           request.requesterUserId === currentUserId &&
           request.ownerUserId !== currentUserId &&
           isDateInActivityRange(request.requestedAt, range),
       ).length,
       viewsCount: 0,
-      publicLinkCount: state.publicInvites.filter((invite) =>
+      publicLinkCount: publicInvites.filter((invite) =>
         isDateInActivityRange(
           invite.createdAt || invite.updatedAt || invite.expiresAt,
           range,
         ),
       ).length,
-      publicResponseCount: state.publicInviteSubmissions.filter((submission) =>
+      publicResponseCount: publicInviteSubmissions.filter((submission) =>
         isDateInActivityRange(
           submission.submittedAt || submission.resolvedAt,
           range,
