@@ -6,8 +6,13 @@ import type { EmblaCarouselType, EmblaOptionsType } from "embla-carousel";
 
 import { cn } from "@/lib/utils";
 
-/** Mirrors check-in-flow.tsx's UNTIL_STOP_VALUE — the max accepted grant window. */
-export const DURATION_WHEEL_UNTIL_STOP_VALUE = "24";
+// Not "24" -- once a literal 24 hours became reachable on the wheel (see
+// MAX_HOURS below), the wheel could legitimately emit the string "24"
+// itself (24h + 0min), which would collide with this sentinel on a fresh
+// mount and get misread as "Until I stop" instead of a real 24-hour
+// selection. Confirmed unused anywhere else in the codebase, so changing
+// it is fully self-contained to this file.
+export const DURATION_WHEEL_UNTIL_STOP_VALUE = "until_stopped";
 
 /** The backend caps a grant at 24 hours (`le=24`, consent-protocol/api/routes/one/location.py). */
 const MAX_HOURS = 24;
@@ -16,15 +21,19 @@ const MINUTE_VALUES = [0, 15, 30, 45];
 
 /**
  * Which minutes exist at a given hour. Both ends of the range are product
- * rules, and both are expressed by REMOVING the row rather than by letting
- * someone land on it and yanking them off it:
+ * rules, and both are now expressed by REMOVING the row rather than by
+ * letting someone land on it and yanking them off it:
  *
  *   0h  — 0h00m is not a duration, and 15 minutes is the floor for sharing.
- *   24h — 24h15m fails the backend's `le=24`, so the hour has only :00.
+ *   24h — 24h15m (24.25) fails the backend's `le=24`; 24h0m is exactly 24.0
+ *         and is the real ceiling, so that hour has only :00.
  *
- * The old code offered :00 at zero hours and then bounced the wheel back to
- * :15 under the person's finger. That bounce is why "1 hour" read as broken:
- * the natural order is minutes-then-hours, and minutes-first bounced.
+ * Both constraints arrived on main as live guards that let the wheel settle
+ * on the invalid row and then bounced it back — :00 at zero hours snapping
+ * to :15, and any nonzero minute at 24h snapping to :00. The rule is the
+ * same; showing it is what stops it feeling broken. The natural order is
+ * minutes-then-hours, and minutes-first is exactly the direction that
+ * bounced, which is why "1 hour" read as unreachable.
  */
 function minuteItemsForHour(hour: number): number[] {
   if (hour <= 0) return [15, 30, 45];
@@ -53,6 +62,36 @@ function nearestGridMinutes(totalMinutes: number): number {
 function formatDurationHours(hoursIndex: number, minutesValue: number): string {
   const totalMinutes = hoursIndex * 60 + minutesValue;
   return String(Math.round((totalMinutes / 60) * 100) / 100);
+}
+
+/**
+ * The wheel value nearest `hours`, as the same decimal-hours string the wheel
+ * itself emits.
+ *
+ * For seeding the wheel from something measured rather than chosen — "what is
+ * left on this share" is 0.53 hours, and the wheel will show 30 min for it
+ * whatever the caller holds in state. Without this the two disagree: the
+ * screen reads 30 min and Save sends 0.53, which is a change the person never
+ * made and did not see.
+ *
+ * Clamped to the grid's own ends rather than to written-down numbers: this
+ * clamp was authored against a 23h45m ceiling and the wheel gained 24h0m in
+ * the same week, which would have snapped a genuine 24-hour share down to
+ * 23.75 with nothing failing. Reading the bounds off `ALL_GRID_MINUTES` means
+ * the next change to the grid carries this with it.
+ *
+ * A number it cannot read falls to the shortest step, never the longest: a
+ * duration nobody could parse must not open the editor pre-loaded on the
+ * longest share the product allows.
+ */
+export function snapToWheelDurationHours(hours: number): string {
+  const floor = Math.min(...ALL_GRID_MINUTES);
+  const ceiling = Math.max(...ALL_GRID_MINUTES);
+  const requested = Number.isFinite(hours) ? Math.round(hours * 60) : floor;
+  const minutes = nearestGridMinutes(
+    Math.min(Math.max(requested, floor), ceiling),
+  );
+  return String(Math.round((minutes / 60) * 100) / 100);
 }
 
 function parseDurationValue(
@@ -419,6 +458,10 @@ export function DurationWheelPicker({
   const minuteItems = minuteItemsForHour(hoursIndex);
   // Computed fresh every render, so an invalid pairing is never emitted even
   // for the single render before the correction effect below runs.
+  //
+  // This replaces the pair of live guards that used to bounce the wheel off
+  // 0h00m and off 24h + any nonzero minute: the invalid rows are simply not
+  // in the column, so there is nothing to bounce off.
   const minutesIndex = Math.max(0, minuteItems.indexOf(minutesValue));
   const effectiveMinutesValue = minuteItems[minutesIndex] ?? 15;
 

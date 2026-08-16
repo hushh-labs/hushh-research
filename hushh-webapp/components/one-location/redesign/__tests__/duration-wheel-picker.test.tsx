@@ -36,7 +36,7 @@ describe("DurationWheelPicker", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Until I stop" }));
 
-    expect(onChange).toHaveBeenCalledWith("24");
+    expect(onChange).toHaveBeenCalledWith("until_stopped");
     expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
       "aria-disabled",
       "true",
@@ -78,11 +78,28 @@ describe("DurationWheelPicker", () => {
   });
 
   it("treats the until-stop alias value as already-toggled-on when passed in externally", () => {
-    render(<DurationWheelPicker value="24" onChange={vi.fn()} />);
+    render(<DurationWheelPicker value="until_stopped" onChange={vi.fn()} />);
 
     expect(
       screen.getByRole("button", { name: "Until I stop" }),
     ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("treats a literal 24 as an ordinary 24-hour duration, not the until-stop alias", () => {
+    // "24" used to BE the sentinel; now that a literal 24h0m is reachable
+    // on the wheel, it has to resolve as a real duration instead.
+    render(<DurationWheelPicker value="24" onChange={vi.fn()} />);
+
+    expect(
+      screen.getByRole("button", { name: "Until I stop" }),
+    ).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
+      "aria-valuetext",
+      "24 hr",
+    );
+    expect(
+      screen.getByRole("spinbutton", { name: "Minutes" }),
+    ).toHaveAttribute("aria-valuetext", "0 min");
   });
 
   it("labels both columns visibly, not just for screen readers", () => {
@@ -133,30 +150,20 @@ describe("DurationWheelPicker", () => {
     expect(onChange).not.toHaveBeenCalledWith("0");
   });
 
-  it("drops the :00 row from Minutes entirely while Hours is 0", () => {
-    // The old build offered :00 at zero hours and then yanked the wheel back
-    // to :15 under the person's finger. The constraint is the same; showing
-    // it instead of enforcing it invisibly is what stops minutes-first
-    // scrolling from bouncing.
-    render(<DurationWheelPicker value="0.5" onChange={vi.fn()} />);
-
-    const minutesWheel = screen.getByRole("spinbutton", { name: "Minutes" });
-    expect(minutesWheel).toHaveAttribute("aria-valuemax", "2");
-    expect(within(minutesWheel).queryByText("0")).toBeNull();
-  });
-
-  it("round-trips a literal 24 instead of silently shrinking it to 23h45m", () => {
-    // With a caller-supplied sentinel ("until_stopped"), the string "24" is
-    // an ordinary duration and must survive. It did not: the grid stopped at
-    // 23h45m, so a spoken "share for 24 hours" read back as 23h 45m.
+  it("keeps 24h45m unreachable, snapping Minutes to 0 the instant Hours reaches 24", () => {
     const onChange = vi.fn();
-    render(
-      <DurationWheelPicker
-        value="24"
-        onChange={onChange}
-        untilStopValue="until_stopped"
-      />,
-    );
+    render(<DurationWheelPicker value="23.75" onChange={onChange} />);
+    // 23.75h = 23h45m -> Minutes starts on "45".
+    expect(
+      screen.getByRole("spinbutton", { name: "Minutes" }),
+    ).toHaveAttribute("aria-valuetext", "45 min");
+
+    // Scroll Hours up from 23 to 24 while Minutes is still sitting on "45"
+    // -- the forbidden 24h45m combination is reachable this way even though
+    // neither wheel alone ever "chose" it.
+    fireEvent.keyDown(screen.getByRole("spinbutton", { name: "Hours" }), {
+      key: "ArrowDown",
+    });
 
     expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
       "aria-valuetext",
@@ -165,21 +172,65 @@ describe("DurationWheelPicker", () => {
     expect(
       screen.getByRole("spinbutton", { name: "Minutes" }),
     ).toHaveAttribute("aria-valuetext", "0 min");
-    expect(onChange).not.toHaveBeenCalledWith("23.75");
+    expect(onChange).not.toHaveBeenCalledWith("24.75");
+    expect(onChange).not.toHaveBeenCalledWith("24.25");
+    expect(onChange).not.toHaveBeenCalledWith("24.5");
   });
 
-  it("offers only :00 at the 24-hour ceiling, because 24h15m is rejected by the backend", () => {
-    render(
-      <DurationWheelPicker
-        value="24"
-        onChange={vi.fn()}
-        untilStopValue="until_stopped"
-      />,
-    );
-
+  it("locks Minutes to 0 while Hours sits at the 24 ceiling", () => {
+    render(<DurationWheelPicker value="24" onChange={vi.fn()} />);
     expect(
-      screen.getByRole("spinbutton", { name: "Minutes" }),
-    ).toHaveAttribute("aria-valuemax", "0");
+      screen.getByRole("spinbutton", { name: "Hours" }),
+    ).toHaveAttribute("aria-valuemax", "24");
+    const minutesWheel = screen.getByRole("spinbutton", { name: "Minutes" });
+    expect(minutesWheel).toHaveAttribute("aria-valuetext", "0 min");
+
+    // Any attempt to move Minutes off 0 while Hours is still 24 snaps
+    // straight back -- mirrors Minutes refusing to sit on 0 while Hours is 0.
+    fireEvent.keyDown(minutesWheel, { key: "ArrowDown" });
+    expect(minutesWheel).toHaveAttribute("aria-valuetext", "0 min");
+    expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
+      "aria-valuetext",
+      "24 hr",
+    );
+  });
+
+  it("reaches 0 minutes smoothly via keyboard when Hours is above zero (no guard interference)", () => {
+    // Regression check: the 0h0m guard must only apply when Hours is
+    // exactly 0 -- it must never block Minutes from reaching "0" while
+    // Hours is 1 or more.
+    render(<DurationWheelPicker value="2.75" onChange={vi.fn()} />);
+    const minutesWheel = screen.getByRole("spinbutton", { name: "Minutes" });
+    // 2.75h = 2h45m -> Minutes starts on "45", the last item.
+    expect(minutesWheel).toHaveAttribute("aria-valuetext", "45 min");
+
+    fireEvent.keyDown(minutesWheel, { key: "ArrowUp" }); // 45 -> 30
+    fireEvent.keyDown(minutesWheel, { key: "ArrowUp" }); // 30 -> 15
+    fireEvent.keyDown(minutesWheel, { key: "ArrowUp" }); // 15 -> 0
+    expect(minutesWheel).toHaveAttribute("aria-valuetext", "0 min");
+    expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
+      "aria-valuetext",
+      "2 hr",
+    );
+  });
+  it("drops the :00 row from Minutes entirely while Hours is 0", () => {
+    // Same rule as the sibling guard test above, enforced a different way:
+    // the row is not in the column, so there is nothing to snap back FROM.
+    // The bounce is what made minutes-first scrolling feel broken, and
+    // minutes-first is the natural order.
+    render(<DurationWheelPicker value="0.5" onChange={vi.fn()} />);
+
+    const minutesWheel = screen.getByRole("spinbutton", { name: "Minutes" });
+    expect(minutesWheel).toHaveAttribute("aria-valuemax", "2");
+    expect(within(minutesWheel).queryByText("0")).toBeNull();
+  });
+
+  it("drops every row but :00 from Minutes at the 24-hour ceiling", () => {
+    render(<DurationWheelPicker value="24" onChange={vi.fn()} />);
+
+    const minutesWheel = screen.getByRole("spinbutton", { name: "Minutes" });
+    expect(minutesWheel).toHaveAttribute("aria-valuemax", "0");
+    expect(within(minutesWheel).queryByText("45")).toBeNull();
   });
 
   it("renders a 120px viewport in 3-row mode and 200px by default", () => {
@@ -200,6 +251,8 @@ describe("DurationWheelPicker", () => {
   });
 
   it("removes the until-stop toggle entirely when the caller owns that option", () => {
+    // The preset ladder owns it. Two controls for one piece of state is what
+    // made the toggle read as an override sitting on top of the wheel.
     const { container } = render(
       <DurationWheelPicker value="1" onChange={vi.fn()} showUntilStop={false} />,
     );
@@ -211,25 +264,6 @@ describe("DurationWheelPicker", () => {
     expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
       "aria-disabled",
       "false",
-    );
-  });
-
-  it("reaches 0 minutes smoothly via keyboard when Hours is above zero (no guard interference)", () => {
-    // Regression check: the 0h0m guard must only apply when Hours is
-    // exactly 0 -- it must never block Minutes from reaching "0" while
-    // Hours is 1 or more.
-    render(<DurationWheelPicker value="2.75" onChange={vi.fn()} />);
-    const minutesWheel = screen.getByRole("spinbutton", { name: "Minutes" });
-    // 2.75h = 2h45m -> Minutes starts on "45", the last item.
-    expect(minutesWheel).toHaveAttribute("aria-valuetext", "45 min");
-
-    fireEvent.keyDown(minutesWheel, { key: "ArrowUp" }); // 45 -> 30
-    fireEvent.keyDown(minutesWheel, { key: "ArrowUp" }); // 30 -> 15
-    fireEvent.keyDown(minutesWheel, { key: "ArrowUp" }); // 15 -> 0
-    expect(minutesWheel).toHaveAttribute("aria-valuetext", "0 min");
-    expect(screen.getByRole("spinbutton", { name: "Hours" })).toHaveAttribute(
-      "aria-valuetext",
-      "2 hr",
     );
   });
 });

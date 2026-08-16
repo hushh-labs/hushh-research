@@ -89,10 +89,15 @@ ALTER TABLE one_location_events
       'location_share_viewed',
       'location_share_revoked',
       'location_share_shortened',
+      'location_share_duration_changed',
       'location_share_expired',
       'location_access_request',
       'location_access_approved',
       'location_access_denied',
+      -- The asker taking their own pending request back. Kept identical to
+      -- 064's list; the two declarations must agree or a replay accepts or
+      -- rejects the same row depending on where it stopped.
+      'location_access_request_withdrawn',
       'location_referral_invite',
       'location_public_invite_created',
       'location_public_invite_revoked',

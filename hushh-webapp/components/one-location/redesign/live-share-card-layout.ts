@@ -49,4 +49,22 @@ export const LIVE_SHARE_PROGRESS_TRACK_CLASSNAME =
 export const LIVE_SHARE_PROGRESS_FILL_CLASSNAME =
   "h-full rounded-full bg-emerald-500 transition-[width] duration-500 ease-linear";
 
-export const LIVE_SHARE_FOOTER_CLASSNAME = "mt-2 [overflow-wrap:anywhere]";
+export const LIVE_SHARE_FOOTER_CLASSNAME = "min-w-0 [overflow-wrap:anywhere]";
+
+/**
+ * End time on the left, "Change time" on the right — the action sits with the
+ * fact it edits.
+ *
+ * Both pills do fit in the header at 320px; measured, not assumed. They are
+ * split up for what they mean, not for room. Stop ends someone's access and is
+ * the only destructive control on this card: pairing it with a benign action
+ * in one right-aligned cluster makes them look like a matched set, and the tap
+ * you do not want to make by accident should not sit inside a toolbar.
+ * "Change time" beside "Ends 6:03 PM" is the fact and its edit, together.
+ *
+ * `flex-wrap` is the safety margin down here: "Ends 11:30 PM" beside a 44px
+ * pill is close to the edge on the narrowest phone, and dropping the action to
+ * its own line is the right way to run out of room.
+ */
+export const LIVE_SHARE_FOOTER_ROW_CLASSNAME =
+  "mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1";

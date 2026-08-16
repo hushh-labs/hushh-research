@@ -160,6 +160,21 @@ class ShortenGrantRequest(_CamelModel):
     duration_hours: float = Field(alias="durationHours", gt=0, le=24)
 
 
+class SetGrantDurationRequest(_CamelModel):
+    """A new end time for a share the owner already has running.
+
+    `durationHours` is null for "until I stop", which is why it is optional
+    here and refused by the service for share kinds that may not be open-ended.
+    """
+
+    duration_hours: float | None = Field(default=None, alias="durationHours", gt=0, le=24)
+    duration_mode: str = Field(
+        default="timed",
+        alias="durationMode",
+        pattern="^(timed|until_stopped)$",
+    )
+
+
 class ReferralRequest(_CamelModel):
     referred_user_id: str = Field(alias="referredUserId", min_length=1, max_length=160)
     message: str | None = Field(default=None, max_length=500)
@@ -1463,6 +1478,31 @@ def shorten_location_grant(
         raise _handle_error(exc) from exc
 
 
+@router.patch("/location/grants/{grant_id}/duration")
+def set_location_grant_duration(
+    grant_id: _GrantId,
+    payload: SetGrantDurationRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Set a new end time on a share you own, in either direction.
+
+    Owner only, and the service enforces that by matching on `owner_user_id`
+    alone. A recipient still has just `/shorten`: giving time back needs no
+    permission, taking more is the owner's to give -- and here the owner is the
+    caller, so lengthening their own share is that consent, not a bypass of it."""
+    try:
+        return {
+            "grant": _service().set_grant_duration(
+                owner_user_id=_user_id(token_data),
+                grant_id=grant_id,
+                duration_hours=payload.duration_hours,
+                duration_mode=payload.duration_mode,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
 @router.post("/location/requests")
 def request_location_access(
     payload: CreateAccessRequest,
@@ -1506,6 +1546,23 @@ def deny_location_access_request(
         return {
             "request": _service().deny_request(
                 owner_user_id=_user_id(token_data),
+                request_id=request_id,
+            )
+        }
+    except Exception as exc:
+        raise _handle_error(exc) from exc
+
+
+@router.post("/location/requests/{request_id}/withdraw")
+def withdraw_location_access_request(
+    request_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Take back a pending request you sent. Only the asker can call this."""
+    try:
+        return {
+            "request": _service().withdraw_request(
+                requester_user_id=_user_id(token_data),
                 request_id=request_id,
             )
         }

@@ -36,9 +36,11 @@ export type OneLocationWorkflowNotificationType =
   | "location_access_approved"
   | "location_share_revoked"
   | "location_share_shortened"
+  | "location_share_duration_changed"
   | "location_share_expired"
   | "location_access_request"
   | "location_access_denied"
+  | "location_access_request_withdrawn"
   | "location_referral_invite"
   | "location_public_invite_submitted"
   | "location_one_network_joined"
@@ -73,6 +75,12 @@ const WORKFLOW_COPY: Record<
     title: "Location access shortened",
     fallbackDescription: "A location share's remaining time was shortened.",
   },
+  location_share_duration_changed: {
+    // One entry for both directions, because one event type carries both. The
+    // per-person line below names which way it went.
+    title: "Sharing time changed",
+    fallbackDescription: "A location share's end time changed.",
+  },
   location_share_expired: {
     title: "Location access expired",
     fallbackDescription: "A location share reached its expiry time.",
@@ -84,6 +92,10 @@ const WORKFLOW_COPY: Record<
   location_access_denied: {
     title: "Location request denied",
     fallbackDescription: "Your location request was denied.",
+  },
+  location_access_request_withdrawn: {
+    title: "Location request taken back",
+    fallbackDescription: "Someone took back their location request.",
   },
   location_referral_invite: {
     title: "Location referral pending",
@@ -428,9 +440,13 @@ export function oneLocationSectionForWorkflowNotificationType(
     case "location_access_approved":
     case "location_share_revoked":
     case "location_share_shortened":
+    case "location_share_duration_changed":
     case "location_share_expired":
       return "shared";
     case "location_access_request":
+    // Goes to the same list the ask itself did. The card there is the thing
+    // that just disappeared, so that is where the owner needs to land.
+    case "location_access_request_withdrawn":
       return "approvals";
     case "location_access_denied":
       return "my_requests";
@@ -606,6 +622,15 @@ export function locationWorkflowNotificationCopy(params: {
         title: copy.title,
         description: `${ownerLabel} shortened your location access.`,
       };
+    case "location_share_duration_changed":
+      return {
+        title: copy.title,
+        // Deliberately not "gave you more time" / "shortened": which way it
+        // went lives in the event metadata, and this list is built from the
+        // notification alone. Naming the wrong direction is worse than naming
+        // none, and the share itself is one tap away with the real end time.
+        description: `${ownerLabel} changed the end time.`,
+      };
     case "location_share_expired":
       return {
         title: copy.title,
@@ -620,6 +645,11 @@ export function locationWorkflowNotificationCopy(params: {
       return {
         title: copy.title,
         description: `${ownerLabel} denied your location request.`,
+      };
+    case "location_access_request_withdrawn":
+      return {
+        title: copy.title,
+        description: `${requesterLabel} took back their location request.`,
       };
     case "location_referral_invite":
       return {

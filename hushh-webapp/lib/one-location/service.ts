@@ -1449,6 +1449,37 @@ export class OneLocationService {
     return response.grant;
   }
 
+  /**
+   * Set a new end time on a share you own, longer or shorter.
+   *
+   * `shortenGrant` above is the recipient's control and stays shorten-only.
+   * This one is the owner's, and it is allowed to add time because the owner
+   * is the person whose location is being shown -- there is no second party
+   * whose consent would be missing. The server enforces that by matching on
+   * the owner alone.
+   *
+   * `durationHours` is null when `durationMode` is "until_stopped".
+   */
+  static async setGrantDuration(params: {
+    vaultOwnerToken: string;
+    grantId: string;
+    durationHours: number | null;
+    durationMode: OneLocationShareDurationMode;
+  }): Promise<OneLocationGrant> {
+    const response = await apiJson<{ grant: OneLocationGrant }>(
+      `/api/one/location/grants/${encodeURIComponent(params.grantId)}/duration`,
+      {
+        method: "PATCH",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({
+          durationHours: params.durationHours,
+          durationMode: params.durationMode,
+        }),
+      },
+    );
+    return response.grant;
+  }
+
   static async requestAccess(params: {
     vaultOwnerToken: string;
     ownerUserId: string;
@@ -1492,6 +1523,27 @@ export class OneLocationService {
   }): Promise<OneLocationAccessRequest> {
     const response = await apiJson<{ request: OneLocationAccessRequest }>(
       `/api/one/location/requests/${encodeURIComponent(params.requestId)}/deny`,
+      {
+        method: "POST",
+        headers: jsonAuthHeaders(params.vaultOwnerToken),
+      },
+    );
+    return response.request;
+  }
+
+  /**
+   * Take back a pending request you sent.
+   *
+   * Not the same call as `denyRequest`, which is the OWNER refusing an ask
+   * made of them. The backend keys this one on the requester, so it can only
+   * ever end a request the caller themselves sent.
+   */
+  static async withdrawRequest(params: {
+    vaultOwnerToken: string;
+    requestId: string;
+  }): Promise<OneLocationAccessRequest> {
+    const response = await apiJson<{ request: OneLocationAccessRequest }>(
+      `/api/one/location/requests/${encodeURIComponent(params.requestId)}/withdraw`,
       {
         method: "POST",
         headers: jsonAuthHeaders(params.vaultOwnerToken),

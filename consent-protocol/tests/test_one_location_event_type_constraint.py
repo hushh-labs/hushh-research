@@ -30,11 +30,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS_DIR = REPO_ROOT / "db" / "migrations"
 SERVICE_PATH = REPO_ROOT / "hushh_mcp" / "services" / "one_location_agent_service.py"
 
-# Both migrations declare the constraint; 064 validating, 068 NOT VALID. They
-# have to agree, or a replay changes the answer depending on where it stops.
+# Every migration that declares the constraint; 064 validating, 068 NOT VALID,
+# 153 validating. They have to agree, or a replay changes the answer depending
+# on where it stops.
+#
+# 153 is also the only one of the three that reaches an environment which has
+# already run the others -- editing 064 fixes a database built from scratch and
+# nothing else. Any value added from here on needs a fresh migration too, or it
+# is allowed on a developer's laptop and rejected in UAT.
 CONSTRAINT_MIGRATIONS = (
     "064_one_location_public_invites.sql",
     "068_one_location_circle_invites.sql",
+    "153_one_location_duration_changed_event.sql",
 )
 
 _CONSTRAINT_BLOCK = re.compile(
@@ -60,15 +67,30 @@ def _allowed_types(filename: str) -> set[str]:
     return values
 
 
-def test_both_migrations_declare_the_same_allowed_event_types() -> None:
+def test_every_migration_declares_the_same_allowed_event_types() -> None:
     declared = {name: _allowed_types(name) for name in CONSTRAINT_MIGRATIONS}
-    first, second = CONSTRAINT_MIGRATIONS
-    assert declared[first] == declared[second], (
-        "the two constraint declarations disagree; a replay would then accept or "
-        f"reject a row depending on where it stopped. Only in {first}: "
-        f"{sorted(declared[first] - declared[second])}. Only in {second}: "
-        f"{sorted(declared[second] - declared[first])}"
-    )
+    baseline, *rest = CONSTRAINT_MIGRATIONS
+    for name in rest:
+        assert declared[name] == declared[baseline], (
+            "the constraint declarations disagree; a replay would then accept or "
+            f"reject a row depending on where it stopped. Only in {baseline}: "
+            f"{sorted(declared[baseline] - declared[name])}. Only in {name}: "
+            f"{sorted(declared[name] - declared[baseline])}"
+        )
+
+
+def test_the_newest_constraint_migration_is_the_one_that_ships() -> None:
+    """A value added only to 064/068 never reaches a live database.
+
+    Both are long since applied in UAT and production, where the runner only
+    executes migration files it has not seen. Editing them is for a database
+    built from scratch; the last entry here is what actually changes the
+    constraint in an environment that already exists.
+    """
+    newest = CONSTRAINT_MIGRATIONS[-1]
+    assert (MIGRATIONS_DIR / newest).exists(), f"{newest} is missing"
+    older = {int(name.split("_", 1)[0]) for name in CONSTRAINT_MIGRATIONS[:-1]}
+    assert int(newest.split("_", 1)[0]) > max(older)
 
 
 def test_every_emitted_event_type_is_allowed_by_the_constraint() -> None:

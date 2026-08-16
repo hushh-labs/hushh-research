@@ -130,7 +130,8 @@
     "149_external_crm_dynamic_registry.sql",
     "150_one_location_until_stopped_grants.sql",
     "151_feed_events_dedupe_approved_share.sql",
-    "152_feed_events_recipient_fanout.sql"
+    "152_feed_events_recipient_fanout.sql",
+    "153_one_location_duration_changed_event.sql"
   ],
   "groups": {
     "iam": [
@@ -215,7 +216,8 @@
       "149_external_crm_dynamic_registry.sql",
       "150_one_location_until_stopped_grants.sql",
       "151_feed_events_dedupe_approved_share.sql",
-      "152_feed_events_recipient_fanout.sql"
+      "152_feed_events_recipient_fanout.sql",
+      "153_one_location_duration_changed_event.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

@@ -10,6 +10,7 @@ import {
   LIVE_SHARE_CLOCK_CLASSNAME,
   LIVE_SHARE_CLOCK_ROW_CLASSNAME,
   LIVE_SHARE_FOOTER_CLASSNAME,
+  LIVE_SHARE_FOOTER_ROW_CLASSNAME,
   LIVE_SHARE_HEADER_CLASSNAME,
   LIVE_SHARE_PROGRESS_FILL_CLASSNAME,
   LIVE_SHARE_PROGRESS_TRACK_CLASSNAME,
@@ -109,6 +110,7 @@ async function buildFixture(): Promise<string> {
     LIVE_SHARE_PROGRESS_TRACK_CLASSNAME,
     LIVE_SHARE_PROGRESS_FILL_CLASSNAME,
     LIVE_SHARE_FOOTER_CLASSNAME,
+    LIVE_SHARE_FOOTER_ROW_CLASSNAME,
     "h-2 w-2 shrink-0 rounded-full inline-flex items-center justify-center",
   ].join(" ");
   const css = compiler.build(classes.split(/\s+/).filter(Boolean));
@@ -128,7 +130,10 @@ async function buildFixture(): Promise<string> {
     <div class="${LIVE_SHARE_PROGRESS_TRACK_CLASSNAME}" data-testid="track-${item.id}">
       <div class="${LIVE_SHARE_PROGRESS_FILL_CLASSNAME}" style="width:33%" data-testid="fill-${item.id}"></div>
     </div>
-    <p class="${LIVE_SHARE_FOOTER_CLASSNAME}" data-testid="footer-${item.id}">${item.footer}</p>
+    <div class="${LIVE_SHARE_FOOTER_ROW_CLASSNAME}" data-testid="footer-row-${item.id}">
+      <p class="${LIVE_SHARE_FOOTER_CLASSNAME}" data-testid="footer-${item.id}">${item.footer}</p>
+      <button class="${LIVE_SHARE_ACTION_CLASSNAME} inline-flex items-center justify-center" data-testid="change-${item.id}">Change time</button>
+    </div>
   </section>`,
   ).join("\n");
 
@@ -225,6 +230,32 @@ test.describe("One Location live share card layout", () => {
         const stop = await page.getByTestId(`stop-${item.id}`).evaluate(PROBE);
         expect(stop.height).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
         expect(stop.right).toBeLessThanOrEqual(width + 1);
+
+        // "Change time" shares the footer line with the end time. At 320px
+        // that is the tight case: it either fits beside "Ends 11:30 PM" or
+        // wraps under it, and either way it has to stay fully on screen, fully
+        // tappable, and with its whole label — "Change" alone is a different
+        // promise.
+        const change = await page.getByTestId(`change-${item.id}`).evaluate(PROBE);
+        expect(
+          change.height,
+          `change-${item.id} lost its touch target at ${width}px`,
+        ).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
+        expect(change.right).toBeLessThanOrEqual(width + 1);
+        expect(change.left).toBeGreaterThanOrEqual(-1);
+        expect(change.textOverflow).not.toBe("ellipsis");
+        expect(
+          change.scrollWidth,
+          `change-${item.id} clipped its label at ${width}px`,
+        ).toBeLessThanOrEqual(change.clientWidth + 1);
+
+        // And the end time it sits beside is not squeezed out by it.
+        const footerRow = await page
+          .getByTestId(`footer-row-${item.id}`)
+          .evaluate(PROBE);
+        expect(footerRow.scrollHeight).toBeLessThanOrEqual(
+          footerRow.clientHeight + 1,
+        );
 
         // The progress fill must stay inside its rounded track.
         const track = await page.getByTestId(`track-${item.id}`).evaluate(PROBE);
