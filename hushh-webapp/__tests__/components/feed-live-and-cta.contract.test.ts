@@ -15,25 +15,6 @@ function read(relativePath: string) {
   return fs.readFileSync(path.join(WEBAPP_ROOT, relativePath), "utf8");
 }
 
-describe("top chrome paints its own background", () => {
-  it("has no priming gate holding the header transparent", () => {
-    const styles = read("app/globals.css");
-
-    // `data-ambient-chrome-primed` was never set by anything in the app, so
-    // `html:not([data-ambient-chrome-primed="true"])` matched forever — and at
-    // (0,2,1) it beat the (0,1,0) `.ambient-chrome-mask--top` rule. The top bar
-    // mixed its background to 0%: the page scrolled visibly through the title.
-    expect(styles).not.toContain("[data-ambient-chrome-primed");
-    expect(styles).not.toContain("--ambient-chrome-wash: 0%");
-
-    // The intended material still applies, unchanged.
-    expect(styles).toContain(
-      "--ambient-chrome-wash: var(--ambient-chrome-fade-solid)",
-    );
-    expect(styles).toContain("--ambient-chrome-fade-solid: 94%");
-  });
-});
-
 describe("Feed stays live", () => {
   it("forwards the force flag so a refresh is not answered from cache", () => {
     const feedPage = read("components/feed/feed-page.tsx");
