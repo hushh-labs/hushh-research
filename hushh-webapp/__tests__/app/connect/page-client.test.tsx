@@ -132,7 +132,12 @@ describe("Connect — People", () => {
         "Search by name.",
       ),
     ).toBeTruthy();
-    expect(screen.getByText("Page 1")).toBeTruthy();
+    // The pager paints a tick after the empty-state copy, so a synchronous
+    // read here fails whenever the machine is loaded -- it went 3-for-5 under
+    // parallel CI load while passing 4-for-4 on an idle laptop. This file is
+    // now a required check on every Connect PR, so an assertion that depends
+    // on scheduler luck would train people to re-run CI instead of reading it.
+    expect(await screen.findByText("Page 1")).toBeTruthy();
     expect(screen.getByLabelText("People per page")).toBeTruthy();
     // hasMore is true in the fixture, so forward is offered and back is not.
     expect(screen.getByText("Next").closest("button")?.disabled).toBe(false);
@@ -285,6 +290,65 @@ describe("Connect — People", () => {
       order[1].compareDocumentPosition(order[2]) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("renders one letter's whole page, in the server's sequence, with nothing dropped", async () => {
+    // The two tests above each hold half of the bug and neither holds it
+    // whole. "shows every match for a single typed letter" hands back three
+    // names that ALL begin with N, so the client-side prefix filter that
+    // caused the original bug passes it untouched. "preserves the directory's
+    // A-Z order" names three rows but never counts them, so a filter that
+    // drops a row nobody named goes unseen.
+    //
+    // This is the real server page for "n": a substring-only name the server
+    // sends and the old client hid (Anand), the first-name tier A-Z, then the
+    // surname tier below it. The contract is that the client renders the page
+    // it was handed -- so the COUNT is asserted alongside the SEQUENCE. A
+    // re-introduced filter fails the count; a re-introduced sort fails the
+    // sequence. Neither can pass by naming the right rows.
+    const PAGE_FOR_N = [
+      person("u-anand", "Anand"),
+      person("u-nilesh", "Nilesh"),
+      person("u-nirmal", "Nirmal"),
+      person("u-nolan", "Nolan"),
+      person("u-abdul", "Abdul Nasser"),
+    ];
+    mocks.searchDirectory.mockResolvedValue({
+      items: PAGE_FOR_N,
+      hasMore: false,
+      page: 1,
+    });
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText("Search people"), {
+      target: { value: "n" },
+    });
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+    expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({
+      query: "n",
+      page: 1,
+    });
+
+    // Every row the server sent is on screen. Counting the per-row action
+    // rather than the names is what catches a row nobody thought to name.
+    await screen.findByText("Abdul Nasser");
+    expect(screen.getAllByRole("button", { name: "Connect" })).toHaveLength(
+      PAGE_FOR_N.length,
+    );
+
+    // ...and in the server's sequence, not a locally-sorted one. A client
+    // alphabetical sort would hoist "Abdul Nasser" to the top and drop
+    // "Anand" below the N-names; both are pinned here.
+    const rendered = PAGE_FOR_N.map((p) => screen.getByText(p.displayName));
+    for (let i = 0; i < rendered.length - 1; i += 1) {
+      expect(
+        rendered[i].compareDocumentPosition(rendered[i + 1]) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+
+    expect(screen.queryByText('No one matches "n"')).toBeNull();
   });
 
   it("says so when a search matches nobody", async () => {
