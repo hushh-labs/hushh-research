@@ -9,6 +9,15 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mapHarness = vi.hoisted(() => {
+  type CameraListener = (data: unknown) => void;
+  // The renderer is the only thing that knows what the camera is showing, and
+  // the HTML name pills are positioned from it. Holding the callbacks lets a
+  // case drive a real camera report instead of faking the layer's own maths.
+  const listeners: {
+    boundsChanged?: CameraListener;
+    cameraIdle?: CameraListener;
+    cameraMoveStarted?: CameraListener;
+  } = {};
   const map = {
     addCircles: vi.fn(async (_circles: unknown[]) => ["circle-0"]),
     addMarkers: vi.fn(async (markers: unknown[]) =>
@@ -26,10 +35,32 @@ const mapHarness = vi.hoisted(() => {
     removeCircles: vi.fn(async () => undefined),
     setCamera: vi.fn(async () => undefined),
     setOnMarkerClickListener: vi.fn(async () => undefined),
+    setOnBoundsChangedListener: vi.fn(async (_callback: CameraListener) => {}),
+    setOnCameraIdleListener: vi.fn(async (_callback: CameraListener) => {}),
+    setOnCameraMoveStartedListener: vi.fn(
+      async (_callback: CameraListener) => {},
+    ),
     setPadding: vi.fn(async () => undefined),
+  };
+  // Re-installed per case: afterEach clears every implementation on this map.
+  const resetCameraListeners = () => {
+    listeners.boundsChanged = undefined;
+    listeners.cameraIdle = undefined;
+    listeners.cameraMoveStarted = undefined;
+    map.setOnBoundsChangedListener.mockImplementation(async (callback) => {
+      listeners.boundsChanged = callback;
+    });
+    map.setOnCameraIdleListener.mockImplementation(async (callback) => {
+      listeners.cameraIdle = callback;
+    });
+    map.setOnCameraMoveStartedListener.mockImplementation(async (callback) => {
+      listeners.cameraMoveStarted = callback;
+    });
   };
   return {
     map,
+    listeners,
+    resetCameraListeners,
     create: vi.fn(async () => map),
   };
 });
@@ -330,6 +361,7 @@ beforeEach(() => {
   platformHarness.native = false;
   trayHeaderHeightStub = 72;
   trayContentHeightStub = 260;
+  mapHarness.resetCameraListeners();
   // Lanes are module state: without this a superseded claim or a queued
   // teardown from an earlier case leaks into the next one.
   __resetNativeMapLifecycleForTests();
@@ -2046,5 +2078,178 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(toast.message).not.toHaveBeenCalledWith(
       "No one is sharing a live location with you yet.",
     );
+  });
+
+  /**
+   * jsdom lays nothing out, so every rect is 0x0 and a layer positioned in the
+   * map box's own pixels would have no box to be positioned in. These are the
+   * measurements a phone actually reports: a full-bleed map, a one-row header,
+   * and the collapsed people tray sitting above the home indicator.
+   */
+  function stubPhoneGeometry() {
+    const box = (x: number, y: number, width: number, height: number) =>
+      ({
+        x,
+        y,
+        width,
+        height,
+        top: y,
+        left: x,
+        right: x + width,
+        bottom: y + height,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: Element) {
+        if (this.tagName === "CAPACITOR-GOOGLE-MAP") return box(0, 0, 390, 844);
+        if (this.tagName === "HEADER") return box(0, 0, 390, 72);
+        if (this.tagName === "SECTION") return box(167, 772, 56, 56);
+        return box(0, 0, 0, 0);
+      },
+    );
+  }
+
+  /** One camera report, coalesced into state on the next animation frame. */
+  async function reportCamera(overrides: Record<string, unknown> = {}) {
+    await act(async () => {
+      mapHarness.listeners.cameraIdle?.({
+        mapId: "one-location-private-map",
+        bounds: {
+          northeast: { lat: 25.47, lng: 81.87 },
+          southwest: { lat: 25.42, lng: 81.8 },
+          center: { lat: 25.445, lng: 81.835 },
+        },
+        latitude: 25.445,
+        longitude: 81.835,
+        zoom: 12,
+        bearing: 0,
+        tilt: 0,
+        ...overrides,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+  }
+
+  it("names each pin by first name, and your own pin My location", async () => {
+    // The reported gap: two pins and no way to tell who is who without opening
+    // the tray. "Ankit Kumar Singh" is what the tray says; a pill over a pin
+    // gets the one word he is called.
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-07-23T00:00:00.000Z",
+      sourcePlatform: "ios",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [
+        incomingMarker(ANKIT, 25.4358, 81.8463),
+        incomingMarker(ABDUL, 25.4501, 81.8201),
+      ],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-marker-count",
+        "2",
+      );
+    });
+
+    // Nothing is drawn until the renderer says what it is showing: the pills
+    // are positioned from the camera, never guessed.
+    expect(screen.getByTestId("one-location-map-name-labels")).toHaveAttribute(
+      "data-label-count",
+      "0",
+    );
+
+    await reportCamera();
+
+    const labels = screen.getAllByTestId("one-location-map-name-label");
+    expect(labels.map((label) => label.textContent)).toEqual([
+      "My location",
+      "Ankit",
+      "Abdul",
+    ]);
+    expect(labels[0]).toHaveAttribute("data-kind", "self");
+    expect(labels[1]).toHaveAttribute("data-kind", "person");
+
+    // The boundary the pills are allowed to exist on top of: names are HTML in
+    // the WebView, and the renderer is still told nothing but coordinates.
+    const markerPayload = JSON.stringify(mapHarness.map.addMarkers.mock.calls);
+    expect(markerPayload).not.toContain("Ankit");
+    expect(markerPayload).not.toContain("Abdul");
+  });
+
+  it("draws no name over a rotated map, and none for a pin off screen", async () => {
+    stubPhoneGeometry();
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-marker-count",
+        "1",
+      );
+    });
+
+    await reportCamera();
+    expect(screen.getAllByTestId("one-location-map-name-label")).toHaveLength(1);
+
+    // The projection is flat, so under a bearing every name would slide off
+    // its own pin. A name over the wrong pin is worse than no name.
+    await reportCamera({ bearing: 42 });
+    expect(screen.queryAllByTestId("one-location-map-name-label")).toHaveLength(
+      0,
+    );
+
+    // Panned away: the pin is not on screen, so neither is what it is called.
+    await reportCamera({
+      bounds: {
+        northeast: { lat: 45, lng: 10 },
+        southwest: { lat: 44, lng: 9 },
+        center: { lat: 44.5, lng: 9.5 },
+      },
+    });
+    expect(screen.queryAllByTestId("one-location-map-name-label")).toHaveLength(
+      0,
+    );
+  });
+
+  it("fades the names out while a native camera is mid-gesture", async () => {
+    // iOS and Android report the camera only once it settles. Holding the old
+    // positions through a drag would walk every name away from its pin, so the
+    // layer says nothing until it knows something again.
+    platformHarness.native = true;
+    stubPhoneGeometry();
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [incomingMarker(ANKIT, 25.4358, 81.8463)],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await reportCamera();
+
+    const layer = screen.getByTestId("one-location-map-name-labels");
+    expect(layer).toHaveClass("opacity-100");
+
+    await act(async () => {
+      mapHarness.listeners.cameraMoveStarted?.({
+        mapId: "one-location-private-map",
+        isGesture: true,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(layer).toHaveClass("opacity-0");
+
+    // The camera settling is what ends the blackout.
+    await reportCamera();
+    expect(layer).toHaveClass("opacity-100");
   });
 });
