@@ -6073,6 +6073,10 @@ export function OneLocationAgentPageContent({
   }, [
     auth.user,
     auth.userId,
+    // The request now carries the duration this composer is showing, so the
+    // callback has to be rebuilt when that changes -- otherwise it closes over
+    // the value the screen opened with and sends a stale amount.
+    durationHours,
     refresh,
     requestMessage,
     resetRequestComposer,
