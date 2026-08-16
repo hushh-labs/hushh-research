@@ -3744,7 +3744,7 @@ describe("OneLocationAgentPage", () => {
       vaultOwnerToken: "vault-token",
       ownerUserId: "user_b",
       message: "Safety check-in — Need pickup coordination",
-      requestedDurationHours: 1.25,
+      requestedDurationHours: 1,
       requestedDurationMode: "timed",
     });
     expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
